@@ -10,6 +10,7 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
     case bootstrap
     case pane
     case discover
+    case server
     case tmuxCompat = "tmux_compat"
 }
 
@@ -134,12 +135,32 @@ struct DiscoveredPane: Codable, Equatable {
     let controlToken: String?
 }
 
+struct ServerListEntry: Codable, Equatable {
+    let id: String
+    let origin: String
+    let url: String
+    let display: String
+    let worklaneID: String
+    let paneID: String?
+    let source: String
+    let ports: [Int]
+    let confidence: String
+    let updatedAt: String
+}
+
+struct ServerListResult: Codable, Equatable {
+    let version: Int
+    let primaryServerID: String?
+    let servers: [ServerListEntry]
+}
+
 struct AgentIPCResponseResult: Codable, Equatable {
     let launchPlan: AgentLaunchPlan?
     let paneList: [PaneListEntry]?
     let discoveredWindows: [DiscoveredWindow]?
     let discoveredWorklanes: [DiscoveredWorklane]?
     let discoveredPanes: [DiscoveredPane]?
+    let serverState: ServerListResult?
     /// Optional text payload returned from tmux-compat subcommands like
     /// `capture-pane`, `list-panes`, `display-message`. The CLI writes this
     /// directly to stdout.
@@ -151,6 +172,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         discoveredWindows: [DiscoveredWindow]? = nil,
         discoveredWorklanes: [DiscoveredWorklane]? = nil,
         discoveredPanes: [DiscoveredPane]? = nil,
+        serverState: ServerListResult? = nil,
         stdout: String? = nil
     ) {
         self.launchPlan = launchPlan
@@ -158,6 +180,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         self.discoveredWindows = discoveredWindows
         self.discoveredWorklanes = discoveredWorklanes
         self.discoveredPanes = discoveredPanes
+        self.serverState = serverState
         self.stdout = stdout
     }
 }

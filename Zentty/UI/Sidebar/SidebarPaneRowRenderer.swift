@@ -24,12 +24,14 @@ final class SidebarPaneRowRenderer {
         var onMoveWorklaneRequested: ((SidebarWorklaneMoveDirection) -> Void)?
         var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
         var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
+        var onServerPortSelected: ((String) -> Void)?
         var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     }
 
     private(set) var panePrimaryRows: [SidebarPanePrimaryRowView] = []
     private(set) var paneDetailLabels: [SidebarStaticLabel] = []
     private(set) var paneStatusRows: [SidebarPaneTextRowView] = []
+    private(set) var paneServerRows: [SidebarPaneServerRowView] = []
     private(set) var paneRowButtons: [SidebarPaneRowButton] = []
     private(set) var paneRowContainers: [SidebarInsetContainerView] = []
 
@@ -101,6 +103,7 @@ final class SidebarPaneRowRenderer {
                 animated: animated
             )
             paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
+            paneServerRows[index].configure(serverPorts: panePresentation.serverPorts)
 
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
@@ -125,6 +128,8 @@ final class SidebarPaneRowRenderer {
             button.bookmarkOriginID = callbacks.bookmarkOriginID
             button.bookmarkNameLookup = callbacks.bookmarkNameLookup
             button.onWorklaneDragRequested = callbacks.onWorklaneDragRequested
+            button.serverRowView = paneServerRows[index]
+            button.onServerPortSelected = callbacks.onServerPortSelected
             button.onHoverChanged = callbacks.onHoverChanged
             button.worklaneMoveAvailability = callbacks.worklaneMoveAvailability
             button.onMoveWorklane = callbacks.onMoveWorklaneRequested
@@ -156,6 +161,10 @@ final class SidebarPaneRowRenderer {
                     lineHeight: ShellMetrics.sidebarStatusLineHeight
                 )
             )
+        }
+
+        while paneServerRows.count < count {
+            paneServerRows.append(SidebarPaneServerRowView())
         }
 
         while paneRowButtons.count < count {
@@ -201,6 +210,7 @@ final class SidebarWorklaneRowContentRenderer {
         let primaryRows: [NSView]
         let detailLabels: [NSView]
         let statusRows: [NSView]
+        let serverRows: [NSView]
         let buttons: [SidebarPaneRowButton]
         let containers: [NSView]
     }
@@ -266,6 +276,8 @@ final class SidebarWorklaneRowContentRenderer {
             paneRows.detailLabels[index]
         case .paneStatus(let index):
             paneRows.statusRows[index]
+        case .paneServer(let index):
+            paneRows.serverRows[index]
         case .context:
             labels.detailLabels.first ?? labels.overflowLabel
         case .detail(let index):

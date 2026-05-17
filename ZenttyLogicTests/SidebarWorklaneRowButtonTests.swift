@@ -570,6 +570,271 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
     }
 
+    func test_pane_server_ports_render_on_dedicated_line_with_delimiters_and_click_open() throws {
+        let row = makeRow(width: 180)
+        var selectedServerIDs: [String] = []
+        row.onServerPortSelected = { selectedServerIDs.append($0) }
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "api",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-api"),
+                        primaryText: "api",
+                        trailingText: nil,
+                        detailText: "…/api",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        serverPorts: [
+                            WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                            WorklaneSidebarServerPort(serverID: "server-3000", port: 3000),
+                        ]
+                    )
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(row.debugSnapshotForTesting.paneServerPortTexts, [["5173", "/", "3000"]])
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneServerIconIsVisible)
+
+        let serverRow = try XCTUnwrap(row.debugAccessForTesting.paneServerRows.first)
+        let delimiterCenter = try XCTUnwrap(serverRow.delimiterCenterForTesting(index: 0))
+        XCTAssertNil(serverRow.serverID(at: delimiterCenter))
+        let firstPortFrame = try XCTUnwrap(serverRow.portFrameForTesting(index: 0))
+        let delimiterFrame = try XCTUnwrap(serverRow.delimiterFrameForTesting(index: 0))
+        let secondPortFrame = try XCTUnwrap(serverRow.portFrameForTesting(index: 1))
+        XCTAssertGreaterThanOrEqual(delimiterFrame.width, 6)
+        XCTAssertGreaterThanOrEqual(delimiterFrame.height, ShellMetrics.sidebarStatusLineHeight)
+        XCTAssertLessThanOrEqual(delimiterFrame.minX - firstPortFrame.maxX, 1.5)
+        XCTAssertLessThanOrEqual(secondPortFrame.minX - delimiterFrame.maxX, 1.5)
+
+        row.performDebugInteractionForTesting(.firstPaneServerPortClick(index: 1))
+
+        XCTAssertEqual(selectedServerIDs, ["server-3000"])
+    }
+
+    func test_pane_server_port_hover_uses_running_status_color_for_hovered_port_only() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let row = makeRow(width: 180)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "api",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-api"),
+                        primaryText: "api",
+                        trailingText: nil,
+                        detailText: "…/api",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        serverPorts: [
+                            WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                            WorklaneSidebarServerPort(serverID: "server-3000", port: 3000),
+                        ]
+                    )
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        let serverRow = try XCTUnwrap(row.debugAccessForTesting.paneServerRows.first)
+        let normalPortColors = serverRow.portTextColorsForTesting.map(\.srgbClamped)
+
+        serverRow.setHoveredPortForTesting(index: 1)
+
+        let hoveredPortColors = serverRow.portTextColorsForTesting.map(\.srgbClamped)
+        XCTAssertEqual(hoveredPortColors[1], theme.statusRunning.srgbClamped)
+        XCTAssertEqual(hoveredPortColors[0], normalPortColors[0])
+        XCTAssertEqual(serverRow.delimiterTextColorsForTesting.first?.srgbClamped, normalPortColors[0])
+    }
+
+    func test_pane_server_port_left_click_opens_server_without_selecting_pane() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 130))
+        let row = makeRow(width: 220, height: 120)
+        row.frame.origin = NSPoint(x: 18, y: 7)
+        container.addSubview(row)
+        var selectedPaneIDs: [PaneID] = []
+        var selectedServerIDs: [String] = []
+        row.onPaneSelected = { selectedPaneIDs.append($0) }
+        row.onServerPortSelected = { selectedServerIDs.append($0) }
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "api",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-api"),
+                        primaryText: "api",
+                        trailingText: nil,
+                        detailText: "…/api",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        serverPorts: [
+                            WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                        ]
+                    )
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        container.layoutSubtreeIfNeeded()
+
+        let serverRow = try XCTUnwrap(row.debugAccessForTesting.paneServerRows.first)
+        let pointInServerRow = try XCTUnwrap(serverRow.firstPortCenterForTesting())
+        let paneButton = try XCTUnwrap(row.debugAccessForTesting.paneRowButtons.first)
+
+        paneButton.performPrimaryClickForTesting(at: paneButton.convert(pointInServerRow, from: serverRow))
+
+        XCTAssertEqual(selectedServerIDs, ["server-5173"])
+        XCTAssertEqual(selectedPaneIDs, [])
+    }
+
+    func test_pane_row_plain_text_left_click_selects_pane() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 130))
+        let row = makeRow(width: 220, height: 120)
+        row.frame.origin = NSPoint(x: 18, y: 7)
+        container.addSubview(row)
+        var selectedPaneIDs: [PaneID] = []
+        var selectedServerIDs: [String] = []
+        row.onPaneSelected = { selectedPaneIDs.append($0) }
+        row.onServerPortSelected = { selectedServerIDs.append($0) }
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "api",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-api"),
+                        primaryText: "api",
+                        trailingText: nil,
+                        detailText: "…/api",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        serverPorts: [
+                            WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                        ]
+                    )
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        container.layoutSubtreeIfNeeded()
+
+        let access = row.debugAccessForTesting
+        let primaryRow = try XCTUnwrap(access.panePrimaryRows.first)
+        let pointInPrimaryRow = NSPoint(x: primaryRow.bounds.midX, y: primaryRow.bounds.midY)
+        let paneButton = try XCTUnwrap(access.paneRowButtons.first)
+
+        paneButton.performPrimaryClickForTesting(at: paneButton.convert(pointInPrimaryRow, from: primaryRow))
+
+        XCTAssertEqual(selectedPaneIDs, [PaneID("worklane-main-api")])
+        XCTAssertEqual(selectedServerIDs, [])
+    }
+
+    func test_pane_server_port_right_click_uses_pane_context_menu() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 130))
+        let row = makeRow(width: 220, height: 120)
+        row.frame.origin = NSPoint(x: 18, y: 7)
+        container.addSubview(row)
+        let window = makeVisibleWindow(containing: container)
+        defer { window.close() }
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "api",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-api"),
+                        primaryText: "api",
+                        trailingText: nil,
+                        detailText: "…/api",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        serverPorts: [
+                            WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                        ]
+                    )
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        container.layoutSubtreeIfNeeded()
+
+        let access = row.debugAccessForTesting
+        let serverRow = try XCTUnwrap(access.paneServerRows.first)
+        let pointInServerRow = try XCTUnwrap(serverRow.firstPortCenterForTesting())
+        let paneButton = try XCTUnwrap(access.paneRowButtons.first)
+        let event = try makeMouseEvent(
+            type: .rightMouseDown,
+            location: paneButton.convert(pointInServerRow, from: serverRow),
+            in: paneButton
+        )
+
+        let menu = try XCTUnwrap(paneButton.menu(for: event))
+
+        XCTAssertTrue(menuTitles(menu).contains("Add Pane Right"))
+        XCTAssertTrue(menuTitles(menu).contains("Split Right"))
+    }
+
+    func test_worklane_hit_test_uses_superview_coordinates_for_pane_rows() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 180))
+        let row = makeRow(width: 220, height: 120)
+        row.frame.origin = NSPoint(x: 300, y: 40)
+        container.addSubview(row)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "api",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-api"),
+                        primaryText: "api",
+                        trailingText: nil,
+                        detailText: "…/api",
+                        statusText: "Running",
+                        attentionState: .running,
+                        isFocused: true,
+                        isWorking: true,
+                        serverPorts: [
+                            WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                        ]
+                    )
+                ]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+        container.layoutSubtreeIfNeeded()
+
+        let paneButton = try XCTUnwrap(row.debugAccessForTesting.paneRowButtons.first)
+        let pointInContainer = container.convert(
+            NSPoint(x: paneButton.bounds.midX, y: paneButton.bounds.midY),
+            from: paneButton
+        )
+
+        XCTAssertTrue(row.hitTest(pointInContainer) === paneButton)
+    }
+
     func test_paneRowInsertionBoundaries_use_visual_edges_in_nonFlipped_target() throws {
         let target = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 180))
         let row = makeRow(width: 320, height: 150)
@@ -2774,6 +3039,26 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 modifierFlags: [],
                 timestamp: 0,
                 windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        in view: NSView
+    ) throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: type,
+                location: view.convert(location, to: nil),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: view.window?.windowNumber ?? 0,
                 context: nil,
                 eventNumber: 1,
                 clickCount: 1,

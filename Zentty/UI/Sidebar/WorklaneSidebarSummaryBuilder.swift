@@ -56,7 +56,8 @@ enum WorklaneSidebarSummaryBuilder {
     static func summaries(
         for worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,
-        focusOverride: WorklaneSidebarFocusOverride? = nil
+        focusOverride: WorklaneSidebarFocusOverride? = nil,
+        serverContextsByWorklaneID: [WorklaneID: WorklaneServerContext] = [:]
     ) -> [WorklaneSidebarSummary] {
         let focusOverride = validFocusOverride(focusOverride, in: worklanes)
         let effectiveActiveWorklaneID = focusOverride?.worklaneID ?? activeWorklaneID
@@ -71,7 +72,8 @@ enum WorklaneSidebarSummaryBuilder {
                 isActive: worklane.id == effectiveActiveWorklaneID,
                 identity: identitiesByWorklaneID[worklane.id],
                 displayOrder: index + 1,
-                focusOverride: focusOverride
+                focusOverride: focusOverride,
+                serverContext: serverContextsByWorklaneID[worklane.id]
             )
         }
 
@@ -84,13 +86,15 @@ enum WorklaneSidebarSummaryBuilder {
 
     static func summary(
         for worklane: WorklaneState,
-        isActive: Bool
+        isActive: Bool,
+        serverContext: WorklaneServerContext? = nil
     ) -> WorklaneSidebarSummary {
         summary(
             for: worklane,
             isActive: isActive,
             identity: worklaneIdentity(for: worklane),
-            displayOrder: 1
+            displayOrder: 1,
+            serverContext: serverContext
         )
     }
 
@@ -99,7 +103,8 @@ enum WorklaneSidebarSummaryBuilder {
         isActive: Bool,
         identity: WorklaneSidebarIdentity?,
         displayOrder: Int,
-        focusOverride: WorklaneSidebarFocusOverride? = nil
+        focusOverride: WorklaneSidebarFocusOverride? = nil,
+        serverContext: WorklaneServerContext? = nil
     ) -> WorklaneSidebarSummary {
         let orderedPaneContexts = orderedPaneContexts(for: worklane)
         let focusedPaneID = effectiveFocusedPaneID(
@@ -109,7 +114,8 @@ enum WorklaneSidebarSummaryBuilder {
         let paneRows = paneRows(
             for: worklane,
             orderedPaneContexts: orderedPaneContexts,
-            focusedPaneID: focusedPaneID
+            focusedPaneID: focusedPaneID,
+            serverContext: serverContext
         )
         let isWorking = paneRows.contains(where: \.isWorking) || worklaneIsWorking(for: worklane)
         let badgeText = badge(for: worklane.meaningfulTitle, displayOrder: displayOrder)
@@ -238,7 +244,8 @@ enum WorklaneSidebarSummaryBuilder {
     private static func paneRows(
         for worklane: WorklaneState,
         orderedPaneContexts: [WorklanePaneContext],
-        focusedPaneID: PaneID?
+        focusedPaneID: PaneID?,
+        serverContext: WorklaneServerContext?
     ) -> [WorklaneSidebarPaneRow] {
         let isSinglePane = orderedPaneContexts.count == 1
 
@@ -266,9 +273,37 @@ enum WorklaneSidebarSummaryBuilder {
                 interactionSymbolName: statusPresentation.interactionSymbolName,
                 isFocused: isFocused,
                 isWorking: statusPresentation.isWorking,
-                taskProgress: statusPresentation.taskProgress
+                taskProgress: statusPresentation.taskProgress,
+                serverPorts: serverPorts(for: paneContext.paneID, serverContext: serverContext)
             )
         }
+    }
+
+    private static func serverPorts(
+        for paneID: PaneID,
+        serverContext: WorklaneServerContext?
+    ) -> [WorklaneSidebarServerPort] {
+        guard let serverContext else {
+            return []
+        }
+
+        return serverContext.servers
+            .compactMap { server -> WorklaneSidebarServerPort? in
+                guard server.paneID == paneID else {
+                    return nil
+                }
+
+                let port = server.url.port ?? server.ports.first
+                return port.map {
+                    WorklaneSidebarServerPort(serverID: server.id, port: $0)
+                }
+            }
+            .sorted { lhs, rhs in
+                if lhs.port != rhs.port {
+                    return lhs.port < rhs.port
+                }
+                return lhs.serverID < rhs.serverID
+            }
     }
 
     private static func worklaneIsWorking(for worklane: WorklaneState) -> Bool {

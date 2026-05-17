@@ -214,6 +214,91 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.customApps.map(\.id), ["custom:bbedit"])
     }
 
+    func test_config_round_trips_server_detection_and_browser_preference() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.serverDetection.passiveDetectionEnabled = false
+            config.serverDetection.preferredBrowserID = "custom:sizzy"
+            config.serverDetection.enabledBrowserTargetIDs = ["firefox", "chrome", "custom:sizzy"]
+            config.serverDetection.customBrowsers = [
+                ServerBrowserCustomApp(
+                    id: "custom:sizzy",
+                    name: "Sizzy",
+                    appPath: "/Applications/Sizzy.app",
+                    bundleIdentifier: "com.sizzy.Sizzy"
+                )
+            ]
+        }
+
+        let persisted = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(persisted.contains("[server_detection]"))
+        XCTAssertTrue(persisted.contains("passive_detection_enabled = false"))
+        XCTAssertTrue(persisted.contains("preferred_browser_id = \"custom:sizzy\""))
+        XCTAssertTrue(persisted.contains("enabled_browser_target_ids"))
+        XCTAssertTrue(persisted.contains("[[server_detection.custom_browsers]]"))
+        XCTAssertTrue(persisted.contains("bundle_identifier = \"com.sizzy.Sizzy\""))
+
+        let reloadedStore = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertFalse(reloadedStore.current.serverDetection.passiveDetectionEnabled)
+        XCTAssertEqual(reloadedStore.current.serverDetection.preferredBrowserID, "custom:sizzy")
+        XCTAssertEqual(
+            reloadedStore.current.serverDetection.enabledBrowserTargetIDs,
+            ["firefox", "chrome", "custom:sizzy"]
+        )
+        XCTAssertEqual(reloadedStore.current.serverDetection.customBrowsers, [
+            ServerBrowserCustomApp(
+                id: "custom:sizzy",
+                name: "Sizzy",
+                appPath: "/Applications/Sizzy.app",
+                bundleIdentifier: "com.sizzy.Sizzy"
+            )
+        ])
+    }
+
+    func test_server_detection_enables_all_browsers_when_toml_key_absent() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [sidebar]
+        width = 260
+        visibility = "pinnedOpen"
+
+        [pane_layout]
+        laptop = "balanced"
+        large_display = "balanced"
+        ultrawide = "balanced"
+
+        [open_with]
+        primary_target_id = "finder"
+        enabled_target_ids = ["finder", "cursor"]
+
+        [server_detection]
+        passive_detection_enabled = true
+        preferred_browser_id = "system-default"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        let expected = ServerBrowserCatalog.orderedBrowserTargetIDs(customBrowserIDs: [])
+        XCTAssertEqual(store.current.serverDetection.enabledBrowserTargetIDs, expected)
+    }
+
     func test_store_reads_error_reporting_preference_from_config_file() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """

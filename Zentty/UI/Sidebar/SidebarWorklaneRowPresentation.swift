@@ -8,6 +8,7 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
         let statusSymbolName: String
         let statusTrailingLayout: SidebarPaneStatusTrailingLayout
         let statusLineCount: Int
+        let serverPorts: [WorklaneSidebarServerPort]
     }
 
     let summary: WorklaneSidebarSummary
@@ -82,7 +83,8 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
                 statusLineCount: SidebarWorklaneRowLayout.paneRowStatusLineCount(
                     for: paneRow,
                     availableWidth: availableWidth
-                )
+                ),
+                serverPorts: paneRow.serverPorts
             )
         }
     }

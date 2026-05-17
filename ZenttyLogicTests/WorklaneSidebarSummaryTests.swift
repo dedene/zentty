@@ -3,6 +3,55 @@ import XCTest
 @testable import Zentty
 
 final class WorklaneSidebarSummaryTests: XCTestCase {
+    func test_builder_attaches_pane_owned_server_ports_to_matching_pane_rows() throws {
+        let worklaneID = WorklaneID("worklane-main")
+        let paneA = PaneID("worklane-main-api")
+        let paneB = PaneID("worklane-main-web")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneA, title: "api"),
+                    PaneState(id: paneB, title: "web"),
+                ],
+                focusedPaneID: paneA
+            )
+        )
+        let paneAServer = try detectedServer(
+            origin: "http://localhost:5173",
+            worklaneID: worklaneID,
+            paneID: paneA
+        )
+        let paneBServer = try detectedServer(
+            origin: "http://localhost:3000",
+            worklaneID: worklaneID,
+            paneID: paneB
+        )
+        let unownedServer = try detectedServer(
+            origin: "http://localhost:8080",
+            worklaneID: worklaneID,
+            paneID: nil
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(
+            for: worklane,
+            isActive: true,
+            serverContext: WorklaneServerContext(
+                worklaneID: worklaneID,
+                focusedPaneID: paneA,
+                primaryServer: paneAServer,
+                servers: [paneBServer, unownedServer, paneAServer]
+            )
+        )
+
+        XCTAssertEqual(summary.paneRows.map(\.paneID), [paneA, paneB])
+        XCTAssertEqual(summary.paneRows[0].serverPorts.map(\.port), [5173])
+        XCTAssertEqual(summary.paneRows[0].serverPorts.map(\.serverID), [paneAServer.id])
+        XCTAssertEqual(summary.paneRows[1].serverPorts.map(\.port), [3000])
+        XCTAssertFalse(summary.paneRows.flatMap(\.serverPorts).contains { $0.port == 8080 })
+    }
+
     func
         test_builder_uses_branch_prefixed_cwd_for_focused_primary_text_when_identity_is_path_derived()
     {
@@ -2177,5 +2226,25 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.trailingText, "feature/sidebar")
         XCTAssertNil(paneRow.detailText)
         XCTAssertEqual(paneRow.statusText, "Idle")
+    }
+
+    private func detectedServer(
+        origin: String,
+        worklaneID: WorklaneID,
+        paneID: PaneID?
+    ) throws -> DetectedServer {
+        let normalized = try ServerURLNormalizer.normalize(origin)
+        return DetectedServer(
+            id: "\(worklaneID.rawValue)|\(normalized.origin)",
+            origin: normalized.origin,
+            url: normalized.url,
+            display: normalized.display,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            source: paneID == nil ? .docker : .scanner,
+            ports: [normalized.port],
+            confidence: paneID == nil ? .worklane : .pid,
+            updatedAt: Date(timeIntervalSince1970: TimeInterval(normalized.port))
+        )
     }
 }

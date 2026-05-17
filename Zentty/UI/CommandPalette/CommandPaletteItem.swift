@@ -4,6 +4,7 @@ import Foundation
 enum CommandPaletteItemID: Hashable {
     case command(AppCommandID)
     case openWith(stableID: String)
+    case server(id: String)
     case worklaneColor(WorklaneColor?)
     case settings(SettingsSection)
     case pane(worklaneID: WorklaneID, paneID: PaneID)
@@ -12,6 +13,7 @@ enum CommandPaletteItemID: Hashable {
 
 enum CommandPaletteItemFamily: Hashable {
     case openWith
+    case server
     case worklaneColor
 }
 
@@ -334,6 +336,24 @@ enum CommandPaletteItemBuilder {
                 iconImage: iconProvider?(target),
                 family: .openWith,
                 familySearchText: familySearchText,
+                familyOrder: index
+            )
+        }
+    }
+
+    static func buildServerItems(servers: [DetectedServer]) -> [CommandPaletteItem] {
+        servers.enumerated().map { index, server in
+            CommandPaletteItem(
+                id: .server(id: server.id),
+                title: "Open \(server.display)",
+                subtitle: server.url.absoluteString,
+                shortcutDisplay: nil,
+                category: "Web Server",
+                searchText: "open server web browser \(server.display) \(server.origin) \(server.url.absoluteString)"
+                    .lowercased(),
+                iconSystemName: "globe",
+                family: .server,
+                familySearchText: "\(server.display) \(server.origin) \(server.url.absoluteString)".lowercased(),
                 familyOrder: index
             )
         }

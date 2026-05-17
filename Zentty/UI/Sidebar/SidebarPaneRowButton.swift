@@ -523,6 +523,8 @@ final class SidebarPaneRowButton: NSButton {
     var bookmarkOriginID: UUID?
     var bookmarkNameLookup: ((UUID) -> String?)?
     var onWorklaneDragRequested: ((NSEvent) -> Bool)?
+    weak var serverRowView: SidebarPaneServerRowView?
+    var onServerPortSelected: ((String) -> Void)?
     var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
     var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
@@ -588,7 +590,7 @@ final class SidebarPaneRowButton: NSButton {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         let pointInSelf = convert(point, from: superview)
-        return bounds.contains(pointInSelf) ? self : nil
+        return bounds.contains(pointInSelf) && isHidden == false && alphaValue > 0 ? self : nil
     }
 
     @objc private func handleClick() {
@@ -596,6 +598,11 @@ final class SidebarPaneRowButton: NSButton {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let pointInSelf = convert(event.locationInWindow, from: nil)
+        if event.type == .leftMouseDown, openServerIfNeeded(at: pointInSelf) {
+            return
+        }
+
         guard event.type == .leftMouseDown, onWorklaneDragRequested != nil else {
             super.mouseDown(with: event)
             return
@@ -609,9 +616,36 @@ final class SidebarPaneRowButton: NSButton {
             },
             click: { [weak self] in
                 guard let self else { return }
-                self.onPaneClicked?(self.paneID)
+                self.performPrimaryClick(at: pointInSelf)
             }
         )
+    }
+
+    @discardableResult
+    func performPrimaryClick(at point: NSPoint) -> Bool {
+        if openServerIfNeeded(at: point) {
+            return true
+        }
+
+        onPaneClicked?(paneID)
+        return true
+    }
+
+    private func openServerIfNeeded(at point: NSPoint) -> Bool {
+        guard let serverRowView,
+              serverRowView.isHidden == false,
+              serverRowView.alphaValue > 0
+        else {
+            return false
+        }
+
+        let pointInServerRow = serverRowView.convert(point, from: self)
+        guard let serverID = serverRowView.serverID(at: pointInServerRow) else {
+            return false
+        }
+
+        onServerPortSelected?(serverID)
+        return true
     }
 
     func setContent(_ views: [NSView]) {
@@ -638,6 +672,10 @@ final class SidebarPaneRowButton: NSButton {
 
     var contentMaxTopInsetForTesting: CGFloat {
         bounds.maxY - contentStack.frame.maxY
+    }
+
+    func performPrimaryClickForTesting(at point: NSPoint) {
+        performPrimaryClick(at: point)
     }
 
     var cornerRadiusForTesting: CGFloat {

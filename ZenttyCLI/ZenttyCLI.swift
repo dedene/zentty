@@ -22,6 +22,7 @@ struct ZenttyCLI: ParsableCommand {
             GridCommand.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
+            ServerCommandGroup.self,
             NotifyCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
@@ -718,6 +719,147 @@ struct LayoutCommand: ParsableCommand {
         }
         args += target.selectorArguments()
         _ = try PaneIPC.send(subcommand: "layout", arguments: args)
+    }
+}
+
+// MARK: - Server Commands
+
+struct ServerCommandGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "server",
+        abstract: "Manage detected web servers.",
+        subcommands: [
+            ServerSetCommand.self,
+            ServerClearCommand.self,
+            ServerListCommand.self,
+            ServerOpenCommand.self,
+            ServerWatchCommand.self,
+        ]
+    )
+}
+
+private enum ServerCommandIPC {
+    static func send(_ command: ServerIPCCommand) throws {
+        let environment = ProcessInfo.processInfo.environment
+
+        do {
+            let request = try ServerIPCCommand.makeRequest(command: command, environment: environment)
+            guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"], !socketPath.isEmpty else {
+                throw ServerIPCCommandError.outsidePane
+            }
+            let response = try AgentIPCClient.send(request: request, socketPath: socketPath)
+            if command.expectsResponse {
+                if let serverState = response?.result?.serverState {
+                    try printJSON(serverState)
+                } else {
+                    try printJSON(ServerListResult(version: 1, primaryServerID: nil, servers: []))
+                }
+            }
+        } catch ServerIPCCommandError.outsidePane {
+            FileHandle.standardError.write(Data((ServerIPCCommand.outsidePaneMessage + "\n").utf8))
+            throw ExitCode.failure
+        }
+    }
+}
+
+struct ServerSetCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set",
+        abstract: "Register a web server URL for this pane."
+    )
+
+    @Argument(help: "Server URL, origin, or port.")
+    var rawURL: String
+
+    @Option(name: .long, help: "Server process ID.")
+    var pid: Int?
+
+    @Flag(name: .long, help: "Output as JSON.")
+    var json = false
+
+    mutating func run() throws {
+        try ServerCommandIPC.send(.set(rawURL: rawURL, pid: pid, json: json))
+    }
+}
+
+struct ServerClearCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "clear",
+        abstract: "Clear server registrations for this pane."
+    )
+
+    @Flag(name: .long, help: "Output as JSON.")
+    var json = false
+
+    mutating func run() throws {
+        try ServerCommandIPC.send(.clear(json: json))
+    }
+}
+
+struct ServerListCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "list",
+        abstract: "List detected web servers for this worklane."
+    )
+
+    @Flag(name: .long, help: "Output as JSON.")
+    var json = false
+
+    mutating func run() throws {
+        try ServerCommandIPC.send(.list(json: json))
+    }
+}
+
+struct ServerOpenCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "open",
+        abstract: "Open the primary or matching server URL."
+    )
+
+    @Argument(help: "Optional server URL, origin, or port.")
+    var rawURL: String?
+
+    @Option(name: .long, help: "Browser target, such as bundle:com.google.Chrome.")
+    var browser: String?
+
+    @Flag(name: .long, help: "Output as JSON.")
+    var json = false
+
+    mutating func run() throws {
+        try ServerCommandIPC.send(.open(rawURL: rawURL, browserID: browser, json: json))
+    }
+}
+
+struct ServerWatchCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "watch",
+        abstract: "Run a command and detect web server URLs from its output."
+    )
+
+    @Argument(parsing: .captureForPassthrough, help: "Command to run.")
+    var command: [String] = []
+
+    mutating func run() throws {
+        let parsed = try ServerIPCCommand.parse(arguments: ["watch"] + command)
+        guard case .watch(let watchedCommand) = parsed else {
+            throw ValidationError("Invalid server watch command.")
+        }
+
+        let runner = ServerWatchRunner(handleDetection: { candidate in
+            try? ServerCommandIPC.send(.watchSet(
+                rawURL: candidate.url.absoluteString,
+                pid: nil,
+                json: false
+            ))
+        })
+        try? ServerCommandIPC.send(.watchClear(json: false))
+        defer {
+            try? ServerCommandIPC.send(.watchClear(json: false))
+        }
+        let status = try runner.run(command: watchedCommand)
+        if status != 0 {
+            throw ExitCode(status)
+        }
     }
 }
 

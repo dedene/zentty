@@ -45,6 +45,21 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    struct ServerDetection: Equatable, Sendable {
+        var passiveDetectionEnabled: Bool
+        var preferredBrowserID: String
+        /// Installed built-in slugs and `custom:` ids the user wants in the Open Server browser menu (never includes `system-default`).
+        var enabledBrowserTargetIDs: [String]
+        var customBrowsers: [ServerBrowserCustomApp]
+
+        static let `default` = ServerDetection(
+            passiveDetectionEnabled: true,
+            preferredBrowserID: ServerBrowserTarget.systemDefaultID,
+            enabledBrowserTargetIDs: [],
+            customBrowsers: []
+        )
+    }
+
     struct Panes: Equatable, Sendable {
         var showLabels: Bool
         var inactiveOpacity: CGFloat
@@ -125,6 +140,7 @@ struct AppConfig: Equatable, Sendable {
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
     var openWith: OpenWith
+    var serverDetection: ServerDetection
     var errorReporting: ErrorReporting
     var updates: Updates
     var shortcuts: Shortcuts
@@ -144,6 +160,7 @@ struct AppConfig: Equatable, Sendable {
         paneLayout: .default,
         panes: .default,
         openWith: .default,
+        serverDetection: .default,
         errorReporting: .default,
         updates: .default,
         shortcuts: .default,
@@ -169,6 +186,7 @@ struct AppConfig: Equatable, Sendable {
             paneLayout: PaneLayoutPreferenceStore.restoredPreferences(from: paneLayoutDefaults),
             panes: .default,
             openWith: .default,
+            serverDetection: .default,
             errorReporting: .default,
             updates: .default,
             shortcuts: .default,
@@ -186,6 +204,7 @@ struct AppConfig: Equatable, Sendable {
         var normalized = self
         normalized.panes = normalized.panes.normalized()
         normalized.openWith = normalized.openWith.normalized()
+        normalized.serverDetection = normalized.serverDetection.normalized()
         normalized.shortcuts = normalized.shortcuts.normalized()
         return normalized
     }
@@ -195,6 +214,13 @@ struct OpenWithCustomApp: Equatable, Sendable {
     var id: String
     var name: String
     var appPath: String
+}
+
+struct ServerBrowserCustomApp: Equatable, Sendable {
+    var id: String
+    var name: String
+    var appPath: String
+    var bundleIdentifier: String?
 }
 
 extension AppConfig.OpenWith {
@@ -250,6 +276,80 @@ extension AppConfig.OpenWith {
             primaryTargetID: normalizedPrimaryTargetID,
             enabledTargetIDs: normalizedEnabledTargetIDs,
             customApps: canonicalApps
+        )
+    }
+}
+
+extension AppConfig.ServerDetection {
+    func normalized() -> AppConfig.ServerDetection {
+        var canonicalBrowsers: [ServerBrowserCustomApp] = []
+        var seenIDs: Set<String> = []
+        var canonicalIDByDuplicateID: [String: String] = [:]
+
+        for browser in customBrowsers {
+            guard !browser.id.isEmpty, !browser.name.isEmpty, !browser.appPath.isEmpty else {
+                continue
+            }
+
+            if let existing = canonicalBrowsers.first(where: { $0.appPath == browser.appPath }) {
+                canonicalIDByDuplicateID[browser.id] = existing.id
+                continue
+            }
+
+            guard seenIDs.insert(browser.id).inserted else {
+                continue
+            }
+
+            canonicalBrowsers.append(browser)
+        }
+
+        let validCustomIDs = Set(canonicalBrowsers.map(\.id))
+        let validBuiltInIDs = ServerBrowserCatalog.builtInStableIDs()
+        let orderedValidIDs = ServerBrowserCatalog.orderedBrowserTargetIDs(customBrowserIDs: canonicalBrowsers.map(\.id))
+        let validToggleTargetIDs = Set(orderedValidIDs)
+
+        let enabledSource = enabledBrowserTargetIDs.isEmpty ? orderedValidIDs : enabledBrowserTargetIDs
+        var normalizedEnabledBrowserTargetIDs: [String] = []
+        var seenEnabled: Set<String> = []
+        for stableID in enabledSource {
+            let canonicalID = canonicalIDByDuplicateID[stableID] ?? stableID
+            guard validToggleTargetIDs.contains(canonicalID), seenEnabled.insert(canonicalID).inserted else {
+                continue
+            }
+            normalizedEnabledBrowserTargetIDs.append(canonicalID)
+        }
+
+        let enabledSet = Set(normalizedEnabledBrowserTargetIDs)
+
+        let resolvedPreferred = canonicalIDByDuplicateID[preferredBrowserID] ?? preferredBrowserID
+
+        let normalizedPreferredBrowserID: String
+        if resolvedPreferred == ServerBrowserTarget.systemDefaultID {
+            normalizedPreferredBrowserID = ServerBrowserTarget.systemDefaultID
+        } else if resolvedPreferred.hasPrefix("bundle:") {
+            let bundleID = String(resolvedPreferred.dropFirst("bundle:".count))
+            if bundleID.isEmpty {
+                normalizedPreferredBrowserID = ServerBrowserTarget.systemDefaultID
+            } else if let slug = ServerBrowserCatalog.builtInSlug(forBundleIdentifier: bundleID) {
+                normalizedPreferredBrowserID = enabledSet.contains(slug)
+                    ? resolvedPreferred
+                    : ServerBrowserTarget.systemDefaultID
+            } else {
+                normalizedPreferredBrowserID = ServerBrowserTarget.systemDefaultID
+            }
+        } else if validBuiltInIDs.contains(resolvedPreferred) || validCustomIDs.contains(resolvedPreferred) {
+            normalizedPreferredBrowserID = enabledSet.contains(resolvedPreferred)
+                ? resolvedPreferred
+                : ServerBrowserTarget.systemDefaultID
+        } else {
+            normalizedPreferredBrowserID = ServerBrowserTarget.systemDefaultID
+        }
+
+        return AppConfig.ServerDetection(
+            passiveDetectionEnabled: passiveDetectionEnabled,
+            preferredBrowserID: normalizedPreferredBrowserID,
+            enabledBrowserTargetIDs: normalizedEnabledBrowserTargetIDs,
+            customBrowsers: canonicalBrowsers
         )
     }
 }

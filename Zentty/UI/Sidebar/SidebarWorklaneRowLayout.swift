@@ -15,6 +15,7 @@ enum WorklaneRowTextRow: Equatable {
     case panePrimary(Int)
     case paneDetail(Int)
     case paneStatus(Int)
+    case paneServer(Int)
     case context
     case detail(Int)
     case overflow
@@ -109,7 +110,7 @@ struct WorklaneRowLayoutMetrics: Equatable {
         var paneIndices = Set<Int>()
         for row in visibleRows {
             switch row {
-            case .panePrimary(let i), .paneDetail(let i), .paneStatus(let i):
+            case .panePrimary(let i), .paneDetail(let i), .paneStatus(let i), .paneServer(let i):
                 paneIndices.insert(i)
             default:
                 break
@@ -142,6 +143,8 @@ struct WorklaneRowLayoutMetrics: Equatable {
         case .paneDetail:
             return detailLineHeight
         case .paneStatus:
+            return statusLineHeight
+        case .paneServer:
             return statusLineHeight
         case .context:
             return contextLineHeight
@@ -191,6 +194,7 @@ struct SidebarWorklaneRowLayout: Equatable {
                 || summary.paneRows.contains(where: {
                     paneRowStatusLineCount(for: $0, availableWidth: availableWidth) > 1
                 })
+                || summary.paneRows.contains(where: { $0.serverPorts.isEmpty == false })
                 || hasVisibleText(summary.overflowText)
                 ? .expanded
                 : .compact
@@ -245,6 +249,10 @@ struct SidebarWorklaneRowLayout: Equatable {
 
                 if paneRowShowsMetadataRow(paneRow, availableWidth: availableWidth) {
                     rows.append(.paneStatus(index))
+                }
+
+                if paneRow.serverPorts.isEmpty == false {
+                    rows.append(.paneServer(index))
                 }
             }
 
@@ -628,13 +636,15 @@ struct SidebarWorklaneRowLayout: Equatable {
                             contextPrefixConsumed = true
                         case .paneStatus(let i) where i == index:
                             paneRows.append(.paneStatus(i))
+                        case .paneServer(let i) where i == index:
+                            paneRows.append(.paneServer(i))
                         default:
                             break
                         }
                     }
                     groups.append(.pane(index: index, rows: paneRows))
                 }
-            case .paneDetail, .paneStatus:
+            case .paneDetail, .paneStatus, .paneServer:
                 break
             case .contextPrefix:
                 if contextPrefixConsumed == false {
@@ -668,7 +678,7 @@ private extension WorklaneRowLayoutMetrics {
         var paneIndices = Set<Int>()
         for row in visibleRows {
             switch row {
-            case .panePrimary(let i), .paneDetail(let i), .paneStatus(let i):
+            case .panePrimary(let i), .paneDetail(let i), .paneStatus(let i), .paneServer(let i):
                 paneIndices.insert(i)
             default:
                 break
@@ -722,6 +732,8 @@ private extension WorklaneRowLayoutMetrics {
                     metrics: self
                 )
             )
+        case .paneServer:
+            return statusLineHeight
         default:
             return lineHeight(for: row)
         }

@@ -93,6 +93,39 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         XCTAssertGreaterThan(layout.rowHeight, ShellMetrics.sidebarExpandedRowHeight)
     }
 
+    func test_layout_adds_pane_server_row_after_status_row() {
+        let layout = SidebarWorklaneRowLayout(summary: makeSummary(
+            paneRows: [
+                WorklaneSidebarPaneRow(
+                    paneID: PaneID("worklane-main-api"),
+                    primaryText: "api",
+                    trailingText: nil,
+                    detailText: "…/api",
+                    statusText: "Running",
+                    attentionState: .running,
+                    isFocused: true,
+                    isWorking: true,
+                    serverPorts: [
+                        WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+                        WorklaneSidebarServerPort(serverID: "server-3000", port: 3000),
+                    ]
+                )
+            ]
+        ))
+
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            [.panePrimary(0), .paneDetail(0), .paneStatus(0), .paneServer(0)]
+        )
+        XCTAssertEqual(
+            layout.contentGroups,
+            [
+                .pane(index: 0, rows: [.panePrimary(0), .paneDetail(0), .paneStatus(0), .paneServer(0)]),
+            ]
+        )
+    }
+
     func test_layout_expands_for_multiple_pane_primary_rows_even_without_detail_or_status() {
         let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             paneRows: [

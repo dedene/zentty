@@ -51,4 +51,35 @@ final class SidebarWorklaneRowRenderPlanTests: XCTestCase {
         XCTAssertEqual(narrow.paneRows.first?.statusDisplayText, "Running")
         XCTAssertEqual(narrow.paneRows.first?.statusSymbolName, "")
     }
+
+    func test_presentation_carries_pane_server_ports() throws {
+        let paneRow = WorklaneSidebarPaneRow(
+            paneID: PaneID("pane-api"),
+            primaryText: "api",
+            trailingText: nil,
+            detailText: nil,
+            statusText: "Running",
+            attentionState: .running,
+            isFocused: true,
+            isWorking: true,
+            serverPorts: [
+                WorklaneSidebarServerPort(serverID: "server-3000", port: 3000),
+                WorklaneSidebarServerPort(serverID: "server-5173", port: 5173),
+            ]
+        )
+        let summary = WorklaneSidebarSummary(
+            worklaneID: WorklaneID("worklane-api"),
+            badgeText: "1",
+            primaryText: "API",
+            paneRows: [paneRow],
+            isActive: true
+        )
+
+        let presentation = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: 280)
+
+        XCTAssertEqual(
+            presentation.paneRows.first?.serverPorts.map(\.port),
+            [3000, 5173]
+        )
+    }
 }

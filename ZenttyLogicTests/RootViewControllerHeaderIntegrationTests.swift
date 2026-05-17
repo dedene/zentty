@@ -595,6 +595,48 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(coordinator.reviewPollingTargetForTesting?.branch, "feature/review-band")
     }
 
+    func test_render_coordinator_rerenders_sidebar_when_server_detection_invalidates() throws {
+        let store = WorklaneStore()
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let sidebarView = SidebarView()
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore()
+        )
+        coordinator.environment = StubRenderEnvironment()
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: sidebarView,
+            windowChromeView: WindowChromeView(),
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
+        ))
+        coordinator.startObserving()
+        coordinator.render()
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.renderInvocationCount, 1)
+
+        let normalized = try ServerURLNormalizer.normalize("http://localhost:5173")
+        store.register(server: DetectedServer(
+            id: "server-5173",
+            origin: normalized.origin,
+            url: normalized.url,
+            display: normalized.display,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            source: .scanner,
+            ports: [normalized.port],
+            confidence: .pid,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        ))
+
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.renderInvocationCount, 2)
+        let row = try XCTUnwrap(
+            sidebarView.debugSnapshotForTesting.worklaneButtons.first as? SidebarWorklaneRowButton
+        )
+        XCTAssertEqual(row.debugSnapshotForTesting.paneServerPortTexts, [["5173"]])
+    }
+
     func test_render_coordinator_force_refreshes_review_state_when_review_refresh_invalidates() async throws {
         let store = WorklaneStore(
             gitContextResolver: StubPaneGitContextResolver(

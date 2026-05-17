@@ -7,6 +7,13 @@ struct WindowChromeOpenWithState: Equatable {
     let isMenuEnabled: Bool
 }
 
+struct WindowChromeServerState: Equatable {
+    let title: String
+    let icon: NSImage?
+    let isPrimaryEnabled: Bool
+    let isMenuEnabled: Bool
+}
+
 @MainActor
 final class WindowChromeView: NSView {
     static let preferredHeight: CGFloat = ChromeGeometry.headerHeight
@@ -55,6 +62,12 @@ final class WindowChromeView: NSView {
     private let attentionChipView = WorklaneAttentionChipView()
     private let rowContainerView = NSView()
     private let focusedProxyIconView = WindowChromeProxyIconView()
+    private let serverContainerView = NSView()
+    private let serverPrimaryBackgroundView = NSView()
+    private let serverMenuBackgroundView = NSView()
+    private let serverPrimaryButton = WindowChromeSegmentButton()
+    private let serverMenuButton = WindowChromeSegmentButton()
+    private let serverDividerView = NSView()
     private let openWithContainerView = NSView()
     private let openWithPrimaryBackgroundView = NSView()
     private let openWithMenuBackgroundView = NSView()
@@ -90,6 +103,7 @@ final class WindowChromeView: NSView {
         pullRequest: nil,
         reviewChips: []
     )
+    private var currentServerState: WindowChromeServerState?
     private var currentOpenWithState: WindowChromeOpenWithState?
     private var currentPanesConfig: AppConfig.Panes = .default
     private var displayedReviewChips: [WorklaneReviewChip] = []
@@ -100,6 +114,8 @@ final class WindowChromeView: NSView {
     private var lastRowLayoutPlan = RowLayoutPlan.empty
     var onOpenWithPrimaryAction: (() -> Void)?
     var onOpenWithMenuAction: (() -> Void)?
+    var onServerPrimaryAction: (() -> Void)?
+    var onServerMenuAction: (() -> Void)?
 
     init(
         frame frameRect: NSRect,
@@ -135,6 +151,7 @@ final class WindowChromeView: NSView {
     override func layout() {
         super.layout()
         layoutOpenWithControl()
+        layoutServerControl()
         syncVisibleRowContent(forceChipRefresh: false)
         layoutRowContent()
     }
@@ -172,17 +189,50 @@ final class WindowChromeView: NSView {
             self?.updatePullRequestAppearance(animated: false)
         }
 
-        openWithContainerView.wantsLayer = true
-        openWithContainerView.layer?.cornerRadius = Self.openWithControlHeight / 2
-        openWithContainerView.layer?.cornerCurve = .continuous
-        openWithContainerView.layer?.shadowOpacity = 1
-        openWithContainerView.layer?.shadowRadius = 12
-        openWithContainerView.layer?.shadowOffset = CGSize(width: 0, height: 8)
+        [serverContainerView, openWithContainerView].forEach {
+            $0.wantsLayer = true
+            $0.layer?.cornerRadius = Self.openWithControlHeight / 2
+            $0.layer?.cornerCurve = .continuous
+            $0.layer?.shadowOpacity = 1
+            $0.layer?.shadowRadius = 12
+            $0.layer?.shadowOffset = CGSize(width: 0, height: 8)
+        }
+
+        [serverPrimaryBackgroundView, serverMenuBackgroundView].forEach {
+            $0.wantsLayer = true
+            $0.layer?.cornerCurve = .continuous
+            serverContainerView.addSubview($0)
+        }
 
         [openWithPrimaryBackgroundView, openWithMenuBackgroundView].forEach {
             $0.wantsLayer = true
             $0.layer?.cornerCurve = .continuous
             openWithContainerView.addSubview($0)
+        }
+
+        serverPrimaryButton.isBordered = false
+        serverPrimaryButton.imagePosition = .imageOnly
+        serverPrimaryButton.focusRingType = .none
+        serverPrimaryButton.target = self
+        serverPrimaryButton.action = #selector(handleServerPrimaryAction)
+        serverPrimaryButton.setAccessibilityRole(.button)
+        serverPrimaryButton.imageScaling = .scaleProportionallyDown
+        serverPrimaryButton.onInteractionStateChanged = { [weak self] in
+            self?.updateServerAppearance(animated: true)
+        }
+
+        serverMenuButton.isBordered = false
+        serverMenuButton.image = NSImage(
+            systemSymbolName: "chevron.down",
+            accessibilityDescription: "Show server menu"
+        )
+        serverMenuButton.imagePosition = .imageOnly
+        serverMenuButton.focusRingType = .none
+        serverMenuButton.target = self
+        serverMenuButton.action = #selector(handleServerMenuAction)
+        serverMenuButton.imageScaling = .scaleProportionallyDown
+        serverMenuButton.onInteractionStateChanged = { [weak self] in
+            self?.updateServerAppearance(animated: true)
         }
 
         openWithPrimaryButton.isBordered = false
@@ -210,10 +260,15 @@ final class WindowChromeView: NSView {
             self?.updateOpenWithAppearance(animated: true)
         }
 
+        serverDividerView.wantsLayer = true
         openWithDividerView.wantsLayer = true
 
         addSubview(rowContainerView)
+        addSubview(serverContainerView)
         addSubview(openWithContainerView)
+        serverContainerView.addSubview(serverDividerView)
+        serverContainerView.addSubview(serverPrimaryButton)
+        serverContainerView.addSubview(serverMenuButton)
         openWithContainerView.addSubview(openWithDividerView)
         openWithContainerView.addSubview(openWithPrimaryButton)
         openWithContainerView.addSubview(openWithMenuButton)
@@ -223,6 +278,7 @@ final class WindowChromeView: NSView {
 
         apply(theme: currentTheme, animated: false)
         render(summary: currentSummary)
+        render(server: currentServerState)
         render(openWith: currentOpenWithState)
     }
 
@@ -285,11 +341,40 @@ final class WindowChromeView: NSView {
         updateBranchAppearance(animated: animated)
         updatePullRequestAppearance(animated: animated)
         reviewChipViews.forEach { $0.apply(theme: theme, animated: animated) }
+        updateServerAppearance(animated: animated)
         updateOpenWithAppearance(animated: animated)
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = theme.topChromeBackground.cgColor
         }
+    }
+
+    func render(server state: WindowChromeServerState?) {
+        currentServerState = state
+
+        guard let state else {
+            serverContainerView.isHidden = true
+            needsLayout = true
+            return
+        }
+
+        serverContainerView.isHidden = false
+        serverPrimaryButton.image = state.icon ?? NSImage(
+            systemSymbolName: "globe",
+            accessibilityDescription: state.title
+        )?.withSymbolConfiguration(.init(pointSize: 15, weight: .semibold))
+        serverPrimaryButton.isEnabled = state.isPrimaryEnabled
+        serverPrimaryButton.toolTip = state.isPrimaryEnabled ? "Open \(state.title)" : "Server unavailable"
+        serverPrimaryButton.setAccessibilityLabel("Open \(state.title)")
+        serverMenuButton.isEnabled = state.isMenuEnabled
+        serverMenuButton.image = NSImage(
+            systemSymbolName: "chevron.down",
+            accessibilityDescription: "Show server menu"
+        )?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+        serverMenuButton.toolTip = "Show server menu"
+        serverMenuButton.setAccessibilityLabel("Show server menu")
+        updateServerAppearance(animated: false)
+        needsLayout = true
     }
 
     func apply(panes: AppConfig.Panes) {
@@ -367,6 +452,24 @@ final class WindowChromeView: NSView {
         onOpenWithMenuAction?()
     }
 
+    @objc
+    private func handleServerPrimaryAction() {
+        guard serverPrimaryButton.isEnabled else {
+            return
+        }
+
+        onServerPrimaryAction?()
+    }
+
+    @objc
+    private func handleServerMenuAction() {
+        guard serverMenuButton.isEnabled else {
+            return
+        }
+
+        onServerMenuAction?()
+    }
+
     private func updateBranchAppearance(animated: Bool) {
         let isHovered = branchLabel.isHovered && branchLabel.isInteractive
         let color = isHovered ? currentTheme.secondaryText : currentTheme.tertiaryText
@@ -437,6 +540,38 @@ final class WindowChromeView: NSView {
             self.openWithMenuBackgroundView.layer?.backgroundColor = menuBackground.cgColor
             self.openWithPrimaryButton.contentTintColor = primaryTint
             self.openWithMenuButton.contentTintColor = menuTint
+        }
+    }
+
+    private func updateServerAppearance(animated: Bool) {
+        let primaryTint = serverPrimaryButton.isEnabled
+            ? currentTheme.openWithChromePrimaryTint
+            : currentTheme.openWithChromePrimaryTint.withAlphaComponent(0.48)
+        let menuTint = serverMenuButton.isEnabled
+            ? currentTheme.openWithChromeChevronTint
+            : currentTheme.openWithChromeChevronTint.withAlphaComponent(0.42)
+        let primaryBackground = segmentBackgroundColor(
+            isEnabled: serverPrimaryButton.isEnabled,
+            isHovered: serverPrimaryButton.isHovered,
+            isPressed: serverPrimaryButton.isPressed
+        )
+        let menuBackground = segmentBackgroundColor(
+            isEnabled: serverMenuButton.isEnabled,
+            isHovered: serverMenuButton.isHovered,
+            isPressed: serverMenuButton.isPressed
+        )
+        performThemeAnimation(animated: animated) {
+            self.serverContainerView.layer?.backgroundColor = self.currentTheme.openWithChromeBackground.cgColor
+            self.serverContainerView.layer?.borderWidth = 1
+            self.serverContainerView.layer?.borderColor = self.currentTheme.openWithChromeBorder.cgColor
+            self.serverContainerView.layer?.shadowColor = self.currentTheme.openWithPopoverShadow
+                .withAlphaComponent(0.45)
+                .cgColor
+            self.serverDividerView.layer?.backgroundColor = self.currentTheme.openWithChromeDivider.cgColor
+            self.serverPrimaryBackgroundView.layer?.backgroundColor = primaryBackground.cgColor
+            self.serverMenuBackgroundView.layer?.backgroundColor = menuBackground.cgColor
+            self.serverPrimaryButton.contentTintColor = primaryTint
+            self.serverMenuButton.contentTintColor = menuTint
         }
     }
 
@@ -626,6 +761,55 @@ final class WindowChromeView: NSView {
             height: height - 14
         )
         openWithMenuButton.frame = NSRect(
+            x: width - Self.openWithMenuWidth,
+            y: 0,
+            width: Self.openWithMenuWidth,
+            height: height
+        )
+    }
+
+    private func layoutServerControl() {
+        guard currentServerState != nil else {
+            serverContainerView.isHidden = true
+            serverContainerView.frame = .zero
+            return
+        }
+
+        let width = Self.openWithControlWidth
+        let height = Self.openWithControlHeight
+        let trailingControlMinX = currentOpenWithState == nil
+            ? bounds.width - ChromeGeometry.headerHorizontalInset - width - 2
+            : openWithContainerView.frame.minX - Self.openWithSectionSpacing - width
+        let originX = max(ChromeGeometry.headerHorizontalInset, trailingControlMinX)
+        let originY = floor((bounds.height - height) / 2) - 2
+        serverContainerView.frame = NSRect(x: originX, y: originY, width: width, height: height)
+        serverPrimaryBackgroundView.frame = NSRect(
+            x: Self.openWithSegmentInset,
+            y: Self.openWithSegmentInset,
+            width: Self.openWithPrimaryWidth - Self.openWithSegmentInset,
+            height: height - (Self.openWithSegmentInset * 2)
+        )
+        serverPrimaryBackgroundView.layer?.cornerRadius = serverPrimaryBackgroundView.frame.height / 2
+        serverMenuBackgroundView.frame = NSRect(
+            x: width - Self.openWithMenuWidth + 1,
+            y: Self.openWithSegmentInset,
+            width: Self.openWithMenuWidth - Self.openWithSegmentInset,
+            height: height - (Self.openWithSegmentInset * 2)
+        )
+        serverMenuBackgroundView.layer?.cornerRadius = serverMenuBackgroundView.frame.height / 2
+        serverPrimaryButton.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: Self.openWithPrimaryWidth,
+            height: height
+        )
+        serverDividerView.frame = NSRect(
+            x: Self.openWithPrimaryWidth,
+            y: 7,
+            width: 1,
+            height: height - 14
+        )
+        serverMenuButton.frame = NSRect(
             x: width - Self.openWithMenuWidth,
             y: 0,
             width: Self.openWithMenuWidth,
@@ -835,11 +1019,17 @@ final class WindowChromeView: NSView {
     }
 
     private var openWithReservedWidth: CGFloat {
-        guard currentOpenWithState != nil else {
-            return 0
+        var width: CGFloat = 0
+
+        if currentOpenWithState != nil {
+            width += Self.openWithControlWidth + Self.openWithSectionSpacing
         }
 
-        return Self.openWithControlWidth + Self.openWithSectionSpacing
+        if currentServerState != nil {
+            width += Self.openWithControlWidth + Self.openWithSectionSpacing
+        }
+
+        return width
     }
 
     private var canRenderRowContent: Bool {
@@ -1003,6 +1193,10 @@ final class WindowChromeView: NSView {
     var branchFrameWidth: CGFloat { branchLabel.frame.width }
     var branchIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: branchLabel) }
     var rowFrame: NSRect { rowContainerView.frame }
+    var serverControlFrame: NSRect { serverContainerView.frame }
+    var serverPrimaryFrame: NSRect { serverPrimaryButton.frame }
+    var serverMenuFrame: NSRect { serverMenuButton.frame }
+    var serverMenuAnchorRect: NSRect { serverContainerView.frame }
     var openWithControlFrame: NSRect { openWithContainerView.frame }
     var openWithPrimaryFrame: NSRect { openWithPrimaryButton.frame }
     var openWithMenuFrame: NSRect { openWithMenuButton.frame }
@@ -1025,6 +1219,14 @@ final class WindowChromeView: NSView {
 
     func performOpenWithMenuClickForTesting() {
         openWithMenuButton.performClick(openWithMenuButton)
+    }
+
+    func performServerPrimaryClickForTesting() {
+        serverPrimaryButton.performClick(serverPrimaryButton)
+    }
+
+    func performServerMenuClickForTesting() {
+        serverMenuButton.performClick(serverMenuButton)
     }
 
     func focusedProxyIconContextMenuPathsForTesting() -> [String] {

@@ -703,6 +703,40 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertEqual(resolved.items.map(\.showsCategory), [false, false, false])
     }
 
+    func testBareOpenQueryStaysUnscopedAndSurfacesDetectedServersFirst() throws {
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "vscode", kind: .editor, displayName: "VS Code", builtInID: .vscode, appPath: nil),
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+        let serverItem = try XCTUnwrap(CommandPaletteItemBuilder.buildServerItems(servers: [
+            DetectedServer(
+                id: "server-1",
+                origin: "http://localhost:4567",
+                url: try XCTUnwrap(URL(string: "http://localhost:4567/")),
+                display: "localhost:4567",
+                worklaneID: WorklaneID("worklane-1"),
+                paneID: PaneID("pane-1"),
+                source: .scanner,
+                ports: [4567],
+                confidence: .worklane,
+                updatedAt: Date(timeIntervalSince1970: 0)
+            ),
+        ]).first)
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "open",
+            items: openWithItems + [serverItem],
+            recentItems: []
+        )
+
+        XCTAssertNil(resolved.scope)
+        XCTAssertEqual(resolved.items.first?.item.id, .server(id: "server-1"))
+        XCTAssertTrue(resolved.items.contains { $0.item.id == .openWith(stableID: "vscode") })
+    }
+
     func testLeadingOpenAliasScopesWhenRemainderMatchesOpenWithTarget() {
         let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
             targets: [
@@ -932,5 +966,106 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
             + CommandPaletteLayoutMetrics.footerHeight
 
         XCTAssertEqual(height, heightWithoutAllowance + CommandPaletteLayoutMetrics.visualOverflowAllowance)
+    }
+
+    func testServerItemsGeneratedAndSearchable() throws {
+        let server = DetectedServer(
+            id: "server-1",
+            origin: "http://localhost:5173",
+            url: try XCTUnwrap(URL(string: "http://localhost:5173/docs")),
+            display: "localhost:5173",
+            worklaneID: WorklaneID("worklane-1"),
+            paneID: PaneID("pane-1"),
+            source: .manual,
+            ports: [5173],
+            confidence: .explicit,
+            updatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let items = CommandPaletteItemBuilder.buildServerItems(servers: [server])
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].id, .server(id: "server-1"))
+        XCTAssertEqual(items[0].title, "Open localhost:5173")
+        XCTAssertEqual(items[0].subtitle, "http://localhost:5173/docs")
+        XCTAssertEqual(items[0].category, "Web Server")
+        XCTAssertEqual(items[0].iconSystemName, "globe")
+        XCTAssertEqual(items[0].family, .server)
+        XCTAssertTrue(items[0].searchText.contains("open"))
+        XCTAssertTrue(items[0].searchText.contains("server"))
+        XCTAssertTrue(items[0].searchText.contains("web"))
+        XCTAssertTrue(items[0].searchText.contains("browser"))
+        XCTAssertTrue(items[0].searchText.contains("localhost:5173"))
+        XCTAssertTrue(items[0].searchText.contains("http://localhost:5173"))
+        XCTAssertTrue(items[0].searchText.contains("http://localhost:5173/docs"))
+    }
+
+    func testScopedServerQueryShowsServerItems() throws {
+        let serverItem = try XCTUnwrap(CommandPaletteItemBuilder.buildServerItems(servers: [
+            DetectedServer(
+                id: "server-1",
+                origin: "http://localhost:3000",
+                url: try XCTUnwrap(URL(string: "http://localhost:3000/")),
+                display: "localhost:3000",
+                worklaneID: WorklaneID("worklane-1"),
+                paneID: nil,
+                source: .scanner,
+                ports: [3000],
+                confidence: .worklane,
+                updatedAt: Date(timeIntervalSince1970: 0)
+            ),
+        ]).first)
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "server",
+            items: [serverItem],
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.scope?.family, .server)
+        XCTAssertEqual(resolved.scope?.title, "Server")
+        XCTAssertEqual(resolved.items.map(\.item.id), [.server(id: "server-1")])
+    }
+
+    func testScopedServerQueryUsesDistinctServerTitlesWhenMultipleServersExist() throws {
+        let items = CommandPaletteItemBuilder.buildServerItems(servers: [
+            DetectedServer(
+                id: "server-1",
+                origin: "http://localhost:3000",
+                url: try XCTUnwrap(URL(string: "http://localhost:3000/")),
+                display: "localhost:3000",
+                worklaneID: WorklaneID("worklane-1"),
+                paneID: nil,
+                source: .scanner,
+                ports: [3000],
+                confidence: .worklane,
+                updatedAt: Date(timeIntervalSince1970: 0)
+            ),
+            DetectedServer(
+                id: "server-2",
+                origin: "http://localhost:5173",
+                url: try XCTUnwrap(URL(string: "http://localhost:5173/")),
+                display: "localhost:5173",
+                worklaneID: WorklaneID("worklane-1"),
+                paneID: PaneID("pane-1"),
+                source: .manual,
+                ports: [5173],
+                confidence: .explicit,
+                updatedAt: Date(timeIntervalSince1970: 0)
+            ),
+        ])
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "server",
+            items: items,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.scope?.family, .server)
+        XCTAssertEqual(resolved.items.map(\.item.title), [
+            "Open localhost:3000",
+            "Open localhost:5173",
+        ])
+        XCTAssertEqual(resolved.items.map(\.showsSubtitle), [false, false])
     }
 }

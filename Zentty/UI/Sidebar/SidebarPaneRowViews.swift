@@ -1207,3 +1207,366 @@ final class SidebarPaneTextRowView: NSView {
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }
+
+// MARK: - SidebarPaneServerRowView
+
+@MainActor
+final class SidebarPortDelimiterView: NSView {
+    private static let accessibilityText = "/"
+    private(set) var color: NSColor = .secondaryLabelColor
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool {
+        false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard bounds.width > 0, bounds.height > 0 else {
+            return
+        }
+
+        let path = NSBezierPath()
+        path.lineWidth = 1.25
+        path.lineCapStyle = .round
+        color.setStroke()
+
+        let xInset = max(1, floor(bounds.width * 0.28))
+        let yInset = max(3, floor(bounds.height * 0.24))
+        path.move(to: NSPoint(x: xInset, y: yInset))
+        path.line(to: NSPoint(x: bounds.width - xInset, y: bounds.height - yInset))
+        path.stroke()
+    }
+
+    func configure(color: NSColor, isVisible: Bool) {
+        self.color = color
+        isHidden = isVisible == false
+        setAccessibilityValue(isVisible ? Self.accessibilityText : "")
+        needsDisplay = true
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = true
+        wantsLayer = true
+        layer?.masksToBounds = false
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("Server port separator")
+        setAccessibilityValue(Self.accessibilityText)
+    }
+}
+
+@MainActor
+final class SidebarPaneServerRowView: NSView {
+    private static let symbolPointSize: CGFloat = 11
+    private static let iconSide: CGFloat = 11
+    private static let iconSpacing: CGFloat = 4
+    private static let portSpacing: CGFloat = 2
+    private static let delimiterSpacing: CGFloat = 1
+    private static let horizontalPadding: CGFloat = 2
+    private static let delimiterWidth: CGFloat = 7
+
+    private let iconView = NSImageView()
+    private var portLabels: [SidebarStaticLabel] = []
+    private var delimiterViews: [SidebarPortDelimiterView] = []
+    private var portHitTargets: [(index: Int, serverID: String, frame: NSRect)] = []
+    private var trackingArea: NSTrackingArea?
+    private var currentColor: NSColor = .secondaryLabelColor
+    private var hoverColor: NSColor = .controlAccentColor
+    private var hoveredPortIndex: Int?
+    private(set) var serverPorts: [WorklaneSidebarServerPort] = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: ShellMetrics.sidebarStatusLineHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        layoutServerLine()
+    }
+
+    func configure(serverPorts: [WorklaneSidebarServerPort]) {
+        self.serverPorts = serverPorts
+        ensureLabelCapacity(serverPorts.count)
+        ensureDelimiterCapacity(max(0, serverPorts.count - 1))
+        hoveredPortIndex = nil
+
+        for (index, serverPort) in serverPorts.enumerated() {
+            let label = portLabels[index]
+            label.stringValue = "\(serverPort.port)"
+            label.isHidden = false
+            applyTitle(to: label, portText: label.stringValue)
+        }
+
+        for label in portLabels.dropFirst(serverPorts.count) {
+            label.isHidden = true
+            label.stringValue = ""
+            label.frame = .zero
+            label.toolTip = nil
+            label.setAccessibilityLabel("")
+        }
+
+        let visibleDelimiterCount = max(0, serverPorts.count - 1)
+        for (index, delimiterView) in delimiterViews.enumerated() {
+            delimiterView.configure(color: currentColor, isVisible: index < visibleDelimiterCount)
+            if index >= visibleDelimiterCount {
+                delimiterView.frame = .zero
+            }
+        }
+
+        iconView.isHidden = serverPorts.isEmpty
+        isHidden = serverPorts.isEmpty
+        portHitTargets.removeAll()
+        needsLayout = true
+    }
+
+    func applyColor(_ color: NSColor) {
+        applyColors(defaultColor: color, hoverColor: color)
+    }
+
+    func applyColors(defaultColor: NSColor, hoverColor: NSColor) {
+        self.hoverColor = hoverColor
+        currentColor = defaultColor
+        iconView.contentTintColor = defaultColor
+        for label in portLabels {
+            applyTitle(to: label, portText: label.stringValue)
+        }
+        for delimiterView in delimiterViews {
+            delimiterView.configure(color: defaultColor, isVisible: delimiterView.isHidden == false)
+        }
+    }
+
+    func serverID(at point: NSPoint) -> String? {
+        guard bounds.contains(point) else {
+            return nil
+        }
+
+        return portHitTargets.first {
+            $0.serverID.isEmpty == false && $0.frame.contains(point)
+        }?.serverID
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHoveredPort(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHoveredPort(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredPortIndex(nil)
+    }
+
+    var portTextsForTesting: [String] {
+        var texts: [String] = []
+        for index in 0..<serverPorts.count {
+            if portLabels.indices.contains(index) {
+                texts.append(portLabels[index].stringValue)
+            }
+            if delimiterViews.indices.contains(index), delimiterViews[index].isHidden == false {
+                texts.append("/")
+            }
+        }
+        return texts
+    }
+
+    var iconIsVisibleForTesting: Bool {
+        iconView.isHidden == false
+    }
+
+    var portTextColorsForTesting: [NSColor] {
+        portLabels.prefix(serverPorts.count).map { $0.textColor ?? .clear }
+    }
+
+    var delimiterTextColorsForTesting: [NSColor] {
+        delimiterViews.prefix(max(0, serverPorts.count - 1)).map(\.color)
+    }
+
+    func firstPortCenterForTesting() -> NSPoint? {
+        portCenterForTesting(index: 0)
+    }
+
+    func portCenterForTesting(index: Int) -> NSPoint? {
+        guard portLabels.indices.contains(index),
+              portLabels[index].isHidden == false
+        else {
+            return nil
+        }
+
+        return NSPoint(x: portLabels[index].frame.midX, y: portLabels[index].frame.midY)
+    }
+
+    func delimiterCenterForTesting(index: Int) -> NSPoint? {
+        guard delimiterViews.indices.contains(index),
+              delimiterViews[index].isHidden == false
+        else {
+            return nil
+        }
+
+        return NSPoint(x: delimiterViews[index].frame.midX, y: delimiterViews[index].frame.midY)
+    }
+
+    func portFrameForTesting(index: Int) -> NSRect? {
+        guard portLabels.indices.contains(index),
+              portLabels[index].isHidden == false
+        else {
+            return nil
+        }
+
+        return portLabels[index].frame
+    }
+
+    func delimiterFrameForTesting(index: Int) -> NSRect? {
+        guard delimiterViews.indices.contains(index),
+              delimiterViews[index].isHidden == false
+        else {
+            return nil
+        }
+
+        return delimiterViews[index].frame
+    }
+
+    func setHoveredPortForTesting(index: Int?) {
+        setHoveredPortIndex(index)
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+        wantsLayer = true
+        layer?.masksToBounds = true
+
+        iconView.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "Detected server")?
+            .withSymbolConfiguration(.init(pointSize: Self.symbolPointSize, weight: .semibold))
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.isHidden = true
+        addSubview(iconView)
+    }
+
+    private func ensureLabelCapacity(_ count: Int) {
+        while portLabels.count < count {
+            let label = SidebarStaticLabel()
+            label.font = ShellMetrics.sidebarStatusFont()
+            label.alignment = .left
+            label.lineBreakMode = .byTruncatingTail
+            label.maximumNumberOfLines = 1
+            label.cell?.truncatesLastVisibleLine = true
+            label.cell?.usesSingleLineMode = true
+            label.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(label)
+            portLabels.append(label)
+        }
+    }
+
+    private func ensureDelimiterCapacity(_ count: Int) {
+        while delimiterViews.count < count {
+            let delimiterView = SidebarPortDelimiterView()
+            addSubview(delimiterView)
+            delimiterViews.append(delimiterView)
+        }
+    }
+
+    private func layoutServerLine() {
+        let lineHeight = ShellMetrics.sidebarStatusLineHeight
+        let iconY = (bounds.height - Self.iconSide) / 2
+        iconView.frame = NSRect(x: 0, y: iconY, width: Self.iconSide, height: Self.iconSide)
+
+        portHitTargets.removeAll(keepingCapacity: true)
+        var x = iconView.isHidden ? 0 : Self.iconSide + Self.iconSpacing
+        for index in portLabels.indices {
+            let label = portLabels[index]
+            guard label.isHidden == false else {
+                label.frame = .zero
+                continue
+            }
+
+            let measuredWidth = SidebarTextMetrics.measuredWidth(
+                for: label.stringValue,
+                font: label.font ?? ShellMetrics.sidebarStatusFont()
+            )
+            let width = measuredWidth + (Self.horizontalPadding * 2)
+            let frame = NSRect(x: x, y: 0, width: width, height: lineHeight)
+            label.frame = frame
+            if serverPorts.indices.contains(index) {
+                portHitTargets.append((index: index, serverID: serverPorts[index].serverID, frame: frame))
+            }
+            x += width
+
+            if delimiterViews.indices.contains(index),
+               delimiterViews[index].isHidden == false {
+                let delimiterView = delimiterViews[index]
+                x += Self.delimiterSpacing
+                delimiterView.frame = NSRect(x: x, y: 0, width: Self.delimiterWidth, height: lineHeight)
+                x += Self.delimiterWidth + Self.delimiterSpacing
+            } else {
+                x += Self.portSpacing
+            }
+        }
+    }
+
+    private func applyTitle(to label: SidebarStaticLabel, portText: String) {
+        let labelIndex = portLabels.indices.first { portLabels[$0] === label }
+        let color = labelIndex == hoveredPortIndex ? hoverColor : currentColor
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: label.font ?? ShellMetrics.sidebarStatusFont(),
+            .foregroundColor: color,
+        ]
+        label.attributedStringValue = NSAttributedString(string: portText, attributes: attributes)
+        label.textColor = color
+        label.toolTip = portText.isEmpty ? nil : "Open localhost:\(portText)"
+        label.setAccessibilityLabel(portText.isEmpty ? "" : "Open server on port \(portText)")
+    }
+
+    private func updateHoveredPort(at point: NSPoint) {
+        let nextIndex = portHitTargets.first { $0.frame.contains(point) }?.index
+        setHoveredPortIndex(nextIndex)
+    }
+
+    private func setHoveredPortIndex(_ nextIndex: Int?) {
+        guard hoveredPortIndex != nextIndex else {
+            return
+        }
+
+        hoveredPortIndex = nextIndex
+        for label in portLabels {
+            applyTitle(to: label, portText: label.stringValue)
+        }
+    }
+}

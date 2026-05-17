@@ -47,6 +47,8 @@ struct SidebarWorklaneRowDebugSnapshot {
     let paneStatusTexts: [String]
     let paneStatusTrailingTexts: [String]
     let paneStatusSymbolNames: [String]
+    let paneServerPortTexts: [[String]]
+    let firstPaneServerIconIsVisible: Bool
     let paneStatusShimmerPhaseOffsets: [CGFloat]
     let firstPaneStatusTextColor: NSColor?
     let firstPaneStatusProgressIndicatorIsVisible: Bool
@@ -89,6 +91,7 @@ enum SidebarWorklaneRowDebugInteraction {
     case firstPaneStatusLineHover
     case firstPaneStatusLineExit(pointerStillInsideLine: Bool)
     case firstPaneStatusLineHoverReconciliation(pointerInsideLine: Bool)
+    case firstPaneServerPortClick(index: Int)
 }
 
 enum SidebarWorklaneRowDebugMenuTarget {
@@ -119,6 +122,7 @@ struct SidebarWorklaneRowDebugAccess {
     let panePrimaryRows: [SidebarPanePrimaryRowView]
     let paneDetailLabels: [SidebarStaticLabel]
     let paneStatusRows: [SidebarPaneTextRowView]
+    let paneServerRows: [SidebarPaneServerRowView]
     let paneRowButtons: [SidebarPaneRowButton]
     let paneRowContainers: [SidebarInsetContainerView]
     let tintLayer: CALayer
@@ -231,6 +235,10 @@ extension SidebarWorklaneRowButton {
             paneStatusSymbolNames: access.paneStatusRows.prefix(paneRowCount)
                 .map(\.symbolName)
                 .filter { $0.isEmpty == false },
+            paneServerPortTexts: access.paneServerRows.prefix(paneRowCount)
+                .map(\.portTextsForTesting)
+                .filter { $0.isEmpty == false },
+            firstPaneServerIconIsVisible: access.paneServerRows.first?.iconIsVisibleForTesting ?? false,
             paneStatusShimmerPhaseOffsets: access.paneStatusRows.prefix(paneRowCount)
                 .map(\.shimmerPhaseOffsetForTesting),
             firstPaneStatusTextColor: access.paneStatusRows.first?.textColor,
@@ -298,6 +306,15 @@ extension SidebarWorklaneRowButton {
             access.paneStatusRows.first?.simulateProgressLineHoverReconciliationForTesting(
                 pointerInsideLine: pointerInsideLine
             )
+        case .firstPaneServerPortClick(let index):
+            guard let paneButton = access.paneRowButtons.first,
+                  let serverRow = access.paneServerRows.first,
+                  let pointInServerRow = serverRow.portCenterForTesting(index: index)
+            else {
+                return
+            }
+
+            paneButton.performPrimaryClickForTesting(at: paneButton.convert(pointInServerRow, from: serverRow))
         }
     }
 

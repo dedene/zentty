@@ -60,6 +60,8 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     private func makeController(
         configStore: AppConfigStore? = nil,
+        openWithService: OpenWithServing = RootViewCompositionOpenWithService(),
+        serverOpenService: ServerOpening = RootViewCompositionServerOpenService(),
         sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaults(),
         sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaults(),
         paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaults(),
@@ -69,6 +71,8 @@ final class RootViewCompositionTests: AppKitTestCase {
         let controller = RootViewController(
             configStore: configStore,
             appUpdateStateStore: appUpdateStateStore,
+            openWithService: openWithService,
+            serverOpenService: serverOpenService,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             sidebarWidthDefaults: sidebarWidthDefaults,
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
@@ -81,6 +85,30 @@ final class RootViewCompositionTests: AppKitTestCase {
             }
         }
         return controller
+    }
+
+    private func makeSinglePaneWorklane(
+        worklaneID: WorklaneID = WorklaneID("worklane-main"),
+        paneID: PaneID = PaneID("pane-main"),
+        workingDirectory: String? = "/tmp/project"
+    ) -> WorklaneState {
+        let pane = PaneState(
+            id: paneID,
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: workingDirectory,
+                surfaceContext: .window
+            ),
+            width: 720
+        )
+        return WorklaneState(
+            id: worklaneID,
+            title: "Main",
+            paneStripState: PaneStripState(
+                panes: [pane],
+                focusedPaneID: paneID
+            )
+        )
     }
 
     @MainActor
@@ -342,6 +370,61 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertFalse(rootSubviews.contains { String(describing: type(of: $0)) == "WindowSearchHUDView" })
         XCTAssertTrue(sidebarView.isGlobalSearchPresentedForTesting)
         XCTAssertGreaterThan(sidebarView.globalSearchRowHeightForTesting, 0)
+    }
+
+    func test_open_with_selected_app_action_invokes_primary_open_with_request_when_available() {
+        let target = OpenWithResolvedTarget(
+            stableID: "cursor",
+            kind: .editor,
+            displayName: "Cursor",
+            builtInID: .cursor,
+            appPath: nil
+        )
+        let controller = makeController(
+            openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
+        )
+        controller.loadViewIfNeeded()
+        let worklane = makeSinglePaneWorklane()
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        var didRequestOpen = false
+        controller.onOpenWithPrimaryRequested = {
+            didRequestOpen = true
+        }
+
+        controller.handle(.openWithSelectedApp)
+
+        XCTAssertTrue(didRequestOpen)
+    }
+
+    func test_open_selected_server_action_invokes_primary_server_request_when_available() throws {
+        let worklaneID = WorklaneID("worklane-main")
+        let paneID = PaneID("pane-main")
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        let worklane = makeSinglePaneWorklane(worklaneID: worklaneID, paneID: paneID)
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklaneID)
+        controller.worklaneStore.register(server: DetectedServer(
+            id: "server-1",
+            origin: "http://localhost:4567",
+            url: try XCTUnwrap(URL(string: "http://localhost:4567/")),
+            display: "localhost:4567",
+            worklaneID: worklaneID,
+            paneID: paneID,
+            source: .scanner,
+            ports: [4567],
+            confidence: .worklane,
+            updatedAt: Date(timeIntervalSince1970: 0)
+        ))
+
+        var didRequestOpen = false
+        controller.onServerPrimaryRequested = {
+            didRequestOpen = true
+        }
+
+        controller.handle(.openSelectedServer)
+
+        XCTAssertTrue(didRequestOpen)
     }
 
     func test_root_controller_layers_sidebar_above_chrome_and_toggle_above_sidebar() throws {
@@ -2480,6 +2563,65 @@ private extension RootViewCompositionTests {
 
     func frameInRoot(_ localFrame: NSRect, within chromeView: NSView) -> NSRect {
         localFrame.offsetBy(dx: chromeView.frame.minX, dy: chromeView.frame.minY)
+    }
+}
+
+@MainActor
+private final class RootViewCompositionOpenWithService: OpenWithServing {
+    private let primaryTargetValue: OpenWithResolvedTarget?
+
+    init(primaryTarget: OpenWithResolvedTarget? = nil) {
+        self.primaryTargetValue = primaryTarget
+    }
+
+    func detectedTargets(preferences: AppConfig.OpenWith) -> [OpenWithDetectedTarget] {
+        primaryTargetValue.map { [OpenWithDetectedTarget(target: $0, isAvailable: true)] } ?? []
+    }
+
+    func availableTargets(preferences: AppConfig.OpenWith) -> [OpenWithResolvedTarget] {
+        primaryTargetValue.map { [$0] } ?? []
+    }
+
+    func primaryTarget(preferences: AppConfig.OpenWith) -> OpenWithResolvedTarget? {
+        primaryTargetValue
+    }
+
+    func preloadIcons(for targets: [OpenWithResolvedTarget]) {}
+
+    func icon(for target: OpenWithResolvedTarget) -> NSImage? {
+        nil
+    }
+
+    func open(target: OpenWithResolvedTarget, workingDirectory: String) -> Bool {
+        true
+    }
+}
+
+@MainActor
+private final class RootViewCompositionServerOpenService: ServerOpening {
+    private let browser = ServerBrowserTarget(
+        stableID: ServerBrowserTarget.systemDefaultID,
+        displayName: "System Default",
+        bundleIdentifier: nil,
+        appURL: nil,
+        isSystemDefault: true,
+        isAvailable: true
+    )
+
+    func availableBrowsers(config: AppConfig.ServerDetection) -> [ServerBrowserTarget] {
+        [browser]
+    }
+
+    func preferredBrowser(config: AppConfig.ServerDetection) -> ServerBrowserTarget {
+        browser
+    }
+
+    func icon(for browser: ServerBrowserTarget) -> NSImage? {
+        nil
+    }
+
+    func open(server: DetectedServer, browserID: String?, config: AppConfig.ServerDetection) -> Bool {
+        true
     }
 }
 

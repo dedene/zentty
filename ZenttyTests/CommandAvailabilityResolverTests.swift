@@ -142,6 +142,42 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.newWorklane))
     }
 
+    func testOpenWithSelectedAppRequiresFocusedPaneOpenWithContextAndPrimaryTarget() {
+        let unavailable = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            focusedPaneCanOpenWithPrimary: false
+        )
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            focusedPaneCanOpenWithPrimary: true
+        )
+
+        XCTAssertFalse(unavailable.contains(.openWithSelectedApp))
+        XCTAssertTrue(available.contains(.openWithSelectedApp))
+    }
+
+    func testOpenSelectedServerRequiresPrimaryDetectedServer() {
+        let unavailable = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            activeWorklaneHasPrimaryServer: false
+        )
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            activeWorklaneHasPrimaryServer: true
+        )
+
+        XCTAssertFalse(unavailable.contains(.openSelectedServer))
+        XCTAssertTrue(available.contains(.openSelectedServer))
+    }
+
     func testOpenBranchOnRemoteRequiresBranchURL() {
         let unavailable = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: 1,

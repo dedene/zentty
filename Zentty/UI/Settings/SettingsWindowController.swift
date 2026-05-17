@@ -5,6 +5,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     case appearance
     case shortcuts
     case openWith
+    case devServers
     case paneLayout
     case agents
 
@@ -18,6 +19,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "Shortcuts"
         case .openWith:
             "Open With"
+        case .devServers:
+            "Dev Servers"
         case .paneLayout:
             "Panes"
         case .agents:
@@ -35,6 +38,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "keyboard"
         case .openWith:
             "square.and.arrow.up.on.square"
+        case .devServers:
+            "globe"
         case .paneLayout:
             "rectangle.split.3x1"
         case .agents:
@@ -52,6 +57,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             .systemIndigo
         case .openWith:
             .systemBlue
+        case .devServers:
+            .systemGreen
         case .paneLayout:
             .systemPurple
         case .agents:
@@ -130,6 +137,7 @@ final class SettingsWindowController: NSWindowController {
     init(
         configStore: AppConfigStore,
         openWithService: OpenWithServing = OpenWithService(),
+        serverOpening: ServerOpening = ServerOpenService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
         errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider = {
             ErrorReportingBundleConfiguration.load(from: .main)
@@ -144,6 +152,7 @@ final class SettingsWindowController: NSWindowController {
         let settingsViewController = SettingsViewController(
             configStore: configStore,
             openWithService: openWithService,
+            serverOpenService: serverOpening,
             customAppPicker: customAppPicker,
             errorReportingBundleConfigurationProvider: errorReportingBundleConfigurationProvider,
             errorReportingConfirmationPresenter: errorReportingConfirmationPresenter,
@@ -282,6 +291,7 @@ final class SettingsViewController: NSTabViewController {
         agentTeamsEnableWarningPresenter: agentTeamsEnableWarningPresenter
     )
     private let openWithViewController: OpenWithSettingsSectionViewController
+    private let serverBrowserSettingsViewController: ServerBrowserSettingsSectionViewController
     private let errorReportingBundleConfigurationProvider: ErrorReportingBundleConfigurationProvider
     private let errorReportingConfirmationPresenter: ErrorReportingConfirmationPresenter
     private let errorReportingRestartHandler: ErrorReportingRestartHandler
@@ -303,6 +313,7 @@ final class SettingsViewController: NSTabViewController {
     init(
         configStore: AppConfigStore,
         openWithService: OpenWithServing,
+        serverOpenService: ServerOpening,
         customAppPicker: @escaping () -> OpenWithCustomApp?,
         errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider,
         errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter,
@@ -322,6 +333,10 @@ final class SettingsViewController: NSTabViewController {
             configStore: configStore,
             openWithService: openWithService,
             customAppPicker: customAppPicker
+        )
+        self.serverBrowserSettingsViewController = ServerBrowserSettingsSectionViewController(
+            configStore: configStore,
+            serverOpenService: serverOpenService
         )
         super.init(nibName: nil, bundle: nil)
         tabStyle = .toolbar
@@ -508,6 +523,7 @@ final class SettingsViewController: NSTabViewController {
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(panes: config.panes, paneLayout: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
+        serverBrowserSettingsViewController.apply(serverDetection: config.serverDetection)
         synchronizeWindow(animated: false, transitionID: currentTransitionID)
     }
 
@@ -521,6 +537,8 @@ final class SettingsViewController: NSTabViewController {
             shortcutsViewController
         case .openWith:
             openWithViewController
+        case .devServers:
+            serverBrowserSettingsViewController
         case .paneLayout:
             paneLayoutViewController
         case .agents:

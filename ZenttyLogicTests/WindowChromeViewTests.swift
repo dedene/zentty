@@ -1006,6 +1006,34 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertLessThanOrEqual(view.rowFrame.maxX, view.visibleLaneFrame.maxX + 0.5)
     }
 
+    func test_window_chrome_places_server_control_before_open_with_and_reserves_lane() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: makeCrowdedSummary())
+        view.render(server: WindowChromeServerState(
+            title: "localhost:5173",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+        view.render(openWith: WindowChromeOpenWithState(
+            title: "Cursor",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+        view.leadingVisibleInset = 280
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(view.serverControlFrame.width, 0.5)
+        XCTAssertGreaterThan(view.openWithControlFrame.width, 0.5)
+        XCTAssertLessThanOrEqual(view.serverControlFrame.maxX, view.openWithControlFrame.minX - 8)
+        XCTAssertLessThanOrEqual(view.visibleLaneFrame.maxX, view.serverControlFrame.minX - 8)
+        XCTAssertLessThanOrEqual(view.rowFrame.maxX, view.visibleLaneFrame.maxX + 0.5)
+    }
+
     func test_window_chrome_uses_larger_open_with_glass_button_geometry() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
@@ -1064,6 +1092,29 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         view.performOpenWithPrimaryClickForTesting()
         view.performOpenWithMenuClickForTesting()
+
+        XCTAssertEqual(primaryActionCount, 1)
+        XCTAssertEqual(menuActionCount, 1)
+    }
+
+    func test_window_chrome_invokes_server_primary_and_menu_actions() {
+        var primaryActionCount = 0
+        var menuActionCount = 0
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+        view.onServerPrimaryAction = { primaryActionCount += 1 }
+        view.onServerMenuAction = { menuActionCount += 1 }
+
+        view.render(server: WindowChromeServerState(
+            title: "localhost:3000",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+
+        view.performServerPrimaryClickForTesting()
+        view.performServerMenuClickForTesting()
 
         XCTAssertEqual(primaryActionCount, 1)
         XCTAssertEqual(menuActionCount, 1)

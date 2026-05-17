@@ -12,6 +12,7 @@ final class CommandPaletteController {
     private var lastFocusedPanePath: String?
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
+    var onOpenServer: ((_ serverID: String) -> Void)?
     var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
     var onShowSettingsSection: ((SettingsSection) -> Void)?
     var onNavigateToPane: ((WorklaneID, PaneID) -> Void)?
@@ -33,7 +34,8 @@ final class CommandPaletteController {
         recentPaneReferences: [WorklaneStore.PaneReference] = [],
         openWithTargets: [OpenWithResolvedTarget] = [],
         openWithIconProvider: ((OpenWithResolvedTarget) -> NSImage?)? = nil,
-        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
+        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane,
+        servers: [DetectedServer] = []
     ) {
         if isShown {
             close()
@@ -55,6 +57,7 @@ final class CommandPaletteController {
             focusedPanePath: focusedPanePath,
             iconProvider: openWithIconProvider
         )
+        let serverItems = CommandPaletteItemBuilder.buildServerItems(servers: servers)
         let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
         let settingsItems = CommandPaletteItemBuilder.buildSettingsItems()
         let paneItems = CommandPaletteItemBuilder.buildPaneItems(
@@ -70,7 +73,13 @@ final class CommandPaletteController {
             }
         }
         let restoredCommandItems = restoredCommandItem.map { [$0] } ?? []
-        let allItems = restoredCommandItems + commandItems + paneItems + settingsItems + openWithItems + worklaneColorItems
+        let allItems = restoredCommandItems
+            + commandItems
+            + paneItems
+            + settingsItems
+            + openWithItems
+            + serverItems
+            + worklaneColorItems
         let emptyActionIDs = restoredCommandItems.map(\.id) + Self.emptyActionIDs
         let recentPaneIDs = recentPaneReferences.map {
             CommandPaletteItemID.pane(worklaneID: $0.worklaneID, paneID: $0.paneID)
@@ -216,6 +225,8 @@ final class CommandPaletteController {
         case .openWith(let stableID):
             guard let path = lastFocusedPanePath else { return }
             onOpenWith?(stableID, path)
+        case .server(let serverID):
+            onOpenServer?(serverID)
         case .worklaneColor(let color):
             onSetWorklaneColor?(color)
         case .settings(let section):
@@ -275,7 +286,7 @@ private extension CommandPaletteItemID {
         switch self {
         case .pane, .restoredCommand:
             false
-        case .command, .openWith, .worklaneColor, .settings:
+        case .command, .openWith, .server, .worklaneColor, .settings:
             true
         }
     }

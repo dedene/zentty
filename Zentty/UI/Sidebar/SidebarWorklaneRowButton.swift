@@ -40,6 +40,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var panePrimaryRows: [SidebarPanePrimaryRowView] { paneRowRenderer.panePrimaryRows }
     private var paneDetailLabels: [SidebarStaticLabel] { paneRowRenderer.paneDetailLabels }
     private var paneStatusRows: [SidebarPaneTextRowView] { paneRowRenderer.paneStatusRows }
+    private var paneServerRows: [SidebarPaneServerRowView] { paneRowRenderer.paneServerRows }
     private var paneRowButtons: [SidebarPaneRowButton] { paneRowRenderer.paneRowButtons }
     private var paneRowContainers: [SidebarInsetContainerView] { paneRowRenderer.paneRowContainers }
     private let chrome = SidebarWorklaneRowChrome()
@@ -77,6 +78,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onForceSplitRightRequested: ((PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
+    var onServerPortSelected: ((String) -> Void)?
     var onRunRestoredCommand: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
@@ -741,6 +743,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 },
                 rightPaneCommandPresentationProvider: rightPaneCommandPresentationProvider,
                 moveToWorklaneCatalogProvider: moveToWorklaneCatalogProvider,
+                onServerPortSelected: { [weak self] serverID in
+                    self?.onServerPortSelected?(serverID)
+                },
                 restoredRerunnableCommandProvider: restoredRerunnableCommandProvider
             )
         )
@@ -913,7 +918,8 @@ final class SidebarWorklaneRowButton: NSButton {
         for (index, paneRow) in paneRows.enumerated() {
             guard panePrimaryRows.indices.contains(index),
                 paneDetailLabels.indices.contains(index),
-                paneStatusRows.indices.contains(index)
+                paneStatusRows.indices.contains(index),
+                paneServerRows.indices.contains(index)
             else {
                 continue
             }
@@ -984,6 +990,17 @@ final class SidebarWorklaneRowButton: NSButton {
                 ),
                 reducedMotion: reducedMotionProvider()
             )
+            paneServerRows[index].applyColors(
+                defaultColor: SidebarWorklaneRowStyleResolver.paneDetailTextColor(
+                    isFocused: paneRow.isFocused,
+                    isWorking: paneRow.isWorking,
+                    isActive: isActive,
+                    activeTextColor: activeTextColor,
+                    inactiveTextColor: inactiveTextColor,
+                    theme: currentTheme
+                ),
+                hoverColor: currentTheme.statusRunning
+            )
         }
     }
 
@@ -1016,6 +1033,7 @@ final class SidebarWorklaneRowButton: NSButton {
             primaryRows: panePrimaryRows,
             detailLabels: paneDetailLabels,
             statusRows: paneStatusRows,
+            serverRows: paneServerRows,
             buttons: paneRowButtons,
             containers: paneRowContainers
         )
@@ -1066,6 +1084,7 @@ final class SidebarWorklaneRowButton: NSButton {
             panePrimaryRows: panePrimaryRows,
             paneDetailLabels: paneDetailLabels,
             paneStatusRows: paneStatusRows,
+            paneServerRows: paneServerRows,
             paneRowButtons: paneRowButtons,
             paneRowContainers: paneRowContainers,
             tintLayer: chrome.tintLayer,

@@ -177,11 +177,20 @@ final class WorklaneRenderCoordinator {
             summaries: WorklaneSidebarSummaryBuilder.summaries(
                 for: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
-                focusOverride: sidebarFocusOverrideProvider()
+                focusOverride: sidebarFocusOverrideProvider(),
+                serverContextsByWorklaneID: serverContextsByWorklaneID()
             ),
             theme: currentTheme
         )
         environment?.renderSidebarSyncNeeded()
+    }
+
+    private func serverContextsByWorklaneID() -> [WorklaneID: WorklaneServerContext] {
+        Dictionary(
+            uniqueKeysWithValues: worklaneStore.worklanes.map { worklane in
+                (worklane.id, worklaneStore.serverContext(for: worklane.id))
+            }
+        )
     }
 
     private func handleWorklaneChange(_ change: WorklaneChange) {
@@ -433,7 +442,7 @@ final class WorklaneRenderCoordinator {
             return
         }
 
-        if impacts.contains(.sidebar) {
+        if impacts.contains(.sidebar) || impacts.contains(.serverDetection) {
             renderSidebar(in: views)
         }
 

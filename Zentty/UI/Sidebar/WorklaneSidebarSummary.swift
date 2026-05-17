@@ -10,6 +10,11 @@ struct WorklaneSidebarDetailLine: Equatable {
     let emphasis: WorklaneSidebarDetailEmphasis
 }
 
+struct WorklaneSidebarServerPort: Equatable {
+    let serverID: String
+    let port: Int
+}
+
 struct WorklaneSidebarPaneRow: Equatable {
     let paneID: PaneID
     let primaryText: String
@@ -24,6 +29,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     let isFocused: Bool
     let isWorking: Bool
     let taskProgress: PaneAgentTaskProgress?
+    let serverPorts: [WorklaneSidebarServerPort]
 
     init(
         paneID: PaneID,
@@ -38,7 +44,8 @@ struct WorklaneSidebarPaneRow: Equatable {
         interactionSymbolName: String? = nil,
         isFocused: Bool,
         isWorking: Bool,
-        taskProgress: PaneAgentTaskProgress? = nil
+        taskProgress: PaneAgentTaskProgress? = nil,
+        serverPorts: [WorklaneSidebarServerPort] = []
     ) {
         self.paneID = paneID
         self.primaryText = primaryText
@@ -53,6 +60,7 @@ struct WorklaneSidebarPaneRow: Equatable {
         self.isFocused = isFocused
         self.isWorking = isWorking
         self.taskProgress = taskProgress
+        self.serverPorts = serverPorts
     }
 }
 

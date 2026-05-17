@@ -62,6 +62,10 @@ targets:
       - path: Zentty/AppState/Agent/JSONKeyAccess.swift
       - path: Zentty/AppState/Agent/KimiHooksInstaller.swift
       - path: Zentty/AppState/Agent/JSONCRelaxedParse.swift
+      - path: Zentty/Servers/ServerIPCCommands.swift
+      - path: Zentty/Servers/ServerOutputURLDetector.swift
+      - path: Zentty/Servers/ServerURLNormalizer.swift
+      - path: Zentty/Servers/ServerWatchRunner.swift
       - path: Zentty/UI/Theme/WorklaneColor.swift
     dependencies:
       - package: ArgumentParser
