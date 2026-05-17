@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import UserNotifications
 import os
@@ -16,6 +17,30 @@ protocol WorklaneAttentionUserNotificationCenter: AnyObject {
         paneID: String,
         soundName: String?
     )
+}
+
+struct WorklaneAttentionUnclassifiedNeedsInputLogRecord: Equatable {
+    let classification: PaneInteractionKind
+    let source: String
+    let messageHash: String
+    let messageLength: Int
+
+    var publicDescription: String {
+        "Generic needs-input notification classification=\(classification.rawValue) source=\(source) messageHash=\(messageHash) messageLength=\(messageLength)"
+    }
+
+    init(classification: PaneInteractionKind, source: String, message: String) {
+        self.classification = classification
+        self.source = source
+        self.messageHash = Self.sha256Hex(for: message)
+        self.messageLength = message.count
+    }
+
+    private static func sha256Hex(for message: String) -> String {
+        SHA256.hash(data: Data(message.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 }
 
 @MainActor
@@ -64,23 +89,26 @@ final class WorklaneAttentionNotificationCoordinator {
     private let notificationStore: NotificationStore
     private let configStore: AppConfigStore?
     private let needsInputSystemNotificationDelay: TimeInterval
-    private let logger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneAttentionNotifications")
+    private let unclassifiedNeedsInputLogger: @MainActor (WorklaneAttentionUnclassifiedNeedsInputLogRecord) -> Void
+    private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneAttentionNotifications")
     private var lastSeenStates: [PaneKey: WorklaneAttentionState] = [:]
     private var lastSeenActiveViews: [PaneKey: Bool] = [:]
     private var lastSeenNotificationSignatures: [PaneKey: String] = [:]
     private var pendingSystemNotificationRequests: [PaneKey: SystemNotificationRequest] = [:]
     private var pendingSystemNotificationTasks: [PaneKey: Task<Void, Never>] = [:]
-    private var loggedGenericNeedsInputMessages = Set<String>()
+    private var loggedGenericNeedsInputMessageHashes = Set<String>()
 
     init(
         center: (any WorklaneAttentionUserNotificationCenter)? = nil,
         notificationStore: NotificationStore,
-        configStore: AppConfigStore? = nil
+        configStore: AppConfigStore? = nil,
+        unclassifiedNeedsInputLogger: (@MainActor (WorklaneAttentionUnclassifiedNeedsInputLogRecord) -> Void)? = nil
     ) {
         self.center = center ?? Self.makeDefaultNotificationCenter()
         self.notificationStore = notificationStore
         self.configStore = configStore
         self.needsInputSystemNotificationDelay = Runtime.isRunningTests ? 0 : 1.5
+        self.unclassifiedNeedsInputLogger = unclassifiedNeedsInputLogger ?? Self.logUnclassifiedNeedsInputRecord
         self.center.requestAuthorizationIfNeeded()
     }
 
@@ -88,12 +116,14 @@ final class WorklaneAttentionNotificationCoordinator {
         center: (any WorklaneAttentionUserNotificationCenter)? = nil,
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
-        needsInputSystemNotificationDelay: TimeInterval
+        needsInputSystemNotificationDelay: TimeInterval,
+        unclassifiedNeedsInputLogger: (@MainActor (WorklaneAttentionUnclassifiedNeedsInputLogRecord) -> Void)? = nil
     ) {
         self.center = center ?? Self.makeDefaultNotificationCenter()
         self.notificationStore = notificationStore
         self.configStore = configStore
         self.needsInputSystemNotificationDelay = needsInputSystemNotificationDelay
+        self.unclassifiedNeedsInputLogger = unclassifiedNeedsInputLogger ?? Self.logUnclassifiedNeedsInputRecord
         self.center.requestAuthorizationIfNeeded()
     }
 
@@ -102,6 +132,10 @@ final class WorklaneAttentionNotificationCoordinator {
             return NoOpWorklaneAttentionUserNotificationCenter()
         }
         return WorklaneAttentionUNCenter()
+    }
+
+    private static func logUnclassifiedNeedsInputRecord(_ record: WorklaneAttentionUnclassifiedNeedsInputLogRecord) {
+        logger.info("\(record.publicDescription, privacy: .public)")
     }
 
     func update(
@@ -513,19 +547,29 @@ final class WorklaneAttentionNotificationCoordinator {
 
         let raw = paneContext?.auxiliaryState?.raw
         let candidates = [
-            WorklaneContextFormatter.trimmed(raw?.agentStatus?.text),
-            WorklaneContextFormatter.trimmed(raw?.lastDesktopNotificationText),
+            (source: "agentStatus.text", message: WorklaneContextFormatter.trimmed(raw?.agentStatus?.text)),
+            (source: "desktopNotification.text", message: WorklaneContextFormatter.trimmed(raw?.lastDesktopNotificationText)),
         ]
 
-        guard let message = candidates.compactMap({ $0 }).first else {
+        guard let candidate = candidates.compactMap({ candidate -> (source: String, message: String)? in
+            guard let message = candidate.message else {
+                return nil
+            }
+            return (source: candidate.source, message: message)
+        }).first else {
             return
         }
 
-        guard loggedGenericNeedsInputMessages.insert(message).inserted else {
+        let record = WorklaneAttentionUnclassifiedNeedsInputLogRecord(
+            classification: interactionKind,
+            source: candidate.source,
+            message: candidate.message
+        )
+        guard loggedGenericNeedsInputMessageHashes.insert(record.messageHash).inserted else {
             return
         }
 
-        logger.info("Generic needs-input notification text: \(message, privacy: .public)")
+        unclassifiedNeedsInputLogger(record)
     }
 
     private func notificationSignature(

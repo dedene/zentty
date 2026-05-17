@@ -72,6 +72,10 @@ final class WorklanePeekControllerTests: XCTestCase {
         var hasPending: Bool { !pending.isEmpty }
     }
 
+    final class TestClock {
+        var now: CFTimeInterval = 0
+    }
+
     @MainActor
     final class RecordingDelegate: WorklanePeekControllerDelegate {
         var armed = 0
@@ -99,7 +103,7 @@ final class WorklanePeekControllerTests: XCTestCase {
         let scheduler: TestScheduler
         let delegate: RecordingDelegate
         let controller: WorklanePeekController
-        var time: CFTimeInterval
+        let time: TestClock
     }
 
     private func makeHarness(
@@ -114,8 +118,8 @@ final class WorklanePeekControllerTests: XCTestCase {
         let scheduler = TestScheduler()
         let delegate = RecordingDelegate()
 
-        var nowBox = CFTimeInterval(0)
-        let clock: () -> CFTimeInterval = { nowBox }
+        let time = TestClock()
+        let clock: () -> CFTimeInterval = { time.now }
 
         let controller = WorklanePeekController(
             worklaneAccess: access,
@@ -130,7 +134,7 @@ final class WorklanePeekControllerTests: XCTestCase {
             scheduler: scheduler,
             delegate: delegate,
             controller: controller,
-            time: nowBox
+            time: time
         )
     }
 
@@ -682,7 +686,7 @@ final class WorklanePeekControllerTests: XCTestCase {
 
     // MARK: - Stale hold-timer firing after gesture restart
 
-    func test_stale_hold_timer_does_not_open_visual_for_new_arming() {
+    func test_stale_hold_timer_does_not_open_visual_for_new_arming() throws {
         // Although the implementation cancels pending timers on re-arm, this
         // verifies the armedAt guard inside handleHoldTimerFired so a leaked
         // closure can't re-trigger the gesture.
@@ -695,11 +699,20 @@ final class WorklanePeekControllerTests: XCTestCase {
         )
 
         harness.controller.handleTab(forward: true)      // armed @ t=0
+        let staleWork = try XCTUnwrap(harness.scheduler.pending.values.first?.work)
         harness.controller.handleCtrlReleased()          // disarmed
+        harness.time.now += 1
         harness.controller.handleTab(forward: true)      // armed again
+        let currentWork = try XCTUnwrap(harness.scheduler.pending.values.first?.work)
 
-        // Only the most recent pending timer should fire.
-        harness.scheduler.fireAll()
+        staleWork()
+        XCTAssertEqual(harness.delegate.opened, 0)
+        if case .armed = harness.controller.phase {} else {
+            XCTFail("expected stale hold timer to leave current arming intact, got \(harness.controller.phase)")
+        }
+        XCTAssertTrue(harness.scheduler.hasPending, "current hold timer should remain armed")
+
+        currentWork()
         XCTAssertEqual(harness.delegate.opened, 1)
     }
 }

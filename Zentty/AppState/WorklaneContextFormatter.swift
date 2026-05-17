@@ -485,10 +485,15 @@ enum WorklaneContextFormatter {
             return nil
         }
 
-        let homePath = NSHomeDirectory()
-        let normalizedPath = standardizedPath.hasPrefix(homePath)
-            ? standardizedPath.replacingOccurrences(of: homePath, with: "~")
-            : standardizedPath
+        let homePath = standardPath(NSHomeDirectory())
+        let normalizedPath: String
+        if standardizedPath == homePath {
+            normalizedPath = "~"
+        } else if standardizedPath.hasPrefix(homePath + "/") {
+            normalizedPath = "~/" + standardizedPath.dropFirst(homePath.count + 1)
+        } else {
+            normalizedPath = standardizedPath
+        }
 
         guard normalizedPath != "~" else {
             return ["~"]

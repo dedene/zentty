@@ -543,6 +543,86 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.primaryTargetID, "custom:valid")
     }
 
+    func test_store_ignores_unknown_non_string_fields_in_open_with_custom_apps() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [open_with]
+        primary_target_id = "custom:duplicate"
+        enabled_target_ids = ["custom:duplicate", "custom:valid", "missing"]
+
+        [[open_with.custom_apps]]
+        id = "custom:valid"
+        name = "Valid App"
+        path = "/Applications/Valid.app"
+        launch_count = 3
+
+        [[open_with.custom_apps]]
+        id = "custom:duplicate"
+        name = "Duplicate Path"
+        path = "/Applications/Valid.app"
+        quarantined = false
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.openWith.customApps, [
+            OpenWithCustomApp(
+                id: "custom:valid",
+                name: "Valid App",
+                appPath: "/Applications/Valid.app"
+            )
+        ])
+        XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["custom:valid"])
+        XCTAssertEqual(store.current.openWith.primaryTargetID, "custom:valid")
+    }
+
+    func test_store_ignores_unknown_non_string_fields_in_server_custom_browsers() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [server_detection]
+        passive_detection_enabled = false
+        preferred_browser_id = "custom:duplicate"
+        enabled_browser_target_ids = ["custom:duplicate", "custom:valid", "missing"]
+
+        [[server_detection.custom_browsers]]
+        id = "custom:valid"
+        name = "Valid Browser"
+        path = "/Applications/Valid Browser.app"
+        bundle_identifier = "com.example.ValidBrowser"
+        priority = 10
+
+        [[server_detection.custom_browsers]]
+        id = "custom:duplicate"
+        name = "Duplicate Browser"
+        path = "/Applications/Valid Browser.app"
+        supports_profiles = true
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.serverDetection.passiveDetectionEnabled)
+        XCTAssertEqual(store.current.serverDetection.customBrowsers, [
+            ServerBrowserCustomApp(
+                id: "custom:valid",
+                name: "Valid Browser",
+                appPath: "/Applications/Valid Browser.app",
+                bundleIdentifier: "com.example.ValidBrowser"
+            )
+        ])
+        XCTAssertEqual(store.current.serverDetection.enabledBrowserTargetIDs, ["custom:valid"])
+        XCTAssertEqual(store.current.serverDetection.preferredBrowserID, "custom:valid")
+    }
+
     func test_store_normalizes_duplicate_and_conflicting_shortcut_overrides_from_config_file() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """

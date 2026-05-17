@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class SidebarViewRenderTests: XCTestCase {
+final class SidebarViewRenderTests: AppKitTestCase {
     func test_sidebar_toggle_tooltip_uses_configured_shortcut() {
         let button = SidebarToggleButton()
 

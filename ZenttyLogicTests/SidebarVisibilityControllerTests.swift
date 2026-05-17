@@ -1,7 +1,7 @@
 import XCTest
 @testable import Zentty
 
-final class SidebarVisibilityControllerTests: XCTestCase {
+final class SidebarVisibilityControllerTests: AppKitTestCase {
     override func tearDown() {
         SidebarVisibilityPreference.reset()
         super.tearDown()

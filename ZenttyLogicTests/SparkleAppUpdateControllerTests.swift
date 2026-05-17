@@ -5,6 +5,19 @@ import XCTest
 
 @MainActor
 final class SparkleAppUpdateControllerTests: XCTestCase {
+    private var temporaryBundleRootURLs: [URL] = []
+
+    override func tearDownWithError() throws {
+        let rootURLs = temporaryBundleRootURLs
+        temporaryBundleRootURLs.removeAll()
+
+        for rootURL in rootURLs where FileManager.default.fileExists(atPath: rootURL.path) {
+            try FileManager.default.removeItem(at: rootURL)
+        }
+
+        try super.tearDownWithError()
+    }
+
     func test_make_default_app_update_controller_returns_noop_without_sparkle_bundle_configuration() throws {
         let stateStore = AppUpdateStateStore()
         let controller = makeDefaultAppUpdateController(
@@ -118,6 +131,18 @@ final class SparkleAppUpdateControllerTests: XCTestCase {
         XCTAssertTrue(stateStore.current.isUpdateAvailable)
     }
 
+    func test_tearDown_removes_created_temporary_bundle_roots() throws {
+        let bundle = try makeTemporarySparkleBundle(named: "SparkleCleanup")
+        let bundleURL = try XCTUnwrap(bundle.bundleURL)
+        let temporaryBundleRootURL = bundleURL.deletingLastPathComponent()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+
+        try tearDownWithError()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryBundleRootURL.path))
+    }
+
     private func makeConfigStore() -> AppConfigStore {
         AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.SparkleAppUpdateControllerTests")
@@ -167,10 +192,12 @@ final class SparkleAppUpdateControllerTests: XCTestCase {
         named name: String,
         includeSparkleConfiguration: Bool
     ) throws -> Bundle {
-        let rootURL = FileManager.default.temporaryDirectory
+        let temporaryBundleRootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("\(name).app", isDirectory: true)
-        let contentsURL = rootURL.appendingPathComponent("Contents", isDirectory: true)
+        temporaryBundleRootURLs.append(temporaryBundleRootURL)
+
+        let bundleURL = temporaryBundleRootURL.appendingPathComponent("\(name).app", isDirectory: true)
+        let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
         let macOSURL = contentsURL.appendingPathComponent("MacOS", isDirectory: true)
         try FileManager.default.createDirectory(at: macOSURL, withIntermediateDirectories: true)
 
@@ -206,6 +233,6 @@ final class SparkleAppUpdateControllerTests: XCTestCase {
         FileManager.default.createFile(atPath: executableURL.path, contents: Data())
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
 
-        return try XCTUnwrap(Bundle(url: rootURL))
+        return try XCTUnwrap(Bundle(url: bundleURL))
     }
 }

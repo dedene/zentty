@@ -6460,6 +6460,49 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.body, "zentty — Input required.")
     }
 
+    func test_notification_coordinator_logs_unclassified_needs_input_without_public_message_text() throws {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        var logRecords: [WorklaneAttentionUnclassifiedNeedsInputLogRecord] = []
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            unclassifiedNeedsInputLogger: { logRecords.append($0) }
+        )
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let sensitiveText = "Use token sk-live-private-value to continue?"
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Codex",
+                    interactionKind: .genericInput,
+                    explicitText: sensitiveText,
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        let record = try XCTUnwrap(logRecords.first)
+        XCTAssertEqual(logRecords.count, 1)
+        XCTAssertEqual(record.classification, .genericInput)
+        XCTAssertEqual(record.messageLength, sensitiveText.count)
+        XCTAssertEqual(record.messageHash.count, 64)
+        XCTAssertFalse(record.publicDescription.contains(sensitiveText))
+        XCTAssertFalse(record.publicDescription.contains("sk-live-private-value"))
+        XCTAssertTrue(record.publicDescription.contains("classification=generic-input"))
+        XCTAssertTrue(record.publicDescription.contains("messageHash=\(record.messageHash)"))
+        XCTAssertTrue(record.publicDescription.contains("messageLength=\(sensitiveText.count)"))
+    }
+
     func test_notification_coordinator_uses_gemini_action_required_as_approval_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())

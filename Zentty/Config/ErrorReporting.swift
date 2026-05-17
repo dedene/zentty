@@ -1,9 +1,20 @@
 import AppKit
 import Foundation
+import OSLog
 
 typealias ErrorReportingBundleConfigurationProvider = @Sendable () -> ErrorReportingBundleConfiguration?
 typealias ErrorReportingConfirmationPresenter = @MainActor (NSWindow, Bool, @escaping (ErrorReportingChangeDecision) -> Void) -> Void
 typealias ErrorReportingRestartHandler = @MainActor () -> Void
+typealias ErrorReportingApplicationOpenCompletion = @Sendable (NSRunningApplication?, Error?) -> Void
+typealias ErrorReportingApplicationOpener = @MainActor (
+    URL,
+    NSWorkspace.OpenConfiguration,
+    @escaping ErrorReportingApplicationOpenCompletion
+) -> Void
+typealias ErrorReportingApplicationTerminator = @MainActor () -> Void
+typealias ErrorReportingLaunchFailureLogger = @Sendable (Error) -> Void
+
+private let errorReportingLogger = Logger(subsystem: "be.zenjoy.zentty", category: "ErrorReporting")
 
 enum ErrorReportingChangeDecision: Equatable, Sendable {
     case restartNow
@@ -153,16 +164,68 @@ enum ErrorReportingRestartConfirmation {
 enum ErrorReportingApplicationRestart {
     @MainActor
     static func restart() {
-        let applicationURL = Bundle.main.bundleURL
+        restart(
+            applicationURL: Bundle.main.bundleURL,
+            opener: openApplication,
+            terminate: {
+                NSApp.terminate(nil)
+            },
+            logLaunchFailure: logLaunchFailure
+        )
+    }
+
+    @MainActor
+    static func restart(
+        applicationURL: URL,
+        opener: ErrorReportingApplicationOpener,
+        terminate: @escaping ErrorReportingApplicationTerminator,
+        logLaunchFailure: @escaping ErrorReportingLaunchFailureLogger
+    ) {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, error in
-            guard error == nil else {
+        configuration.createsNewApplicationInstance = true
+        opener(applicationURL, configuration) { runningApplication, error in
+            if let error {
+                logLaunchFailure(error)
+                return
+            }
+            guard runningApplication != nil else {
+                logLaunchFailure(Self.missingRunningApplicationError(applicationURL: applicationURL))
                 return
             }
             Task { @MainActor in
-                NSApp.terminate(nil)
+                terminate()
             }
         }
+    }
+
+    @MainActor
+    private static func openApplication(
+        applicationURL: URL,
+        configuration: NSWorkspace.OpenConfiguration,
+        completion: @escaping ErrorReportingApplicationOpenCompletion
+    ) {
+        NSWorkspace.shared.openApplication(
+            at: applicationURL,
+            configuration: configuration,
+            completionHandler: completion
+        )
+    }
+
+    private static func logLaunchFailure(_ error: Error) {
+        errorReportingLogger.error(
+            "Failed to relaunch Zentty for error reporting preference change: \(error.localizedDescription, privacy: .public)"
+        )
+    }
+
+    private static func missingRunningApplicationError(applicationURL: URL) -> NSError {
+        NSError(
+            domain: "be.zenjoy.zentty.ErrorReportingRestart",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "NSWorkspace completed without a running application for \(applicationURL.path)",
+            ]
+        )
     }
 }

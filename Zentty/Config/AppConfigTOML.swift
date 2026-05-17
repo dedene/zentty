@@ -532,16 +532,21 @@ enum AppConfigTOML {
         _ assignment: (key: String, value: String),
         into app: inout OpenWithCustomApp
     ) -> Bool {
-        guard let decoded = decodeString(assignment.value) else {
-            return false
-        }
-
         switch assignment.key {
         case "id":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             app.id = decoded
         case "name":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             app.name = decoded
         case "path":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             app.appPath = decoded
         default:
             return true
@@ -554,18 +559,26 @@ enum AppConfigTOML {
         _ assignment: (key: String, value: String),
         into browser: inout ServerBrowserCustomApp
     ) -> Bool {
-        guard let decoded = decodeString(assignment.value) else {
-            return false
-        }
-
         switch assignment.key {
         case "id":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.id = decoded
         case "name":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.name = decoded
         case "path":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.appPath = decoded
         case "bundle_identifier":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.bundleIdentifier = decoded.isEmpty ? nil : decoded
         default:
             return true

@@ -62,6 +62,38 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
         XCTAssertEqual(result, .switchLeft)
     }
 
+    func test_inverted_horizontal_scroll_right_returns_switchLeft() {
+        let event = MockScrollEvent(
+            scrollingDeltaX: 50,
+            scrollingDeltaY: 0,
+            hasPreciseScrollingDeltas: true,
+            phase: .changed,
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: true,
+            modifierFlags: []
+        )
+
+        let result = handler.handle(scrollEvent: event.asNSEvent)
+
+        XCTAssertEqual(result, .switchLeft)
+    }
+
+    func test_inverted_horizontal_scroll_left_returns_switchRight() {
+        let event = MockScrollEvent(
+            scrollingDeltaX: -50,
+            scrollingDeltaY: 0,
+            hasPreciseScrollingDeltas: true,
+            phase: .changed,
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: true,
+            modifierFlags: []
+        )
+
+        let result = handler.handle(scrollEvent: event.asNSEvent)
+
+        XCTAssertEqual(result, .switchRight)
+    }
+
     func test_wheel_threshold_is_lower() {
         // Non-precise (wheel) threshold is 1
         let event = MockScrollEvent(
@@ -77,6 +109,70 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
         let result = handler.handle(scrollEvent: event.asNSEvent)
 
         XCTAssertEqual(result, .switchRight)
+    }
+
+    func test_shift_vertical_wheel_scroll_down_returns_switchLeft() {
+        let event = MockScrollEvent(
+            scrollingDeltaX: 0,
+            scrollingDeltaY: -1,
+            hasPreciseScrollingDeltas: false,
+            phase: [],
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: false,
+            modifierFlags: [.shift]
+        )
+
+        let result = handler.handle(scrollEvent: event.asNSEvent)
+
+        XCTAssertEqual(result, .switchLeft)
+    }
+
+    func test_shift_vertical_wheel_scroll_up_returns_switchRight() {
+        let event = MockScrollEvent(
+            scrollingDeltaX: 0,
+            scrollingDeltaY: 1,
+            hasPreciseScrollingDeltas: false,
+            phase: [],
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: false,
+            modifierFlags: [.shift]
+        )
+
+        let result = handler.handle(scrollEvent: event.asNSEvent)
+
+        XCTAssertEqual(result, .switchRight)
+    }
+
+    func test_inverted_shift_vertical_wheel_scroll_down_returns_switchRight() {
+        let event = MockScrollEvent(
+            scrollingDeltaX: 0,
+            scrollingDeltaY: -1,
+            hasPreciseScrollingDeltas: false,
+            phase: [],
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: true,
+            modifierFlags: [.shift]
+        )
+
+        let result = handler.handle(scrollEvent: event.asNSEvent)
+
+        XCTAssertEqual(result, .switchRight)
+    }
+
+    func test_inverted_shift_vertical_wheel_scroll_up_returns_switchLeft() {
+        let event = MockScrollEvent(
+            scrollingDeltaX: 0,
+            scrollingDeltaY: 1,
+            hasPreciseScrollingDeltas: false,
+            phase: [],
+            momentumPhase: [],
+            isDirectionInvertedFromDevice: true,
+            modifierFlags: [.shift]
+        )
+
+        let result = handler.handle(scrollEvent: event.asNSEvent)
+
+        XCTAssertEqual(result, .switchLeft)
     }
 
     func test_reset_clears_accumulated_state() {
@@ -197,8 +293,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
 // MARK: - Mock scroll event
 
-/// Minimal mock that creates an NSEvent with controlled scroll properties.
-/// Uses CGEvent to avoid private API.
+/// Minimal mock event with controlled scroll properties.
 private struct MockScrollEvent {
     let scrollingDeltaX: CGFloat
     let scrollingDeltaY: CGFloat
@@ -209,40 +304,57 @@ private struct MockScrollEvent {
     let modifierFlags: NSEvent.ModifierFlags
 
     var asNSEvent: NSEvent {
-        // Create via CGEvent for scroll wheel
-        let cgEvent = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: hasPreciseScrollingDeltas ? .pixel : .line,
-            wheelCount: 2,
-            wheel1: Int32(scrollingDeltaY),
-            wheel2: Int32(scrollingDeltaX),
-            wheel3: 0
-        )!
-
-        // Set precise deltas via CGEvent fields
-        if hasPreciseScrollingDeltas {
-            cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(scrollingDeltaX))
-            cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: Double(scrollingDeltaY))
-        }
-
-        // Set phase
-        cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
-        cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentumPhase.rawValue))
-
-        // Set direction inversion
-        cgEvent.setIntegerValueField(
-            .scrollWheelEventIsContinuous,
-            value: hasPreciseScrollingDeltas ? 1 : 0
+        MockNSEvent(
+            scrollingDeltaX: scrollingDeltaX,
+            scrollingDeltaY: scrollingDeltaY,
+            hasPreciseScrollingDeltas: hasPreciseScrollingDeltas,
+            phase: phase,
+            momentumPhase: momentumPhase,
+            isDirectionInvertedFromDevice: isDirectionInvertedFromDevice,
+            modifierFlags: modifierFlags
         )
-        cgEvent.setIntegerValueField(
-            .scrollWheelEventScrollCount,
-            value: isDirectionInvertedFromDevice ? 1 : 0
-        )
-
-        if !modifierFlags.isEmpty {
-            cgEvent.flags = CGEventFlags(rawValue: UInt64(modifierFlags.rawValue))
-        }
-
-        return NSEvent(cgEvent: cgEvent)!
     }
+}
+
+private final class MockNSEvent: NSEvent {
+    private let mockedScrollingDeltaX: CGFloat
+    private let mockedScrollingDeltaY: CGFloat
+    private let mockedHasPreciseScrollingDeltas: Bool
+    private let mockedPhase: NSEvent.Phase
+    private let mockedMomentumPhase: NSEvent.Phase
+    private let mockedIsDirectionInvertedFromDevice: Bool
+    private let mockedModifierFlags: NSEvent.ModifierFlags
+
+    init(
+        scrollingDeltaX: CGFloat,
+        scrollingDeltaY: CGFloat,
+        hasPreciseScrollingDeltas: Bool,
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase,
+        isDirectionInvertedFromDevice: Bool,
+        modifierFlags: NSEvent.ModifierFlags
+    ) {
+        self.mockedScrollingDeltaX = scrollingDeltaX
+        self.mockedScrollingDeltaY = scrollingDeltaY
+        self.mockedHasPreciseScrollingDeltas = hasPreciseScrollingDeltas
+        self.mockedPhase = phase
+        self.mockedMomentumPhase = momentumPhase
+        self.mockedIsDirectionInvertedFromDevice = isDirectionInvertedFromDevice
+        self.mockedModifierFlags = modifierFlags
+        super.init()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var type: NSEvent.EventType { .scrollWheel }
+    override var scrollingDeltaX: CGFloat { mockedScrollingDeltaX }
+    override var scrollingDeltaY: CGFloat { mockedScrollingDeltaY }
+    override var hasPreciseScrollingDeltas: Bool { mockedHasPreciseScrollingDeltas }
+    override var phase: NSEvent.Phase { mockedPhase }
+    override var momentumPhase: NSEvent.Phase { mockedMomentumPhase }
+    override var isDirectionInvertedFromDevice: Bool { mockedIsDirectionInvertedFromDevice }
+    override var modifierFlags: NSEvent.ModifierFlags { mockedModifierFlags }
 }

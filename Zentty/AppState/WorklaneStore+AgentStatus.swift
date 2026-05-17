@@ -814,7 +814,7 @@ extension WorklaneStore {
         }
 
         codexRestartLogger.notice(
-            "\(stage, privacy: .public) pane=\(paneID.rawValue, privacy: .public) event=\(Self.codexRestartEventDescription(event), privacy: .public) title=\(auxiliaryState?.metadata?.title ?? "<nil>", privacy: .public) process=\(auxiliaryState?.metadata?.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState?.agentStatus), privacy: .public) sessions=\(auxiliaryState?.agentReducerState.sessionsByID.count ?? -1, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState?.raw), privacy: .public)"
+            "\(stage, privacy: .public) pane=\(paneID.rawValue, privacy: .public) event=\(Self.codexRestartEventDescription(event), privacy: .public) title=\(auxiliaryState?.metadata?.title ?? "<nil>", privacy: .private) process=\(auxiliaryState?.metadata?.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState?.agentStatus), privacy: .public) sessions=\(auxiliaryState?.agentReducerState.sessionsByID.count ?? -1, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState?.raw), privacy: .public)"
         )
     }
 
@@ -831,7 +831,7 @@ extension WorklaneStore {
         }
 
         codexRestartLogger.notice(
-            "\(stage, privacy: .public) pane=\(payload.paneID.rawValue, privacy: .public) signal=\(payload.signalKind.rawValue, privacy: .public) state=\(payload.state?.rawValue ?? "<nil>", privacy: .public) shellActivity=\(payload.shellActivityState?.rawValue ?? "<nil>", privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) lifecycle=\(payload.lifecycleEvent?.rawValue ?? "<nil>", privacy: .public) resolved=\(resolvedTool?.displayName ?? "<nil>", privacy: .public) session=\(payload.sessionID ?? "<nil>", privacy: .public) pid=\(payload.pid.map(String.init) ?? "<nil>", privacy: .public) pidEvent=\(payload.pidEvent.map { String(describing: $0) } ?? "<nil>", privacy: .public) transcript=\(payload.agentTranscriptPath ?? "<nil>", privacy: .public) title=\(auxiliaryState?.metadata?.title ?? "<nil>", privacy: .public) process=\(auxiliaryState?.metadata?.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState?.agentStatus), privacy: .public) sessions=\(auxiliaryState?.agentReducerState.sessionsByID.count ?? -1, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState?.raw), privacy: .public)"
+            "\(stage, privacy: .public) pane=\(payload.paneID.rawValue, privacy: .public) signal=\(payload.signalKind.rawValue, privacy: .public) state=\(payload.state?.rawValue ?? "<nil>", privacy: .public) shellActivity=\(payload.shellActivityState?.rawValue ?? "<nil>", privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) lifecycle=\(payload.lifecycleEvent?.rawValue ?? "<nil>", privacy: .public) resolved=\(resolvedTool?.displayName ?? "<nil>", privacy: .public) session=\(payload.sessionID ?? "<nil>", privacy: .public) pid=\(payload.pid.map(String.init) ?? "<nil>", privacy: .public) pidEvent=\(payload.pidEvent.map { String(describing: $0) } ?? "<nil>", privacy: .public) transcript=\(payload.agentTranscriptPath ?? "<nil>", privacy: .private) title=\(auxiliaryState?.metadata?.title ?? "<nil>", privacy: .private) process=\(auxiliaryState?.metadata?.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState?.agentStatus), privacy: .public) sessions=\(auxiliaryState?.agentReducerState.sessionsByID.count ?? -1, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState?.raw), privacy: .public)"
         )
     }
 
@@ -862,7 +862,7 @@ extension WorklaneStore {
         case .commandFinished(let exitCode, let durationNanoseconds):
             return "commandFinished:exit=\(exitCode.map(String.init) ?? "<nil>"):durationNs=\(durationNanoseconds)"
         case .desktopNotification(let notification):
-            return "desktopNotification:title=\(notification.title ?? "<nil>"):body=\(notification.body ?? "<nil>")"
+            return "desktopNotification:titlePresent=\(notification.title != nil):bodyPresent=\(notification.body != nil)"
         case .userInterrupted:
             return "userInterrupted"
         case .userEditedInput:
@@ -1398,7 +1398,7 @@ extension WorklaneStore {
 
         loggedUnclassifiedCodexDesktopNotifications.insert(notificationText)
         worklaneStoreLogger.notice(
-            "Unclassified Codex desktop notification text=\(notificationText, privacy: .public)"
+            "Unclassified Codex desktop notification text=\(notificationText, privacy: .private)"
         )
     }
 

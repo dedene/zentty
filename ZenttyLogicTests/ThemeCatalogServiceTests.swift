@@ -17,14 +17,14 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         super.tearDown()
     }
 
-    func testDiscoversSingleThemeWithColors() {
+    func testDiscoversSingleThemeWithColors() throws {
         let themeContent = """
         background = #1a1b26
         foreground = #c0caf5
         palette = 0=#15161e
         palette = 1=#f7768e
         """
-        writeThemeFile(named: "TokyoNight", content: themeContent)
+        try writeThemeFile(named: "TokyoNight", content: themeContent)
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -42,9 +42,10 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(tokyoNight.palette[1].themeHexString, "#F7768E")
     }
 
-    func testSkipsFilesMissingForeground() {
+    func testSkipsFilesMissingForeground() throws {
         let content = "background = #000000\n"
-        writeThemeFile(named: "NoFg", content: content)
+        let malformedThemeURL = try writeThemeFile(named: "NoFg", content: content)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: malformedThemeURL.path))
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -53,9 +54,10 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(themes.map(\.displayName), ["Zentty Default Theme"])
     }
 
-    func testSkipsFilesMissingBackground() {
+    func testSkipsFilesMissingBackground() throws {
         let content = "foreground = #ffffff\n"
-        writeThemeFile(named: "NoBg", content: content)
+        let malformedThemeURL = try writeThemeFile(named: "NoBg", content: content)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: malformedThemeURL.path))
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -103,10 +105,10 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(sharedTheme.foreground.themeHexString, "#BBBBBB")
     }
 
-    func testSortsCaseInsensitively() {
-        writeThemeFile(named: "Zebra", content: "background = #000000\nforeground = #ffffff\n")
-        writeThemeFile(named: "Alpha", content: "background = #000000\nforeground = #ffffff\n")
-        writeThemeFile(named: "middle", content: "background = #000000\nforeground = #ffffff\n")
+    func testSortsCaseInsensitively() throws {
+        try writeThemeFile(named: "Zebra", content: "background = #000000\nforeground = #ffffff\n")
+        try writeThemeFile(named: "Alpha", content: "background = #000000\nforeground = #ffffff\n")
+        try writeThemeFile(named: "middle", content: "background = #000000\nforeground = #ffffff\n")
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -118,7 +120,7 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         )
     }
 
-    func testIgnoresCommentsAndBlankLines() {
+    func testIgnoresCommentsAndBlankLines() throws {
         let content = """
         # This is a comment
         // Another comment
@@ -127,7 +129,7 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
 
         foreground = #c0caf5
         """
-        writeThemeFile(named: "Commented", content: content)
+        try writeThemeFile(named: "Commented", content: content)
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -141,7 +143,7 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(commentedTheme.foreground.themeHexString, "#C0CAF5")
     }
 
-    func testParsesSparsePaletteIndices() {
+    func testParsesSparsePaletteIndices() throws {
         let content = """
         background = #000000
         foreground = #ffffff
@@ -149,7 +151,7 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         palette = 2=#00ff00
         palette = 15=#0000ff
         """
-        writeThemeFile(named: "Sparse", content: content)
+        try writeThemeFile(named: "Sparse", content: content)
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -182,14 +184,14 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(themes.map(\.displayName), ["Zentty Default Theme"])
     }
 
-    func testDiscoveredThemeOverridesBuiltInFallbackByName() {
+    func testDiscoveredThemeOverridesBuiltInFallbackByName() throws {
         let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let content = """
         background = #101418
         foreground = #e6edf3
         palette = 0=#111111
         """
-        writeThemeFile(named: persistedFallbackThemeName, content: content)
+        try writeThemeFile(named: persistedFallbackThemeName, content: content)
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -202,8 +204,8 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         XCTAssertEqual(themes[0].palette.first?.themeHexString, "#111111")
     }
 
-    func testAddsBuiltInFallbackAlongsideDiscoveredThemes() {
-        writeThemeFile(named: "TokyoNight", content: "background = #1a1b26\nforeground = #c0caf5\n")
+    func testAddsBuiltInFallbackAlongsideDiscoveredThemes() throws {
+        try writeThemeFile(named: "TokyoNight", content: "background = #1a1b26\nforeground = #c0caf5\n")
 
         let service = ThemeCatalogService(themeDirectories: [tempDirectory])
         let themes = service.loadThemesSynchronouslyForTesting()
@@ -231,7 +233,13 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
             palette = 3=#444444
             """
             for index in 0..<4_000 {
-                writeThemeFile(named: "Theme-\(index)", content: themeContent)
+                do {
+                    try writeThemeFile(named: "Theme-\(index)", content: themeContent)
+                } catch {
+                    XCTFail("Failed to write theme fixture: \(error)")
+                    finished.fulfill()
+                    return
+                }
             }
 
             let service = ThemeCatalogService(themeDirectories: [tempDirectory])
@@ -253,8 +261,10 @@ final class ThemeCatalogServiceTests: AppKitTestCase {
         wait(for: [finished], timeout: 10)
     }
 
-    private func writeThemeFile(named name: String, content: String) {
+    @discardableResult
+    private func writeThemeFile(named name: String, content: String) throws -> URL {
         let url = tempDirectory.appendingPathComponent(name)
-        try? content.write(to: url, atomically: true, encoding: .utf8)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 }

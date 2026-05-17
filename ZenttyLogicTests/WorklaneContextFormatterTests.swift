@@ -38,6 +38,28 @@ final class WorklaneContextFormatterTests: XCTestCase {
         )
     }
 
+    func test_compact_worklane_path_does_not_treat_sibling_user_directory_as_home_relative() {
+        let homeName = URL(fileURLWithPath: NSHomeDirectory()).lastPathComponent
+        let siblingUserPath = NSHomeDirectory() + "2/project"
+
+        XCTAssertEqual(
+            WorklaneContextFormatter.compactSidebarPath(siblingUserPath, minimumSegments: 3),
+            "Users/\(homeName)2/project"
+        )
+    }
+
+    func test_remote_shell_context_does_not_treat_sibling_home_prefix_as_home_relative() {
+        let context = PaneShellContext(
+            scope: .remote,
+            path: "/home/peter-backup/app",
+            home: "/home/peter",
+            user: "peter",
+            host: "prod-box"
+        )
+
+        XCTAssertEqual(context.remotePathLabel, "/home/peter-backup/app")
+    }
+
     func test_pane_detail_line_combines_branch_and_compact_cwd() {
         let detail = WorklaneContextFormatter.paneDetailLine(
             metadata: TerminalMetadata(

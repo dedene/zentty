@@ -3008,15 +3008,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     }
 
     private func makeVisibleWindow(containing sidebarView: SidebarView) -> NSWindow {
-        let window = NSWindow(
-            contentRect: sidebarView.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        ).prepareForAppKitTesting()
-        window.contentView = sidebarView
-        window.orderFrontRegardless()
-        return window
+        makeVisibleWindow(containing: sidebarView as NSView)
     }
 
     private func makeVisibleWindow(containing view: NSView) -> NSWindow {
@@ -3028,6 +3020,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         ).prepareForAppKitTesting()
         window.contentView = view
         window.orderFrontRegardless()
+        addTeardownBlock { @MainActor in
+            window.orderOut(nil)
+            window.close()
+        }
         return window
     }
 

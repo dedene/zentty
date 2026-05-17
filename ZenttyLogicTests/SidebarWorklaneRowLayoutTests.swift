@@ -2,7 +2,7 @@ import XCTest
 @testable import Zentty
 
 @MainActor
-final class SidebarWorklaneRowLayoutTests: XCTestCase {
+final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
     func test_layout_uses_compact_mode_for_primary_only_rows() {
         let layout = SidebarWorklaneRowLayout(summary: makeSummary())
 
