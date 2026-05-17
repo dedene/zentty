@@ -67,8 +67,8 @@
 		21B5B2D8D083E4D952FD9E03 /* TerminalClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB1561FD9C602B6D306155C /* TerminalClipboard.swift */; };
 		21E006D9ECF19B42A661D6C1 /* AppConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C491850BAA79B14AE9C4FF56 /* AppConfigStore.swift */; };
 		220E7BB4EA5B4822878899CB /* GhosttyConfigWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F585980C0838B39C356960 /* GhosttyConfigWriterTests.swift */; };
-22156DF9DBFBB1152BE09F94 /* TaskRunnerDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A097B2335BF9F2F0D23A9148 /* TaskRunnerDiscoveryService.swift */; };
-22AF9373CEDA7B2275F04512 /* ProcessInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF858A2AAD656DC571D60389 /* ProcessInspection.swift */; };
+		22156DF9DBFBB1152BE09F94 /* TaskRunnerDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A097B2335BF9F2F0D23A9148 /* TaskRunnerDiscoveryService.swift */; };
+		22AF9373CEDA7B2275F04512 /* ProcessInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF858A2AAD656DC571D60389 /* ProcessInspection.swift */; };
 		23F41140FCDDF143E82EE86C /* WorklaneStore+ReviewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0BE8EC74AF28891DF371409 /* WorklaneStore+ReviewState.swift */; };
 		257E380BBDC29CDFE3389A48 /* ExplicitAgentStateReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C88530B3F00F1B856F2834 /* ExplicitAgentStateReducer.swift */; };
 		260AB2147508C0997EDC89BC /* FallbackTitleHeuristicReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8E940C5BA5732292398845 /* FallbackTitleHeuristicReducer.swift */; };
@@ -2642,7 +2642,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Zentty/Zentty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 487;
+				CURRENT_PROJECT_VERSION = 513;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2654,7 +2654,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.27;
+				MARKETING_VERSION = 0.1.28;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -2685,7 +2685,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 487;
+				CURRENT_PROJECT_VERSION = 513;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2697,7 +2697,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.27;
+				MARKETING_VERSION = 0.1.28;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
