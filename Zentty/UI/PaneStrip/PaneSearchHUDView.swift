@@ -387,7 +387,7 @@ final class PaneSearchHUDView: NSView {
         }
     }
 
-    private func animateSnap(to targetOrigin: CGPoint, completion: @escaping () -> Void) {
+    private func animateSnap(to targetOrigin: CGPoint, completion: @escaping @MainActor @Sendable () -> Void) {
         isSnapAnimationInFlight = true
 
         if let snapAnimationRunnerForTesting {

@@ -517,15 +517,18 @@ final class PaneDragCoordinator {
 
     private var sampleGridPoints: [CGPoint] {
         let samplesPerAxis = 4
+        let divisor = CGFloat(samplesPerAxis + 1)
 
-        return (0..<samplesPerAxis).flatMap { row in
-            (0..<samplesPerAxis).map { column in
-                CGPoint(
-                    x: CGFloat(column + 1) / CGFloat(samplesPerAxis + 1),
-                    y: CGFloat(row + 1) / CGFloat(samplesPerAxis + 1)
-                )
+        var points: [CGPoint] = []
+        points.reserveCapacity(samplesPerAxis * samplesPerAxis)
+        for row in 0..<samplesPerAxis {
+            let y = CGFloat(row + 1) / divisor
+            for column in 0..<samplesPerAxis {
+                let x = CGFloat(column + 1) / divisor
+                points.append(CGPoint(x: x, y: y))
             }
         }
+        return points
     }
 
     private func sampleCoordinate(normalized: CGFloat, maxValue: Int) -> Int {
