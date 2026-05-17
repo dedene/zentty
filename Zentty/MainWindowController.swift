@@ -764,6 +764,22 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         settingsWindowController?.window
     }
 
+    var worklaneStore: WorklaneStore {
+        rootViewController.worklaneStore
+    }
+
+    var menuBarDisplayTitle: String {
+        "Window \(windowOrder + 1)"
+    }
+
+    func focusWorklane(id worklaneID: WorklaneID) {
+        window.makeKeyAndOrderFront(nil)
+        if !Self.isHostedTestMode {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        rootViewController.worklaneStore.selectWorklane(id: worklaneID)
+    }
+
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         #if DEBUG
         lastNavigateRequestWorklaneID = worklaneID
