@@ -1916,6 +1916,12 @@ extension AgentEventBridge {
              "posttooluse", "post_tool_use":
             // Real tool activity. Canonical re-emit upgrades to needs-input
             // for ask_user_question and attaches taskProgress for todo writes.
+            let lowerToolName = GrokCanonicalReEmitter
+                .hookToolName(in: jsonObject)?
+                .lowercased() ?? ""
+            if GrokCanonicalReEmitter.isAskToolName(lowerToolName) {
+                return []
+            }
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
 
         case "notification", "permission", "approval":

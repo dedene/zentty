@@ -181,6 +181,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
                session.state == .needsInput || session.interactionKind.requiresHumanAttention {
                 return false
             }
+            if session.tool == .grok,
+               session.state == .needsInput || session.interactionKind.requiresHumanAttention {
+                return false
+            }
             // Kimi keeps emitting shell/progress activity while its inline
             // approval panel is visible. Treating that passive activity as a
             // resume signal clears "Requires approval" before the user has

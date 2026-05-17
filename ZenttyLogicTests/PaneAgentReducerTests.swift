@@ -458,6 +458,51 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertNil(status?.text)
     }
 
+    func test_shell_command_running_does_not_clear_grok_explicit_question() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .needsInput,
+                origin: .explicitHook,
+                toolName: "Grok",
+                text: "Ship this?",
+                interactionKind: .question,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: "Grok",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(1))
+        XCTAssertEqual(status?.state, .needsInput)
+        XCTAssertEqual(status?.interactionKind, .some(.question))
+        XCTAssertEqual(status?.text, "Ship this?")
+    }
+
     func test_shell_command_running_does_not_promote_explicit_starting_codex_session_to_running() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

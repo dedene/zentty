@@ -2726,6 +2726,24 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(GrokCanonicalReEmitter.reEmissions(forHookPayload: payload).isEmpty)
     }
 
+    func test_grok_adapter_ignores_raw_ask_user_tool_lifecycle() throws {
+        let events = ["PreToolUse", "PostToolUse"]
+
+        for event in events {
+            let payloads = try AgentEventBridge.grokAdapter(
+                data: Data("""
+                {"hook_event_name":"\(event)","session_id":"session-1","cwd":"/tmp/project","tool_name":"AskUserQuestion","tool_input":{"question":"Ship this?"}}
+                """.utf8),
+                environment: [
+                    "ZENTTY_WORKLANE_ID": "worklane-main",
+                    "ZENTTY_PANE_ID": "worklane-main-shell",
+                ]
+            )
+
+            XCTAssertTrue(payloads.isEmpty, "\(event) for AskUserQuestion must not overwrite canonical needs-input")
+        }
+    }
+
     func test_grok_hooks_installer_uninstall_removes_new_layout() throws {
         let (_, hooksRoot) = try makeGrokHooksRoot()
         try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
