@@ -68,6 +68,23 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertNil(definition.menuItem)
     }
 
+    func test_registry_includes_primary_open_commands_without_menu_items_or_default_shortcuts() {
+        let openWithDefinition = AppCommandRegistry.definition(for: .openWithSelectedApp)
+        let openServerDefinition = AppCommandRegistry.definition(for: .openSelectedServer)
+
+        XCTAssertEqual(openWithDefinition.title, "Open With Selected App")
+        XCTAssertEqual(openWithDefinition.category, .general)
+        XCTAssertNil(openWithDefinition.defaultShortcut)
+        XCTAssertEqual(openWithDefinition.action, .openWithSelectedApp)
+        XCTAssertNil(openWithDefinition.menuItem)
+
+        XCTAssertEqual(openServerDefinition.title, "Open Selected Server")
+        XCTAssertEqual(openServerDefinition.category, .general)
+        XCTAssertNil(openServerDefinition.defaultShortcut)
+        XCTAssertEqual(openServerDefinition.action, .openSelectedServer)
+        XCTAssertNil(openServerDefinition.menuItem)
+    }
+
     func test_registry_includes_duplicate_this_pane_command_without_default_shortcut() {
         let definition = AppCommandRegistry.definition(for: .duplicateFocusedPane)
 
@@ -311,6 +328,36 @@ final class KeyboardShortcutResolverTests: XCTestCase {
                 .init(key: .character("s"), modifiers: [.command]),
                 shortcuts: shortcuts
             )
+        )
+    }
+
+    func test_resolves_primary_open_command_shortcuts_from_overrides() {
+        let shortcuts = AppConfig.Shortcuts(
+            bindings: [
+                ShortcutBindingOverride(
+                    commandID: .openWithSelectedApp,
+                    shortcut: .init(key: .character("o"), modifiers: [.command, .option])
+                ),
+                ShortcutBindingOverride(
+                    commandID: .openSelectedServer,
+                    shortcut: .init(key: .character("o"), modifiers: [.command, .control])
+                ),
+            ]
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("o"), modifiers: [.command, .option]),
+                shortcuts: shortcuts
+            ),
+            .openWithSelectedApp
+        )
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .character("o"), modifiers: [.command, .control]),
+                shortcuts: shortcuts
+            ),
+            .openSelectedServer
         )
     }
 

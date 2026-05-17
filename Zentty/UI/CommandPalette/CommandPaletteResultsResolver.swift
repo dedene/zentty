@@ -555,6 +555,7 @@ private extension CommandPaletteItemFamily {
     func aliasRemainder(for query: String) -> String? {
         switch self {
         case .openWith:
+            guard query != "open" else { return nil }
             return remainder(in: query, matching: "open")
         case .server:
             return remainder(in: query, matching: "open server")

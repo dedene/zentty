@@ -348,9 +348,10 @@ enum CommandPaletteItemBuilder {
                 title: "Open \(server.display)",
                 subtitle: server.url.absoluteString,
                 shortcutDisplay: nil,
-                category: "Server",
+                category: "Web Server",
                 searchText: "open server web browser \(server.display) \(server.origin) \(server.url.absoluteString)"
                     .lowercased(),
+                iconSystemName: "globe",
                 family: .server,
                 familySearchText: "\(server.display) \(server.origin) \(server.url.absoluteString)".lowercased(),
                 familyOrder: index

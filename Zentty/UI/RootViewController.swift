@@ -1308,6 +1308,10 @@ final class RootViewController: NSViewController {
             showCommandPalette()
         case .showTaskManager:
             NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
+        case .openWithSelectedApp:
+            onOpenWithPrimaryRequested?()
+        case .openSelectedServer:
+            onServerPrimaryRequested?()
         case .openBranchOnRemote:
             openBranchOnRemote()
         case .openSettings:
@@ -1949,7 +1953,9 @@ final class RootViewController: NSViewController {
             focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
             focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
             globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
-            activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL
+            activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL,
+            focusedPaneCanOpenWithPrimary: focusedOpenWithContext != nil && primaryOpenWithTarget != nil,
+            activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil
         )
     }
 

@@ -69,6 +69,8 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
     case showTaskManager = "task_manager.show"
+    case openWithSelectedApp = "open_with.selected_app"
+    case openSelectedServer = "server.open_selected"
     case openBranchOnRemote = "branch.open_remote"
     case openSettings = "app.open_settings"
     case newWindow = "app.new_window"
@@ -106,6 +108,8 @@ enum AppAction: Equatable, Sendable {
     case navigateForward
     case showCommandPalette
     case showTaskManager
+    case openWithSelectedApp
+    case openSelectedServer
     case openBranchOnRemote
     case openSettings
     case newWindow
@@ -795,6 +799,22 @@ enum AppCommandRegistry {
                 systemImageName: "gauge.with.dots.needle.67percent"
             )
         ),
+        AppCommandDefinition(
+            id: .openWithSelectedApp,
+            title: "Open With Selected App",
+            category: .general,
+            defaultShortcut: nil,
+            action: .openWithSelectedApp,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .openSelectedServer,
+            title: "Open Selected Server",
+            category: .general,
+            defaultShortcut: nil,
+            action: .openSelectedServer,
+            menuItem: nil
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
@@ -997,6 +1017,10 @@ extension AppCommandDefinition {
             "Open the command palette."
         case .showTaskManager:
             "Show CPU and memory usage for live panes."
+        case .openWithSelectedApp:
+            "Open the focused pane in the selected Open With app."
+        case .openSelectedServer:
+            "Open the selected detected server in the selected browser."
         case .openBranchOnRemote:
             "Open the current branch on GitHub or your remote host."
         case .openSettings:
