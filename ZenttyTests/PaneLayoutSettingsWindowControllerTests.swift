@@ -71,7 +71,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         waitForLayout()
 
         let window = try XCTUnwrap(controller.window)
-        XCTAssertEqual(window.screen?.localizedName, screenName)
+        let localizedName = try XCTUnwrap(window.screen?.localizedName)
+        XCTAssertTrue(HostedTestDisplay.screenName(localizedName, matches: screenName))
     }
 
     func test_panes_section_reads_persisted_controls_from_config() throws {

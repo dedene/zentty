@@ -1102,7 +1102,7 @@ private final class IPCRequestCaptureServer {
     }
 }
 
-private struct WrapperHarness {
+private final class WrapperHarness {
     let rootURL: URL
     let wrapperBinURL: URL
     let realBinURL: URL
@@ -1140,6 +1140,10 @@ private struct WrapperHarness {
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationURL.path)
         }
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: rootURL)
     }
 
     var cliPath: String {

@@ -6,12 +6,14 @@ import XCTest
 final class AppDelegateTests: XCTestCase {
     private var originalMainMenu: NSMenu?
     private weak var originalWindowsMenu: NSMenu?
+    private var originalServicesMenu: NSMenu?
     private var originalWindows: [NSWindow] = []
 
     override func setUp() {
         super.setUp()
         originalMainMenu = NSApp.mainMenu
         originalWindowsMenu = NSApp.windowsMenu
+        originalServicesMenu = NSApp.servicesMenu
         originalWindows = NSApp.windows
     }
 
@@ -26,6 +28,7 @@ final class AppDelegateTests: XCTestCase {
 
         NSApp.mainMenu = originalMainMenu
         NSApp.windowsMenu = originalWindowsMenu
+        NSApp.servicesMenu = originalServicesMenu
         super.tearDown()
     }
 

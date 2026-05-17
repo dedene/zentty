@@ -170,7 +170,7 @@ def redacted_environment(environment: dict[str, str]) -> dict[str, str]:
     for key, value in environment.items():
         if key not in ROUTING_ENV_KEYS and not SECRET_ENV_PATTERNS.search(key):
             continue
-        redacted[key] = "<redacted>" if SECRET_ENV_PATTERNS.search(key) else value
+        redacted[key] = "<redacted>" if SECRET_ENV_PATTERNS.search(key) else redact_pii_text(value)
     return redacted
 
 
@@ -418,18 +418,16 @@ def missing_required_terminal_phases(
     expectation: ScenarioExpectation,
     observations: list[TerminalObservation],
 ) -> list[str]:
-    observed_phases = [
-        phase
-        for observation in observations
-        if (phase := terminal_observation_phase(observation))
-    ]
-    observed_counts = Counter(observed_phases)
+    observed_phases = terminal_phase_sequence(observations)
     missing: list[str] = []
+    observed_index = 0
     for phase in expectation.required_terminal_phases:
-        if observed_counts[phase] > 0:
-            observed_counts[phase] -= 1
-        else:
+        while observed_index < len(observed_phases) and observed_phases[observed_index] != phase:
+            observed_index += 1
+        if observed_index >= len(observed_phases):
             missing.append(phase)
+            continue
+        observed_index += 1
     return missing
 
 

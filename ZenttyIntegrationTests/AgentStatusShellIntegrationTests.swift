@@ -37,9 +37,7 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
     }
 
     private func makeTemporaryGitRepository(branch: String) throws -> URL {
-        let repositoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        let repositoryURL = try makeTemporaryDirectory(named: "shell-integration-repository")
 
         _ = try runProcess("/usr/bin/git", arguments: ["init"], currentDirectoryURL: repositoryURL)
         _ = try runProcess("/usr/bin/git", arguments: ["config", "user.name", "Zentty Tests"], currentDirectoryURL: repositoryURL)
@@ -67,9 +65,7 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
         arguments: [String],
         currentDirectoryURL: URL
     ) throws -> [[String]] {
-        let tempDirectoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true)
+        let tempDirectoryURL = try makeTemporaryDirectory(named: "shell-integration-harness")
 
         let logURL = tempDirectoryURL.appendingPathComponent("signals.log", isDirectory: false)
         let cliURL = tempDirectoryURL.appendingPathComponent("zentty", isDirectory: false)
@@ -112,6 +108,16 @@ final class AgentStatusShellIntegrationTests: XCTestCase {
             .split(separator: "\n")
             .map(String.init)
         return parseArgumentCalls(lines)
+    }
+
+    private func makeTemporaryDirectory(named name: String) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.\(name).\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        return directoryURL
     }
 
     @discardableResult

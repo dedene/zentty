@@ -2,6 +2,11 @@ import XCTest
 @testable import Zentty
 
 final class PaneLayoutPreferencesTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        PaneLayoutPreferenceStore.reset()
+    }
+
     override func tearDown() {
         PaneLayoutPreferenceStore.reset()
         super.tearDown()

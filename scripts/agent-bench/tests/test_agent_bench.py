@@ -33,6 +33,21 @@ class RedactionTests(unittest.TestCase):
         self.assertEqual(redacted["OPENAI_API_KEY"], "<redacted>")
         self.assertNotIn("PATH", redacted)
 
+    def test_redacts_personal_paths_from_routing_environment_values(self):
+        env = {
+            "HOME": "/Users/example",
+            "CODEX_HOME": "/Users/example/.codex",
+            "OPENCODE_CONFIG": "/Users/example/.config/opencode/config.json",
+            "ZENTTY_PANE_ID": "pane-1",
+        }
+
+        redacted = agent_bench.redacted_environment(env)
+
+        self.assertEqual(redacted["HOME"], "/Users/<user>")
+        self.assertEqual(redacted["CODEX_HOME"], "/Users/<user>/.codex")
+        self.assertEqual(redacted["OPENCODE_CONFIG"], "/Users/<user>/.config/opencode/config.json")
+        self.assertEqual(redacted["ZENTTY_PANE_ID"], "pane-1")
+
     def test_redacts_personal_fields_from_hook_standard_input(self):
         payload = {
             "hook_event_name": "sessionStart",
@@ -842,7 +857,29 @@ class TaskObservationTests(unittest.TestCase):
 
         observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
 
-        self.assertEqual(observations, [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3}])
+        self.assertEqual(
+            observations,
+            [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3, "source": "raw_tool_call"}],
+        )
+
+    def test_extracts_canonical_task_progress_source(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="grok",
+                scenario="tasks",
+                event_name="task.progress",
+                adapter="grok",
+                standard_input=json.dumps({"event": "task.progress", "progress": {"done": 2, "total": 4}}),
+            )
+        ]
+
+        observations = agent_bench.task_observations_for_records("grok", "tasks", records)
+
+        self.assertEqual(
+            observations,
+            [{"event": "task.progress", "tool": "TodoWrite", "done": 2, "total": 4, "source": "canonical"}],
+        )
 
     def test_completed_tasks_scenario_without_todo_write_is_missing_task_hook(self):
         result = agent_bench.classify_completed_result(
@@ -1077,6 +1114,33 @@ class ProfileTests(unittest.TestCase):
         )
         self.assertEqual(profile.input_by_scenario["tui_restart"][0]["label"], "trust-workspace")
         self.assertEqual(profile.input_by_scenario["tui_restart"][1]["label"], "quit")
+
+    def test_classification_rejects_out_of_order_terminal_phase_requirements(self):
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="tui_restart",
+            expectation=agent_bench.ScenarioExpectation(
+                name="tui_restart",
+                required_events=[],
+                required_terminal_phases=["idle", "starting", "idle", "starting"],
+            ),
+            records=[],
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="starting", offset=0),
+                agent_bench.TerminalObservation(kind="title", text="idle", offset=1),
+                agent_bench.TerminalObservation(kind="title", text="starting", offset=2),
+                agent_bench.TerminalObservation(kind="title", text="idle", offset=3),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-terminal-phase")
+        self.assertEqual(result.missing_events, ["starting"])
 
     def test_gemini_smoke_profile_skips_trust_prompt_for_headless_runs(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["gemini"]

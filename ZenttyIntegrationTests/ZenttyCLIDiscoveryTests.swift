@@ -4,6 +4,23 @@ import XCTest
 @testable import Zentty
 
 final class ZenttyCLIDiscoveryTests: XCTestCase {
+    func test_capture_server_rejects_overlong_socket_path() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("discovery-capture-server-" + String(repeating: "x", count: 96), isDirectory: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        XCTAssertThrowsError(
+            try RequestCaptureServer(
+                response: AgentIPCResponse(id: "overlong", ok: true, result: nil),
+                tempDirectoryURL: rootURL
+            )
+        ) { error in
+            XCTAssertEqual((error as? POSIXError)?.code, .ENAMETOOLONG)
+        }
+    }
+
     func test_real_cli_pane_list_uses_discovery_and_defaults_to_current_worklane() throws {
         let server = try RequestCaptureServer(
             response: AgentIPCResponse(
@@ -189,9 +206,9 @@ private final class RequestCaptureServer {
     private var capturedRequest: AgentIPCRequest?
     private var response: AgentIPCResponse
 
-    init(response: AgentIPCResponse) throws {
+    init(response: AgentIPCResponse, tempDirectoryURL providedTempDirectoryURL: URL? = nil) throws {
         self.response = response
-        tempDirectoryURL = FileManager.default.temporaryDirectory
+        tempDirectoryURL = providedTempDirectoryURL ?? FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true)
         socketPath = tempDirectoryURL.appendingPathComponent("zentty.sock", isDirectory: false).path
@@ -204,6 +221,12 @@ private final class RequestCaptureServer {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let utf8Path = socketPath.utf8CString
+        guard utf8Path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            close(listenFD)
+            try? FileManager.default.removeItem(at: tempDirectoryURL)
+            throw POSIXError(.ENAMETOOLONG)
+        }
+
         _ = withUnsafeMutablePointer(to: &address.sun_path.0) { pointer in
             utf8Path.withUnsafeBufferPointer { buffer in
                 memcpy(pointer, buffer.baseAddress, buffer.count)

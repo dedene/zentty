@@ -3,6 +3,13 @@ import XCTest
 
 @MainActor
 final class RootViewCompositionTests: AppKitTestCase {
+    override func setUp() {
+        super.setUp()
+        SidebarWidthPreference.reset()
+        SidebarVisibilityPreference.reset()
+        PaneLayoutPreferenceStore.reset()
+    }
+
     private func makeInterruptBridgeWorklane(
         tool: AgentTool = .kimi,
         state: PaneAgentState = .running,

@@ -145,6 +145,31 @@ final class NotificationStoreTests: XCTestCase {
         XCTAssertTrue(store.notifications.isEmpty)
     }
 
+    func test_clear_all_before_debounce_suppresses_pending_notification() async {
+        let store = makeStore()
+
+        let notCommitted = XCTestExpectation(description: "pending notification should not commit")
+        notCommitted.isInverted = true
+        store.onChange = { notCommitted.fulfill() }
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Should be cleared"
+        )
+
+        store.clearAll()
+
+        await fulfillment(of: [notCommitted], timeout: 0.1)
+        XCTAssertTrue(store.notifications.isEmpty)
+    }
+
     func test_most_urgent_returns_newest_unresolved() async {
         let store = makeStore()
         await addAndWaitForCommit(store, paneID: PaneID("pane-1"), primaryText: "Oldest")
@@ -310,6 +335,49 @@ final class NotificationStoreTests: XCTestCase {
         XCTAssertEqual(store.notifications.count, 2)
         XCTAssertTrue(store.notifications.first(where: { $0.windowID == windowA })?.isResolved == true)
         XCTAssertTrue(store.notifications.first(where: { $0.windowID == windowB })?.isResolved == false)
+    }
+
+    func test_resolve_window_scoped_notification_before_debounce_only_suppresses_matching_origin() async {
+        let store = makeStore()
+
+        let committed = XCTestExpectation(description: "unresolved window notification committed")
+        store.onChange = { committed.fulfill() }
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Window A"
+        )
+        store.add(
+            windowID: windowB,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Window B"
+        )
+
+        store.resolve(windowID: windowA, worklaneID: worklaneA, paneID: paneA)
+
+        await fulfillment(of: [committed], timeout: 5)
+
+        let noSecondCommit = XCTestExpectation(description: "resolved pending notification should stay suppressed")
+        noSecondCommit.isInverted = true
+        store.onChange = { noSecondCommit.fulfill() }
+        await fulfillment(of: [noSecondCommit], timeout: 0.1)
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.windowID, windowB)
+        XCTAssertEqual(store.notifications.first?.primaryText, "Window B")
     }
 
     func test_multiple_observers_receive_change_notifications() {
