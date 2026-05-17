@@ -10,9 +10,12 @@ final class CommandPaletteController {
     private var clickMonitor: Any?
     private var recentCommands = RecentCommandsTracker()
     private var lastFocusedPanePath: String?
+    private var taskRunnerActionsByID: [String: TaskRunnerAction] = [:]
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
     var onOpenServer: ((_ serverID: String) -> Void)?
+    var onRunTaskRunner: ((TaskRunnerAction) -> Void)?
+    var onOpenTaskRunnerSource: ((_ sourcePath: String) -> Void)?
     var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
     var onShowSettingsSection: ((SettingsSection) -> Void)?
     var onNavigateToPane: ((WorklaneID, PaneID) -> Void)?
@@ -35,7 +38,8 @@ final class CommandPaletteController {
         openWithTargets: [OpenWithResolvedTarget] = [],
         openWithIconProvider: ((OpenWithResolvedTarget) -> NSImage?)? = nil,
         rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane,
-        servers: [DetectedServer] = []
+        servers: [DetectedServer] = [],
+        taskRunnerActions: [TaskRunnerAction] = []
     ) {
         if isShown {
             close()
@@ -43,6 +47,7 @@ final class CommandPaletteController {
         }
 
         lastFocusedPanePath = focusedPanePath
+        taskRunnerActionsByID = Dictionary(taskRunnerActions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         let availableIDs = CommandAvailabilityResolver.availableCommandIDs(for: availabilityContext)
         let commandItems = CommandPaletteItemBuilder.buildItems(
@@ -58,6 +63,7 @@ final class CommandPaletteController {
             iconProvider: openWithIconProvider
         )
         let serverItems = CommandPaletteItemBuilder.buildServerItems(servers: servers)
+        let taskRunnerItems = CommandPaletteItemBuilder.buildTaskRunnerItems(actions: taskRunnerActions)
         let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
         let settingsItems = CommandPaletteItemBuilder.buildSettingsItems()
         let paneItems = CommandPaletteItemBuilder.buildPaneItems(
@@ -75,6 +81,7 @@ final class CommandPaletteController {
         let restoredCommandItems = restoredCommandItem.map { [$0] } ?? []
         let allItems = restoredCommandItems
             + commandItems
+            + taskRunnerItems
             + paneItems
             + settingsItems
             + openWithItems
@@ -227,6 +234,13 @@ final class CommandPaletteController {
             onOpenWith?(stableID, path)
         case .server(let serverID):
             onOpenServer?(serverID)
+        case .taskRunner(let id):
+            guard let action = taskRunnerActionsByID[id] else { return }
+            if action.isEnabled {
+                onRunTaskRunner?(action)
+            } else {
+                onOpenTaskRunnerSource?(action.sourcePath)
+            }
         case .worklaneColor(let color):
             onSetWorklaneColor?(color)
         case .settings(let section):
@@ -288,6 +302,8 @@ private extension CommandPaletteItemID {
             false
         case .command, .openWith, .server, .worklaneColor, .settings:
             true
+        case .taskRunner:
+            false
         }
     }
 }

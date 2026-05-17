@@ -55,6 +55,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
         modifiers: NSEvent.ModifierFlags
     ) -> Bool
     func sendText(_ text: String)
+    func cancelPromptInput()
     func submitReturn()
     func performBindingAction(_ action: String) -> Bool
     func hasSelection() -> Bool
@@ -64,6 +65,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
 
 extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
+    func cancelPromptInput() {}
 }
 
 @MainActor
@@ -147,6 +149,10 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
 
     func sendText(_ text: String) {
         surfaceController?.sendText(text)
+    }
+
+    func cancelPromptInput() {
+        surfaceController?.cancelPromptInput()
     }
 
     // Paste the command via ghostty_surface_text (which paste-wraps the bytes

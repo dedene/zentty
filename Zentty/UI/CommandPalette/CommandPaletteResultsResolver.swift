@@ -589,7 +589,7 @@ private extension Array where Element: Hashable {
 private extension CommandPaletteItemID {
     var isPromotableBestMatch: Bool {
         switch self {
-        case .command, .openWith, .server, .restoredCommand:
+        case .command, .openWith, .server, .taskRunner, .restoredCommand:
             true
         case .worklaneColor, .settings, .pane:
             false

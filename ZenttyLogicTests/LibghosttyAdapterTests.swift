@@ -314,6 +314,19 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(surfaceController.submitReturnCallCount, 1)
     }
 
+    func test_cancel_prompt_input_forwards_to_surface_controller() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.cancelPromptInput()
+
+        XCTAssertEqual(surfaceController.cancelPromptInputCallCount, 1)
+        XCTAssertEqual(surfaceController.sentTexts, [])
+    }
+
     func test_hidden_live_surface_still_forwards_progress_events() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -1019,6 +1032,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     private(set) var sendKeyCallCount = 0
     private(set) var sentTexts: [String] = []
     private(set) var submitReturnCallCount = 0
+    private(set) var cancelPromptInputCallCount = 0
     var selectionPresent = false
     var inheritedConfigContext: ghostty_surface_context_e?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
@@ -1040,6 +1054,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     ) -> Bool { false }
     func sendText(_ text: String) { sentTexts.append(text) }
     func submitReturn() { submitReturnCallCount += 1 }
+    func cancelPromptInput() { cancelPromptInputCallCount += 1 }
     func performBindingAction(_ action: String) -> Bool {
         bindingActions.append(action)
         return true

@@ -392,6 +392,41 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         _ = sendKey(event: event, action: .press, text: "\r", composing: false)
     }
 
+    func cancelPromptInput() {
+        submitControlKey(
+            character: "\u{5}",
+            charactersIgnoringModifiers: "e",
+            keyCode: UInt16(kVK_ANSI_E)
+        )
+        submitControlKey(
+            character: "\u{15}",
+            charactersIgnoringModifiers: "u",
+            keyCode: UInt16(kVK_ANSI_U)
+        )
+    }
+
+    private func submitControlKey(
+        character: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16
+    ) {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: character,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            return
+        }
+        _ = sendKey(event: event, action: .press, text: nil, composing: false)
+    }
+
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
         guard let surface else {
             return nil

@@ -5,6 +5,7 @@ enum CommandPaletteItemID: Hashable {
     case command(AppCommandID)
     case openWith(stableID: String)
     case server(id: String)
+    case taskRunner(String)
     case worklaneColor(WorklaneColor?)
     case settings(SettingsSection)
     case pane(worklaneID: WorklaneID, paneID: PaneID)
@@ -52,6 +53,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     let family: CommandPaletteItemFamily?
     let familySearchText: String?
     let familyOrder: Int?
+    let isEnabled: Bool
 
     init(
         id: CommandPaletteItemID,
@@ -68,7 +70,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
         rankingBoost: Double = 0,
         family: CommandPaletteItemFamily? = nil,
         familySearchText: String? = nil,
-        familyOrder: Int? = nil
+        familyOrder: Int? = nil,
+        isEnabled: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -87,6 +90,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
         self.family = family
         self.familySearchText = familySearchText
         self.familyOrder = familyOrder
+        self.isEnabled = isEnabled
     }
 
     static func == (lhs: CommandPaletteItem, rhs: CommandPaletteItem) -> Bool {
@@ -107,6 +111,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
             && lhs.family == rhs.family
             && lhs.familySearchText == rhs.familySearchText
             && lhs.familyOrder == rhs.familyOrder
+            && lhs.isEnabled == rhs.isEnabled
     }
 }
 
@@ -192,6 +197,38 @@ enum CommandPaletteItemBuilder {
             iconSystemName: "arrow.clockwise",
             rankingBoost: 0.2
         )
+    }
+
+    static func buildTaskRunnerItems(actions: [TaskRunnerAction]) -> [CommandPaletteItem] {
+        actions.map { action in
+            let category = action.isEnabled
+                ? "Task"
+                : "Task disabled"
+            let searchText = [
+                "run task task runner",
+                action.title,
+                action.description,
+                action.subtitle,
+                action.sourceKind.displayName,
+                action.executionCommand,
+                action.disabledReason?.displayText,
+            ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+
+            return CommandPaletteItem(
+                id: .taskRunner(action.id),
+                title: "Run task: \(action.title)",
+                subtitle: action.subtitle,
+                shortcutDisplay: nil,
+                category: category,
+                searchText: searchText,
+                group: .action,
+                iconSystemName: action.isEnabled ? "play.circle" : "exclamationmark.triangle",
+                rankingBoost: 0.1,
+                isEnabled: action.isEnabled
+            )
+        }
     }
 
     static func buildPaneItems(
