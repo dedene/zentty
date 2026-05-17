@@ -3589,6 +3589,39 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_neighbor_peek_primes_started_unsynced_pane_before_preview_suspension() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            panes: [makePane("beta")],
+            focusedPaneID: PaneID("beta")
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("preview"),
+            title: "Preview",
+            paneStripState: state
+        )
+        runtimeRegistry.synchronize(with: [worklane])
+        try XCTUnwrap(runtimeRegistry.runtime(for: PaneID("beta"))).ensureStarted()
+
+        paneStripView.preparePeekNeighborZoomOut(scale: PaneStripView.zoomScale)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let betaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta")))
+        XCTAssertEqual(betaAdapter.terminalView.forceViewportSyncCallCount, 1)
+        XCTAssertTrue(betaAdapter.terminalView.hasValidViewportSync)
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+    }
+
+    @MainActor
     func test_newly_attached_pane_while_peek_zoomed_out_inherits_viewport_sync_suspension() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
@@ -3820,6 +3853,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
 
 private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding {
     var onFocusDidChange: ((Bool) -> Void)?
+    private(set) var hasValidViewportSync = false
     private(set) var viewportSyncSuspensionUpdates: [Bool] = []
     private(set) var viewportSyncSuspensionBounds: [CGSize] = []
     private(set) var layoutPassCountsAtViewportSyncSuspensionUpdates: [Int] = []
@@ -3850,6 +3884,7 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     }
 
     func forceViewportSync() {
+        hasValidViewportSync = true
         forceViewportSyncCallCount += 1
     }
 

@@ -758,6 +758,20 @@ final class PaneContainerView: NSView {
         terminalHostView.layoutSubtreeIfNeeded()
     }
 
+    func primeTerminalViewportForPreviewMountIfNeeded() {
+        guard ownsTerminalHostView,
+              runtime.hasAttemptedSessionStart,
+              !runtime.hasValidViewportSync
+        else {
+            return
+        }
+
+        syncFramesForCurrentBounds()
+        terminalHostView.setViewportSyncSuspended(false)
+        terminalHostView.forceViewportSync()
+        terminalHostView.setViewportSyncSuspended(true)
+    }
+
     func forceTerminalViewportSync() {
         needsLayout = true
         syncFramesForCurrentBounds()

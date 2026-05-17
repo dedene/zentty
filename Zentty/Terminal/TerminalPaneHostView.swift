@@ -91,6 +91,10 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         adapter.setSurfaceActivity(activity)
     }
 
+    var hasValidViewportSync: Bool {
+        (terminalView as? any TerminalViewportSyncControlling)?.hasValidViewportSync ?? true
+    }
+
     func prepareSessionStart(
         from sourceAdapter: (any TerminalAdapter)?,
         context: TerminalSurfaceContext
@@ -383,6 +387,11 @@ private enum PaneRestoreDraftLifecycleState: Equatable {
     case consumed
 }
 
+enum PaneRuntimeStartupPolicy {
+    case immediate
+    case deferred
+}
+
 @MainActor
 final class PaneRuntime {
     static let startupFailureMessage = "GhosttyKit could not start this pane. Check your shell environment and retry."
@@ -491,6 +500,18 @@ final class PaneRuntime {
 
     var adapter: any TerminalAdapter {
         adapterValue
+    }
+
+    var hasAttemptedSessionStart: Bool {
+        hasAttemptedStart
+    }
+
+    var canStartDeferred: Bool {
+        !hasAttemptedStart && !sessionRequest.isLaunchDeferred
+    }
+
+    var hasValidViewportSync: Bool {
+        hostViewValue.hasValidViewportSync
     }
 
     var hasScrollback: Bool {
@@ -730,10 +751,13 @@ final class PaneRuntime {
         (adapterValue as? any TerminalSearchControlling)?.endSearch()
     }
 
-    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
+    func setSurfaceActivity(
+        _ activity: TerminalSurfaceActivity,
+        startupPolicy: PaneRuntimeStartupPolicy = .immediate
+    ) {
         ZenttyPerformanceSignposts.interval("PaneRuntimeSetSurfaceActivity") {
             hostViewValue.setSurfaceActivity(activity)
-            if activity.keepsRuntimeLive {
+            if activity.keepsRuntimeLive && startupPolicy == .immediate {
                 ensureStarted()
             }
         }
@@ -957,10 +981,21 @@ final class PaneRuntime {
 @MainActor
 final class PaneRuntimeRegistry {
     typealias AdapterFactory = @MainActor (PaneID) -> any TerminalAdapter
+    typealias DeferredStartScheduler = @MainActor (
+        _ delay: TimeInterval,
+        _ operation: @escaping @MainActor () -> Void
+    ) -> Void
 
     private let adapterFactory: AdapterFactory
     private let diagnostics: TerminalDiagnostics
+    private let deferredStartInitialDelay: TimeInterval
+    private let deferredStartInterval: TimeInterval
+    private let deferredStartScheduler: DeferredStartScheduler
     private var runtimes: [PaneID: PaneRuntime] = [:]
+    private var deferredStartQueue: [PaneID] = []
+    private var deferredStartPaneIDs = Set<PaneID>()
+    private var isDeferredStartScheduled = false
+    private var deferredStartGeneration = 0
     private var shortcutManager = ShortcutManager(shortcuts: .default)
 
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
@@ -971,10 +1006,16 @@ final class PaneRuntimeRegistry {
         diagnostics: TerminalDiagnostics = .shared,
         adapterFactory: @escaping AdapterFactory = { paneID in
             LibghosttyAdapter(paneID: paneID)
-        }
+        },
+        deferredStartInitialDelay: TimeInterval = 0.1,
+        deferredStartInterval: TimeInterval = 0.05,
+        deferredStartScheduler: @escaping DeferredStartScheduler = PaneRuntimeRegistry.defaultDeferredStartScheduler
     ) {
         self.diagnostics = diagnostics
         self.adapterFactory = adapterFactory
+        self.deferredStartInitialDelay = deferredStartInitialDelay
+        self.deferredStartInterval = deferredStartInterval
+        self.deferredStartScheduler = deferredStartScheduler
     }
 
     func runtime(for pane: PaneState) -> PaneRuntime {
@@ -1006,6 +1047,7 @@ final class PaneRuntimeRegistry {
             return nil
         }
 
+        removeDeferredStart(for: paneID)
         runtime.rebindSinks(
             metadataSink: { _, _ in },
             eventSink: { _, _ in },
@@ -1023,6 +1065,7 @@ final class PaneRuntimeRegistry {
             existingRuntime.adapter.close()
         }
 
+        removeDeferredStart(for: paneID)
         bindSinks(to: runtime)
         runtime.updateSearchHUDShortcutTooltips(shortcutManager)
         runtimes[paneID] = runtime
@@ -1052,6 +1095,7 @@ final class PaneRuntimeRegistry {
             obsoletePaneIDs.forEach { paneID in
                 runtimes[paneID]?.adapter.close()
                 runtimes.removeValue(forKey: paneID)
+                removeDeferredStart(for: paneID)
             }
         }
     }
@@ -1059,6 +1103,7 @@ final class PaneRuntimeRegistry {
     func destroyAll() {
         runtimes.values.forEach { $0.adapter.close() }
         runtimes.removeAll()
+        cancelDeferredStartSchedule()
     }
 
     private func bindSinks(to runtime: PaneRuntime) {
@@ -1087,6 +1132,92 @@ final class PaneRuntimeRegistry {
         }
     }
 
+    private static func defaultDeferredStartScheduler(
+        delay: TimeInterval,
+        operation: @escaping @MainActor () -> Void
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            Task { @MainActor in
+                operation()
+            }
+        }
+    }
+
+    private func removeDeferredStart(for paneID: PaneID) {
+        guard deferredStartPaneIDs.remove(paneID) != nil else {
+            return
+        }
+
+        deferredStartQueue.removeAll { $0 == paneID }
+        if deferredStartQueue.isEmpty {
+            cancelDeferredStartSchedule()
+        }
+    }
+
+    private func replaceDeferredStartQueue(with paneIDs: [PaneID]) {
+        var seenPaneIDs = Set<PaneID>()
+        let nextQueue = paneIDs.filter { paneID in
+            guard seenPaneIDs.insert(paneID).inserted else {
+                return false
+            }
+
+            return runtimes[paneID]?.canStartDeferred == true
+        }
+
+        deferredStartQueue = nextQueue
+        deferredStartPaneIDs = Set(nextQueue)
+        if nextQueue.isEmpty {
+            cancelDeferredStartSchedule()
+            return
+        }
+
+        scheduleDeferredStartIfNeeded(delay: deferredStartInitialDelay)
+    }
+
+    private func cancelDeferredStartSchedule() {
+        let hadPendingSchedule = isDeferredStartScheduled
+        deferredStartQueue.removeAll()
+        deferredStartPaneIDs.removeAll()
+        isDeferredStartScheduled = false
+
+        if hadPendingSchedule {
+            deferredStartGeneration += 1
+        }
+    }
+
+    private func scheduleDeferredStartIfNeeded(delay: TimeInterval) {
+        guard !isDeferredStartScheduled, !deferredStartQueue.isEmpty else {
+            return
+        }
+
+        isDeferredStartScheduled = true
+        let generation = deferredStartGeneration
+        deferredStartScheduler(delay) { [weak self] in
+            self?.runNextDeferredStart(generation: generation)
+        }
+    }
+
+    private func runNextDeferredStart(generation: Int) {
+        guard generation == deferredStartGeneration else {
+            return
+        }
+
+        isDeferredStartScheduled = false
+
+        while !deferredStartQueue.isEmpty {
+            let paneID = deferredStartQueue.removeFirst()
+            deferredStartPaneIDs.remove(paneID)
+            guard let runtime = runtimes[paneID], runtime.canStartDeferred else {
+                continue
+            }
+
+            runtime.ensureStarted()
+            break
+        }
+
+        scheduleDeferredStartIfNeeded(delay: deferredStartInterval)
+    }
+
     func updateSurfaceActivities(
         worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,
@@ -1106,26 +1237,62 @@ final class PaneRuntimeRegistry {
             windowKey: windowIsKey
         )
 
-        for worklane in worklanes {
+        let activeWorklaneIndex = worklanes.firstIndex { $0.id == activeWorklaneID } ?? 0
+        var deferredCandidates: [(distance: Int, worklaneIndex: Int, paneIndex: Int, paneID: PaneID)] = []
+
+        for (worklaneIndex, worklane) in worklanes.enumerated() {
             let isActiveWorklane = worklane.id == activeWorklaneID
             // A worklane's surfaces are visible (i.e., un-occluded so Ghostty
             // keeps streaming frames) when the window is visible AND the
             // worklane is either the active one OR currently rendered as a
             // Worklane Peek neighbor preview. Focus stays gated on active.
             let isPeekVisible = peekVisibleWorklaneIDs.contains(worklane.id)
-            for pane in worklane.paneStripState.panes {
+            for (paneIndex, pane) in worklane.paneStripState.panes.enumerated() {
                 let isVisible = windowIsVisible && (isActiveWorklane || isPeekVisible)
                 let isFocused = isVisible && windowIsKey && isActiveWorklane
                     && pane.id == worklane.paneStripState.focusedPaneID
                 let runtime = runtime(for: pane)
-                runtime.setSurfaceActivity(
-                    TerminalSurfaceActivity(
-                        keepsRuntimeLive: true,
-                        isVisible: isVisible,
-                        isFocused: isFocused
-                    )
+                let startsImmediately = isActiveWorklane || isPeekVisible
+                if startsImmediately {
+                    removeDeferredStart(for: pane.id)
+                }
+
+                let activity = TerminalSurfaceActivity(
+                    keepsRuntimeLive: true,
+                    isVisible: isVisible,
+                    isFocused: isFocused
                 )
+                runtime.setSurfaceActivity(
+                    activity,
+                    startupPolicy: startsImmediately ? .immediate : .deferred
+                )
+                if !startsImmediately, activity.keepsRuntimeLive, runtime.canStartDeferred {
+                    deferredCandidates.append(
+                        (
+                            distance: abs(worklaneIndex - activeWorklaneIndex),
+                            worklaneIndex: worklaneIndex,
+                            paneIndex: paneIndex,
+                            paneID: pane.id
+                        )
+                    )
+                }
             }
         }
+
+        replaceDeferredStartQueue(
+            with: deferredCandidates
+                .sorted {
+                    if $0.distance != $1.distance {
+                        return $0.distance < $1.distance
+                    }
+
+                    if $0.worklaneIndex != $1.worklaneIndex {
+                        return $0.worklaneIndex < $1.worklaneIndex
+                    }
+
+                    return $0.paneIndex < $1.paneIndex
+                }
+                .map(\.paneID)
+        )
     }
 }

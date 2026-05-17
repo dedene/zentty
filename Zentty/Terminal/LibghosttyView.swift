@@ -4,11 +4,15 @@ import QuartzCore
 
 @MainActor
 protocol TerminalViewportSyncControlling: AnyObject {
+    var hasValidViewportSync: Bool { get }
+
     func setViewportSyncSuspended(_ suspended: Bool)
     func forceViewportSync()
 }
 
 extension TerminalViewportSyncControlling {
+    var hasValidViewportSync: Bool { true }
+
     func forceViewportSync() {}
 }
 
@@ -142,6 +146,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     var onFocusDidChange: ((Bool) -> Void)? {
         get { surfaceView.onFocusDidChange }
         set { surfaceView.onFocusDidChange = newValue }
+    }
+
+    var hasValidViewportSync: Bool {
+        surfaceView.hasValidViewportSync
     }
 
     var terminalFocusTargetView: NSView {
@@ -655,6 +663,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastViewportSignature: ViewportSignature?
     private var isViewportSyncSuspended = false
+    private(set) var hasValidViewportSync = false
     private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
     private var keyTextAccumulator = ""
     private var markedTextStorage = ""
@@ -1303,6 +1312,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             displayID: viewportSignature.displayID
         )
         surfaceController?.refresh()
+        hasValidViewportSync = true
     }
 
     private func recordViewportDiagnostics(

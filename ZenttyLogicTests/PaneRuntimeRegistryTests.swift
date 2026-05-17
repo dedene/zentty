@@ -63,11 +63,12 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(adapterFactory.adapters.map(\.startSessionCallCount), [1, 1])
     }
 
-    func test_registry_keeps_inactive_worklane_panes_live_while_only_active_worklane_is_visible() {
+    func test_registry_queues_inactive_worklane_panes_for_deferred_start() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let deferredScheduler = PaneRuntimeDeferredStartSchedulerSpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
-        })
+        }, deferredStartScheduler: deferredScheduler.schedule)
         let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let mainEditor = PaneState(id: PaneID("worklane-main-editor"), title: "editor")
         let hiddenShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
@@ -114,16 +115,22 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
                 isFocused: false
             )
         )
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[hiddenShell.id]?.startSessionCallCount, 0)
+        XCTAssertEqual(deferredScheduler.scheduledDelays, [0.1])
+
+        deferredScheduler.fireNext()
+
         XCTAssertEqual(adapterFactory.adaptersByPaneID[hiddenShell.id]?.startSessionCallCount, 1)
     }
 
-    func test_registry_keeps_panes_live_even_when_window_is_not_visible() {
+    func test_registry_promotes_peek_visible_pane_to_immediate_start() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let deferredScheduler = PaneRuntimeDeferredStartSchedulerSpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
             adapterFactory.makeAdapter(for: paneID)
-        })
+        }, deferredStartScheduler: deferredScheduler.schedule)
         let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
-        let backgroundShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let peekShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
         let worklanes = [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
@@ -137,8 +144,8 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
                 id: WorklaneID("worklane-2"),
                 title: "WS 2",
                 paneStripState: PaneStripState(
-                    panes: [backgroundShell],
-                    focusedPaneID: backgroundShell.id
+                    panes: [peekShell],
+                    focusedPaneID: peekShell.id
                 )
             ),
         ]
@@ -151,24 +158,95 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             windowIsKey: false
         )
 
-        XCTAssertEqual(
-            adapterFactory.activity(for: mainShell.id),
-            TerminalSurfaceActivity(
-                keepsRuntimeLive: true,
-                isVisible: false,
-                isFocused: false
-            )
-        )
-        XCTAssertEqual(
-            adapterFactory.activity(for: backgroundShell.id),
-            TerminalSurfaceActivity(
-                keepsRuntimeLive: true,
-                isVisible: false,
-                isFocused: false
-            )
-        )
         XCTAssertEqual(adapterFactory.adaptersByPaneID[mainShell.id]?.startSessionCallCount, 1)
-        XCTAssertEqual(adapterFactory.adaptersByPaneID[backgroundShell.id]?.startSessionCallCount, 1)
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[peekShell.id]?.startSessionCallCount, 0)
+
+        registry.updateSurfaceActivities(
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true,
+            peekVisibleWorklaneIDs: [WorklaneID("worklane-2")]
+        )
+
+        XCTAssertEqual(
+            adapterFactory.activity(for: peekShell.id),
+            TerminalSurfaceActivity(
+                keepsRuntimeLive: true,
+                isVisible: true,
+                isFocused: false
+            )
+        )
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[peekShell.id]?.startSessionCallCount, 1)
+
+        deferredScheduler.fireNext()
+
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[peekShell.id]?.startSessionCallCount, 1)
+    }
+
+    func test_registry_invalidates_stale_deferred_start_when_queue_is_cleared() {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let deferredScheduler = PaneRuntimeDeferredStartSchedulerSpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        }, deferredStartScheduler: deferredScheduler.schedule)
+        let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let peekShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let nextShell = PaneState(id: PaneID("worklane-3-shell"), title: "shell")
+        let initialWorklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: "MAIN",
+                paneStripState: PaneStripState(panes: [mainShell], focusedPaneID: mainShell.id)
+            ),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
+                title: "WS 2",
+                paneStripState: PaneStripState(panes: [peekShell], focusedPaneID: peekShell.id)
+            ),
+        ]
+
+        registry.synchronize(with: initialWorklanes)
+        registry.updateSurfaceActivities(
+            worklanes: initialWorklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        XCTAssertEqual(deferredScheduler.scheduledDelays, [0.1])
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[peekShell.id]?.startSessionCallCount, 0)
+
+        registry.updateSurfaceActivities(
+            worklanes: initialWorklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true,
+            peekVisibleWorklaneIDs: [WorklaneID("worklane-2")]
+        )
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[peekShell.id]?.startSessionCallCount, 1)
+
+        let nextWorklanes = initialWorklanes + [
+            WorklaneState(
+                id: WorklaneID("worklane-3"),
+                title: "WS 3",
+                paneStripState: PaneStripState(panes: [nextShell], focusedPaneID: nextShell.id)
+            ),
+        ]
+        registry.synchronize(with: nextWorklanes)
+        registry.updateSurfaceActivities(
+            worklanes: nextWorklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        XCTAssertEqual(deferredScheduler.scheduledDelays, [0.1, 0.1])
+        deferredScheduler.fireNext()
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[nextShell.id]?.startSessionCallCount, 0)
+
+        deferredScheduler.fireNext()
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[nextShell.id]?.startSessionCallCount, 1)
     }
 
     func test_runtime_applies_surface_activity_before_starting_session() {
@@ -852,6 +930,23 @@ private final class PaneRuntimeAdapterFactorySpy {
 
     func activity(for paneID: PaneID) -> TerminalSurfaceActivity? {
         adaptersByPaneID[paneID]?.lastSurfaceActivity
+    }
+}
+
+@MainActor
+private final class PaneRuntimeDeferredStartSchedulerSpy {
+    private(set) var scheduledDelays: [TimeInterval] = []
+    private var operations: [@MainActor () -> Void] = []
+
+    func schedule(delay: TimeInterval, operation: @escaping @MainActor () -> Void) {
+        scheduledDelays.append(delay)
+        operations.append(operation)
+    }
+
+    func fireNext() {
+        guard !operations.isEmpty else { return }
+        let operation = operations.removeFirst()
+        operation()
     }
 }
 

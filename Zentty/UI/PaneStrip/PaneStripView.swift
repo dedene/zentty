@@ -1007,6 +1007,7 @@ final class PaneStripView: NSView {
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
                 if startsWithViewportSyncSuspended {
+                    paneView.primeTerminalViewportForPreviewMountIfNeeded()
                     paneView.prepareSuspendedTerminalLayoutForPreviewMount()
                 }
                 TerminalViewportDiagnostics.shared.record(
