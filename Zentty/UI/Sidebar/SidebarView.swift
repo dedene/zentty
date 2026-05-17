@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 @MainActor
 final class SidebarReorderSpacerView: NSView {
@@ -35,6 +36,139 @@ final class SidebarReorderSpacerView: NSView {
 }
 
 @MainActor
+private final class SidebarHeaderBandView: NSView {
+    private let topBorderLayer = CALayer()
+    private let bottomBorderLayer = CALayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = 0
+        layer?.masksToBounds = false
+        layer?.addSublayer(topBorderLayer)
+        layer?.addSublayer(bottomBorderLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let lineWidth = 1 / max(1, window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+        topBorderLayer.frame = CGRect(x: 0, y: bounds.height - lineWidth, width: bounds.width, height: lineWidth)
+        bottomBorderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: lineWidth)
+    }
+
+    func configure(theme: ZenttyTheme, animated: Bool) {
+        let background = theme.sidebarBackground
+            .mixed(towards: theme.primaryText, amount: theme.sidebarGlassAppearance == .dark ? 0.025 : 0.045)
+            .withAlphaComponent(min(1, theme.sidebarBackground.alphaComponent + 0.025))
+        let topBorder = theme.primaryText.withAlphaComponent(theme.sidebarGlassAppearance == .dark ? 0.045 : 0.06)
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = background.cgColor
+            self.topBorderLayer.backgroundColor = topBorder.cgColor
+            self.bottomBorderLayer.backgroundColor = NSColor.clear.cgColor
+        }
+    }
+}
+
+@MainActor
+private final class SidebarHeaderDividerView: NSView {
+    private let lineLayer = CALayer()
+    private let fadeLayer = CAGradientLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.masksToBounds = false
+        layer?.addSublayer(fadeLayer)
+        layer?.addSublayer(lineLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        let lineWidth = 1 / max(1, window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+        lineLayer.frame = CGRect(x: 0, y: bounds.height - lineWidth, width: bounds.width, height: lineWidth)
+        fadeLayer.frame = bounds
+    }
+
+    func configure(theme: ZenttyTheme, animated: Bool) {
+        let lineColor = theme.primaryText.withAlphaComponent(theme.sidebarGlassAppearance == .dark ? 0.12 : 0.14)
+        let fadeColor = NSColor.black.withAlphaComponent(theme.sidebarGlassAppearance == .dark ? 0.14 : 0.06)
+
+        performThemeAnimation(animated: animated) {
+            self.lineLayer.backgroundColor = lineColor.cgColor
+            self.fadeLayer.colors = [
+                fadeColor.cgColor,
+                NSColor.clear.cgColor,
+            ]
+            self.fadeLayer.startPoint = CGPoint(x: 0.5, y: 1)
+            self.fadeLayer.endPoint = CGPoint(x: 0.5, y: 0)
+        }
+    }
+}
+
+@MainActor
+private final class SidebarHeaderAccessoryGroupView: NSView {
+    private let separatorLayer = CALayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = ShellMetrics.sidebarHeaderControlCornerRadius
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = false
+        layer?.borderWidth = 0
+        layer?.addSublayer(separatorLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let lineWidth = 1 / max(1, window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+        layer?.cornerRadius = min(ShellMetrics.sidebarHeaderControlCornerRadius, bounds.height / 2)
+        separatorLayer.frame = CGRect(
+            x: floor(bounds.midX - (lineWidth / 2)),
+            y: 5,
+            width: lineWidth,
+            height: max(0, bounds.height - 10)
+        )
+    }
+
+    func configure(theme: ZenttyTheme, animated: Bool) {
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = NSColor.clear.cgColor
+            self.layer?.borderColor = NSColor.clear.cgColor
+            self.layer?.shadowColor = NSColor.clear.cgColor
+            self.layer?.shadowOpacity = 0
+            self.layer?.shadowRadius = 6
+            self.layer?.shadowOffset = CGSize(width: 0, height: -1)
+            self.separatorLayer.backgroundColor = NSColor.clear.cgColor
+        }
+    }
+}
+
+@MainActor
 final class SidebarView: NSView {
     private enum Layout {
         static let contentInset: CGFloat = ShellMetrics.sidebarContentInset
@@ -43,7 +177,17 @@ final class SidebarView: NSView {
         static let updateRowBottomInset: CGFloat = ShellMetrics.sidebarContentInset
         static let updateRowSpacing: CGFloat = 8
         static let resizeHandleWidth: CGFloat = 4
-        static let headerButtonSpacing: CGFloat = 6
+        static let headerButtonSpacing: CGFloat = 4
+        static let headerAccessoryHeight: CGFloat = ShellMetrics.sidebarCreateWorklaneButtonHeight
+        static let pinnedSearchBookmarkSpacing: CGFloat = 0
+        static let bookmarkTrailingOpticalOffset: CGFloat = 2
+        static let peekSearchBookmarkSpacing: CGFloat = pinnedSearchBookmarkSpacing
+        static let pinnedGlobalSearchListTopInset: CGFloat = 8
+        static let hoverPeekListTopInset: CGFloat = 12
+        static let hoverPeekHeaderDividerTopGap: CGFloat = 10
+        static let hoverPeekHeaderDividerHeight: CGFloat = 12
+        static let hoverPeekSearchRowTopOffset: CGFloat =
+            hoverPeekHeaderDividerTopGap + hoverPeekHeaderDividerHeight
         static let reorderPreviewAnimationDuration: TimeInterval = 0.11
         static let defaultHeaderContentMinX: CGFloat =
             ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset
@@ -55,18 +199,27 @@ final class SidebarView: NSView {
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onAddPaneLeftRequested: ((WorklaneID, PaneID) -> Void)?
     var onForceSplitRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
     var onServerPortSelected: ((WorklaneID, String) -> Void)?
+    var onRunRestoredCommandRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
+    var onOpenGlobalSearchRequested: (() -> Void)?
+    var onGlobalSearchQueryChanged: ((String) -> Void)?
+    var onGlobalSearchNextRequested: (() -> Void)?
+    var onGlobalSearchPreviousRequested: (() -> Void)?
+    var onGlobalSearchCloseRequested: (() -> Void)?
+    var onGlobalSearchFocusChanged: ((Bool) -> Void)?
     var onOpenBookmarksPopoverRequested: ((NSView) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
+    var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -74,11 +227,16 @@ final class SidebarView: NSView {
 
     private let backgroundView = GlassSurfaceView(style: .sidebar)
     private let headerView = NSView()
+    private let headerBandView = SidebarHeaderBandView()
+    private let headerDividerView = SidebarHeaderDividerView()
+    private let headerAccessoryGroupView = SidebarHeaderAccessoryGroupView()
     private let listScrollView = NSScrollView()
     private let listDocumentView = FlippedSidebarDocumentView()
     private let listStack = NSStackView()
     private let updateAvailableRowView = SidebarUpdateAvailableRowView()
     private let addWorklaneButton = SidebarCreateWorklaneButton()
+    private let globalSearchButton = SidebarGlobalSearchButton()
+    private let globalSearchRowView = SidebarGlobalSearchRowView()
     private let bookmarksButton = SidebarBookmarksButton()
     private let resizeHandleView = SidebarResizeHandleView()
     private let shimmerCoordinator = SidebarShimmerCoordinator()
@@ -91,6 +249,8 @@ final class SidebarView: NSView {
         listDocumentView: listDocumentView,
         listStack: listStack,
         addWorklaneButton: addWorklaneButton,
+        globalSearchButton: globalSearchButton,
+        globalSearchRowView: globalSearchRowView,
         bookmarksButton: bookmarksButton,
         updateAvailableRowView: updateAvailableRowView,
         resizeHandleView: resizeHandleView
@@ -108,7 +268,10 @@ final class SidebarView: NSView {
     private var addWorklaneLeadingConstraint: NSLayoutConstraint?
     private var addWorklaneWidthConstraint: NSLayoutConstraint?
     private var addWorklaneCenterYConstraint: NSLayoutConstraint?
+    private var globalSearchToBookmarksConstraint: NSLayoutConstraint?
     private var headerTopConstraint: NSLayoutConstraint?
+    private var globalSearchRowTopConstraint: NSLayoutConstraint?
+    private var globalSearchRowHeightConstraint: NSLayoutConstraint?
     private var listBottomConstraint: NSLayoutConstraint?
     private var updateRowHeightConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
@@ -122,6 +285,7 @@ final class SidebarView: NSView {
     private var trackingArea: NSTrackingArea?
     private var isResizeEnabled = true
     private var isUpdateAvailable = false
+    private var isGlobalSearchPresented = false
 
     override init(frame frameRect: NSRect) {
         windowRenderabilityResolver = SidebarWindowRenderability.appKitRenderableWindow
@@ -175,13 +339,34 @@ final class SidebarView: NSView {
         )
 
         addWorklaneButton.translatesAutoresizingMaskIntoConstraints = false
-        addWorklaneButton.setContentHuggingPriority(.required, for: .horizontal)
+        addWorklaneButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
         addWorklaneButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         addWorklaneButton.target = self
         addWorklaneButton.action = #selector(handleCreateWorklane)
 
+        globalSearchButton.target = self
+        globalSearchButton.action = #selector(handleOpenGlobalSearch)
+        globalSearchButton.setSegmentPosition(.leading)
+
+        globalSearchRowView.onQueryChanged = { [weak self] query in
+            self?.onGlobalSearchQueryChanged?(query)
+        }
+        globalSearchRowView.onNext = { [weak self] in
+            self?.onGlobalSearchNextRequested?()
+        }
+        globalSearchRowView.onPrevious = { [weak self] in
+            self?.onGlobalSearchPreviousRequested?()
+        }
+        globalSearchRowView.onClose = { [weak self] in
+            self?.onGlobalSearchCloseRequested?()
+        }
+        globalSearchRowView.onFocusChanged = { [weak self] focused in
+            self?.onGlobalSearchFocusChanged?(focused)
+        }
+
         bookmarksButton.target = self
         bookmarksButton.action = #selector(handleOpenBookmarksPopover)
+        bookmarksButton.setSegmentPosition(.trailing)
 
         resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
         resizeHandleView.onPan = { [weak self] recognizer in
@@ -193,11 +378,16 @@ final class SidebarView: NSView {
 
         addSubview(backgroundView)
         addSubview(headerView)
+        addSubview(globalSearchRowView)
         addSubview(listScrollView)
+        addSubview(headerDividerView)
         addSubview(updateAvailableRowView)
         addSubview(resizeHandleView)
 
+        headerView.addSubview(headerBandView)
+        headerView.addSubview(headerAccessoryGroupView)
         headerView.addSubview(addWorklaneButton)
+        headerView.addSubview(globalSearchButton)
         headerView.addSubview(bookmarksButton)
 
         let addWorklaneLeadingConstraint = addWorklaneButton.leadingAnchor.constraint(
@@ -205,9 +395,7 @@ final class SidebarView: NSView {
             constant: Layout.contentInset
         )
         self.addWorklaneLeadingConstraint = addWorklaneLeadingConstraint
-        let addWorklaneWidthConstraint = addWorklaneButton.widthAnchor.constraint(
-            lessThanOrEqualToConstant: 0
-        )
+        let addWorklaneWidthConstraint = addWorklaneButton.widthAnchor.constraint(equalToConstant: 0)
         self.addWorklaneWidthConstraint = addWorklaneWidthConstraint
         let addWorklaneCenterYConstraint = addWorklaneButton.centerYAnchor.constraint(
             equalTo: headerView.centerYAnchor
@@ -216,7 +404,15 @@ final class SidebarView: NSView {
 
         let headerTopConstraint = headerView.topAnchor.constraint(equalTo: topAnchor)
         self.headerTopConstraint = headerTopConstraint
-
+        let globalSearchRowTopConstraint = globalSearchRowView.topAnchor.constraint(equalTo: headerView.bottomAnchor)
+        self.globalSearchRowTopConstraint = globalSearchRowTopConstraint
+        let globalSearchRowHeightConstraint = globalSearchRowView.heightAnchor.constraint(equalToConstant: 0)
+        self.globalSearchRowHeightConstraint = globalSearchRowHeightConstraint
+        let globalSearchToBookmarksConstraint = globalSearchButton.trailingAnchor.constraint(
+            equalTo: bookmarksButton.leadingAnchor,
+            constant: -Layout.headerButtonSpacing
+        )
+        self.globalSearchToBookmarksConstraint = globalSearchToBookmarksConstraint
         updateAvailableRowView.translatesAutoresizingMaskIntoConstraints = false
         let listBottomConstraint = listScrollView.bottomAnchor.constraint(
             equalTo: updateAvailableRowView.topAnchor,
@@ -239,9 +435,23 @@ final class SidebarView: NSView {
             headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             headerView.heightAnchor.constraint(equalToConstant: Layout.headerHeight),
 
+            headerBandView.topAnchor.constraint(equalTo: headerView.topAnchor),
+            headerBandView.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            headerBandView.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            headerBandView.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
+
+            headerAccessoryGroupView.leadingAnchor.constraint(
+                equalTo: globalSearchButton.leadingAnchor
+            ),
+            headerAccessoryGroupView.trailingAnchor.constraint(
+                equalTo: bookmarksButton.trailingAnchor
+            ),
+            headerAccessoryGroupView.centerYAnchor.constraint(equalTo: globalSearchButton.centerYAnchor),
+            headerAccessoryGroupView.heightAnchor.constraint(equalToConstant: Layout.headerAccessoryHeight),
+
             addWorklaneLeadingConstraint,
             addWorklaneButton.trailingAnchor.constraint(
-                lessThanOrEqualTo: bookmarksButton.leadingAnchor,
+                lessThanOrEqualTo: globalSearchButton.leadingAnchor,
                 constant: -Layout.headerButtonSpacing
             ),
             addWorklaneWidthConstraint,
@@ -253,18 +463,32 @@ final class SidebarView: NSView {
                 lessThanOrEqualTo: headerView.bottomAnchor
             ),
 
+            globalSearchToBookmarksConstraint,
+            globalSearchButton.centerYAnchor.constraint(equalTo: addWorklaneButton.centerYAnchor),
+
             bookmarksButton.trailingAnchor.constraint(
                 equalTo: headerView.trailingAnchor,
-                constant: -Layout.contentInset
+                constant: -Layout.contentInset + Layout.bookmarkTrailingOpticalOffset
             ),
-            bookmarksButton.centerYAnchor.constraint(
-                equalTo: headerView.centerYAnchor
-            ),
+            bookmarksButton.centerYAnchor.constraint(equalTo: addWorklaneButton.centerYAnchor),
 
-            listScrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            globalSearchRowTopConstraint,
+            globalSearchRowView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
+            globalSearchRowView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
+            globalSearchRowHeightConstraint,
+
+            listScrollView.topAnchor.constraint(equalTo: globalSearchRowView.bottomAnchor),
             listScrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
             listScrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
             listBottomConstraint,
+
+            headerDividerView.topAnchor.constraint(
+                equalTo: headerView.bottomAnchor,
+                constant: Layout.hoverPeekHeaderDividerTopGap
+            ),
+            headerDividerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerDividerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerDividerView.heightAnchor.constraint(equalToConstant: Layout.hoverPeekHeaderDividerHeight),
 
             updateAvailableRowView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInset),
             updateAvailableRowView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInset),
@@ -288,6 +512,8 @@ final class SidebarView: NSView {
         ])
 
         updateHeaderLayoutConstraints()
+        globalSearchRowView.isHidden = true
+        globalSearchRowView.alphaValue = 0
         applyUpdateAvailability()
         apply(theme: currentTheme, animated: false)
     }
@@ -322,8 +548,8 @@ final class SidebarView: NSView {
     }
 
     override func layout() {
-        super.layout()
         updateHeaderLayoutConstraints()
+        super.layout()
         syncShimmerVisibility()
     }
 
@@ -451,6 +677,9 @@ final class SidebarView: NSView {
         button.onSplitVerticalRequested = { [weak self] paneID in
             self?.onSplitVerticalRequested?(worklaneID, paneID)
         }
+        button.onAddPaneLeftRequested = { [weak self] paneID in
+            self?.onAddPaneLeftRequested?(worklaneID, paneID)
+        }
         button.onForceSplitRightRequested = { [weak self] paneID in
             self?.onForceSplitRightRequested?(worklaneID, paneID)
         }
@@ -463,11 +692,17 @@ final class SidebarView: NSView {
         button.moveToWorklaneCatalogProvider = { [weak self] paneID in
             self?.moveToWorklaneCatalogProvider?(paneID)
         }
+        button.restoredRerunnableCommandProvider = { [weak self] paneID in
+            self?.restoredRerunnableCommandProvider?(paneID)
+        }
         button.onMovePaneToNewWindowRequested = { [weak self] paneID in
             self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)
         }
         button.onServerPortSelected = { [weak self] serverID in
             self?.onServerPortSelected?(worklaneID, serverID)
+        }
+        button.onRunRestoredCommand = { [weak self] paneID in
+            self?.onRunRestoredCommandRequested?(worklaneID, paneID)
         }
         button.onWorklaneColorChanged = { [weak self] id, color in
             self?.onWorklaneColorChanged?(id, color)
@@ -494,6 +729,10 @@ final class SidebarView: NSView {
     /// structural mutations where buttons are already configured.
     private func applySidebarChrome(theme: ZenttyTheme, animated: Bool) {
         chrome.apply(theme: theme, animated: animated)
+        headerBandView.configure(theme: theme, animated: animated)
+        headerDividerView.configure(theme: theme, animated: animated)
+        headerAccessoryGroupView.configure(theme: theme, animated: animated)
+        updateHeaderPresentation(animated: animated)
     }
 
     private func isWorklaneVisible(id: WorklaneID) -> Bool {
@@ -519,6 +758,7 @@ final class SidebarView: NSView {
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
         applySidebarChrome(theme: theme, animated: animated)
+        globalSearchButton.setSearchPresented(isGlobalSearchPresented, animated: animated)
 
         worklaneButtons.enumerated().forEach { index, button in
             guard worklaneSummaries.indices.contains(index) else {
@@ -534,6 +774,60 @@ final class SidebarView: NSView {
 
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
         syncShimmerVisibility()
+    }
+
+    func apply(globalSearch state: GlobalSearchState) {
+        globalSearchRowView.apply(search: state)
+        setGlobalSearchPresented(state.isHUDVisible, animated: true)
+    }
+
+    func setGlobalSearchPresented(_ presented: Bool, animated: Bool) {
+        guard isGlobalSearchPresented != presented else {
+            globalSearchButton.setSearchPresented(presented, animated: animated)
+            return
+        }
+
+        isGlobalSearchPresented = presented
+        globalSearchButton.setSearchPresented(presented, animated: animated)
+        globalSearchRowView.isHidden = false
+        let targetHeight = presented ? SidebarGlobalSearchRowView.preferredHeight : 0
+        let targetAlpha: CGFloat = presented ? 1 : 0
+        let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let duration = SidebarTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
+        let timing = SidebarTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
+
+        let applyLayout = {
+            self.globalSearchRowHeightConstraint?.constant = targetHeight
+            self.globalSearchRowView.alphaValue = targetAlpha
+            self.updateHeaderPresentation(animated: animated)
+            self.layoutSubtreeIfNeeded()
+        }
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = timing
+                context.allowsImplicitAnimation = true
+                applyLayout()
+            } completionHandler: {
+                Task { @MainActor in
+                    self.globalSearchRowView.isHidden = !self.isGlobalSearchPresented
+                }
+            }
+        } else {
+            applyLayout()
+            globalSearchRowView.isHidden = !presented
+        }
+    }
+
+    func focusGlobalSearchField(selectAll: Bool) {
+        setGlobalSearchPresented(true, animated: true)
+        layoutSubtreeIfNeeded()
+        globalSearchRowView.focusField(selectAll: selectAll)
+    }
+
+    var isGlobalSearchFieldFocused: Bool {
+        globalSearchRowView.isFieldFocused
     }
 
     func updateHeaderLayout(
@@ -776,12 +1070,28 @@ final class SidebarView: NSView {
     }
 
     @objc
+    private func handleOpenGlobalSearch() {
+        if isGlobalSearchPresented {
+            onGlobalSearchCloseRequested?()
+            return
+        }
+
+        onOpenGlobalSearchRequested?()
+    }
+
+    @objc
     private func handleOpenBookmarksPopover() {
         onOpenBookmarksPopoverRequested?(bookmarksButton)
     }
 
     func setBookmarksPopoverPresented(_ presented: Bool, animated: Bool = true) {
         bookmarksButton.setPopoverPresented(presented, animated: animated)
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        addWorklaneButton.updateShortcutTooltip(shortcutManager)
+        globalSearchButton.updateShortcutTooltip(shortcutManager)
+        bookmarksButton.updateShortcutTooltip(shortcutManager)
     }
 
     var bookmarksButtonAnchor: NSView {
@@ -839,8 +1149,13 @@ final class SidebarView: NSView {
             resizeHandleView: resizeHandleView,
             updateAvailableRowView: updateAvailableRowView,
             addWorklaneButton: addWorklaneButton,
+            globalSearchButton: globalSearchButton,
+            globalSearchRowView: globalSearchRowView,
             addWorklaneWidthConstraintConstant: addWorklaneWidthConstraint?.constant ?? 0,
             headerView: headerView,
+            headerBandView: headerBandView,
+            headerDividerView: headerDividerView,
+            headerAccessoryGroupView: headerAccessoryGroupView,
             listScrollView: listScrollView,
             appearance: appearance,
             shimmerDriverIsRunning: shimmerCoordinator.isRunningForTesting,
@@ -852,6 +1167,10 @@ final class SidebarView: NSView {
                     self?.syncShimmerVisibility()
                 case .performUpdateAvailableRowClick:
                     self?.updateAvailableRowView.performClickForTesting()
+                case .performGlobalSearchButtonClick:
+                    self?.globalSearchButton.performClick(nil)
+                case .performGlobalSearchClear:
+                    self?.globalSearchRowView.performClearForTesting()
                 }
             }
         )
@@ -1037,6 +1356,8 @@ private extension SidebarView {
     }
 
     func updateHeaderLayoutConstraints() {
+        updateHeaderPresentation(animated: false)
+
         let desiredContentMinX: CGFloat
         switch headerVisibilityMode {
         case .pinnedOpen:
@@ -1052,8 +1373,28 @@ private extension SidebarView {
         )
         addWorklaneLeadingConstraint?.constant = buttonLeading
 
-        let maxAllowedWidth = max(0, bounds.width - buttonLeading - Layout.contentInset)
-        addWorklaneWidthConstraint?.constant = maxAllowedWidth
+        let searchBookmarkSpacing: CGFloat = switch headerVisibilityMode {
+        case .pinnedOpen:
+            Layout.pinnedSearchBookmarkSpacing
+        case .hidden, .hoverPeek:
+            Layout.peekSearchBookmarkSpacing
+        }
+        let rightControlsTrailing = bounds.width
+            - Layout.contentInset
+            + Layout.bookmarkTrailingOpticalOffset
+        let rightControlsLeading = rightControlsTrailing
+            - SidebarBookmarksButton.buttonWidth
+            - searchBookmarkSpacing
+            - SidebarGlobalSearchButton.buttonWidth
+        let addWorklaneTrailing = rightControlsLeading - Layout.headerButtonSpacing
+        let availableWorklaneWidth = max(0, addWorklaneTrailing - buttonLeading)
+        addWorklaneWidthConstraint?.constant = switch headerVisibilityMode {
+        case .pinnedOpen:
+            min(availableWorklaneWidth, addWorklaneButton.minimumUntruncatedWidth)
+        case .hidden, .hoverPeek:
+            availableWorklaneWidth
+        }
+        globalSearchToBookmarksConstraint?.constant = -searchBookmarkSpacing
 
         headerTopConstraint?.constant = headerVisibilityMode == .hoverPeek
             ? ShellMetrics.sidebarHeaderPeekTopInset
@@ -1063,6 +1404,36 @@ private extension SidebarView {
         case .pinnedOpen: ShellMetrics.sidebarCreateWorklanePinnedVerticalOffset
         case .hoverPeek: ShellMetrics.sidebarCreateWorklanePeekVerticalOffset
         case .hidden: 0
+        }
+    }
+
+    private func updateHeaderPresentation(animated: Bool) {
+        let usesPeekBand = headerVisibilityMode == .hoverPeek
+        let usesPinnedCapsules = headerVisibilityMode == .pinnedOpen
+
+        headerBandView.isHidden = !usesPeekBand
+        headerDividerView.isHidden = !usesPeekBand
+        headerAccessoryGroupView.isHidden = !usesPinnedCapsules
+        addWorklaneButton.setPresentation(usesPeekBand ? .band : .capsule, animated: animated)
+
+        let searchRowTopOffset = usesPeekBand && isGlobalSearchPresented
+            ? Layout.hoverPeekSearchRowTopOffset
+            : 0
+        if globalSearchRowTopConstraint?.constant != searchRowTopOffset {
+            globalSearchRowTopConstraint?.constant = searchRowTopOffset
+        }
+
+        let topInset = if usesPeekBand {
+            Layout.hoverPeekListTopInset
+        } else if usesPinnedCapsules && isGlobalSearchPresented {
+            Layout.pinnedGlobalSearchListTopInset
+        } else {
+            CGFloat(0)
+        }
+        if listStack.edgeInsets.top != topInset {
+            listStack.edgeInsets = NSEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+            listStack.needsLayout = true
+            listDocumentView.needsLayout = true
         }
     }
 

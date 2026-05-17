@@ -102,6 +102,76 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_command_running_keeps_then_clears_restored_agent_restore_draft() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Claude Code",
+            sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Claude")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: draft,
+                        restoredAgentAutoResumePending: true
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let shellRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            origin: .shell,
+            toolName: "Claude Code",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        var auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliary.raw.restoredAgentRestoreDraft, draft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
     func test_has_running_agent_pane_is_true_for_recognized_running_agent() {
         let store = makeStoreWithAgentState(
             toolName: "Codex",
@@ -2509,6 +2579,93 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_resize_focused_pane_vertical_with_immediate_animation_emits_immediate_change() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("only"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 800,
+                                paneHeights: [300, 300],
+                                focusedPaneID: PaneID("top")
+                            )
+                        ]
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        _ = store.resizeFocusedPane(
+            in: PaneResizeAxis.vertical,
+            delta: 40,
+            availableSize: CGSize(width: 800, height: 800),
+            minimumSizeByPaneID: [
+                PaneID("top"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("bottom"): PaneMinimumSize(width: 320, height: 160),
+            ],
+            animation: WorklaneLayoutResizeAnimation.immediate
+        )
+
+        XCTAssertEqual(
+            changes,
+            [.layoutResized(WorklaneID("main"), animation: .immediate)]
+        )
+    }
+
+    func test_resize_focused_pane_default_still_emits_split_curve_change() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("only"),
+                                panes: [
+                                    PaneState(id: PaneID("top"), title: "top"),
+                                    PaneState(id: PaneID("bottom"), title: "bottom"),
+                                ],
+                                width: 800,
+                                paneHeights: [300, 300],
+                                focusedPaneID: PaneID("top")
+                            )
+                        ]
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main")
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        _ = store.resizeFocusedPane(
+            in: PaneResizeAxis.vertical,
+            delta: 40,
+            availableSize: CGSize(width: 800, height: 800),
+            minimumSizeByPaneID: [
+                PaneID("top"): PaneMinimumSize(width: 320, height: 160),
+                PaneID("bottom"): PaneMinimumSize(width: 320, height: 160),
+            ]
+        )
+
+        XCTAssertEqual(
+            changes,
+            [.layoutResized(WorklaneID("main"), animation: .splitCurve)]
+        )
+    }
+
     func test_resize_focused_last_pane_right_shrinks_it_without_resizing_neighbors() {
         let store = WorklaneStore(
             worklanes: [
@@ -2896,6 +3053,94 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
         XCTAssertFalse(store.activeWorklane?.paneStripState.panes.contains(where: { $0.id == insertedPaneID }) ?? true)
+    }
+
+    func test_worklane_close_confirmation_reason_reports_session_history_in_target_worklane() {
+        let targetPaneID = PaneID("target-shell")
+        var targetAuxiliary = PaneAuxiliaryState()
+        targetAuxiliary.hasCommandHistory = true
+        let otherPaneID = PaneID("other-shell")
+        var otherAuxiliary = PaneAuxiliaryState()
+        otherAuxiliary.shellActivityState = .commandRunning
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("target"),
+                    title: "Target",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: targetPaneID, title: "target")],
+                        focusedPaneID: targetPaneID
+                    ),
+                    auxiliaryStateByPaneID: [targetPaneID: targetAuxiliary]
+                ),
+                WorklaneState(
+                    id: WorklaneID("other"),
+                    title: "Other",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: otherPaneID, title: "other")],
+                        focusedPaneID: otherPaneID
+                    ),
+                    auxiliaryStateByPaneID: [otherPaneID: otherAuxiliary]
+                ),
+            ],
+            activeWorklaneID: WorklaneID("target")
+        )
+
+        XCTAssertEqual(store.worklaneCloseConfirmationReason(WorklaneID("target")), .sessionHistory)
+    }
+
+    func test_worklane_close_confirmation_reason_prioritizes_running_processes() {
+        let historyPaneID = PaneID("history-shell")
+        var historyAuxiliary = PaneAuxiliaryState()
+        historyAuxiliary.hasCommandHistory = true
+        let runningPaneID = PaneID("running-shell")
+        var runningAuxiliary = PaneAuxiliaryState()
+        runningAuxiliary.terminalProgress = TerminalProgressReport(state: .indeterminate, progress: nil)
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("target"),
+                    title: "Target",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: historyPaneID, title: "history"),
+                            PaneState(id: runningPaneID, title: "running"),
+                        ],
+                        focusedPaneID: historyPaneID
+                    ),
+                    auxiliaryStateByPaneID: [
+                        historyPaneID: historyAuxiliary,
+                        runningPaneID: runningAuxiliary,
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("target")
+        )
+
+        XCTAssertEqual(store.worklaneCloseConfirmationReason(WorklaneID("target")), .runningProcess)
+    }
+
+    func test_worklane_close_confirmation_reason_ignores_closed_pane_auxiliary_state() {
+        let livePaneID = PaneID("live-shell")
+        let closedPaneID = PaneID("closed-shell")
+        var closedAuxiliary = PaneAuxiliaryState()
+        closedAuxiliary.shellActivityState = .commandRunning
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("target"),
+                    title: "Target",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: livePaneID, title: "live")],
+                        focusedPaneID: livePaneID
+                    ),
+                    auxiliaryStateByPaneID: [closedPaneID: closedAuxiliary]
+                )
+            ],
+            activeWorklaneID: WorklaneID("target")
+        )
+
+        XCTAssertNil(store.worklaneCloseConfirmationReason(WorklaneID("target")))
     }
 
     func test_close_focused_pane_reexpands_remaining_columns_to_fill_readable_width() {
@@ -3616,6 +3861,225 @@ final class PaneStripStoreTests: XCTestCase {
 
         let request = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
         XCTAssertEqual(request.environmentVariables["ZENTTY_INITIAL_WORKING_DIRECTORY"], "/tmp/local-project")
+    }
+
+    func test_shell_prompt_idle_preserves_restored_last_activity_until_command_starts() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    presentation: PanePresentationState(
+                        cwd: NSHomeDirectory(),
+                        lastActivityTitle: "cmatrix -C cyan"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.lastActivityTitle,
+            "cmatrix -C cyan"
+        )
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.lastActivityTitle)
+    }
+
+    func test_shell_command_running_captures_last_run_command_and_consumes_restored_rerun() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        restoredRerunnableCommand: "pnpm start:staging"
+                    ),
+                    presentation: PanePresentationState(
+                        cwd: NSHomeDirectory(),
+                        lastActivityTitle: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+        let command = "pnpm start:staging\nnpm run smoke"
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                shellCommand: command,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        let auxiliary = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliary.raw.lastRunCommand, command)
+        XCTAssertNil(auxiliary.raw.restoredRerunnableCommand)
+        XCTAssertNil(auxiliary.presentation.lastActivityTitle)
+        XCTAssertTrue(auxiliary.hasCommandHistory)
+    }
+
+    func test_shell_prompt_idle_preserves_restored_rerun_command() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(restoredRerunnableCommand: "pnpm start:staging"),
+                    presentation: PanePresentationState(cwd: NSHomeDirectory())
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand,
+            "pnpm start:staging"
+        )
+    }
+
+    func test_restoredRerunnableCommand_requires_prompt_idle_pane() throws {
+        let paneID = PaneID("pane-main")
+        let worklaneID = WorklaneID("worklane-main")
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellActivityState: .commandRunning,
+                        restoredRerunnableCommand: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        XCTAssertNil(store.restoredRerunnableCommand(for: paneID))
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.restoredRerunnableCommand(for: paneID), "pnpm start:staging")
+    }
+
+    func test_consumeRestoredRerunnableCommand_clears_oneShotCommand() throws {
+        let paneID = PaneID("pane-main")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellActivityState: .promptIdle,
+                        restoredRerunnableCommand: "pnpm start:staging"
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        store.consumeRestoredRerunnableCommand(for: paneID)
+
+        XCTAssertNil(store.restoredRerunnableCommand(for: paneID))
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand)
     }
 
     func test_split_after_ignores_agent_working_directory_and_uses_terminal_cwd() throws {
@@ -5242,6 +5706,214 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
+    func test_codex_startup_ready_sequence_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        for title in [
+            "codex",
+            "Ready | zentty",
+            "Starting ⠹ zentty",
+            "Ready | zentty"
+        ] {
+            store.updateMetadata(
+                paneID: paneID,
+                metadata: TerminalMetadata(
+                    title: title,
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: "codex",
+                    gitBranch: "main"
+                )
+            )
+        }
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_stale_codex_idle_status_plus_startup_ready_title_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus =
+            PaneAgentStatus(
+                tool: .codex,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "stale-session"
+            )
+        store.activeWorklane = worklane
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_completion_notification_before_current_run_does_not_surface_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(title: "Codex", body: "Agent ready")
+            )
+        )
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.isReady == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_codex_title_completion_survives_ready_status_debounce() throws {
+        let scheduler = ManualReadyStatusScheduler()
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 1,
+            readyStatusScheduler: scheduler.schedule
+        )
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Ready | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true)
+
+        scheduler.runLatest()
+
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+    }
+
+    func test_shell_origin_codex_idle_does_not_display_agent_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .shell,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .idle,
+                origin: .shell,
+                toolName: "Codex",
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .idle)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Idle")
+    }
+
+    func test_shell_ready_clears_stale_transient_agent_ready_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "codex-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+
+        store.handleTerminalEvent(paneID: paneID, event: .shellReady)
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertNotEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Agent ready")
+    }
+
     func test_ready_codex_title_does_not_override_active_question_state() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -6352,7 +7024,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind, .approval)
     }
 
-    func test_completion_notification_phrase_agent_turn_complete_surfaces_agent_ready() throws {
+    func test_completion_notification_phrase_agent_turn_complete_without_current_run_evidence_does_not_surface_agent_ready() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
 
@@ -6375,9 +7047,9 @@ final class PaneStripStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
-            "Agent ready"
+            "Codex: Agent turn complete"
         )
-        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+        XCTAssertFalse(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
     }
 
     func test_completion_notification_phrase_session_complete_surfaces_agent_ready_for_gemini() throws {
@@ -8125,6 +8797,43 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
     }
 
+    func test_clear_stale_agent_sessions_clears_idle_status_when_pid_is_dead_legacy_path() throws {
+        // Exercises the legacy direct-status path in clearStaleAgentSessions
+        // (hit when agentReducerState.sessionsByID is empty). Previously a
+        // dead-PID + .idle session was preserved with trackedPID nulled,
+        // which let "Idle" linger on the sidebar after Grok/Amp exited on
+        // Ctrl+C without firing SessionEnd. We now clear the status.
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 0.1"]
+        try process.run()
+        let deadPID = process.processIdentifier
+        process.waitUntilExit()
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus =
+            PaneAgentStatus(
+                tool: .grok,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                confidence: .explicit,
+                trackedPID: deadPID,
+                hasObservedRunning: true,
+                sessionID: "session-grok"
+            )
+        store.activeWorklane = worklane
+
+        store.clearStaleAgentSessions()
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
     func test_clear_stale_agent_sessions_persists_reducer_cleanup_even_when_visible_status_is_unchanged() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -9080,4 +9789,249 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.environmentVariables["GHOSTTY_LOG"], "stderr")
     }
 
+    func test_grid_command_builder_only_quotes_tokens_when_needed_and_rejects_newlines() throws {
+        XCTAssertEqual(
+            try GridLaunchCommandBuilder.command(from: ["claude", "--dangerously-skip-permissions"]),
+            "claude --dangerously-skip-permissions"
+        )
+        XCTAssertEqual(
+            try GridLaunchCommandBuilder.command(from: ["codex", "--model", "gpt 5", "it's ok"]),
+            "codex --model 'gpt 5' 'it'\"'\"'s ok'"
+        )
+        XCTAssertEqual(
+            try GridLaunchCommandBuilder.command(from: ["cmd", "$HOME", "a;b", ""]),
+            "cmd '$HOME' 'a;b' ''"
+        )
+        XCTAssertThrowsError(try GridLaunchCommandBuilder.command(from: ["codex\nnow"]))
+        XCTAssertThrowsError(try GridLaunchCommandBuilder.command(from: ["codex\rnow"]))
+    }
+
+    func test_grid_creates_equal_two_by_two_from_single_pane_worklane() throws {
+        let nextIDs = TestIDSequence(["a", "b", "c", "d"])
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1206,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: PaneID("source"), title: "source", width: 1200)],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let result = try store.applyGrid(
+            sourcePaneID: PaneID("source"),
+            rows: 2,
+            columns: 2,
+            command: "claude",
+            includeSource: false,
+            focus: .source
+        )
+
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        let columns = worklane.paneStripState.columns
+        let expectedWidth = (layoutContext.availableWidth - layoutContext.sizing.interPaneSpacing) / 2
+
+        XCTAssertEqual(result.createdPaneIDs.count, 3)
+        XCTAssertEqual(columns.count, 2)
+        XCTAssertEqual(columns.map { $0.panes.map(\.id) }, [
+            [PaneID("source"), PaneID("pn_a")],
+            [PaneID("pn_b"), PaneID("pn_c")],
+        ])
+        XCTAssertEqual(columns[0].width, expectedWidth, accuracy: 0.01)
+        XCTAssertEqual(columns[1].width, expectedWidth, accuracy: 0.01)
+        XCTAssertEqual(columns[0].paneHeights, [1, 1])
+        XCTAssertEqual(columns[1].paneHeights, [1, 1])
+        XCTAssertEqual(columns[0].panes[0].sessionRequest.command, nil)
+        XCTAssertEqual(columns[0].panes[1].sessionRequest.command, "claude")
+        XCTAssertEqual(columns[1].panes[0].sessionRequest.command, "claude")
+        XCTAssertEqual(columns[1].panes[1].sessionRequest.command, "claude")
+        XCTAssertNil(columns[0].panes[1].sessionRequest.nativeCommand)
+        XCTAssertNil(columns[1].panes[0].sessionRequest.nativeCommand)
+        XCTAssertNil(columns[1].panes[1].sessionRequest.nativeCommand)
+        XCTAssertEqual(worklane.paneStripState.focusedPaneID, PaneID("source"))
+    }
+
+    func test_grid_applies_command_to_source_pane_when_included() throws {
+        let nextIDs = TestIDSequence(["a", "b", "c"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: PaneID("source"), title: "source", width: 900)],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        _ = try store.applyGrid(
+            sourcePaneID: PaneID("source"),
+            rows: 2,
+            columns: 2,
+            command: "claude --dangerously-skip-permissions",
+            includeSource: true,
+            focus: .source
+        )
+
+        let commands = try XCTUnwrap(store.activeWorklane).paneStripState.panes.map(\.sessionRequest.command)
+        XCTAssertEqual(
+            commands,
+            Array(repeating: "claude --dangerously-skip-permissions", count: 4)
+        )
+    }
+
+    func test_create_worklane_returns_new_worklane_and_inherits_focused_pane_directory() throws {
+        let nextIDs = TestIDSequence(["worklane", "pane"])
+        let shellPaneID = PaneID("source")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: shellPaneID,
+                                title: "source",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                            ),
+                        ],
+                        focusedPaneID: shellPaneID
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let worklaneID = store.createWorklane()
+
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        XCTAssertEqual(worklaneID, WorklaneID("wl_worklane"))
+        XCTAssertEqual(worklane.id, WorklaneID("wl_worklane"))
+        XCTAssertEqual(worklane.paneStripState.focusedPaneID, PaneID("pn_pane"))
+        XCTAssertEqual(worklane.paneStripState.focusedPane?.sessionRequest.workingDirectory, "/tmp/project")
+        XCTAssertEqual(
+            worklane.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID,
+            shellPaneID
+        )
+    }
+
+    func test_grid_window_workspace_state_inherits_source_pane_directory() throws {
+        let nextIDs = TestIDSequence(["worklane", "pane"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: PaneID("source"),
+                                title: "source",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                            ),
+                        ],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let workspace = try XCTUnwrap(
+            store.gridWindowWorkspaceState(
+                inheritingFrom: PaneID("source"),
+                destinationWindowID: WindowID("wd_new")
+            )
+        )
+
+        XCTAssertEqual(workspace.activeWorklaneID, WorklaneID("wl_worklane"))
+        let worklane = try XCTUnwrap(workspace.worklanes.first)
+        XCTAssertEqual(workspace.worklanes.count, 1)
+        XCTAssertEqual(worklane.paneStripState.focusedPaneID, PaneID("pn_pane"))
+        XCTAssertEqual(
+            worklane.paneStripState.focusedPane?.sessionRequest.workingDirectory,
+            "/tmp/project"
+        )
+        XCTAssertEqual(
+            worklane.paneStripState.focusedPane?.sessionRequest.environmentVariables["ZENTTY_WINDOW_ID"],
+            "wd_new"
+        )
+        XCTAssertNil(worklane.paneStripState.focusedPane?.sessionRequest.configInheritanceSourcePaneID)
+    }
+
+    func test_grid_moves_source_to_new_worklane_when_other_panes_exist() throws {
+        let nextIDs = TestIDSequence(["grid", "a", "b", "c"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("source"), title: "source", width: 900),
+                            PaneState(id: PaneID("other"), title: "other", width: 900),
+                        ],
+                        focusedPaneID: PaneID("source")
+                    )
+                )
+            ],
+            activeWorklaneID: WorklaneID("main"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let result = try store.applyGrid(
+            sourcePaneID: PaneID("source"),
+            rows: 1,
+            columns: 2,
+            command: nil,
+            includeSource: false,
+            focus: .last
+        )
+
+        XCTAssertEqual(result.worklaneID, WorklaneID("wl_grid"))
+        XCTAssertEqual(store.worklanes.map(\.id), [WorklaneID("main"), WorklaneID("wl_grid")])
+        XCTAssertEqual(store.worklanes[0].paneStripState.panes.map(\.id), [PaneID("other")])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_grid"))
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.id), [PaneID("source"), PaneID("pn_a")])
+        XCTAssertEqual(store.activeWorklane?.paneStripState.focusedPaneID, PaneID("pn_a"))
+    }
+
+}
+
+private final class TestIDSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String]
+
+    init(_ values: [String]) {
+        self.values = values
+    }
+
+    func next() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !values.isEmpty else {
+            return UUID().uuidString
+        }
+        return values.removeFirst()
+    }
 }

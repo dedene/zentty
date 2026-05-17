@@ -20,10 +20,23 @@ enum CleanCopyPipeline {
         text = stripANSIEscapes(text)
         text = trimTrailingWhitespacePerLine(text)
         text = trimTrailingBlankLines(text)
+        if let cleaned = stripAgentPromptSelection(text) {
+            text = cleaned
+        }
         text = stripPrompts(text)
         text = stripLineNumberPrefixes(text)
+        if let cleaned = stripBoxDrawingArtifacts(text) {
+            text = cleaned
+        }
         text = dedentCommonPrefix(text)
         return Result(text: text, wasModified: text != input)
+    }
+
+    static func shouldCleanTerminalCopyAction(
+        isAutoCleanEnabled: Bool = Self.isAutoCleanEnabled,
+        suppressCallbackCleaning: Bool = Self.suppressCallbackCleaning
+    ) -> Bool {
+        isAutoCleanEnabled && !suppressCallbackCleaning
     }
 
     @discardableResult
@@ -133,6 +146,165 @@ enum CleanCopyPipeline {
         return nil
     }
 
+    // MARK: - Pass 4b: Agent Prompt Cleanup
+
+    private static let agentPromptMarkers: Set<Character> = ["›", "❯"]
+    private static let boxDrawingCharacterClass = "[│┃╎╏┆┇┊┋╽╿￨｜]"
+
+    static func stripAgentPromptSelection(_ input: String) -> String? {
+        let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let nonEmpty = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard let firstLine = nonEmpty.first else { return nil }
+
+        let firstTrimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        guard let firstCharacter = firstTrimmed.first,
+              agentPromptMarkers.contains(firstCharacter)
+        else {
+            return nil
+        }
+
+        let candidateLines: [String]
+        if let ruleIndex = lines.firstIndex(where: isAgentPromptRuleLine(_:)) {
+            candidateLines = Array(lines.dropFirst(ruleIndex + 1))
+        } else {
+            var didStripPromptMarker = false
+            candidateLines = lines.map { line in
+                guard !didStripPromptMarker,
+                      !line.trimmingCharacters(in: .whitespaces).isEmpty
+                else {
+                    return line
+                }
+                didStripPromptMarker = true
+                return stripLeadingAgentPromptMarker(from: line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+
+        let contentLines = trimOuterBlankLines(
+            candidateLines.map { $0.trimmingCharacters(in: .whitespaces) }
+        )
+        let nonEmptyContentLines = contentLines.filter { !$0.isEmpty }
+        guard !nonEmptyContentLines.isEmpty else { return nil }
+
+        let content = contentLines.joined(separator: "\n")
+        guard !isLikelySourceCode(content),
+              !isLikelyList(nonEmptyContentLines),
+              !isLikelyStructuredData(nonEmptyContentLines),
+              !isLikelyShellTranscript(nonEmptyContentLines)
+        else {
+            return nil
+        }
+
+        let flattened = flattenWrappedPromptLines(contentLines)
+        return flattened == input ? nil : flattened
+    }
+
+    private static func stripLeadingAgentPromptMarker(from line: String) -> String {
+        let remainder = line.dropFirst().drop(while: \.isWhitespace)
+        return String(remainder)
+    }
+
+    private static func trimOuterBlankLines(_ lines: [String]) -> [String] {
+        guard let firstNonEmpty = lines.firstIndex(where: { !$0.isEmpty }),
+              let lastNonEmpty = lines.lastIndex(where: { !$0.isEmpty })
+        else {
+            return []
+        }
+        return Array(lines[firstNonEmpty...lastNonEmpty])
+    }
+
+    private static func isAgentPromptRuleLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 10 else { return false }
+        let ruleCharacters: Set<Character> = ["─", "━", "—", "-"]
+        let ruleCount = trimmed.count(where: { ruleCharacters.contains($0) })
+        return ruleCount >= 10 && ruleCount == trimmed.count
+    }
+
+    private static func flattenWrappedPromptLines(_ lines: [String]) -> String {
+        var result = ""
+        var paragraphLines: [String] = []
+        var pendingBlankLineCount = 0
+
+        func appendParagraph() {
+            guard !paragraphLines.isEmpty else { return }
+
+            if !result.isEmpty, pendingBlankLineCount > 0 {
+                result += String(repeating: "\n", count: pendingBlankLineCount + 1)
+            }
+            result += flattenPromptParagraph(paragraphLines)
+            paragraphLines = []
+            pendingBlankLineCount = 0
+        }
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                appendParagraph()
+                pendingBlankLineCount += 1
+                continue
+            }
+            paragraphLines.append(trimmed)
+        }
+
+        appendParagraph()
+        return result
+    }
+
+    private static func flattenPromptParagraph(_ lines: [String]) -> String {
+        lines
+            .joined(separator: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func isLikelySourceCode(_ text: String) -> Bool {
+        let hasBraces = text.contains("{") || text.contains("}") || text.lowercased().contains("begin")
+        let keywordPattern =
+            #"(?m)^\s*(import|package|namespace|using|template|class|struct|enum|extension|protocol|"#
+                + #"interface|func|def|fn|let|var|public|private|internal|open|protected|if|for|while)\b"#
+        let hasKeywords = text.range(of: keywordPattern, options: .regularExpression) != nil
+        if hasBraces && hasKeywords {
+            return true
+        }
+
+        let codeLinePattern =
+            #"(?m)^\s*(let|var|await|try|return|guard|func|class|struct|enum|import|extension|protocol)\s+\S"#
+        let hasCodeLine = text.range(of: codeLinePattern, options: .regularExpression) != nil
+        let hasCodePunctuation = text.range(of: #"[=(){};]"#, options: .regularExpression) != nil
+        return hasCodeLine && hasCodePunctuation
+    }
+
+    private static func isLikelyList(_ lines: [String]) -> Bool {
+        let nonEmpty = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard nonEmpty.count >= 2 else { return false }
+
+        let listishCount = nonEmpty.count { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.range(of: #"^[-*•]\s+\S"#, options: .regularExpression) != nil
+                || trimmed.range(of: #"^[0-9]+[.)]\s+\S"#, options: .regularExpression) != nil
+        }
+
+        return listishCount >= (nonEmpty.count / 2 + 1)
+    }
+
+    private static func isLikelyStructuredData(_ lines: [String]) -> Bool {
+        lines.contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if ["{", "}", "[", "]"].contains(trimmed) { return true }
+            return trimmed.range(of: #"^["'][^"']+["']\s*:"#, options: .regularExpression) != nil
+        }
+    }
+
+    private static func isLikelyShellTranscript(_ lines: [String]) -> Bool {
+        let promptLineCount = lines.count { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("$ ")
+                || trimmed.hasPrefix("# ")
+                || trimmed.hasPrefix("% ")
+        }
+        return promptLineCount >= 1
+    }
+
     // MARK: - Pass 5: Line Number Prefix Detection
 
     static func stripLineNumberPrefixes(_ input: String) -> String {
@@ -192,6 +364,85 @@ enum CleanCopyPipeline {
             return regex
         }
         return nil
+    }
+
+    // MARK: - Pass 5b: Box Drawing Cleanup
+
+    static func stripBoxDrawingArtifacts(_ input: String) -> String? {
+        let boxRegex = try? NSRegularExpression(pattern: boxDrawingCharacterClass)
+        let fullRange = NSRange(input.startIndex..., in: input)
+        guard boxRegex?.firstMatch(in: input, range: fullRange) != nil else { return nil }
+
+        var result = input.replacingOccurrences(of: "│ │", with: " ")
+
+        let boxAfterPipePattern = #"\|[ \t]*\#(boxDrawingCharacterClass)+[ \t]*"#
+        result = result.replacingOccurrences(
+            of: boxAfterPipePattern,
+            with: "| ",
+            options: .regularExpression
+        )
+
+        let boxPathJoinPattern = #"([:/])[ \t]*\#(boxDrawingCharacterClass)+[ \t]*([A-Za-z0-9])"#
+        result = result.replacingOccurrences(
+            of: boxPathJoinPattern,
+            with: "$1$2",
+            options: .regularExpression
+        )
+
+        let boxMidTokenPattern = #"(\S)[ \t]*\#(boxDrawingCharacterClass)+[ \t]*(\S)"#
+        result = result.replacingOccurrences(
+            of: boxMidTokenPattern,
+            with: "$1 $2",
+            options: .regularExpression
+        )
+
+        let lines = result.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if !nonEmptyLines.isEmpty {
+            let leadingPattern = #"^\s*\#(boxDrawingCharacterClass)+ ?"#
+            let trailingPattern = #" ?\#(boxDrawingCharacterClass)+\s*$"#
+            let majorityThreshold = nonEmptyLines.count == 1 ? 1 : nonEmptyLines.count / 2 + 1
+
+            let leadingMatches = nonEmptyLines.count {
+                $0.range(of: leadingPattern, options: .regularExpression) != nil
+            }
+            let trailingMatches = nonEmptyLines.count {
+                $0.range(of: trailingPattern, options: .regularExpression) != nil
+            }
+
+            let stripLeading = leadingMatches >= majorityThreshold
+            let stripTrailing = trailingMatches >= majorityThreshold
+
+            if stripLeading || stripTrailing {
+                result = lines.map { line in
+                    var line = line
+                    if stripLeading {
+                        line = line.replacingOccurrences(
+                            of: leadingPattern,
+                            with: "",
+                            options: .regularExpression
+                        )
+                    }
+                    if stripTrailing {
+                        line = line.replacingOccurrences(
+                            of: trailingPattern,
+                            with: "",
+                            options: .regularExpression
+                        )
+                    }
+                    return line
+                }.joined(separator: "\n")
+            }
+        }
+
+        result = result.replacingOccurrences(
+            of: #" {2,}"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        let cleaned = trimTrailingWhitespacePerLine(result)
+        return cleaned == input ? nil : cleaned
     }
 
     private static func numbersAreMonotonic(

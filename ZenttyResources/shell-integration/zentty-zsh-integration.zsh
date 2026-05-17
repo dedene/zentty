@@ -29,8 +29,8 @@ _zentty_ensure_wrapper_path() {
         tmux_shim_enabled=1
     fi
     [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0
-    local -a wrappers cleaned_path enabled_wrappers next_path
-    local wrapper entry tool_name
+    local -a wrappers cleaned_path enabled_wrappers next_path wrapper_bins real_bins
+    local wrapper entry tool_name binary_name
     wrappers=()
     [[ -z "$wrapper_dirs" ]] || wrappers=("${(@s/:/)wrapper_dirs}")
     cleaned_path=()
@@ -41,10 +41,22 @@ _zentty_ensure_wrapper_path() {
     done
     for wrapper in "${wrappers[@]}"; do
         tool_name="${wrapper:t}"
-        for entry in "${cleaned_path[@]}"; do
-            [[ -x "${entry}/${tool_name}" ]] || continue
-            enabled_wrappers+=("$wrapper")
+        wrapper_bins=($(_zentty_wrapper_binary_candidates "$tool_name"))
+        real_bins=($(_zentty_real_binary_candidates "$tool_name"))
+        local has_wrapper_binary=0
+        for binary_name in "${wrapper_bins[@]}"; do
+            [[ -x "${wrapper}/${binary_name}" ]] || continue
+            has_wrapper_binary=1
             break
+        done
+        (( has_wrapper_binary )) || continue
+
+        for entry in "${cleaned_path[@]}"; do
+            for binary_name in "${real_bins[@]}"; do
+                [[ -x "${entry}/${binary_name}" ]] || continue
+                enabled_wrappers+=("$wrapper")
+                break 2
+            done
         done
     done
     next_path=()
@@ -65,6 +77,19 @@ _zentty_ensure_wrapper_path() {
     export PATH
 }
 
+_zentty_wrapper_binary_candidates() {
+    local tool_name="$1"
+    case "$tool_name" in
+        cursor) printf '%s\n' "cursor-agent" ;;
+        kimi) printf '%s\n' "kimi" "kimi-cli" ;;
+        *) printf '%s\n' "$tool_name" ;;
+    esac
+}
+
+_zentty_real_binary_candidates() {
+    _zentty_wrapper_binary_candidates "$1"
+}
+
 _zentty_agent_signal() {
     [[ "${ZENTTY_SHELL_INTEGRATION:-1}" == "0" ]] && return 0
     [[ -n "${ZENTTY_INSTANCE_SOCKET:-}" ]] || return 0
@@ -79,9 +104,26 @@ _zentty_agent_signal() {
 
 _zentty_report_shell_activity() {
     local state="$1"
-    [[ "$_zentty_shell_activity_last" == "$state" ]] && return 0
-    typeset -g _zentty_shell_activity_last="$state"
-    _zentty_agent_signal shell-state "$state"
+    shift || true
+    local key="$state $*"
+    [[ "$_zentty_shell_activity_last" == "$key" ]] && return 0
+    typeset -g _zentty_shell_activity_last="$key"
+    _zentty_agent_signal shell-state "$state" "$@"
+}
+
+_zentty_agent_tool_for_command() {
+    local cmd="${1:t}"
+    case "$cmd" in
+        amp) printf '%s\n' "Amp" ;;
+        claude) printf '%s\n' "Claude Code" ;;
+        codex) printf '%s\n' "Codex" ;;
+        droid) printf '%s\n' "Droid" ;;
+        gemini) printf '%s\n' "Gemini" ;;
+        kimi|kimi-cli) printf '%s\n' "Kimi" ;;
+        opencode) printf '%s\n' "OpenCode" ;;
+        pi) printf '%s\n' "Pi" ;;
+        *) return 1 ;;
+    esac
 }
 
 _zentty_report_pane_root_pid() {
@@ -186,8 +228,17 @@ _zentty_is_navigation_command() {
 }
 
 _zentty_preexec() {
+    _zentty_ensure_wrapper_path
     local cmd="${1%%[[:space:]]*}"
-    _zentty_is_navigation_command "$cmd" || _zentty_report_shell_activity running
+    local agent_tool=""
+    agent_tool="$(_zentty_agent_tool_for_command "$cmd" 2>/dev/null || true)"
+    if ! _zentty_is_navigation_command "$cmd"; then
+        if [[ -n "$agent_tool" ]]; then
+            _zentty_report_shell_activity running --tool "$agent_tool" --command "$1"
+        else
+            _zentty_report_shell_activity running --command "$1"
+        fi
+    fi
     # Set terminal title to the running command (first line only)
     _zentty_print_tty $'\e]2;'"${1%%$'\n'*}"$'\a'
 }

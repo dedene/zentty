@@ -25,8 +25,8 @@ _zentty_ensure_wrapper_path() {
     fi
     [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0
 
-    local -a wrappers entries cleaned_path next_path
-    local wrapper entry tool_name
+    local -a wrappers entries cleaned_path next_path wrapper_bins real_bins
+    local wrapper entry tool_name binary_name
     wrappers=()
     if [[ -n "$wrapper_dirs" ]]; then
         IFS=: read -r -a wrappers <<< "$wrapper_dirs"
@@ -51,11 +51,24 @@ _zentty_ensure_wrapper_path() {
     for wrapper in "${wrappers[@]}"; do
         [[ -n "$wrapper" ]] || continue
         tool_name="${wrapper##*/}"
-        for entry in "${cleaned_path[@]}"; do
-            if [[ -x "${entry}/${tool_name}" ]]; then
-                next_path+=("$wrapper")
+        wrapper_bins=($(_zentty_wrapper_binary_candidates "$tool_name"))
+        real_bins=($(_zentty_real_binary_candidates "$tool_name"))
+        local has_wrapper_binary=0
+        for binary_name in "${wrapper_bins[@]}"; do
+            if [[ -x "${wrapper}/${binary_name}" ]]; then
+                has_wrapper_binary=1
                 break
             fi
+        done
+        (( has_wrapper_binary )) || continue
+
+        for entry in "${cleaned_path[@]}"; do
+            for binary_name in "${real_bins[@]}"; do
+                if [[ -x "${entry}/${binary_name}" ]]; then
+                    next_path+=("$wrapper")
+                    break 2
+                fi
+            done
         done
     done
     next_path+=("${cleaned_path[@]}")
@@ -82,6 +95,19 @@ _zentty_ensure_wrapper_path() {
     export PATH
 }
 
+_zentty_wrapper_binary_candidates() {
+    local tool_name="$1"
+    case "$tool_name" in
+        cursor) printf '%s\n' "cursor-agent" ;;
+        kimi) printf '%s\n' "kimi" "kimi-cli" ;;
+        *) printf '%s\n' "$tool_name" ;;
+    esac
+}
+
+_zentty_real_binary_candidates() {
+    _zentty_wrapper_binary_candidates "$1"
+}
+
 _zentty_agent_signal() {
     [[ "${ZENTTY_SHELL_INTEGRATION:-1}" == "0" ]] && return 0
     [[ -n "${ZENTTY_INSTANCE_SOCKET:-}" ]] || return 0
@@ -96,9 +122,26 @@ _zentty_agent_signal() {
 
 _zentty_report_shell_activity() {
     local state="$1"
-    [[ "$_zentty_shell_activity_last" == "$state" ]] && return 0
-    _zentty_shell_activity_last="$state"
-    _zentty_agent_signal shell-state "$state"
+    shift || true
+    local key="$state $*"
+    [[ "$_zentty_shell_activity_last" == "$key" ]] && return 0
+    _zentty_shell_activity_last="$key"
+    _zentty_agent_signal shell-state "$state" "$@"
+}
+
+_zentty_agent_tool_for_command() {
+    local cmd="${1##*/}"
+    case "$cmd" in
+        amp) printf '%s\n' "Amp" ;;
+        claude) printf '%s\n' "Claude Code" ;;
+        codex) printf '%s\n' "Codex" ;;
+        droid) printf '%s\n' "Droid" ;;
+        gemini) printf '%s\n' "Gemini" ;;
+        kimi|kimi-cli) printf '%s\n' "Kimi" ;;
+        opencode) printf '%s\n' "OpenCode" ;;
+        pi) printf '%s\n' "Pi" ;;
+        *) return 1 ;;
+    esac
 }
 
 _zentty_report_pane_root_pid() {
@@ -187,6 +230,7 @@ _zentty_bash_prompt_hook() {
     _zentty_emit_pane_context
     if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
         eval "$_zentty_bash_original_prompt_command"
+        _zentty_ensure_wrapper_path
     fi
     _zentty_reset_title_to_cwd
     _zentty_bash_in_prompt=0
@@ -195,9 +239,18 @@ _zentty_bash_prompt_hook() {
 _zentty_bash_preexec_hook() {
     [[ -n "${COMP_LINE:-}" ]] && return 0
     [[ "$_zentty_bash_in_prompt" == "1" ]] && return 0
-    _zentty_report_shell_activity running
+    _zentty_ensure_wrapper_path
+    local full_command="$BASH_COMMAND"
+    local cmd="${full_command%%[[:space:]]*}"
+    local agent_tool=""
+    agent_tool="$(_zentty_agent_tool_for_command "$cmd" 2>/dev/null || true)"
+    if [[ -n "$agent_tool" ]]; then
+        _zentty_report_shell_activity running --tool "$agent_tool" --command "$full_command"
+    else
+        _zentty_report_shell_activity running --command "$full_command"
+    fi
     # Set terminal title to the running command (first line only)
-    _zentty_print_tty $'\e]2;'"${BASH_COMMAND%%$'\n'*}"$'\a'
+    _zentty_print_tty $'\e]2;'"${full_command%%$'\n'*}"$'\a'
 }
 
 cd() {

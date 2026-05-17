@@ -86,6 +86,14 @@ final class SidebarToggleButton: NSButton {
         toolTip = "Toggle Sidebar"
     }
 
+    func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
+        toolTip = CommandTooltipFormatter.title(
+            "Toggle Sidebar",
+            commandID: .toggleSidebar,
+            shortcutManager: shortcutManager
+        )
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }

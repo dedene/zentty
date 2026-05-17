@@ -4,6 +4,226 @@ import XCTest
 
 @MainActor
 final class SidebarViewRenderTests: XCTestCase {
+    func test_sidebar_toggle_tooltip_uses_configured_shortcut() {
+        let button = SidebarToggleButton()
+
+        button.updateShortcutTooltip(ShortcutManager(shortcuts: .default))
+
+        XCTAssertEqual(button.toolTip, "Toggle Sidebar (⌘S)")
+    }
+
+    func test_sidebar_control_tooltips_update_for_custom_and_unassigned_shortcuts() {
+        let sidebar = makeSidebar()
+        let customManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .newWorklane,
+                        shortcut: .init(key: .character("n"), modifiers: [.command, .control])
+                    ),
+                    ShortcutBindingOverride(commandID: .openBookmarksPopover, shortcut: nil),
+                ]
+            )
+        )
+
+        sidebar.updateShortcutTooltips(customManager)
+
+        XCTAssertEqual(sidebar.addWorklaneToolTipForTesting, "New Worklane (⌘⌃N)")
+        XCTAssertEqual(sidebar.globalSearchToolTipForTesting, "Global Find (⌘⇧F)")
+        XCTAssertEqual(sidebar.bookmarksToolTipForTesting, "Bookmarks & Presets")
+    }
+
+    func test_global_search_button_sits_immediately_before_bookmarks_button() {
+        let sidebar = makeSidebar()
+
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(sidebar.globalSearchButtonMinX, sidebar.bookmarksButtonMinX)
+        XCTAssertEqual(
+            sidebar.bookmarksButtonMinX - sidebar.globalSearchButtonMaxX,
+            0,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            sidebar.bookmarksButtonMaxX,
+            sidebar.bounds.width - ShellMetrics.sidebarContentInset + 2,
+            accuracy: 0.5
+        )
+        XCTAssertGreaterThanOrEqual(
+            sidebar.addWorklaneButtonWidth,
+            sidebar.addWorklaneMinimumUntruncatedWidth
+        )
+        XCTAssertEqual(
+            sidebar.addWorklaneButtonWidth,
+            sidebar.addWorklaneMinimumUntruncatedWidth,
+            accuracy: 0.5
+        )
+        XCTAssertTrue(sidebar.addWorklaneTitleFitsWithoutTruncation)
+        XCTAssertEqual(
+            sidebar.headerAccessoryGroupMinX,
+            sidebar.globalSearchButtonMinX,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            sidebar.headerAccessoryGroupMaxX,
+            sidebar.bookmarksButtonMaxX,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(sidebar.headerAccessoryGroupHeight, sidebar.addWorklaneButtonHeight, accuracy: 0.5)
+        XCTAssertEqual(sidebar.globalSearchButtonHeight, sidebar.addWorklaneButtonHeight, accuracy: 0.5)
+        XCTAssertEqual(sidebar.bookmarksButtonHeight, sidebar.addWorklaneButtonHeight, accuracy: 0.5)
+        XCTAssertEqual(sidebar.globalSearchButtonMidY, sidebar.addWorklaneButtonMidY, accuracy: 0.5)
+        XCTAssertEqual(sidebar.bookmarksButtonMidY, sidebar.addWorklaneButtonMidY, accuracy: 0.5)
+        XCTAssertEqual(sidebar.headerAccessoryGroupCornerRadius, sidebar.addWorklaneButtonCornerRadius, accuracy: 0.5)
+        XCTAssertEqual(sidebar.globalSearchButtonCornerRadius, sidebar.addWorklaneButtonCornerRadius, accuracy: 0.5)
+        XCTAssertEqual(sidebar.bookmarksButtonCornerRadius, sidebar.addWorklaneButtonCornerRadius, accuracy: 0.5)
+    }
+
+    func test_global_search_button_keeps_plain_search_symbol_when_presented() {
+        let sidebar = makeSidebar()
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+
+        XCTAssertEqual(sidebar.globalSearchButtonSymbolNameForTesting, "magnifyingglass")
+        XCTAssertGreaterThan(sidebar.globalSearchButtonBackgroundAlphaForTesting, 0)
+    }
+
+    func test_global_search_button_click_closes_when_search_is_presented() {
+        let sidebar = makeSidebar()
+        var openCount = 0
+        var closeCount = 0
+        sidebar.onOpenGlobalSearchRequested = { openCount += 1 }
+        sidebar.onGlobalSearchCloseRequested = { closeCount += 1 }
+        sidebar.setGlobalSearchPresented(true, animated: false)
+
+        sidebar.performDebugActionForTesting(.performGlobalSearchButtonClick)
+
+        XCTAssertEqual(openCount, 0)
+        XCTAssertEqual(closeCount, 1)
+    }
+
+    func test_global_search_row_placeholder_explains_sidebar_scope() {
+        let sidebar = makeSidebar()
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+
+        XCTAssertEqual(sidebar.globalSearchPlaceholderForTesting, "Search across panes")
+    }
+
+    func test_global_search_row_matches_pane_search_hud_height() {
+        let sidebar = makeSidebar()
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(sidebar.globalSearchRowHeightForTesting, 40, accuracy: 0.5)
+        XCTAssertEqual(sidebar.globalSearchInputFrameInSidebar.height, 40, accuracy: 0.5)
+        XCTAssertEqual(
+            sidebar.globalSearchInputFrameInSidebar.midY,
+            sidebar.globalSearchRowFrameInSidebar.midY,
+            accuracy: 0.5
+        )
+    }
+
+    func test_global_search_row_keeps_space_above_first_worklane_when_sidebar_is_pinned() {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: [makeSummary(worklaneID: "main", primaryText: "demo")],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            sidebar.globalSearchInputFrameInSidebar.minY - sidebar.firstWorklaneMaxY,
+            8,
+            accuracy: 0.5
+        )
+    }
+
+    func test_global_search_empty_query_field_uses_space_until_navigation_controls() {
+        let sidebar = makeSidebar()
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+        sidebar.apply(globalSearch: GlobalSearchState())
+        sidebar.layoutSubtreeIfNeeded()
+
+        let trailingGap = sidebar.globalSearchQueryFieldTrailingGapToPreviousButtonForTesting
+        XCTAssertGreaterThanOrEqual(trailingGap, 0)
+        XCTAssertLessThanOrEqual(
+            trailingGap,
+            8,
+            "Empty global search should not reserve hidden count or clear-button width"
+        )
+    }
+
+    func test_global_search_row_keeps_one_query_trailing_constraint_active() {
+        let sidebar = makeSidebar()
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+        sidebar.apply(globalSearch: GlobalSearchState())
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(sidebar.globalSearchActiveQueryTrailingConstraintCountForTesting, 1)
+        XCTAssertEqual(sidebar.globalSearchActiveQueryTrailingConstraintTargetForTesting, "previous")
+
+        sidebar.apply(globalSearch: GlobalSearchState(
+            needle: "build",
+            selected: 0,
+            total: 4,
+            hasRememberedSearch: true,
+            isHUDVisible: true
+        ))
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(sidebar.globalSearchActiveQueryTrailingConstraintCountForTesting, 1)
+        XCTAssertEqual(sidebar.globalSearchActiveQueryTrailingConstraintTargetForTesting, "count")
+
+        sidebar.apply(globalSearch: GlobalSearchState())
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(sidebar.globalSearchActiveQueryTrailingConstraintCountForTesting, 1)
+        XCTAssertEqual(sidebar.globalSearchActiveQueryTrailingConstraintTargetForTesting, "previous")
+    }
+
+    func test_global_search_row_pushes_worklane_list_down_when_presented() {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: [makeSummary(worklaneID: "main", primaryText: "demo")],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebar.layoutSubtreeIfNeeded()
+        let firstWorklaneMaxYBefore = sidebar.firstWorklaneMaxY
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(sidebar.isGlobalSearchPresentedForTesting)
+        XCTAssertGreaterThan(sidebar.globalSearchRowHeightForTesting, 0)
+        XCTAssertLessThan(sidebar.firstWorklaneMaxY, firstWorklaneMaxYBefore)
+    }
+
+    func test_global_search_row_clear_keeps_row_presented_and_focus_requested() {
+        let sidebar = makeSidebar()
+        var queries: [String] = []
+        sidebar.onGlobalSearchQueryChanged = { queries.append($0) }
+
+        sidebar.setGlobalSearchPresented(true, animated: false)
+        sidebar.apply(globalSearch: GlobalSearchState(
+            needle: "build",
+            selected: 1,
+            total: 4,
+            hasRememberedSearch: true,
+            isHUDVisible: true
+        ))
+        sidebar.performDebugActionForTesting(.performGlobalSearchClear)
+
+        XCTAssertEqual(queries, [""])
+        XCTAssertTrue(sidebar.isGlobalSearchPresentedForTesting)
+        XCTAssertEqual(sidebar.globalSearchQueryTextForTesting, "")
+    }
+
     func test_render_skipsWorkWhenSummariesAndThemeAreUnchanged() {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)
@@ -507,21 +727,16 @@ final class SidebarViewRenderTests: XCTestCase {
         )
     }
 
-    func test_bookmark_icon_sits_slightly_above_button_center() throws {
+    func test_bookmark_icon_is_centered_in_button() throws {
         let sidebar = makeSidebar()
 
         sidebar.layoutSubtreeIfNeeded()
         let button = try XCTUnwrap(bookmarksButton(in: sidebar))
         button.layoutSubtreeIfNeeded()
         let iconView = try XCTUnwrap(button.subviews.compactMap { $0 as? NSImageView }.first)
-        let verticalOffset = button.isFlipped
-            ? button.bounds.midY - iconView.frame.midY
-            : iconView.frame.midY - button.bounds.midY
 
-        XCTAssertTrue(
-            (3...4).contains(verticalOffset),
-            "Expected bookmark icon to sit 3-4px above center, got \(verticalOffset)"
-        )
+        XCTAssertEqual(iconView.frame.midY, button.bounds.midY, accuracy: 0.5)
+        XCTAssertEqual(iconView.frame.midX, button.bounds.midX, accuracy: 0.5)
     }
 
     func test_worklaneContextMenusReflectCanonicalMoveAvailability() throws {

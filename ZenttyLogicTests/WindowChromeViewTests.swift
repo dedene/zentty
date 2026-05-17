@@ -4,6 +4,76 @@ import XCTest
 
 @MainActor
 final class WindowChromeViewTests: AppKitTestCase {
+    func test_pane_navigation_tooltips_use_configured_shortcuts() {
+        let navigation = PaneNavigationButtons()
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .navigateBack,
+                        shortcut: .init(key: .leftArrow, modifiers: [.command, .control])
+                    ),
+                    ShortcutBindingOverride(commandID: .navigateForward, shortcut: nil),
+                ]
+            )
+        )
+
+        navigation.updateShortcutTooltips(shortcutManager)
+
+        XCTAssertEqual(navigation.backToolTipForTesting, "Navigate Back (⌘⌃Left)")
+        XCTAssertEqual(navigation.forwardToolTipForTesting, "Navigate Forward")
+    }
+
+    func test_search_hud_tooltips_use_configured_find_shortcuts() {
+        let shortcutManager = ShortcutManager(shortcuts: .default)
+        let localHUD = PaneSearchHUDView()
+
+        localHUD.updateShortcutTooltips(shortcutManager)
+
+        XCTAssertEqual(localHUD.previousToolTipForTesting, "Find Previous (⌘⇧G)")
+        XCTAssertEqual(localHUD.nextToolTipForTesting, "Find Next (⌘G)")
+        XCTAssertEqual(localHUD.closeToolTipForTesting, "Close Find")
+    }
+
+    func test_window_chrome_branch_tooltip_uses_custom_shortcut_when_clickable() {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .openBranchOnRemote,
+                        shortcut: .init(key: .character("r"), modifiers: [.command, .control])
+                    ),
+                ]
+            )
+        )
+
+        view.updateShortcutTooltips(shortcutManager)
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code",
+            branch: "feature/tooltips",
+            branchURL: URL(string: "https://example.com/branch/feature/tooltips"),
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertEqual(view.branchToolTip, "Open Branch on Remote (⌘⌃R)")
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Claude Code",
+            branch: "feature/tooltips",
+            branchURL: nil,
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertEqual(view.branchToolTip, "")
+    }
+
     func test_window_chrome_renders_attention_focused_label_branch_pr_and_review_chips() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 900, height: WindowChromeView.preferredHeight)
@@ -1291,5 +1361,43 @@ final class WindowChromeViewTests: AppKitTestCase {
         }
 
         return nil
+    }
+
+    func test_apply_panes_propagates_show_project_icons_toggle() throws {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+        let cwdPath = "/tmp/no-project-icon-\(UUID().uuidString)"
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Project",
+            cwdPath: cwdPath,
+            branch: nil,
+            branchURL: nil,
+            pullRequest: nil,
+            reviewChips: []
+        ))
+
+        XCTAssertTrue(view.currentPanesConfigForTesting.showProjectIcons)
+
+        view.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7,
+            showProjectIcons: false
+        ))
+        XCTAssertFalse(view.currentPanesConfigForTesting.showProjectIcons)
+        XCTAssertFalse(view.isFocusedProxyIconHidden)
+
+        let workspaceIcon = NSWorkspace.shared.icon(forFile: cwdPath)
+        workspaceIcon.size = NSSize(width: 14, height: 14)
+        XCTAssertEqual(view.focusedProxyIconImage?.tiffRepresentation, workspaceIcon.tiffRepresentation)
+
+        view.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7,
+            showProjectIcons: true
+        ))
+        XCTAssertTrue(view.currentPanesConfigForTesting.showProjectIcons)
+        XCTAssertFalse(view.isFocusedProxyIconHidden)
     }
 }

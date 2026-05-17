@@ -194,6 +194,14 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         searchHUDView.focusField(selectAll: selectAll)
     }
 
+    func updateSearchHUDShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        searchHUDView.updateShortcutTooltips(shortcutManager)
+    }
+
+    func applySearchHUDTheme(_ theme: ZenttyTheme, animated: Bool) {
+        searchHUDView.apply(theme: theme, animated: animated)
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if onScrollWheel?(event) == true {
             return
@@ -261,6 +269,26 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
 
     var searchHUDCountTextForTesting: String {
         searchHUDView.countTextForTesting
+    }
+
+    var searchHUDBackgroundColorTokenForTesting: String {
+        searchHUDView.backgroundColorTokenForTesting
+    }
+
+    var searchHUDBorderColorTokenForTesting: String {
+        searchHUDView.borderColorTokenForTesting
+    }
+
+    var searchHUDCountTextColorTokenForTesting: String {
+        searchHUDView.countTextColorTokenForTesting
+    }
+
+    var searchHUDQueryTextColorTokenForTesting: String {
+        searchHUDView.queryTextColorTokenForTesting
+    }
+
+    var searchHUDNextButtonTintColorTokenForTesting: String {
+        searchHUDView.nextButtonTintColorTokenForTesting
     }
 
     var searchHUDNextButtonForTesting: PaneSearchHUDButton {
@@ -722,6 +750,10 @@ final class PaneRuntime {
         )
     }
 
+    func updateSearchHUDShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        hostViewValue.updateSearchHUDShortcutTooltips(shortcutManager)
+    }
+
     func addObserver(_ observer: @escaping (PaneRuntimeSnapshot) -> Void) -> UUID {
         let observerID = UUID()
         observers[observerID] = observer
@@ -805,7 +837,7 @@ final class PaneRuntime {
         }
 
         hasSentInitialCommand = true
-        adapterValue.sendText(command + "\n")
+        adapterValue.submitCommand(command)
         return true
     }
 
@@ -929,6 +961,7 @@ final class PaneRuntimeRegistry {
     private let adapterFactory: AdapterFactory
     private let diagnostics: TerminalDiagnostics
     private var runtimes: [PaneID: PaneRuntime] = [:]
+    private var shortcutManager = ShortcutManager(shortcuts: .default)
 
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
     var onEventDidOccur: ((PaneID, TerminalEvent) -> Void)?
@@ -958,6 +991,7 @@ final class PaneRuntimeRegistry {
                 eventSink: eventSink()
             )
             bindSinks(to: runtime)
+            runtime.updateSearchHUDShortcutTooltips(shortcutManager)
             runtimes[pane.id] = runtime
             return runtime
         }
@@ -990,7 +1024,13 @@ final class PaneRuntimeRegistry {
         }
 
         bindSinks(to: runtime)
+        runtime.updateSearchHUDShortcutTooltips(shortcutManager)
         runtimes[paneID] = runtime
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        runtimes.values.forEach { $0.updateSearchHUDShortcutTooltips(shortcutManager) }
     }
 
     func synchronize(with worklanes: [WorklaneState]) {

@@ -328,11 +328,68 @@ final class PaneContainerViewTests: AppKitTestCase {
         let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
         let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
 
-        XCTAssertEqual(clickTarget.toolTip, "Copy path")
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path (⌘⇧C)")
         XCTAssertNil(
             clickTarget.layer?.sublayers?.first { $0.name == "copyIconLayer" },
             "Pane path label should stay clickable without showing a copy icon"
         )
+    }
+
+    func test_pane_container_border_context_copy_tooltip_uses_configured_shortcut() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .copyFocusedPanePath,
+                        shortcut: .init(key: .character("p"), modifiers: [.command, .option])
+                    ),
+                ]
+            )
+        )
+        paneView.onBorderContextClicked = { _ in }
+
+        paneView.updateShortcutTooltips(shortcutManager)
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
+        let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
+
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path (⌘⌥P)")
+
+        paneView.updateShortcutTooltips(ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(commandID: .copyFocusedPanePath, shortcut: nil),
+                ]
+            )
+        ))
+
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path")
     }
 
     func test_pane_container_clamps_border_context_width_to_available_pane_width() throws {
@@ -1076,7 +1133,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertGreaterThan(paneView.searchHUDFrameForTesting.midY, paneView.bounds.midY)
     }
 
-    func test_search_hud_shows_unselected_count_when_opened_before_results_arrive() {
+    func test_search_hud_hides_count_when_opened_before_query() {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
         let runtime = PaneRuntime(
@@ -1100,8 +1157,41 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         XCTAssertEqual(
             paneView.searchHUDCountTextForTesting,
-            "-/0",
-            "Opening the HUD should not imply that the first match is already selected before search results arrive"
+            "",
+            "Opening the HUD before a query should not show an empty search result count"
+        )
+    }
+
+    func test_search_hud_uses_current_theme_colors() {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let theme = ZenttyTheme.fallback(for: NSAppearance(named: .aqua))
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: theme
+        )
+
+        runtime.showSearch()
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(paneView.searchHUDBackgroundColorTokenForTesting, theme.commandPaletteBackground.themeToken)
+        XCTAssertEqual(paneView.searchHUDBorderColorTokenForTesting, theme.commandPaletteBorder.themeToken)
+        XCTAssertEqual(paneView.searchHUDCountTextColorTokenForTesting, theme.commandPaletteSecondaryText.themeToken)
+        XCTAssertEqual(paneView.searchHUDQueryTextColorTokenForTesting, theme.commandPaletteText.themeToken)
+        XCTAssertEqual(
+            paneView.searchHUDNextButtonTintColorTokenForTesting,
+            theme.commandPaletteText.withAlphaComponent(0.78).themeToken
         )
     }
 
@@ -1605,6 +1695,7 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "Paste",
                 "---",
                 "Add Pane Right",
+                "Add Pane Left",
                 "New Pane Below",
                 "Split Right",
                 "---",
@@ -1616,6 +1707,39 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "Services",
             ]
         )
+    }
+
+    func test_context_menu_places_restored_command_rerun_first_when_available() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let command = "pnpm start:staging\nnpm run smoke"
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        paneView.restoredRerunnableCommandProvider = { paneID in
+            paneID == pane.id ? command : nil
+        }
+
+        let menu = try XCTUnwrap(paneView.contextMenuForTesting())
+
+        XCTAssertEqual(menu.items[0].title, "Run Last Command Again")
+        XCTAssertEqual(menu.items[0].action, #selector(MainWindowController.runLastCommandAgain(_:)))
+        XCTAssertEqual(menu.items[0].representedObject as? PaneID, pane.id)
+        XCTAssertEqual(menu.items[0].toolTip, command)
+        XCTAssertNotNil(menu.items[0].image)
+        XCTAssertTrue(menu.items[1].isSeparatorItem)
     }
 
     func test_context_menu_actions_route_directional_add_pane_selectors() throws {

@@ -14,7 +14,22 @@ enum HostedTestDisplay {
         guard let screenName else {
             return nil
         }
-        return NSScreen.screens.first { $0.localizedName == screenName }
+        return NSScreen.screens.first { Self.screenName($0.localizedName, matches: screenName) }
+    }
+
+    static func screenName(_ localizedName: String, matches requestedName: String) -> Bool {
+        if localizedName == requestedName {
+            return true
+        }
+
+        let suffixPrefix = requestedName + " ("
+        guard localizedName.hasPrefix(suffixPrefix), localizedName.hasSuffix(")") else {
+            return false
+        }
+
+        let suffixStart = localizedName.index(localizedName.startIndex, offsetBy: suffixPrefix.count)
+        let suffix = localizedName[suffixStart..<localizedName.index(before: localizedName.endIndex)]
+        return Int(suffix) != nil
     }
 
     static func centeredFrame(forWindowFrame windowFrame: NSRect, on screen: NSScreen) -> NSRect {

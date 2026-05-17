@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import GhosttyKit
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
@@ -136,6 +137,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     private(set) var hasScrollback = false
     private var hasEmittedShellReady = false
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
+
+    var mouseCaptured: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_captured(surface)
+    }
 
     var cellWidth: CGFloat {
         guard let surface else { return 0 }
@@ -366,6 +372,24 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             }
             ghostty_surface_text(surface, baseAddress, UInt(buffer.count - 1))
         }
+    }
+
+    func submitReturn() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Return)
+        ) else {
+            return
+        }
+        _ = sendKey(event: event, action: .press, text: "\r", composing: false)
     }
 
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {

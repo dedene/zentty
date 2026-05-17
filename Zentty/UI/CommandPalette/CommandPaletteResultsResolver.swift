@@ -179,6 +179,38 @@ struct CommandPaletteResolvedResults: Equatable {
     }
 }
 
+private struct CommandPaletteScoredSearchItem {
+    let item: CommandPaletteItem
+    let score: Double
+    let index: Int
+    let promotedMatch: CommandPalettePromotedMatch?
+}
+
+private enum CommandPalettePromotedMatch {
+    case exact
+    case prefix
+
+    static func resolve(
+        query: String,
+        candidate: CommandPaletteSearchCandidate
+    ) -> CommandPalettePromotedMatch? {
+        guard candidate.item.id.isPromotableBestMatch else { return nil }
+
+        let aliasQuery = CommandPaletteSearchTextNormalizer.separatorInsensitive(query)
+        guard !aliasQuery.isEmpty else { return nil }
+
+        if candidate.primaryAliasSearchText == aliasQuery {
+            return .exact
+        }
+
+        if candidate.primaryAliasSearchText.hasPrefix(aliasQuery) {
+            return .prefix
+        }
+
+        return nil
+    }
+}
+
 enum CommandPaletteResultsResolver {
     private static let activeSearchLimitByGroup: [CommandPaletteItemGroup: Int] = [
         .pane: 12,
@@ -225,10 +257,11 @@ enum CommandPaletteResultsResolver {
 
         let scoredItems = searchIndex.items
             .map { candidate in
-                (
+                CommandPaletteScoredSearchItem(
                     item: candidate.item,
                     score: CommandPaletteFieldAwareScorer.score(query: normalizedQuery, candidate: candidate),
-                    index: candidate.index
+                    index: candidate.index,
+                    promotedMatch: CommandPalettePromotedMatch.resolve(query: normalizedQuery, candidate: candidate)
                 )
             }
             .filter { $0.score > 0 }
@@ -239,7 +272,21 @@ enum CommandPaletteResultsResolver {
                 return lhs.score > rhs.score
             }
 
-        let sections = groupedSections(from: scoredItems.map(\.item), appliesActiveSearchLimits: true)
+        let exactPromotedItems = scoredItems
+            .filter { $0.promotedMatch == .exact }
+            .map(\.item)
+        let prefixPromotedItems = scoredItems
+            .filter { $0.promotedMatch == .prefix }
+            .map(\.item)
+        let promotedItems = exactPromotedItems.isEmpty && prefixPromotedItems.count == 1
+            ? prefixPromotedItems
+            : exactPromotedItems
+        let promotedIDs = Set(promotedItems.map(\.id))
+        let groupedItems = scoredItems
+            .filter { !promotedIDs.contains($0.item.id) }
+            .map(\.item)
+        let sections = promotedSections(from: promotedItems)
+            + groupedSections(from: groupedItems, appliesActiveSearchLimits: true)
         let results = CommandPaletteResolvedResults(
             items: sections.flatMap(\.items),
             scope: nil,
@@ -301,6 +348,15 @@ enum CommandPaletteResultsResolver {
             guard !groupItems.isEmpty else { return nil }
             return section(id: group.title.lowercased(), title: group.title, items: groupItems)
         }
+    }
+
+    private static func promotedSections(
+        from items: [CommandPaletteItem]
+    ) -> [CommandPaletteResolvedSection] {
+        guard !items.isEmpty else { return [] }
+        return [
+            section(id: "best-match", title: "Best Match", items: items),
+        ]
     }
 
     private static func sectionsPrunedToFitWithoutScrolling(
@@ -526,6 +582,17 @@ private extension Array where Element: Hashable {
     func removingDuplicates() -> [Element] {
         var seen: Set<Element> = []
         return filter { seen.insert($0).inserted }
+    }
+}
+
+private extension CommandPaletteItemID {
+    var isPromotableBestMatch: Bool {
+        switch self {
+        case .command, .openWith, .server, .restoredCommand:
+            true
+        case .worklaneColor, .settings, .pane:
+            false
+        }
     }
 }
 

@@ -1,0 +1,40 @@
+{
+  "name": "amp",
+  "command": "amp",
+  "real_binary_names": ["amp"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--dangerously-allow-all",
+      "--execute",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "session_capture": [
+      "--dangerously-allow-all",
+      "--execute",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "restore_launch": [
+      "threads",
+      "continue",
+      "T-ZenttyBenchRestore"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session.start", "agent.running"]
+    },
+    "session_capture": {
+      "required_events": ["session.start", "agent.running", "agent.idle"],
+      "session_identity": {
+        "session_id_pattern": "amp",
+        "tracked_pid": true
+      }
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["threads", "continue", "T-ZenttyBenchRestore"]]
+    }
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "Unexpected error inside Amp CLI"]
+}

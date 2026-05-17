@@ -19,7 +19,7 @@ enum ServerMenuOrdering {
 }
 
 enum WindowDragSuppressionTarget: Equatable {
-    case globalSearchHUD
+    case globalSearchControls
     case proxyIcon
 }
 
@@ -525,6 +525,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func runLastCommandAgain(_ sender: Any?) {
+        let paneID = (sender as? NSMenuItem)?.representedObject as? PaneID
+        rootViewController.runLastCommandAgain(in: paneID)
+    }
+
+    @objc
     func addPaneLeft(_ sender: Any?) {
         handle(.pane(.splitBeforeFocusedPane))
     }
@@ -957,6 +963,44 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
+    func applyGrid(
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult {
+        try rootViewController.applyGrid(
+            sourcePaneID: sourcePaneID,
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus
+        )
+    }
+
+    @discardableResult
+    func createWorklaneForGrid() -> (worklaneID: WorklaneID, paneID: PaneID)? {
+        let worklaneID = rootViewController.createWorklaneForGrid()
+        guard let paneID = rootViewController.focusedPaneID() else {
+            return nil
+        }
+        return (worklaneID, paneID)
+    }
+
+    func gridWindowWorkspaceState(
+        inheritingFrom sourcePaneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> WindowWorkspaceState? {
+        rootViewController.gridWindowWorkspaceState(
+            inheritingFrom: sourcePaneID,
+            destinationWindowID: destinationWindowID
+        )
+    }
+
+    @discardableResult
     func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
         rootViewController.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
     }
@@ -998,6 +1042,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return false
         }
         runtime.adapter.sendText(text)
+        return true
+    }
+
+    @discardableResult
+    func submitCommand(_ command: String, to paneID: PaneID) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+            return false
+        }
+        runtime.adapter.submitCommand(command)
         return true
     }
 

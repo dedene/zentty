@@ -2,6 +2,68 @@ import XCTest
 @testable import Zentty
 
 final class AgentResumeCommandBuilderTests: XCTestCase {
+    func test_builder_returns_amp_thread_continue_command_for_valid_thread_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-ZenttyBenchRestore",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "amp threads continue T-ZenttyBenchRestore"
+        )
+    }
+
+    func test_builder_preserves_sanitized_amp_resume_arguments() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-ZenttyBenchRestore",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(
+                arguments: ["--mode", "smart", "--effort", "high", "--settings-file", "/tmp/amp settings.json"]
+            )
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            #"amp threads continue --mode smart --effort high --settings-file '/tmp/amp settings.json' T-ZenttyBenchRestore"#
+        )
+    }
+
+    func test_builder_returns_nil_for_unsafe_amp_thread_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-safe; rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_nil_for_amp_execute_resume_argument_with_value() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-amp",
+            kind: .agentResume,
+            toolName: "Amp",
+            sessionID: "T-ZenttyBenchRestore",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(arguments: ["--execute=echo hi"])
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_claude_resume_command_for_uuid_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-claude",
@@ -159,6 +221,144 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
             toolName: "Kimi",
             sessionID: "resume-this-session",
             workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_grok_resume_command_for_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-grok",
+            kind: .agentResume,
+            toolName: "Grok",
+            sessionID: "0CB916DB-26AA-40F2-86B5-1BA81B225FD2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "grok --resume 0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_grok_resume_command_for_short_alphanumeric_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-grok",
+            kind: .agentResume,
+            toolName: "Grok",
+            sessionID: "sess_abc12",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "grok --resume sess_abc12"
+        )
+    }
+
+    func test_builder_returns_grok_directory_resume_when_session_id_has_shell_metacharacters() {
+        // Hostile session IDs containing shell metacharacters (`;`, spaces, slashes, etc.)
+        // must NEVER be interpolated into the resume command. The validator rejects them
+        // and the builder falls back to the directory-based resume.
+        let draft = PaneRestoreDraft(
+            paneID: "pane-grok",
+            kind: .agentResume,
+            toolName: "Grok",
+            sessionID: "abc;rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "grok --resume"
+        )
+    }
+
+    func test_builder_returns_grok_directory_resume_when_session_id_blank_and_cwd_present() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-grok",
+            kind: .agentResume,
+            toolName: "Grok",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "grok --resume"
+        )
+    }
+
+    func test_builder_returns_nil_for_grok_when_session_id_blank_and_working_directory_missing() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-grok",
+            kind: .agentResume,
+            toolName: "Grok",
+            sessionID: "",
+            workingDirectory: nil,
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_gemini_resume_command_when_working_directory_exists_without_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-gemini",
+            kind: .agentResume,
+            toolName: "Gemini",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "gemini --resume"
+        )
+    }
+
+    func test_builder_returns_nil_for_gemini_when_working_directory_is_missing() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-gemini",
+            kind: .agentResume,
+            toolName: "Gemini",
+            sessionID: "",
+            workingDirectory: nil,
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_pi_resume_command_when_working_directory_exists_without_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-pi",
+            kind: .agentResume,
+            toolName: "Pi",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "pi -c"
+        )
+    }
+
+    func test_builder_returns_nil_for_pi_when_working_directory_is_missing() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-pi",
+            kind: .agentResume,
+            toolName: "Pi",
+            sessionID: "",
+            workingDirectory: nil,
             trackedPID: 4242
         )
 

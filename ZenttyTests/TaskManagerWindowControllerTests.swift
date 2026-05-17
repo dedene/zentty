@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import XCTest
 @testable import Zentty
 
@@ -65,7 +66,82 @@ final class TaskManagerWindowControllerTests: XCTestCase {
         ])
     }
 
-    private func makeController() -> TaskManagerWindowController {
+    func test_taskManagerAppliesInjectedThemeAndAppearanceToNativeControls() throws {
+        let appearance = NSAppearance(named: .darkAqua)
+        let theme = ZenttyTheme.fallback(for: appearance)
+        let controller = makeController(appearance: appearance, theme: theme)
+        controller.show(sender: nil)
+
+        let window = try XCTUnwrap(controller.window)
+        let contentView = try XCTUnwrap(window.contentView)
+        let outlineView = try XCTUnwrap(contentView.firstDescendant(ofType: NSOutlineView.self))
+        let searchField = try XCTUnwrap(contentView.firstDescendant(ofType: NSSearchField.self))
+        let button = try XCTUnwrap(contentView.firstDescendantButton(titled: "Focus Pane"))
+        let firstCell = try XCTUnwrap(outlineView.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)
+
+        XCTAssertEqual(window.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(contentView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(outlineView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(searchField.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(contentView.layer?.backgroundColor, theme.windowBackground.cgColor)
+        XCTAssertEqual(outlineView.backgroundColor.themeToken, controller.tableBackgroundColorForTesting.themeToken)
+        XCTAssertEqual(firstCell.textField?.textColor?.themeToken, theme.primaryText.themeToken)
+    }
+
+    func test_applyThemeUpdatesTaskManagerAppearanceAndVisibleCells() throws {
+        let controller = makeController(
+            appearance: NSAppearance(named: .aqua),
+            theme: ZenttyTheme.fallback(for: NSAppearance(named: .aqua))
+        )
+        controller.show(sender: nil)
+
+        let darkAppearance = NSAppearance(named: .darkAqua)
+        let darkTheme = ZenttyTheme.fallback(for: darkAppearance)
+        controller.applyAppearance(darkAppearance)
+        controller.applyTheme(darkTheme)
+
+        let window = try XCTUnwrap(controller.window)
+        let contentView = try XCTUnwrap(window.contentView)
+        let outlineView = try XCTUnwrap(contentView.firstDescendant(ofType: NSOutlineView.self))
+        let firstCell = try XCTUnwrap(outlineView.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)
+
+        XCTAssertEqual(window.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(outlineView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+        XCTAssertEqual(contentView.layer?.backgroundColor, darkTheme.windowBackground.cgColor)
+        XCTAssertEqual(outlineView.backgroundColor.themeToken, controller.tableBackgroundColorForTesting.themeToken)
+        XCTAssertEqual(firstCell.textField?.textColor?.themeToken, darkTheme.primaryText.themeToken)
+    }
+
+    func test_commandWClosesTaskManagerWindow() throws {
+        let controller = makeController()
+        controller.show(sender: nil)
+
+        let window = try XCTUnwrap(controller.window)
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.isVisible)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "w",
+            charactersIgnoringModifiers: "w",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_W)
+        ))
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertFalse(window.isVisible)
+    }
+
+    private func makeController(
+        appearance: NSAppearance? = nil,
+        theme: ZenttyTheme = ZenttyTheme.fallback(for: nil)
+    ) -> TaskManagerWindowController {
         let controller = TaskManagerWindowController(
             paneSourcesProvider: {
                 [
@@ -84,7 +160,9 @@ final class TaskManagerWindowControllerTests: XCTestCase {
                 ]
             },
             focusPaneHandler: { _, _, _ in },
-            closePaneHandler: { _, _ in }
+            closePaneHandler: { _, _ in },
+            appearance: appearance,
+            theme: theme
         )
         addTeardownBlock { @MainActor in
             controller.close()
@@ -101,6 +179,20 @@ private extension NSView {
 
         for subview in subviews {
             if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    func firstDescendantButton(titled title: String) -> NSButton? {
+        if let button = self as? NSButton, button.title == title {
+            return button
+        }
+
+        for subview in subviews {
+            if let match = subview.firstDescendantButton(titled: title) {
                 return match
             }
         }

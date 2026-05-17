@@ -19,6 +19,8 @@ enum SidebarViewDebugAction {
     case setAddWorklaneHovered(Bool)
     case updateShimmerVisibility
     case performUpdateAvailableRowClick
+    case performGlobalSearchButtonClick
+    case performGlobalSearchClear
 }
 
 @MainActor
@@ -33,8 +35,13 @@ struct SidebarViewDebugAccess {
     let resizeHandleView: SidebarResizeHandleView
     let updateAvailableRowView: SidebarUpdateAvailableRowView
     let addWorklaneButton: SidebarCreateWorklaneButton
+    let globalSearchButton: SidebarGlobalSearchButton
+    let globalSearchRowView: SidebarGlobalSearchRowView
     let addWorklaneWidthConstraintConstant: CGFloat
     let headerView: NSView
+    let headerBandView: NSView
+    let headerDividerView: NSView
+    let headerAccessoryGroupView: NSView
     let listScrollView: NSScrollView
     let appearance: NSAppearance?
     let shimmerDriverIsRunning: Bool
@@ -105,7 +112,66 @@ extension SidebarView {
     }
 
     var hasVisibleDivider: Bool {
-        false
+        !debugAccessForTesting.headerDividerView.isHidden
+    }
+
+    var headerDividerFrameInSidebar: CGRect {
+        convert(
+            debugAccessForTesting.headerDividerView.bounds,
+            from: debugAccessForTesting.headerDividerView
+        )
+    }
+
+    var headerBandIsHidden: Bool {
+        debugAccessForTesting.headerBandView.isHidden
+    }
+
+    var headerBandCornerRadius: CGFloat {
+        debugAccessForTesting.headerBandView.layer?.cornerRadius ?? 0
+    }
+
+    var headerBandBottomBorderAlpha: CGFloat {
+        debugAccessForTesting.headerBandView.layer?.sublayers?.last?.backgroundColor
+            .flatMap { NSColor(cgColor: $0) }?
+            .alphaComponent ?? 0
+    }
+
+    var headerAccessoryGroupIsHidden: Bool {
+        debugAccessForTesting.headerAccessoryGroupView.isHidden
+    }
+
+    var headerAccessoryGroupBackgroundAlpha: CGFloat {
+        debugAccessForTesting.headerAccessoryGroupView.layer?.backgroundColor
+            .flatMap { NSColor(cgColor: $0) }?
+            .alphaComponent ?? 0
+    }
+
+    var headerAccessoryGroupHeight: CGFloat {
+        debugAccessForTesting.headerAccessoryGroupView.frame.height
+    }
+
+    var headerAccessoryGroupCornerRadius: CGFloat {
+        debugAccessForTesting.headerAccessoryGroupView.layer?.cornerRadius ?? 0
+    }
+
+    var headerAccessoryGroupMinX: CGFloat {
+        convert(
+            debugAccessForTesting.headerAccessoryGroupView.bounds,
+            from: debugAccessForTesting.headerAccessoryGroupView
+        ).minX
+    }
+
+    var headerAccessoryGroupMaxX: CGFloat {
+        convert(
+            debugAccessForTesting.headerAccessoryGroupView.bounds,
+            from: debugAccessForTesting.headerAccessoryGroupView
+        ).maxX
+    }
+
+    var headerAccessoryGroupBorderAlpha: CGFloat {
+        debugAccessForTesting.headerAccessoryGroupView.layer?.borderColor
+            .flatMap { NSColor(cgColor: $0) }?
+            .alphaComponent ?? 0
     }
 
     var firstWorklaneTopInset: CGFloat {
@@ -138,6 +204,22 @@ extension SidebarView {
 
     var addWorklaneButtonWidth: CGFloat {
         debugAccessForTesting.addWorklaneFrameInSidebar.width
+    }
+
+    var addWorklaneMinimumUntruncatedWidth: CGFloat {
+        debugAccessForTesting.addWorklaneButton.minimumUntruncatedWidth
+    }
+
+    var addWorklaneTitleFitsWithoutTruncation: Bool {
+        debugAccessForTesting.addWorklaneButton.titleFitsWithoutTruncation
+    }
+
+    var addWorklaneButtonHeight: CGFloat {
+        debugAccessForTesting.addWorklaneFrameInSidebar.height
+    }
+
+    var addWorklaneButtonCornerRadius: CGFloat {
+        debugAccessForTesting.addWorklaneButton.layer?.cornerRadius ?? 0
     }
 
     var addWorklaneButtonMidY: CGFloat {
@@ -193,12 +275,132 @@ extension SidebarView {
         debugAccessForTesting.addWorklaneButton.backgroundAlpha
     }
 
+    var addWorklaneBackgroundWidth: CGFloat {
+        debugAccessForTesting.addWorklaneButton.backgroundWidthForTesting
+    }
+
     var addWorklaneBorderAlpha: CGFloat {
         debugAccessForTesting.addWorklaneButton.borderAlpha
     }
 
     var addWorklaneUsesPointingHandCursor: Bool {
         debugAccessForTesting.addWorklaneButton.usesPointingHandCursorForTesting
+    }
+
+    var addWorklaneToolTipForTesting: String {
+        debugAccessForTesting.addWorklaneButton.toolTip ?? ""
+    }
+
+    var bookmarksToolTipForTesting: String {
+        debugAccessForTesting.sidebarView.bookmarksButtonAnchor.toolTip ?? ""
+    }
+
+    var globalSearchToolTipForTesting: String {
+        debugAccessForTesting.globalSearchButton.toolTip ?? ""
+    }
+
+    var globalSearchButtonMinX: CGFloat {
+        convert(debugAccessForTesting.globalSearchButton.bounds, from: debugAccessForTesting.globalSearchButton).minX
+    }
+
+    var globalSearchButtonMaxX: CGFloat {
+        convert(debugAccessForTesting.globalSearchButton.bounds, from: debugAccessForTesting.globalSearchButton).maxX
+    }
+
+    var globalSearchButtonHeight: CGFloat {
+        debugAccessForTesting.globalSearchButton.frame.height
+    }
+
+    var globalSearchButtonMidY: CGFloat {
+        convert(debugAccessForTesting.globalSearchButton.bounds, from: debugAccessForTesting.globalSearchButton).midY
+    }
+
+    var globalSearchButtonCornerRadius: CGFloat {
+        debugAccessForTesting.globalSearchButton.layer?.cornerRadius ?? 0
+    }
+
+    var globalSearchButtonSymbolNameForTesting: String {
+        debugAccessForTesting.globalSearchButton.currentSymbolName
+    }
+
+    var globalSearchButtonBackgroundAlphaForTesting: CGFloat {
+        debugAccessForTesting.globalSearchButton.backgroundAlphaForTesting
+    }
+
+    var bookmarksButtonMinX: CGFloat {
+        convert(debugAccessForTesting.sidebarView.bookmarksButtonAnchor.bounds, from: debugAccessForTesting.sidebarView.bookmarksButtonAnchor).minX
+    }
+
+    var bookmarksButtonMaxX: CGFloat {
+        convert(debugAccessForTesting.sidebarView.bookmarksButtonAnchor.bounds, from: debugAccessForTesting.sidebarView.bookmarksButtonAnchor).maxX
+    }
+
+    var bookmarksButtonHeight: CGFloat {
+        debugAccessForTesting.sidebarView.bookmarksButtonAnchor.frame.height
+    }
+
+    var bookmarksButtonMidY: CGFloat {
+        convert(
+            debugAccessForTesting.sidebarView.bookmarksButtonAnchor.bounds,
+            from: debugAccessForTesting.sidebarView.bookmarksButtonAnchor
+        ).midY
+    }
+
+    var bookmarksButtonCornerRadius: CGFloat {
+        debugAccessForTesting.sidebarView.bookmarksButtonAnchor.layer?.cornerRadius ?? 0
+    }
+
+    var isGlobalSearchPresentedForTesting: Bool {
+        !debugAccessForTesting.globalSearchRowView.isHidden
+            && debugAccessForTesting.globalSearchRowView.alphaValue > 0
+    }
+
+    var globalSearchRowHeightForTesting: CGFloat {
+        debugAccessForTesting.globalSearchRowView.frame.height
+    }
+
+    var globalSearchRowFrameInSidebar: CGRect {
+        convert(
+            debugAccessForTesting.globalSearchRowView.bounds,
+            from: debugAccessForTesting.globalSearchRowView
+        )
+    }
+
+    var globalSearchInputFrameInSidebar: CGRect {
+        debugAccessForTesting.globalSearchRowView.convert(
+            debugAccessForTesting.globalSearchRowView.inputFrameForTesting,
+            to: self
+        )
+    }
+
+    var globalSearchQueryTextForTesting: String {
+        debugAccessForTesting.globalSearchRowView.queryTextForTesting
+    }
+
+    var globalSearchPlaceholderForTesting: String {
+        debugAccessForTesting.globalSearchRowView.placeholderForTesting
+    }
+
+    var globalSearchQueryFieldTrailingGapToPreviousButtonForTesting: CGFloat {
+        debugAccessForTesting.globalSearchRowView.queryFieldTrailingGapToPreviousButtonForTesting
+    }
+
+    var globalSearchActiveQueryTrailingConstraintCountForTesting: Int {
+        debugAccessForTesting.globalSearchRowView.activeQueryTrailingConstraintCountForTesting
+    }
+
+    var globalSearchActiveQueryTrailingConstraintTargetForTesting: String {
+        debugAccessForTesting.globalSearchRowView.activeQueryTrailingConstraintTargetForTesting
+    }
+
+    func globalSearchControlPointInWindowForTesting(
+        _ control: SidebarGlobalSearchRowView.ControlKind
+    ) -> NSPoint? {
+        debugAccessForTesting.globalSearchRowView.controlPointInWindowForTesting(control)
+    }
+
+    func performGlobalSearchNextCommandForTesting() {
+        debugAccessForTesting.globalSearchRowView.performNextCommandForTesting()
     }
 
     var resizeHandleMinX: CGFloat {

@@ -297,6 +297,23 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(surfaceController.bindingActions, ["navigate_search:previous"])
     }
 
+    func test_submit_command_pastes_text_then_fires_return_key_outside_paste() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.submitCommand("pnpm start")
+
+        // The command text is sent verbatim — no trailing \r. ghostty wraps this in
+        // bracketed paste markers when the shell has bracketed paste enabled, so an
+        // appended \r would be swallowed as paste content. We rely on submitReturn
+        // to fire a real Return key event *outside* the paste to trigger accept-line.
+        XCTAssertEqual(surfaceController.sentTexts, ["pnpm start"])
+        XCTAssertEqual(surfaceController.submitReturnCallCount, 1)
+    }
+
     func test_hidden_live_surface_still_forwards_progress_events() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -1000,6 +1017,8 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     private(set) var bindingActions: [String] = []
     private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
     private(set) var sendKeyCallCount = 0
+    private(set) var sentTexts: [String] = []
+    private(set) var submitReturnCallCount = 0
     var selectionPresent = false
     var inheritedConfigContext: ghostty_surface_context_e?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
@@ -1019,7 +1038,8 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
     ) -> Bool { false }
-    func sendText(_ text: String) {}
+    func sendText(_ text: String) { sentTexts.append(text) }
+    func submitReturn() { submitReturnCallCount += 1 }
     func performBindingAction(_ action: String) -> Bool {
         bindingActions.append(action)
         return true

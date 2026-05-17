@@ -1498,7 +1498,7 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertTrue(controller.isWindowMovableForTesting)
     }
 
-    func test_global_search_hud_points_use_hud_drag_suppression_reason_not_proxy_icon() throws {
+    func test_global_search_row_points_use_search_drag_suppression_reason_not_proxy_icon() throws {
         let controller = makeController()
         controller.showWindow(nil)
         waitForLayout()
@@ -1510,12 +1510,12 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("global search settled", delay: 0.05)
 
         let nextPoint = try XCTUnwrap(
-            controller.rootViewControllerForTesting.globalSearchHUDButtonPointInWindowForTesting(.next)
+            controller.rootViewControllerForTesting.globalSearchControlPointInWindowForTesting(.next)
         )
 
         XCTAssertEqual(
             controller.windowDragSuppressionTargetForTesting(at: nextPoint, eventType: .leftMouseDown),
-            .globalSearchHUD
+            .globalSearchControls
         )
     }
 
@@ -1531,7 +1531,7 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("global search settled", delay: 0.05)
 
         let nextPoint = try XCTUnwrap(
-            controller.rootViewControllerForTesting.globalSearchHUDButtonPointInWindowForTesting(.next)
+            controller.rootViewControllerForTesting.globalSearchControlPointInWindowForTesting(.next)
         )
         try sendMouseClick(at: nextPoint, in: controller)
         waitForLayout("next click settled", delay: 0.05)
@@ -1539,7 +1539,168 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(controller.rootViewControllerForTesting.globalSearchStateForTesting.selected, 0)
     }
 
-    func test_clicking_global_search_close_button_hides_hud_even_when_proxy_icon_is_visible() throws {
+    func test_global_search_next_keeps_hud_open_on_navigation_blur() throws {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let worklaneID1 = WorklaneID("worklane-1")
+        let worklaneID2 = WorklaneID("worklane-2")
+        let searchTotals = [
+            paneID1: 0,
+            paneID2: 1,
+        ]
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            SearchHitTerminalAdapter(total: searchTotals[paneID] ?? 0)
+        })
+        let controller = MainWindowController(runtimeRegistry: runtimeRegistry).prepareForHostedTesting()
+        self.controller = controller
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let worklane1 = WorklaneState(
+            id: worklaneID1,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID1, title: "shell")],
+                focusedPaneID: paneID1
+            )
+        )
+        let worklane2 = WorklaneState(
+            id: worklaneID2,
+            title: "WS 2",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID2, title: "shell")],
+                focusedPaneID: paneID2
+            )
+        )
+        let root = controller.rootViewControllerForTesting
+        root.replaceWorklanes([worklane1, worklane2], activeWorklaneID: worklaneID1)
+        waitForLayout("worklanes settled", delay: 0.05)
+
+        root.handle(.globalFind)
+        root.updateGlobalSearchQueryForTesting("build")
+        waitForLayout("global search settled", delay: 0.05)
+
+        root.simulateGlobalSearchFocusChangedForTesting(false)
+        root.performGlobalSearchNextForTesting()
+        waitForLayout("cross-worklane search navigation settled", delay: 0.25)
+
+        XCTAssertEqual(root.activeWorklaneIDForTesting, worklaneID2)
+        XCTAssertEqual(root.focusedPaneIDForTesting, paneID2)
+        XCTAssertEqual(root.globalSearchStateForTesting.needle, "build")
+        XCTAssertTrue(root.globalSearchStateForTesting.isHUDVisible)
+        XCTAssertTrue(root.isGlobalSearchFieldFocusedForTesting)
+    }
+
+    func test_global_search_enter_keeps_query_after_late_field_blur() throws {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let worklaneID1 = WorklaneID("worklane-1")
+        let worklaneID2 = WorklaneID("worklane-2")
+        let searchTotals = [
+            paneID1: 0,
+            paneID2: 1,
+        ]
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            SearchHitTerminalAdapter(total: searchTotals[paneID] ?? 0)
+        })
+        let controller = MainWindowController(runtimeRegistry: runtimeRegistry).prepareForHostedTesting()
+        self.controller = controller
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let worklane1 = WorklaneState(
+            id: worklaneID1,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID1, title: "shell")],
+                focusedPaneID: paneID1
+            )
+        )
+        let worklane2 = WorklaneState(
+            id: worklaneID2,
+            title: "WS 2",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID2, title: "shell")],
+                focusedPaneID: paneID2
+            )
+        )
+        let root = controller.rootViewControllerForTesting
+        root.replaceWorklanes([worklane1, worklane2], activeWorklaneID: worklaneID1)
+        waitForLayout("worklanes settled", delay: 0.05)
+
+        root.handle(.globalFind)
+        root.updateGlobalSearchQueryForTesting("build")
+        waitForLayout("global search settled", delay: 0.05)
+
+        root.performGlobalSearchNextFieldCommandForTesting()
+        waitForLayout("cross-worklane enter navigation settled", delay: 0.25)
+        root.focusFocusedTerminalForTesting()
+        root.simulateGlobalSearchFocusChangedForTesting(false)
+        waitForLayout("late field blur settled", delay: 0.05)
+
+        XCTAssertEqual(root.activeWorklaneIDForTesting, worklaneID2)
+        XCTAssertEqual(root.focusedPaneIDForTesting, paneID2)
+        XCTAssertEqual(root.globalSearchStateForTesting.needle, "build")
+        XCTAssertTrue(root.globalSearchStateForTesting.isHUDVisible)
+    }
+
+    func test_global_search_enter_returns_to_selected_result_after_manual_pane_focus() throws {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let worklaneID = WorklaneID("worklane-1")
+        let searchTotals = [
+            paneID1: 1,
+            paneID2: 0,
+        ]
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            SearchHitTerminalAdapter(total: searchTotals[paneID] ?? 0)
+        })
+        let controller = MainWindowController(runtimeRegistry: runtimeRegistry).prepareForHostedTesting()
+        self.controller = controller
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID1, title: "shell"),
+                    PaneState(id: paneID2, title: "server"),
+                ],
+                focusedPaneID: paneID1
+            )
+        )
+        let root = controller.rootViewControllerForTesting
+        root.replaceWorklanes([worklane], activeWorklaneID: worklaneID)
+        waitForLayout("worklane settled", delay: 0.05)
+
+        root.handle(.globalFind)
+        root.updateGlobalSearchQueryForTesting("build")
+        waitForLayout("global search settled", delay: 0.05)
+
+        root.performGlobalSearchNextFieldCommandForTesting()
+        waitForLayout("initial result navigation settled", delay: 0.25)
+        XCTAssertEqual(root.focusedPaneIDForTesting, paneID1)
+        XCTAssertEqual(root.globalSearchStateForTesting.selected, 0)
+        XCTAssertTrue(root.isGlobalSearchFieldFocusedForTesting)
+
+        root.focusPaneDirectly(paneID2)
+        waitForLayout("manual pane focus settled", delay: 0.05)
+        root.handle(.globalFind)
+        waitForLayout("global search refocused", delay: 0.05)
+        XCTAssertTrue(root.isGlobalSearchFieldFocusedForTesting)
+
+        root.performGlobalSearchNextFieldCommandForTesting()
+        waitForLayout("return to selected result settled", delay: 0.25)
+
+        XCTAssertEqual(root.focusedPaneIDForTesting, paneID1)
+        XCTAssertEqual(root.globalSearchStateForTesting.needle, "build")
+        XCTAssertTrue(root.globalSearchStateForTesting.isHUDVisible)
+        XCTAssertTrue(root.isGlobalSearchFieldFocusedForTesting)
+    }
+
+    func test_clicking_global_search_clear_button_clears_query_even_when_proxy_icon_is_visible() throws {
         let controller = makeController()
         controller.showWindow(nil)
         waitForLayout()
@@ -1550,13 +1711,14 @@ final class MainWindowControllerTests: XCTestCase {
         controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
         waitForLayout("global search settled", delay: 0.05)
 
-        let closePoint = try XCTUnwrap(
-            controller.rootViewControllerForTesting.globalSearchHUDButtonPointInWindowForTesting(.close)
+        let clearPoint = try XCTUnwrap(
+            controller.rootViewControllerForTesting.globalSearchControlPointInWindowForTesting(.clear)
         )
-        try sendMouseClick(at: closePoint, in: controller)
-        waitForLayout("close click settled", delay: 0.05)
+        try sendMouseClick(at: clearPoint, in: controller)
+        waitForLayout("clear click settled", delay: 0.05)
 
-        XCTAssertFalse(controller.rootViewControllerForTesting.isGlobalSearchHUDVisibleForTesting)
+        XCTAssertEqual(controller.rootViewControllerForTesting.globalSearchStateForTesting.needle, "")
+        XCTAssertTrue(controller.rootViewControllerForTesting.isGlobalSearchPresentedForTesting)
     }
 
     func test_find_next_menu_item_is_enabled_when_global_search_is_remembered() {
@@ -1741,6 +1903,62 @@ private final class RecordingOpenWithService: OpenWithServing {
     func open(target: OpenWithResolvedTarget, workingDirectory: String) -> Bool {
         openCalls.append((target: target, workingDirectory: workingDirectory))
         return true
+    }
+}
+
+@MainActor
+private final class SearchHitTerminalAdapter: TerminalAdapter, TerminalSearchControlling {
+    private let terminalView = MetadataTerminalView()
+    private let total: Int
+    private var needle = ""
+
+    var hasScrollback = false
+    var cellWidth: CGFloat = 0
+    var cellHeight: CGFloat = 0
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
+    var searchDidChange: ((TerminalSearchEvent) -> Void)?
+
+    init(total: Int) {
+        self.total = total
+    }
+
+    func makeTerminalView() -> NSView {
+        terminalView
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {}
+    func close() {}
+    func sendText(_ text: String) {}
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
+
+    func showSearch() {
+        searchDidChange?(.started(needle: needle.isEmpty ? nil : needle))
+    }
+
+    func useSelectionForFind() {
+        searchDidChange?(.started(needle: needle.isEmpty ? nil : needle))
+    }
+
+    func updateSearch(needle: String) {
+        self.needle = needle
+        searchDidChange?(.total(needle.isEmpty ? 0 : total))
+        searchDidChange?(.selected(-1))
+    }
+
+    func findNext() {
+        guard !needle.isEmpty, total > 0 else { return }
+        searchDidChange?(.selected(0))
+    }
+
+    func findPrevious() {
+        guard !needle.isEmpty, total > 0 else { return }
+        searchDidChange?(.selected(max(0, total - 1)))
+    }
+
+    func endSearch() {
+        needle = ""
+        searchDidChange?(.ended)
     }
 }
 

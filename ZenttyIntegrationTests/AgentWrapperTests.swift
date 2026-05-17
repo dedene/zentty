@@ -232,6 +232,94 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(request.environment["ZENTTY_DROID_PID"], "4242")
     }
 
+    /// End-to-end coverage for the Grok fan-out: piping a TodoWrite PreToolUse
+    /// payload to `zentty ipc agent-event --adapter=grok` must produce two
+    /// captured IPC requests — the raw forward and the canonical task.progress
+    /// re-emit. This is the load-bearing wiring that replaced the bash `jq`
+    /// pipeline.
+    func test_real_cli_grok_todowrite_payload_emits_raw_forward_plus_canonical_task_progress() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"PreToolUse","tool_name":"TodoWrite","tool_input":{"todos":[{"status":"completed"},{"status":"in_progress"},{"status":"pending"}]}}"#
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["ipc", "agent-event", "--adapter=grok"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let requests = try server.receiveRequests(count: 2)
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(requests.count, 2)
+
+        // First: raw forward via the grok adapter.
+        XCTAssertEqual(requests[0].subcommand, "agent-event")
+        XCTAssertEqual(requests[0].arguments, ["--adapter=grok"])
+        XCTAssertEqual(requests[0].standardInput, payload)
+
+        // Second: canonical task.progress envelope minted by GrokCanonicalReEmitter.
+        XCTAssertEqual(requests[1].subcommand, "agent-event")
+        XCTAssertEqual(requests[1].arguments, [])
+        let canonical = try XCTUnwrap(requests[1].standardInput)
+        XCTAssertTrue(canonical.contains("\"event\":\"task.progress\""), "expected task.progress event in canonical re-emit, got: \(canonical)")
+        XCTAssertTrue(canonical.contains("\"done\":1"))
+        XCTAssertTrue(canonical.contains("\"total\":3"))
+    }
+
+    /// End-to-end coverage for the nested-key session id resolution: a
+    /// SessionStart payload that nests the id under `context.session_id` should
+    /// still surface as a canonical `session.start` envelope carrying the id.
+    func test_real_cli_grok_session_start_with_nested_id_emits_canonical_session_start() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"SessionStart","context":{"session_id":"ses_nested_id"}}"#
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["ipc", "agent-event", "--adapter=grok"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let requests = try server.receiveRequests(count: 2)
+        process.waitUntilExit()
+
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].arguments, ["--adapter=grok"])
+        let canonical = try XCTUnwrap(requests[1].standardInput)
+        XCTAssertTrue(canonical.contains("\"event\":\"session.start\""))
+        XCTAssertTrue(canonical.contains("\"id\":\"ses_nested_id\""))
+    }
+
     func test_real_cli_codex_notify_reads_payload_from_standard_input_when_argument_is_omitted() throws {
         let server = try IPCRequestCaptureServer()
         defer { server.invalidate() }
@@ -263,6 +351,54 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(request.subcommand, "agent-event")
         XCTAssertEqual(request.arguments, ["--adapter=codex-notify"])
         XCTAssertEqual(request.standardInput, payload)
+    }
+
+    func test_real_cli_notify_forwards_body_to_pane_ipc() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let body = """
+        mise ERROR No version is set for shim: codex
+        Set a global default version with mise use -g node@22.22.1
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = [
+            "notify",
+            "--title", "Codex failed to start",
+            "--subtitle", "mise ERROR No version is set for shim: codex",
+            "--body", body,
+            "--silent",
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        process.standardInput = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest { request in
+            AgentIPCResponse(id: request.id, ok: true, result: AgentIPCResponseResult(), error: nil)
+        }
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "notify")
+        XCTAssertEqual(
+            request.arguments,
+            [
+                "--title", "Codex failed to start",
+                "--subtitle", "mise ERROR No version is set for shim: codex",
+                "--body", body,
+                "--silent",
+            ]
+        )
     }
 
     func test_real_cli_gemini_hook_forwards_payload_to_gemini_adapter_and_returns_empty_json() throws {
@@ -388,7 +524,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "kimi", "kimi-cli", "opencode", "pi"] {
+        for tool in ["amp", "claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "grok", "kimi", "kimi-cli", "opencode", "pi"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -428,6 +564,234 @@ final class AgentWrapperTests: XCTestCase {
             XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", expectedLaunchTool, "hello"]], tool)
             XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty, tool)
         }
+    }
+
+    func test_tool_wrapper_exports_cli_path_when_resolved_from_path() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["codex", "zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "codex",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf 'unexpected\n' >> "$REAL_ARGS_LOG"
+            """
+        )
+        try harness.installCliStub()
+
+        let result = try harness.run(
+            tool: "codex",
+            arguments: ["hello"],
+            extraEnvironment: [
+                "ZENTTY_INSTANCE_SOCKET": harness.socketPath,
+                "ZENTTY_PANE_TOKEN": harness.paneToken,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", "codex", "hello"]])
+        XCTAssertEqual(try harness.readLines(named: "cli-env.log"), [harness.cliPath])
+        XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty)
+    }
+
+    func test_launch_command_reports_inactive_mise_shim_before_bootstrap() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let fakeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let shimDirectory = fakeRoot
+            .appendingPathComponent("mise", isDirectory: true)
+            .appendingPathComponent("shims", isDirectory: true)
+        let miseDirectory = fakeRoot.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: miseDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fakeRoot) }
+
+        let codexShim = shimDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 99\n".write(to: codexShim, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codexShim.path)
+
+        let mise = miseDirectory.appendingPathComponent("mise", isDirectory: false)
+        try """
+        #!/bin/sh
+        echo 'mise ERROR No version is set for shim: codex' >&2
+        echo 'Set a global default version with mise use -g node@22.22.1' >&2
+        exit 1
+        """.write(to: mise, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mise.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["launch", "codex"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [shimDirectory.path, miseDirectory.path, "/usr/bin", "/bin"].joined(separator: ":")
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_CLI_BIN")
+        process.environment = environment
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        let stderr = Pipe()
+        process.standardError = stderr
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stderrString = String(
+            data: stderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertNotEqual(process.terminationStatus, 0)
+        XCTAssertTrue(stderrString.contains("mise ERROR No version is set for shim: codex"), stderrString)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "notify")
+        XCTAssertTrue(request.arguments.contains("Codex failed to start"), request.arguments.joined(separator: " "))
+        XCTAssertTrue(request.arguments.contains("mise ERROR No version is set for shim: codex"), request.arguments.joined(separator: " "))
+    }
+
+    func test_launch_command_resolves_active_mise_shim_before_bootstrap() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let fakeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let shimDirectory = fakeRoot
+            .appendingPathComponent("mise", isDirectory: true)
+            .appendingPathComponent("shims", isDirectory: true)
+        let miseDirectory = fakeRoot.appendingPathComponent("bin", isDirectory: true)
+        let realBinDirectory = fakeRoot.appendingPathComponent("real-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: miseDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realBinDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fakeRoot) }
+
+        let codexShim = shimDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 99\n".write(to: codexShim, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codexShim.path)
+
+        let realCodex = realBinDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 42\n".write(to: realCodex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realCodex.path)
+
+        let mise = miseDirectory.appendingPathComponent("mise", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "which" ] && [ "$2" = "codex" ]; then
+          printf '%s\\n' '\(realCodex.path)'
+          exit 0
+        fi
+        exit 1
+        """.write(to: mise, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mise.path)
+
+        let process = Process()
+        let cliPath = try builtCLIPath()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["launch", "codex", "hello"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [shimDirectory.path, miseDirectory.path, "/usr/bin", "/bin"].joined(separator: ":")
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_CLI_BIN")
+        process.environment = environment
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest { request in
+            AgentIPCResponse(
+                id: request.id,
+                ok: true,
+                result: AgentIPCResponseResult(
+                    launchPlan: AgentLaunchPlan(
+                        executablePath: "/usr/bin/true",
+                        arguments: [],
+                        setEnvironment: [:],
+                        unsetEnvironment: [],
+                        preLaunchActions: []
+                    )
+                ),
+                error: nil
+            )
+        }
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .bootstrap)
+        XCTAssertEqual(request.tool, .codex)
+        XCTAssertEqual(request.environment["ZENTTY_REAL_BINARY"], realCodex.path)
+        XCTAssertEqual(
+            request.environment["ZENTTY_CLI_BIN"],
+            URL(fileURLWithPath: cliPath).resolvingSymlinksInPath().standardizedFileURL.path
+        )
+    }
+
+    func test_launch_command_forwards_invoking_cli_path_when_environment_omits_cli_bin() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let realBinURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        let realCodexURL = realBinURL.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 42\n".write(to: realCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realCodexURL.path)
+        defer { try? FileManager.default.removeItem(at: realBinURL) }
+
+        let process = Process()
+        let cliPath = try builtCLIPath()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["launch", "codex", "hello"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = [realBinURL.path, "/usr/bin", "/bin"].joined(separator: ":")
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_CLI_BIN")
+        process.environment = environment
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest { request in
+            AgentIPCResponse(
+                id: request.id,
+                ok: true,
+                result: AgentIPCResponseResult(
+                    launchPlan: AgentLaunchPlan(
+                        executablePath: "/usr/bin/true",
+                        arguments: [],
+                        setEnvironment: [:],
+                        unsetEnvironment: [],
+                        preLaunchActions: []
+                    )
+                ),
+                error: nil
+            )
+        }
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .bootstrap)
+        XCTAssertEqual(request.tool, .codex)
+        XCTAssertEqual(request.environment["ZENTTY_REAL_BINARY"], realCodexURL.path)
+        XCTAssertEqual(
+            request.environment["ZENTTY_CLI_BIN"],
+            URL(fileURLWithPath: cliPath).resolvingSymlinksInPath().standardizedFileURL.path
+        )
     }
 
     func test_kimi_wrapper_passthroughs_login_to_real_binary_even_when_cli_is_available() throws {
@@ -544,7 +908,7 @@ private final class IPCRequestCaptureServer {
             throw error
         }
 
-        guard listen(fileDescriptor, 1) == 0 else {
+        guard listen(fileDescriptor, 8) == 0 else {
             let error = POSIXError(.init(rawValue: errno) ?? .EIO)
             close(fileDescriptor)
             throw error
@@ -564,7 +928,10 @@ private final class IPCRequestCaptureServer {
         try? FileManager.default.removeItem(at: rootURL)
     }
 
-    func receiveOneRequest(timeout: TimeInterval = 5) throws -> AgentIPCRequest {
+    func receiveOneRequest(
+        timeout: TimeInterval = 5,
+        respond: ((AgentIPCRequest) -> AgentIPCResponse)? = nil
+    ) throws -> AgentIPCRequest {
         let expectation = XCTestExpectation(description: "receive IPC request")
         let lock = NSLock()
         var capturedRequest: AgentIPCRequest?
@@ -613,6 +980,16 @@ private final class IPCRequestCaptureServer {
 
             do {
                 let request = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
+                if let response = respond?(request) {
+                    var responseData = try JSONEncoder().encode(response)
+                    responseData.append(UInt8(ascii: "\n"))
+                    _ = responseData.withUnsafeBytes { rawBuffer in
+                        guard let baseAddress = rawBuffer.baseAddress else {
+                            return
+                        }
+                        _ = Darwin.send(client, baseAddress, rawBuffer.count, 0)
+                    }
+                }
                 lock.lock()
                 capturedRequest = request
                 lock.unlock()
@@ -638,6 +1015,90 @@ private final class IPCRequestCaptureServer {
             throw capturedError
         }
         return try XCTUnwrap(capturedRequest)
+    }
+
+    /// Accepts `count` sequential connections, reading one framed JSON request
+    /// per connection, and returns the captured requests in arrival order.
+    /// Used to verify the CLI's canonical-event fan-out, which sends a primary
+    /// `--adapter=<name>` IPC request followed by zero or more canonical
+    /// re-emits over fresh connections.
+    func receiveRequests(
+        count: Int,
+        timeout: TimeInterval = 5
+    ) throws -> [AgentIPCRequest] {
+        precondition(count > 0)
+        let expectation = XCTestExpectation(description: "receive \(count) IPC requests")
+        let lock = NSLock()
+        var captured: [AgentIPCRequest] = []
+        var capturedError: Error?
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { expectation.fulfill() }
+            for _ in 0..<count {
+                let client = accept(self.fileDescriptor, nil, nil)
+                guard client >= 0 else {
+                    lock.lock()
+                    capturedError = POSIXError(.init(rawValue: errno) ?? .EIO)
+                    lock.unlock()
+                    return
+                }
+
+                var data = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                var readOK = true
+                while true {
+                    let n = recv(client, &buffer, buffer.count, 0)
+                    if n > 0 {
+                        data.append(buffer, count: n)
+                        if data.contains(UInt8(ascii: "\n")) { break }
+                        continue
+                    }
+                    if n == 0 { break }
+                    if errno == EINTR { continue }
+                    lock.lock()
+                    capturedError = POSIXError(.init(rawValue: errno) ?? .EIO)
+                    lock.unlock()
+                    readOK = false
+                    break
+                }
+                close(client)
+                guard readOK else { return }
+
+                let requestData: Data
+                if let newlineIndex = data.firstIndex(of: UInt8(ascii: "\n")) {
+                    requestData = data.prefix(upTo: newlineIndex)
+                } else {
+                    requestData = data
+                }
+
+                do {
+                    let request = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
+                    lock.lock()
+                    captured.append(request)
+                    lock.unlock()
+                } catch {
+                    lock.lock()
+                    capturedError = error
+                    lock.unlock()
+                    return
+                }
+            }
+        }
+
+        let waiterResult = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        if waiterResult != .completed {
+            throw NSError(
+                domain: "AgentWrapperTests.IPCRequestCaptureServer",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(count) IPC requests"]
+            )
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        if let capturedError {
+            throw capturedError
+        }
+        return captured
     }
 }
 
@@ -714,6 +1175,9 @@ private struct WrapperHarness {
             done
           } >> "$CLI_ARGS_LOG"
         fi
+        if [[ -n "${CLI_ENV_LOG:-}" ]]; then
+          printf '%s\n' "${ZENTTY_CLI_BIN:-}" >> "$CLI_ENV_LOG"
+        fi
         """.write(to: cliURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
     }
@@ -740,6 +1204,7 @@ private struct WrapperHarness {
         }
         environment["REAL_ARGS_LOG"] = logDirectoryURL.appendingPathComponent("real-args.log", isDirectory: false).path
         environment["CLI_ARGS_LOG"] = logDirectoryURL.appendingPathComponent("cli-args.log", isDirectory: false).path
+        environment["CLI_ENV_LOG"] = logDirectoryURL.appendingPathComponent("cli-env.log", isDirectory: false).path
         environment["CLI_STDIN_LOG"] = logDirectoryURL.appendingPathComponent("cli-stdin.log", isDirectory: false).path
         extraEnvironment.forEach { environment[$0.key] = $0.value }
         process.environment = environment
@@ -809,7 +1274,7 @@ private struct WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"]
+        ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }

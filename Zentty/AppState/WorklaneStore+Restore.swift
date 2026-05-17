@@ -34,7 +34,8 @@ extension WorklaneStore {
                 tool: status.tool,
                 toolDisplayName: status.tool.displayName,
                 sessionID: status.sessionID,
-                workingDirectory: status.workingDirectory ?? auxiliary?.presentation.cwd
+                workingDirectory: status.workingDirectory ?? auxiliary?.presentation.cwd,
+                agentLaunchSnapshot: status.agentLaunchSnapshot
             )
         }
 

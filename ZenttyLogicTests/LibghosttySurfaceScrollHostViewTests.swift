@@ -153,6 +153,26 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(presentationCount, 0)
     }
 
+    func test_scroll_view_control_secondary_drag_forwards_to_surface() throws {
+        let harness = makeScrollHostHarness()
+        let scrollView = try scrollView(from: harness.hostView)
+        harness.surface.mouseButtonResults[GHOSTTY_MOUSE_LEFT] = true
+
+        scrollView.rightMouseDown(with: try makeMouseEvent(
+            type: .rightMouseDown,
+            location: CGPoint(x: 120, y: 80),
+            modifierFlags: [.control]
+        ))
+        scrollView.rightMouseDragged(with: try makeMouseEvent(
+            type: .rightMouseDragged,
+            location: CGPoint(x: 150, y: 90),
+            modifierFlags: [.control]
+        ))
+
+        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_LEFT)
+        XCTAssertEqual(harness.surface.sentMousePositions.last?.position, CGPoint(x: 150, y: 70))
+    }
+
     func test_overlay_host_hit_testing_passes_through_to_terminal_when_empty() throws {
         let harness = makeScrollHostHarness()
 
@@ -170,6 +190,16 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         let hitView = harness.hostView.hitTest(CGPoint(x: 30, y: 30))
 
         XCTAssertTrue(hitView === overlayControl)
+    }
+
+    func test_overlay_host_hit_testing_preserves_standard_controls_using_appkit_coordinates() throws {
+        let harness = makeScrollHostHarness()
+        let button = NSButton(frame: NSRect(x: 20, y: 20, width: 80, height: 30))
+        harness.hostView.terminalOverlayHostView.addSubview(button)
+
+        let hitView = harness.hostView.hitTest(CGPoint(x: 30, y: 30))
+
+        XCTAssertTrue(hitView === button || hitView?.isDescendant(of: button) == true)
     }
 
     func test_context_menu_builder_set_on_scroll_host_reaches_surface_view() {
@@ -243,6 +273,7 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
         return mouseButtonResults[button] ?? false
     }
     func sendText(_ text: String) {}
+    func submitReturn() {}
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
     func close() {}
@@ -252,7 +283,8 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
 @MainActor
 private final class HitTestableOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        bounds.contains(point) ? self : nil
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        return bounds.contains(localPoint) ? self : nil
     }
 }
 

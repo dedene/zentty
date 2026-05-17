@@ -86,6 +86,89 @@ final class ZenttyCLIDiscoveryTests: XCTestCase {
         )
     }
 
+    func test_real_cli_notify_forwards_pane_local_notification_request() throws {
+        let server = try RequestCaptureServer(
+            response: AgentIPCResponse(
+                id: "notify-1",
+                ok: true,
+                result: AgentIPCResponseResult()
+            )
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = [
+            "notify",
+            "--title", "Build done",
+            "--subtitle", "Tests passed",
+            "--no-inbox",
+            "--silent",
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_WINDOW_ID"] = "window-main"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment["ZENTTY_PANE_TOKEN"] = "token-main"
+        process.environment = environment
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdoutPipe.fileHandleForReading.availableData, Data())
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "notify")
+        XCTAssertEqual(
+            request.arguments,
+            [
+                "--title", "Build done",
+                "--subtitle", "Tests passed",
+                "--no-inbox",
+                "--silent",
+            ]
+        )
+        XCTAssertEqual(request.environment["ZENTTY_WINDOW_ID"], "window-main")
+        XCTAssertEqual(request.environment["ZENTTY_WORKLANE_ID"], "worklane-main")
+        XCTAssertEqual(request.environment["ZENTTY_PANE_ID"], "pane-main")
+        XCTAssertEqual(request.environment["ZENTTY_PANE_TOKEN"], "token-main")
+    }
+
+    func test_real_cli_notify_fails_without_pane_token() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["notify", "--title", "Build done"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = "/tmp/zentty.sock"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment.removeValue(forKey: "ZENTTY_PANE_TOKEN")
+        process.environment = environment
+        process.standardOutput = Pipe()
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertNotEqual(process.terminationStatus, 0)
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.availableData,
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertTrue(
+            stderr.contains("Not running inside a Zentty pane"),
+            "Expected pane-local validation error, got: \(stderr)"
+        )
+    }
+
     private func builtCLIPath() throws -> String {
         if let builtProductsDir = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"] {
             return URL(fileURLWithPath: builtProductsDir, isDirectory: true)

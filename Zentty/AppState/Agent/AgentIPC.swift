@@ -843,6 +843,12 @@ final class AgentIPCServer: @unchecked Sendable {
             return "pane_not_found"
         case PaneRoutingError.paneTargetAmbiguous:
             return "pane_target_ambiguous"
+        case PaneNotificationIPCError.missingTitle:
+            return "missing_title"
+        case PaneNotificationIPCError.missingValue:
+            return "missing_value"
+        case PaneNotificationIPCError.unexpectedArgument:
+            return "unexpected_argument"
         default:
             return "internal_error"
         }

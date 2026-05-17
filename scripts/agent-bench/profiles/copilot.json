@@ -12,20 +12,42 @@
       "--output-format",
       "json"
     ],
+    "session_capture": [
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK",
+      "--allow-all-tools",
+      "--allow-all-paths",
+      "--output-format",
+      "json"
+    ],
     "approval": [
       "--prompt",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK",
       "--allow-all-paths",
       "--output-format",
       "json"
+    ],
+    "restore_launch": [
+      "--resume=237d8c32-2a27-4850-8da8-3a110f13682c"
     ]
   },
   "expectations": {
     "smoke": {
       "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use", "post-tool-use", "session-end"]
     },
+    "session_capture": {
+      "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use", "post-tool-use", "session-end"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
+    },
     "approval": {
       "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--resume=237d8c32-2a27-4850-8da8-3a110f13682c"]]
     }
   },
   "input_by_scenario": {

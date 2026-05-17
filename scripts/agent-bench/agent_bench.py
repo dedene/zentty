@@ -27,16 +27,21 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi")
+SUPPORTED_AGENTS = ("amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
+AMP_PLUGIN_FILE_NAME = "zentty-amp-zentty.ts"
+AMP_PLUGIN_OWNERSHIP_MARKER = "zentty-amp-plugin-v1"
 ROUTING_ENV_KEYS = {
     "ZENTTY_WINDOW_ID",
     "ZENTTY_WORKLANE_ID",
     "ZENTTY_PANE_ID",
     "ZENTTY_INSTANCE_ID",
     "ZENTTY_AGENT_TOOL",
+    "ZENTTY_AMP_PID",
+    "ZENTTY_AMP_RESUME_ARGUMENTS_JSON",
+    "PLUGINS",
     "ZENTTY_CLAUDE_PID",
     "ZENTTY_CODEX_PID",
     "ZENTTY_COPILOT_PID",
@@ -44,6 +49,7 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_CURSOR_PID",
     "ZENTTY_DROID_PID",
     "ZENTTY_KIMI_PID",
+    "ZENTTY_GROK_PID",
     "CODEX_HOME",
     "COPILOT_HOME",
     "KIMI_HOME",
@@ -71,10 +77,18 @@ OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)
 
 
 @dataclasses.dataclass
+class SessionIdentityExpectation:
+    session_id_pattern: str
+    tracked_pid: bool = True
+
+
+@dataclasses.dataclass
 class ScenarioExpectation:
     name: str
     required_events: list[str]
     required_terminal_phases: list[str] = dataclasses.field(default_factory=list)
+    required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
+    session_identity: SessionIdentityExpectation | None = None
     synthetic: bool = False
     fixture: str | None = None
     post_stop_notification_required: bool = False
@@ -139,8 +153,10 @@ class ScenarioResult:
     warnings: list[str] = dataclasses.field(default_factory=list)
     terminal_final_phase: str | None = None
     terminal_post_scripted_input_phase: str | None = None
+    terminal_phase_sequence: list[str] = dataclasses.field(default_factory=list)
     terminal_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     task_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    session_identity_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     rerun_command: str = ""
 
@@ -249,6 +265,27 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
             observed_counts[event] -= 1
         else:
             missing.append(event)
+    observed_bootstrap_arguments = [
+        bootstrap_arguments(record)
+        for record in records
+        if record.kind == "bootstrap" and record.agent == agent and record.scenario == expectation.name
+    ]
+    for required_arguments in expectation.required_bootstrap_arguments:
+        if required_arguments in observed_bootstrap_arguments:
+            continue
+        missing.append("bootstrap:" + " ".join(required_arguments))
+    session_missing, session_observations = validate_session_identity(agent, expectation, records)
+    missing.extend(session_missing)
+    if missing:
+        result_kind = "missing-bootstrap" if any(item.startswith("bootstrap:") for item in missing) else "missing-hook"
+        if not any(item.startswith("bootstrap:") for item in missing) and session_missing and len(missing) == len(session_missing):
+            result_kind = "missing-session-identity"
+    else:
+        result_kind = (
+            "bootstrap-pass"
+            if expectation.required_bootstrap_arguments and not expectation.required_events
+            else "hook-pass"
+        )
     return ScenarioResult(
         agent=agent,
         scenario=expectation.name,
@@ -256,8 +293,125 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         missing_events=missing,
         observed_events=observed_values,
         status="pass" if not missing else "fail",
-        result_kind="hook-pass" if not missing else "missing-hook",
+        result_kind=result_kind,
+        session_identity_observations=session_observations,
     )
+
+
+def bootstrap_arguments(record: TraceRecord) -> list[str]:
+    extra = record.extra if isinstance(record.extra, dict) else {}
+    arguments = extra.get("arguments")
+    if not isinstance(arguments, list):
+        return []
+    return [str(argument) for argument in arguments]
+
+
+def validate_session_identity(
+    agent: str,
+    expectation: ScenarioExpectation,
+    records: list[TraceRecord],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    if expectation.session_identity is None:
+        return ([], [])
+
+    observations = session_identity_observations_for_records(
+        agent,
+        expectation.name,
+        records,
+        expectation.session_identity.session_id_pattern,
+    )
+    missing: list[str] = []
+    if not any(observation.get("session_id_valid") is True for observation in observations):
+        missing.append(f"session-id:{expectation.session_identity.session_id_pattern}")
+    if expectation.session_identity.tracked_pid and not any(observation.get("tracked_pid") for observation in observations):
+        missing.append("tracked-pid")
+    return (missing, observations)
+
+
+def session_identity_observations_for_records(
+    agent: str,
+    scenario: str,
+    records: list[TraceRecord],
+    session_id_pattern: str,
+) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for record in records:
+        if record.agent != agent or record.scenario != scenario or record.kind != "hook":
+            continue
+
+        payload = parse_json_object(record.standard_input)
+        session_id, session_source = extract_session_id(payload)
+        tracked_pid, pid_source = extract_tracked_pid(agent, payload, record.environment or {})
+        if session_id is None and tracked_pid is None:
+            continue
+
+        observation: dict[str, Any] = {"event": record.event_name or ""}
+        if session_id is not None:
+            observation["session_id"] = session_id
+            observation["session_id_pattern"] = session_id_pattern
+            observation["session_id_valid"] = session_id_matches_pattern(session_id, session_id_pattern)
+            observation["session_id_source"] = session_source
+        if tracked_pid is not None:
+            observation["tracked_pid"] = tracked_pid
+            observation["tracked_pid_source"] = pid_source
+        observations.append(observation)
+    return observations
+
+
+def extract_session_id(payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    for key in ("session_id", "sessionId"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return (value.strip(), key)
+    session = payload.get("session")
+    if isinstance(session, dict):
+        value = session.get("id")
+        if isinstance(value, str) and value.strip():
+            return (value.strip(), "session.id")
+    return (None, None)
+
+
+def extract_tracked_pid(agent: str, payload: dict[str, Any], environment: dict[str, str]) -> tuple[int | None, str | None]:
+    expected_key = f"ZENTTY_{agent.upper()}_PID"
+    pid = parse_positive_int(environment.get(expected_key))
+    if pid is not None:
+        return (pid, expected_key)
+    payload_agent = payload.get("agent")
+    if isinstance(payload_agent, dict):
+        pid = parse_positive_int(payload_agent.get("pid"))
+        if pid is not None:
+            return (pid, "agent.pid")
+    return (None, None)
+
+
+def parse_positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            parsed = int(stripped)
+            return parsed if parsed > 0 else None
+    return None
+
+
+def session_id_matches_pattern(session_id: str, pattern: str) -> bool:
+    if pattern == "non-empty":
+        return bool(session_id.strip())
+    if pattern == "uuid":
+        return re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            session_id,
+        ) is not None
+    if pattern == "codex":
+        return session_id_matches_pattern(session_id, "uuid") or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session_id) is not None
+    if pattern == "droid":
+        return re.fullmatch(r"[A-Za-z0-9_.:-]+", session_id) is not None
+    if pattern == "amp":
+        return re.fullmatch(r"T-[A-Za-z0-9_-]+", session_id) is not None
+    if pattern == "opencode":
+        return re.fullmatch(r"ses_[A-Za-z0-9]+", session_id) is not None
+    return False
 
 
 def missing_required_terminal_phases(
@@ -293,7 +447,13 @@ def classify_completed_result(
 ) -> ScenarioResult:
     result = validate_scenario(agent, expectation, records)
     if not result.passed:
-        if bench_marker_observed(output):
+        if result.result_kind == "missing-bootstrap":
+            result.status = "fail"
+            result.detail = "restore launch command did not reach bootstrap with required arguments"
+        elif result.result_kind == "missing-session-identity":
+            result.status = "fail"
+            result.detail = "required hooks observed but resumable session identity was missing"
+        elif bench_marker_observed(output):
             result.passed = False
             result.status = "fail"
             result.detail = "bench command completed but required hooks were missing"
@@ -358,11 +518,12 @@ def classify_completed_result(
             if expectation.required_terminal_phases and not expectation.required_events
             else "required events observed"
         )
-    result.result_kind = (
-        "terminal-pass"
-        if expectation.required_terminal_phases and not expectation.required_events
-        else "hook-pass"
-    )
+    if result.result_kind != "bootstrap-pass":
+        result.result_kind = (
+            "terminal-pass"
+            if expectation.required_terminal_phases and not expectation.required_events
+            else "hook-pass"
+        )
     return result
 
 
@@ -414,12 +575,21 @@ def classify_timeout_result(
                 if expectation.required_terminal_phases and not expectation.required_events
                 else f"required events observed before {timeout}s timeout"
             )
-            partial.result_kind = (
-                "terminal-pass"
-                if expectation.required_terminal_phases and not expectation.required_events
-                else "hook-pass"
-            )
+            if partial.result_kind != "bootstrap-pass":
+                partial.result_kind = (
+                    "terminal-pass"
+                    if expectation.required_terminal_phases and not expectation.required_events
+                    else "hook-pass"
+                )
             partial.warnings.append("process timed out after required hooks were observed")
+    elif partial.result_kind == "missing-bootstrap":
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "restore launch command did not reach bootstrap with required arguments"
+    elif partial.result_kind == "missing-session-identity":
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "required hooks observed but resumable session identity was missing"
     elif bench_marker_observed(output):
         partial.passed = False
         partial.status = "fail"
@@ -566,6 +736,15 @@ def terminal_final_phase(observations: list[TerminalObservation]) -> str | None:
     return None
 
 
+def terminal_phase_sequence(observations: list[TerminalObservation]) -> list[str]:
+    phases: list[str] = []
+    for observation in sorted(observations, key=lambda item: ((item.timestamp is None, item.timestamp or 0), item.offset)):
+        phase = terminal_observation_phase(observation)
+        if phase and (not phases or phases[-1] != phase):
+            phases.append(phase)
+    return phases
+
+
 def terminal_needs_input_persisted_after_scripted_input(
     agent: str,
     scenario: str,
@@ -605,21 +784,57 @@ def task_observations_for_records(agent: str, scenario: str, records: list[Trace
         if record.agent != agent or record.scenario != scenario or record.kind != "hook":
             continue
         payload = parse_json_object(record.standard_input)
+
+        # Case 1: Raw PreToolUse / tool call with TodoWrite (traditional path, now grok-flexible)
+        # Support top-level and nested (e.g. grok may use tool_use.name / tool_use.input or input.*)
         tool_name = first_string(payload, ["tool_name", "toolName", "tool"])
-        if not tool_name or tool_name.lower() != "todowrite":
-            continue
-        tool_input = first_object(payload, ["tool_input", "toolInput", "input"])
-        progress = todo_progress(tool_input)
-        if not progress:
-            continue
-        observations.append(
-            {
-                "event": record.event_name or "",
-                "tool": tool_name,
-                "done": progress[0],
-                "total": progress[1],
-            }
-        )
+        if not tool_name:
+            for nest_key in ("tool_use", "toolUse", "tool_use_input", "input"):
+                nested = payload.get(nest_key)
+                if isinstance(nested, dict):
+                    tool_name = first_string(nested, ["name", "tool_name", "toolName", "tool"])
+                    if tool_name:
+                        break
+        if tool_name:
+            ln = tool_name.lower()
+            if any(x in ln for x in ("todowrite", "todo_write", "writetodos", "todo")):
+                tool_input = first_object(payload, ["tool_input", "toolInput", "input"])
+                if not tool_input:
+                    for nest_key in ("tool_use", "toolUse", "tool_use_input"):
+                        nested = payload.get(nest_key)
+                        if isinstance(nested, dict):
+                            tool_input = first_object(nested, ["input", "tool_input", "toolInput"]) or nested
+                            if tool_input:
+                                break
+                progress = todo_progress(tool_input)
+                if progress:
+                    observations.append(
+                        {
+                            "event": record.event_name or "",
+                            "tool": tool_name,
+                            "done": progress[0],
+                            "total": progress[1],
+                            "source": "raw_tool_call",
+                        }
+                    )
+                continue
+
+        # Case 2: Canonical task.progress emitted by smart hook scripts (Grok, future agents)
+        if record.event_name == "task.progress" or payload.get("event") == "task.progress":
+            progress = payload.get("progress") or payload
+            if isinstance(progress, dict):
+                done = progress.get("done")
+                total = progress.get("total")
+                if isinstance(done, int) and isinstance(total, int) and total > 0:
+                    observations.append(
+                        {
+                            "event": "task.progress",
+                            "tool": "TodoWrite",
+                            "done": done,
+                            "total": total,
+                            "source": "canonical",
+                        }
+                    )
     return observations
 
 
@@ -837,7 +1052,18 @@ class CaptureServer:
             run_dir=self.run_dir,
             resources_dir=self.resources_dir,
         ).plan(request)
-        self.recorder.append(TraceRecord(kind="bootstrap", agent=tool, scenario=self.scenario, extra={"plan": plan}))
+        arguments = request.get("arguments") if isinstance(request.get("arguments"), list) else []
+        self.recorder.append(
+            TraceRecord(
+                kind="bootstrap",
+                agent=tool,
+                scenario=self.scenario,
+                extra={
+                    "arguments": [str(argument) for argument in arguments],
+                    "plan": plan,
+                },
+            )
+        )
         return {
             "version": 1,
             "id": request.get("id", ""),
@@ -895,11 +1121,67 @@ class LaunchPlanner:
         executable = str(environment.get("ZENTTY_REAL_BINARY") or self.profile.command)
         arguments = [str(arg) for arg in request.get("arguments", [])]
         cli_path = str(environment.get("ZENTTY_CLI_BIN") or "")
+        if self.scenario == "restore_launch":
+            return self._launch_plan("/usr/bin/true", [], {"ZENTTY_AGENT_TOOL": self.profile.name})
         method = getattr(self, f"_plan_{self.profile.name}", self._direct_plan)
         return method(executable, arguments, environment, cli_path)
 
     def _direct_plan(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": self.profile.name})
+
+    def _plan_amp(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        source_home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home())).expanduser()
+        config_home = pathlib.Path(str(environment.get("XDG_CONFIG_HOME") or source_home / ".config")).expanduser()
+        env = {
+            "ZENTTY_AGENT_TOOL": "amp",
+        }
+        if self._install_amp_plugin(config_home):
+            env["PLUGINS"] = "all"
+
+        resume_arguments = sanitized_amp_resume_arguments(arguments)
+        if resume_arguments:
+            env["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"] = compact_json(resume_arguments)
+        session_start = compact_json({
+            "version": 1,
+            "event": "session.start",
+            "agent": {"name": "Amp", "pid": "__ZENTTY_SELF_PID__"},
+            "context": {"launch": {"arguments": resume_arguments}},
+        })
+        agent_running = compact_json({
+            "version": 1,
+            "event": "agent.running",
+            "agent": {"name": "Amp", "pid": "__ZENTTY_SELF_PID__"},
+            "context": {"launch": {"arguments": resume_arguments}},
+        })
+        return self._launch_plan(
+            executable,
+            arguments,
+            env,
+            prelaunch=[
+                {"subcommand": "agent-event", "arguments": [], "standardInput": session_start},
+                {"subcommand": "agent-event", "arguments": [], "standardInput": agent_running},
+            ],
+        )
+
+    def _install_amp_plugin(self, config_home: pathlib.Path) -> bool:
+        if not self.resources_dir:
+            return False
+        source = self.resources_dir / "amp" / "plugins" / AMP_PLUGIN_FILE_NAME
+        if not source.exists():
+            return False
+
+        destination = config_home / "amp" / "plugins" / AMP_PLUGIN_FILE_NAME
+        if destination.exists():
+            try:
+                existing = destination.read_text(encoding="utf-8")
+            except OSError:
+                existing = ""
+            if AMP_PLUGIN_OWNERSHIP_MARKER not in existing:
+                return False
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        return True
 
     def _plan_claude(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         hook_command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
@@ -1069,6 +1351,75 @@ class LaunchPlanner:
             prelaunch=[{"subcommand": "agent-event", "arguments": [], "standardInput": prelaunch}],
         )
 
+    def _plan_grok(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        # Build a sandboxed HOME that mirrors what the real `GrokHooksInstaller`
+        # would drop on disk in production:
+        #   ~/.grok/hooks/zentty-status.json      (the "Always trusted" config)
+        #   ~/.grok/hooks/zentty-status/01-zentty-status.sh   (the forwarder)
+        #
+        # Skip `hooks`, `config.toml`, and `plugins` from the real-home symlink
+        # set so the overlay only has what we put there (no leaked broken
+        # installs from previous Zentty versions).
+        home = self._overlay_home("grok", environment, {".grok": {"hooks", "config.toml", "plugins"}})
+        grok_hooks_root = home / ".grok" / "hooks"
+        grok_hooks_root.mkdir(parents=True, exist_ok=True)
+
+        # The overlay must NOT have a legacy user-settings.json or hooks-paths
+        # — those were never hook sources in Grok and we don't write them
+        # anymore. Drop them if they leaked in via the symlink set.
+        for reg_name in ("user-settings.json", "hooks-paths"):
+            reg_path = home / ".grok" / reg_name
+            if reg_path.is_symlink() or reg_path.exists():
+                try:
+                    reg_path.unlink()
+                except OSError:
+                    pass
+
+        # Forwarder script — hardcode the absolute CLI path so grok-launched
+        # children find `zentty` even if grok strips ZENTTY_CLI_BIN.
+        escaped_cli = shell_escape_double_quoted(cli_path)
+        ipc_grok_cmd = f'"{escaped_cli}" ipc agent-event --adapter=grok'
+        forwarder_dir = grok_hooks_root / "zentty-status"
+        forwarder_dir.mkdir(exist_ok=True)
+        script_path = forwarder_dir / "01-zentty-status.sh"
+        script_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "# Zentty bench overlay forwarder for Grok hooks.\n"
+            f"exec {ipc_grok_cmd}\n"
+        )
+        script_path.chmod(0o755)
+
+        # Single JSON hook config at the "Always trusted" location.
+        # SCHEMA: lifecycle events MUST NOT carry a `matcher`; tool-use events
+        # may. Binary string: "lifecycle hooks () must not specify a matcher
+        # in v0". Including a matcher on a lifecycle event silently invalidates
+        # the entry — that's exactly the bug this rewrite fixes.
+        lifecycle_events = [
+            "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification",
+            "BeforeAgent", "AfterAgent",
+        ]
+        tool_events = ["PreToolUse", "PostToolUse"]
+        hooks_json: dict[str, Any] = {"hooks": {}}
+        for event_name in lifecycle_events:
+            hooks_json["hooks"][event_name] = [
+                {"hooks": [{"type": "command", "command": str(script_path), "timeout": 15}]}
+            ]
+        for event_name in tool_events:
+            hooks_json["hooks"][event_name] = [
+                {"matcher": ".*", "hooks": [{"type": "command", "command": str(script_path), "timeout": 15}]}
+            ]
+        (grok_hooks_root / "zentty-status.json").write_text(json.dumps(hooks_json, indent=2))
+
+        # This launch plan is only reached when the agent wrapper goes through
+        # bootstrap. That requires ZENTTY_PANE_TOKEN/WORKLANE_ID/PANE_ID in
+        # the env — see `BenchRunner.run` where we set those alongside the
+        # capture socket.
+        return self._launch_plan(
+            executable,
+            arguments,
+            {"ZENTTY_AGENT_TOOL": "grok", "HOME": str(home)},
+        )
+
     def _launch_plan(
         self,
         executable: str,
@@ -1114,6 +1465,10 @@ def agent_from_adapter(adapter: str | None, environment: dict[str, Any], standar
             return "claude"
         if normalized == "opencode":
             return "opencode"
+        # Grok Build (xAI) — Claude Code compatible; may self-report as "Grok", "Grok Build", "xAI Grok", etc.
+        # Also handle direct normalized match.
+        if normalized.startswith("grok") or normalized in ("xaigrok", "grokbuild"):
+            return "grok"
         if normalized in SUPPORTED_AGENTS:
             return normalized
     return adapter
@@ -1123,17 +1478,30 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
     profiles: dict[str, AgentProfile] = {}
     for profile_path in sorted(path.glob("*.json")):
         raw = json.loads(profile_path.read_text(encoding="utf-8"))
-        expectations = {
-            name: ScenarioExpectation(
+        expectations: dict[str, ScenarioExpectation] = {}
+        for name, value in raw.get("expectations", {}).items():
+            session_identity_raw = value.get("session_identity")
+            session_identity = None
+            if isinstance(session_identity_raw, dict):
+                session_id_pattern = session_identity_raw.get("session_id_pattern")
+                if isinstance(session_id_pattern, str) and session_id_pattern.strip():
+                    session_identity = SessionIdentityExpectation(
+                        session_id_pattern=session_id_pattern.strip(),
+                        tracked_pid=bool(session_identity_raw.get("tracked_pid", True)),
+                    )
+            expectations[name] = ScenarioExpectation(
                 name=name,
                 required_events=list(value.get("required_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
+                required_bootstrap_arguments=[
+                    [str(argument) for argument in arguments]
+                    for arguments in value.get("required_bootstrap_arguments", [])
+                ],
+                session_identity=session_identity,
                 synthetic=bool(value.get("synthetic", False)),
                 fixture=value.get("fixture"),
                 post_stop_notification_required=bool(value.get("post_stop_notification_required", False)),
             )
-            for name, value in raw.get("expectations", {}).items()
-        }
         profile = AgentProfile(
             name=raw["name"],
             command=raw["command"],
@@ -1182,6 +1550,15 @@ class BenchRunner:
                 try:
                     scenario_env = dict(env)
                     scenario_env["ZENTTY_INSTANCE_SOCKET"] = str(server.socket_path)
+                    # The agent wrapper (`AgentToolLauncher.shouldAttemptBootstrap`)
+                    # only routes through our bootstrap planner when these three
+                    # routing keys are present. Without them it bypasses bootstrap
+                    # and exec's the real agent binary against the real HOME, so
+                    # `_plan_*` overlay setup becomes dead code. Setting static
+                    # values is fine — they're routing identifiers, not secrets.
+                    scenario_env["ZENTTY_PANE_TOKEN"] = "agent-bench-pane-token"
+                    scenario_env["ZENTTY_WORKLANE_ID"] = "agent-bench-worklane"
+                    scenario_env["ZENTTY_PANE_ID"] = "agent-bench-pane"
                     for agent in agents:
                         results.append(self._run_agent_scenario(agent, scenario, scenario_env))
                 finally:
@@ -1441,6 +1818,7 @@ class BenchRunner:
     ) -> ScenarioResult:
         result.terminal_final_phase = terminal_final_phase(observations)
         result.terminal_post_scripted_input_phase = terminal_phase_after_scripted_input(result.agent, result.scenario, observations)
+        result.terminal_phase_sequence = terminal_phase_sequence(observations)
         result.terminal_observations = [dataclasses.asdict(observation) for observation in observations]
         result.task_observations = task_observations_for_records(result.agent, result.scenario, records)
         result.timeline = build_timeline(result.agent, result.scenario, records, observations)
@@ -1571,6 +1949,8 @@ class BenchRunner:
                 lines.append(f"  Warnings: {'; '.join(result.warnings)}")
             if result.terminal_final_phase:
                 lines.append(f"  Terminal final phase: {result.terminal_final_phase}")
+            if result.terminal_phase_sequence:
+                lines.append(f"  Terminal phases: {' -> '.join(result.terminal_phase_sequence)}")
             if result.terminal_post_scripted_input_phase:
                 lines.append(f"  Terminal post-scripted-input phase: {result.terminal_post_scripted_input_phase}")
             if result.terminal_observations:
@@ -1584,6 +1964,13 @@ class BenchRunner:
                 )
                 suffix = "..." if len(result.task_observations) > 3 else ""
                 lines.append(f"  Tasks: {tasks}{suffix}")
+            if result.session_identity_observations:
+                identities = ", ".join(
+                    f"{item.get('event', 'hook')} session={item.get('session_id', '-')} pid={item.get('tracked_pid', '-')}"
+                    for item in result.session_identity_observations[:3]
+                )
+                suffix = "..." if len(result.session_identity_observations) > 3 else ""
+                lines.append(f"  Session identity: {identities}{suffix}")
             if result.rerun_command:
                 lines.append(f"  Rerun: {result.rerun_command}")
         (self.run_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1909,6 +2296,67 @@ def copy_directory_contents(source: pathlib.Path, destination: pathlib.Path) -> 
             shutil.copytree(child, target, dirs_exist_ok=True)
         else:
             shutil.copy2(child, target)
+
+
+def sanitized_amp_resume_arguments(arguments: list[str]) -> list[str]:
+    remaining = list(arguments)
+    if remaining and remaining[0] == "amp":
+        remaining = remaining[1:]
+    if len(remaining) >= 2 and remaining[0] in {"threads", "thread", "t"} and remaining[1] in {"continue", "c"}:
+        remaining = remaining[2:]
+        if remaining and re.fullmatch(r"T-[A-Za-z0-9_-]+", remaining[0]):
+            remaining = remaining[1:]
+    if remaining and remaining[0] in {
+        "login",
+        "logout",
+        "mcp",
+        "permission",
+        "permissions",
+        "review",
+        "skill",
+        "skills",
+        "tool",
+        "tools",
+        "update",
+        "up",
+        "usage",
+        "version",
+    }:
+        return []
+    rejected_flags = {"--execute", "--print", "-x", "--help", "-h", "--version", "-V", "--jetbrains"}
+    if any(amp_option_name(argument) in rejected_flags for argument in remaining):
+        return []
+
+    safe_value_options = {"--mode", "-m", "--effort", "--settings-file", "--log-level", "--log-file", "--mcp-config", "--visibility"}
+    dropped_value_options = {"--label", "-l"}
+    dropped_flags = {"--archive", "--stream-json", "--stream-json-input", "--stream-json-thinking", "--json", "--output-format"}
+    sanitized: list[str] = []
+    index = 0
+    while index < len(remaining):
+        argument = remaining[index]
+        option_name = argument.split("=", 1)[0] if argument.startswith("--") else argument
+        if option_name in safe_value_options:
+            if "=" in argument:
+                sanitized.append(argument)
+            elif index + 1 < len(remaining) and not remaining[index + 1].startswith("-"):
+                sanitized.extend([argument, remaining[index + 1]])
+                index += 1
+        elif option_name in dropped_value_options:
+            if "=" not in argument and index + 1 < len(remaining) and not remaining[index + 1].startswith("-"):
+                index += 1
+        elif option_name in dropped_flags:
+            if option_name == "--output-format" and "=" not in argument and index + 1 < len(remaining) and not remaining[index + 1].startswith("-"):
+                index += 1
+        elif argument.startswith("-"):
+            pass
+        else:
+            break
+        index += 1
+    return sanitized
+
+
+def amp_option_name(argument: str) -> str:
+    return argument.split("=", 1)[0] if argument.startswith("--") else argument
 
 
 def shell_escape_double_quoted(value: str) -> str:

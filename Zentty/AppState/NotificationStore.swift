@@ -264,14 +264,20 @@ final class NotificationStore {
         statusText: String,
         primaryText: String,
         locationText: String? = nil,
-        isDebounced: Bool = true
+        isDebounced: Bool = true,
+        coalescesByPane: Bool = true
     ) {
         let key = PaneKey(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
         let now = Date()
 
-        // Cancel any existing pending timer for this pane.
-        cancelPending(for: key)
-        let resolvedExisting = resolveCommittedUnresolved(for: key, now: now)
+        let resolvedExisting: Bool
+        if coalescesByPane {
+            // Cancel any existing pending timer for this pane.
+            cancelPending(for: key)
+            resolvedExisting = resolveCommittedUnresolved(for: key, now: now)
+        } else {
+            resolvedExisting = false
+        }
 
         let notification = AppNotification(
             id: UUID(),
@@ -288,7 +294,7 @@ final class NotificationStore {
             createdAt: now
         )
 
-        guard isDebounced else {
+        guard isDebounced, coalescesByPane else {
             notifications.insert(notification, at: 0)
             trimIfNeeded()
             notifyChange()

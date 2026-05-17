@@ -1,5 +1,13 @@
 import Foundation
 
+struct AgentLaunchSnapshot: Codable, Equatable, Sendable {
+    var arguments: [String]
+
+    init(arguments: [String]) {
+        self.arguments = arguments
+    }
+}
+
 enum AgentStatusPayloadError: Error {
     case missingPaneID
     case missingPID
@@ -31,6 +39,7 @@ struct AgentStatusPayload: Equatable, Sendable {
     let signalKind: AgentSignalKind
     let state: PaneAgentState?
     let shellActivityState: PaneShellActivityState?
+    let shellCommand: String?
     let pid: Int32?
     let pidEvent: AgentPIDSignalEvent?
     let paneContext: PaneShellContext?
@@ -47,6 +56,8 @@ struct AgentStatusPayload: Equatable, Sendable {
     let artifactLabel: String?
     let artifactURL: URL?
     let agentWorkingDirectory: String?
+    let agentTranscriptPath: String?
+    let agentLaunchSnapshot: AgentLaunchSnapshot?
 
     var clearsStatus: Bool {
         signalKind == .lifecycle && state == nil
@@ -71,6 +82,9 @@ struct AgentStatusPayload: Equatable, Sendable {
         }
         if let shellActivityState {
             userInfo["shellActivityState"] = shellActivityState.rawValue
+        }
+        if let shellCommand {
+            userInfo["shellCommand"] = shellCommand
         }
         if let pid {
             userInfo["pid"] = NSNumber(value: pid)
@@ -133,6 +147,14 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let agentWorkingDirectory {
             userInfo["agentWorkingDirectory"] = agentWorkingDirectory
         }
+        if let agentTranscriptPath {
+            userInfo["agentTranscriptPath"] = agentTranscriptPath
+        }
+        if let agentLaunchSnapshot,
+           let data = try? JSONEncoder().encode(agentLaunchSnapshot),
+           let json = String(data: data, encoding: .utf8) {
+            userInfo["agentLaunchSnapshot"] = json
+        }
         return userInfo
     }
 
@@ -143,6 +165,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         signalKind: AgentSignalKind = .lifecycle,
         state: PaneAgentState?,
         shellActivityState: PaneShellActivityState? = nil,
+        shellCommand: String? = nil,
         pid: Int32? = nil,
         pidEvent: AgentPIDSignalEvent? = nil,
         paneContext: PaneShellContext? = nil,
@@ -158,7 +181,9 @@ struct AgentStatusPayload: Equatable, Sendable {
         artifactKind: WorklaneArtifactKind?,
         artifactLabel: String?,
         artifactURL: URL?,
-        agentWorkingDirectory: String? = nil
+        agentWorkingDirectory: String? = nil,
+        agentTranscriptPath: String? = nil,
+        agentLaunchSnapshot: AgentLaunchSnapshot? = nil
     ) {
         self.windowID = windowID
         self.worklaneID = worklaneID
@@ -166,6 +191,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.signalKind = signalKind
         self.state = state
         self.shellActivityState = shellActivityState
+        self.shellCommand = shellCommand
         self.pid = pid
         self.pidEvent = pidEvent
         self.paneContext = paneContext
@@ -182,6 +208,8 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.artifactLabel = artifactLabel
         self.artifactURL = artifactURL
         self.agentWorkingDirectory = agentWorkingDirectory
+        self.agentTranscriptPath = agentTranscriptPath
+        self.agentLaunchSnapshot = agentLaunchSnapshot
     }
 
     init(userInfo: [AnyHashable: Any]) throws {
@@ -196,6 +224,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         let state = (userInfo["state"] as? String).flatMap(PaneAgentState.transportValue(_:))
         let shellActivityState = (userInfo["shellActivityState"] as? String)
             .flatMap(PaneShellActivityState.init(rawValue:))
+        let shellCommand = userInfo["shellCommand"] as? String
         let pid = (userInfo["pid"] as? NSNumber)?.int32Value
         let pidEvent = (userInfo["pidEvent"] as? String).flatMap(AgentPIDSignalEvent.init(rawValue:))
         let paneContext = (userInfo["paneContextScope"] as? String)
@@ -215,6 +244,9 @@ struct AgentStatusPayload: Equatable, Sendable {
             doneCount: (userInfo["taskProgressDoneCount"] as? NSNumber)?.intValue ?? 0,
             totalCount: (userInfo["taskProgressTotalCount"] as? NSNumber)?.intValue ?? 0
         )
+        let agentLaunchSnapshot = (userInfo["agentLaunchSnapshot"] as? String)
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode(AgentLaunchSnapshot.self, from: $0) }
 
         self.init(
             windowID: (userInfo["windowID"] as? String).map(WindowID.init),
@@ -223,6 +255,7 @@ struct AgentStatusPayload: Equatable, Sendable {
             signalKind: signalKind,
             state: state,
             shellActivityState: shellActivityState,
+            shellCommand: shellCommand,
             pid: pid,
             pidEvent: pidEvent,
             paneContext: paneContext,
@@ -238,7 +271,9 @@ struct AgentStatusPayload: Equatable, Sendable {
             artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorklaneArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,
-            agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String
+            agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String,
+            agentTranscriptPath: userInfo["agentTranscriptPath"] as? String,
+            agentLaunchSnapshot: agentLaunchSnapshot
         )
     }
 }

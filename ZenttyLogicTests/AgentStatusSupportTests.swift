@@ -68,6 +68,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNil(AgentTool.resolveKnown(named: "copilot"))
     }
 
+    func test_agent_tool_recognizes_amp_only_as_leading_token() {
+        XCTAssertEqual(AgentTool.resolve(named: "amp"), .amp)
+        XCTAssertEqual(AgentTool.resolve(named: "amp - Greeting"), .amp)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "amp - Greeting"), .amp)
+        XCTAssertEqual(AgentTool.resolve(named: "feature/amp"), .custom("feature/amp"))
+        XCTAssertNil(AgentTool.resolveKnown(named: "/Users/peter/Development/worktrees/feature/amp"))
+    }
+
     func test_agent_tool_recognizes_gemini_for_explicit_and_known_tool_resolution() {
         XCTAssertEqual(AgentTool.resolve(named: "gemini"), .gemini)
         XCTAssertEqual(AgentTool.resolve(named: "Gemini CLI"), .gemini)
@@ -206,6 +214,29 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_amp_passthrough_list_matches_management_commands_snapshot() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for subcommand in ["login", "logout", "mcp", "permission", "permissions", "review", "skill", "skills", "tool", "tools", "update", "up", "usage", "version"] {
+            XCTAssertTrue(
+                source.contains("\"\(subcommand)\""),
+                "ampPassthroughSubcommands should contain \(subcommand)"
+            )
+        }
+        for flag in ["--help", "-h", "--version", "-V", "--jetbrains"] {
+            XCTAssertTrue(
+                source.contains("\"\(flag)\""),
+                "ampEarlyExitFlags should contain \(flag)"
+            )
+        }
+    }
+
     func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
         // AgentToolLauncher lives in the ZenttyCLI target which tests don't
         // import, so read the source file directly to protect the bootstrap
@@ -222,6 +253,23 @@ final class AgentStatusSupportTests: XCTestCase {
             XCTAssertTrue(
                 source.contains("\"\(key)\""),
                 "AgentToolLauncher should forward \(key) into the bootstrap request"
+            )
+        }
+    }
+
+    func test_agent_tool_launcher_forwards_amp_routing_environment() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for key in ["AMP_SETTINGS_FILE", "ZENTTY_AMP_HOOKS_DISABLED", "ZENTTY_AMP_PID"] {
+            XCTAssertTrue(
+                source.contains("\"\(key)\""),
+                "AgentToolLauncher should forward \(key) for AMP bootstrap and plugin events"
             )
         }
     }
@@ -268,7 +316,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["claude", "codex", "copilot", "cursor", "droid", "gemini", "kimi", "opencode", "pi"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -372,7 +420,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Real binaries Zentty's wrappers expect on PATH. Note cursor resolves to `cursor-agent`,
         // not `cursor` (which is the Cursor IDE launcher).
-        for name in ["claude", "cursor-agent", "gemini", "kimi", "opencode"] {
+        for name in ["amp", "claude", "cursor-agent", "gemini", "kimi", "opencode"] {
             let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
@@ -380,6 +428,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let environment = [
             "PATH": [
+                binURL.appendingPathComponent("amp", isDirectory: true).path,
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("codex", isDirectory: true).path,
                 binURL.appendingPathComponent("copilot", isDirectory: true).path,
@@ -398,6 +447,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(
             AgentStatusHelper.enabledWrapperDirectoryPaths(in: bundle, processEnvironment: environment),
             [
+                binURL.appendingPathComponent("amp", isDirectory: true).path,
                 binURL.appendingPathComponent("claude", isDirectory: true).path,
                 binURL.appendingPathComponent("cursor", isDirectory: true).path,
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
@@ -519,7 +569,59 @@ final class AgentStatusSupportTests: XCTestCase {
             let script = try String(contentsOf: scriptURL, encoding: .utf8)
 
             XCTAssertTrue(script.contains("_zentty_shell_activity_last"), filename)
-            XCTAssertTrue(script.contains("[[ \"$_zentty_shell_activity_last\" == \"$state\" ]]"), filename)
+            XCTAssertTrue(script.contains("[[ \"$_zentty_shell_activity_last\" == \"$key\" ]]"), filename)
+        }
+    }
+
+    func test_repository_shell_integrations_tag_codex_shell_activity() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let signals = try runShellIntegration(
+                shell: shell,
+                command: shell == .zsh
+                    ? #"_zentty_preexec "codex""#
+                    : #"codex 2>/dev/null || true"#
+            )
+
+            XCTAssertTrue(
+                signals.contains(where: { $0.contains("shell-state running --tool Codex") }),
+                "Expected \(shell) integration to tag codex shell activity, got: \(signals)"
+            )
+        }
+    }
+
+    func test_repository_shell_integrations_tag_amp_shell_activity() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let signals = try runShellIntegration(
+                shell: shell,
+                command: shell == .zsh
+                    ? #"_zentty_preexec "amp \"summarize this\"""#
+                    : #"amp "summarize this" 2>/dev/null || true"#
+            )
+
+            XCTAssertTrue(
+                signals.contains(where: { $0.contains("shell-state running --tool Amp") }),
+                "Expected \(shell) integration to tag amp shell activity, got: \(signals)"
+            )
+        }
+    }
+
+    func test_repository_shell_integrations_include_running_command() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let commandText = "pnpm start:staging -- --host 127.0.0.1"
+            let signals = try runShellIntegration(
+                shell: shell,
+                command: shell == .zsh
+                    ? #"_zentty_preexec "pnpm start:staging -- --host 127.0.0.1""#
+                    : #"pnpm start:staging -- --host 127.0.0.1 2>/dev/null || true"#
+            )
+
+            XCTAssertTrue(
+                signals.contains(where: { signal in
+                    signal.contains("shell-state running")
+                        && signal.contains("--command \(commandText)")
+                }),
+                "Expected \(shell) integration to include the full command, got: \(signals)"
+            )
         }
     }
 
@@ -627,6 +729,36 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_shell_integration_does_not_enable_amp_wrapper_when_wrapper_executable_is_missing() throws {
+        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+            let wrapperRoot = try makeTemporaryDirectory(named: "shell-\(shell)-missing-amp-wrapper-root")
+            let wrapperDir = wrapperRoot.appendingPathComponent("amp", isDirectory: true)
+            try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+
+            let realBinDir = try makeTemporaryDirectory(named: "shell-\(shell)-real-amp")
+            let realBinaryURL = realBinDir.appendingPathComponent("amp", isDirectory: false)
+            try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+            let result = try runShellIntegrationCommand(
+                shell: shell,
+                command: """
+                PATH="\(realBinDir.path):/usr/bin:/bin"
+                export PATH
+                _zentty_ensure_wrapper_path
+                printf 'active=<%s>\\n' "${ZENTTY_WRAPPER_BIN_DIRS-}"
+                command -v amp
+                """,
+                extraEnvironment: [
+                    "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+                ]
+            )
+
+            XCTAssertTrue(result.stdout.contains("active=<>"), "\(shell) should not export a missing amp wrapper: \(result.stdout)")
+            XCTAssertEqual(lastAbsolutePath(in: result.stdout), realBinaryURL.path)
+        }
     }
 
     func test_zsh_shell_integration_prefers_tmux_shim_when_agent_teams_enabled() throws {
@@ -753,6 +885,56 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(script.contains("ZENTTY_AGENT_TOOL=\"codex\""))
         XCTAssertTrue(script.contains("zentty-agent-wrapper"))
         XCTAssertFalse(script.contains("python3"))
+    }
+
+    func test_repository_amp_wrapper_delegates_to_launch_cli() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: false)
+
+        let wrapper = try String(contentsOf: wrapperURL, encoding: .utf8)
+
+        XCTAssertTrue(wrapper.contains("ZENTTY_AGENT_TOOL=\"amp\""))
+        XCTAssertTrue(wrapper.contains("zentty-agent-wrapper"))
+        XCTAssertFalse(wrapper.contains("ZENTTY_AGENT_BIN"))
+    }
+
+    func test_copy_agent_resources_build_script_syncs_amp_support_directory() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectFileURL = repositoryRoot.appendingPathComponent("Zentty.xcodeproj/project.pbxproj", isDirectory: false)
+
+        let project = try String(contentsOf: projectFileURL, encoding: .utf8)
+
+        XCTAssertTrue(project.contains("${RESOURCES_DST}/amp/plugins"))
+        XCTAssertTrue(project.contains("${RESOURCES_SRC}/amp/"))
+        XCTAssertTrue(project.contains("${RESOURCES_DST}/amp/"))
+    }
+
+    func test_repository_amp_plugin_guards_routing_and_sanitizes_ipc_environment() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pluginURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("zentty-amp-zentty.ts", isDirectory: false)
+
+        let plugin = try String(contentsOf: pluginURL, encoding: .utf8)
+
+        XCTAssertTrue(plugin.contains("ZENTTY_INSTANCE_SOCKET"))
+        XCTAssertTrue(plugin.contains("ZENTTY_WORKLANE_ID"))
+        XCTAssertTrue(plugin.contains("ZENTTY_PANE_ID"))
+        XCTAssertTrue(plugin.contains("if (!hasZenttyRoutingEnvironment()) return"))
+        XCTAssertTrue(plugin.contains("delete env.AMP_API_KEY"))
+        XCTAssertTrue(plugin.contains("ampEvent.status !== 'done'"))
     }
 
     func test_copy_agent_resources_build_script_syncs_opencode_support_directory() throws {
@@ -1074,6 +1256,27 @@ final class AgentStatusSupportTests: XCTestCase {
                 artifactURL: nil
             ),
         ])
+    }
+
+    func test_agent_signal_shell_state_parses_command_option() throws {
+        let command = try AgentSignalCommand.parse(
+            arguments: [
+                "zentty",
+                "agent-signal",
+                "shell-state",
+                "running",
+                "--command", "pnpm start:staging\nnpm run smoke",
+            ],
+            environment: [
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ]
+        )
+
+        XCTAssertEqual(command.payload.signalKind, .shellState)
+        XCTAssertEqual(command.payload.shellActivityState, .commandRunning)
+        XCTAssertEqual(command.payload.shellCommand, "pnpm start:staging\nnpm run smoke")
     }
 
     func test_agent_ipc_request_round_trips_bootstrap_payload() throws {
@@ -2154,6 +2357,489 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(uninstalled, original)
     }
 
+    // MARK: - GrokHooksInstaller
+
+    /// Creates `<root>/.grok/hooks/` under a fresh tmp dir and returns (grokRoot, hooksRoot).
+    /// Sibling files (user-settings.json, hooks-paths, plugins/) are written under grokRoot.
+    private func makeGrokHooksRoot() throws -> (grokRoot: URL, hooksRoot: URL) {
+        let directory = try makeTemporaryDirectory(named: "grok-hooks-installer")
+        let grokRoot = directory.appendingPathComponent(".grok", isDirectory: true)
+        let hooksRoot = grokRoot.appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hooksRoot, withIntermediateDirectories: true)
+        return (grokRoot, hooksRoot)
+    }
+
+    private func defaultManagedEvents() -> [String] {
+        GrokHooksInstaller.defaultManagedEvents
+    }
+
+    private func toolUseEventNames() -> Set<String> {
+        ["PreToolUse", "PostToolUse"]
+    }
+
+    private func forwarderScriptURL(under hooksRoot: URL) -> URL {
+        hooksRoot
+            .appendingPathComponent("zentty-status", isDirectory: true)
+            .appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+    }
+
+    private func hookConfigURL(under hooksRoot: URL) -> URL {
+        hooksRoot.appendingPathComponent("zentty-status.json", isDirectory: false)
+    }
+
+    func test_grok_hooks_installer_writes_single_json_config_at_always_trusted_location() throws {
+        // Grok's "Always trusted" hook source is `~/.grok/hooks/*.json`. The
+        // installer must write exactly one JSON file there listing every
+        // managed event, pointing at the single forwarder script.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let configURL = hookConfigURL(under: hooksRoot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: configURL.path), "config JSON missing")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: configURL)) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+        let forwarder = forwarderScriptURL(under: hooksRoot).path
+        for event in defaultManagedEvents() {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]], "missing entry for \(event)")
+            let firstEntry = try XCTUnwrap(entries.first)
+            let nested = try XCTUnwrap(firstEntry["hooks"] as? [[String: Any]])
+            let command = try XCTUnwrap(nested.first?["command"] as? String)
+            XCTAssertEqual(command, forwarder, "\(event) must point at the single forwarder script")
+        }
+    }
+
+    func test_grok_hooks_installer_lifecycle_events_have_no_matcher_field() throws {
+        // Regression for the schema bug: lifecycle events MUST NOT specify a
+        // `matcher` field (binary string: "lifecycle hooks () must not specify
+        // a matcher in v0"). Including one silently invalidates the entry.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hookConfigURL(under: hooksRoot))) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+
+        let toolEvents = toolUseEventNames()
+        for event in defaultManagedEvents() where !toolEvents.contains(event) {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            for entry in entries {
+                XCTAssertNil(entry["matcher"], "lifecycle event \(event) must not have a matcher field")
+            }
+        }
+    }
+
+    func test_grok_hooks_installer_tool_use_events_have_matcher_dot_star() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hookConfigURL(under: hooksRoot))) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+
+        for event in toolUseEventNames() {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]], "missing tool-use entry for \(event)")
+            let firstEntry = try XCTUnwrap(entries.first)
+            XCTAssertEqual(firstEntry["matcher"] as? String, ".*", "\(event) must specify matcher .*")
+        }
+    }
+
+    func test_grok_hooks_installer_writes_executable_forwarder_script_with_marker() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let scriptURL = forwarderScriptURL(under: hooksRoot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scriptURL.path), "forwarder script missing")
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: scriptURL.path)
+        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(permissions.intValue & 0o777, 0o755, "forwarder must be executable (0o755)")
+
+        let content = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(content.contains(GrokHooksInstaller.hookMarker), "forwarder must carry the uninstall marker")
+        XCTAssertTrue(
+            content.contains("exec \"$ZENTTY_BIN\" ipc agent-event --adapter=grok"),
+            "forwarder must be a thin exec into the Swift CLI"
+        )
+    }
+
+    func test_grok_hooks_installer_does_not_write_legacy_user_settings_or_plugin() throws {
+        // Regression for the wrong-file bug: we used to write user-settings.json,
+        // hooks-paths, and a plugin manifest. None of those are hook sources for
+        // Grok — the only thing that actually fires is the JSON under
+        // ~/.grok/hooks/. On a fresh install nothing else should be created.
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let userSettingsURL = grokRoot.appendingPathComponent("user-settings.json", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: userSettingsURL.path), "must not write user-settings.json — Grok ignores it")
+        let hooksPathsURL = grokRoot.appendingPathComponent("hooks-paths", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hooksPathsURL.path), "must not write hooks-paths — unrelated to hook discovery")
+        let pluginDir = grokRoot.appendingPathComponent("plugins").appendingPathComponent("zentty-status")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginDir.path), "must not install plugin manifest — disabled by default in TUI")
+    }
+
+    func test_grok_hooks_installer_is_idempotent() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hookConfigURL(under: hooksRoot))) as? [String: Any]
+        )
+        let hooks = try XCTUnwrap(parsed["hooks"] as? [String: Any])
+        // Every event should still have exactly one entry — re-installing must
+        // not multiply registrations.
+        for event in defaultManagedEvents() {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]])
+            XCTAssertEqual(entries.count, 1, "\(event) must have exactly one entry after repeated installs")
+        }
+    }
+
+    func test_grok_hooks_installer_scripts_have_no_external_runtime_dependencies() throws {
+        // Regression guard: the generated forwarder must be a thin shell exec.
+        // Parsing lives in Swift (`GrokCanonicalReEmitter`) so the script must
+        // not reach for `jq`, `yq`, `gron`, `awk`, etc.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        let script = try String(contentsOf: forwarderScriptURL(under: hooksRoot), encoding: .utf8)
+        for forbidden in ["jq ", "yq ", "gron ", "awk ", " sed "] {
+            XCTAssertFalse(
+                script.contains(forbidden),
+                "forwarder must not depend on \(forbidden.trimmingCharacters(in: .whitespaces)); parsing lives in GrokCanonicalReEmitter"
+            )
+        }
+        XCTAssertTrue(
+            script.contains("exec \"$ZENTTY_BIN\" ipc agent-event --adapter=grok"),
+            "forwarder must be a thin forwarder"
+        )
+    }
+
+    // MARK: - GrokCanonicalReEmitter
+
+    func test_grok_canonical_reemitter_emits_task_progress_for_todowrite() throws {
+        let payload = """
+        {
+          "hook_event_name": "PreToolUse",
+          "tool_name": "TodoWrite",
+          "tool_input": {
+            "todos": [
+              {"status": "completed"},
+              {"status": "in_progress"},
+              {"status": "pending"}
+            ]
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        XCTAssertEqual(emissions.count, 1, "TodoWrite payload should emit exactly one canonical task.progress event")
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":1"))
+        XCTAssertTrue(envelope.contains("\"total\":3"))
+    }
+
+    func test_grok_canonical_reemitter_handles_grok_nested_tool_use_shape() throws {
+        // Grok nests the tool call under tool_use.input (vs Claude's tool_input).
+        let payload = """
+        {
+          "hook_event_name": "PreToolUse",
+          "tool_use": {
+            "name": "todo_write",
+            "input": {
+              "todos": [
+                {"status": "done"},
+                {"status": "done"},
+                {"status": "pending"}
+              ]
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":2"))
+        XCTAssertTrue(envelope.contains("\"total\":3"))
+    }
+
+    func test_grok_canonical_reemitter_emits_needs_input_for_notification() throws {
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "permission",
+          "message": "Permission required to run rm -rf /tmp/foo"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"agent.needs-input\""))
+        XCTAssertTrue(envelope.contains("\"text\":\"Permission required to run rm -rf /tmp/foo\""))
+        XCTAssertTrue(envelope.contains("\"kind\":\"approval\""))
+    }
+
+    func test_grok_canonical_reemitter_classifies_question_notifications() throws {
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "question",
+          "message": "Which approach should we take?"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"kind\":\"question\""))
+    }
+
+    func test_grok_canonical_reemitter_does_not_emit_needs_input_for_info_notifications() throws {
+        // Regression for the old shell regex that matched "ask" inside "task" —
+        // routine messages like "Task completed" must not produce a needs-input
+        // record. The structured allowlist gates this: notification_type=info
+        // with no input-related words → no emission.
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "info",
+          "message": "Task completed"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        XCTAssertTrue(emissions.isEmpty, "info-type notification with no input-request signal must not emit needs-input")
+    }
+
+    func test_grok_canonical_reemitter_emits_question_for_trailing_question_mark() throws {
+        // Permission-typed notifications still emit, and a trailing "?" tilts
+        // the kind from "approval" to "question".
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "permission",
+          "message": "Should I rerun the migration?"
+        }
+        """.data(using: .utf8)!
+
+        let envelope = try XCTUnwrap(GrokCanonicalReEmitter.reEmissions(forHookPayload: payload).first)
+        XCTAssertTrue(envelope.contains("\"kind\":\"question\""))
+    }
+
+    func test_grok_canonical_reemitter_emits_session_start_with_nested_id() throws {
+        let payload = """
+        {
+          "hook_event_name": "SessionStart",
+          "context": {
+            "session_id": "ses_abc123"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"session.start\""))
+        XCTAssertTrue(envelope.contains("\"id\":\"ses_abc123\""))
+    }
+
+    func test_grok_canonical_reemitter_resolves_session_id_under_data_id() throws {
+        let payload = """
+        {
+          "hook_event_name": "session_start",
+          "data": {
+            "id": "ses_data_id"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"id\":\"ses_data_id\""))
+    }
+
+    func test_grok_canonical_reemitter_skips_already_canonical_payloads() throws {
+        // Canonical v1 payloads should pass through the adapter directly — re-emitting
+        // would duplicate the record.
+        let payload = """
+        {"version":1,"event":"task.progress","progress":{"done":1,"total":2}}
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        XCTAssertTrue(emissions.isEmpty, "already-canonical payloads must not be re-emitted")
+    }
+
+    func test_grok_canonical_reemitter_escapes_message_text() throws {
+        let payload = """
+        {
+          "hook_event_name": "Notification",
+          "notification_type": "permission",
+          "message": "Quote \\"this\\"\\nand a newline"
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        // The envelope itself must be valid JSON when the message contains quotes/newlines.
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: envelope.data(using: .utf8)!))
+    }
+
+    func test_grok_canonical_reemitter_falls_through_to_nested_when_primary_todos_is_empty() throws {
+        // Defensive: a payload where the primary `todos` location is an empty
+        // array but a fallback nesting carries the real list must still produce
+        // a task.progress emission. Earlier the candidate scan returned `.first`
+        // non-nil unconditionally and stopped on the empty array.
+        let payload = """
+        {
+          "hook_event_name": "PreToolUse",
+          "tool_name": "TodoWrite",
+          "tool_input": {
+            "todos": [],
+            "input": {
+              "todos": [
+                {"status": "completed"},
+                {"status": "in_progress"}
+              ]
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let emissions = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":1"))
+        XCTAssertTrue(envelope.contains("\"total\":2"))
+    }
+
+    func test_grok_canonical_reemitter_returns_nothing_for_unrelated_events() throws {
+        let payload = """
+        {"hook_event_name": "PostToolUse", "tool_name": "Bash"}
+        """.data(using: .utf8)!
+
+        XCTAssertTrue(GrokCanonicalReEmitter.reEmissions(forHookPayload: payload).isEmpty)
+    }
+
+    func test_grok_hooks_installer_uninstall_removes_new_layout() throws {
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        try GrokHooksInstaller.install(at: hooksRoot, cliPath: "/opt/zentty/bin/zentty")
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hookConfigURL(under: hooksRoot).path), "JSON config must be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: forwarderScriptURL(under: hooksRoot).path), "forwarder script must be removed")
+        let forwarderDir = hooksRoot.appendingPathComponent("zentty-status", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: forwarderDir.path), "forwarder subdir must be removed when empty")
+    }
+
+    func test_grok_hooks_installer_uninstall_cleans_up_legacy_per_event_scripts() throws {
+        // Users upgrading from earlier Zentty versions have the broken
+        // per-event-subdir layout. Uninstall must mop those up so they don't
+        // linger as dead files.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        let legacyDir = hooksRoot.appendingPathComponent("PreToolUse", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let legacyScript = legacyDir.appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+        let legacyContent = "#!/usr/bin/env bash\n# Marker: \(GrokHooksInstaller.hookMarker)\nexec foo\n"
+        try legacyContent.write(to: legacyScript, atomically: true, encoding: .utf8)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyScript.path), "legacy per-event script must be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyDir.path), "empty legacy event dir must be removed")
+    }
+
+    func test_grok_hooks_installer_uninstall_preserves_user_scripts_in_legacy_event_dir() throws {
+        // Even when cleaning up legacy artifacts, non-Zentty scripts that happen
+        // to live alongside ours under `~/.grok/hooks/<Event>/` must survive.
+        let (_, hooksRoot) = try makeGrokHooksRoot()
+        let legacyDir = hooksRoot.appendingPathComponent("Stop", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let ourScript = legacyDir.appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+        try "#!/usr/bin/env bash\n# Marker: \(GrokHooksInstaller.hookMarker)\n".write(to: ourScript, atomically: true, encoding: .utf8)
+        let userScript = legacyDir.appendingPathComponent("99-user-cleanup.sh", isDirectory: false)
+        try "#!/usr/bin/env bash\necho user\n".write(to: userScript, atomically: true, encoding: .utf8)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ourScript.path), "our marker-tagged script must be removed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: userScript.path), "user-managed sibling script must survive")
+    }
+
+    func test_grok_hooks_installer_uninstall_strips_legacy_user_settings_entries_preserving_user_entries() throws {
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        let settingsURL = grokRoot.appendingPathComponent("user-settings.json", isDirectory: false)
+        // Seed the legacy shape with one of our entries (recognised by marker)
+        // alongside a user-managed entry.
+        let legacyZenttyCommand = hooksRoot
+            .appendingPathComponent("Stop", isDirectory: true)
+            .appendingPathComponent("01-zentty-status.sh", isDirectory: false)
+            .path
+        let seeded: [String: Any] = [
+            "theme": "dark",
+            "hooks": [
+                "Stop": [
+                    ["matcher": ".*", "hooks": [["type": "command", "command": legacyZenttyCommand]]],
+                    ["matcher": ".*", "hooks": [["type": "command", "command": "/custom/user-stop.sh"]]],
+                ]
+            ]
+        ]
+        try JSONSerialization.data(withJSONObject: seeded, options: [.prettyPrinted]).write(to: settingsURL)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: settingsURL)) as? [String: Any]
+        )
+        XCTAssertEqual(object["theme"] as? String, "dark", "unrelated key must survive uninstall")
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        let stopEntries = try XCTUnwrap(hooks["Stop"] as? [[String: Any]])
+        let commands = stopEntries.compactMap { entry -> String? in
+            (entry["hooks"] as? [[String: Any]])?.first?["command"] as? String ?? entry["command"] as? String
+        }
+        XCTAssertEqual(commands, ["/custom/user-stop.sh"], "only user-managed Stop entry should remain")
+    }
+
+    func test_grok_hooks_installer_uninstall_removes_legacy_plugin_directory() throws {
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        let pluginDir = grokRoot
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("zentty-status", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+        try "{}".write(
+            to: pluginDir.appendingPathComponent("plugin.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginDir.path), "legacy plugin directory must be removed on uninstall")
+    }
+
+    func test_grok_hooks_installer_uninstall_legacy_hooks_paths_line_exact_not_substring() throws {
+        // Unrelated lines that *contain* our hooks path as a prefix must
+        // survive a legacy hooks-paths cleanup.
+        let (grokRoot, hooksRoot) = try makeGrokHooksRoot()
+        let pathsURL = grokRoot.appendingPathComponent("hooks-paths", isDirectory: false)
+        let unrelatedPath = hooksRoot.path + "-extra"
+        try (hooksRoot.path + "\n" + unrelatedPath + "\n").write(to: pathsURL, atomically: true, encoding: .utf8)
+
+        try GrokHooksInstaller.uninstall(at: hooksRoot)
+
+        if FileManager.default.fileExists(atPath: pathsURL.path) {
+            let remaining = try String(contentsOf: pathsURL, encoding: .utf8).components(separatedBy: .newlines)
+            XCTAssertTrue(remaining.contains(unrelatedPath), "unrelated path with our prefix must be preserved by uninstall")
+            XCTAssertFalse(remaining.contains(hooksRoot.path), "our line must be removed")
+        }
+    }
+
     func test_agent_launch_bootstrap_builds_kimi_overlay_from_default_user_config() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-runtime")
         let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-home")
@@ -3036,6 +3722,185 @@ final class AgentStatusSupportTests: XCTestCase {
                     .path
             )
         )
+    }
+
+    func test_agent_launch_bootstrap_builds_amp_plan_with_plugin_and_launch_snapshot() throws {
+        let home = try makeTemporaryDirectory(named: "agent-launch-amp-home")
+        let userPluginURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("user-plugin.ts", isDirectory: false)
+        try FileManager.default.createDirectory(at: userPluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// user plugin\n".write(to: userPluginURL, atomically: true, encoding: .utf8)
+        let userSettingsURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+        try #"{"amp.notifications.enabled":false}"#
+            .write(to: userSettingsURL, atomically: true, encoding: .utf8)
+        let userAgentsURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("AGENTS.md", isDirectory: false)
+        try "personal amp guidance\n".write(to: userAgentsURL, atomically: true, encoding: .utf8)
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-amp-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        let pluginURL = pluginDirectory.appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        try "// \(AmpPluginInstaller.ownershipMarker)\nexport default function ampPlugin() {}\n"
+            .write(to: pluginURL, atomically: true, encoding: .utf8)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--mode", "smart", "--execute", "ignored"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                "HOME": home.path,
+            ],
+            expectsResponse: true,
+            tool: .amp
+        )
+
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-amp-runtime")
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory,
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/amp")
+        XCTAssertEqual(plan.arguments, ["--mode", "smart", "--execute", "ignored"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "amp")
+        XCTAssertEqual(plan.setEnvironment["PLUGINS"], "all")
+        XCTAssertNil(plan.setEnvironment["HOME"])
+        XCTAssertNil(plan.setEnvironment["XDG_CONFIG_HOME"])
+        XCTAssertNil(plan.setEnvironment["AMP_SETTINGS_FILE"])
+        XCTAssertNil(plan.setEnvironment["ZENTTY_AMP_RESUME_ARGUMENTS_JSON"])
+        XCTAssertEqual(plan.preLaunchActions.count, 2)
+        XCTAssertEqual(plan.preLaunchActions.map(\.subcommand), ["agent-event", "agent-event"])
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains("\"event\":\"session.start\"") == true)
+        XCTAssertTrue(plan.preLaunchActions[1].standardInput?.contains("\"event\":\"agent.running\"") == true)
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains("\"name\":\"Amp\"") == true)
+        XCTAssertTrue(plan.preLaunchActions[1].standardInput?.contains("\"arguments\":[]") == true)
+
+        let installedPluginURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installedPluginURL.path))
+        XCTAssertTrue(try String(contentsOf: installedPluginURL, encoding: .utf8).contains(AmpPluginInstaller.ownershipMarker))
+        let userPluginStillPresentURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("user-plugin.ts", isDirectory: false)
+        XCTAssertEqual(try String(contentsOf: userPluginStillPresentURL, encoding: .utf8), "// user plugin\n")
+
+        let settingsStillPresentURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+        XCTAssertEqual(try String(contentsOf: settingsStillPresentURL, encoding: .utf8), try String(contentsOf: userSettingsURL, encoding: .utf8))
+
+        let agentsStillPresentURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("AGENTS.md", isDirectory: false)
+        XCTAssertEqual(try String(contentsOf: agentsStillPresentURL, encoding: .utf8), try String(contentsOf: userAgentsURL, encoding: .utf8))
+    }
+
+    func test_agent_launch_bootstrap_amp_refuses_to_overwrite_unmarked_plugin() throws {
+        let home = try makeTemporaryDirectory(named: "agent-launch-amp-conflict-home")
+        let installedPluginURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        try FileManager.default.createDirectory(at: installedPluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// user-owned plugin\n".write(to: installedPluginURL, atomically: true, encoding: .utf8)
+
+        let bundleRoot = try makeTemporaryBundleRoot(named: "agent-launch-amp-conflict-bundle")
+        let pluginDirectory = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try "// \(AmpPluginInstaller.ownershipMarker)\n"
+            .write(
+                to: pluginDirectory.appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                "HOME": home.path,
+            ],
+            expectsResponse: true,
+            tool: .amp
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: try makeTemporaryDirectory(named: "agent-launch-amp-conflict-runtime"),
+            bundle: try XCTUnwrap(Bundle(url: bundleRoot))
+        )
+
+        XCTAssertEqual(try String(contentsOf: installedPluginURL, encoding: .utf8), "// user-owned plugin\n")
+        XCTAssertNil(plan.setEnvironment["PLUGINS"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "amp")
+    }
+
+    func test_agent_launch_bootstrap_amp_respects_hooks_disabled() throws {
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--mode", "smart"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/amp",
+                "ZENTTY_AMP_HOOKS_DISABLED": "1",
+            ],
+            expectsResponse: true,
+            tool: .amp
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: try makeTemporaryDirectory(named: "agent-launch-amp-disabled-runtime"),
+            bundle: try makeTemporaryBundle(named: "agent-launch-amp-disabled-bundle")
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/amp")
+        XCTAssertEqual(plan.arguments, ["--mode", "smart"])
+        XCTAssertTrue(plan.setEnvironment.isEmpty)
+        XCTAssertTrue(plan.preLaunchActions.isEmpty)
     }
 
     func test_agent_ipc_authentication_is_pane_scoped() {
@@ -4240,6 +5105,7 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
@@ -4287,11 +5153,11 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_codex_hook_permission_request_for_ask_user_question_maps_to_generic_input() throws {
+    func test_codex_hook_permission_request_for_ask_user_question_maps_to_question_text() throws {
         let payload = try XCTUnwrap(
             AgentEventBridge.codexAdapter(
                 data: Data("""
-                {"hook_event_name":"PermissionRequest","session_id":"session-1","tool_name":"askuserquestion","tool_input":{"question":"Which season do you like most?"}}
+                {"hook_event_name":"PermissionRequest","session_id":"session-1","tool_name":"askuserquestion","tool_input":{"questions":[{"question":"Which season do you like most?","options":[{"label":"Spring"},{"label":"Autumn"}]}]}}
                 """.utf8),
                 defaultEventName: nil,
                 environment: [
@@ -4305,8 +5171,8 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.lifecycleEvent, .update)
         XCTAssertEqual(payload.sessionID, "session-1")
         XCTAssertEqual(payload.toolName, "Codex")
-        XCTAssertEqual(payload.text, "Codex needs your input")
-        XCTAssertEqual(payload.interactionKind, .genericInput)
+        XCTAssertEqual(payload.text, "Which season do you like most?\n[Spring] [Autumn]")
+        XCTAssertEqual(payload.interactionKind, .decision)
     }
 
     func test_codex_hook_permission_request_for_bash_stays_approval() throws {
@@ -4611,7 +5477,7 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_copilot_hook_session_start_emits_pid_attach_and_idle_seed_payloads() throws {
         let payloads = try AgentEventBridge.copilotAdapter(
             data: Data("""
-            {"cwd":"/tmp/project"}
+            {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project"}
             """.utf8),
             defaultEventName: "sessionStart",
             environment: [
@@ -4628,6 +5494,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(pidPayload.pidEvent, .attach)
         XCTAssertEqual(pidPayload.toolName, "Copilot")
         XCTAssertEqual(pidPayload.origin, .explicitHook)
+        XCTAssertEqual(pidPayload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
 
         // Seed at .idle — the normalizer's copilot OSC fallthrough promotes
         // to .running based on terminal-progress activity, then drops back
@@ -4639,13 +5506,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lifecyclePayload.origin, .explicitHook)
         XCTAssertEqual(lifecyclePayload.confidence, .explicit)
         XCTAssertNil(lifecyclePayload.interactionKind)
+        XCTAssertEqual(lifecyclePayload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
         XCTAssertEqual(lifecyclePayload.agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_copilot_hook_user_prompt_submitted_is_noop() throws {
+    func test_copilot_hook_user_prompt_submitted_marks_session_running() throws {
         let payloads = try AgentEventBridge.copilotAdapter(
             data: Data("""
-            {"cwd":"/tmp/project","prompt":"fix the bug"}
+            {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","prompt":"fix the bug"}
             """.utf8),
             defaultEventName: "userPromptSubmitted",
             environment: [
@@ -4654,15 +5522,20 @@ final class AgentStatusSupportTests: XCTestCase {
             ]
         )
 
-        // Running state is driven by OSC 9;4 progress, not by this hook.
-        XCTAssertTrue(payloads.isEmpty)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.interactionKind, .none)
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
     func test_copilot_hook_pre_tool_use_ask_user_question_emits_needs_input() throws {
         let payload = try XCTUnwrap(
             AgentEventBridge.copilotAdapter(
                 data: Data("""
-                {"cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
                 """.utf8),
                 defaultEventName: "preToolUse",
                 environment: [
@@ -4677,6 +5550,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.text, "Which option do you want?")
         XCTAssertEqual(payload.interactionKind, .question)
         XCTAssertEqual(payload.confidence, .explicit)
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
         XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
@@ -4699,7 +5573,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let payload = try XCTUnwrap(
             AgentEventBridge.copilotAdapter(
                 data: Data("""
-                {"cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
                 """.utf8),
                 defaultEventName: "postToolUse",
                 environment: [
@@ -4712,26 +5586,33 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .idle)
         XCTAssertNil(payload.interactionKind)
         XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
-    func test_copilot_hook_session_end_emits_clear_status_payload() throws {
-        let payload = try XCTUnwrap(
-            AgentEventBridge.copilotAdapter(
-                data: Data("""
-                {"cwd":"/tmp/project","reason":"user-quit"}
-                """.utf8),
-                defaultEventName: "sessionEnd",
-                environment: [
-                    "ZENTTY_WORKLANE_ID": "worklane-main",
-                    "ZENTTY_PANE_ID": "worklane-main-shell",
-                ]
-            ).first
+    func test_copilot_hook_session_end_emits_clear_status_and_pid_payloads() throws {
+        let payloads = try AgentEventBridge.copilotAdapter(
+            data: Data("""
+            {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","reason":"user-quit"}
+            """.utf8),
+            defaultEventName: "sessionEnd",
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]
         )
 
+        XCTAssertEqual(payloads.count, 2)
+        let payload = payloads[0]
         XCTAssertEqual(payload.signalKind, .lifecycle)
         XCTAssertNil(payload.state)
         XCTAssertTrue(payload.clearsStatus)
         XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+
+        let pidPayload = payloads[1]
+        XCTAssertEqual(pidPayload.signalKind, .pid)
+        XCTAssertEqual(pidPayload.pidEvent, .clear)
+        XCTAssertEqual(pidPayload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_hook_parse_input_rejects_unknown_event() {
@@ -5127,6 +6008,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 .init(
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Stopped early",
+                    subtitle: nil,
                     body: "Agent stopped early.",
                     windowID: "window-main",
                     soundName: ""
@@ -5155,6 +6037,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 .init(
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Agent ready",
+                    subtitle: nil,
                     body: "Implement push notifications",
                     windowID: "window-main",
                     soundName: ""
@@ -5547,6 +6430,36 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.body, "zentty — Allow edits to project.yml?")
     }
 
+    func test_notification_coordinator_ignores_codex_action_required_title_as_question_preview() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Codex",
+                    interactionKind: .genericInput,
+                    explicitText: "[ . ] Action Required | running-server-detection-recovery",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.title, "Codex needs input")
+        XCTAssertEqual(recorder.requests.first?.body, "zentty — Input required.")
+    }
+
     func test_notification_coordinator_uses_gemini_action_required_as_approval_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
@@ -5643,6 +6556,130 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    func test_notification_coordinator_replaces_codex_action_required_title_with_enriched_question() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        let firstCommit = expectation(description: "generic codex title committed")
+        store.onChange = { firstCommit.fulfill() }
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "[ . ] Action Required | zentty",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        await fulfillment(of: [firstCommit], timeout: 2)
+
+        let replacement = expectation(description: "enriched question committed")
+        replacement.expectedFulfillmentCount = 2
+        store.onChange = { replacement.fulfill() }
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Should CLI notifications include the agent question?\n[Yes] [No]",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        await fulfillment(of: [replacement], timeout: 2)
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(
+            store.notifications[0].primaryText,
+            "Should CLI notifications include the agent question?\n[Yes] [No]"
+        )
+        XCTAssertTrue(store.notifications[1].isResolved)
+        XCTAssertEqual(recorder.requests.count, 2)
+        XCTAssertEqual(
+            recorder.requests.last?.body,
+            "zentty — Should CLI notifications include the agent question?\n[Yes] [No]"
+        )
+    }
+
+    func test_notification_coordinator_replaces_pending_codex_generic_prompt_before_system_delivery() async {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            needsInputSystemNotificationDelay: 0.05
+        )
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "[ . ] Action Required | zentty",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Implement notifications",
+                    interactionKind: .decision,
+                    explicitText: "Should CLI notifications include the agent question?\n[Yes] [No]",
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        try? await Task.sleep(for: .milliseconds(90))
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(
+            recorder.requests.first?.body,
+            "zentty — Should CLI notifications include the agent question?\n[Yes] [No]"
+        )
+    }
+
     func test_notification_coordinator_does_not_fire_for_generic_codex_waiting_title() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
@@ -5725,6 +6762,192 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
+    func test_amp_running_payload_updates_pane_and_sidebar_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Amp",
+            text: nil,
+            sessionID: "amp-session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let worklane = try XCTUnwrap(store.activeWorklane)
+        let presentation = try XCTUnwrap(worklane.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool, .amp)
+        XCTAssertEqual(presentation.recognizedTool, .amp)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.statusText, "Running")
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true)
+        let row = try XCTUnwrap(summary.paneRows.first)
+        XCTAssertEqual(row.statusText, "Running")
+        XCTAssertEqual(row.attentionState, .running)
+        XCTAssertTrue(row.isWorking)
+    }
+
+    func test_amp_command_finished_promotes_stale_idle_status_to_ready() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        store.activeWorklane = worklane
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 0, durationNanoseconds: 250_000_000)
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.statusText, "Agent ready")
+        XCTAssertTrue(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_amp_idle_status_clears_when_non_agent_command_starts() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus = true
+        store.activeWorklane = worklane
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "pwd",
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliaryState.agentStatus)
+        XCTAssertFalse(auxiliaryState.raw.showsReadyStatus)
+        XCTAssertNil(auxiliaryState.presentation.statusText)
+    }
+
+    func test_amp_unresolved_stop_status_clears_when_non_agent_command_starts() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        store.activeWorklane = worklane
+
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "ls",
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliaryState.agentStatus)
+        XCTAssertNil(auxiliaryState.presentation.statusText)
+    }
+
+    func test_amp_unresolved_stop_command_finished_does_not_refresh_status() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
+            agentStatus: PaneAgentStatus(
+                tool: .amp,
+                state: .unresolvedStop,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: oldDate,
+                source: .explicit,
+                origin: .explicitHook,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                hasObservedRunning: true,
+                sessionID: "amp-session-1"
+            )
+        )
+        store.activeWorklane = worklane
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .commandFinished(exitCode: 0, durationNanoseconds: 100_000_000)
+        )
+
+        let status = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+        XCTAssertEqual(status.state, .unresolvedStop)
+        XCTAssertEqual(status.updatedAt, oldDate)
+    }
+
     func test_codex_action_required_title_survives_passive_progress_activity() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -5751,7 +6974,43 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
-    func test_codex_action_required_title_survives_running_title_tick() throws {
+    func test_codex_interrupt_clears_stale_question_context_and_notification_text() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let cwd = "/tmp/codex-action-required-interrupt"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationText = "Plan mode prompt: Random"
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.lastDesktopNotificationDate = Date()
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTranscriptContext = PaneCodexTranscriptContext(
+            sessionID: "session-1",
+            path: "/tmp/codex-session.jsonl"
+        )
+        store.activeWorklane = worklane
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+
+        let auxiliaryState = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliaryState.agentStatus)
+        XCTAssertNil(auxiliaryState.raw.lastDesktopNotificationText)
+        XCTAssertNil(auxiliaryState.raw.lastDesktopNotificationDate)
+        XCTAssertNil(auxiliaryState.raw.codexTranscriptContext)
+        XCTAssertTrue(auxiliaryState.raw.codexInterruptSuppressionIsActive())
+        XCTAssertEqual(auxiliaryState.presentation.runtimePhase, .idle)
+    }
+
+    func test_codex_running_title_clears_weak_action_required_title_state() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         let cwd = "/tmp/codex-action-required-running"
@@ -5777,9 +7036,55 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.interactionKind, .none)
+        XCTAssertEqual(presentation.statusText, "Running")
+    }
+
+    func test_codex_running_title_does_not_clear_enriched_question_state() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let cwd = "/tmp/codex-enriched-question-running"
+        store.knownNonRepositoryPaths.insert(cwd)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ ! ] Action Required | codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            state: .needsInput,
+            origin: .heuristic,
+            toolName: "Codex",
+            text: "Which option should Zentty use?",
+            interactionKind: .decision,
+            confidence: .strong,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        ))
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ codex-question",
+                currentWorkingDirectory: cwd,
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        let presentation = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation)
         XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.interactionKind, .genericInput)
-        XCTAssertEqual(presentation.statusText, "Needs input")
+        XCTAssertEqual(presentation.interactionKind, .decision)
+        XCTAssertEqual(presentation.statusText, "Needs decision")
     }
 
     func test_codex_ready_title_clears_action_required_title_state() throws {
@@ -6573,6 +7878,51 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
+    func test_agent_status_payload_round_trips_agent_transcript_path() throws {
+        let payload = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentTranscriptPath: "/Users/peter/.codex/sessions/session.jsonl"
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decoded.agentTranscriptPath, "/Users/peter/.codex/sessions/session.jsonl")
+        XCTAssertEqual(decoded, payload)
+    }
+
+    func test_agent_status_payload_round_trips_agent_launch_snapshot() throws {
+        let payload = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .running,
+            origin: .explicitHook,
+            toolName: "Amp",
+            text: nil,
+            sessionID: "T-ZenttyBenchRestore",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentLaunchSnapshot: AgentLaunchSnapshot(arguments: ["--mode", "smart"])
+        )
+
+        let userInfo = try XCTUnwrap(payload.notificationUserInfo)
+        let decoded = try AgentStatusPayload(userInfo: userInfo)
+
+        XCTAssertEqual(decoded.agentLaunchSnapshot, AgentLaunchSnapshot(arguments: ["--mode", "smart"]))
+        XCTAssertEqual(decoded, payload)
+    }
+
     func test_agent_status_payload_round_trips_window_id() throws {
         let payload = AgentStatusPayload(
             windowID: WindowID("window-main"),
@@ -6681,9 +8031,11 @@ final class AgentStatusSupportTests: XCTestCase {
             ("cursor", "cursor-agent"),
             ("droid", "droid"),
             ("gemini", "gemini"),
+            ("grok", "grok"),
             ("kimi", "kimi"),
             ("kimi", "kimi-cli"),
             ("opencode", "opencode"),
+            ("amp", "amp"),
             ("pi", "pi"),
         ]
     }
@@ -6742,21 +8094,40 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
     struct RequestRecord: Equatable {
         let identifier: String
         let title: String
+        let subtitle: String?
         let body: String
         let windowID: String
-        let soundName: String
+        let soundName: String?
     }
 
     private(set) var requests: [RequestRecord] = []
 
     func requestAuthorizationIfNeeded() {}
 
-    func add(identifier: String, title: String, body: String, windowID: String, worklaneID: String, paneID: String, soundName: String) {
-        requests.append(RequestRecord(identifier: identifier, title: title, body: body, windowID: windowID, soundName: soundName))
+    func add(
+        identifier: String,
+        title: String,
+        subtitle: String?,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String?
+    ) {
+        requests.append(
+            RequestRecord(
+                identifier: identifier,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                windowID: windowID,
+                soundName: soundName
+            )
+        )
     }
 }
 
-private enum ShellIntegrationTestShell {
+private enum ShellIntegrationTestShell: Equatable {
     case zsh
     case bash
 

@@ -1275,6 +1275,10 @@ final class TerminalDiagnostics: @unchecked Sendable {
 
     private static func toolKey(_ tool: AgentTool?) -> String {
         switch tool {
+        case .zentty:
+            return "zentty"
+        case .amp:
+            return "amp"
         case .claudeCode:
             return "claude"
         case .codex:
@@ -1293,6 +1297,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "opencode"
         case .pi:
             return "pi"
+        case .grok:
+            return "grok"
         case .custom(let name):
             return name
         case nil:

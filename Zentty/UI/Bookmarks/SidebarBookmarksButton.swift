@@ -5,15 +5,16 @@ final class SidebarBookmarksButton: NSButton {
     private let iconView = NSImageView()
     private var trackingArea: NSTrackingArea?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var segmentPosition: SidebarHeaderAccessorySegmentPosition = .trailing
     private(set) var isHovered = false
     private(set) var isPopoverPresented = false
 
-    static let buttonSize: CGFloat = 28
+    static let buttonWidth: CGFloat = 30
+    static let buttonHeight: CGFloat = ShellMetrics.sidebarCreateWorklaneButtonHeight
     private static let iconSize: CGFloat = 16
-    private static let iconVisualTopOffset: CGFloat = 4
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: Self.buttonSize, height: Self.buttonSize)
+        NSSize(width: Self.buttonWidth, height: Self.buttonHeight)
     }
 
     override var isHighlighted: Bool {
@@ -39,13 +40,13 @@ final class SidebarBookmarksButton: NSButton {
         isBordered = false
         bezelStyle = .regularSquare
         wantsLayer = true
-        layer?.cornerRadius = ChromeGeometry.pillRadius
+        layer?.cornerRadius = ShellMetrics.sidebarHeaderControlCornerRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: Self.buttonSize).isActive = true
-        heightAnchor.constraint(equalToConstant: Self.buttonSize).isActive = true
+        widthAnchor.constraint(equalToConstant: Self.buttonWidth).isActive = true
+        heightAnchor.constraint(equalToConstant: Self.buttonHeight).isActive = true
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
 
@@ -62,8 +63,22 @@ final class SidebarBookmarksButton: NSButton {
         layoutIconView()
     }
 
+    func setSegmentPosition(_ position: SidebarHeaderAccessorySegmentPosition) {
+        segmentPosition = position
+        applySegmentMask()
+    }
+
+    func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
+        toolTip = CommandTooltipFormatter.title(
+            "Bookmarks & Presets",
+            commandID: .openBookmarksPopover,
+            shortcutManager: shortcutManager
+        )
+    }
+
     override func layout() {
         super.layout()
+        applySegmentMask()
         layoutIconView()
     }
 
@@ -124,17 +139,16 @@ final class SidebarBookmarksButton: NSButton {
             systemSymbolName: symbolName,
             accessibilityDescription: "Bookmarks and presets"
         )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+            NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         )
         needsLayout = true
     }
 
     private func layoutIconView() {
         let size = NSSize(width: Self.iconSize, height: Self.iconSize)
-        let visualTopOffset = isFlipped ? -Self.iconVisualTopOffset : Self.iconVisualTopOffset
         iconView.frame = NSRect(
             x: floor((bounds.width - size.width) / 2),
-            y: floor((bounds.height - size.height) / 2) + visualTopOffset,
+            y: floor((bounds.height - size.height) / 2),
             width: size.width,
             height: size.height
         )
@@ -158,6 +172,20 @@ final class SidebarBookmarksButton: NSButton {
         iconView.contentTintColor = iconColor
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = backgroundColor.cgColor
+        }
+    }
+
+    private func applySegmentMask() {
+        guard let layer else {
+            return
+        }
+
+        layer.cornerRadius = min(ShellMetrics.sidebarHeaderControlCornerRadius, bounds.height / 2)
+        layer.maskedCorners = switch segmentPosition {
+        case .leading:
+            [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        case .trailing:
+            [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         }
     }
 }

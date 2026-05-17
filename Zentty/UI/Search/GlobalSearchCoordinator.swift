@@ -47,6 +47,7 @@ final class GlobalSearchCoordinator {
     }
 
     private let orderedTargetsProvider: () -> [GlobalSearchTarget]
+    private let currentTargetProvider: () -> GlobalSearchTarget?
     private let runtimeProvider: (PaneID) -> PaneRuntime?
     private let navigateToTarget: (WorklaneID, PaneID, @escaping @MainActor () -> Void) -> Void
     private let endAllLocalSearches: () -> Void
@@ -71,11 +72,13 @@ final class GlobalSearchCoordinator {
 
     init(
         orderedTargetsProvider: @escaping () -> [GlobalSearchTarget],
+        currentTargetProvider: @escaping () -> GlobalSearchTarget? = { nil },
         runtimeProvider: @escaping (PaneID) -> PaneRuntime?,
         navigateToTarget: @escaping (WorklaneID, PaneID, @escaping @MainActor () -> Void) -> Void,
         endAllLocalSearches: @escaping () -> Void
     ) {
         self.orderedTargetsProvider = orderedTargetsProvider
+        self.currentTargetProvider = currentTargetProvider
         self.runtimeProvider = runtimeProvider
         self.navigateToTarget = navigateToTarget
         self.endAllLocalSearches = endAllLocalSearches
@@ -263,13 +266,17 @@ final class GlobalSearchCoordinator {
         case .next:
             if currentSelection.index + 1 < currentPaneState.total {
                 setSelection(paneID: currentSelection.paneID, selectedIndex: currentSelection.index + 1)
-                runtimeProvider(currentSelection.paneID)?.findNextInGlobalSearch()
+                performOnTarget(liveTargets[currentTargetIndex]) { [weak self] in
+                    self?.runtimeProvider(currentSelection.paneID)?.findNextInGlobalSearch()
+                }
                 return
             }
         case .previous:
             if currentSelection.index > 0 {
                 setSelection(paneID: currentSelection.paneID, selectedIndex: currentSelection.index - 1)
-                runtimeProvider(currentSelection.paneID)?.findPreviousInGlobalSearch()
+                performOnTarget(liveTargets[currentTargetIndex]) { [weak self] in
+                    self?.runtimeProvider(currentSelection.paneID)?.findPreviousInGlobalSearch()
+                }
                 return
             }
         }
@@ -283,11 +290,15 @@ final class GlobalSearchCoordinator {
             switch direction {
             case .next:
                 setSelection(paneID: currentSelection.paneID, selectedIndex: 0)
-                runtimeProvider(currentSelection.paneID)?.findNextInGlobalSearch()
+                performOnTarget(target) { [weak self] in
+                    self?.runtimeProvider(currentSelection.paneID)?.findNextInGlobalSearch()
+                }
             case .previous:
                 let lastIndex = max(0, currentPaneState.total - 1)
                 setSelection(paneID: currentSelection.paneID, selectedIndex: lastIndex)
-                runtimeProvider(currentSelection.paneID)?.findPreviousInGlobalSearch()
+                performOnTarget(target) { [weak self] in
+                    self?.runtimeProvider(currentSelection.paneID)?.findPreviousInGlobalSearch()
+                }
             }
             return
         }
@@ -427,6 +438,23 @@ final class GlobalSearchCoordinator {
         }
         currentSelection = Selection(paneID: paneID, index: selectedIndex)
         state.selected = globalOrdinal(for: paneID, selectedIndex: selectedIndex)
+    }
+
+    private func performOnTarget(
+        _ target: GlobalSearchTarget,
+        action: @escaping @MainActor () -> Void
+    ) {
+        guard let currentTarget = currentTargetProvider() else {
+            action()
+            return
+        }
+
+        guard currentTarget != target else {
+            action()
+            return
+        }
+
+        navigateToTarget(target.worklaneID, target.paneID, action)
     }
 
     private func completeCrossTargetNavigation(

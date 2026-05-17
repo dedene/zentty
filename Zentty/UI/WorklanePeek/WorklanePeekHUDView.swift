@@ -11,11 +11,22 @@ final class WorklanePeekHUDView: NSView {
         var proctitle: String?
         var folder: String?
         var branch: String?
+        var icon: NSImage?
 
-        var isEmpty: Bool { proctitle == nil && folder == nil && branch == nil }
+        var isEmpty: Bool {
+            proctitle == nil && folder == nil && branch == nil && icon == nil
+        }
+
+        static func == (lhs: Content, rhs: Content) -> Bool {
+            lhs.proctitle == rhs.proctitle
+                && lhs.folder == rhs.folder
+                && lhs.branch == rhs.branch
+                && lhs.icon === rhs.icon
+        }
     }
 
     private let stack = NSStackView()
+    private let iconView = NSImageView()
     private let proctitleLabel = NSTextField(labelWithString: "")
     private let separator1 = NSTextField(labelWithString: "•")
     private let folderLabel = NSTextField(labelWithString: "")
@@ -61,11 +72,27 @@ final class WorklanePeekHUDView: NSView {
         separator1.textColor = NSColor.white.withAlphaComponent(0.4)
         separator2.textColor = NSColor.white.withAlphaComponent(0.4)
 
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.wantsLayer = true
+        iconView.layer?.masksToBounds = false
+        iconView.layer?.shadowOffset = .zero
+        iconView.layer?.shadowColor = NSColor.white.withAlphaComponent(0.55).cgColor
+        iconView.layer?.shadowRadius = 2
+        iconView.layer?.shadowOpacity = 0
+
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .horizontal
-        stack.alignment = .firstBaseline
+        stack.alignment = .centerY
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+
+        stack.addArrangedSubview(iconView)
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+        ])
+        stack.setCustomSpacing(10, after: iconView)
 
         for label in allLabels {
             stack.addArrangedSubview(label)
@@ -90,6 +117,10 @@ final class WorklanePeekHUDView: NSView {
         proctitleLabel.isHidden = (content.proctitle ?? "").isEmpty
         folderLabel.isHidden = (content.folder ?? "").isEmpty
         branchLabel.isHidden = (content.branch ?? "").isEmpty
+
+        iconView.image = content.icon
+        iconView.isHidden = content.icon == nil
+        iconView.layer?.shadowOpacity = content.icon == nil ? 0 : 0.55
 
         // Hide separators when their flanking field is missing so the line
         // doesn't show "• • foo" with empty fragments.

@@ -979,6 +979,8 @@ extension WorklaneStore {
             ?? AgentToolRecognizer.recognize(metadata: metadata)
         if let tool = recognizedTool {
             switch tool {
+            case .zentty: return nil
+            case .amp: return "amp"
             case .claudeCode: return "claude"
             case .codex: return "codex"
             case .copilot: return "gh copilot"
@@ -988,6 +990,7 @@ extension WorklaneStore {
             case .kimi: return "kimi"
             case .openCode: return "opencode"
             case .pi: return "pi"
+            case .grok: return "grok"
             case .custom(let name): return name
             }
         }

@@ -9,17 +9,37 @@
       "--prompt",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "--print",
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "approval": [
       "--prompt",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "restore_launch": [
+      "-r",
+      "237d8c32-2a27-4850-8da8-3a110f13682c"
     ]
   },
   "expectations": {
     "smoke": {
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"]
     },
+    "session_capture": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
+    },
     "approval": {
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["-r", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
     }
   },
   "input_by_scenario": {

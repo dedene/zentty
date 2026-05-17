@@ -8,17 +8,36 @@
       "run",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "run",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "approval": [
       "run",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "restore_launch": [
+      "--session",
+      "ses_ZenttyBenchRestore"
     ]
   },
   "expectations": {
     "smoke": {
       "required_events": ["session.start", "agent.running", "agent.idle"]
     },
+    "session_capture": {
+      "required_events": ["session.start", "agent.running", "agent.idle"],
+      "session_identity": {
+        "session_id_pattern": "opencode",
+        "tracked_pid": true
+      }
+    },
     "approval": {
       "required_events": ["session.start", "agent.needs-input"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--session", "ses_ZenttyBenchRestore"]]
     }
   },
   "input_by_scenario": {

@@ -7,7 +7,16 @@ struct AgentToolLauncher {
     let environment: [String: String]
 
     func run() throws {
-        let executablePath = try findRealBinary()
+        var executablePath = try findRealBinary()
+        switch resolveMiseShimIfNeeded(executablePath) {
+        case .success(let resolvedPath):
+            executablePath = resolvedPath
+        case .failure(let diagnostic):
+            failLaunch(with: diagnostic)
+        case .none:
+            break
+        }
+
         let directEnvironment = directEnvironmentPatch()
 
         guard shouldAttemptBootstrap,
@@ -43,6 +52,17 @@ struct AgentToolLauncher {
         }
 
         switch tool {
+        case .amp:
+            if environment["ZENTTY_AMP_HOOKS_DISABLED"] == "1" {
+                return false
+            }
+            if Self.ampPassthroughSubcommands.contains(arguments.first ?? "") {
+                return false
+            }
+            if arguments.contains(where: Self.isAmpEarlyExitFlag) {
+                return false
+            }
+            return true
         case .claude:
             if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1" {
                 return false
@@ -86,6 +106,15 @@ struct AgentToolLauncher {
                 return false
             }
             return true
+        case .grok:
+            if environment["ZENTTY_GROK_HOOKS_DISABLED"] == "1" {
+                return false
+            }
+            // Grok supports -p for headless/plan mode and standard --help/-v.
+            // For now let the bootstrap run; the grokPlan emits a clean session.start
+            // and the adapter is best-effort. Add passthrough lists later if
+            // `grok login` or other management commands appear.
+            return true
         case .codex, .gemini, .opencode:
             return true
         }
@@ -98,6 +127,22 @@ struct AgentToolLauncher {
     static let piEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-v", "--list-models", "--export",
     ]
+
+    static let ampPassthroughSubcommands: Set<String> = [
+        "login", "logout", "mcp", "permission", "permissions", "review",
+        "skill", "skills", "tool", "tools", "update", "up", "usage", "version",
+    ]
+
+    static let ampEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-V", "--jetbrains",
+    ]
+
+    private static func isAmpEarlyExitFlag(_ argument: String) -> Bool {
+        let optionName = argument.hasPrefix("--")
+            ? (argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument)
+            : argument
+        return ampEarlyExitFlags.contains(optionName)
+    }
 
     static let kimiPassthroughSubcommands: Set<String> = [
         "login", "logout", "term", "acp", "info", "export", "mcp", "plugin", "vis", "web",
@@ -136,10 +181,133 @@ struct AgentToolLauncher {
         throw POSIXError(.ENOENT)
     }
 
+    private func resolveMiseShimIfNeeded(_ executablePath: String) -> Result<String, LaunchFailureDiagnostic>? {
+        guard isMiseShimPath(executablePath) else {
+            return nil
+        }
+
+        let binaryName = URL(fileURLWithPath: executablePath).lastPathComponent
+        let result = runMiseWhich(binaryName: binaryName)
+        if result.exitCode == 0, let resolvedPath = result.stdout.nonBlankFirstLine {
+            return .success(resolvedPath)
+        }
+
+        let message = result.stderr.nonBlank
+            ?? result.stdout.nonBlank
+            ?? "mise which \(binaryName) failed with exit code \(result.exitCode)."
+        return .failure(LaunchFailureDiagnostic(message: message, exitCode: result.exitCode))
+    }
+
+    private func isMiseShimPath(_ executablePath: String) -> Bool {
+        let components = URL(fileURLWithPath: executablePath)
+            .standardizedFileURL
+            .pathComponents
+
+        guard components.count >= 2 else {
+            return false
+        }
+
+        for index in 0..<(components.count - 1) {
+            if components[index] == "mise", components[index + 1] == "shims" {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func runMiseWhich(binaryName: String) -> ProcessOutput {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["mise", "which", binaryName]
+        process.environment = environment
+        process.standardInput = Pipe()
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return ProcessOutput(
+                exitCode: 127,
+                stdout: "",
+                stderr: "mise which \(binaryName) failed: \(error.localizedDescription)"
+            )
+        }
+
+        return ProcessOutput(
+            exitCode: process.terminationStatus,
+            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private func failLaunch(with diagnostic: LaunchFailureDiagnostic) -> Never {
+        let message = diagnostic.message.hasSuffix("\n")
+            ? diagnostic.message
+            : diagnostic.message + "\n"
+        FileHandle.standardError.write(Data(message.utf8))
+        sendLaunchFailureNotification(message: diagnostic.message)
+        Darwin.exit(diagnostic.exitCode == 0 ? 1 : diagnostic.exitCode)
+    }
+
+    private func sendLaunchFailureNotification(message: String) {
+        guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"]?.nonEmpty,
+              IPCCommand.hasRequiredRoutingEnvironment(environment) else {
+            return
+        }
+
+        let summary = message.nonBlankFirstLine ?? "\(toolDisplayName) failed to start."
+        let request = AgentIPCRequest(
+            kind: .pane,
+            arguments: [
+                "--title", "\(toolDisplayName) failed to start",
+                "--subtitle", summary,
+                "--body", message,
+            ],
+            standardInput: nil,
+            environment: IPCCommand.forwardedEnvironment(from: environment),
+            expectsResponse: false,
+            subcommand: "notify"
+        )
+        _ = try? AgentIPCClient.send(request: request, socketPath: socketPath)
+    }
+
+    private var toolDisplayName: String {
+        switch tool {
+        case .amp:
+            return "Amp"
+        case .claude:
+            return "Claude"
+        case .codex:
+            return "Codex"
+        case .copilot:
+            return "Copilot"
+        case .cursor:
+            return "Cursor"
+        case .droid:
+            return "Droid"
+        case .gemini:
+            return "Gemini"
+        case .kimi:
+            return "Kimi"
+        case .opencode:
+            return "OpenCode"
+        case .pi:
+            return "Pi"
+        case .grok:
+            return "Grok"
+        }
+    }
+
     private func bootstrapEnvironment(realBinaryPath: String) -> [String: String] {
         let forwardedKeys = [
             "HOME",
             "PATH",
+            "AMP_SETTINGS_FILE",
             "ZENTTY_CLI_BIN",
             "ZENTTY_INSTANCE_SOCKET",
             "ZENTTY_WINDOW_ID",
@@ -147,12 +315,14 @@ struct AgentToolLauncher {
             "ZENTTY_PANE_ID",
             "ZENTTY_PANE_TOKEN",
             "ZENTTY_INSTANCE_ID",
+            "ZENTTY_AMP_HOOKS_DISABLED",
             "ZENTTY_CLAUDE_HOOKS_DISABLED",
             "ZENTTY_COPILOT_HOOKS_DISABLED",
             "ZENTTY_CURSOR_HOOKS_DISABLED",
             "ZENTTY_CURSOR_VERBOSE_HOOKS",
             "ZENTTY_DROID_HOOKS_DISABLED",
             "ZENTTY_KIMI_HOOKS_DISABLED",
+            "ZENTTY_GROK_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -171,15 +341,45 @@ struct AgentToolLauncher {
             }
             return (key, value)
         })
+        if let cliPath = resolvedCLIPath() {
+            forwarded["ZENTTY_CLI_BIN"] = cliPath
+        }
         forwarded["ZENTTY_REAL_BINARY"] = realBinaryPath
         return forwarded
+    }
+
+    private func resolvedCLIPath() -> String? {
+        if let configuredPath = environment["ZENTTY_CLI_BIN"]?.nonEmpty,
+           FileManager.default.isExecutableFile(atPath: configuredPath) {
+            return configuredPath
+        }
+
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else {
+            return CommandLine.arguments.first?.nonEmpty
+        }
+
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        let result = buffer.withUnsafeMutableBufferPointer { pointer in
+            _NSGetExecutablePath(pointer.baseAddress, &size)
+        }
+        guard result == 0 else {
+            return CommandLine.arguments.first?.nonEmpty
+        }
+
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self)
+        return URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
     }
 
     private func directEnvironmentPatch() -> EnvironmentPatch {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok:
             return EnvironmentPatch()
         }
     }
@@ -191,6 +391,8 @@ struct AgentToolLauncher {
         )
 
         switch tool {
+        case .amp:
+            environmentPatch.set["ZENTTY_AMP_PID"] = "\(getpid())"
         case .claude:
             environmentPatch.set["ZENTTY_CLAUDE_PID"] = "\(getpid())"
         case .codex:
@@ -205,6 +407,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_DROID_PID"] = "\(getpid())"
         case .kimi:
             environmentPatch.set["ZENTTY_KIMI_PID"] = "\(getpid())"
+        case .grok:
+            environmentPatch.set["ZENTTY_GROK_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -245,6 +449,7 @@ struct AgentToolLauncher {
             "ZENTTY_WORKLANE_ID",
             "ZENTTY_PANE_ID",
             "ZENTTY_PANE_TOKEN",
+            "ZENTTY_AMP_PID",
             "ZENTTY_CLAUDE_PID",
             "ZENTTY_CODEX_PID",
             "ZENTTY_COPILOT_PID",
@@ -252,6 +457,7 @@ struct AgentToolLauncher {
             "ZENTTY_CURSOR_PID",
             "ZENTTY_DROID_PID",
             "ZENTTY_KIMI_PID",
+            "ZENTTY_GROK_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {
@@ -315,8 +521,31 @@ private struct EnvironmentPatch {
     var unset: [String] = []
 }
 
+private struct LaunchFailureDiagnostic: Error {
+    let message: String
+    let exitCode: Int32
+}
+
+private struct ProcessOutput {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
+}
+
 private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    var nonBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var nonBlankFirstLine: String? {
+        split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .compactMap(\.nonBlank)
+            .first
     }
 }

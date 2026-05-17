@@ -47,6 +47,8 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var id: String
         var titleSeed: String?
         var workingDirectory: String?
+        var lastActivityTitle: String? = nil
+        var lastRunCommand: String? = nil
     }
 }
 
@@ -112,11 +114,22 @@ enum WorkspaceRecipeExporter {
             pane: pane,
             auxiliary: auxiliary
         )
+        let lastActivityTitle = exportedLastActivityTitle(
+            pane: pane,
+            auxiliary: auxiliary,
+            titleSeed: titleSeed
+        )
+        let lastRunCommand =
+            terminalLocation.scope == .remote || workingDirectory == nil
+            ? nil
+            : trimmedCommand(auxiliary?.raw.lastRunCommand)
 
         return WorkspaceRecipe.Pane(
             id: pane.id.rawValue,
             titleSeed: titleSeed,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            lastActivityTitle: lastActivityTitle,
+            lastRunCommand: lastRunCommand
         )
     }
 
@@ -139,7 +152,8 @@ enum WorkspaceRecipeExporter {
                 candidate,
                 recognizedTool: recognizedTool,
                 isRemoteShell: isRemoteShell
-            ) {
+            ),
+               !isLocalLiveProcessTitle(candidate, auxiliary: auxiliary) {
                 return candidate
             }
         }
@@ -147,12 +161,88 @@ enum WorkspaceRecipeExporter {
         return nil
     }
 
+    private static func exportedLastActivityTitle(
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState?,
+        titleSeed: String?
+    ) -> String? {
+        guard titleSeed == nil else {
+            return nil
+        }
+        guard auxiliary?.presentation.recognizedTool == nil,
+              auxiliary?.agentStatus?.tool == nil,
+              auxiliary?.shellContext?.scope != .remote else {
+            return nil
+        }
+        if let restoredTitle = trimmedTitle(auxiliary?.presentation.lastActivityTitle),
+           shouldPersistLastActivityTitle(restoredTitle) {
+            return restoredTitle
+        }
+        guard let metadata = auxiliary?.metadata else {
+            return nil
+        }
+
+        let liveIdentities = Set(
+            [
+                WorklaneContextFormatter.normalizeDisplayIdentity(metadata.title),
+                WorklaneContextFormatter.normalizeDisplayIdentity(metadata.processName),
+            ].compactMap { $0 }
+        )
+        guard !liveIdentities.isEmpty else {
+            return nil
+        }
+
+        for candidate in [
+            trimmedTitle(auxiliary?.presentation.rememberedTitle),
+            trimmedTitle(pane.title),
+        ] {
+            guard let candidate else {
+                continue
+            }
+            guard liveIdentities.contains(candidate) else {
+                continue
+            }
+            guard shouldPersistLastActivityTitle(candidate) else {
+                continue
+            }
+            return candidate
+        }
+
+        return nil
+    }
+
+    private static func isLocalLiveProcessTitle(
+        _ candidate: String,
+        auxiliary: PaneAuxiliaryState?
+    ) -> Bool {
+        guard auxiliary?.presentation.recognizedTool == nil,
+              auxiliary?.agentStatus?.tool == nil,
+              auxiliary?.shellContext?.scope != .remote,
+              let metadata = auxiliary?.metadata else {
+            return false
+        }
+
+        let liveIdentities = [
+            WorklaneContextFormatter.normalizeDisplayIdentity(metadata.title),
+            WorklaneContextFormatter.normalizeDisplayIdentity(metadata.processName),
+        ].compactMap { $0 }
+
+        return liveIdentities.contains(candidate)
+    }
+
     private static func shouldPersistTitleSeed(
         _ candidate: String,
         recognizedTool: AgentTool?,
         isRemoteShell: Bool
     ) -> Bool {
-        if recognizedTool != nil || isRemoteShell {
+        if let recognizedTool {
+            return !TerminalMetadataChangeClassifier.isVolatileAgentStatusTitle(
+                candidate,
+                recognizedTool: recognizedTool
+            )
+        }
+
+        if isRemoteShell {
             return true
         }
 
@@ -164,8 +254,17 @@ enum WorkspaceRecipeExporter {
         WorklaneContextFormatter.looksLikeSSHCommandTitle(value)
     }
 
+    private static func shouldPersistLastActivityTitle(_ candidate: String) -> Bool {
+        !looksLikeTransientSSHCommandTitle(candidate)
+            && !isGenericLocalShellTitle(candidate)
+    }
+
     private static func isGenericLocalShellTitle(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.range(of: #"^pane \d+$"#, options: .regularExpression) != nil {
+            return true
+        }
+
         return [
             "shell",
             "shell pane",
@@ -184,6 +283,14 @@ enum WorkspaceRecipeExporter {
         }
 
         return value
+    }
+
+    private static func trimmedCommand(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func trimmedWorkingDirectory(_ value: String?) -> String? {
@@ -319,16 +426,19 @@ enum WorkspaceRecipeImporter {
         agentTeamsEnabled: Bool
     ) -> PaneState {
         let paneID = PaneID(recipe.id)
-        let prefillText = restoreDraftWindow
-            .flatMap { $0.draft(forPaneID: paneID) }
-            .flatMap(AgentResumeCommandBuilder.command(for:))
+        let restoreDraft = restoreDraftWindow.flatMap { $0.draft(forPaneID: paneID) }
+        let resumeCommand = restoreDraft.flatMap(AgentResumeCommandBuilder.command(for:))
+        let legacyLastActivityTitle = legacyLastActivityTitle(from: recipe)
+        let titleSeed = legacyLastActivityTitle == nil ? recipe.titleSeed : nil
+        let lastActivityTitle = recipe.lastActivityTitle ?? legacyLastActivityTitle
 
         let inputs = PaneRestorationBuilder.PaneInputs(
             id: paneID,
-            titleSeed: recipe.titleSeed,
+            titleSeed: titleSeed,
+            lastActivityTitle: lastActivityTitle,
             requestedWorkingDirectory: recipe.workingDirectory,
-            command: nil,
-            prefillText: prefillText,
+            command: resumeCommand,
+            prefillText: nil,
             environmentOverrides: [:],
             agentTeamsEnabled: agentTeamsEnabled,
             surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
@@ -347,8 +457,143 @@ enum WorkspaceRecipeImporter {
             worklaneID: worklaneID,
             processEnvironment: processEnvironment
         )
-        auxiliaryStateByPaneID[paneID] = result.auxiliary
+        var auxiliary = result.auxiliary
+        let canRestoreRerunnableCommand =
+            trimmedCommand(recipe.workingDirectory) != nil
+            && !result.didFallBackForWorkingDirectory
+        let lastRunCommand = canRestoreRerunnableCommand
+            ? trimmedCommand(recipe.lastRunCommand)
+            : nil
+        let restoredRerunnableCommand = canRestoreRerunnableCommand
+            ? lastRunCommand
+                ?? legacyRerunnableCommand(from: recipe.lastActivityTitle ?? legacyLastActivityTitle)
+            : nil
+        auxiliary.raw.lastRunCommand = lastRunCommand
+        auxiliary.raw.restoredRerunnableCommand = restoredRerunnableCommand
+        if let restoreDraft, resumeCommand != nil {
+            auxiliary.raw.restoredAgentRestoreDraft = restoreDraft
+            auxiliary.raw.restoredAgentAutoResumePending = true
+        }
+        auxiliaryStateByPaneID[paneID] = auxiliary
         return result.pane
+    }
+
+    private static func legacyLastActivityTitle(from recipe: WorkspaceRecipe.Pane) -> String? {
+        guard recipe.lastActivityTitle == nil,
+              let titleSeed = trimmedTitle(recipe.titleSeed),
+              looksLikeLegacyLocalProcessTitle(titleSeed) else {
+            return nil
+        }
+
+        return titleSeed
+    }
+
+    private static func legacyRerunnableCommand(from value: String?) -> String? {
+        guard let command = trimmedCommand(value) else {
+            return nil
+        }
+
+        guard !looksLikeTransientSSHCommandTitle(command),
+              !isGenericLocalShellTitle(command),
+              !looksLikeAgentStatusTitle(command),
+              !looksLikeUIPhrase(command)
+        else {
+            return nil
+        }
+
+        return command
+    }
+
+    private static func looksLikeAgentStatusTitle(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.unicodeScalars.first else {
+            return true
+        }
+        if !CharacterSet.alphanumerics.contains(first),
+           ![".", "/", "~", "$", "_"].contains(String(first)) {
+            return true
+        }
+
+        let normalized = trimmed.lowercased()
+        if normalized.contains("(branch)") {
+            return true
+        }
+
+        let statusFragments = [
+            "waiting for your input",
+            "waiting for your decision",
+            "needs your input",
+            "needs your attention",
+            "needs your approval",
+            "press esc",
+            "esc to",
+            "tokens",
+        ]
+        return statusFragments.contains { normalized.contains($0) }
+    }
+
+    private static func looksLikeTransientSSHCommandTitle(_ value: String) -> Bool {
+        WorklaneContextFormatter.looksLikeSSHCommandTitle(value)
+    }
+
+    private static func isGenericLocalShellTitle(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.range(of: #"^pane \d+$"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return [
+            "shell",
+            "shell pane",
+            "terminal",
+            "pane",
+            "zsh",
+            "bash",
+            "sh",
+            "fish",
+        ].contains(normalized)
+    }
+
+    private static func looksLikeUIPhrase(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.contains("...") || normalized.contains("\u{2026}") {
+            return true
+        }
+        if normalized.range(of: #"\bago\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
+    }
+
+    private static func looksLikeLegacyLocalProcessTitle(_ title: String) -> Bool {
+        if WorklaneContextFormatter.looksLikeSSHCommandTitle(title) {
+            return false
+        }
+
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let firstWord = normalized.split(separator: " ").first.map(String.init),
+              firstWord == firstWord.lowercased(),
+              firstWord.rangeOfCharacter(from: .letters) != nil else {
+            return false
+        }
+
+        return normalized.contains(" ")
+    }
+
+    private static func trimmedTitle(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        return value
+    }
+
+    private static func trimmedCommand(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -401,7 +646,22 @@ enum WorkspaceRecipeMeaningfulness {
             return true
         }
 
+        if let lastActivityTitle = pane.lastActivityTitle, lastActivityTitle != "shell" {
+            return true
+        }
+
+        if let lastRunCommand = normalizedMeaningfulText(pane.lastRunCommand), lastRunCommand != "shell" {
+            return true
+        }
+
         return false
+    }
+
+    private static func normalizedMeaningfulText(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private static func normalizedPath(_ path: String?) -> String? {

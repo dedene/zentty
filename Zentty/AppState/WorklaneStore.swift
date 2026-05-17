@@ -87,6 +87,75 @@ struct PaneSplitOutResult: Equatable, Sendable {
     let sourceWindowShouldClose: Bool
 }
 
+enum GridFocus: String, Equatable, Sendable {
+    case source
+    case first
+    case last
+}
+
+struct GridApplicationResult: Equatable, Sendable {
+    let worklaneID: WorklaneID
+    let sourcePaneID: PaneID
+    let createdPaneIDs: [PaneID]
+}
+
+enum GridApplicationError: LocalizedError {
+    case invalidDimensions
+    case tooManyCells
+    case sourcePaneNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDimensions:
+            "Grid dimensions must be positive."
+        case .tooManyCells:
+            "Grid dimensions may create at most 36 panes."
+        case .sourcePaneNotFound:
+            "Source pane is not in the active worklane."
+        }
+    }
+}
+
+enum GridLaunchCommandError: LocalizedError {
+    case emptyCommand
+    case unsupportedToken(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyCommand:
+            "Missing grid launch command."
+        case .unsupportedToken:
+            "Grid launch command tokens may not contain newlines."
+        }
+    }
+}
+
+enum GridLaunchCommandBuilder {
+    private static let bareTokenScalars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@%+=:,./-")
+
+    static func command(from tokens: [String]) throws -> String {
+        let normalized = tokens.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard normalized.contains(where: { !$0.isEmpty }) else {
+            throw GridLaunchCommandError.emptyCommand
+        }
+        for token in tokens where token.contains("\n") || token.contains("\r") {
+            throw GridLaunchCommandError.unsupportedToken(token)
+        }
+        return tokens.map(shellQuote).joined(separator: " ")
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        if canUseBareToken(value) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func canUseBareToken(_ value: String) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy { bareTokenScalars.contains($0) }
+    }
+}
+
 struct PaneBorderContextDisplayModel: Equatable, Sendable {
     let text: String
     /// True when this pane is the recorded leader of a Claude Code agent
@@ -271,8 +340,9 @@ final class WorklaneStore {
         _ interval: TimeInterval,
         _ operation: @escaping @MainActor () -> Void
     ) -> any WorklaneStoreScheduledHandle
+    typealias CodexQuestionResolver = @Sendable (CodexTranscriptQuestionRequest) async -> CodexTranscriptQuestion?
 
-    struct PaneReference: Hashable {
+    struct PaneReference: Hashable, Sendable {
         let worklaneID: WorklaneID
         let paneID: PaneID
     }
@@ -297,11 +367,15 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
+    var pendingCodexQuestionTasks: [PaneReference: Task<Void, Never>] = [:]
+    var pendingCodexQuestionRequests: [PaneReference: CodexTranscriptQuestionRequest] = [:]
+    var cachedCodexTranscriptQuestions: [CodexTranscriptQuestionCacheKey: CodexTranscriptQuestion] = [:]
     let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
+    let codexQuestionResolver: CodexQuestionResolver
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
     /// In-memory mirror of `TmuxCompatStore.anchors` for this app session.
     /// Refreshed via `refreshTeamAnchors()` after any handler that mutates
@@ -368,6 +442,9 @@ final class WorklaneStore {
         nonRepositoryRetryInterval: TimeInterval = 5,
         currentDateProvider: @escaping @MainActor () -> Date = Date.init,
         readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
+        codexQuestionResolver: @escaping CodexQuestionResolver = { request in
+            CodexTranscriptQuestionExtractor.question(fromTranscriptPath: request.transcriptPath)
+        },
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         serverRegistry: ServerRegistry = ServerRegistry(),
         terminalDiagnostics: TerminalDiagnostics = .shared,
@@ -382,6 +459,7 @@ final class WorklaneStore {
         self.nonRepositoryRetryInterval = nonRepositoryRetryInterval
         self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
+        self.codexQuestionResolver = codexQuestionResolver
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.runtimeIdentity = runtimeIdentity
         self.serverRegistry = serverRegistry
@@ -505,6 +583,30 @@ final class WorklaneStore {
         return nil
     }
 
+    func worklaneCloseConfirmationReason(_ worklaneID: WorklaneID) -> PaneCloseReason? {
+        guard let worklane = worklanes.first(where: { $0.id == worklaneID }) else {
+            return nil
+        }
+
+        var hasSessionHistory = false
+        for pane in worklane.paneStripState.panes {
+            guard let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id],
+                  let reason = quitConfirmationReason(for: auxiliaryState)
+            else {
+                continue
+            }
+
+            switch reason {
+            case .runningProcess:
+                return .runningProcess
+            case .sessionHistory:
+                hasSessionHistory = true
+            }
+        }
+
+        return hasSessionHistory ? .sessionHistory : nil
+    }
+
     var anyPaneRequiresQuitConfirmation: Bool {
         worklanes.contains { worklane in
             worklane.auxiliaryStateByPaneID.values.contains {
@@ -576,6 +678,36 @@ final class WorklaneStore {
 
     var recentPaneReferencesForCommandPalette: [PaneReference] {
         focusHistoryController.history.recentReferences(allPaneIDs: allLivePaneReferences)
+    }
+
+    func restoredRerunnableCommand(for paneID: PaneID) -> String? {
+        guard let auxiliaryState = liveAuxiliaryState(for: paneID),
+              auxiliaryState.shellActivityState == .promptIdle,
+              auxiliaryState.terminalProgress?.state.indicatesActivity != true,
+              agentStatusAllowsRestoredCommand(auxiliaryState.agentStatus),
+              let command = Self.trimmedRestoredCommand(auxiliaryState.raw.restoredRerunnableCommand)
+        else {
+            return nil
+        }
+
+        return command
+    }
+
+    func consumeRestoredRerunnableCommand(for paneID: PaneID) {
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        guard worklanes[worklaneIndex]
+            .auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand != nil
+        else {
+            return
+        }
+
+        worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]?.raw.restoredRerunnableCommand = nil
+        notify(.auxiliaryStateUpdated(worklanes[worklaneIndex].id, paneID, .sidebar))
     }
 
     private var paneReferencesInSidebarOrder: [PaneReference] {
@@ -894,6 +1026,143 @@ final class WorklaneStore {
         return newPaneID
     }
 
+    @discardableResult
+    func applyGrid(
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult {
+        guard rows > 0, columns > 0 else {
+            throw GridApplicationError.invalidDimensions
+        }
+        let cellCount = rows * columns
+        guard cellCount <= 36 else {
+            throw GridApplicationError.tooManyCells
+        }
+        guard let startingWorklane = activeWorklane,
+              startingWorklane.paneStripState.panes.contains(where: { $0.id == sourcePaneID }) else {
+            throw GridApplicationError.sourcePaneNotFound
+        }
+
+        if startingWorklane.paneStripState.panes.count > 1 {
+            transferPaneToNewWorklane(
+                paneID: sourcePaneID,
+                singleColumnWidth: layoutContext.singlePaneWidth
+            )
+        }
+
+        guard var worklane = activeWorklane,
+              let sourcePane = worklane.paneStripState.panes.first(where: { $0.id == sourcePaneID }) else {
+            throw GridApplicationError.sourcePaneNotFound
+        }
+
+        let readableWidth = layoutContext.sizing.readableWidth(
+            for: layoutContext.viewportWidth,
+            leadingVisibleInset: layoutContext.leadingVisibleInset
+        )
+        let totalSpacing = layoutContext.sizing.interPaneSpacing * CGFloat(max(0, columns - 1))
+        let columnWidth = max(1, (readableWidth - totalSpacing) / CGFloat(columns))
+        let launchRequest = command.map {
+            TerminalSessionRequest(command: $0)
+        }
+
+        var panes: [PaneState] = {
+            var pane = sourcePane
+            pane.width = columnWidth
+            if includeSource {
+                applySessionRequestOverride(launchRequest, to: &pane)
+            }
+            return [pane]
+        }()
+        var createdPaneIDs: [PaneID] = []
+        panes.reserveCapacity(cellCount)
+
+        while panes.count < cellCount {
+            var pane = makePane(in: &worklane, existingPaneCount: panes.count)
+            pane.width = columnWidth
+            applySessionRequestOverride(launchRequest, to: &pane)
+            createdPaneIDs.append(pane.id)
+            panes.append(pane)
+        }
+
+        var rebuiltColumns: [PaneColumnState] = []
+        rebuiltColumns.reserveCapacity(columns)
+        var usedColumnIDs: Set<PaneColumnID> = []
+        let previousColumns = worklane.paneStripState.columns
+        for columnIndex in 0..<columns {
+            let start = columnIndex * rows
+            let end = min(start + rows, panes.count)
+            let paneSlice = Array(panes[start..<end])
+            guard let firstPane = paneSlice.first else {
+                continue
+            }
+            let preferredID = columnIndex < previousColumns.count
+                ? previousColumns[columnIndex].id
+                : runtimeIdentity.makeColumnID()
+            let columnID = uniqueGridColumnID(preferredID, usedColumnIDs: &usedColumnIDs)
+            let focusedPaneID = paneSlice.contains(where: { $0.id == sourcePaneID })
+                ? sourcePaneID
+                : firstPane.id
+            rebuiltColumns.append(
+                PaneColumnState(
+                    id: columnID,
+                    panes: paneSlice,
+                    width: columnWidth,
+                    paneHeights: Array(repeating: 1, count: paneSlice.count),
+                    focusedPaneID: focusedPaneID,
+                    lastFocusedPaneID: focusedPaneID
+                )
+            )
+        }
+
+        let focusPaneID: PaneID = switch focus {
+        case .source, .first:
+            panes[0].id
+        case .last:
+            panes[panes.count - 1].id
+        }
+        let focusedColumnID = rebuiltColumns.first { column in
+            column.panes.contains { $0.id == focusPaneID }
+        }?.id ?? rebuiltColumns.first?.id
+
+        worklane.paneStripState = PaneStripState(
+            columns: rebuiltColumns,
+            focusedColumnID: focusedColumnID,
+            layoutSizing: layoutContext.sizing
+        )
+        worklane.paneStripState.focusPane(id: focusPaneID)
+        activeWorklane = worklane
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(activeWorklaneID))
+        notify(.layoutResized(activeWorklaneID, animation: .splitCurve))
+
+        return GridApplicationResult(
+            worklaneID: activeWorklaneID,
+            sourcePaneID: sourcePaneID,
+            createdPaneIDs: createdPaneIDs
+        )
+    }
+
+    private func uniqueGridColumnID(
+        _ preferredID: PaneColumnID,
+        usedColumnIDs: inout Set<PaneColumnID>
+    ) -> PaneColumnID {
+        if !usedColumnIDs.contains(preferredID) {
+            usedColumnIDs.insert(preferredID)
+            return preferredID
+        }
+        while true {
+            let candidate = runtimeIdentity.makeColumnID()
+            if !usedColumnIDs.contains(candidate) {
+                usedColumnIDs.insert(candidate)
+                return candidate
+            }
+        }
+    }
+
     func markDividerInteraction(_ divider: PaneDivider) {
         guard var worklane = activeWorklane else {
             return
@@ -1036,7 +1305,8 @@ final class WorklaneStore {
         delta: CGFloat,
         availableSize: CGSize,
         leadingVisibleInset: CGFloat = 0,
-        minimumSizeByPaneID: [PaneID: PaneMinimumSize]
+        minimumSizeByPaneID: [PaneID: PaneMinimumSize],
+        animation: WorklaneLayoutResizeAnimation = .splitCurve
     ) -> Bool {
         guard var worklane = activeWorklane else {
             return false
@@ -1053,7 +1323,7 @@ final class WorklaneStore {
         }
 
         activeWorklane = worklane
-        notifyLayoutResized(animation: .splitCurve)
+        notifyLayoutResized(animation: animation)
         return true
     }
 
@@ -1459,7 +1729,8 @@ final class WorklaneStore {
         selectWorklane(id: worklanes[previousIndex].id)
     }
 
-    func createWorklane() {
+    @discardableResult
+    func createWorklane() -> WorklaneID {
         let previousPaneRef = currentPaneReference
         let id = runtimeIdentity.makeWorklaneID()
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
@@ -1483,6 +1754,40 @@ final class WorklaneStore {
         recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
         notify(.worklaneListChanged)
+        return id
+    }
+
+    func gridWindowWorkspaceState(
+        inheritingFrom sourcePaneID: PaneID,
+        destinationWindowID: WindowID
+    ) -> WindowWorkspaceState? {
+        guard let sourceWorklane = worklanes.first(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == sourcePaneID })
+        }) else {
+            return nil
+        }
+
+        let launchContext = resolveLaunchContext(for: sourcePaneID, in: sourceWorklane)
+        let workingDirectory: String
+        if let launchContext, launchContext.scope != .remote {
+            workingDirectory = launchContext.path
+        } else {
+            workingDirectory = lastFocusedLocalWorkingDirectory ?? Self.defaultWorkingDirectory()
+        }
+
+        let worklaneID = runtimeIdentity.makeWorklaneID()
+        let worklane = Self.makeDefaultWorklane(
+            id: worklaneID,
+            title: "",
+            windowID: destinationWindowID,
+            layoutContext: layoutContext,
+            workingDirectory: workingDirectory,
+            surfaceContext: .window,
+            processEnvironment: processEnvironment,
+            runtimeIdentity: runtimeIdentity,
+            agentTeamsEnabled: agentTeamsEnabledProvider()
+        )
+        return WindowWorkspaceState(worklanes: [worklane], activeWorklaneID: worklaneID)
     }
 
     @discardableResult
@@ -2258,6 +2563,59 @@ final class WorklaneStore {
         recomputePresentation(for: paneID, in: &worklane)
     }
 
+    func markCodexCurrentRunActivityIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
+        guard worklane.auxiliaryStateByPaneID[paneID]?.raw.codexCurrentRunHasObservedActivity != true else {
+            return
+        }
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].raw.codexCurrentRunHasObservedActivity = true
+    }
+
+    func clearCodexCurrentRunActivity(for paneID: PaneID, in worklane: inout WorklaneState) {
+        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexCurrentRunHasObservedActivity = false
+    }
+
+    func codexReadyPromotionAllowed(in auxiliaryState: PaneAuxiliaryState?) -> Bool {
+        guard let auxiliaryState else {
+            return false
+        }
+
+        if auxiliaryState.raw.codexCurrentRunHasObservedActivity {
+            return true
+        }
+
+        return Self.codexStatusIsExplicitCurrentRunActivity(auxiliaryState.agentStatus)
+    }
+
+    static func codexStatusIsExplicitCurrentRunActivity(_ status: PaneAgentStatus?) -> Bool {
+        guard let status,
+              status.tool == .codex,
+              status.state == .running || status.state == .needsInput else {
+            return false
+        }
+
+        return status.origin == .explicitHook || status.origin == .explicitAPI
+    }
+
+    static func metadataIndicatesCodexCurrentRunActivity(_ metadata: TerminalMetadata?) -> Bool {
+        guard let metadata,
+              AgentToolRecognizer.recognize(metadata: metadata) == .codex else {
+            return false
+        }
+
+        if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: metadata.title) != nil {
+            return true
+        }
+        if TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) == .needsInput {
+            return true
+        }
+
+        let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: .codex
+        )
+        return signature?.phase == .running || signature?.phase == .needsInput
+    }
+
     func requestReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
         let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
         var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
@@ -2375,6 +2733,9 @@ final class WorklaneStore {
         if let agentStatus = auxiliaryState.agentStatus,
            agentStatus.state == .idle,
            agentStatus.hasObservedRunning {
+            if agentStatus.tool == .codex {
+                return codexReadyPromotionAllowed(in: auxiliaryState)
+            }
             return true
         }
 
@@ -2387,6 +2748,11 @@ final class WorklaneStore {
         if notificationText.contains("agent run complete")
             || notificationText.contains("agent ready")
             || notificationText.contains("agent turn complete") {
+            let recognizedTool = auxiliaryState.agentStatus?.tool
+                ?? AgentToolRecognizer.recognize(metadata: auxiliaryState.metadata)
+            if recognizedTool == .codex {
+                return codexReadyPromotionAllowed(in: auxiliaryState)
+            }
             return true
         }
 
@@ -2430,6 +2796,32 @@ final class WorklaneStore {
 
     private func pane(for paneID: PaneID, in worklane: WorklaneState) -> PaneState? {
         worklane.paneStripState.panes.first { $0.id == paneID }
+    }
+
+    private func liveAuxiliaryState(for paneID: PaneID) -> PaneAuxiliaryState? {
+        for worklane in worklanes {
+            guard worklane.paneStripState.panes.contains(where: { $0.id == paneID }) else {
+                continue
+            }
+            return worklane.auxiliaryStateByPaneID[paneID]
+        }
+        return nil
+    }
+
+    private func agentStatusAllowsRestoredCommand(_ status: PaneAgentStatus?) -> Bool {
+        guard let status else { return true }
+        switch status.state {
+        case .starting, .running, .needsInput:
+            return false
+        case .idle, .unresolvedStop:
+            return true
+        }
+    }
+
+    private static func trimmedRestoredCommand(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func defaultWorkingDirectory() -> String {

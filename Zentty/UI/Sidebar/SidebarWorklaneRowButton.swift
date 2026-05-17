@@ -74,10 +74,12 @@ final class SidebarWorklaneRowButton: NSButton {
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
+    var onAddPaneLeftRequested: ((PaneID) -> Void)?
     var onForceSplitRightRequested: ((PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
     var onServerPortSelected: ((String) -> Void)?
+    var onRunRestoredCommand: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
@@ -85,6 +87,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
+    var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     var isOnlyWorklane = false {
         didSet {
             paneRowRenderer.setOnlyWorklane(isOnlyWorklane)
@@ -700,6 +703,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 onSplitVerticalRequested: { [weak self] paneID in
                     self?.onSplitVerticalRequested?(paneID)
                 },
+                onAddPaneLeftRequested: { [weak self] paneID in
+                    self?.onAddPaneLeftRequested?(paneID)
+                },
                 onForceSplitRightRequested: { [weak self] paneID in
                     self?.onForceSplitRightRequested?(paneID)
                 },
@@ -708,6 +714,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 },
                 onMovePaneToNewWindowRequested: { [weak self] paneID in
                     self?.onMovePaneToNewWindowRequested?(paneID)
+                },
+                onRunRestoredCommandRequested: { [weak self] paneID in
+                    self?.onRunRestoredCommand?(paneID)
                 },
                 onWorklaneColorChanged: { [weak self] color in
                     guard let self, let worklaneID = self.worklaneID else { return }
@@ -736,7 +745,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 moveToWorklaneCatalogProvider: moveToWorklaneCatalogProvider,
                 onServerPortSelected: { [weak self] serverID in
                     self?.onServerPortSelected?(serverID)
-                }
+                },
+                restoredRerunnableCommandProvider: restoredRerunnableCommandProvider
             )
         )
     }

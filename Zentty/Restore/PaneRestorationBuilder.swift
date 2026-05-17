@@ -5,6 +5,7 @@ enum PaneRestorationBuilder {
     struct PaneInputs: Equatable, Sendable {
         var id: PaneID
         var titleSeed: String?
+        var lastActivityTitle: String?
         var requestedWorkingDirectory: String?
         var command: String?
         var prefillText: String?
@@ -51,6 +52,7 @@ enum PaneRestorationBuilder {
             sessionRequestWorkingDirectory: resolvedDirectory
         )
         presentation.rememberedTitle = trimmed(inputs.titleSeed) ?? presentation.rememberedTitle
+        presentation.lastActivityTitle = trimmed(inputs.lastActivityTitle)
         if didFallBack, let statusText = inputs.statusTextWhenWorkingDirectoryMissing {
             presentation.statusText = statusText
         }

@@ -12,6 +12,21 @@ struct ClosedPaneAgentSnapshot: Equatable, Sendable {
     let toolDisplayName: String
     let sessionID: String?
     let workingDirectory: String?
+    let agentLaunchSnapshot: AgentLaunchSnapshot?
+
+    init(
+        tool: AgentTool,
+        toolDisplayName: String,
+        sessionID: String?,
+        workingDirectory: String?,
+        agentLaunchSnapshot: AgentLaunchSnapshot? = nil
+    ) {
+        self.tool = tool
+        self.toolDisplayName = toolDisplayName
+        self.sessionID = sessionID
+        self.workingDirectory = workingDirectory
+        self.agentLaunchSnapshot = agentLaunchSnapshot
+    }
 }
 
 struct ClosedPaneEntry: Identifiable, Equatable, Sendable {

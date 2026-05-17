@@ -329,6 +329,65 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_command_tooltip_formatter_appends_default_shortcut() {
+        let tooltip = CommandTooltipFormatter.title(
+            "Toggle Sidebar",
+            commandID: .toggleSidebar,
+            shortcutManager: ShortcutManager(shortcuts: .default)
+        )
+
+        XCTAssertEqual(tooltip, "Toggle Sidebar (⌘S)")
+    }
+
+    func test_command_tooltip_formatter_uses_custom_shortcut() {
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .toggleSidebar,
+                        shortcut: .init(key: .character("b"), modifiers: [.command])
+                    ),
+                ]
+            )
+        )
+
+        let tooltip = CommandTooltipFormatter.title(
+            "Toggle Sidebar",
+            commandID: .toggleSidebar,
+            shortcutManager: shortcutManager
+        )
+
+        XCTAssertEqual(tooltip, "Toggle Sidebar (⌘B)")
+    }
+
+    func test_command_tooltip_formatter_omits_suffix_for_unassigned_shortcut() {
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(commandID: .toggleSidebar, shortcut: nil),
+                ]
+            )
+        )
+
+        let tooltip = CommandTooltipFormatter.title(
+            "Toggle Sidebar",
+            commandID: .toggleSidebar,
+            shortcutManager: shortcutManager
+        )
+
+        XCTAssertEqual(tooltip, "Toggle Sidebar")
+    }
+
+    func test_command_tooltip_formatter_preserves_title_override() {
+        let tooltip = CommandTooltipFormatter.title(
+            "Bookmarks & Presets",
+            commandID: .openBookmarksPopover,
+            shortcutManager: ShortcutManager(shortcuts: .default)
+        )
+
+        XCTAssertEqual(tooltip, "Bookmarks & Presets (⌘⇧B)")
+    }
+
     func test_conflicting_shortcut_override_is_rejected_in_effective_bindings() {
         let manager = ShortcutManager(
             shortcuts: AppConfig.Shortcuts(

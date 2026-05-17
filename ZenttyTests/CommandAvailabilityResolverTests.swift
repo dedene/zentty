@@ -99,14 +99,14 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.arrangeHeightThreePerColumn))
     }
 
-    func testSingleWorklaneHidesWorklaneNavigation() {
+    func testSingleWorklaneKeepsWorklanePeekNavigationAvailable() {
         let available = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: 1,
             activePaneCount: 1,
             totalPaneCount: 1
         )
-        XCTAssertFalse(available.contains(.nextWorklane))
-        XCTAssertFalse(available.contains(.previousWorklane))
+        XCTAssertTrue(available.contains(.nextWorklane))
+        XCTAssertTrue(available.contains(.previousWorklane))
     }
 
     func testMultipleWorklanesShowsWorklaneNavigation() {

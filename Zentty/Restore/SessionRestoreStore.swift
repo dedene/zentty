@@ -250,6 +250,7 @@ struct PaneRestoreDraft: Codable, Equatable, Sendable {
     var sessionID: String
     var workingDirectory: String?
     var trackedPID: Int32
+    var agentLaunchSnapshot: AgentLaunchSnapshot? = nil
 }
 
 enum SessionRestoreDraftExporter {
@@ -291,28 +292,208 @@ enum SessionRestoreDraftExporter {
         guard auxiliary.shellContext?.scope != .remote else {
             return nil
         }
-        guard let agentStatus = auxiliary.agentStatus else {
-            return nil
+        if let liveDraft = makeLivePaneDraft(
+            paneID: paneID,
+            pane: pane,
+            auxiliary: auxiliary,
+            isProcessAlive: isProcessAlive
+        ) {
+            return liveDraft
         }
-        guard let sessionID = trimmed(agentStatus.sessionID) else {
-            return nil
-        }
-        guard let trackedPID = agentStatus.trackedPID, isProcessAlive(trackedPID) else {
+
+        guard var restoredDraft = auxiliary.raw.restoredAgentRestoreDraft,
+              restoredDraft.paneID == paneID.rawValue,
+              AgentResumeCommandBuilder.command(for: restoredDraft) != nil else {
             return nil
         }
 
-        let workingDirectory = trimmed(agentStatus.workingDirectory)
-            ?? trimmed(auxiliary.presentation.cwd)
-            ?? trimmed(pane.sessionRequest.workingDirectory)
+        restoredDraft.workingDirectory = workingDirectory(
+            agentStatus: auxiliary.agentStatus,
+            auxiliary: auxiliary,
+            pane: pane,
+            restoredDraft: restoredDraft
+        )
+        return restoredDraft
+    }
 
-        return PaneRestoreDraft(
+    private static func makeLivePaneDraft(
+        paneID: PaneID,
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState,
+        isProcessAlive: (Int32) -> Bool
+    ) -> PaneRestoreDraft? {
+        let resolvedWorkingDirectory = workingDirectory(
+            agentStatus: auxiliary.agentStatus,
+            auxiliary: auxiliary,
+            pane: pane,
+            restoredDraft: nil
+        )
+
+        if let agentStatus = auxiliary.agentStatus,
+           let trackedPID = agentStatus.trackedPID,
+           isProcessAlive(trackedPID) {
+            return makeRestorableDraft(
+                paneID: paneID.rawValue,
+                tool: agentStatus.tool,
+                sessionID: agentStatus.sessionID,
+                workingDirectory: resolvedWorkingDirectory,
+                trackedPID: trackedPID,
+                agentLaunchSnapshot: agentStatus.agentLaunchSnapshot
+            )
+        }
+
+        guard let session = restorableHiddenSession(
+            in: auxiliary.agentReducerState,
+            workingDirectory: resolvedWorkingDirectory,
+            isProcessAlive: isProcessAlive
+        ) else {
+            return nil
+        }
+
+        guard let trackedPID = session.trackedPID else {
+            return nil
+        }
+
+        return makeRestorableDraft(
             paneID: paneID.rawValue,
+            tool: session.tool,
+            sessionID: session.sessionID,
+            workingDirectory: resolvedWorkingDirectory,
+            trackedPID: trackedPID,
+            agentLaunchSnapshot: session.agentLaunchSnapshot
+        )
+    }
+
+    private static func restorableHiddenSession(
+        in reducerState: PaneAgentReducerState,
+        workingDirectory: String?,
+        isProcessAlive: (Int32) -> Bool
+    ) -> PaneAgentSessionState? {
+        reducerState.sessionsByID.values
+            .filter { session in
+                guard let trackedPID = session.trackedPID,
+                      isProcessAlive(trackedPID) else {
+                    return false
+                }
+
+                switch session.state {
+                case .starting, .running, .needsInput, .idle:
+                    return makeRestorableDraft(
+                        paneID: "",
+                        tool: session.tool,
+                        sessionID: session.sessionID,
+                        workingDirectory: workingDirectory,
+                        trackedPID: trackedPID
+                    ) != nil
+                case .unresolvedStop:
+                    return false
+                }
+            }
+            .sorted { lhs, rhs in
+                let lhsRank = restoreRank(for: lhs)
+                let rhsRank = restoreRank(for: rhs)
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            .first
+    }
+
+    private enum RestoreIdentityRequirement {
+        case sessionID
+        case workingDirectory
+        case unsupported
+    }
+
+    private static func makeRestorableDraft(
+        paneID: String,
+        tool: AgentTool,
+        sessionID rawSessionID: String?,
+        workingDirectory rawWorkingDirectory: String?,
+        trackedPID: Int32,
+        agentLaunchSnapshot: AgentLaunchSnapshot? = nil
+    ) -> PaneRestoreDraft? {
+        let workingDirectory = trimmed(rawWorkingDirectory)
+        let sessionID: String
+
+        switch restoreIdentityRequirement(for: tool) {
+        case .sessionID:
+            guard let requiredSessionID = trimmed(rawSessionID) else {
+                return nil
+            }
+            sessionID = requiredSessionID
+        case .workingDirectory:
+            guard workingDirectory != nil else {
+                return nil
+            }
+            sessionID = normalizedOptionalSessionID(rawSessionID, for: tool)
+        case .unsupported:
+            return nil
+        }
+
+        let draft = PaneRestoreDraft(
+            paneID: paneID,
             kind: .agentResume,
-            toolName: agentStatus.tool.displayName,
+            toolName: tool.displayName,
             sessionID: sessionID,
             workingDirectory: workingDirectory,
-            trackedPID: trackedPID
+            trackedPID: trackedPID,
+            agentLaunchSnapshot: agentLaunchSnapshot
         )
+
+        guard AgentResumeCommandBuilder.command(for: draft) != nil else {
+            return nil
+        }
+
+        return draft
+    }
+
+    private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
+        switch tool {
+        case .amp, .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
+            return .sessionID
+        case .gemini, .pi, .grok:
+            return .workingDirectory
+        case .cursor, .zentty, .custom:
+            return .unsupported
+        }
+    }
+
+    private static func normalizedOptionalSessionID(_ rawSessionID: String?, for tool: AgentTool) -> String {
+        guard let sessionID = trimmed(rawSessionID) else {
+            return ""
+        }
+
+        let fallbackSessionID = "pane-\(tool.displayName.lowercased())"
+        return sessionID == fallbackSessionID ? "" : sessionID
+    }
+
+    private static func restoreRank(for session: PaneAgentSessionState) -> Int {
+        switch session.state {
+        case .needsInput:
+            return 0
+        case .running:
+            return 1
+        case .starting:
+            return 2
+        case .idle:
+            return 3
+        case .unresolvedStop:
+            return 4
+        }
+    }
+
+    private static func workingDirectory(
+        agentStatus: PaneAgentStatus?,
+        auxiliary: PaneAuxiliaryState,
+        pane: PaneState,
+        restoredDraft: PaneRestoreDraft?
+    ) -> String? {
+        trimmed(agentStatus?.workingDirectory)
+            ?? trimmed(auxiliary.presentation.cwd)
+            ?? trimmed(pane.sessionRequest.workingDirectory)
+            ?? trimmed(restoredDraft?.workingDirectory)
     }
 
     private static func trimmed(_ value: String?) -> String? {
@@ -343,6 +524,18 @@ enum AgentResumeCommandBuilder {
         }
 
         switch AgentTool.resolve(named: draft.toolName) {
+        case .amp:
+            guard let sessionID = validatedAmpThreadID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            guard let resumeArguments = AmpResumeArgumentSanitizer.sanitizedAmpResumeArguments(
+                from: draft.agentLaunchSnapshot?.arguments ?? []
+            ) else {
+                return nil
+            }
+            let commandArguments = ["amp", "threads", "continue"] + resumeArguments + [sessionID]
+            return commandArguments.map(shellQuotedArgument(_:)).joined(separator: " ")
         case .claudeCode:
             guard let sessionID = validatedClaudeSessionID(from: draft.sessionID) else {
                 logRejectedSessionID(for: draft)
@@ -368,6 +561,10 @@ enum AgentResumeCommandBuilder {
             }
             return "copilot --resume=\(sessionID)"
         case .gemini:
+            guard hasWorkingDirectory(draft) else {
+                logRejectedWorkingDirectory(for: draft)
+                return nil
+            }
             return "gemini --resume"
         case .kimi:
             guard let sessionID = validatedKimiSessionID(from: draft.sessionID) else {
@@ -387,7 +584,22 @@ enum AgentResumeCommandBuilder {
             // Pi resumes per-project via `-c` (continue last session). Since pi stores
             // sessions under ~/.pi/agent/sessions/<project>/, we don't need to pass a
             // specific session ID — pi looks up the latest one for this cwd.
+            guard hasWorkingDirectory(draft) else {
+                logRejectedWorkingDirectory(for: draft)
+                return nil
+            }
             return "pi -c"
+        case .grok:
+            if let sessionID = validatedGrokSessionID(from: draft.sessionID) {
+                return "grok --resume \(sessionID)"
+            }
+            // Fall back to directory-based resume (Grok can resume the last session
+            // for the current working directory).
+            guard hasWorkingDirectory(draft) else {
+                logRejectedWorkingDirectory(for: draft)
+                return nil
+            }
+            return "grok --resume"
         default:
             return nil
         }
@@ -429,6 +641,20 @@ enum AgentResumeCommandBuilder {
         return uuid.uuidString.lowercased()
     }
 
+    private static func validatedGrokSessionID(from sessionID: String) -> String? {
+        // Grok Build sessions are typically UUIDs. We also accept reasonable
+        // alphanumeric session identifiers (Grok may use short IDs in some modes).
+        if let uuid = UUID(uuidString: sessionID) {
+            return uuid.uuidString.lowercased()
+        }
+
+        let pattern = "^[A-Za-z0-9][A-Za-z0-9_-]{3,}$"
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
     private static func validatedKimiSessionID(from sessionID: String) -> String? {
         guard let uuid = UUID(uuidString: sessionID) else {
             return nil
@@ -447,10 +673,39 @@ enum AgentResumeCommandBuilder {
         return sessionID
     }
 
+    private static func validatedAmpThreadID(from sessionID: String) -> String? {
+        let pattern = #"^T-[A-Za-z0-9_-]+$"#
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
+    private static func shellQuotedArgument(_ argument: String) -> String {
+        if argument.range(of: #"^[A-Za-z0-9_./:=+-]+$"#, options: .regularExpression) != nil {
+            return argument
+        }
+        return "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func hasWorkingDirectory(_ draft: PaneRestoreDraft) -> Bool {
+        guard let workingDirectory = draft.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+
+        return !workingDirectory.isEmpty
+    }
+
     private static func logRejectedSessionID(for draft: PaneRestoreDraft) {
         let preview = String(draft.sessionID.prefix(32))
         sessionRestoreLogger.error(
             "Skipping restore draft for tool \(draft.toolName, privacy: .public) because the session identifier was invalid: \(preview, privacy: .public)"
+        )
+    }
+
+    private static func logRejectedWorkingDirectory(for draft: PaneRestoreDraft) {
+        sessionRestoreLogger.error(
+            "Skipping restore draft for tool \(draft.toolName, privacy: .public) because the working directory was unavailable"
         )
     }
 }

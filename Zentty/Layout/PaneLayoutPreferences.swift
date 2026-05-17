@@ -186,6 +186,24 @@ enum PaneRightCommandPresentation: Equatable, Sendable {
             .splitRightVisibly
         }
     }
+
+    var primaryIconSystemName: String {
+        switch self {
+        case .splitsVisibly:
+            "rectangle.split.2x1"
+        case .addsToWorklane:
+            "arrow.right.square"
+        }
+    }
+
+    var forceOppositeIconSystemName: String {
+        switch self {
+        case .splitsVisibly:
+            "arrow.right.square"
+        case .addsToWorklane:
+            "rectangle.split.2x1"
+        }
+    }
 }
 
 struct PaneLayoutPreferences: Equatable, Sendable {

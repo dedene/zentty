@@ -182,6 +182,7 @@ struct AgentSignalCommand {
                     signalKind: .shellState,
                     state: nil,
                     shellActivityState: shellActivityState,
+                    shellCommand: options["command"],
                     origin: origin,
                     toolName: options["tool"],
                     text: nil,

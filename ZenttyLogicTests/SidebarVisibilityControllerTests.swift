@@ -80,6 +80,30 @@ final class SidebarVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(controller.persistedMode, .hidden)
     }
 
+    func test_global_search_focus_reveals_hidden_sidebar_as_non_persistent_peek() {
+        var controller = SidebarVisibilityController(mode: .hidden)
+
+        controller.handle(.globalSearchFocusEntered)
+
+        XCTAssertEqual(controller.mode, .hoverPeek)
+        XCTAssertEqual(controller.persistedMode, .hidden)
+        XCTAssertTrue(controller.isFloating)
+    }
+
+    func test_global_search_focus_keeps_peek_open_until_focus_released() {
+        var controller = SidebarVisibilityController(mode: .hidden)
+        controller.handle(.globalSearchFocusEntered)
+        controller.handle(.dismissTimerElapsed)
+
+        XCTAssertEqual(controller.mode, .hoverPeek)
+
+        controller.handle(.globalSearchFocusExited)
+        controller.handle(.dismissTimerElapsed)
+
+        XCTAssertEqual(controller.mode, .hidden)
+        XCTAssertEqual(controller.persistedMode, .hidden)
+    }
+
     func test_effective_leading_inset_is_reserved_only_when_pinned_open() {
         XCTAssertEqual(
             SidebarVisibilityController(mode: .pinnedOpen).effectiveLeadingInset(sidebarWidth: 280),

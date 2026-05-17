@@ -20,9 +20,13 @@ private protocol LibghosttyScrollbarHandling: AnyObject {
 @MainActor
 private final class LibghosttyOverlayHostView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let localPoint = convert(point, from: superview)
+        guard !isHidden, alphaValue > 0, bounds.contains(localPoint) else {
+            return nil
+        }
+
         for subview in subviews.reversed() {
-            let pointInSubview = convert(point, to: subview)
-            if let hitView = subview.hitTest(pointInSubview) {
+            if let hitView = subview.hitTest(localPoint) {
                 return hitView
             }
         }
@@ -79,6 +83,15 @@ private final class LibghosttyScrollView: NSScrollView {
         }
 
         super.rightMouseUp(with: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        guard let surfaceView else {
+            super.rightMouseDragged(with: event)
+            return
+        }
+
+        surfaceView.rightMouseDragged(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -270,6 +283,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         }
 
         super.rightMouseUp(with: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        surfaceView.rightMouseDragged(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -630,6 +647,11 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         #selector(NSResponder.scrollPageUp(_:)),
     ]
 
+    private struct SecondaryMouseRouting {
+        let button: ghostty_input_mouse_button_e
+        let behavesLikePrimarySelection: Bool
+    }
+
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastViewportSignature: ViewportSignature?
     private var isViewportSyncSuspended = false
@@ -641,6 +663,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     private var currentCursor: NSCursor = .iBeam
     private var mouseTrackingArea: NSTrackingArea?
     private var mouseInteractionSuppressionRects: [CGRect] = []
+    private var activeSecondaryMouseRouting: SecondaryMouseRouting?
+    private var forwardsActiveSecondaryMouseDrag = false
     fileprivate private(set) var isSelectionDragActive = false
     fileprivate private(set) var lastMouseLocationInView: CGPoint?
     private var lastMouseModifiers: NSEvent.ModifierFlags = []
@@ -853,6 +877,16 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
     }
 
+    override func rightMouseDragged(with event: NSEvent) {
+        guard forwardsActiveSecondaryMouseDrag else {
+            return
+        }
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        forwardMousePosition(event)
+    }
+
     override func rightMouseUp(with event: NSEvent) {
         _ = handleSecondaryMouseUpForContextMenuRouting(event)
     }
@@ -980,20 +1014,41 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     fileprivate func handleSecondaryMouseDownForContextMenuRouting(_ event: NSEvent) -> Bool {
+        activeSecondaryMouseRouting = nil
+        forwardsActiveSecondaryMouseDrag = false
         guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
             return true
         }
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
+        let routing = secondaryMouseRouting(for: event)
+        activeSecondaryMouseRouting = routing
 
-        return surfaceController?.sendMouseButton(
+        let consumed = surfaceController?.sendMouseButton(
             state: GHOSTTY_MOUSE_PRESS,
-            button: GHOSTTY_MOUSE_RIGHT,
+            button: routing.button,
             modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         ) ?? false
+
+        if consumed, routing.behavesLikePrimarySelection {
+            forwardsActiveSecondaryMouseDrag = true
+            isSelectionDragActive = true
+            onSelectionDragStateDidChange?(true)
+        }
+
+        return consumed
     }
 
     fileprivate func handleSecondaryMouseUpForContextMenuRouting(_ event: NSEvent) -> Bool {
+        let routing = activeSecondaryMouseRouting ?? secondaryMouseRouting(for: event)
+        let wasForwardingActiveSecondaryMouseDrag = forwardsActiveSecondaryMouseDrag
+        activeSecondaryMouseRouting = nil
+        forwardsActiveSecondaryMouseDrag = false
+        if wasForwardingActiveSecondaryMouseDrag {
+            isSelectionDragActive = false
+            onSelectionDragStateDidChange?(false)
+        }
+
         guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
             return true
         }
@@ -1001,13 +1056,21 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
 
         return surfaceController?.sendMouseButton(
             state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_RIGHT,
+            button: routing.button,
             modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         ) ?? false
     }
 
+    private func secondaryMouseRouting(for event: NSEvent) -> SecondaryMouseRouting {
+        if event.modifierFlags.contains(.control), event.buttonNumber == 0 {
+            return SecondaryMouseRouting(button: GHOSTTY_MOUSE_LEFT, behavesLikePrimarySelection: true)
+        }
+
+        return SecondaryMouseRouting(button: GHOSTTY_MOUSE_RIGHT, behavesLikePrimarySelection: false)
+    }
+
     @IBAction func copy(_ sender: Any?) {
-        if CleanCopyPipeline.isAutoCleanEnabled {
+        if CleanCopyPipeline.shouldCleanTerminalCopyAction() {
             CleanCopyPipeline.suppressCallbackCleaning = true
             _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
             CleanCopyPipeline.suppressCallbackCleaning = false
@@ -1099,6 +1162,23 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        switch event.type {
+        case .rightMouseDown:
+            break
+        case .leftMouseDown:
+            guard event.modifierFlags.contains(.control) else {
+                return nil
+            }
+
+            guard surfaceController?.mouseCaptured != true else {
+                return nil
+            }
+
+            forwardContextMenuMousePress(event)
+        default:
+            return nil
+        }
+
         let systemMenu = super.menu(for: event)
         return contextMenuBuilder?(event, systemMenu) ?? systemMenu
     }
@@ -1116,6 +1196,20 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
 
         return true
+    }
+
+    private func forwardContextMenuMousePress(_ event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+
+        window?.makeFirstResponder(self)
+        forwardMousePosition(event)
+        _ = surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_RIGHT,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
     }
 
     func bind(surfaceController: any LibghosttySurfaceControlling) {

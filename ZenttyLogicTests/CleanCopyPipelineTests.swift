@@ -180,6 +180,185 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertEqual(result, "first\n\nsecond\n\nthird\n\nfourth")
     }
 
+    // MARK: - Copy Cleaning Policy
+
+    func test_shouldCleanTerminalCopyAction_is_false_for_copy_raw_suppression() {
+        XCTAssertFalse(
+            CleanCopyPipeline.shouldCleanTerminalCopyAction(
+                isAutoCleanEnabled: true,
+                suppressCallbackCleaning: true
+            )
+        )
+    }
+
+    func test_shouldCleanTerminalCopyAction_is_true_for_auto_clean_copy() {
+        XCTAssertTrue(
+            CleanCopyPipeline.shouldCleanTerminalCopyAction(
+                isAutoCleanEnabled: true,
+                suppressCallbackCleaning: false
+            )
+        )
+    }
+
+    func test_shouldCleanTerminalCopyAction_is_false_when_auto_clean_is_disabled() {
+        XCTAssertFalse(
+            CleanCopyPipeline.shouldCleanTerminalCopyAction(
+                isAutoCleanEnabled: false,
+                suppressCallbackCleaning: false
+            )
+        )
+    }
+
+    // MARK: - Agent Prompt Cleanup
+
+    func test_stripAgentPromptSelection_unwraps_chevron_prompt() {
+        let input = """
+        › i want to add support from predefined task runners, similar to the config from cmux (see /Users/peter/Development/Personal/zentty/tmp/cmux), but i'd like
+          to support also VSCode tasks or Taskfiles (from https://taskfile.dev)
+
+          first research what the most popular terminal task runners are, what cmux and vscode is doing
+          after that lets usete the $shaping skill and interview me in detail
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "i want to add support from predefined task runners, similar to the config from cmux (see /Users/peter/Development/Personal/zentty/tmp/cmux), but i'd like to support also VSCode tasks or Taskfiles (from https://taskfile.dev)\n\nfirst research what the most popular terminal task runners are, what cmux and vscode is doing after that lets usete the $shaping skill and interview me in detail"
+        )
+    }
+
+    func test_stripAgentPromptSelection_strips_single_line_heavy_chevron_prompt() {
+        XCTAssertEqual(CleanCopyPipeline.stripAgentPromptSelection("❯ /commit"), "/commit")
+    }
+
+    func test_stripAgentPromptSelection_uses_content_after_rule() {
+        let input = """
+        ❯ /my-skill:run-task "Analyze the dataset
+          for patterns and report findings"
+        ────────────────────────────────────────
+        /my-skill:run-task "Analyze the dataset
+          for patterns and report findings"
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "/my-skill:run-task \"Analyze the dataset for patterns and report findings\""
+        )
+    }
+
+    func test_stripAgentPromptSelection_preserves_multiple_paragraphs_without_padding() {
+        let input = """
+        › first paragraph wraps
+          onto a second line
+
+          second paragraph wraps
+          onto another line
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "first paragraph wraps onto a second line\n\nsecond paragraph wraps onto another line"
+        )
+    }
+
+    func test_stripAgentPromptSelection_preserves_repeated_blank_lines_without_padding() {
+        let input = """
+        › first paragraph
+
+
+          second paragraph
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "first paragraph\n\n\nsecond paragraph"
+        )
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_source_code() {
+        let input = """
+        › func hello() {
+              print("world")
+          }
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_source_code_without_braces() {
+        let input = """
+        › let value = makeValue()
+          await render(value)
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_lists() {
+        let input = """
+        › - first item
+          - second item
+          - third item
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_structured_data() {
+        let input = """
+        › {
+            "name": "Zentty",
+            "enabled": true
+          }
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_shell_transcript() {
+        let input = """
+        › $ git status
+          On branch main
+          $ git diff
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    // MARK: - Box Drawing Cleanup
+
+    func test_stripBoxDrawingArtifacts_removes_pipe_decoration() {
+        XCTAssertEqual(
+            CleanCopyPipeline.stripBoxDrawingArtifacts("curl -I https://example.com | │ head -n 5"),
+            "curl -I https://example.com | head -n 5"
+        )
+    }
+
+    func test_stripBoxDrawingArtifacts_repairs_wrapped_path_separator() {
+        let input = "curl -I https://github.com/zenjoy/zentty/releases/ │ download/app.zip | head -n 5"
+        XCTAssertEqual(
+            CleanCopyPipeline.stripBoxDrawingArtifacts(input),
+            "curl -I https://github.com/zenjoy/zentty/releases/download/app.zip | head -n 5"
+        )
+    }
+
+    func test_stripBoxDrawingArtifacts_identity_without_box_artifacts() {
+        XCTAssertNil(CleanCopyPipeline.stripBoxDrawingArtifacts("curl -I https://example.com | head -n 5"))
+    }
+
+    func test_stripBoxDrawingArtifacts_preserves_final_newline() {
+        XCTAssertEqual(CleanCopyPipeline.stripBoxDrawingArtifacts("│ hello\n"), "hello\n")
+    }
+
+    func test_stripBoxDrawingArtifacts_does_not_strip_single_box_diagram_line() {
+        let input = """
+        keep
+        │ legitimate diagram line
+        done
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripBoxDrawingArtifacts(input))
+    }
+
     // MARK: - Pass 5: Line Number Prefix Detection
 
     func test_stripLineNumbers_cat_n_format() {
@@ -328,6 +507,26 @@ final class CleanCopyPipelineTests: XCTestCase {
         let input = "\t\thello   \n\t\tworld\t\t"
         let result = CleanCopyPipeline.clean(input)
         XCTAssertEqual(result.text, "hello\nworld")
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_cleans_agent_prompt_selection() {
+        let input = """
+        › i want to add support from predefined task runners, similar to cmux, but i'd like
+          to support also VSCode tasks or Taskfiles
+        """
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "i want to add support from predefined task runners, similar to cmux, but i'd like to support also VSCode tasks or Taskfiles"
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_cleans_box_drawing_artifacts() {
+        let input = "curl -I https://example.com | │ head -n 5"
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, "curl -I https://example.com | head -n 5")
         XCTAssertTrue(result.wasModified)
     }
 }

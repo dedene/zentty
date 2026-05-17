@@ -46,6 +46,7 @@ enum AppConfigTOML {
         lines.append("[panes]")
         lines.append("show_labels = \(config.panes.showLabels)")
         lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
+        lines.append("show_project_icons = \(config.panes.showProjectIcons)")
         lines.append("")
 
         if config.appearance != .default {
@@ -515,6 +516,11 @@ enum AppConfigTOML {
                 return false
             }
             config.panes.inactiveOpacity = CGFloat(value)
+        case "show_project_icons":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.panes.showProjectIcons = value
         default:
             return true
         }

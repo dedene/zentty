@@ -32,6 +32,7 @@ final class PaneBorderContextInsetView: NSView {
     private var currentAttributedText = NSAttributedString(string: "")
     private var currentTextRect: CGRect = .zero
     private let currentTruncationMode: CATextLayerTruncationMode = .middle
+    private var shortcutManager = ShortcutManager(shortcuts: .default)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -204,7 +205,18 @@ final class PaneBorderContextInsetView: NSView {
     }
 
     private func updateCopyAffordanceState() {
-        toolTip = showsCopyAffordance ? "Copy path" : nil
+        toolTip = showsCopyAffordance
+            ? CommandTooltipFormatter.title(
+                "Copy Path",
+                commandID: .copyFocusedPanePath,
+                shortcutManager: shortcutManager
+            )
+            : nil
+    }
+
+    func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        updateCopyAffordanceState()
     }
 
     private static func naturalTextWidth(for text: String, font: NSFont) -> CGFloat {
@@ -380,6 +392,10 @@ final class AppCanvasView: NSView {
                 timingFunction: timingFunction
             )
         }
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        paneStripView.updateShortcutTooltips(shortcutManager)
     }
 
     func focusCurrentPaneIfNeeded() {

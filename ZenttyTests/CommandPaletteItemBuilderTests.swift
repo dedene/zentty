@@ -464,6 +464,93 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertEqual(resolved.items.map(\.item.id), [paneID])
     }
 
+    func testExactOpenWithTitleMatchRanksBeforePaneMatch() {
+        let pane = CommandPaletteItem(
+            id: .pane(worklaneID: WorklaneID("worklane-finder"), paneID: PaneID("pane-finder")),
+            title: "cli-improvements",
+            subtitle: "Fresh-eyes pass found and fixed finder ranking",
+            shortcutDisplay: nil,
+            category: "Pane",
+            searchText: "cli-improvements fresh-eyes pass found and fixed finder ranking",
+            group: .pane,
+            iconSystemName: "arrow.right.square"
+        )
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+                OpenWithResolvedTarget(stableID: "cursor", kind: .editor, displayName: "Cursor", builtInID: .cursor, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "finder",
+            items: [pane] + openWithItems,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.items.first?.item.id, .openWith(stableID: "finder"))
+    }
+
+    func testPrefixOpenWithTitleMatchRanksBeforePaneMatch() {
+        let pane = CommandPaletteItem(
+            id: .pane(worklaneID: WorklaneID("worklane-cursor"), paneID: PaneID("pane-cursor")),
+            title: "curate-command-panel",
+            subtitle: "Main • cursor matching notes",
+            shortcutDisplay: nil,
+            category: "Pane",
+            searchText: "curate-command-panel main cursor matching notes",
+            group: .pane,
+            iconSystemName: "arrow.right.square"
+        )
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+                OpenWithResolvedTarget(stableID: "cursor", kind: .editor, displayName: "Cursor", builtInID: .cursor, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "cur",
+            items: [pane] + openWithItems,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.items.first?.item.id, .openWith(stableID: "cursor"))
+    }
+
+    func testExactCommandTitleMatchRanksBeforeOpenWithAndPaneMatches() {
+        let pane = CommandPaletteItem(
+            id: .pane(worklaneID: WorklaneID("worklane-find"), paneID: PaneID("pane-find")),
+            title: "finder-improvements",
+            subtitle: "Main • find behavior",
+            shortcutDisplay: nil,
+            category: "Pane",
+            searchText: "finder-improvements main find behavior",
+            group: .pane,
+            iconSystemName: "arrow.right.square"
+        )
+        let commandItems = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.find, .globalFind, .useSelectionForFind],
+            shortcutManager: shortcutManager
+        )
+        let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
+            targets: [
+                OpenWithResolvedTarget(stableID: "finder", kind: .fileManager, displayName: "Finder", builtInID: .finder, appPath: nil),
+            ],
+            focusedPanePath: "/tmp/project"
+        )
+
+        let resolved = CommandPaletteResultsResolver.resolve(
+            searchText: "find",
+            items: [pane] + commandItems + openWithItems,
+            recentItems: []
+        )
+
+        XCTAssertEqual(resolved.items.first?.item.id, .command(.find))
+    }
+
     @MainActor
     func testViewModelDoesNotResolveAgainWhenSelectionMoves() {
         let item = CommandPaletteItem(

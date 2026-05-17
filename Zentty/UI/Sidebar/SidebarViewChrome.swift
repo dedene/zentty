@@ -8,6 +8,8 @@ final class SidebarViewChrome {
     private let listDocumentView: FlippedSidebarDocumentView
     private let listStack: NSStackView
     private let addWorklaneButton: SidebarCreateWorklaneButton
+    private let globalSearchButton: SidebarGlobalSearchButton
+    private let globalSearchRowView: SidebarGlobalSearchRowView
     private let bookmarksButton: SidebarBookmarksButton
     private let updateAvailableRowView: SidebarUpdateAvailableRowView
     private let resizeHandleView: SidebarResizeHandleView
@@ -19,6 +21,8 @@ final class SidebarViewChrome {
         listDocumentView: FlippedSidebarDocumentView,
         listStack: NSStackView,
         addWorklaneButton: SidebarCreateWorklaneButton,
+        globalSearchButton: SidebarGlobalSearchButton,
+        globalSearchRowView: SidebarGlobalSearchRowView,
         bookmarksButton: SidebarBookmarksButton,
         updateAvailableRowView: SidebarUpdateAvailableRowView,
         resizeHandleView: SidebarResizeHandleView
@@ -29,6 +33,8 @@ final class SidebarViewChrome {
         self.listDocumentView = listDocumentView
         self.listStack = listStack
         self.addWorklaneButton = addWorklaneButton
+        self.globalSearchButton = globalSearchButton
+        self.globalSearchRowView = globalSearchRowView
         self.bookmarksButton = bookmarksButton
         self.updateAvailableRowView = updateAvailableRowView
         self.resizeHandleView = resizeHandleView
@@ -41,6 +47,8 @@ final class SidebarViewChrome {
         listDocumentView.appearance = sidebarAppearance
         listStack.appearance = sidebarAppearance
         addWorklaneButton.configure(theme: theme, animated: animated)
+        globalSearchButton.configure(theme: theme, animated: animated)
+        globalSearchRowView.apply(theme: theme, animated: animated)
         bookmarksButton.configure(theme: theme, animated: animated)
         updateAvailableRowView.configure(theme: theme, animated: animated)
         resizeHandleView.apply(theme: theme, animated: animated)

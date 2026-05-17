@@ -8,6 +8,7 @@ enum CommandPaletteItemID: Hashable {
     case worklaneColor(WorklaneColor?)
     case settings(SettingsSection)
     case pane(worklaneID: WorklaneID, paneID: PaneID)
+    case restoredCommand(paneID: PaneID)
 }
 
 enum CommandPaletteItemFamily: Hashable {
@@ -141,7 +142,10 @@ enum CommandPaletteItemBuilder {
                 shortcutDisplay: shortcut?.displayString,
                 category: definition.category.title,
                 searchText: searchText(for: definition, title: title, subtitle: subtitle),
-                iconSystemName: iconSystemName(for: definition.id),
+                iconSystemName: iconSystemName(
+                    for: definition.id,
+                    rightPaneCommandPresentation: rightPaneCommandPresentation
+                ),
                 family: nil,
                 familySearchText: nil,
                 familyOrder: nil
@@ -169,6 +173,25 @@ enum CommandPaletteItemBuilder {
                 rankingBoost: 0.05
             )
         }
+    }
+
+    static func buildRestoredCommandItem(
+        paneID: PaneID,
+        command: String
+    ) -> CommandPaletteItem {
+        CommandPaletteItem(
+            id: .restoredCommand(paneID: paneID),
+            title: "Run Last Command Again",
+            subtitle: command,
+            shortcutDisplay: nil,
+            category: "Pane",
+            searchText: [
+                "run last command again rerun repeat restored previous",
+                command,
+            ].joined(separator: " "),
+            iconSystemName: "arrow.clockwise",
+            rankingBoost: 0.2
+        )
     }
 
     static func buildPaneItems(
@@ -405,12 +428,15 @@ enum CommandPaletteItemBuilder {
             )
     }
 
-    private static func iconSystemName(for commandID: AppCommandID) -> String {
+    private static func iconSystemName(
+        for commandID: AppCommandID,
+        rightPaneCommandPresentation: PaneRightCommandPresentation
+    ) -> String {
         switch commandID {
         case .newWorklane:
             "plus.square.on.square"
         case .splitHorizontally:
-            "rectangle.split.2x1"
+            rightPaneCommandPresentation.primaryIconSystemName
         case .splitVertically:
             "rectangle.split.1x2"
         case .openSettings:

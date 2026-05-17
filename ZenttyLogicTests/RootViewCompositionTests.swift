@@ -59,6 +59,7 @@ final class RootViewCompositionTests: AppKitTestCase {
     }
 
     private func makeController(
+        configStore: AppConfigStore? = nil,
         sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaults(),
         sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaults(),
         paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaults(),
@@ -66,6 +67,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         initialLayoutContext: PaneLayoutContext = .fallback
     ) -> RootViewController {
         let controller = RootViewController(
+            configStore: configStore,
             appUpdateStateStore: appUpdateStateStore,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             sidebarWidthDefaults: sidebarWidthDefaults,
@@ -103,6 +105,42 @@ final class RootViewCompositionTests: AppKitTestCase {
         window.makeKeyAndOrderFrontForAppKitTesting(nil)
         controller.view.layoutSubtreeIfNeeded()
         return window
+    }
+
+    private func closeWorklaneMenuItem(
+        for worklaneID: WorklaneID,
+        in controller: RootViewController
+    ) throws -> NSMenuItem {
+        let sidebarView = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? SidebarView }.first)
+        let button = try XCTUnwrap(
+            sidebarView.debugSnapshotForTesting.worklaneButtons
+                .compactMap { $0 as? SidebarWorklaneRowButton }
+                .first { $0.worklaneID == worklaneID }
+        )
+        let menu = try XCTUnwrap(button.menu(for: try makeContextMenuEvent()))
+        return try XCTUnwrap(menu.item(withTitle: "Close Worklane"))
+    }
+
+    private func makeContextMenuEvent() throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: NSPoint(x: 12, y: 12),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
+    private func waitForMainQueue() {
+        let settled = expectation(description: "main queue settled")
+        DispatchQueue.main.async { settled.fulfill() }
+        wait(for: [settled], timeout: 1.0)
     }
 
     private func makeSidebarSummary(
@@ -290,7 +328,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(toast.frame.midX, canvasView.bounds.midX, accuracy: 0.5)
     }
 
-    func test_global_search_hud_is_positioned_inside_top_right_of_canvas_area() throws {
+    func test_global_search_uses_sidebar_row_instead_of_floating_hud() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
@@ -299,13 +337,11 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         let rootSubviews = controller.view.subviews
-        let appCanvasView = try XCTUnwrap(rootSubviews.first { $0 is AppCanvasView })
-        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView })
-        let globalSearchHUDView = try XCTUnwrap(rootSubviews.first { $0 is WindowSearchHUDView })
+        let sidebarView = try XCTUnwrap(rootSubviews.first { $0 is SidebarView } as? SidebarView)
 
-        XCTAssertLessThanOrEqual(globalSearchHUDView.frame.maxY, appCanvasView.frame.maxY - 13.5)
-        XCTAssertGreaterThanOrEqual(globalSearchHUDView.frame.maxX, appCanvasView.frame.maxX - 14.5)
-        XCTAssertLessThan(globalSearchHUDView.frame.maxY, windowChromeView.frame.minY)
+        XCTAssertFalse(rootSubviews.contains { String(describing: type(of: $0)) == "WindowSearchHUDView" })
+        XCTAssertTrue(sidebarView.isGlobalSearchPresentedForTesting)
+        XCTAssertGreaterThan(sidebarView.globalSearchRowHeightForTesting, 0)
     }
 
     func test_root_controller_layers_sidebar_above_chrome_and_toggle_above_sidebar() throws {
@@ -653,6 +689,85 @@ final class RootViewCompositionTests: AppKitTestCase {
         webButton.performClick(nil)
 
         XCTAssertEqual(selectedID, WorklaneID("worklane-web"))
+    }
+
+    func test_close_worklane_prompts_when_target_worklane_requires_pane_close_confirmation() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.CloseWorklanePrompt")
+        )
+        let controller = makeController(configStore: configStore)
+        let window = hostInVisibleWindow(controller)
+        let targetPaneID = PaneID("target-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.hasCommandHistory = true
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("target"),
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: targetPaneID, title: "shell")],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [targetPaneID: auxiliaryState]
+            ),
+            WorklaneState(
+                id: WorklaneID("other"),
+                title: "OTHER",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("other-shell"), title: "other")],
+                    focusedPaneID: PaneID("other-shell")
+                )
+            ),
+        ], activeWorklaneID: WorklaneID("target"))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let closeWorklane = try closeWorklaneMenuItem(for: WorklaneID("target"), in: controller)
+        NSApp.sendAction(try XCTUnwrap(closeWorklane.action), to: closeWorklane.target, from: closeWorklane)
+        waitForMainQueue()
+
+        XCTAssertNotNil(window.attachedSheet)
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, WorklaneID("target"))
+    }
+
+    func test_close_worklane_skips_prompt_when_pane_close_confirmation_is_disabled() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.CloseWorklaneNoPrompt")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeClosingPane = false
+        }
+        let controller = makeController(configStore: configStore)
+        let window = hostInVisibleWindow(controller)
+        let targetPaneID = PaneID("target-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.hasCommandHistory = true
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("target"),
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: targetPaneID, title: "shell")],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [targetPaneID: auxiliaryState]
+            ),
+            WorklaneState(
+                id: WorklaneID("other"),
+                title: "OTHER",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("other-shell"), title: "other")],
+                    focusedPaneID: PaneID("other-shell")
+                )
+            ),
+        ], activeWorklaneID: WorklaneID("target"))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let closeWorklane = try closeWorklaneMenuItem(for: WorklaneID("target"), in: controller)
+        NSApp.sendAction(try XCTUnwrap(closeWorklane.action), to: closeWorklane.target, from: closeWorklane)
+        waitForMainQueue()
+
+        XCTAssertNil(window.attachedSheet)
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, WorklaneID("other"))
     }
 
     func test_root_controller_restores_persisted_sidebar_width() {
@@ -1082,13 +1197,21 @@ final class RootViewCompositionTests: AppKitTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneContentMinX, 76)
-        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
+        XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneButtonWidth, 120)
         let buttonMaxX = sidebarView.addWorklaneButtonMinX + sidebarView.addWorklaneButtonWidth
-        let expectedTrailing = sidebarView.bounds.width - ShellMetrics.sidebarContentInset
-        let expectedMaxWidth = expectedTrailing - sidebarView.addWorklaneButtonMinX
-        XCTAssertEqual(sidebarView.addWorklaneWidthConstraintConstant, expectedMaxWidth, accuracy: 1.0)
-        XCTAssertLessThanOrEqual(buttonMaxX, expectedTrailing + 1.0)
+        XCTAssertEqual(
+            sidebarView.addWorklaneWidthConstraintConstant,
+            sidebarView.addWorklaneButtonWidth,
+            accuracy: 1.0
+        )
+        XCTAssertLessThanOrEqual(buttonMaxX, sidebarView.globalSearchButtonMinX + 1.0)
         XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
+        XCTAssertEqual(sidebarView.addWorklaneBackgroundAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(sidebarView.addWorklaneBorderAlpha, 0, accuracy: 0.001)
+        XCTAssertTrue(sidebarView.headerBandIsHidden)
+        XCTAssertFalse(sidebarView.headerAccessoryGroupIsHidden)
+        XCTAssertEqual(sidebarView.headerAccessoryGroupBackgroundAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(sidebarView.headerAccessoryGroupBorderAlpha, 0, accuracy: 0.001)
     }
 
     func test_sidebar_header_button_uses_full_width_in_hover_peek() {
@@ -1122,6 +1245,70 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertLessThanOrEqual(
             sidebarView.addWorklaneButtonWidth,
             sidebarView.bounds.width - (ShellMetrics.sidebarContentInset * 2) + 1.0
+        )
+        XCTAssertGreaterThanOrEqual(sidebarView.firstWorklaneTopInset, 8)
+        XCTAssertLessThanOrEqual(
+            sidebarView.firstWorklaneTopInset,
+            12,
+            "Hover peek should keep the first row close under the header divider"
+        )
+        XCTAssertEqual(
+            sidebarView.bookmarksButtonMinX - sidebarView.globalSearchButtonMaxX,
+            0,
+            accuracy: 0.5
+        )
+        sidebarView.performDebugActionForTesting(.setAddWorklaneHovered(true))
+        XCTAssertEqual(
+            sidebarView.addWorklaneBackgroundWidth,
+            sidebarView.addWorklaneMinimumUntruncatedWidth,
+            accuracy: 0.5,
+            "Hover fill should hug the New worklane content, not stretch toward search"
+        )
+        XCTAssertLessThan(sidebarView.addWorklaneBackgroundWidth, sidebarView.addWorklaneButtonWidth)
+        XCTAssertFalse(sidebarView.headerBandIsHidden)
+        XCTAssertTrue(sidebarView.hasVisibleDivider)
+        XCTAssertEqual(sidebarView.headerBandCornerRadius, 0, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(
+            sidebarView.headerBandBottomBorderAlpha,
+            0.01,
+            "The visible peek divider should sit below the header, not on the button row edge"
+        )
+        XCTAssertTrue(sidebarView.headerAccessoryGroupIsHidden)
+    }
+
+    func test_sidebar_global_search_row_sits_below_hover_peek_divider() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    contextText: "",
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.updateHeaderLayout(visibilityMode: .hoverPeek, pinnedContentMinX: 76)
+        sidebarView.setGlobalSearchPresented(true, animated: false)
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let dividerFrame = sidebarView.headerDividerFrameInSidebar
+        let inputFrame = sidebarView.globalSearchInputFrameInSidebar
+
+        XCTAssertFalse(
+            inputFrame.intersects(dividerFrame),
+            "Peek search input should sit below the divider instead of painting over it"
+        )
+        XCTAssertEqual(
+            dividerFrame.maxY - inputFrame.maxY,
+            inputFrame.minY - sidebarView.firstWorklaneMaxY,
+            accuracy: 1.0,
+            "Peek search input should sit optically centered between the divider and first row"
         )
     }
 
@@ -2095,6 +2282,27 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         XCTAssertLessThan(afterHeights[0], beforeHeights[0])
         XCTAssertGreaterThan(afterHeights[1], beforeHeights[1])
+    }
+
+    func test_vertical_keyboard_resize_up_renders_immediately_when_visible() throws {
+        let controller = makeController()
+        hostInVisibleWindow(controller)
+
+        controller.handle(.pane(.splitVertically))
+        controller.view.layoutSubtreeIfNeeded()
+        controller.handle(.pane(.focusUp))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let beforeHeights = try resolvedFocusedColumnHeights(controller)
+
+        controller.handle(.pane(.resizeUp))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let afterHeights = try resolvedFocusedColumnHeights(controller)
+
+        XCTAssertLessThan(afterHeights[0], beforeHeights[0])
+        XCTAssertGreaterThan(afterHeights[1], beforeHeights[1])
+        XCTAssertFalse(controller.appCanvasViewForTesting.lastPaneStripRenderWasAnimatedForTesting)
     }
 
     func test_vertical_keyboard_resize_down_grows_top_pane_when_top_pane_is_focused() throws {

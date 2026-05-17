@@ -1,12 +1,22 @@
 import AppKit
 import QuartzCore
 
+enum SidebarCreateWorklaneButtonPresentation {
+    case capsule
+    case band
+}
+
 final class SidebarCreateWorklaneButton: NSButton {
+    private static let defaultTitle = "New worklane"
+    private static let iconWidth: CGFloat = 16
+    private static let titleRenderSlack: CGFloat = 0
+
     private let iconView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "New worklane")
-    private let contentStack = NSStackView()
+    private let titleLabel = NSTextField(labelWithString: SidebarCreateWorklaneButton.defaultTitle)
+    private let backgroundLayer = CALayer()
     private var trackingArea: NSTrackingArea?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
+    private var presentation: SidebarCreateWorklaneButtonPresentation = .capsule
     private var backgroundColorForTesting = NSColor.clear
     private var borderColorForTesting = NSColor.clear
     private(set) var isHovered = false
@@ -18,9 +28,16 @@ final class SidebarCreateWorklaneButton: NSButton {
     }
 
     override var intrinsicContentSize: NSSize {
-        let contentSize = contentStack.fittingSize
+        let titleWidth = SidebarTextMetrics.labelFittingWidth(
+            for: titleLabel.stringValue,
+            font: titleLabel.font ?? NSFont.systemFont(ofSize: 13, weight: .medium)
+        )
+        let contentWidth = Self.iconWidth
+            + ShellMetrics.sidebarCreateWorklaneIconSpacing
+            + titleWidth
+            + Self.titleRenderSlack
         return NSSize(
-            width: contentSize.width + (ShellMetrics.sidebarCreateWorklaneHorizontalInset * 2),
+            width: contentWidth + (ShellMetrics.sidebarCreateWorklaneHorizontalInset * 2),
             height: ShellMetrics.sidebarCreateWorklaneButtonHeight
         )
     }
@@ -37,15 +54,18 @@ final class SidebarCreateWorklaneButton: NSButton {
 
     private func setup() {
         title = ""
-        setAccessibilityLabel("New worklane")
+        setAccessibilityLabel(Self.defaultTitle)
         isBordered = false
         bezelStyle = .regularSquare
         contentTintColor = .secondaryLabelColor
         font = NSFont.systemFont(ofSize: 13, weight: .medium)
         wantsLayer = true
-        layer?.cornerRadius = ChromeGeometry.pillRadius
+        layer?.cornerRadius = ShellMetrics.sidebarHeaderControlCornerRadius
         layer?.cornerCurve = .continuous
-        layer?.masksToBounds = true
+        layer?.masksToBounds = false
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.addSublayer(backgroundLayer)
+        backgroundLayer.cornerCurve = .continuous
         setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCreateWorklaneButtonHeight).isActive = true
@@ -56,54 +76,33 @@ final class SidebarCreateWorklaneButton: NSButton {
             systemSymbolName: "plus",
             accessibilityDescription: "New worklane"
         )?.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.translatesAutoresizingMaskIntoConstraints = true
+        iconView.imageScaling = .scaleNone
         iconView.setContentHuggingPriority(.required, for: .horizontal)
         iconView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.translatesAutoresizingMaskIntoConstraints = true
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
-        contentStack.orientation = .horizontal
-        contentStack.alignment = .centerY
-        contentStack.spacing = ShellMetrics.sidebarCreateWorklaneIconSpacing
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        contentStack.addArrangedSubview(iconView)
-        contentStack.addArrangedSubview(titleLabel)
-        addSubview(contentStack)
-
-        let leading = contentStack.leadingAnchor.constraint(
-            equalTo: leadingAnchor,
-            constant: ShellMetrics.sidebarCreateWorklaneHorizontalInset
-        )
-        leading.priority = .defaultHigh
-
-        let trailing = contentStack.trailingAnchor.constraint(
-            lessThanOrEqualTo: trailingAnchor,
-            constant: -ShellMetrics.sidebarCreateWorklaneHorizontalInset
-        )
-        trailing.priority = .defaultHigh
-
-        let iconWidth = iconView.widthAnchor.constraint(equalToConstant: 16)
-        iconWidth.priority = .defaultHigh
-
-        NSLayoutConstraint.activate([
-            leading,
-            trailing,
-            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconWidth,
-            iconView.heightAnchor.constraint(equalToConstant: 16),
-        ])
+        addSubview(iconView)
+        addSubview(titleLabel)
 
         if let cell = cell as? NSButtonCell {
             cell.alignment = .left
             cell.imagePosition = .noImage
         }
+    }
+
+    func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
+        toolTip = CommandTooltipFormatter.title(
+            "New Worklane",
+            commandID: .newWorklane,
+            shortcutManager: shortcutManager
+        )
     }
 
     override func updateTrackingAreas() {
@@ -121,6 +120,13 @@ final class SidebarCreateWorklaneButton: NSButton {
         )
         addTrackingArea(trackingArea)
         self.trackingArea = trackingArea
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = min(ShellMetrics.sidebarHeaderControlCornerRadius, bounds.height / 2)
+        layoutContent()
+        layoutBackgroundLayer()
     }
 
     override func resetCursorRects() {
@@ -155,13 +161,33 @@ final class SidebarCreateWorklaneButton: NSButton {
 
     func configure(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        titleLabel.stringValue = "New worklane"
+        titleLabel.stringValue = Self.defaultTitle
         invalidateIntrinsicContentSize()
+        applyCurrentAppearance(animated: animated)
+    }
+
+    func setPresentation(_ presentation: SidebarCreateWorklaneButtonPresentation, animated: Bool) {
+        guard self.presentation != presentation else {
+            return
+        }
+        self.presentation = presentation
         applyCurrentAppearance(animated: animated)
     }
 
     var titleText: String {
         titleLabel.stringValue
+    }
+
+    var minimumUntruncatedWidth: CGFloat {
+        intrinsicContentSize.width
+    }
+
+    var titleFitsWithoutTruncation: Bool {
+        let requiredWidth = SidebarTextMetrics.labelFittingWidth(
+            for: titleLabel.stringValue,
+            font: titleLabel.font ?? NSFont.systemFont(ofSize: 13, weight: .medium)
+        )
+        return titleLabel.frame.width + 0.5 >= requiredWidth + Self.titleRenderSlack
     }
 
     var iconAlpha: CGFloat {
@@ -176,6 +202,10 @@ final class SidebarCreateWorklaneButton: NSButton {
         backgroundColorForTesting.alphaComponent
     }
 
+    var backgroundWidthForTesting: CGFloat {
+        backgroundLayer.frame.width
+    }
+
     var borderAlpha: CGFloat {
         borderColorForTesting.alphaComponent
     }
@@ -185,11 +215,11 @@ final class SidebarCreateWorklaneButton: NSButton {
     }
 
     func contentMinX(in view: NSView) -> CGFloat {
-        view.convert(contentStack.bounds, from: contentStack).minX
+        view.convert(contentFrameForTesting, from: self).minX
     }
 
     func contentMidX(in view: NSView) -> CGFloat {
-        view.convert(contentStack.bounds, from: contentStack).midX
+        view.convert(contentFrameForTesting, from: self).midX
     }
 
     func setHoveredForTesting(_ isHovered: Bool) {
@@ -206,8 +236,11 @@ final class SidebarCreateWorklaneButton: NSButton {
             ? currentTheme.secondaryText.withAlphaComponent(0.92)
             : currentTheme.tertiaryText.withAlphaComponent(0.68)
         let backgroundColor: NSColor
+        let borderColor = NSColor.clear
+        let shadowColor = NSColor.clear
+        let shadowOpacity: Float = 0
         if isEmphasized {
-            let hoverMix: CGFloat = currentTheme.sidebarBackground.isDarkThemeColor ? 0.12 : 0.18
+            let hoverMix: CGFloat = currentTheme.sidebarBackground.isDarkThemeColor ? 0.13 : 0.18
             backgroundColor = currentTheme.sidebarBackground
                 .mixed(towards: currentTheme.primaryText, amount: hoverMix)
                 .withAlphaComponent(min(1, currentTheme.sidebarBackground.alphaComponent + 0.10))
@@ -218,12 +251,57 @@ final class SidebarCreateWorklaneButton: NSButton {
         titleLabel.textColor = titleColor
         iconView.contentTintColor = iconColor
         backgroundColorForTesting = backgroundColor
-        borderColorForTesting = .clear
+        borderColorForTesting = borderColor
 
         performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = backgroundColor.cgColor
-            self.layer?.borderColor = NSColor.clear.cgColor
-            self.layer?.borderWidth = 0
+            self.layer?.backgroundColor = NSColor.clear.cgColor
+            self.backgroundLayer.backgroundColor = backgroundColor.cgColor
+            self.backgroundLayer.borderColor = borderColor.cgColor
+            self.backgroundLayer.borderWidth = borderColor.alphaComponent > 0 ? 0.5 : 0
+            self.layer?.shadowColor = shadowColor.cgColor
+            self.layer?.shadowOpacity = shadowOpacity
+            self.layer?.shadowRadius = 5
+            self.layer?.shadowOffset = CGSize(width: 0, height: -1)
         }
+    }
+
+    private func layoutContent() {
+        let inset = ShellMetrics.sidebarCreateWorklaneHorizontalInset
+        let iconSize = NSSize(width: Self.iconWidth, height: 16)
+        iconView.frame = NSRect(
+            x: inset,
+            y: floor((bounds.height - iconSize.height) / 2),
+            width: iconSize.width,
+            height: iconSize.height
+        )
+
+        let titleX = iconView.frame.maxX + ShellMetrics.sidebarCreateWorklaneIconSpacing
+        let titleHeight = ceil(titleLabel.intrinsicContentSize.height)
+        titleLabel.frame = NSRect(
+            x: titleX,
+            y: floor((bounds.height - titleHeight) / 2),
+            width: max(0, bounds.width - titleX - inset),
+            height: titleHeight
+        )
+    }
+
+    private func layoutBackgroundLayer() {
+        let intrinsicWidth = min(bounds.width, intrinsicContentSize.width)
+        backgroundLayer.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: intrinsicWidth,
+            height: bounds.height
+        )
+        backgroundLayer.cornerRadius = min(ShellMetrics.sidebarHeaderControlCornerRadius, bounds.height / 2)
+    }
+
+    private var contentFrameForTesting: NSRect {
+        NSRect(
+            x: ShellMetrics.sidebarCreateWorklaneHorizontalInset,
+            y: 0,
+            width: max(0, titleLabel.frame.maxX - ShellMetrics.sidebarCreateWorklaneHorizontalInset),
+            height: bounds.height
+        )
     }
 }

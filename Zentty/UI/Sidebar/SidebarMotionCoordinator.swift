@@ -85,7 +85,11 @@ final class SidebarMotionCoordinator {
     // MARK: - Event handling
 
     func handle(_ event: SidebarVisibilityEvent) {
-        if event == .togglePressed || event == .hoverRailEntered || event == .sidebarEntered {
+        if event == .togglePressed
+            || event == .hoverRailEntered
+            || event == .sidebarEntered
+            || event == .globalSearchFocusEntered
+        {
             cancelSidebarDismissalTimer()
         }
 

@@ -40,7 +40,12 @@ final class AgentEventBridgeTests: XCTestCase {
           },
           "progress": { "done": 3, "total": 7 },
           "artifact": { "kind": "pull-request", "label": "PR #42", "url": "https://github.com/org/repo/pull/42" },
-          "context": { "workingDirectory": "/tmp/project" }
+          "context": {
+            "workingDirectory": "/tmp/project",
+            "launch": {
+              "arguments": ["--mode", "smart"]
+            }
+          }
         }
         """
         let input = try AgentEventBridge.parseInput(json.data(using: .utf8)!)
@@ -60,6 +65,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(input.artifactLabel, "PR #42")
         XCTAssertEqual(input.artifactURL, "https://github.com/org/repo/pull/42")
         XCTAssertEqual(input.workingDirectory, "/tmp/project")
+        XCTAssertEqual(input.agentLaunchSnapshot, AgentLaunchSnapshot(arguments: ["--mode", "smart"]))
     }
 
     func test_parseInput_handles_minimal_payload() throws {
@@ -678,7 +684,7 @@ final class AgentEventBridgeTests: XCTestCase {
     // MARK: - Codex Adapter
 
     func test_codex_adapter_session_start_with_pid() throws {
-        let json = #"{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/tmp"}"#
+        let json = #"{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/tmp", "transcript_path": "/tmp/codex.jsonl"}"#
         let env = codexEnvironment(pid: "42")
         let payloads = try AgentEventBridge.codexAdapter(data: json.data(using: .utf8)!, defaultEventName: nil, environment: env)
 
@@ -688,6 +694,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].pidEvent, .attach)
         XCTAssertEqual(payloads[1].state, .starting)
         XCTAssertEqual(payloads[1].toolName, "Codex")
+        XCTAssertEqual(payloads[1].agentTranscriptPath, "/tmp/codex.jsonl")
     }
 
     func test_codex_adapter_event_from_cli_arg() throws {
@@ -703,6 +710,77 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .needsInput)
         XCTAssertEqual(payloads[0].interactionKind, .approval)
         XCTAssertEqual(payloads[0].toolName, "Codex")
+        XCTAssertEqual(payloads[0].text, "Codex needs your approval")
+    }
+
+    func test_codex_hook_permission_request_for_request_user_input_uses_question_text() throws {
+        let json = """
+        {
+          "hook_event_name": "PermissionRequest",
+          "session_id": "s1",
+          "tool_name": "request_user_input",
+          "tool_input": {
+            "questions": [{
+              "question": "What should Codex do next?",
+              "options": [{"label": "Fix"}, {"label": "Explain"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .decision)
+        XCTAssertEqual(payloads[0].text, "What should Codex do next?\n[Fix] [Explain]")
+    }
+
+    func test_codex_hook_pre_tool_use_for_request_user_input_uses_question_text() throws {
+        let json = """
+        {
+          "hook_event_name": "PreToolUse",
+          "session_id": "s1",
+          "transcript_path": "/tmp/codex.jsonl",
+          "tool_name": "request_user_input",
+          "tool_input": {
+            "questions": [{
+              "question": "Which would you rather have right now?",
+              "options": [{"label": "Good coffee"}, {"label": "Quiet hour"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .decision)
+        XCTAssertEqual(payloads[0].text, "Which would you rather have right now?\n[Good coffee] [Quiet hour]")
+        XCTAssertEqual(payloads[0].agentTranscriptPath, "/tmp/codex.jsonl")
+    }
+
+    func test_codex_hook_permission_request_for_non_question_tool_ignores_question_shaped_input() throws {
+        let json = """
+        {
+          "hook_event_name": "PermissionRequest",
+          "session_id": "s1",
+          "tool_name": "Bash",
+          "tool_input": {
+            "questions": [{
+              "question": "Misleading nested field?",
+              "options": [{"label": "Yes"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
         XCTAssertEqual(payloads[0].text, "Codex needs your approval")
     }
 
@@ -749,11 +827,12 @@ final class AgentEventBridgeTests: XCTestCase {
     }
 
     func test_codex_adapter_prompt_submit() throws {
-        let json = #"{"hook_event_name": "UserPromptSubmit"}"#
+        let json = #"{"hook_event_name": "UserPromptSubmit", "transcript_path": "/tmp/codex.jsonl"}"#
         let payloads = try AgentEventBridge.codexAdapter(data: json.data(using: .utf8)!, defaultEventName: nil, environment: codexEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].agentTranscriptPath, "/tmp/codex.jsonl")
     }
 
     func test_codex_adapter_stop() throws {
@@ -867,28 +946,230 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertTrue(payloads.isEmpty)
     }
 
+    // MARK: - Grok Adapter
+
+    func test_grok_adapter_canonical_session_start_passes_through_make_payloads() throws {
+        let json = #"{"version":1,"event":"session.start","agent":{"name":"Grok","pid":42},"session":{"id":"s1"}}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment())
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .pid)
+        XCTAssertEqual(payloads[0].pid, 42)
+        XCTAssertEqual(payloads[0].pidEvent, .attach)
+        XCTAssertEqual(payloads[0].toolName, "Grok")
+        XCTAssertEqual(payloads[1].state, .starting)
+        XCTAssertEqual(payloads[1].toolName, "Grok")
+        XCTAssertEqual(payloads[1].sessionID, "s1")
+    }
+
+    func test_grok_adapter_returns_empty_when_pane_env_missing() throws {
+        let json = #"{"hook_event_name":"SessionStart","session_id":"s1"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: [:])
+
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_grok_adapter_session_start_hook_emits_pid_and_starting_state() throws {
+        let json = #"{"hook_event_name":"SessionStart","session_id":"s1","cwd":"/tmp/project"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment(pid: "42"))
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .pid)
+        XCTAssertEqual(payloads[0].pid, 42)
+        XCTAssertEqual(payloads[0].pidEvent, .attach)
+        XCTAssertEqual(payloads[1].state, .starting)
+        XCTAssertEqual(payloads[1].toolName, "Grok")
+        XCTAssertEqual(payloads[1].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_grok_adapter_user_prompt_submit_maps_to_running() throws {
+        let json = #"{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"/tmp/project"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].toolName, "Grok")
+        XCTAssertEqual(payloads[0].sessionID, "s1")
+    }
+
+    // The collapsed grokAdapter is a thin lifecycle router. PreToolUse /
+    // PostToolUse / UserPromptSubmit emit `state: .running`; Stop emits
+    // `.idle`; Notification / Permission / Approval / unknown events emit
+    // nothing so they can't downgrade a more-specific prior state (.idle from
+    // Stop, .needsInput from the canonical re-emit). Payload-derived signals
+    // (task progress, needs-input, session id for resume) ride the canonical
+    // re-emit produced by `GrokCanonicalReEmitter`. The tests below verify
+    // *both* halves of the dual path — adapter side and re-emitter side — so
+    // the combined end state on the sidebar stays correct.
+
+    func test_grok_adapter_pre_tool_use_todowrite_emits_running_and_reemitter_carries_progress() throws {
+        let json = #"""
+        {"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"TodoWrite","tool_input":{"todos":[{"status":"completed"},{"status":"in_progress"},{"status":"pending"}]}}
+        """#
+        let payload = json.data(using: .utf8)!
+
+        let adapterPayloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
+        XCTAssertEqual(adapterPayloads.count, 1)
+        XCTAssertEqual(adapterPayloads[0].state, .running)
+        XCTAssertEqual(adapterPayloads[0].toolName, "Grok")
+        XCTAssertNil(adapterPayloads[0].taskProgress, "Adapter no longer parses TodoWrite — the canonical re-emit carries the progress")
+
+        let canonicals = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(canonicals.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"task.progress\""))
+        XCTAssertTrue(envelope.contains("\"done\":1"))
+        XCTAssertTrue(envelope.contains("\"total\":3"))
+    }
+
+    func test_grok_adapter_pre_tool_use_ask_user_question_emits_running_and_reemitter_emits_needs_input() throws {
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion","message":"Which file should I open?"}"#
+        let payload = json.data(using: .utf8)!
+
+        let adapterPayloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
+        XCTAssertEqual(adapterPayloads.count, 1)
+        XCTAssertEqual(adapterPayloads[0].state, .running)
+        XCTAssertEqual(adapterPayloads[0].toolName, "Grok")
+
+        let canonicals = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(canonicals.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"agent.needs-input\""))
+        XCTAssertTrue(envelope.contains("\"kind\":\"question\""))
+        XCTAssertTrue(envelope.contains("Which file should I open?"))
+    }
+
+    func test_grok_adapter_pre_tool_use_generic_tool_maps_to_running() throws {
+        let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"ReadFile","tool_input":{"path":"README.md"}}"#
+        let payload = json.data(using: .utf8)!
+
+        let payloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].toolName, "Grok")
+        XCTAssertNil(payloads[0].taskProgress)
+
+        XCTAssertTrue(
+            GrokCanonicalReEmitter.reEmissions(forHookPayload: payload).isEmpty,
+            "Generic tool calls should not produce a canonical re-emit"
+        )
+    }
+
+    func test_grok_adapter_notification_returns_no_lifecycle_payload_but_reemitter_emits_needs_input() throws {
+        let json = #"{"hook_event_name":"Notification","session_id":"s1","cwd":"/tmp/project","notification_type":"permission","message":"Allow writing to file.txt"}"#
+        let payload = json.data(using: .utf8)!
+
+        let adapterPayloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
+        XCTAssertTrue(
+            adapterPayloads.isEmpty,
+            "Notification must not emit a lifecycle payload — it would downgrade .idle / .needsInput. The canonical re-emit channel carries the needs-input signal."
+        )
+
+        let canonicals = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(canonicals.first)
+        XCTAssertTrue(envelope.contains("\"event\":\"agent.needs-input\""))
+        XCTAssertTrue(envelope.contains("\"kind\":\"approval\""))
+    }
+
+    func test_grok_adapter_stop_hook_emits_idle() throws {
+        let json = #"{"hook_event_name":"Stop","session_id":"s1"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .idle)
+        XCTAssertEqual(payloads[0].toolName, "Grok")
+    }
+
+    func test_grok_adapter_session_end_clears_status_and_pid() throws {
+        let json = #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment())
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .lifecycle)
+        XCTAssertNil(payloads[0].state)
+        XCTAssertEqual(payloads[1].signalKind, .pid)
+        XCTAssertNil(payloads[1].pid)
+        XCTAssertEqual(payloads[1].pidEvent, .clear)
+    }
+
+    func test_grok_adapter_unknown_event_returns_no_payload() throws {
+        let json = #"{"hook_event_name":"SomeFutureEvent","session_id":"s1"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment())
+
+        XCTAssertTrue(
+            payloads.isEmpty,
+            "Unknown hook event must not fabricate a state change — future grok events shouldn't silently downgrade prior state."
+        )
+    }
+
+    func test_grok_adapter_post_tool_use_maps_to_running() throws {
+        let json = #"{"hook_event_name":"PostToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"shell"}"#
+        let payloads = try AgentEventBridge.grokAdapter(data: json.data(using: .utf8)!, environment: grokEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].toolName, "Grok")
+    }
+
+    /// Regression for the screenshot Peter reported: Grok fires a trailing
+    /// `Notification` ("Turn completed in 4.3s") immediately after `Stop`. If
+    /// Notification emitted `.running`, the sidebar would get stuck showing
+    /// "Running" forever instead of returning to Idle.
+    func test_grok_adapter_notification_after_stop_does_not_emit_payload() throws {
+        let stopJSON = #"{"hook_event_name":"Stop","session_id":"s1"}"#
+        let stopPayloads = try AgentEventBridge.grokAdapter(data: stopJSON.data(using: .utf8)!, environment: grokEnvironment())
+        XCTAssertEqual(stopPayloads.count, 1)
+        XCTAssertEqual(stopPayloads[0].state, .idle)
+
+        let notificationJSON = #"{"hook_event_name":"Notification","session_id":"s1","notification_type":"info","message":"Turn completed in 4.3s"}"#
+        let notificationPayloads = try AgentEventBridge.grokAdapter(data: notificationJSON.data(using: .utf8)!, environment: grokEnvironment())
+        XCTAssertTrue(
+            notificationPayloads.isEmpty,
+            "A trailing Notification after Stop must not downgrade .idle back to .running."
+        )
+    }
+
+    /// Regression for the second symptom Peter reported: while grok is blocked
+    /// on `ask_user_question`, a concurrent `Notification` hook must not
+    /// overwrite the `.needsInput` state the canonical re-emit just produced.
+    func test_grok_adapter_notification_during_needs_input_does_not_emit_payload() throws {
+        let permissionJSON = #"{"hook_event_name":"Notification","session_id":"s1","notification_type":"permission","message":"Allow writing to file.txt"}"#
+        let permissionPayloads = try AgentEventBridge.grokAdapter(data: permissionJSON.data(using: .utf8)!, environment: grokEnvironment())
+        XCTAssertTrue(permissionPayloads.isEmpty, "Permission-typed Notification must not emit a lifecycle payload.")
+
+        let infoJSON = #"{"hook_event_name":"Notification","session_id":"s1","notification_type":"info","message":"Working on it…"}"#
+        let infoPayloads = try AgentEventBridge.grokAdapter(data: infoJSON.data(using: .utf8)!, environment: grokEnvironment())
+        XCTAssertTrue(infoPayloads.isEmpty, "Info-typed Notification must not emit a lifecycle payload either.")
+    }
+
+    func test_grok_adapter_empty_data_returns_empty_when_pane_env_missing() throws {
+        let payloads = try AgentEventBridge.grokAdapter(data: Data(), environment: [:])
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
     // MARK: - Copilot Adapter
 
     func test_copilot_adapter_session_start_seeds_idle() throws {
-        let json = #"{"cwd": "/tmp/project"}"#
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd": "/tmp/project"}"#
         let env = copilotEnvironment(pid: "99")
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "session-start", environment: env)
 
         XCTAssertEqual(payloads.count, 2)
         XCTAssertEqual(payloads[0].signalKind, .pid)
         XCTAssertEqual(payloads[0].pid, 99)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
         XCTAssertEqual(payloads[1].state, .idle)
         XCTAssertEqual(payloads[1].interactionKind, .none)
+        XCTAssertEqual(payloads[1].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_adapter_pre_tool_use_question() throws {
-        let json = #"{"toolName": "AskUserQuestion", "toolArgs": "{\"question\": \"Which file?\"}"}"#
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName": "AskUserQuestion", "toolArgs": "{\"question\": \"Which file?\"}"}"#
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "pre-tool-use", environment: copilotEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .needsInput)
         XCTAssertEqual(payloads[0].interactionKind, .question)
         XCTAssertEqual(payloads[0].text, "Which file?")
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_adapter_pre_tool_use_non_question_is_noop() throws {
@@ -898,23 +1179,35 @@ final class AgentEventBridgeTests: XCTestCase {
     }
 
     func test_copilot_adapter_post_tool_use_question_resets_to_idle() throws {
-        let json = #"{"toolName": "AskUserQuestion"}"#
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName": "AskUserQuestion"}"#
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "post-tool-use", environment: copilotEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
         XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
     func test_copilot_adapter_session_end_clears() throws {
-        let payloads = try AgentEventBridge.copilotAdapter(data: Data(), defaultEventName: "session-end", environment: copilotEnvironment())
-        XCTAssertEqual(payloads.count, 1)
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f"}"#
+        let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "session-end", environment: copilotEnvironment())
+        XCTAssertEqual(payloads.count, 2)
         XCTAssertTrue(payloads[0].clearsStatus)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payloads[1].signalKind, .pid)
+        XCTAssertEqual(payloads[1].pidEvent, .clear)
+        XCTAssertEqual(payloads[1].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
-    func test_copilot_adapter_user_prompt_is_noop() throws {
-        let payloads = try AgentEventBridge.copilotAdapter(data: Data(), defaultEventName: "user-prompt-submitted", environment: copilotEnvironment())
-        XCTAssertTrue(payloads.isEmpty)
+    func test_copilot_adapter_user_prompt_marks_session_running() throws {
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project"}"#
+        let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "user-prompt-submitted", environment: copilotEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
     }
 
     // MARK: - Claude Adapter
@@ -1060,6 +1353,12 @@ final class AgentEventBridgeTests: XCTestCase {
         return env
     }
 
+    private func grokEnvironment(pid: String? = nil) -> [String: String] {
+        var env = defaultEnvironment
+        if let pid { env["ZENTTY_GROK_PID"] = pid }
+        return env
+    }
+
     private func makeDroidTaskStore() throws -> DroidTaskStore {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1202,6 +1501,44 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.state, .needsInput)
         XCTAssertEqual(payload.interactionKind, .approval)
         XCTAssertEqual(payload.text, "Droid drafted a specification for your approval")
+    }
+
+    func test_droid_postToolUse_exitSpecMode_emits_nothing() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PostToolUse","session_id":"sess-1","tool_name":"ExitSpecMode","permission_mode":"spec","cwd":"/tmp","tool_input":{"plan":"Some spec"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_droid_stop_in_spec_mode_emits_nothing() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"Stop","session_id":"sess-1","permission_mode":"spec","cwd":"/tmp"}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_droid_stop_in_off_mode_still_idles() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"Stop","session_id":"sess-1","permission_mode":"off","cwd":"/tmp"}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .idle)
+    }
+
+    func test_droid_postToolUse_non_exitSpec_still_running() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PostToolUse","session_id":"sess-1","tool_name":"Read","permission_mode":"spec","cwd":"/tmp","tool_input":{"file_path":"/tmp/README.md"},"tool_response":"ok"}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
     }
 
     func test_droid_preToolUse_manual_execute_reports_approval() throws {

@@ -498,6 +498,7 @@ enum WorklaneSidebarSummaryBuilder {
 
         let branch = presentation.branchDisplayText
         let workingDirectory = compactWorkingDirectory(for: presentation)
+        let lastActivityDetail = lastActivityDetailText(for: presentation)
 
         if let recognizedTool = presentation.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
@@ -533,7 +534,7 @@ enum WorklaneSidebarSummaryBuilder {
                 return PaneSidebarIdentity(
                     primaryText: workingDirectory,
                     trailingText: branch,
-                    detailText: nil
+                    detailText: lastActivityDetail
                 )
             }
 
@@ -548,7 +549,7 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: branch,
                 trailingText: nil,
-                detailText: nil
+                detailText: style == .paneRow ? lastActivityDetail : nil
             )
         }
 
@@ -556,15 +557,23 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: workingDirectory,
                 trailingText: nil,
-                detailText: nil
+                detailText: style == .paneRow ? lastActivityDetail : nil
             )
         }
 
         return PaneSidebarIdentity(
             primaryText: WorklaneContextFormatter.normalizeSidebarFallbackTitle(fallbackTitle) ?? "Shell",
             trailingText: nil,
-            detailText: nil
+            detailText: style == .paneRow ? lastActivityDetail : nil
         )
+    }
+
+    private static func lastActivityDetailText(for presentation: PanePresentationState) -> String? {
+        guard let lastActivityTitle = WorklaneContextFormatter.normalizeDisplayIdentity(presentation.lastActivityTitle) else {
+            return nil
+        }
+
+        return "Last ran: \(lastActivityTitle)"
     }
 
     private static func remotePaneIdentity(

@@ -36,6 +36,7 @@ final class SidebarWorklaneRowMenuController: NSObject {
             ),
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
+                runRestoredCommandAction: nil,
                 closeWorklaneAction: #selector(handleCloseWorklane),
                 closePaneAction: nil,
                 moveUpAction: #selector(handleMoveWorklaneUp),

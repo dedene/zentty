@@ -14,6 +14,8 @@ enum SidebarVisibilityEvent: Sendable {
     case hoverRailExited
     case sidebarEntered
     case sidebarExited
+    case globalSearchFocusEntered
+    case globalSearchFocusExited
     case dismissTimerElapsed
 }
 
@@ -21,6 +23,7 @@ struct SidebarVisibilityController: Equatable, Sendable {
     private(set) var mode: SidebarVisibilityMode
     private var isPointerInHoverRail = false
     private var isPointerInSidebar = false
+    private var isGlobalSearchFocused = false
 
     init(mode: SidebarVisibilityMode = .pinnedOpen) {
         self.mode = mode
@@ -43,7 +46,7 @@ struct SidebarVisibilityController: Equatable, Sendable {
     }
 
     var shouldScheduleDismissal: Bool {
-        mode == .hoverPeek && !isPointerInHoverRail && !isPointerInSidebar
+        mode == .hoverPeek && !isPointerInHoverRail && !isPointerInSidebar && !isGlobalSearchFocused
     }
 
     mutating func handle(_ event: SidebarVisibilityEvent) {
@@ -62,8 +65,15 @@ struct SidebarVisibilityController: Equatable, Sendable {
             isPointerInSidebar = true
         case .sidebarExited:
             isPointerInSidebar = false
+        case .globalSearchFocusEntered:
+            isGlobalSearchFocused = true
+            if mode == .hidden {
+                mode = .hoverPeek
+            }
+        case .globalSearchFocusExited:
+            isGlobalSearchFocused = false
         case .dismissTimerElapsed:
-            guard mode == .hoverPeek, !isPointerInHoverRail, !isPointerInSidebar else {
+            guard mode == .hoverPeek, !isPointerInHoverRail, !isPointerInSidebar, !isGlobalSearchFocused else {
                 return
             }
             mode = .hidden
@@ -84,6 +94,7 @@ struct SidebarVisibilityController: Equatable, Sendable {
     private mutating func resetPointerTracking() {
         isPointerInHoverRail = false
         isPointerInSidebar = false
+        isGlobalSearchFocused = false
     }
 }
 

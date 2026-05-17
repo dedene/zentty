@@ -183,9 +183,21 @@ protocol TerminalAdapter: AnyObject {
     func startSession(using request: TerminalSessionRequest) throws
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity)
     func sendText(_ text: String)
+    func submitCommand(_ command: String)
     func close()
     var metadataDidChange: ((TerminalMetadata) -> Void)? { get set }
     var eventDidOccur: ((TerminalEvent) -> Void)? { get set }
+}
+
+@MainActor
+extension TerminalAdapter {
+    // Default for non-Libghostty adapters (mocks, tests). The Libghostty adapter
+    // overrides this to send a synthetic Return key event *outside* bracketed-paste
+    // wrapping, which is required for zsh to fire `accept-line` on the pasted
+    // command. See LibghosttyAdapter.submitCommand.
+    func submitCommand(_ command: String) {
+        sendText(command + "\r")
+    }
 }
 
 @MainActor

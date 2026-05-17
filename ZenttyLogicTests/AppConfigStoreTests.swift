@@ -74,6 +74,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("[panes]"))
         XCTAssertTrue(persisted.contains("show_labels = true"))
         XCTAssertTrue(persisted.contains("inactive_opacity = 0.7"))
+        XCTAssertTrue(persisted.contains("show_project_icons = true"))
         XCTAssertTrue(persisted.contains("[open_with]"))
         XCTAssertTrue(persisted.contains("enabled_target_ids = [\"finder\", \"vscode\", \"cursor\", \"xcode\"]"))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
@@ -88,6 +89,7 @@ final class AppConfigStoreTests: XCTestCase {
         [panes]
         show_labels = false
         inactive_opacity = 0.2
+        show_project_icons = false
         """.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let store = AppConfigStore(
@@ -99,6 +101,7 @@ final class AppConfigStoreTests: XCTestCase {
 
         XCTAssertFalse(store.current.panes.showLabels)
         XCTAssertEqual(store.current.panes.inactiveOpacity, 0.6, accuracy: 0.001)
+        XCTAssertFalse(store.current.panes.showProjectIcons)
     }
 
     func test_store_prefers_existing_config_file_over_user_defaults_migration() throws {

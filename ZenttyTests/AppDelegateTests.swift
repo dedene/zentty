@@ -230,13 +230,18 @@ final class AppDelegateTests: XCTestCase {
         let minimizeItem = try XCTUnwrap(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performMiniaturize(_:)) }))
 
         XCTAssertEqual(windowMenu.title, "Window")
-        XCTAssertEqual(closeWindowItem.keyEquivalent, "w")
-        XCTAssertEqual(closeWindowItem.keyEquivalentModifierMask, [.command])
+        XCTAssertEqual(closeWindowItem.keyEquivalent, "")
+        XCTAssertEqual(closeWindowItem.keyEquivalentModifierMask, [])
         XCTAssertEqual(minimizeItem.keyEquivalent, "m")
         XCTAssertEqual(minimizeItem.keyEquivalentModifierMask, [.command])
         XCTAssertNotNil(windowMenu.items.first(where: { $0.action == #selector(NSWindow.performZoom(_:)) }))
         XCTAssertNotNil(windowMenu.items.first(where: { $0.action == #selector(NSApplication.arrangeInFront(_:)) }))
         XCTAssertTrue(NSApp.windowsMenu === windowMenu)
+
+        let fileMenu = try XCTUnwrap(menu(named: "File"))
+        let closePaneItem = try XCTUnwrap(fileMenu.items.first(where: { $0.action == #selector(MainWindowController.closeFocusedPane(_:)) }))
+        XCTAssertEqual(closePaneItem.keyEquivalent, "w")
+        XCTAssertEqual(closePaneItem.keyEquivalentModifierMask, [.command])
     }
 
     func test_application_launch_installs_view_menu_with_arrange_submenus_and_layout_actions() throws {
@@ -481,7 +486,7 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(visibleLaunchedWindows.count, 1)
     }
 
-    func test_application_quit_prompts_when_background_window_has_active_terminal_progress() throws {
+    func test_application_quit_prompt_attaches_to_key_window_when_background_window_has_active_terminal_progress() throws {
         NSApp.mainMenu = nil
 
         let delegate = AppDelegate(
@@ -519,6 +524,7 @@ final class AppDelegateTests: XCTestCase {
         wait(for: [replaced], timeout: 2.0)
 
         keyController.window.makeKeyAndOrderFrontForHostedTesting(nil)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: keyController.window)
         let focused = expectation(description: "key window focused")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused.fulfill() }
         wait(for: [focused], timeout: 2.0)
@@ -526,8 +532,8 @@ final class AppDelegateTests: XCTestCase {
         let reply = delegate.applicationShouldTerminate(NSApp)
 
         XCTAssertEqual(reply, .terminateLater)
-        XCTAssertNotNil(blockingController.window.attachedSheet)
-        XCTAssertNil(keyController.window.attachedSheet)
+        XCTAssertNil(blockingController.window.attachedSheet)
+        XCTAssertNotNil(keyController.window.attachedSheet)
     }
 
     func test_new_windows_export_distinct_runtime_identity_environment() throws {

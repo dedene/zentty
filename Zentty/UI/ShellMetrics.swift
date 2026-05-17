@@ -182,9 +182,10 @@ enum ShellMetrics {
     )
     static let sidebarRowCornerRadius: CGFloat = ChromeGeometry.rowRadius
     static let sidebarFooterIconSpacing: CGFloat = 12
-    static let sidebarCreateWorklaneHorizontalInset: CGFloat = 8
-    static let sidebarCreateWorklaneIconSpacing: CGFloat = 10
+    static let sidebarCreateWorklaneHorizontalInset: CGFloat = 6
+    static let sidebarCreateWorklaneIconSpacing: CGFloat = 8
     static let sidebarCreateWorklaneButtonHeight: CGFloat = 24
+    static let sidebarHeaderControlCornerRadius: CGFloat = max(8, ChromeGeometry.pillRadius)
     static let sidebarCreateWorklanePinnedVerticalOffset: CGFloat = -2
     static let sidebarHeaderPeekTopInset: CGFloat = 24
     static let sidebarCreateWorklanePeekVerticalOffset: CGFloat = 8

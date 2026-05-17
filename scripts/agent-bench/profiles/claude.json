@@ -16,6 +16,18 @@
       "1.00",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "--setting-sources",
+      "project,local",
+      "--print",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-hook-events",
+      "--max-budget-usd",
+      "1.00",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "approval": [
       "--setting-sources",
       "project,local",
@@ -24,11 +36,22 @@
       "--max-budget-usd",
       "1.00",
       "For an integration hook regression test, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool. Put the text ZENTTY_AGENT_BENCH_APPROVAL_OK in the file."
+    ],
+    "restore_launch": [
+      "--resume",
+      "237d8c32-2a27-4850-8da8-3a110f13682c"
     ]
   },
   "expectations": {
     "smoke": {
       "required_events": ["SessionStart", "UserPromptSubmit", "Stop"]
+    },
+    "session_capture": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "Stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
     },
     "approval": {
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"]
@@ -38,6 +61,10 @@
       "fixture": "claude_stop_then_late_notification.jsonl",
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Notification"],
       "post_stop_notification_required": true
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--resume", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
     }
   },
   "input_by_scenario": {

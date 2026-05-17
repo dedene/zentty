@@ -109,6 +109,19 @@ final class PaneNavigationButtons: NSView {
         applyAppearances(animated: false)
     }
 
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        backButton.toolTip = CommandTooltipFormatter.title(
+            "Navigate Back",
+            commandID: .navigateBack,
+            shortcutManager: shortcutManager
+        )
+        forwardButton.toolTip = CommandTooltipFormatter.title(
+            "Navigate Forward",
+            commandID: .navigateForward,
+            shortcutManager: shortcutManager
+        )
+    }
+
     func configure(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
         performThemeAnimation(animated: animated) {
@@ -152,6 +165,18 @@ final class PaneNavigationButtons: NSView {
         }
     }
 }
+
+#if DEBUG
+extension PaneNavigationButtons {
+    var backToolTipForTesting: String {
+        backButton.toolTip ?? ""
+    }
+
+    var forwardToolTipForTesting: String {
+        forwardButton.toolTip ?? ""
+    }
+}
+#endif
 
 @MainActor
 final class PaneLayoutMenuButton: NSButton {

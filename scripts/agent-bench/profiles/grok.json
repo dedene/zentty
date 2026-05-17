@@ -1,0 +1,62 @@
+{
+  "name": "grok",
+  "command": "grok",
+  "real_binary_names": ["grok"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "-p",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "tasks": [
+      "-p",
+      "Use your todo_write tool to create a todo list with these exact tasks: 1. Review directory, 2. Identify main language, 3. Suggest one improvement. Mark task 1 done. Then run: printf ZENTTY_AGENT_BENCH_TASKS_OK"
+    ],
+    "approval": [
+      "-p",
+      "Use your ask_user_question tool to ask me one short question, then answer it yourself after I reply."
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session_start", "stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": false
+      }
+    },
+    "tasks": {
+      "required_events": ["session_start", "pre_tool_use", "task.progress", "stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": false
+      }
+    },
+    "approval": {
+      "required_events": ["session_start", "notification", "agent.needs-input", "stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": false
+      }
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Trust|Workspace|trust this|approve|permission|Allow|Do you want|Command to approve|Yes, allow|Action Required|ask_user_question|AskUserQuestion|AskUser|question|needs? input",
+        "text": "1\n",
+        "label": "approve-or-answer-question"
+      },
+      {
+        "match": "Allow|Run command|approve|permission|question",
+        "text": "\n"
+      },
+      {
+        "after": 60,
+        "text": "\u0003",
+        "label": "ctrl-c-safety"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "subscription", "model", "not running in a trusted directory"]
+}

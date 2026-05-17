@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
     private let notificationStore = NotificationStore()
+    private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
+        notificationStore: notificationStore,
+        configStore: configStore
+    )
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
@@ -72,9 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
-                self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
-                self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
-                self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
+                self.applyAuxiliaryWindowTheme()
                 if self.isSessionRestoreEnabled {
                     self.handleRestorePreferenceChange(config.restore)
                 }
@@ -146,6 +148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     func showTaskManager(_ sender: Any?) {
+        let appearance = resolvedAboutAppearance
+        let theme = resolvedAboutTheme
         let controller = taskManagerWindowController ?? TaskManagerWindowController(
             paneSourcesProvider: { [weak self] in
                 self?.orderedWindowControllersForDiscovery().flatMap { $0.taskManagerPaneSources() } ?? []
@@ -155,9 +159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             closePaneHandler: { [weak self] windowID, paneID in
                 self?.windowController(with: windowID)?.closePane(id: paneID)
-            }
+            },
+            appearance: appearance,
+            theme: theme
         )
         taskManagerWindowController = controller
+        controller.applyAppearance(appearance)
+        controller.applyTheme(theme)
         controller.show(sender: sender)
     }
 
@@ -207,14 +215,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "Quit Zentty?"
         alert.informativeText = "All windows, panes, and running processes will be terminated."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.appearance = blockingController.terminalAppearance
+        let quitButton = alert.addButton(withTitle: "Quit")
+        quitButton.keyEquivalent = "\r"
+        let cancelButton = alert.addButton(withTitle: "Cancel")
+        cancelButton.keyEquivalent = "\u{1b}"
+        let presentationController = quitConfirmationPresentationController(blockingController: blockingController)
+        alert.window.appearance = presentationController.terminalAppearance
         let restoreToggle = makeRestoreToggleButton()
         alert.accessoryView = restoreToggle
 
-        let window = blockingController.window
+        let window = presentationController.window
         if window.isVisible {
+            if !window.isKeyWindow {
+                window.makeKeyAndOrderFront(nil)
+            }
             alert.beginSheetModal(for: window) { [weak self] response in
                 if response == .alertFirstButtonReturn {
                     self?.persistRestorePreferenceIfNeeded(from: restoreToggle)
@@ -231,6 +245,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return .terminateCancel
+    }
+
+    private func quitConfirmationPresentationController(
+        blockingController: MainWindowController
+    ) -> MainWindowController {
+        if let keyController = windowControllers.values.first(where: { controller in
+            controller.window.isKeyWindow && controller.window.isVisible && !controller.window.isMiniaturized
+        }) {
+            return keyController
+        }
+
+        if let lastKeyWindowControllerID,
+           let lastKeyController = windowControllers[lastKeyWindowControllerID],
+           lastKeyController.window.isVisible,
+           !lastKeyController.window.isMiniaturized {
+            return lastKeyController
+        }
+
+        return blockingController
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -293,9 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.onWindowAppearanceDidChange = { [weak self] _, _ in
             guard let self else { return }
-            self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
-            self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
-            self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
+            self.applyAuxiliaryWindowTheme()
         }
         controller.onCheckForUpdatesRequested = { [weak self] in
             self?.checkForUpdates(nil)
@@ -437,9 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if lastKeyWindowControllerID == controllerID {
             lastKeyWindowControllerID = nil
         }
-        aboutWindowController?.applyAppearance(resolvedAboutAppearance)
-        aboutWindowController?.applyTheme(resolvedAboutTheme)
-        licensesWindowController?.applyAppearance(resolvedAboutAppearance)
+        applyAuxiliaryWindowTheme()
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         } else {
@@ -471,6 +500,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var resolvedAboutTheme: ZenttyTheme {
         aboutThemeSourceController?.currentWindowTheme
             ?? ZenttyTheme.fallback(for: resolvedAboutAppearance)
+    }
+
+    private func applyAuxiliaryWindowTheme() {
+        let appearance = resolvedAboutAppearance
+        let theme = resolvedAboutTheme
+        aboutWindowController?.applyAppearance(appearance)
+        aboutWindowController?.applyTheme(theme)
+        licensesWindowController?.applyAppearance(appearance)
+        taskManagerWindowController?.applyAppearance(appearance)
+        taskManagerWindowController?.applyTheme(theme)
     }
 
     private func makeRestoreToggleButton() -> NSButton {
@@ -634,9 +673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         lastKeyWindowControllerID = ObjectIdentifier(controller)
-        aboutWindowController?.applyAppearance(resolvedAboutAppearance)
-        aboutWindowController?.applyTheme(resolvedAboutTheme)
-        licensesWindowController?.applyAppearance(resolvedAboutAppearance)
+        applyAuxiliaryWindowTheme()
     }
 
     func windowController(containingWorklane worklaneID: WorklaneID) -> MainWindowController? {
@@ -666,6 +703,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let target else { return }
         let resolvedWorklaneID = target.worklaneID(containing: paneID) ?? worklaneID
         target.navigateToPane(worklaneID: resolvedWorklaneID, paneID: paneID)
+    }
+
+    func deliverPaneNotification(_ request: PaneNotificationRequest) {
+        paneNotificationCoordinator.deliver(request)
+    }
+
+    @discardableResult
+    func createGridWindow(
+        inheritingFrom sourceController: MainWindowController,
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult? {
+        let destinationWindowID = makeWindowID()
+        guard let workspaceState = sourceController.gridWindowWorkspaceState(
+            inheritingFrom: sourcePaneID,
+            destinationWindowID: destinationWindowID
+        ),
+              let destinationWorklaneID = workspaceState.activeWorklaneID,
+              let destinationPaneID = workspaceState.worklanes
+                .first(where: { $0.id == destinationWorklaneID })?
+                .paneStripState
+                .focusedPaneID else {
+            return nil
+        }
+
+        let destinationController = makeWindowController(
+            windowID: destinationWindowID,
+            initialWorkspaceState: workspaceState
+        )
+        destinationController.showSplitOutWindow(cascadingFrom: sourceController.window.frame)
+        destinationController.focusPane(id: destinationPaneID, in: destinationWorklaneID)
+        let result = try destinationController.applyGrid(
+            sourcePaneID: destinationPaneID,
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus
+        )
+        if includeSource, let command {
+            _ = destinationController.submitCommand(command, to: result.sourcePaneID)
+        }
+        scheduleWorkspaceSnapshotSave()
+        return result
     }
 
     func windowController(with windowID: WindowID) -> MainWindowController? {
