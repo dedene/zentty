@@ -3,8 +3,11 @@ import XCTest
 
 @MainActor
 final class RootViewCompositionTests: AppKitTestCase {
+    private var defaultsSuiteNames: [String] = []
+
     override func setUp() {
         super.setUp()
+        defaultsSuiteNames = []
         SidebarWidthPreference.reset()
         SidebarVisibilityPreference.reset()
         PaneLayoutPreferenceStore.reset()
@@ -59,19 +62,29 @@ final class RootViewCompositionTests: AppKitTestCase {
     }
 
     override func tearDown() {
+        defaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        defaultsSuiteNames.removeAll()
         SidebarWidthPreference.reset()
         SidebarVisibilityPreference.reset()
         PaneLayoutPreferenceStore.reset()
         super.tearDown()
     }
 
+    private func makeDefaults(suffix: String = #function) -> UserDefaults {
+        let suiteName = "ZenttyTests.RootViewCompositionTests.\(suffix).\(UUID().uuidString)"
+        defaultsSuiteNames.append(suiteName)
+        return UserDefaults(suiteName: suiteName) ?? .standard
+    }
+
     private func makeController(
         configStore: AppConfigStore? = nil,
         openWithService: OpenWithServing = RootViewCompositionOpenWithService(),
         serverOpenService: ServerOpening = RootViewCompositionServerOpenService(),
-        sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaults(),
-        sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaults(),
-        paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaults(),
+        sidebarWidthDefaults: UserDefaults? = nil,
+        sidebarVisibilityDefaults: UserDefaults? = nil,
+        paneLayoutDefaults: UserDefaults? = nil,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         initialLayoutContext: PaneLayoutContext = .fallback
     ) -> RootViewController {
@@ -81,9 +94,9 @@ final class RootViewCompositionTests: AppKitTestCase {
             openWithService: openWithService,
             serverOpenService: serverOpenService,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
-            sidebarWidthDefaults: sidebarWidthDefaults,
-            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
-            paneLayoutDefaults: paneLayoutDefaults,
+            sidebarWidthDefaults: sidebarWidthDefaults ?? makeDefaults(suffix: "sidebarWidth"),
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults ?? makeDefaults(suffix: "sidebarVisibility"),
+            paneLayoutDefaults: paneLayoutDefaults ?? makeDefaults(suffix: "paneLayout"),
             initialLayoutContext: initialLayoutContext
         )
         addTeardownBlock {
@@ -876,6 +889,25 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.loadViewIfNeeded()
 
         XCTAssertEqual(controller.currentSidebarWidth, 280, accuracy: 0.001)
+    }
+
+    func test_root_controller_defaults_do_not_read_stale_shared_preference_suites() {
+        let sidebarWidthDefaults = SidebarWidthPreference.userDefaults()
+        let sidebarVisibilityDefaults = SidebarVisibilityPreference.userDefaults()
+        let paneLayoutDefaults = PaneLayoutPreferenceStore.userDefaults()
+        SidebarWidthPreference.persist(312, in: sidebarWidthDefaults)
+        SidebarVisibilityPreference.persist(.hidden, in: sidebarVisibilityDefaults)
+        PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: paneLayoutDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: paneLayoutDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .ultrawide, in: paneLayoutDefaults)
+
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.currentSidebarWidth, SidebarWidthPreference.defaultWidth, accuracy: 0.001)
+        XCTAssertEqual(controller.sidebarVisibilityMode, .pinnedOpen)
+        XCTAssertEqual(controller.currentPaneLayoutPreferences, PaneLayoutPreferences.default)
     }
 
     func test_root_controller_keeps_single_pane_full_width_through_initial_layout_and_resize() throws {

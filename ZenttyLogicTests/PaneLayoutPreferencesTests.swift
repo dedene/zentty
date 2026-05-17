@@ -2,19 +2,32 @@ import XCTest
 @testable import Zentty
 
 final class PaneLayoutPreferencesTests: XCTestCase {
+    private var defaultsSuiteNames: [String] = []
+
     override func setUp() {
         super.setUp()
+        defaultsSuiteNames = []
         PaneLayoutPreferenceStore.reset()
     }
 
     override func tearDown() {
+        defaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        defaultsSuiteNames.removeAll()
         PaneLayoutPreferenceStore.reset()
         super.tearDown()
     }
 
+    private func makeDefaults(suffix: String = #function) -> UserDefaults {
+        let suiteName = "ZenttyTests.PaneLayoutPreferencesTests.\(suffix).\(UUID().uuidString)"
+        defaultsSuiteNames.append(suiteName)
+        return UserDefaults(suiteName: suiteName) ?? .standard
+    }
+
     func test_restored_preferences_use_default_presets() {
         let preferences = PaneLayoutPreferenceStore.restoredPreferences(
-            from: PaneLayoutPreferenceStore.userDefaults()
+            from: makeDefaults()
         )
 
         XCTAssertEqual(preferences.laptopPreset, .compact)
@@ -24,6 +37,19 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1440)
     }
 
+    func test_restored_preferences_defaults_ignore_stale_shared_preference_suite() {
+        let sharedDefaults = PaneLayoutPreferenceStore.userDefaults()
+        PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .ultrawide, in: sharedDefaults)
+
+        let preferences = PaneLayoutPreferenceStore.restoredPreferences(
+            from: makeDefaults()
+        )
+
+        XCTAssertEqual(preferences, PaneLayoutPreferences.default)
+    }
+
     func test_display_class_titles_use_behavior_labels() {
         XCTAssertEqual(DisplayClass.laptop.title, "Laptop")
         XCTAssertEqual(DisplayClass.largeDisplay.title, "Large Display")
@@ -31,7 +57,7 @@ final class PaneLayoutPreferencesTests: XCTestCase {
     }
 
     func test_persisted_presets_restore_per_display_class() {
-        let defaults = PaneLayoutPreferenceStore.userDefaults()
+        let defaults = makeDefaults()
 
         PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: defaults)
         PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: defaults)
