@@ -9,7 +9,20 @@ struct ServerScanContext: Equatable, Sendable {
 struct PaneScanContext: Equatable, Sendable {
     let paneID: PaneID
     let workingDirectory: String
+    let repositoryRoot: String?
     let shellPID: pid_t?
+
+    init(
+        paneID: PaneID,
+        workingDirectory: String,
+        repositoryRoot: String? = nil,
+        shellPID: pid_t?
+    ) {
+        self.paneID = paneID
+        self.workingDirectory = workingDirectory
+        self.repositoryRoot = repositoryRoot
+        self.shellPID = shellPID
+    }
 }
 
 struct ServerListenerScanner: Sendable {
@@ -80,7 +93,7 @@ struct ServerListenerScanner: Sendable {
         }
 
         let matchingPanes = context.panes
-            .filter { path(processWorkingDirectory, isInsideOrEqualTo: $0.workingDirectory) }
+            .filter { cwdFallbackMatches(processWorkingDirectory: processWorkingDirectory, pane: $0) }
             .map { pane in (pane: pane, depth: pathDepth(pane.workingDirectory)) }
         if let deepestDepth = matchingPanes.map(\.depth).max() {
             let deepestMatches = matchingPanes.filter { $0.depth == deepestDepth }
@@ -118,9 +131,36 @@ struct ServerListenerScanner: Sendable {
         return false
     }
 
+    private func cwdFallbackMatches(processWorkingDirectory: String, pane: PaneScanContext) -> Bool {
+        guard let repositoryRoot = pane.repositoryRoot,
+              !isBroadRoot(pane.workingDirectory) else {
+            return false
+        }
+
+        return path(processWorkingDirectory, isInsideOrEqualTo: pane.workingDirectory)
+            && path(processWorkingDirectory, isInsideOrEqualTo: repositoryRoot)
+    }
+
+    private func isBroadRoot(_ path: String) -> Bool {
+        Self.broadRootPaths.contains(Self.canonicalPath(path))
+    }
+
+    private static let broadRootPaths: Set<String> = {
+        let home = NSHomeDirectory()
+        return Set([
+            "/",
+            "/tmp",
+            "/private/tmp",
+            "/var/tmp",
+            "/Users",
+            home,
+            canonicalPath(home),
+        ].map(canonicalPath))
+    }()
+
     private func path(_ childPath: String, isInsideOrEqualTo parentPath: String) -> Bool {
-        let child = URL(fileURLWithPath: childPath).standardizedFileURL.path
-        let parent = URL(fileURLWithPath: parentPath).standardizedFileURL.path
+        let child = Self.canonicalPath(childPath)
+        let parent = Self.canonicalPath(parentPath)
         guard !child.isEmpty, !parent.isEmpty else {
             return false
         }
@@ -133,10 +173,15 @@ struct ServerListenerScanner: Sendable {
         return child.hasPrefix(prefix)
     }
 
-    private func pathDepth(_ path: String) -> Int {
-        URL(fileURLWithPath: path)
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: true)
+            .resolvingSymlinksInPath()
             .standardizedFileURL
             .path
+    }
+
+    private func pathDepth(_ path: String) -> Int {
+        Self.canonicalPath(path)
             .split(separator: "/", omittingEmptySubsequences: true)
             .count
     }
