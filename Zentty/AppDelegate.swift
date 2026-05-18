@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
     private var taskManagerWindowController: TaskManagerWindowController?
+    private var menuBarStatusController: MenuBarStatusController?
     private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
@@ -77,12 +78,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.applyAuxiliaryWindowTheme()
+                self.applyMenuBarStatusConfig(config)
                 if self.isSessionRestoreEnabled {
                     self.handleRestorePreferenceChange(config.restore)
                 }
             }
         }
         UNUserNotificationCenter.current().delegate = self
+        applyMenuBarStatusConfig(configStore.current)
 
         guard shouldOpenMainWindow else { return }
 
@@ -281,6 +284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let configObserverID {
             configStore.removeObserver(configObserverID)
         }
+        menuBarStatusController?.stop()
+        menuBarStatusController = nil
         NSApp.dockTile.badgeLabel = nil
     }
 
@@ -349,6 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
+        syncMenuBarStatusSources()
         return controller
     }
 
@@ -472,6 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         } else {
+            syncMenuBarStatusSources()
             scheduleWorkspaceSnapshotSave()
         }
     }
@@ -609,6 +616,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.values.sorted { lhs, rhs in
             lhs.window.windowNumber < rhs.window.windowNumber
         }
+    }
+
+    private func applyMenuBarStatusConfig(_ config: AppConfig) {
+        if config.menuBar.showStatusItem {
+            let controller = menuBarStatusController ?? MenuBarStatusController(
+                configStore: configStore,
+                focusWorklaneHandler: { [weak self] windowID, worklaneID in
+                    self?.focusWorklaneFromMenuBar(windowID: windowID, worklaneID: worklaneID)
+                }
+            )
+            menuBarStatusController = controller
+            controller.start()
+            syncMenuBarStatusSources()
+        } else {
+            menuBarStatusController?.stop()
+            menuBarStatusController = nil
+        }
+    }
+
+    private func syncMenuBarStatusSources() {
+        guard let menuBarStatusController else { return }
+        menuBarStatusController.syncSources(orderedWindowControllers.map { controller in
+            MenuBarWorklaneSource(
+                windowID: controller.windowID,
+                windowTitle: controller.menuBarDisplayTitle,
+                worklaneStore: controller.worklaneStore
+            )
+        })
+    }
+
+    private func focusWorklaneFromMenuBar(windowID: WindowID, worklaneID: WorklaneID) {
+        guard let controller = windowControllers.values.first(where: { $0.windowID == windowID }) else {
+            return
+        }
+        controller.focusWorklane(id: worklaneID)
     }
 
     private func launchWorkspace(_ envelope: SessionRestoreEnvelope) -> Bool {

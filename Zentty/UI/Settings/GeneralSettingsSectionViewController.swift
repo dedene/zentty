@@ -22,6 +22,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private var currentClipboard: AppConfig.Clipboard = .default
     private var currentUpdates: AppConfig.Updates = .default
     private var currentErrorReporting: AppConfig.ErrorReporting = .default
+    private var currentMenuBar: AppConfig.MenuBar = .default
 
     private let statusLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
@@ -36,6 +37,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let updateChannelPopupButton = NSPopUpButton()
     private let errorReportingSwitch = NSSwitch()
     private let alwaysCleanCopiesSwitch = NSSwitch()
+    private let menuBarStatusSwitch = NSSwitch()
     private let errorReportingStatusLabel = NSTextField(labelWithString: "")
     private let errorReportingSubtitleLabel = NSTextField(labelWithString: "")
     private let errorReportingRestartLabel = NSTextField(labelWithString: "")
@@ -63,6 +65,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         self.currentClipboard = configStore.current.clipboard
         self.currentUpdates = configStore.current.updates
         self.currentErrorReporting = configStore.current.errorReporting
+        self.currentMenuBar = configStore.current.menuBar
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -111,6 +114,25 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         stackView.addArrangedSubview(card)
         card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        let menuBarCard = SettingsCardView()
+        let menuBarRow = makeSwitchRow(
+            title: "Show menu bar agent status",
+            subtitle: "Keep aggregate agent state visible in the macOS menu bar.",
+            toggle: menuBarStatusSwitch,
+            action: #selector(handleMenuBarStatusSwitchChanged(_:))
+        )
+        menuBarCard.addSubview(menuBarRow)
+        menuBarRow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            menuBarRow.topAnchor.constraint(equalTo: menuBarCard.topAnchor),
+            menuBarRow.leadingAnchor.constraint(equalTo: menuBarCard.leadingAnchor),
+            menuBarRow.trailingAnchor.constraint(equalTo: menuBarCard.trailingAnchor),
+            menuBarRow.bottomAnchor.constraint(equalTo: menuBarCard.bottomAnchor),
+        ])
+
+        stackView.addArrangedSubview(menuBarCard)
+        menuBarCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         let updatesCard = SettingsCardView()
         let updatesRow = makeUpdateChannelRow()
@@ -267,6 +289,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
         restoreWorkspaceSwitch.state = currentRestore.restoreWorkspaceOnLaunch ? .on : .off
         alwaysCleanCopiesSwitch.state = currentClipboard.alwaysCleanCopies ? .on : .off
+        menuBarStatusSwitch.state = currentMenuBar.showStatusItem ? .on : .off
         selectUpdateChannelPopupItem(for: currentUpdates.channel)
         errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
         refreshNotificationStatus()
@@ -302,6 +325,12 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         currentClipboard = clipboard
         guard isViewLoaded else { return }
         alwaysCleanCopiesSwitch.state = clipboard.alwaysCleanCopies ? .on : .off
+    }
+
+    func apply(menuBar: AppConfig.MenuBar) {
+        currentMenuBar = menuBar
+        guard isViewLoaded else { return }
+        menuBarStatusSwitch.state = menuBar.showStatusItem ? .on : .off
     }
 
     func apply(updates: AppConfig.Updates) {
@@ -649,6 +678,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     @objc
+    private func handleMenuBarStatusSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.menuBar.showStatusItem = sender.state == .on
+        }
+        currentMenuBar = configStore.current.menuBar
+    }
+
+    @objc
     private func handleUpdateChannelChanged(_ sender: NSPopUpButton) {
         guard let channel = sender.selectedItem?.representedObject as? AppUpdateChannel else {
             return
@@ -893,6 +930,10 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         restoreWorkspaceSwitch.state == .on
     }
 
+    var isMenuBarStatusSwitchOn: Bool {
+        menuBarStatusSwitch.state == .on
+    }
+
     var isErrorReportingSwitchOn: Bool {
         errorReportingSwitch.state == .on
     }
@@ -934,6 +975,11 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     func setRestoreWorkspaceEnabledForTesting(_ enabled: Bool) {
         restoreWorkspaceSwitch.state = enabled ? .on : .off
         handleRestoreWorkspaceSwitchChanged(restoreWorkspaceSwitch)
+    }
+
+    func setMenuBarStatusEnabledForTesting(_ enabled: Bool) {
+        menuBarStatusSwitch.state = enabled ? .on : .off
+        handleMenuBarStatusSwitchChanged(menuBarStatusSwitch)
     }
 
 }
