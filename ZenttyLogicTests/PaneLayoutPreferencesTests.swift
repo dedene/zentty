@@ -34,7 +34,7 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.largeDisplayPreset, .balanced)
         XCTAssertEqual(preferences.ultrawidePreset, .balanced)
         XCTAssertEqual(preferences.rightSplitBehaviorMode, .adaptive)
-        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1440)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1920)
     }
 
     func test_restored_preferences_defaults_ignore_stale_shared_preference_suite() {
@@ -42,6 +42,8 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: sharedDefaults)
         PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: sharedDefaults)
         PaneLayoutPreferenceStore.persist(.compact, for: .ultrawide, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.alwaysAdd, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.px2560, in: sharedDefaults)
 
         let preferences = PaneLayoutPreferenceStore.restoredPreferences(
             from: makeDefaults()
@@ -68,6 +70,29 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.laptopPreset, .roomy)
         XCTAssertEqual(preferences.largeDisplayPreset, .compact)
         XCTAssertEqual(preferences.ultrawidePreset, .compact)
+    }
+
+    func test_persisted_right_split_behavior_preferences_restore() {
+        let defaults = makeDefaults()
+
+        PaneLayoutPreferenceStore.persist(.alwaysAdd, in: defaults)
+        PaneLayoutPreferenceStore.persist(.px1920, in: defaults)
+
+        let preferences = PaneLayoutPreferenceStore.restoredPreferences(from: defaults)
+
+        XCTAssertEqual(preferences.rightSplitBehaviorMode, .alwaysAdd)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1920)
+    }
+
+    func test_invalid_persisted_right_split_behavior_preferences_fall_back_to_defaults() {
+        let defaults = makeDefaults()
+        defaults.set("unknown", forKey: PaneLayoutPreferenceStore.rightSplitBehaviorModeKey)
+        defaults.set(999, forKey: PaneLayoutPreferenceStore.visibleSplitWindowWidthKey)
+
+        let preferences = PaneLayoutPreferenceStore.restoredPreferences(from: defaults)
+
+        XCTAssertEqual(preferences.rightSplitBehaviorMode, .adaptive)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1920)
     }
 
     func test_display_class_resolution_uses_viewport_width_even_when_screen_is_wider() {

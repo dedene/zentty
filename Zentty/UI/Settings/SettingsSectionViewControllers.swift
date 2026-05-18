@@ -620,13 +620,9 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     @objc
     private func handleRightSplitBehaviorChanged(_ sender: PaneSplitBehaviorOptionView) {
         let mode = sender.mode
-        apply(paneLayout: PaneLayoutPreferences(
-            laptopPreset: paneLayout.laptopPreset,
-            largeDisplayPreset: paneLayout.largeDisplayPreset,
-            ultrawidePreset: paneLayout.ultrawidePreset,
-            rightSplitBehaviorMode: mode,
-            visibleSplitWindowWidth: paneLayout.visibleSplitWindowWidth
-        ))
+        var updatedPaneLayout = paneLayout
+        updatedPaneLayout.rightSplitBehaviorMode = mode
+        apply(paneLayout: updatedPaneLayout)
         guard !isApplyingPaneLayout else { return }
         try? configStore.update {
             $0.paneLayout.rightSplitBehaviorMode = mode
@@ -640,7 +636,9 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
             PaneVisibleSplitWindowWidth.allCases.count - 1
         )
         let width = PaneVisibleSplitWindowWidth.allCases[index]
-        updateVisibleSplitWindowWidthLabel(width)
+        var updatedPaneLayout = paneLayout
+        updatedPaneLayout.visibleSplitWindowWidth = width
+        apply(paneLayout: updatedPaneLayout)
         guard !isApplyingPaneLayout else { return }
         try? configStore.update {
             $0.paneLayout.visibleSplitWindowWidth = width
