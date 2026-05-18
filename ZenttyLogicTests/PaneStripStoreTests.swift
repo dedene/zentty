@@ -89,6 +89,20 @@ final class PaneStripStoreTests: XCTestCase {
         return WorklaneStore(worklanes: [worklane])
     }
 
+    private func makeSinglePaneWorklane(id: String) -> WorklaneState {
+        let paneID = PaneID("pane-\(id)")
+        return WorklaneState(
+            id: WorklaneID(id),
+            title: id,
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: id),
+                ],
+                focusedPaneID: paneID
+            )
+        )
+    }
+
     func test_store_starts_with_single_main_worklane_and_first_active() {
         let store = WorklaneStore()
 
@@ -367,6 +381,30 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
             .tab
         )
+    }
+
+    func test_create_worklane_inserts_after_active_worklane() {
+        let nextIDs = TestIDSequence(["new", "pane"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("B"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let newWorklaneID = store.createWorklane()
+
+        XCTAssertEqual(newWorklaneID, WorklaneID("wl_new"))
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("A"),
+            WorklaneID("B"),
+            WorklaneID("wl_new"),
+            WorklaneID("C"),
+        ])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
     }
 
     func test_split_out_pane_to_new_window_extracts_pane_state_without_closing_source_worklane() throws {

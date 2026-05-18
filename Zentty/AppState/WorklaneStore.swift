@@ -1736,20 +1736,22 @@ final class WorklaneStore {
         let workingDirectory = resolveWorkingDirectoryForNewWorklane()
         let configInheritanceSourcePaneID = resolveConfigInheritanceSourcePaneIDForNewWorklane()
 
-        worklanes.append(
-            Self.makeDefaultWorklane(
-                id: id,
-                title: "",
-                windowID: windowID,
-                layoutContext: layoutContext,
-                workingDirectory: workingDirectory,
-                surfaceContext: .tab,
-                configInheritanceSourcePaneID: configInheritanceSourcePaneID,
-                processEnvironment: processEnvironment,
-                runtimeIdentity: runtimeIdentity,
-                agentTeamsEnabled: agentTeamsEnabledProvider()
-            )
+        let worklane = Self.makeDefaultWorklane(
+            id: id,
+            title: "",
+            windowID: windowID,
+            layoutContext: layoutContext,
+            workingDirectory: workingDirectory,
+            surfaceContext: .tab,
+            configInheritanceSourcePaneID: configInheritanceSourcePaneID,
+            processEnvironment: processEnvironment,
+            runtimeIdentity: runtimeIdentity,
+            agentTeamsEnabled: agentTeamsEnabledProvider()
         )
+        let insertionIndex = worklanes
+            .firstIndex(where: { $0.id == activeWorklaneID })
+            .map { worklanes.index(after: $0) } ?? worklanes.endIndex
+        worklanes.insert(worklane, at: insertionIndex)
         activeWorklaneID = id
         recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
