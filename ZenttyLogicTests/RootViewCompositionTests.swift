@@ -544,6 +544,34 @@ final class RootViewCompositionTests: AppKitTestCase {
         )
     }
 
+    func test_all_root_controllers_observe_pane_layout_config_changes() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.SharedPaneLayout")
+        )
+        try configStore.update { config in
+            config.paneLayout.rightSplitBehaviorMode = .adaptive
+            config.paneLayout.visibleSplitWindowWidth = .px1920
+        }
+        let firstController = makeController(configStore: configStore)
+        let secondController = makeController(configStore: configStore)
+        firstController.loadViewIfNeeded()
+        secondController.loadViewIfNeeded()
+        firstController.view.frame = NSRect(x: 0, y: 0, width: 2200, height: 840)
+        secondController.view.frame = NSRect(x: 0, y: 0, width: 2200, height: 840)
+        firstController.view.layoutSubtreeIfNeeded()
+        secondController.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(firstController.paneLayoutMenuCommandTitlesForTesting().first, "Split Right")
+
+        try configStore.update { config in
+            config.paneLayout.visibleSplitWindowWidth = .px2560
+        }
+        waitForMainQueue()
+        firstController.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(firstController.paneLayoutMenuCommandTitlesForTesting().first, "Add Pane Right")
+    }
+
     func test_root_controller_handle_arrange_width_command_updates_active_pane_strip_state() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()

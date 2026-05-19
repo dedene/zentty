@@ -398,7 +398,7 @@ final class AppConfigStoreTests: XCTestCase {
             paneLayoutDefaults: paneLayoutDefaults
         )
         let reloaded = expectation(description: "config reloaded from external edit")
-        store.onChange = { config in
+        _ = store.addObserver { config in
             guard config.sidebar.width == 401 else {
                 return
             }
@@ -439,7 +439,7 @@ final class AppConfigStoreTests: XCTestCase {
         )
         let invalidReload = expectation(description: "invalid reload ignored")
         invalidReload.isInverted = true
-        store.onChange = { _ in
+        _ = store.addObserver { _ in
             invalidReload.fulfill()
         }
 
@@ -736,24 +736,25 @@ final class AppConfigStoreTests: XCTestCase {
             paneLayoutDefaults: paneLayoutDefaults
         )
 
-        let legacyObserverCalled = expectation(description: "legacy observer called")
-        let additionalObserverCalled = expectation(description: "additional observer called")
-        store.onChange = { config in
+        let firstObserverCalled = expectation(description: "first observer called")
+        let secondObserverCalled = expectation(description: "second observer called")
+        let firstObserverID = store.addObserver { config in
             XCTAssertEqual(config.sidebar.width, 333)
-            legacyObserverCalled.fulfill()
+            firstObserverCalled.fulfill()
         }
-        let observerID = store.addObserver { config in
+        let secondObserverID = store.addObserver { config in
             XCTAssertEqual(config.sidebar.width, 333)
-            additionalObserverCalled.fulfill()
+            secondObserverCalled.fulfill()
         }
 
         try store.update { config in
             config.sidebar.width = 333
         }
 
-        wait(for: [legacyObserverCalled, additionalObserverCalled], timeout: 2)
+        wait(for: [firstObserverCalled, secondObserverCalled], timeout: 2)
 
-        store.removeObserver(observerID)
+        store.removeObserver(firstObserverID)
+        store.removeObserver(secondObserverID)
     }
 
     func test_default_config_has_no_local_appearance_overrides() {

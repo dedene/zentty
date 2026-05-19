@@ -191,6 +191,7 @@ final class RootViewController: NSViewController {
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
     private var appUpdateObserverID: UUID?
+    private var configObserverID: UUID?
     private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
@@ -274,7 +275,7 @@ final class RootViewController: NSViewController {
         appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
         }
-        configStore.onChange = { [weak self] config in
+        configObserverID = configStore.addObserver { [weak self] config in
             DispatchQueue.main.async {
                 self?.applyPersistedConfig(config)
             }
@@ -399,6 +400,9 @@ final class RootViewController: NSViewController {
             agentCaffeinationController.removeSource(id: windowID)
             if let appUpdateObserverID {
                 appUpdateStateStore.removeObserver(appUpdateObserverID)
+            }
+            if let configObserverID {
+                configStore.removeObserver(configObserverID)
             }
         }
     }
