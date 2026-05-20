@@ -71,7 +71,7 @@ final class LibghosttySelectionAutoscrollController {
         }
 
         if let pendingRequest {
-            let currentOffset = Int(clamping: update.offset)
+            let currentOffset = Int(update.offset.rounded(.down))
             switch pendingRequest.zone {
             case .top:
                 if currentOffset < pendingRequest.originRow {
@@ -95,7 +95,7 @@ final class LibghosttySelectionAutoscrollController {
             return nil
         }
 
-        let currentRow = Int(clamping: scrollbarUpdate.offset)
+        let currentRow = Int(scrollbarUpdate.offset.rounded(.down))
         let maxRow = max(0, Int(clamping: scrollbarUpdate.total) - Int(clamping: scrollbarUpdate.len))
         let proximity = edgeProximity(for: mouseLocation.y, zone: zone)
         let easedProximity = proximity * proximity * (3 - (2 * proximity))

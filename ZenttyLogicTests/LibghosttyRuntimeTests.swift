@@ -174,13 +174,13 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10\nwindow-padding-balance = true")
+        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10,10")
     }
 
     func testPaddingPolicyOverrideContents_injectsDefaultsWhenUserConfigIsNil() {
         let contents = LibghosttyRuntime.paddingPolicyOverrideContents(userConfigContents: nil)
 
-        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10\nwindow-padding-balance = true")
+        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10,10")
     }
 
     func testPaddingPolicyOverrideContents_bumpsZeroToFloor() {
@@ -191,7 +191,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 6\nwindow-padding-y = 6\nwindow-padding-balance = true")
+        XCTAssertEqual(contents, "window-padding-x = 6\nwindow-padding-y = 6,6")
     }
 
     func testPaddingPolicyOverrideContents_bumpsBelowFloorToFloor() {
@@ -202,10 +202,10 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 6\nwindow-padding-y = 6\nwindow-padding-balance = true")
+        XCTAssertEqual(contents, "window-padding-x = 6\nwindow-padding-y = 6,6")
     }
 
-    func testPaddingPolicyOverrideContents_returnsNilWhenEverythingIsAlreadyFine() {
+    func testPaddingPolicyOverrideContents_respectsConfiguredMinimumYWithoutPaneLabelBump() {
         let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
             userConfigContents: """
             window-padding-x = 6
@@ -217,7 +217,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
         XCTAssertNil(contents)
     }
 
-    func testPaddingPolicyOverrideContents_returnsNilWhenValuesMatchDefaultAndBalanceSet() {
+    func testPaddingPolicyOverrideContents_respectsDefaultPaddingWhenBalanceIsSet() {
         let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
             userConfigContents: """
             window-padding-x = 10
@@ -229,7 +229,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
         XCTAssertNil(contents)
     }
 
-    func testPaddingPolicyOverrideContents_returnsOnlyBalanceWhenValuesAboveDefault() {
+    func testPaddingPolicyOverrideContents_returnsNilWhenValuesAboveDefaultAndBalanceIsMissing() {
         let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
             userConfigContents: """
             window-padding-x = 20
@@ -237,7 +237,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-balance = true")
+        XCTAssertNil(contents)
     }
 
     func testPaddingPolicyOverrideContents_handlesAsymmetricXMissingYZero() {
@@ -248,7 +248,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 6")
+        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 6,6")
     }
 
     func testPaddingPolicyOverrideContents_handlesAsymmetricXBelowFloorYMissing() {
@@ -259,7 +259,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 6\nwindow-padding-y = 10")
+        XCTAssertEqual(contents, "window-padding-x = 6\nwindow-padding-y = 10,10")
     }
 
     func testPaddingPolicyOverrideContents_ignoresCommentedKey() {
@@ -271,7 +271,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10\nwindow-padding-balance = true")
+        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10,10")
     }
 
     func testPaddingPolicyOverrideContents_honorsLastValueForDuplicateKey() {
@@ -296,7 +296,7 @@ final class LibghosttyRuntimeTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10")
+        XCTAssertEqual(contents, "window-padding-x = 10\nwindow-padding-y = 10,10")
     }
 
     func testPaddingPolicyOverrideContents_respectsExplicitBalanceFalse() {
@@ -316,6 +316,42 @@ final class LibghosttyRuntimeTests: XCTestCase {
             userConfigContents: """
             window-padding-x = 12
             window-padding-y = 12
+            window-padding-balance = true
+            """
+        )
+
+        XCTAssertNil(contents)
+    }
+
+    func testPaddingPolicyOverrideContents_preservesConfiguredBottomPaddingWhenRaisingTopPaddingToFloor() {
+        let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
+            userConfigContents: """
+            window-padding-x = 12
+            window-padding-y = 4,24
+            window-padding-balance = true
+            """
+        )
+
+        XCTAssertEqual(contents, "window-padding-y = 6,24")
+    }
+
+    func testPaddingPolicyOverrideContents_preservesConfiguredTopPaddingWhenBottomPaddingNeedsFloor() {
+        let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
+            userConfigContents: """
+            window-padding-x = 12
+            window-padding-y = 20,4
+            window-padding-balance = true
+            """
+        )
+
+        XCTAssertEqual(contents, "window-padding-y = 20,6")
+    }
+
+    func testPaddingPolicyOverrideContents_returnsNilWhenTopAndBottomPaddingAreAlreadyFine() {
+        let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
+            userConfigContents: """
+            window-padding-x = 12
+            window-padding-y = 20,12
             window-padding-balance = true
             """
         )

@@ -333,6 +333,7 @@ final class WorklaneRenderCoordinator {
                 ),
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
+                smoothScrollingEnabled: paneSettings.smoothScrollingEnabled,
                 worklaneColor: worklane.color,
                 theme: currentTheme,
                 leadingVisibleInset: effectiveInset,

@@ -36,10 +36,39 @@ require_command() {
 
 require_command git "Install Xcode command line tools."
 require_command rsync "Install rsync."
-require_command zig "Install Zig, for example via: brew install zig"
 require_command brew "Install Homebrew."
 require_command xcode-select "Install full Xcode."
 require_command xcrun "Install full Xcode."
+
+resolve_zig_command() {
+  if [[ -z "${zig_version:-}" ]]; then
+    require_command zig "Install Zig, for example via: brew install zig"
+    echo "zig"
+    return
+  fi
+
+  if command -v zig >/dev/null 2>&1 && [[ "$(zig version)" == "${zig_version}" ]]; then
+    echo "zig"
+    return
+  fi
+
+  local major_minor="${zig_version%.*}"
+  local formula="zig@${major_minor}"
+  local formula_prefix
+  if formula_prefix="$(brew --prefix "${formula}" 2>/dev/null)"; then
+    local candidate="${formula_prefix}/bin/zig"
+    if [[ -x "${candidate}" && "$("${candidate}" version)" == "${zig_version}" ]]; then
+      echo "${candidate}"
+      return
+    fi
+  fi
+
+  echo "Missing required Zig version ${zig_version}." >&2
+  echo "Install it with: brew install ${formula}" >&2
+  exit 1
+}
+
+ZIG_COMMAND="$(resolve_zig_command)"
 
 XCODE_PATH="$(xcode-select --print-path)"
 if [[ "${XCODE_PATH}" != */Xcode*.app/Contents/Developer ]]; then
@@ -62,6 +91,11 @@ mkdir -p "${CACHE_ROOT}" "${OUTPUT_DIR}"
 
 if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
   git clone "${repo}" "${SOURCE_DIR}"
+else
+  CURRENT_ORIGIN="$(git -C "${SOURCE_DIR}" remote get-url origin)"
+  if [[ "${CURRENT_ORIGIN}" != "${repo}" ]]; then
+    git -C "${SOURCE_DIR}" remote set-url origin "${repo}"
+  fi
 fi
 
 # Ghostty updates the moving `tip` tag, so cached clones need forced tag refreshes.
@@ -70,7 +104,7 @@ git -C "${SOURCE_DIR}" checkout --detach "${revision}"
 
 (
   cd "${SOURCE_DIR}"
-  zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target="${build_target}"
+  "${ZIG_COMMAND}" build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target="${build_target}"
 )
 
 if [[ ! -d "${ARTIFACT_SOURCE}" ]]; then
@@ -83,5 +117,6 @@ rsync -a --delete "${ARTIFACT_SOURCE}/" "${ARTIFACT_DEST}/"
 
 echo "Built GhosttyKit.xcframework"
 echo "Revision: ${revision}"
+echo "Zig: $("${ZIG_COMMAND}" version)"
 echo "Source: ${SOURCE_DIR}"
 echo "Output: ${ARTIFACT_DEST}"

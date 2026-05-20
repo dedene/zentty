@@ -1061,14 +1061,12 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertTrue(envelope.contains("\"total\":3"))
     }
 
-    func test_grok_adapter_pre_tool_use_ask_user_question_emits_running_and_reemitter_emits_needs_input() throws {
+    func test_grok_adapter_pre_tool_use_ask_user_question_suppresses_lifecycle_and_reemitter_emits_needs_input() throws {
         let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion","message":"Which file should I open?"}"#
         let payload = json.data(using: .utf8)!
 
         let adapterPayloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
-        XCTAssertEqual(adapterPayloads.count, 1)
-        XCTAssertEqual(adapterPayloads[0].state, .running)
-        XCTAssertEqual(adapterPayloads[0].toolName, "Grok")
+        XCTAssertTrue(adapterPayloads.isEmpty)
 
         let canonicals = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
         let envelope = try XCTUnwrap(canonicals.first)

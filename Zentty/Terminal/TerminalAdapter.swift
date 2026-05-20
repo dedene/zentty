@@ -240,6 +240,11 @@ protocol TerminalScrollRouting: AnyObject {
 }
 
 @MainActor
+protocol TerminalSmoothScrollConfiguring: AnyObject {
+    var smoothScrollingEnabled: Bool { get set }
+}
+
+@MainActor
 protocol TerminalMouseInteractionSuppressionControlling: AnyObject {
     func setMouseInteractionSuppressionRects(_ rects: [CGRect])
 }

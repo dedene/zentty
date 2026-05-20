@@ -75,6 +75,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("show_labels = true"))
         XCTAssertTrue(persisted.contains("inactive_opacity = 0.7"))
         XCTAssertTrue(persisted.contains("show_project_icons = true"))
+        XCTAssertTrue(persisted.contains("smooth_scroll_enabled = false"))
         XCTAssertTrue(persisted.contains("[open_with]"))
         XCTAssertTrue(persisted.contains("enabled_target_ids = [\"finder\", \"vscode\", \"cursor\", \"xcode\"]"))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
@@ -90,6 +91,7 @@ final class AppConfigStoreTests: XCTestCase {
         show_labels = false
         inactive_opacity = 0.2
         show_project_icons = false
+        smooth_scroll_enabled = true
         """.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let store = AppConfigStore(
@@ -102,6 +104,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.panes.showLabels)
         XCTAssertEqual(store.current.panes.inactiveOpacity, 0.6, accuracy: 0.001)
         XCTAssertFalse(store.current.panes.showProjectIcons)
+        XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
     }
 
     func test_store_prefers_existing_config_file_over_user_defaults_migration() throws {
@@ -186,6 +189,7 @@ final class AppConfigStoreTests: XCTestCase {
             config.sidebar.width = 344
             config.sidebar.visibility = .pinnedOpen
             config.paneLayout.largeDisplayPreset = .roomy
+            config.panes.smoothScrollingEnabled = true
             config.openWith.primaryTargetID = "cursor"
             config.openWith.enabledTargetIDs = ["cursor", "finder"]
             config.errorReporting.enabled = false
@@ -202,6 +206,7 @@ final class AppConfigStoreTests: XCTestCase {
         let persisted = try String(contentsOf: fileURL)
         XCTAssertTrue(persisted.contains("width = 344"))
         XCTAssertTrue(persisted.contains("large_display = \"roomy\""))
+        XCTAssertTrue(persisted.contains("smooth_scroll_enabled = true"))
         XCTAssertTrue(persisted.contains("primary_target_id = \"cursor\""))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
         XCTAssertTrue(persisted.contains("enabled = false"))

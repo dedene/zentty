@@ -32,12 +32,17 @@ final class PaneContainerViewTests: AppKitTestCase {
         let borderFrame = paneView.insetBorderFrame
 
         XCTAssertFalse(paneView.descendantSubviews().contains { $0 is NSStackView })
-        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
         XCTAssertEqual(paneView.layer?.borderWidth ?? 0, 0, accuracy: 0.001)
         XCTAssertEqual(paneView.layer?.cornerRadius ?? 0, ChromeGeometry.paneRadius, accuracy: 0.001)
         XCTAssertTrue(paneView.usesInsetBorderLayer)
         XCTAssertEqual(paneView.insetBorderLineWidth, 1, accuracy: 0.001)
         let expectedInset = ChromeGeometry.paneBorderInset(backingScaleFactor: 2)
+        let expectedContentFrame = paneView.bounds
+        XCTAssertEqual(paneView.contentClipFrameForTesting.minX, expectedContentFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.minY, expectedContentFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.width, expectedContentFrame.width, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.height, expectedContentFrame.height, accuracy: 0.001)
+        XCTAssertEqual(terminalSurfaceView.frame, CGRect(origin: .zero, size: expectedContentFrame.size))
         XCTAssertEqual(paneView.insetBorderInset, expectedInset, accuracy: 0.001)
         XCTAssertEqual(
             paneView.insetBorderCornerRadius,
@@ -252,6 +257,39 @@ final class PaneContainerViewTests: AppKitTestCase {
         )
         XCTAssertEqual(frame.midY, paneView.insetBorderFrame.maxY - 0.5, accuracy: 0.001)
         XCTAssertEqual(paneView.borderLabelGapWidthForTesting, frame.width, accuracy: 0.001)
+    }
+
+    func test_visible_border_context_keeps_terminal_content_main_like() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        _ = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+
+        XCTAssertEqual(paneView.contentClipFrameForTesting, paneView.bounds)
     }
 
     func test_pane_container_hides_border_context_and_gap_when_context_is_missing() {
@@ -555,8 +593,13 @@ final class PaneContainerViewTests: AppKitTestCase {
         paneView.frame.size = NSSize(width: 610, height: 330)
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(terminalSurfaceView.frame, paneView.bounds)
-        XCTAssertEqual(paneView.statusOverlayFrame, paneView.bounds)
+        let expectedContentFrame = paneView.bounds
+        XCTAssertEqual(paneView.contentClipFrameForTesting.minX, expectedContentFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.minY, expectedContentFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.width, expectedContentFrame.width, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.height, expectedContentFrame.height, accuracy: 0.001)
+        XCTAssertEqual(terminalSurfaceView.frame, CGRect(origin: .zero, size: expectedContentFrame.size))
+        XCTAssertEqual(paneView.statusOverlayFrame, CGRect(origin: .zero, size: expectedContentFrame.size))
     }
 
     func test_animated_inset_border_resize_keeps_existing_geometry_until_parent_resizes() throws {
@@ -619,6 +662,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         }
 
         paneView.layoutSubtreeIfNeeded()
+        let originalTerminalHeight = terminalSurfaceView.frame.height
 
         paneView.beginVerticalFreeze(gravity: .top)
         XCTAssertTrue(paneView.isTerminalAnimationFrozenForTesting)
@@ -626,14 +670,14 @@ final class PaneContainerViewTests: AppKitTestCase {
         paneView.frame.size = NSSize(width: 420, height: 300)
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(terminalSurfaceView.frame.height, 520, accuracy: 0.001,
+        XCTAssertEqual(terminalSurfaceView.frame.height, originalTerminalHeight, accuracy: 0.001,
                        "Terminal height should stay at original size during freeze")
 
         paneView.endVerticalFreeze()
         paneView.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(paneView.isTerminalAnimationFrozenForTesting)
-        XCTAssertEqual(terminalSurfaceView.frame.height, paneView.bounds.height, accuracy: 0.001)
+        XCTAssertEqual(terminalSurfaceView.frame.height, paneView.terminalAnchorFrameForTesting.height, accuracy: 0.001)
     }
 
     func test_vertical_freeze_keeps_clip_and_anchor_tracking_bounds() {
@@ -659,8 +703,12 @@ final class PaneContainerViewTests: AppKitTestCase {
         paneView.frame.size = NSSize(width: 420, height: 300)
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(paneView.contentClipFrameForTesting, paneView.bounds)
-        XCTAssertEqual(paneView.terminalAnchorFrameForTesting, paneView.bounds)
+        let expectedContentFrame = paneView.bounds
+        XCTAssertEqual(paneView.contentClipFrameForTesting.minX, expectedContentFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.minY, expectedContentFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.width, expectedContentFrame.width, accuracy: 0.001)
+        XCTAssertEqual(paneView.contentClipFrameForTesting.height, expectedContentFrame.height, accuracy: 0.001)
+        XCTAssertEqual(paneView.terminalAnchorFrameForTesting, CGRect(origin: .zero, size: expectedContentFrame.size))
     }
 
     func test_nonzero_cell_height_does_not_leave_bottom_remainder() {
@@ -690,7 +738,7 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         paneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(terminalSurfaceView.frame.height, paneView.bounds.height, accuracy: 0.001)
+        XCTAssertEqual(terminalSurfaceView.frame.height, paneView.terminalAnchorFrameForTesting.height, accuracy: 0.001)
     }
 
     func test_content_clip_background_matches_startup_surface() {
@@ -1044,11 +1092,11 @@ final class PaneContainerViewTests: AppKitTestCase {
         )
         activePaneView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(runtime.hostView.frame.size, activePaneView.bounds.size)
+        XCTAssertEqual(runtime.hostView.frame.size, activePaneView.terminalAnchorFrameForTesting.size)
 
         previewPaneView.forceTerminalViewportSync()
 
-        XCTAssertEqual(runtime.hostView.frame.size, activePaneView.bounds.size)
+        XCTAssertEqual(runtime.hostView.frame.size, activePaneView.terminalAnchorFrameForTesting.size)
     }
 
     func test_animated_unfocused_render_updates_focus_chrome_without_mutating_alpha() {
@@ -1286,8 +1334,8 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         let dragZoneRect = CGRect(
             x: 0,
-            y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
-            width: paneView.bounds.width,
+            y: terminalView.bounds.height - PaneContainerView.dragZoneHeight,
+            width: terminalView.bounds.width,
             height: PaneContainerView.dragZoneHeight
         )
         XCTAssertEqual(terminalView.mouseInteractionSuppressionRects.count, 2)
@@ -1296,7 +1344,9 @@ final class PaneContainerViewTests: AppKitTestCase {
             "The drag strip must always reserve the top band from terminal mouse handling"
         )
         XCTAssertTrue(
-            terminalView.mouseInteractionSuppressionRects.contains(paneView.searchHUDFrameForTesting),
+            terminalView.mouseInteractionSuppressionRects.contains(
+                paneView.terminalHostLocalRect(forPaneRect: paneView.searchHUDFrameForTesting)
+            ),
             "The live terminal should also suppress mouse handling inside the visible HUD rect"
         )
 
@@ -1333,8 +1383,8 @@ final class PaneContainerViewTests: AppKitTestCase {
             terminalView.mouseInteractionSuppressionRects[0],
             CGRect(
                 x: 0,
-                y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
-                width: paneView.bounds.width,
+                y: terminalView.bounds.height - PaneContainerView.dragZoneHeight,
+                width: terminalView.bounds.width,
                 height: PaneContainerView.dragZoneHeight
             )
         )
@@ -1368,13 +1418,15 @@ final class PaneContainerViewTests: AppKitTestCase {
             terminalView.mouseInteractionSuppressionRects.contains(
                 CGRect(
                     x: 0,
-                    y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
-                    width: paneView.bounds.width,
+                    y: terminalView.bounds.height - PaneContainerView.dragZoneHeight,
+                    width: terminalView.bounds.width,
                     height: PaneContainerView.dragZoneHeight
                 )
             )
         )
-        XCTAssertTrue(terminalView.mouseInteractionSuppressionRects.contains(paneView.searchHUDFrameForTesting))
+        XCTAssertTrue(terminalView.mouseInteractionSuppressionRects.contains(
+            paneView.terminalHostLocalRect(forPaneRect: paneView.searchHUDFrameForTesting)
+        ))
     }
 
     func test_search_hud_drag_updates_terminal_mouse_suppression_rects() {
@@ -1408,8 +1460,8 @@ final class PaneContainerViewTests: AppKitTestCase {
             terminalView.mouseInteractionSuppressionRects.contains(
                 CGRect(
                     x: 0,
-                    y: paneView.bounds.height - PaneContainerView.dragZoneHeight,
-                    width: paneView.bounds.width,
+                    y: terminalView.bounds.height - PaneContainerView.dragZoneHeight,
+                    width: terminalView.bounds.width,
                     height: PaneContainerView.dragZoneHeight
                 )
             )
@@ -1650,14 +1702,23 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         paneView.snapSearchHUDToNearestCornerForTesting()
 
-        XCTAssertEqual(capturedTargetOrigin, paneView.searchHUDFrame(for: .bottomLeading).origin)
-        XCTAssertEqual(paneView.searchHUDFrameForTesting.origin, displacedOrigin)
+        XCTAssertEqual(
+            capturedTargetOrigin,
+            paneView.terminalHostLocalRect(forPaneRect: paneView.searchHUDFrame(for: .bottomLeading)).origin
+        )
+        XCTAssertEqual(
+            paneView.terminalHostLocalRect(forPaneRect: paneView.searchHUDFrameForTesting).origin,
+            displacedOrigin
+        )
         XCTAssertTrue(paneView.isSearchHUDSnapAnimationInFlightForTesting)
         XCTAssertEqual(runtime.snapshot.search.hudCorner, .topTrailing)
 
         snapCompletion?()
 
-        XCTAssertEqual(paneView.searchHUDFrameForTesting.origin, capturedTargetOrigin)
+        XCTAssertEqual(
+            paneView.terminalHostLocalRect(forPaneRect: paneView.searchHUDFrameForTesting).origin,
+            capturedTargetOrigin
+        )
         XCTAssertFalse(paneView.isSearchHUDSnapAnimationInFlightForTesting)
         XCTAssertEqual(runtime.snapshot.search.hudCorner, .bottomLeading)
     }
@@ -1967,6 +2028,15 @@ private func backgroundColorToken(for view: NSView?) -> String? {
     }
 
     return color.themeToken
+}
+
+private extension PaneContainerView {
+    func terminalHostLocalRect(forPaneRect rect: CGRect) -> CGRect {
+        rect.offsetBy(
+            dx: -contentClipFrameForTesting.minX,
+            dy: -contentClipFrameForTesting.minY
+        )
+    }
 }
 
 private extension NSView {

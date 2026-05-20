@@ -64,14 +64,28 @@ struct AppConfig: Equatable, Sendable {
         var showLabels: Bool
         var inactiveOpacity: CGFloat
         var showProjectIcons: Bool
+        var smoothScrollingEnabled: Bool
 
         static let minimumInactiveOpacity: CGFloat = 0.6
         static let maximumInactiveOpacity: CGFloat = 1.0
 
+        init(
+            showLabels: Bool,
+            inactiveOpacity: CGFloat,
+            showProjectIcons: Bool,
+            smoothScrollingEnabled: Bool = false
+        ) {
+            self.showLabels = showLabels
+            self.inactiveOpacity = inactiveOpacity
+            self.showProjectIcons = showProjectIcons
+            self.smoothScrollingEnabled = smoothScrollingEnabled
+        }
+
         static let `default` = Panes(
             showLabels: true,
             inactiveOpacity: 0.7,
-            showProjectIcons: true
+            showProjectIcons: true,
+            smoothScrollingEnabled: false
         )
     }
 
@@ -378,7 +392,8 @@ extension AppConfig.Panes {
                 max(inactiveOpacity, AppConfig.Panes.minimumInactiveOpacity),
                 AppConfig.Panes.maximumInactiveOpacity
             ),
-            showProjectIcons: showProjectIcons
+            showProjectIcons: showProjectIcons,
+            smoothScrollingEnabled: smoothScrollingEnabled
         )
     }
 }

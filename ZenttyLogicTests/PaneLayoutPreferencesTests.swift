@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Zentty
 
@@ -339,5 +340,71 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertNil(outcome.dottedOutsidePane)
         XCTAssertTrue(outcome.solidPaneFrames.allSatisfy { outcome.windowFrame.contains($0) })
         XCTAssertFalse(outcome.shrinkArrows.isEmpty)
+    }
+}
+
+@MainActor
+final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
+    private var temporaryDirectoryURL: URL!
+    private var defaultsSuiteNames: [String] = []
+
+    override func setUpWithError() throws {
+        temporaryDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.PaneLayoutSettings.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        defaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        defaultsSuiteNames.removeAll()
+        if let temporaryDirectoryURL {
+            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+        }
+        temporaryDirectoryURL = nil
+    }
+
+    func test_smooth_scrolling_toggle_defaults_off_and_reflects_applied_panes() throws {
+        let controller = PaneLayoutSettingsSectionViewController(configStore: makeConfigStore())
+        controller.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.smoothScrollingForTesting)
+
+        controller.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7,
+            showProjectIcons: true,
+            smoothScrollingEnabled: true
+        ))
+
+        XCTAssertTrue(controller.smoothScrollingForTesting)
+    }
+
+    func test_smooth_scrolling_toggle_persists_config_change() throws {
+        let store = makeConfigStore()
+        let controller = PaneLayoutSettingsSectionViewController(configStore: store)
+        controller.loadViewIfNeeded()
+
+        let toggle = controller.smoothScrollingSwitchForTesting
+        toggle.state = .on
+        _ = toggle.target?.perform(toggle.action, with: toggle)
+
+        XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
+    }
+
+    private func makeConfigStore() -> AppConfigStore {
+        AppConfigStore(
+            fileURL: temporaryDirectoryURL.appendingPathComponent("config.toml"),
+            sidebarWidthDefaults: makeDefaults(suffix: "sidebarWidth"),
+            sidebarVisibilityDefaults: makeDefaults(suffix: "sidebarVisibility"),
+            paneLayoutDefaults: makeDefaults(suffix: "paneLayout")
+        )
+    }
+
+    private func makeDefaults(suffix: String) -> UserDefaults {
+        let suiteName = "ZenttyTests.PaneLayoutSettings.\(suffix).\(UUID().uuidString)"
+        defaultsSuiteNames.append(suiteName)
+        return UserDefaults(suiteName: suiteName) ?? .standard
     }
 }

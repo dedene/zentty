@@ -4,7 +4,7 @@ import GhosttyKit
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
     let total: UInt64
-    let offset: UInt64
+    let offset: Double
     let len: UInt64
 }
 
@@ -518,6 +518,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
     }
 
+    func scroll(toOffset offset: Double) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_scroll_to_offset(surface, offset)
+    }
+
     func hasSelection() -> Bool {
         guard let surface else {
             return false
@@ -537,6 +545,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             y,
             Self.scrollMods(precision: precision, momentum: momentum)
         )
+    }
+
+    func setSmoothScrollingEnabled(_ enabled: Bool) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_set_smooth_scroll_enabled(surface, enabled)
     }
 
     func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {
