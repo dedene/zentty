@@ -1070,7 +1070,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
-    func test_restored_initial_frame_seeds_first_canvas_layout() throws {
+    func test_restored_pane_layout_seed_does_not_place_window() throws {
         let sidebarSuiteName = "ZenttyTests.MainWindowController.RestoreFrame.Sidebar.\(UUID().uuidString)"
         let sidebarVisibilitySuiteName = "ZenttyTests.MainWindowController.RestoreFrame.Visibility.\(UUID().uuidString)"
         let sidebarWidthDefaults = UserDefaults(suiteName: sidebarSuiteName) ?? .standard
@@ -1081,6 +1081,7 @@ final class MainWindowControllerTests: XCTestCase {
         SidebarVisibilityPreference.persist(.pinnedOpen, in: sidebarVisibilityDefaults)
 
         let restoredFrame = testWindowFrame(x: 12, y: 12, width: 1720, height: 1180)
+        let expectedInitialWindowFrame = MainWindowController.defaultFrameForRestore().integral
         let configStore = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.RestoreFrame"),
             sidebarWidthDefaults: sidebarWidthDefaults,
@@ -1125,11 +1126,18 @@ final class MainWindowControllerTests: XCTestCase {
             windowID: WindowID("window-restore-frame"),
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             configStore: configStore,
-            initialFrame: restoredFrame,
-            shouldApplyAutosavedFrameOnInitialShow: false,
+            initialPaneLayoutFrame: restoredFrame,
             initialWorkspaceState: restoredState
         )
         self.controller = controller
+
+        XCTAssertEqual(controller.window.frame.integral, expectedInitialWindowFrame)
+        XCTAssertEqual(
+            controller.rootViewControllerForTesting.paneStripStateForTesting.columns.first?.width ?? 0,
+            restoredWidth,
+            accuracy: 1.0
+        )
+
         controller.showWindow(nil)
         waitForLayout()
 
@@ -1140,9 +1148,12 @@ final class MainWindowControllerTests: XCTestCase {
             .descendantPaneViews()
             .sorted { $0.frame.minX < $1.frame.minX }
         let firstPane = try XCTUnwrap(paneViews.first)
+        let actualLayoutContext = MainWindowController.initialPaneLayoutContextForRestore(
+            initialFrame: controller.window.frame,
+            config: configStore.current
+        )
 
-        XCTAssertEqual(controller.window.frame.width, restoredFrame.width, accuracy: 1.0)
-        XCTAssertEqual(firstPane.frame.width, restoredWidth, accuracy: 1.0)
+        XCTAssertEqual(firstPane.frame.width, actualLayoutContext.singlePaneWidth, accuracy: 1.0)
         XCTAssertEqual(firstPane.frame.minX, appCanvasView.leadingVisibleInset, accuracy: 1.0)
     }
 
@@ -1212,6 +1223,31 @@ final class MainWindowControllerTests: XCTestCase {
                 defaults: defaults
             )
         )
+    }
+
+    func test_pane_layout_seed_accepts_offscreen_frame_without_screen_remapping() {
+        let savedWindowFrame = NSRect(x: 4000, y: 100, width: 1120, height: 720)
+
+        let seedFrame = MainWindowController.validatedPaneLayoutSeedFrameForRestore(savedWindowFrame)
+
+        XCTAssertEqual(seedFrame, savedWindowFrame)
+    }
+
+    func test_pane_layout_seed_ignores_legacy_screen_metadata() {
+        let savedWindowFrame = WorkspaceRecipe.WindowFrame(
+            x: 4000,
+            y: 100,
+            width: 1120,
+            height: 720,
+            screenX: 3440,
+            screenY: 0,
+            screenWidth: 2560,
+            screenHeight: 1440
+        )
+
+        let seedFrame = MainWindowController.validatedPaneLayoutSeedFrameForRestore(savedWindowFrame)
+
+        XCTAssertEqual(seedFrame, NSRect(x: 4000, y: 100, width: 1120, height: 720))
     }
 
     func test_split_and_focus_actions_route_through_root_dispatcher() {

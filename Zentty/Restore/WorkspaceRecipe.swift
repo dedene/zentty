@@ -30,12 +30,29 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var y: Double
         var width: Double
         var height: Double
+        var screenX: Double?
+        var screenY: Double?
+        var screenWidth: Double?
+        var screenHeight: Double?
 
-        init(x: Double, y: Double, width: Double, height: Double) {
+        init(
+            x: Double,
+            y: Double,
+            width: Double,
+            height: Double,
+            screenX: Double? = nil,
+            screenY: Double? = nil,
+            screenWidth: Double? = nil,
+            screenHeight: Double? = nil
+        ) {
             self.x = x
             self.y = y
             self.width = width
             self.height = height
+            self.screenX = screenX
+            self.screenY = screenY
+            self.screenWidth = screenWidth
+            self.screenHeight = screenHeight
         }
 
         init(rect: CGRect) {

@@ -328,8 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowID: WindowID,
         initialWorkspaceState: WindowWorkspaceState?,
         runtimeRegistry: PaneRuntimeRegistry? = nil,
-        initialFrame: NSRect? = nil,
-        shouldApplyAutosavedFrameOnInitialShow: Bool = true
+        initialPaneLayoutFrame: NSRect? = nil
     ) -> MainWindowController {
         let index = nextWindowIndex
         nextWindowIndex += 1
@@ -340,8 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appUpdateStateStore: appUpdateController.updateStateStore,
             notificationStore: notificationStore,
             windowIndex: index,
-            initialFrame: initialFrame,
-            shouldApplyAutosavedFrameOnInitialShow: shouldApplyAutosavedFrameOnInitialShow,
+            initialPaneLayoutFrame: initialPaneLayoutFrame,
             initialWorkspaceState: initialWorkspaceState
         )
         let id = ObjectIdentifier(controller)
@@ -655,14 +653,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var launchedControllers: [MainWindowController] = []
 
         for (windowIndex, recipeWindow) in windows.enumerated() {
-            let restoredFrame = MainWindowController.validatedFrameForRestore(recipeWindow.frame?.rect)
-                ?? MainWindowController.legacyAutosavedFrameForRestore(
-                    windowIndex: windowIndex,
-                    defaults: windowFrameDefaults
-                )
-            let initialFrame = restoredFrame ?? MainWindowController.defaultFrameForRestore()
+            let paneLayoutSeedFrame = MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: windowIndex,
+                defaults: windowFrameDefaults
+            )
+                ?? MainWindowController.validatedPaneLayoutSeedFrameForRestore(recipeWindow.frame)
+                ?? MainWindowController.defaultFrameForRestore()
             let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
-                initialFrame: initialFrame,
+                initialFrame: paneLayoutSeedFrame,
                 config: config
             )
             let importedState = WorkspaceRecipeImporter.makeWorklanes(
@@ -676,8 +674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let controller = makeWindowController(
                 windowID: WindowID(recipeWindow.id),
                 initialWorkspaceState: importedState,
-                initialFrame: initialFrame,
-                shouldApplyAutosavedFrameOnInitialShow: false
+                initialPaneLayoutFrame: paneLayoutSeedFrame
             )
             launchedControllers.append(controller)
         }

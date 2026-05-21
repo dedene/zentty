@@ -742,7 +742,7 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNil(controllers[0].lastNavigateRequestPaneIDForTesting)
     }
 
-    func test_restore_launch_uses_legacy_autosaved_frame_when_recipe_has_no_frame() throws {
+    func test_restore_launch_uses_legacy_autosaved_frame_as_layout_seed_when_recipe_has_no_frame() throws {
         NSApp.mainMenu = nil
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.AppDelegate.LegacyRestore.\(UUID().uuidString)", isDirectory: true)
@@ -854,9 +854,119 @@ final class AppDelegateTests: XCTestCase {
         let paneViews = appCanvasView
             .descendantPaneViews()
             .sorted { $0.frame.minX < $1.frame.minX }
+        let visibleLayoutContext = MainWindowController.initialPaneLayoutContextForRestore(
+            initialFrame: controller.window.frame,
+            config: configStore.current
+        )
 
-        XCTAssertEqual(controller.window.frame.width, legacyFrame.width, accuracy: 1.0)
-        XCTAssertEqual(paneViews.first?.frame.width ?? 0, CGFloat(restoredColumnWidth), accuracy: 1.0)
+        XCTAssertGreaterThan(abs(controller.window.frame.width - legacyFrame.width), 1.0)
+        XCTAssertEqual(paneViews.first?.frame.width ?? 0, visibleLayoutContext.singlePaneWidth, accuracy: 1.0)
+    }
+
+    func test_restore_launch_prefers_autosaved_layout_seed_over_stale_recipe_frame() throws {
+        if HostedTestDisplay.screenNameFromEnvironment != nil {
+            throw XCTSkip("AppDelegate launch tests create hosted app windows that are not virtual-display safe.")
+        }
+
+        NSApp.mainMenu = nil
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.CurrentFrameRestore.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let frameDefaultsName = "ZenttyTests.AppDelegate.CurrentFrameRestore.Frame.\(UUID().uuidString)"
+        let frameDefaults = try XCTUnwrap(UserDefaults(suiteName: frameDefaultsName))
+        testDefaultsSuiteNames.append(frameDefaultsName)
+
+        let testScreen = HostedTestDisplay.screen(named: HostedTestDisplay.screenNameFromEnvironment)
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        let visibleFrame = try XCTUnwrap(testScreen?.visibleFrame)
+        let staleRecipeFrame = NSRect(
+            x: visibleFrame.minX + 20,
+            y: visibleFrame.minY + 20,
+            width: min(960, visibleFrame.width - 40),
+            height: min(600, visibleFrame.height - 40)
+        ).integral
+        let autosavedFrame = NSRect(
+            x: visibleFrame.minX + 80,
+            y: visibleFrame.minY + 90,
+            width: min(1120, visibleFrame.width - 120),
+            height: min(720, visibleFrame.height - 140)
+        ).integral
+        frameDefaults.set(
+            "\(autosavedFrame.minX) \(autosavedFrame.minY) \(autosavedFrame.width) \(autosavedFrame.height) \(visibleFrame.minX) \(visibleFrame.minY) \(visibleFrame.width) \(visibleFrame.height) ",
+            forKey: "NSWindow Frame MainWindow"
+        )
+
+        let configStore = AppConfigStore(fileURL: directoryURL.appendingPathComponent("config.toml"))
+        let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
+            initialFrame: autosavedFrame,
+            config: configStore.current
+        )
+        let sessionRestoreStore = SessionRestoreStore(
+            snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+        )
+        try sessionRestoreStore.saveSnapshot(
+            SessionRestoreEnvelope(
+                workspace: WorkspaceRecipe(
+                    windows: [
+                        WorkspaceRecipe.Window(
+                            id: "window-main",
+                            frame: WorkspaceRecipe.WindowFrame(rect: staleRecipeFrame),
+                            worklanes: [
+                                WorkspaceRecipe.Worklane(
+                                    id: "worklane-main",
+                                    title: "Main",
+                                    nextPaneNumber: 2,
+                                    focusedColumnID: "column-main",
+                                    columns: [
+                                        WorkspaceRecipe.Column(
+                                            id: "column-main",
+                                            width: Double(layoutContext.singlePaneWidth),
+                                            focusedPaneID: "pane-main",
+                                            lastFocusedPaneID: "pane-main",
+                                            paneHeights: [1],
+                                            panes: [
+                                                WorkspaceRecipe.Pane(
+                                                    id: "pane-main",
+                                                    titleSeed: "main",
+                                                    workingDirectory: nil
+                                                )
+                                            ]
+                                        ),
+                                    ],
+                                    color: nil,
+                                    bookmarkOriginID: nil
+                                )
+                            ],
+                            activeWorklaneID: "worklane-main"
+                        )
+                    ],
+                    activeWindowID: "window-main"
+                )
+            )
+        )
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore,
+            appUpdateController: StubAppUpdateController(canCheckForUpdates: true),
+            sessionRestoreStore: sessionRestoreStore,
+            sessionRestoreEnabled: true,
+            windowFrameDefaults: frameDefaults
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        waitForAppWindows("restore launched")
+
+        let controller = try XCTUnwrap(delegate.windowControllersForTesting.first)
+        addTeardownBlock { @MainActor [weak controller] in
+            controller?.onWindowDidClose = nil
+            controller?.closeWindowBypassingConfirmation()
+        }
+
+        XCTAssertNotEqual(controller.window.frame.integral, staleRecipeFrame)
     }
 
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {

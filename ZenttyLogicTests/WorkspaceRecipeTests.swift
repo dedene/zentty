@@ -7,7 +7,11 @@ final class WorkspaceRecipeTests: XCTestCase {
             x: 1721,
             y: -1,
             width: 1720,
-            height: 1410
+            height: 1410,
+            screenX: 0,
+            screenY: 0,
+            screenWidth: 3440,
+            screenHeight: 1410
         )
         let window = WorkspaceRecipe.Window(
             id: "window-main",
@@ -21,6 +25,10 @@ final class WorkspaceRecipeTests: XCTestCase {
 
         XCTAssertEqual(restored.frame, frame)
         XCTAssertEqual(restored.frame?.rect, NSRect(x: 1721, y: -1, width: 1720, height: 1410))
+        XCTAssertEqual(restored.frame?.screenX, 0)
+        XCTAssertEqual(restored.frame?.screenY, 0)
+        XCTAssertEqual(restored.frame?.screenWidth, 3440)
+        XCTAssertEqual(restored.frame?.screenHeight, 1410)
 
         let legacyData = try XCTUnwrap(
             """
@@ -45,6 +53,10 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
 
         XCTAssertEqual(window.frame?.rect, NSRect(x: 14, y: 0, width: 1720, height: 1410))
+        XCTAssertNil(window.frame?.screenX)
+        XCTAssertNil(window.frame?.screenY)
+        XCTAssertNil(window.frame?.screenWidth)
+        XCTAssertNil(window.frame?.screenHeight)
     }
 
     func test_export_and_import_preserves_window_worklanes_layout_and_focus() throws {

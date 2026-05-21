@@ -180,7 +180,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
     private var isApplicationActive = true
     private var isWindowKey = true
-    private var shouldApplyAutosavedFrameOnInitialShow: Bool
     private var shouldBypassNextCloseConfirmation = false
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
@@ -204,8 +203,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
         windowIndex: Int = 0,
-        initialFrame: NSRect? = nil,
-        shouldApplyAutosavedFrameOnInitialShow: Bool = true,
+        initialPaneLayoutFrame: NSRect? = nil,
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
@@ -214,9 +212,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
             paneLayoutDefaults: paneLayoutDefaults
         )
-        let initialFrame = initialFrame ?? Self.defaultFrame()
+        let initialWindowFrame = Self.defaultFrame()
+        let initialLayoutFrame = initialPaneLayoutFrame ?? initialWindowFrame
         let initialLayoutContext = Self.initialPaneLayoutContext(
-            initialFrame: initialFrame,
+            initialFrame: initialLayoutFrame,
             config: resolvedConfigStore.current
         )
 
@@ -233,7 +232,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
         rootViewController.loadViewIfNeeded()
         let window = ProxyAwareWindow(
-            contentRect: initialFrame,
+            contentRect: initialWindowFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -258,7 +257,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // the shell fill instead of nothing (which is what produces the white seam).
         window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
-        rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
+        rootViewController.view.frame = NSRect(origin: .zero, size: initialWindowFrame.size)
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
         if !Self.isHostedTestMode {
@@ -273,7 +272,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.openWithService = openWithService
         self.serverOpenService = serverOpenService
         self.window = window
-        self.shouldApplyAutosavedFrameOnInitialShow = shouldApplyAutosavedFrameOnInitialShow
         super.init()
         window.delegate = self
         rootViewController.onWindowChromeNeedsUpdate = { [weak self] in
@@ -344,25 +342,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func showWindow(_ sender: Any?) {
         isWindowKey = true
-        if !window.isVisible {
-            let restoredInitialFrame: Bool
-            if shouldApplyAutosavedFrameOnInitialShow {
-                restoredInitialFrame = !window.frameAutosaveName.isEmpty
-                    && window.setFrameUsingName(window.frameAutosaveName)
-            } else {
-                restoredInitialFrame = true
-                shouldApplyAutosavedFrameOnInitialShow = true
-            }
-
-            if !restoredInitialFrame {
-                // No saved frame — cascade from the current key window if one exists.
-                if let keyWindow = NSApp.keyWindow, keyWindow !== window {
-                    let cascaded = keyWindow.cascadeTopLeft(from: .zero)
-                    window.cascadeTopLeft(from: cascaded)
-                }
+        if !window.isVisible, window.frameAutosaveName.isEmpty || !window.setFrameUsingName(window.frameAutosaveName) {
+            // No saved frame — cascade from the current key window if one exists.
+            if let keyWindow = NSApp.keyWindow, keyWindow !== window {
+                let cascaded = keyWindow.cascadeTopLeft(from: .zero)
+                window.cascadeTopLeft(from: cascaded)
             }
         }
         window.makeKeyAndOrderFront(sender)
+        rootViewController.view.needsLayout = true
+        rootViewController.view.layoutSubtreeIfNeeded()
         syncWindowAppearance()
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
@@ -406,6 +395,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         rootViewController.handleWindowDidResize()
         layoutTrafficLights()
+        onWorkspaceStateDidChange?()
+    }
+
+    func windowDidMove(_ notification: Notification) {
         onWorkspaceStateDidChange?()
     }
 
@@ -1603,7 +1596,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         defaultFrame()
     }
 
-    static func validatedFrameForRestore(_ frame: NSRect?) -> NSRect? {
+    static func validatedPaneLayoutSeedFrameForRestore(_ frame: WorkspaceRecipe.WindowFrame?) -> NSRect? {
+        guard let frame else {
+            return nil
+        }
+
+        return validatedPaneLayoutSeedFrameForRestore(frame.rect)
+    }
+
+    static func validatedPaneLayoutSeedFrameForRestore(_ frame: NSRect?) -> NSRect? {
         guard let frame,
               frame.origin.x.isFinite,
               frame.origin.y.isFinite,
@@ -1615,15 +1616,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return nil
         }
 
-        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
-        guard !visibleFrames.isEmpty else {
-            return frame.integral
-        }
-
-        let intersectsVisibleScreen = visibleFrames.contains { visibleFrame in
-            visibleFrame.intersects(frame)
-        }
-        return intersectsVisibleScreen ? frame.integral : nil
+        return frame.integral
     }
 
     static func legacyAutosavedFrameForRestore(
@@ -1644,7 +1637,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return nil
         }
 
-        return validatedFrameForRestore(
+        return validatedPaneLayoutSeedFrameForRestore(
             NSRect(
                 x: x,
                 y: y,
