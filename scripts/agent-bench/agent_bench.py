@@ -90,6 +90,7 @@ class ScenarioExpectation:
     required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
     forbidden_events: list[str] = dataclasses.field(default_factory=list)
     forbidden_terminal_phases: list[str] = dataclasses.field(default_factory=list)
+    expected_task_progress: dict[str, int] | None = None
     session_identity: SessionIdentityExpectation | None = None
     synthetic: bool = False
     fixture: str | None = None
@@ -354,7 +355,7 @@ def session_identity_observations_for_records(
             continue
 
         payload = parse_json_object(record.standard_input)
-        session_id, session_source = extract_session_id(payload)
+        session_id, session_source = extract_session_id(agent, payload)
         tracked_pid, pid_source = extract_tracked_pid(agent, payload, record.environment or {})
         if session_id is None and tracked_pid is None:
             continue
@@ -372,8 +373,12 @@ def session_identity_observations_for_records(
     return observations
 
 
-def extract_session_id(payload: dict[str, Any]) -> tuple[str | None, str | None]:
-    for key in ("session_id", "sessionId"):
+def extract_session_id(agent: str, payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    keys = ["session_id", "sessionId"]
+    if agent == "cursor":
+        keys.extend(["conversation_id", "conversationId"])
+
+    for key in keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return (value.strip(), key)
@@ -517,11 +522,18 @@ def classify_completed_result(
         result.detail = "missing required terminal phases"
         result.result_kind = "missing-terminal-phase"
         return result
-    if scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+    if scenario_requires_task_observation(agent, scenario) and not task_observations_for_records(agent, scenario, records):
         result.passed = False
         result.status = "fail"
         result.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
         result.result_kind = "missing-task-hook"
+        return result
+    task_observations = task_observations_for_records(agent, scenario, records)
+    if expectation.expected_task_progress and not expected_task_progress_observed(expectation, task_observations):
+        result.passed = False
+        result.status = "fail"
+        result.detail = "required TodoWrite task progress was not captured"
+        result.result_kind = "missing-task-progress"
         return result
     if scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
         result.passed = False
@@ -591,11 +603,19 @@ def classify_timeout_result(
             partial.missing_events = missing_terminal_phases
             partial.detail = "missing required terminal phases"
             partial.result_kind = "missing-terminal-phase"
-        elif scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+        elif scenario_requires_task_observation(agent, scenario) and not task_observations_for_records(agent, scenario, records):
             partial.passed = False
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
             partial.result_kind = "missing-task-hook"
+        elif expectation.expected_task_progress and not expected_task_progress_observed(
+            expectation,
+            task_observations_for_records(agent, scenario, records),
+        ):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = "required TodoWrite task progress was not captured"
+            partial.result_kind = "missing-task-progress"
         elif scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
             partial.passed = False
             partial.status = "fail"
@@ -723,7 +743,7 @@ def source_sort_key(source: str) -> int:
     return {"process": 0, "hook": 1, "terminal": 2}.get(source, 3)
 
 
-def scenario_requires_task_observation(scenario: str) -> bool:
+def scenario_requires_task_observation(agent: str, scenario: str) -> bool:
     return scenario == "tasks"
 
 
@@ -826,11 +846,46 @@ def terminal_phase_after_scripted_input(
     ]
     return terminal_final_phase(later_terminal_observations)
 
+
+def expected_task_progress_observed(
+    expectation: ScenarioExpectation,
+    observations: list[dict[str, Any]],
+) -> bool:
+    expected = expectation.expected_task_progress
+    if not expected:
+        return True
+    expected_done = expected.get("done")
+    expected_total = expected.get("total")
+    return any(
+        observation.get("done") == expected_done and observation.get("total") == expected_total
+        for observation in observations
+    )
+
+
 def task_observations_for_records(agent: str, scenario: str, records: list[TraceRecord]) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
+    cursor_updates_by_session: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         if record.agent != agent or record.scenario != scenario or record.kind != "hook":
             continue
+        if isinstance(record.extra, dict):
+            progress = record.extra.get("task_progress")
+            if isinstance(progress, dict):
+                done = progress.get("done")
+                total = progress.get("total")
+                tool = progress.get("tool")
+                source = progress.get("source")
+                if isinstance(done, int) and isinstance(total, int) and total > 0:
+                    observations.append(
+                        {
+                            "event": record.event_name or "",
+                            "tool": tool if isinstance(tool, str) and tool else "TodoWrite",
+                            "done": done,
+                            "total": total,
+                            "source": source if isinstance(source, str) and source else "trace_extra",
+                        }
+                    )
+                    continue
         payload = parse_json_object(record.standard_input)
 
         # Case 1: Raw PreToolUse / tool call with TodoWrite (traditional path, now grok-flexible)
@@ -854,7 +909,19 @@ def task_observations_for_records(agent: str, scenario: str, records: list[Trace
                             tool_input = first_object(nested, ["input", "tool_input", "toolInput"]) or nested
                             if tool_input:
                                 break
-                progress = todo_progress(tool_input)
+                progress = None
+                if agent == "cursor" and isinstance(tool_input, dict) and isinstance(tool_input.get("todos"), list):
+                    session_id = first_string(payload, ["conversation_id", "conversationId", "session_id", "sessionId"]) or "__default__"
+                    cursor_updates_by_session.setdefault(session_id, []).append(
+                        {
+                            "merge": bool(tool_input.get("merge", False)),
+                            "todos": tool_input.get("todos", []),
+                            "tool_input": tool_input,
+                        }
+                    )
+                    progress = cursor_progress_from_updates(cursor_updates_by_session[session_id])
+                if progress is None:
+                    progress = todo_progress(tool_input)
                 if progress:
                     observations.append(
                         {
@@ -926,6 +993,120 @@ def todo_progress_from_text(text: str) -> tuple[int, int] | None:
 
 def todo_status_is_complete(status: str) -> bool:
     return status.strip().lower() in {"completed", "complete", "done"}
+
+
+def cursor_trace_extra(agent: str | None, stdin_payload: str | None) -> dict[str, Any] | None:
+    if agent != "cursor" or not stdin_payload:
+        return None
+    payload = parse_json_object(stdin_payload)
+    task_progress = cursor_transcript_task_progress(payload)
+    if not task_progress:
+        return None
+    return {"task_progress": task_progress}
+
+
+def cursor_transcript_task_progress(payload: dict[str, Any], attempts: int = 5) -> dict[str, Any] | None:
+    transcript_path = first_string(payload, ["transcript_path", "transcriptPath"])
+    if not transcript_path:
+        return None
+    attempt_count = max(1, attempts)
+    for attempt in range(attempt_count):
+        text = read_text_file_tail(pathlib.Path(transcript_path), 256 * 1024)
+        if text is not None:
+            updates: list[dict[str, Any]] = []
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                updates.extend(cursor_todo_updates_in_object(record))
+            progress = cursor_progress_from_updates(updates)
+            if progress:
+                return {
+                    "tool": "TodoWrite",
+                    "done": progress[0],
+                    "total": progress[1],
+                    "source": "cursor_transcript",
+                }
+            for record_update in reversed(updates):
+                progress = todo_progress(record_update.get("tool_input"))
+                if progress:
+                    return {
+                        "tool": "TodoWrite",
+                        "done": progress[0],
+                        "total": progress[1],
+                        "source": "cursor_transcript",
+                    }
+        if attempt < attempt_count - 1:
+            time.sleep(0.05)
+    return None
+
+
+def cursor_progress_from_updates(updates: list[dict[str, Any]]) -> tuple[int, int] | None:
+    todos: dict[str, str] = {}
+    for update in updates:
+        if not update.get("merge", False):
+            todos = {}
+        for todo in update.get("todos", []):
+            if not isinstance(todo, dict):
+                continue
+            key = first_string(todo, ["id", "content", "text", "title"])
+            status = first_string(todo, ["status", "state"]) or "pending"
+            if key:
+                todos[key] = status
+    if not todos:
+        return None
+    return (sum(1 for status in todos.values() if todo_status_is_complete(status)), len(todos))
+
+
+def cursor_todo_updates_in_object(value: dict[str, Any], depth: int = 0) -> list[dict[str, Any]]:
+    if depth >= 6:
+        return []
+
+    tool_name = first_string(value, ["name", "tool_name", "toolName", "tool"])
+    if tool_name and tool_name.strip().lower() == "todowrite":
+        tool_input = first_object(value, ["input", "tool_input", "toolInput"])
+        if tool_input is None and "todos" in value:
+            tool_input = value
+        if isinstance(tool_input, dict) and isinstance(tool_input.get("todos"), list):
+            return [
+                {
+                    "merge": bool(tool_input.get("merge", False)),
+                    "todos": tool_input.get("todos", []),
+                    "tool_input": tool_input,
+                }
+            ]
+
+    updates: list[dict[str, Any]] = []
+    for key in ("message", "tool_use", "toolUse", "tool_use_input", "input"):
+        nested = value.get(key)
+        if isinstance(nested, dict):
+            updates.extend(cursor_todo_updates_in_object(nested, depth + 1))
+
+    for key in ("content", "messages"):
+        items = value.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                updates.extend(cursor_todo_updates_in_object(item, depth + 1))
+    return updates
+
+
+def read_text_file_tail(path: pathlib.Path, max_bytes: int) -> str | None:
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - max_bytes), os.SEEK_SET)
+            return handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
 
 
 def first_string(mapping: dict[str, Any], keys: list[str]) -> str | None:
@@ -1136,6 +1317,7 @@ class CaptureServer:
         environment = request.get("environment") if isinstance(request.get("environment"), dict) else {}
         hook = infer_hook_event(subcommand, [str(arg) for arg in args], stdin_payload if isinstance(stdin_payload, str) else None)
         agent = agent_from_adapter(hook.adapter, environment, stdin_payload if isinstance(stdin_payload, str) else None)
+        extra = cursor_trace_extra(agent, stdin_payload if isinstance(stdin_payload, str) else None)
         self.recorder.append(
             TraceRecord(
                 kind="hook",
@@ -1147,6 +1329,7 @@ class CaptureServer:
                 arguments=[str(arg) for arg in args],
                 standard_input=redact_standard_input(stdin_payload if isinstance(stdin_payload, str) else None),
                 environment=redacted_environment({str(k): str(v) for k, v in environment.items()}),
+                extra=extra,
             )
         )
 
@@ -1543,6 +1726,9 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 forbidden_events=list(value.get("forbidden_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
                 forbidden_terminal_phases=list(value.get("forbidden_terminal_phases", [])),
+                expected_task_progress=value.get("expected_task_progress")
+                if isinstance(value.get("expected_task_progress"), dict)
+                else None,
                 required_bootstrap_arguments=[
                     [str(argument) for argument in arguments]
                     for arguments in value.get("required_bootstrap_arguments", [])
