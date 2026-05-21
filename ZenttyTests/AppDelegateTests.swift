@@ -8,6 +8,7 @@ final class AppDelegateTests: XCTestCase {
     private weak var originalWindowsMenu: NSMenu?
     private var originalServicesMenu: NSMenu?
     private var originalWindows: [NSWindow] = []
+    private var testDefaultsSuiteNames: [String] = []
 
     override func setUp() {
         super.setUp()
@@ -29,6 +30,10 @@ final class AppDelegateTests: XCTestCase {
         NSApp.mainMenu = originalMainMenu
         NSApp.windowsMenu = originalWindowsMenu
         NSApp.servicesMenu = originalServicesMenu
+        testDefaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        testDefaultsSuiteNames.removeAll()
         super.tearDown()
     }
 
@@ -737,6 +742,123 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNil(controllers[0].lastNavigateRequestPaneIDForTesting)
     }
 
+    func test_restore_launch_uses_legacy_autosaved_frame_when_recipe_has_no_frame() throws {
+        NSApp.mainMenu = nil
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.LegacyRestore.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let sidebarDefaultsName = "ZenttyTests.AppDelegate.LegacyRestore.Sidebar.\(UUID().uuidString)"
+        let visibilityDefaultsName = "ZenttyTests.AppDelegate.LegacyRestore.Visibility.\(UUID().uuidString)"
+        let frameDefaultsName = "ZenttyTests.AppDelegate.LegacyRestore.Frame.\(UUID().uuidString)"
+        let sidebarDefaults = try XCTUnwrap(UserDefaults(suiteName: sidebarDefaultsName))
+        let visibilityDefaults = try XCTUnwrap(UserDefaults(suiteName: visibilityDefaultsName))
+        let frameDefaults = try XCTUnwrap(UserDefaults(suiteName: frameDefaultsName))
+        testDefaultsSuiteNames.append(contentsOf: [sidebarDefaultsName, visibilityDefaultsName, frameDefaultsName])
+        SidebarWidthPreference.persist(280, in: sidebarDefaults)
+        SidebarVisibilityPreference.persist(.pinnedOpen, in: visibilityDefaults)
+
+        let configStore = AppConfigStore(
+            fileURL: directoryURL.appendingPathComponent("config.toml"),
+            sidebarWidthDefaults: sidebarDefaults,
+            sidebarVisibilityDefaults: visibilityDefaults
+        )
+        let legacyFrame = NSRect(x: 20, y: 30, width: 1720, height: 900)
+        frameDefaults.set(
+            "20 30 1720 900 0 0 3440 1410 ",
+            forKey: "NSWindow Frame MainWindow"
+        )
+        let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
+            initialFrame: legacyFrame,
+            config: configStore.current
+        )
+        let restoredColumnWidth = Double(layoutContext.singlePaneWidth)
+        let sessionRestoreStore = SessionRestoreStore(
+            snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+        )
+        try sessionRestoreStore.saveSnapshot(
+            SessionRestoreEnvelope(
+                workspace: WorkspaceRecipe(
+                    windows: [
+                        WorkspaceRecipe.Window(
+                            id: "window-main",
+                            worklanes: [
+                                WorkspaceRecipe.Worklane(
+                                    id: "worklane-main",
+                                    title: "Main",
+                                    nextPaneNumber: 3,
+                                    focusedColumnID: "column-main",
+                                    columns: [
+                                        WorkspaceRecipe.Column(
+                                            id: "column-main",
+                                            width: restoredColumnWidth,
+                                            focusedPaneID: "pane-main",
+                                            lastFocusedPaneID: "pane-main",
+                                            paneHeights: [1],
+                                            panes: [
+                                                WorkspaceRecipe.Pane(
+                                                    id: "pane-main",
+                                                    titleSeed: "main",
+                                                    workingDirectory: nil
+                                                )
+                                            ]
+                                        ),
+                                        WorkspaceRecipe.Column(
+                                            id: "column-second",
+                                            width: restoredColumnWidth,
+                                            focusedPaneID: "pane-second",
+                                            lastFocusedPaneID: "pane-second",
+                                            paneHeights: [1],
+                                            panes: [
+                                                WorkspaceRecipe.Pane(
+                                                    id: "pane-second",
+                                                    titleSeed: "second",
+                                                    workingDirectory: nil
+                                                )
+                                            ]
+                                        ),
+                                    ],
+                                    color: nil,
+                                    bookmarkOriginID: nil
+                                )
+                            ],
+                            activeWorklaneID: "worklane-main"
+                        )
+                    ],
+                    activeWindowID: "window-main"
+                )
+            )
+        )
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore,
+            appUpdateController: StubAppUpdateController(canCheckForUpdates: true),
+            sessionRestoreStore: sessionRestoreStore,
+            sessionRestoreEnabled: true,
+            windowFrameDefaults: frameDefaults
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        waitForAppWindows("restore launched")
+
+        let controller = try XCTUnwrap(delegate.windowControllersForTesting.first)
+        addTeardownBlock { @MainActor [weak controller] in
+            controller?.onWindowDidClose = nil
+            controller?.closeWindowBypassingConfirmation()
+        }
+        let appCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let paneViews = appCanvasView
+            .descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+
+        XCTAssertEqual(controller.window.frame.width, legacyFrame.width, accuracy: 1.0)
+        XCTAssertEqual(paneViews.first?.frame.width ?? 0, CGFloat(restoredColumnWidth), accuracy: 1.0)
+    }
+
     func test_application_launch_places_sidebar_toggle_beside_traffic_lights_without_resize() throws {
         NSApp.mainMenu = nil
 
@@ -926,6 +1048,21 @@ private extension NSView {
         }
 
         return nil
+    }
+
+    func descendantPaneViews() -> [PaneContainerView] {
+        var paneViews: [PaneContainerView] = []
+
+        func walk(_ view: NSView) {
+            if let paneView = view as? PaneContainerView {
+                paneViews.append(paneView)
+            }
+
+            view.subviews.forEach(walk)
+        }
+
+        walk(self)
+        return paneViews
     }
 }
 

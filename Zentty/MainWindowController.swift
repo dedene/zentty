@@ -180,6 +180,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
     private var isApplicationActive = true
     private var isWindowKey = true
+    private var shouldApplyAutosavedFrameOnInitialShow: Bool
     private var shouldBypassNextCloseConfirmation = false
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
@@ -203,6 +204,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
         windowIndex: Int = 0,
+        initialFrame: NSRect? = nil,
+        shouldApplyAutosavedFrameOnInitialShow: Bool = true,
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
@@ -211,7 +214,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
             paneLayoutDefaults: paneLayoutDefaults
         )
-        let initialFrame = Self.defaultFrame()
+        let initialFrame = initialFrame ?? Self.defaultFrame()
         let initialLayoutContext = Self.initialPaneLayoutContext(
             initialFrame: initialFrame,
             config: resolvedConfigStore.current
@@ -259,8 +262,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
         if !Self.isHostedTestMode {
-            let autosaveName = windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
-            window.setFrameAutosaveName(autosaveName)
+            window.setFrameAutosaveName(Self.windowFrameAutosaveName(forWindowIndex: windowIndex))
         }
 
         self.rootViewController = rootViewController
@@ -271,6 +273,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.openWithService = openWithService
         self.serverOpenService = serverOpenService
         self.window = window
+        self.shouldApplyAutosavedFrameOnInitialShow = shouldApplyAutosavedFrameOnInitialShow
         super.init()
         window.delegate = self
         rootViewController.onWindowChromeNeedsUpdate = { [weak self] in
@@ -341,11 +344,22 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func showWindow(_ sender: Any?) {
         isWindowKey = true
-        if !window.isVisible, window.frameAutosaveName.isEmpty || !window.setFrameUsingName(window.frameAutosaveName) {
-            // No saved frame — cascade from the current key window if one exists.
-            if let keyWindow = NSApp.keyWindow, keyWindow !== window {
-                let cascaded = keyWindow.cascadeTopLeft(from: .zero)
-                window.cascadeTopLeft(from: cascaded)
+        if !window.isVisible {
+            let restoredInitialFrame: Bool
+            if shouldApplyAutosavedFrameOnInitialShow {
+                restoredInitialFrame = !window.frameAutosaveName.isEmpty
+                    && window.setFrameUsingName(window.frameAutosaveName)
+            } else {
+                restoredInitialFrame = true
+                shouldApplyAutosavedFrameOnInitialShow = true
+            }
+
+            if !restoredInitialFrame {
+                // No saved frame — cascade from the current key window if one exists.
+                if let keyWindow = NSApp.keyWindow, keyWindow !== window {
+                    let cascaded = keyWindow.cascadeTopLeft(from: .zero)
+                    window.cascadeTopLeft(from: cascaded)
+                }
             }
         }
         window.makeKeyAndOrderFront(sender)
@@ -1589,6 +1603,61 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         defaultFrame()
     }
 
+    static func validatedFrameForRestore(_ frame: NSRect?) -> NSRect? {
+        guard let frame,
+              frame.origin.x.isFinite,
+              frame.origin.y.isFinite,
+              frame.size.width.isFinite,
+              frame.size.height.isFinite,
+              frame.width >= 320,
+              frame.height >= 240
+        else {
+            return nil
+        }
+
+        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
+        guard !visibleFrames.isEmpty else {
+            return frame.integral
+        }
+
+        let intersectsVisibleScreen = visibleFrames.contains { visibleFrame in
+            visibleFrame.intersects(frame)
+        }
+        return intersectsVisibleScreen ? frame.integral : nil
+    }
+
+    static func legacyAutosavedFrameForRestore(
+        windowIndex: Int,
+        defaults: UserDefaults = .standard
+    ) -> NSRect? {
+        let defaultsKey = "NSWindow Frame \(windowFrameAutosaveName(forWindowIndex: windowIndex))"
+        guard let value = defaults.string(forKey: defaultsKey) else {
+            return nil
+        }
+
+        let components = value.split(whereSeparator: \.isWhitespace)
+        guard components.count >= 4,
+              let x = Double(components[0]),
+              let y = Double(components[1]),
+              let width = Double(components[2]),
+              let height = Double(components[3]) else {
+            return nil
+        }
+
+        return validatedFrameForRestore(
+            NSRect(
+                x: x,
+                y: y,
+                width: width,
+                height: height
+            )
+        )
+    }
+
+    static func windowFrameAutosaveName(forWindowIndex windowIndex: Int) -> String {
+        windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
+    }
+
     static func initialPaneLayoutContextForRestore(
         initialFrame: NSRect,
         config: AppConfig
@@ -1600,6 +1669,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let workspaceState = rootViewController.workspaceState
         return WorkspaceRecipeExporter.makeWindow(
             windowID: windowID,
+            frame: window.frame,
             worklanes: workspaceState.worklanes,
             activeWorklaneID: workspaceState.activeWorklaneID
         )

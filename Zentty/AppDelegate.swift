@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
+    private let windowFrameDefaults: UserDefaults
     private let notificationStore = NotificationStore()
     private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
         notificationStore: notificationStore,
@@ -43,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appUpdateController: AppUpdateControlling? = nil,
         sessionRestoreStore: SessionRestoreStore? = nil,
         sessionRestoreEnabled: Bool? = nil,
-        restoreErrorReporter: ((String) -> Void)? = nil
+        restoreErrorReporter: ((String) -> Void)? = nil,
+        windowFrameDefaults: UserDefaults
     ) {
         self.shouldOpenMainWindow = shouldOpenMainWindow
         self.runtimeRegistryFactory = runtimeRegistryFactory
@@ -52,10 +54,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? makeDefaultAppUpdateController(configStore: configStore)
         self.sessionRestoreStore = sessionRestoreStore
             ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
+        self.windowFrameDefaults = windowFrameDefaults
         self.isSessionRestoreEnabled = sessionRestoreEnabled
             ?? !Self.isHostedTestMode
         self.restoreErrorReporter = restoreErrorReporter
         super.init()
+    }
+
+    convenience init(
+        shouldOpenMainWindow: Bool = true,
+        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
+        configStore: AppConfigStore = AppConfigStore(),
+        appUpdateController: AppUpdateControlling? = nil,
+        sessionRestoreStore: SessionRestoreStore? = nil,
+        sessionRestoreEnabled: Bool? = nil,
+        restoreErrorReporter: ((String) -> Void)? = nil
+    ) {
+        self.init(
+            shouldOpenMainWindow: shouldOpenMainWindow,
+            runtimeRegistryFactory: runtimeRegistryFactory,
+            configStore: configStore,
+            appUpdateController: appUpdateController,
+            sessionRestoreStore: sessionRestoreStore,
+            sessionRestoreEnabled: sessionRestoreEnabled,
+            restoreErrorReporter: restoreErrorReporter,
+            windowFrameDefaults: .standard
+        )
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -303,7 +327,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeWindowController(
         windowID: WindowID,
         initialWorkspaceState: WindowWorkspaceState?,
-        runtimeRegistry: PaneRuntimeRegistry? = nil
+        runtimeRegistry: PaneRuntimeRegistry? = nil,
+        initialFrame: NSRect? = nil,
+        shouldApplyAutosavedFrameOnInitialShow: Bool = true
     ) -> MainWindowController {
         let index = nextWindowIndex
         nextWindowIndex += 1
@@ -314,6 +340,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appUpdateStateStore: appUpdateController.updateStateStore,
             notificationStore: notificationStore,
             windowIndex: index,
+            initialFrame: initialFrame,
+            shouldApplyAutosavedFrameOnInitialShow: shouldApplyAutosavedFrameOnInitialShow,
             initialWorkspaceState: initialWorkspaceState
         )
         let id = ObjectIdentifier(controller)
@@ -626,8 +654,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.current
         var launchedControllers: [MainWindowController] = []
 
-        for recipeWindow in windows {
-            let initialFrame = MainWindowController.defaultFrameForRestore()
+        for (windowIndex, recipeWindow) in windows.enumerated() {
+            let restoredFrame = MainWindowController.validatedFrameForRestore(recipeWindow.frame?.rect)
+                ?? MainWindowController.legacyAutosavedFrameForRestore(
+                    windowIndex: windowIndex,
+                    defaults: windowFrameDefaults
+                )
+            let initialFrame = restoredFrame ?? MainWindowController.defaultFrameForRestore()
             let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
                 initialFrame: initialFrame,
                 config: config
@@ -642,7 +675,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let controller = makeWindowController(
                 windowID: WindowID(recipeWindow.id),
-                initialWorkspaceState: importedState
+                initialWorkspaceState: importedState,
+                initialFrame: initialFrame,
+                shouldApplyAutosavedFrameOnInitialShow: false
             )
             launchedControllers.append(controller)
         }

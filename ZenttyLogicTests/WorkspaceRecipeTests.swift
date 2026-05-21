@@ -2,6 +2,51 @@ import XCTest
 @testable import Zentty
 
 final class WorkspaceRecipeTests: XCTestCase {
+    func test_window_frame_round_trips_and_missing_frame_decodes_as_nil() throws {
+        let frame = WorkspaceRecipe.WindowFrame(
+            x: 1721,
+            y: -1,
+            width: 1720,
+            height: 1410
+        )
+        let window = WorkspaceRecipe.Window(
+            id: "window-main",
+            frame: frame,
+            worklanes: [],
+            activeWorklaneID: nil
+        )
+
+        let data = try JSONEncoder().encode(window)
+        let restored = try JSONDecoder().decode(WorkspaceRecipe.Window.self, from: data)
+
+        XCTAssertEqual(restored.frame, frame)
+        XCTAssertEqual(restored.frame?.rect, NSRect(x: 1721, y: -1, width: 1720, height: 1410))
+
+        let legacyData = try XCTUnwrap(
+            """
+            {
+              "id": "legacy-window",
+              "worklanes": [],
+              "activeWorklaneID": null
+            }
+            """.data(using: .utf8)
+        )
+        let legacy = try JSONDecoder().decode(WorkspaceRecipe.Window.self, from: legacyData)
+
+        XCTAssertNil(legacy.frame)
+    }
+
+    func test_exporter_persists_window_frame_when_available() throws {
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            frame: NSRect(x: 14, y: 0, width: 1720, height: 1410),
+            worklanes: [],
+            activeWorklaneID: nil
+        )
+
+        XCTAssertEqual(window.frame?.rect, NSRect(x: 14, y: 0, width: 1720, height: 1410))
+    }
+
     func test_export_and_import_preserves_window_worklanes_layout_and_focus() throws {
         let baseDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.\(UUID().uuidString)", isDirectory: true)

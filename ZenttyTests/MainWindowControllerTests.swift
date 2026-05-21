@@ -1070,6 +1070,150 @@ final class MainWindowControllerTests: XCTestCase {
         )
     }
 
+    func test_restored_initial_frame_seeds_first_canvas_layout() throws {
+        let sidebarSuiteName = "ZenttyTests.MainWindowController.RestoreFrame.Sidebar.\(UUID().uuidString)"
+        let sidebarVisibilitySuiteName = "ZenttyTests.MainWindowController.RestoreFrame.Visibility.\(UUID().uuidString)"
+        let sidebarWidthDefaults = UserDefaults(suiteName: sidebarSuiteName) ?? .standard
+        let sidebarVisibilityDefaults = UserDefaults(suiteName: sidebarVisibilitySuiteName) ?? .standard
+        testDefaultsSuiteNames.append(sidebarSuiteName)
+        testDefaultsSuiteNames.append(sidebarVisibilitySuiteName)
+        SidebarWidthPreference.persist(280, in: sidebarWidthDefaults)
+        SidebarVisibilityPreference.persist(.pinnedOpen, in: sidebarVisibilityDefaults)
+
+        let restoredFrame = testWindowFrame(x: 12, y: 12, width: 1720, height: 1180)
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.RestoreFrame"),
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults
+        )
+        let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
+            initialFrame: restoredFrame,
+            config: configStore.current
+        )
+        let restoredWidth = layoutContext.singlePaneWidth
+        let paneID = PaneID("pane-main")
+        let secondPaneID = PaneID("pane-second")
+        let worklaneID = WorklaneID("worklane-main")
+        let restoredState = WindowWorkspaceState(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "Main",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("column-main"),
+                                panes: [PaneState(id: paneID, title: "main")],
+                                width: restoredWidth,
+                                focusedPaneID: paneID
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("column-second"),
+                                panes: [PaneState(id: secondPaneID, title: "second")],
+                                width: restoredWidth,
+                                focusedPaneID: secondPaneID
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("column-main")
+                    )
+                )
+            ],
+            activeWorklaneID: worklaneID
+        )
+
+        let controller = MainWindowController(
+            windowID: WindowID("window-restore-frame"),
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
+            configStore: configStore,
+            initialFrame: restoredFrame,
+            shouldApplyAutosavedFrameOnInitialShow: false,
+            initialWorkspaceState: restoredState
+        )
+        self.controller = controller
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let appCanvasView = try XCTUnwrap(
+            controller.window.contentView?.firstDescendant(ofType: AppCanvasView.self)
+        )
+        let paneViews = appCanvasView
+            .descendantPaneViews()
+            .sorted { $0.frame.minX < $1.frame.minX }
+        let firstPane = try XCTUnwrap(paneViews.first)
+
+        XCTAssertEqual(controller.window.frame.width, restoredFrame.width, accuracy: 1.0)
+        XCTAssertEqual(firstPane.frame.width, restoredWidth, accuracy: 1.0)
+        XCTAssertEqual(firstPane.frame.minX, appCanvasView.leadingVisibleInset, accuracy: 1.0)
+    }
+
+    func test_legacy_autosaved_frame_for_restore_reads_appkit_window_frame_defaults() throws {
+        let suiteName = "ZenttyTests.MainWindowController.LegacyFrame.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        testDefaultsSuiteNames.append(suiteName)
+        defaults.set(
+            "20 30 980 720 0 0 1440 900 ",
+            forKey: "NSWindow Frame MainWindow"
+        )
+
+        let frame = try XCTUnwrap(
+            MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: 0,
+                defaults: defaults
+            )
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 20, y: 30, width: 980, height: 720))
+    }
+
+    func test_legacy_autosaved_frame_for_restore_uses_numbered_window_names() throws {
+        let suiteName = "ZenttyTests.MainWindowController.LegacyNumberedFrame.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        testDefaultsSuiteNames.append(suiteName)
+        defaults.set(
+            "40 50 1100 760 0 0 1440 900 ",
+            forKey: "NSWindow Frame ZenttyWindow-1"
+        )
+
+        let frame = try XCTUnwrap(
+            MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: 1,
+                defaults: defaults
+            )
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 40, y: 50, width: 1100, height: 760))
+    }
+
+    func test_legacy_autosaved_frame_for_restore_rejects_malformed_and_tiny_defaults() throws {
+        let suiteName = "ZenttyTests.MainWindowController.BadLegacyFrame.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        testDefaultsSuiteNames.append(suiteName)
+
+        defaults.set("not a frame", forKey: "NSWindow Frame MainWindow")
+        XCTAssertNil(
+            MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: 0,
+                defaults: defaults
+            )
+        )
+
+        defaults.set("junk 20 30 980 720 0 0 1440 900 ", forKey: "NSWindow Frame MainWindow")
+        XCTAssertNil(
+            MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: 0,
+                defaults: defaults
+            )
+        )
+
+        defaults.set("20 30 40 50 0 0 1440 900 ", forKey: "NSWindow Frame MainWindow")
+        XCTAssertNil(
+            MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: 0,
+                defaults: defaults
+            )
+        )
+    }
+
     func test_split_and_focus_actions_route_through_root_dispatcher() {
         let controller = makeController()
 

@@ -86,7 +86,8 @@ final class RootViewCompositionTests: AppKitTestCase {
         sidebarVisibilityDefaults: UserDefaults? = nil,
         paneLayoutDefaults: UserDefaults? = nil,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        initialLayoutContext: PaneLayoutContext = .fallback
+        initialLayoutContext: PaneLayoutContext = .fallback,
+        initialWorkspaceState: WindowWorkspaceState? = nil
     ) -> RootViewController {
         let controller = RootViewController(
             configStore: configStore,
@@ -97,7 +98,8 @@ final class RootViewCompositionTests: AppKitTestCase {
             sidebarWidthDefaults: sidebarWidthDefaults ?? makeDefaults(suffix: "sidebarWidth"),
             sidebarVisibilityDefaults: sidebarVisibilityDefaults ?? makeDefaults(suffix: "sidebarVisibility"),
             paneLayoutDefaults: paneLayoutDefaults ?? makeDefaults(suffix: "paneLayout"),
-            initialLayoutContext: initialLayoutContext
+            initialLayoutContext: initialLayoutContext,
+            initialWorkspaceState: initialWorkspaceState
         )
         addTeardownBlock {
             MainActor.assumeIsolated {
@@ -1942,6 +1944,55 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(borderFrameInRoot.minX, borderFrameInRoot.minY, accuracy: 0.001)
         XCTAssertEqual(rightGap, borderFrameInRoot.minY, accuracy: 0.001)
         XCTAssertFalse(controller.isSidebarFloating)
+    }
+
+    func test_root_controller_does_not_rescale_restored_columns_during_zero_bounds_initial_load() throws {
+        let paneID = PaneID("pane-main")
+        let secondPaneID = PaneID("pane-second")
+        let worklaneID = WorklaneID("worklane-main")
+        let restoredWidth: CGFloat = 1416
+        let initialContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1984,
+            leadingVisibleInset: 288,
+            sizing: .edgeAligned
+        )
+        let restoredState = WindowWorkspaceState(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "Main",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("column-main"),
+                                panes: [PaneState(id: paneID, title: "main")],
+                                width: restoredWidth,
+                                focusedPaneID: paneID
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("column-second"),
+                                panes: [PaneState(id: secondPaneID, title: "second")],
+                                width: restoredWidth,
+                                focusedPaneID: secondPaneID
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("column-main")
+                    )
+                )
+            ],
+            activeWorklaneID: worklaneID
+        )
+        let controller = makeController(
+            initialLayoutContext: initialContext,
+            initialWorkspaceState: restoredState
+        )
+
+        controller.loadViewIfNeeded()
+
+        let columns = try XCTUnwrap(controller.workspaceState.worklanes.first?.paneStripState.columns)
+        XCTAssertEqual(columns.map { $0.width }, [restoredWidth, restoredWidth])
     }
 
     func test_root_controller_hover_peek_keeps_overlay_sidebar_out_of_layout() throws {
