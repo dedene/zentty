@@ -451,11 +451,11 @@ enum SessionRestoreDraftExporter {
 
     private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
         switch tool {
-        case .amp, .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
+        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode:
             return .sessionID
         case .gemini, .pi, .grok:
             return .workingDirectory
-        case .cursor, .zentty, .custom:
+        case .zentty, .custom:
             return .unsupported
         }
     }
@@ -560,6 +560,12 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "copilot --resume=\(sessionID)"
+        case .cursor:
+            guard let sessionID = validatedCursorSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            return "cursor-agent --resume=\(sessionID)"
         case .gemini:
             guard hasWorkingDirectory(draft) else {
                 logRejectedWorkingDirectory(for: draft)
@@ -572,8 +578,6 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "kimi -r \(sessionID)"
-        case .cursor:
-            return nil
         case .droid:
             guard let sessionID = validatedDroidSessionID(from: draft.sessionID) else {
                 logRejectedSessionID(for: draft)
@@ -635,6 +639,13 @@ enum AgentResumeCommandBuilder {
     }
 
     private static func validatedCopilotSessionID(from sessionID: String) -> String? {
+        guard let uuid = UUID(uuidString: sessionID) else {
+            return nil
+        }
+        return uuid.uuidString.lowercased()
+    }
+
+    private static func validatedCursorSessionID(from sessionID: String) -> String? {
         guard let uuid = UUID(uuidString: sessionID) else {
             return nil
         }

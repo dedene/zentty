@@ -170,6 +170,26 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[1].agentWorkingDirectory, "/tmp/ws")
     }
 
+    func test_cursor_adapter_session_start_accepts_session_id_when_conversation_id_missing() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = """
+        {"hook_event_name":"sessionStart","session_id":"237d8c32-2a27-4850-8da8-3a110f13682c","workspace_roots":["/tmp/ws"]}
+        """
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads[0].state, .starting)
+        XCTAssertEqual(postedPayloads[0].sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
+        XCTAssertEqual(postedPayloads[0].agentWorkingDirectory, "/tmp/ws")
+    }
+
     func test_cursor_adapter_before_submit_prompt_maps_to_running() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = #"{"hook_event_name":"beforeSubmitPrompt","conversation_id":"c-run"}"#
@@ -206,6 +226,69 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
     }
 
+    func test_cursor_adapter_after_shell_execution_marks_activity_then_idle_candidate() throws {
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = #"{"hook_event_name":"afterShellExecution","session_id":"237d8c32-2a27-4850-8da8-3a110f13682c","transcript_path":"/tmp/cursor.jsonl"}"#
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=cursor"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertEqual(postedPayloads.count, 2)
+        XCTAssertEqual(postedPayloads[0].state, .running)
+        XCTAssertEqual(postedPayloads[0].lifecycleEvent, .toolActivity)
+        XCTAssertEqual(postedPayloads[0].sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
+        XCTAssertEqual(postedPayloads[0].agentTranscriptPath, "/tmp/cursor.jsonl")
+        XCTAssertEqual(postedPayloads[1].state, .idle)
+        XCTAssertEqual(postedPayloads[1].lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(postedPayloads[1].sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
+        XCTAssertEqual(postedPayloads[1].agentTranscriptPath, "/tmp/cursor.jsonl")
+    }
+
+    func test_cursor_adapter_after_shell_execution_reads_todo_progress_from_transcript() throws {
+        let store = try makeCursorTaskStore()
+        let transcriptPath = try writeCursorTranscript(
+            """
+            {"role":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"merge":false,"todos":[{"id":"1","content":"Review logs","status":"completed"},{"id":"2","content":"Patch adapter","status":"in_progress"},{"id":"3","content":"Run tests","status":"pending"}]}}]}}
+            """
+        )
+
+        let payloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"afterShellExecution","session_id":"cursor-session","transcript_path":"\#(transcriptPath)"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+        XCTAssertEqual(payloads[1].state, .idle)
+        XCTAssertEqual(payloads[1].taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+        XCTAssertEqual(try store.taskProgress(sessionID: "cursor-session"), PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_cursor_after_shell_execution_can_settle_to_idle_without_prior_prompt_hook() throws {
+        let payloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"afterShellExecution","session_id":"237d8c32-2a27-4850-8da8-3a110f13682c"}"#.utf8),
+            environment: defaultEnvironment
+        )
+        var reducerState = PaneAgentReducerState()
+        let startedAt = Date(timeIntervalSince1970: 100)
+
+        for payload in payloads {
+            reducerState.apply(payload, now: startedAt)
+        }
+        reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in true })
+
+        let status = try XCTUnwrap(reducerState.reducedStatus(now: startedAt.addingTimeInterval(3)))
+        XCTAssertEqual(status.state, .idle)
+        XCTAssertEqual(status.sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
+    }
+
     func test_cursor_adapter_stop_error_maps_to_unresolved_stop() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = #"{"hook_event_name":"stop","conversation_id":"c3","status":"error"}"#
@@ -224,7 +307,7 @@ final class AgentEventBridgeTests: XCTestCase {
     }
 
     func test_cursor_adapter_shell_execution_hooks_are_ignored_by_default() throws {
-        for event in ["beforeShellExecution", "afterShellExecution"] {
+        for event in ["beforeShellExecution"] {
             var postedPayloads: [AgentStatusPayload] = []
             let json = #"{"hook_event_name":"\#(event)","conversation_id":"c-shell"}"#
             let result = AgentEventBridge.run(
@@ -260,7 +343,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[0].agentWorkingDirectory, "/tmp/ws")
     }
 
-    func test_cursor_adapter_after_shell_execution_verbose_maps_to_running() throws {
+    func test_cursor_adapter_after_shell_execution_verbose_still_maps_to_idle_candidate() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = #"{"hook_event_name":"afterShellExecution","conversation_id":"c-shell"}"#
         let env = defaultEnvironment.merging(["ZENTTY_CURSOR_VERBOSE_HOOKS": "1"]) { _, new in new }
@@ -273,9 +356,12 @@ final class AgentEventBridgeTests: XCTestCase {
         )
 
         XCTAssertEqual(result, EXIT_SUCCESS)
-        XCTAssertEqual(postedPayloads.count, 1)
+        XCTAssertEqual(postedPayloads.count, 2)
         XCTAssertEqual(postedPayloads[0].state, .running)
-        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+        XCTAssertEqual(postedPayloads[0].lifecycleEvent, .toolActivity)
+        XCTAssertEqual(postedPayloads[1].state, .idle)
+        XCTAssertEqual(postedPayloads[1].lifecycleEvent, .stopCandidate)
+        XCTAssertEqual(postedPayloads[1].toolName, "Cursor")
     }
 
     func test_cursor_adapter_pre_tool_use_todo_write_array_reports_progress() throws {
@@ -312,6 +398,37 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
     }
 
+    func test_cursor_adapter_todo_write_merge_updates_existing_progress() throws {
+        let store = try makeCursorTaskStore()
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data("""
+            {"hook_event_name":"preToolUse","conversation_id":"cursor-session","tool_name":"TodoWrite","tool_input":{"merge":false,"todos":[{"id":"dummy-1","content":"Review agent event adapter changes","status":"pending"},{"id":"dummy-2","content":"Run SessionRestoreStore unit tests","status":"pending"},{"id":"dummy-3","content":"Verify cursor agent-bench profile config","status":"pending"},{"id":"dummy-4","content":"Check resume command builder output","status":"pending"},{"id":"dummy-5","content":"Smoke test Zentty todo sync integration","status":"pending"}]}}
+            """.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data("""
+            {"hook_event_name":"preToolUse","conversation_id":"cursor-session","tool_name":"TodoWrite","tool_input":{"merge":true,"todos":[{"id":"dummy-1","content":"Review agent event adapter changes","status":"completed"},{"id":"dummy-3","content":"Verify cursor agent-bench profile config","status":"completed"}]}}
+            """.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+        let payload = try XCTUnwrap(
+            AgentEventBridge.cursorAdapter(
+                data: Data("""
+                {"hook_event_name":"preToolUse","conversation_id":"cursor-session","tool_name":"TodoWrite","tool_input":{"merge":true,"todos":[{"id":"dummy-6","content":"Validate AgentEventBridge resume flow","status":"pending"}]}}
+                """.utf8),
+                environment: defaultEnvironment,
+                taskStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
+        XCTAssertEqual(try store.taskProgress(sessionID: "cursor-session"), PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
+    }
+
     func test_cursor_adapter_stop_carries_unfinished_todo_progress() throws {
         let store = try makeCursorTaskStore()
         _ = try AgentEventBridge.cursorAdapter(
@@ -334,6 +451,48 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 2))
     }
 
+    func test_cursor_adapter_stop_reads_todo_progress_from_transcript() throws {
+        let store = try makeCursorTaskStore()
+        let transcriptPath = try writeCursorTranscript(
+            """
+            {"role":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Review logs","status":"completed"},{"content":"Patch adapter","status":"in_progress"},{"content":"Run tests","status":"pending"}]}}]}}
+            """
+        )
+
+        let payload = try XCTUnwrap(
+            AgentEventBridge.cursorAdapter(
+                data: Data(#"{"hook_event_name":"stop","session_id":"cursor-session","status":"completed","transcript_path":"\#(transcriptPath)"}"#.utf8),
+                environment: defaultEnvironment,
+                taskStore: store
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+    }
+
+    func test_cursor_adapter_after_shell_execution_merges_todo_progress_from_transcript() throws {
+        let store = try makeCursorTaskStore()
+        let transcriptPath = try writeCursorTranscript(
+            """
+            {"role":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"merge":false,"todos":[{"id":"dummy-1","content":"Review agent event adapter changes","status":"pending"},{"id":"dummy-2","content":"Run SessionRestoreStore unit tests","status":"pending"},{"id":"dummy-3","content":"Verify cursor agent-bench profile config","status":"pending"},{"id":"dummy-4","content":"Check resume command builder output","status":"pending"},{"id":"dummy-5","content":"Smoke test Zentty todo sync integration","status":"pending"}]}}]}}
+            {"role":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"merge":true,"todos":[{"id":"dummy-1","content":"Review agent event adapter changes","status":"completed"},{"id":"dummy-3","content":"Verify cursor agent-bench profile config","status":"completed"}]}}]}}
+            {"role":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"merge":true,"todos":[{"id":"dummy-6","content":"Validate AgentEventBridge resume flow","status":"pending"}]}}]}}
+            """
+        )
+
+        let payloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"afterShellExecution","session_id":"cursor-session","transcript_path":"\#(transcriptPath)"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
+        XCTAssertEqual(payloads[1].taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
+        XCTAssertEqual(try store.taskProgress(sessionID: "cursor-session"), PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
+    }
+
     func test_cursor_adapter_session_end_clears_task_progress() throws {
         let store = try makeCursorTaskStore()
         _ = try AgentEventBridge.cursorAdapter(
@@ -351,6 +510,21 @@ final class AgentEventBridgeTests: XCTestCase {
         )
 
         XCTAssertNil(try store.taskProgress(sessionID: "cursor-session"))
+    }
+
+    func test_cursor_task_store_reads_legacy_aggregate_progress() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let stateURL = directoryURL.appendingPathComponent("cursor-task-sessions.json")
+        try """
+        {"sessions":{"cursor-session":{"doneCount":1,"totalCount":3,"updatedAt":123}}}
+        """.write(to: stateURL, atomically: true, encoding: .utf8)
+
+        let store = CursorTaskStore(stateURL: stateURL)
+        XCTAssertEqual(try store.taskProgress(sessionID: "cursor-session"), PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
     }
 
     // MARK: - session.start
@@ -1411,6 +1585,17 @@ final class AgentEventBridgeTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
         return CursorTaskStore(stateURL: directoryURL.appendingPathComponent("cursor-task-sessions.json"))
+    }
+
+    private func writeCursorTranscript(_ text: String) throws -> String {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let transcriptURL = directoryURL.appendingPathComponent("cursor-transcript.jsonl")
+        try text.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        return transcriptURL.path
     }
 
     // MARK: - Droid Task Progress
