@@ -3456,6 +3456,10 @@ final class RootViewController: NSViewController {
         leadingVisibleInsetOverride: CGFloat? = nil,
         notifyLayoutResize: Bool = true
     ) -> Bool {
+        guard hasResolvedPaneLayoutBounds else {
+            return false
+        }
+
         let resolvedContext = resolveCurrentPaneLayoutContext(
             leadingVisibleInsetOverride: leadingVisibleInsetOverride
         )
@@ -3498,6 +3502,11 @@ final class RootViewController: NSViewController {
             leadingVisibleInset: leadingVisibleInsetOverride ?? appCanvasView.leadingVisibleInset,
             sizing: PaneLayoutSizing.forSidebarVisibility(sidebarMotionCoordinator.mode)
         )
+    }
+
+    private var hasResolvedPaneLayoutBounds: Bool {
+        appCanvasView.bounds.width > 0.5
+            || view.bounds.width > (ShellMetrics.outerInset * 2) + 0.5
     }
 }
 

@@ -39,6 +39,7 @@ enum TerminalKeyAction: Equatable {
 protocol LibghosttySurfaceControlling: AnyObject {
     var hasScrollback: Bool { get }
     var mouseCaptured: Bool { get }
+    var mouseScrollIsTerminalInput: Bool { get }
     var cellWidth: CGFloat { get }
     var cellHeight: CGFloat { get }
     var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }
@@ -48,6 +49,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func refresh()
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase)
+    func setSmoothScrollingEnabled(_ enabled: Bool)
     func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags)
     func sendMouseButton(
         state: ghostty_input_mouse_state_e,
@@ -58,6 +60,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func cancelPromptInput()
     func submitReturn()
     func performBindingAction(_ action: String) -> Bool
+    func scroll(toOffset offset: Double)
     func hasSelection() -> Bool
     func close()
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s?
@@ -65,7 +68,12 @@ protocol LibghosttySurfaceControlling: AnyObject {
 
 extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
+    var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func cancelPromptInput() {}
+    func setSmoothScrollingEnabled(_ enabled: Bool) {}
+    func scroll(toOffset offset: Double) {
+        _ = performBindingAction("scroll_to_row:\(Int(offset.rounded(.down)))")
+    }
 }
 
 @MainActor

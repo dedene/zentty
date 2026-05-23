@@ -181,6 +181,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private var paneLayout: PaneLayoutPreferences
     private let showLabelsSwitch = NSSwitch()
     private let showProjectIconsSwitch = NSSwitch()
+    private let smoothScrollingSwitch = NSSwitch()
     private let inactiveOpacitySlider = NSSlider()
     private let inactiveOpacityValueLabel = NSTextField(labelWithString: "")
     private let visibleSplitWindowWidthSlider = NSSlider()
@@ -251,6 +252,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         showProjectIconsSwitch.state == .on
     }
 
+    var smoothScrollingForTesting: Bool {
+        smoothScrollingSwitch.state == .on
+    }
+
+    var smoothScrollingSwitchForTesting: NSSwitch {
+        smoothScrollingSwitch
+    }
+
     var inactivePaneOpacityPercentageForTesting: Int {
         Int(round(inactiveOpacitySlider.doubleValue * 100))
     }
@@ -269,6 +278,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         isApplyingPanes = true
         showLabelsSwitch.state = panes.showLabels ? .on : .off
         showProjectIconsSwitch.state = panes.showProjectIcons ? .on : .off
+        smoothScrollingSwitch.state = panes.smoothScrollingEnabled ? .on : .off
         inactiveOpacitySlider.doubleValue = Double(panes.inactiveOpacity)
         updateInactiveOpacityLabel(panes.inactiveOpacity)
         isApplyingPanes = false
@@ -407,6 +417,15 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         )
         contentStack.addArrangedSubview(projectIconsRow)
         projectIconsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let smoothScrollingRow = makeSwitchRow(
+            title: "Smooth terminal scrolling",
+            subtitle: "Scroll freely between rows with a subtle bounce at the top and bottom.",
+            toggle: smoothScrollingSwitch,
+            action: #selector(handleSmoothScrollingChanged(_:))
+        )
+        contentStack.addArrangedSubview(smoothScrollingRow)
+        smoothScrollingRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
         let separator = NSBox()
         separator.boxType = .separator
@@ -604,6 +623,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard !isApplyingPanes else { return }
         try? configStore.update {
             $0.panes.showProjectIcons = sender.state == .on
+        }
+    }
+
+    @objc
+    private func handleSmoothScrollingChanged(_ sender: NSSwitch) {
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.smoothScrollingEnabled = sender.state == .on
         }
     }
 

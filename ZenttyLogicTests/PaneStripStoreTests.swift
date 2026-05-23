@@ -3303,6 +3303,103 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(widths.reduce(0, +) + layoutContext.sizing.interPaneSpacing, layoutContext.availableWidth, accuracy: 0.001)
     }
 
+    func test_transfer_last_pane_to_worklane_with_identical_pane_keeps_both_panes() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedCWD = "/tmp/shared-project"
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedShellContext = PaneShellContext(
+            scope: .local,
+            path: sharedCWD,
+            home: "/tmp",
+            user: "peter",
+            host: "mac"
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: sourceWorklaneID,
+                    title: "SOURCE",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: sourcePaneID,
+                                title: "codex",
+                                sessionRequest: sharedRequest
+                            )
+                        ],
+                        focusedPaneID: sourcePaneID
+                    ),
+                    auxiliaryStateByPaneID: [
+                        sourcePaneID: PaneAuxiliaryState(
+                            raw: PaneRawState(
+                                shellContext: sharedShellContext,
+                                hasCommandHistory: true
+                            )
+                        )
+                    ]
+                ),
+                WorklaneState(
+                    id: targetWorklaneID,
+                    title: "TARGET",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: targetPaneID,
+                                title: "codex",
+                                sessionRequest: sharedRequest
+                            )
+                        ],
+                        focusedPaneID: targetPaneID
+                    ),
+                    auxiliaryStateByPaneID: [
+                        targetPaneID: PaneAuxiliaryState(
+                            raw: PaneRawState(
+                                shellContext: sharedShellContext,
+                                hasCommandHistory: true
+                            )
+                        )
+                    ]
+                ),
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: sourceWorklaneID
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        store.transferPaneToWorklane(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        XCTAssertEqual(store.worklanes.map(\.id), [targetWorklaneID])
+        XCTAssertEqual(store.activeWorklaneID, targetWorklaneID)
+
+        let targetWorklane = try XCTUnwrap(store.worklanes.first)
+        XCTAssertEqual(targetWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(Set(targetWorklane.paneStripState.panes.map(\.id)).count, 2)
+        XCTAssertEqual(targetWorklane.paneStripState.focusedPaneID, sourcePaneID)
+        XCTAssertNotNil(targetWorklane.auxiliaryStateByPaneID[targetPaneID])
+        XCTAssertNotNil(targetWorklane.auxiliaryStateByPaneID[sourcePaneID])
+        XCTAssertTrue(changes.contains(.worklaneListChanged))
+        XCTAssertFalse(changes.contains(.paneStructure(sourceWorklaneID)))
+    }
+
     func test_reorderPane_into_existing_column_moves_pane_into_stack_and_normalizes_widths() throws {
         let layoutContext = PaneLayoutContext(
             displayClass: .largeDisplay,

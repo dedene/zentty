@@ -47,6 +47,7 @@ enum AppConfigTOML {
         lines.append("show_labels = \(config.panes.showLabels)")
         lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
         lines.append("show_project_icons = \(config.panes.showProjectIcons)")
+        lines.append("smooth_scroll_enabled = \(config.panes.smoothScrollingEnabled)")
         lines.append("")
 
         if config.appearance != .default {
@@ -521,6 +522,11 @@ enum AppConfigTOML {
                 return false
             }
             config.panes.showProjectIcons = value
+        case "smooth_scroll_enabled":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.panes.smoothScrollingEnabled = value
         default:
             return true
         }

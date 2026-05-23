@@ -9,6 +9,19 @@ final class PaneBorderContextInsetView: NSView {
         static let paneContextHorizontalPadding: CGFloat = 7
         static let paneContextMinHeight: CGFloat = 16
         static let paneContextFontSize: CGFloat = 10
+
+        @MainActor
+        static var paneContextPreferredHeight: CGFloat {
+            let font = NSFont.systemFont(ofSize: paneContextFontSize, weight: .semibold)
+            let textHeight = ceil(PaneBorderContextInsetView.textLineHeight(for: font))
+            return max(
+                paneContextMinHeight,
+                textHeight
+                    + TextLayout.topInset
+                    + TextLayout.bottomInset
+                    + TextLayout.verticalSafety
+            )
+        }
     }
 
     private enum TextLayout {
@@ -75,13 +88,9 @@ final class PaneBorderContextInsetView: NSView {
     func measure(text: String, maxWidth: CGFloat, prefixGlyph: String? = nil) -> CGSize {
         let displayText = (prefixGlyph ?? "") + text
         naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText, font: textFont))
-        let textHeight = ceil(Self.textLineHeight(for: textFont))
         return CGSize(
             width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
-            height: max(
-                Layout.paneContextMinHeight,
-                textHeight + TextLayout.topInset + TextLayout.bottomInset + TextLayout.verticalSafety
-            )
+            height: Layout.paneContextPreferredHeight
         )
     }
 
@@ -358,6 +367,7 @@ final class AppCanvasView: NSView {
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
+        smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
         worklaneColor: WorklaneColor? = nil,
         theme: ZenttyTheme,
         leadingVisibleInset: CGFloat? = nil,
@@ -373,6 +383,7 @@ final class AppCanvasView: NSView {
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
                 showsPaneLabels: showsPaneLabels,
                 inactivePaneOpacity: inactivePaneOpacity,
+                smoothScrollingEnabled: smoothScrollingEnabled,
                 worklaneColor: worklaneColor,
                 leadingVisibleInset: leadingVisibleInset,
                 animated: animated,
@@ -385,6 +396,7 @@ final class AppCanvasView: NSView {
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
                 showsPaneLabels: showsPaneLabels,
                 inactivePaneOpacity: inactivePaneOpacity,
+                smoothScrollingEnabled: smoothScrollingEnabled,
                 worklaneColor: worklaneColor,
                 leadingVisibleInset: leadingVisibleInset,
                 animated: animated,

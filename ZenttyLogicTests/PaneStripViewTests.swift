@@ -2143,11 +2143,6 @@ final class PaneStripViewTests: AppKitTestCase {
             ],
             focusedColumnID: PaneColumnID("stack")
         )
-        let splitPresentation = PaneStripMotionController().presentation(
-            for: splitState,
-            in: paneStripView.bounds.size
-        )
-
         paneStripView.render(singlePane)
         paneStripView.layoutSubtreeIfNeeded()
 
@@ -2164,12 +2159,14 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let shellResumeHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
         let insertedResumeHeight = try XCTUnwrap(insertedAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
-        let expectedShellHeight = try XCTUnwrap(
-            splitPresentation.panes.first(where: { $0.paneID == PaneID("shell") })?.frame.height
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
-        let expectedInsertedHeight = try XCTUnwrap(
-            splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame.height
+        let insertedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "pane 1" })
         )
+        let expectedShellHeight = shellPane.terminalAnchorFrameForTesting.height
+        let expectedInsertedHeight = insertedPane.terminalAnchorFrameForTesting.height
         XCTAssertEqual(
             shellResumeHeight,
             expectedShellHeight,
@@ -2384,11 +2381,6 @@ final class PaneStripViewTests: AppKitTestCase {
             ],
             focusedColumnID: PaneColumnID("stack")
         )
-        let singlePanePresentation = PaneStripMotionController().presentation(
-            for: singlePane,
-            in: paneStripView.bounds.size
-        )
-
         paneStripView.render(splitState)
         paneStripView.layoutSubtreeIfNeeded()
 
@@ -2401,9 +2393,10 @@ final class PaneStripViewTests: AppKitTestCase {
 
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let resumedHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
-        let expectedHeight = try XCTUnwrap(
-            singlePanePresentation.panes.first(where: { $0.paneID == PaneID("shell") })?.frame.height
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
+        let expectedHeight = shellPane.terminalAnchorFrameForTesting.height
         XCTAssertEqual(resumedHeight, expectedHeight, accuracy: 0.5)
     }
 

@@ -151,6 +151,70 @@ final class SessionRestoreStoreTests: XCTestCase {
         XCTAssertEqual(decision.envelope.restoreDraftWindows, envelope.restoreDraftWindows)
     }
 
+    func test_exporter_creates_cursor_restore_draft_for_live_session() throws {
+        let paneID = PaneID("pane-cursor")
+        let worklaneID = WorklaneID("worklane-main")
+        let sessionID = "237d8c32-2a27-4850-8da8-3a110f13682c"
+        let livePID: Int32 = 4242
+
+        var worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("column-main"),
+                        panes: [
+                            PaneState(
+                                id: paneID,
+                                title: "Cursor",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                            ),
+                        ],
+                        width: 640,
+                        focusedPaneID: paneID
+                    ),
+                ],
+                focusedColumnID: PaneColumnID("column-main")
+            )
+        )
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
+            tool: .cursor,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: Date(),
+            source: .explicit,
+            origin: .explicitHook,
+            confidence: .explicit,
+            trackedPID: livePID,
+            hasObservedRunning: true,
+            sessionID: sessionID
+        )
+
+        let windowDrafts = try XCTUnwrap(
+            SessionRestoreDraftExporter.makeWindowDrafts(
+                windowID: WindowID("window-main"),
+                worklanes: [worklane],
+                isProcessAlive: { $0 == livePID }
+            )
+        )
+
+        XCTAssertEqual(
+            windowDrafts.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: paneID.rawValue,
+                    kind: .agentResume,
+                    toolName: "Cursor",
+                    sessionID: sessionID,
+                    workingDirectory: "/tmp/project",
+                    trackedPID: livePID
+                ),
+            ]
+        )
+    }
+
     func test_clean_exit_save_preserves_existing_restore_drafts_for_matching_panes() throws {
         let workspace = WorkspaceRecipe(
             windows: [

@@ -203,6 +203,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
         windowIndex: Int = 0,
+        initialPaneLayoutFrame: NSRect? = nil,
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
@@ -211,9 +212,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
             paneLayoutDefaults: paneLayoutDefaults
         )
-        let initialFrame = Self.defaultFrame()
+        let initialWindowFrame = Self.defaultFrame()
+        let initialLayoutFrame = initialPaneLayoutFrame ?? initialWindowFrame
         let initialLayoutContext = Self.initialPaneLayoutContext(
-            initialFrame: initialFrame,
+            initialFrame: initialLayoutFrame,
             config: resolvedConfigStore.current
         )
 
@@ -230,7 +232,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
         rootViewController.loadViewIfNeeded()
         let window = ProxyAwareWindow(
-            contentRect: initialFrame,
+            contentRect: initialWindowFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -255,12 +257,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // the shell fill instead of nothing (which is what produces the white seam).
         window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
-        rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
+        rootViewController.view.frame = NSRect(origin: .zero, size: initialWindowFrame.size)
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
         if !Self.isHostedTestMode {
-            let autosaveName = windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
-            window.setFrameAutosaveName(autosaveName)
+            window.setFrameAutosaveName(Self.windowFrameAutosaveName(forWindowIndex: windowIndex))
         }
 
         self.rootViewController = rootViewController
@@ -349,6 +350,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             }
         }
         window.makeKeyAndOrderFront(sender)
+        rootViewController.view.needsLayout = true
+        rootViewController.view.layoutSubtreeIfNeeded()
         syncWindowAppearance()
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
@@ -392,6 +395,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         rootViewController.handleWindowDidResize()
         layoutTrafficLights()
+        onWorkspaceStateDidChange?()
+    }
+
+    func windowDidMove(_ notification: Notification) {
         onWorkspaceStateDidChange?()
     }
 
@@ -882,7 +889,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return (payload, runtime)
     }
 
-    /// Adopts the runtime and inserts the pane into the destination worklane.
+    /// Inserts the pane into the destination worklane, adopts the runtime, then
+    /// publishes the structural changes.
     /// Returns `true` on success. On failure (target worklane gone), neither the
     /// runtime nor the pane state is added — the caller still owns the runtime.
     @discardableResult
@@ -895,16 +903,23 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         guard store.worklanes.contains(where: { $0.id == targetWorklaneID }) else {
             return false
         }
-        guard store.insertExtractedPane(
-            payload,
-            intoWorklane: targetWorklaneID,
-            singleColumnWidth: store.layoutContext.singlePaneWidth
-        ) else {
+
+        var didInsert = false
+        store.batchUpdate {
+            didInsert = store.insertExtractedPane(
+                payload,
+                intoWorklane: targetWorklaneID,
+                singleColumnWidth: store.layoutContext.singlePaneWidth
+            )
+        }
+        guard didInsert else {
             return false
         }
         if let runtime {
             runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
         }
+        store.notify(.paneStructure(targetWorklaneID))
+        store.notify(.activeWorklaneChanged)
         return true
     }
 
@@ -1581,6 +1596,61 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         defaultFrame()
     }
 
+    static func validatedPaneLayoutSeedFrameForRestore(_ frame: WorkspaceRecipe.WindowFrame?) -> NSRect? {
+        guard let frame else {
+            return nil
+        }
+
+        return validatedPaneLayoutSeedFrameForRestore(frame.rect)
+    }
+
+    static func validatedPaneLayoutSeedFrameForRestore(_ frame: NSRect?) -> NSRect? {
+        guard let frame,
+              frame.origin.x.isFinite,
+              frame.origin.y.isFinite,
+              frame.size.width.isFinite,
+              frame.size.height.isFinite,
+              frame.width >= 320,
+              frame.height >= 240
+        else {
+            return nil
+        }
+
+        return frame.integral
+    }
+
+    static func legacyAutosavedFrameForRestore(
+        windowIndex: Int,
+        defaults: UserDefaults = .standard
+    ) -> NSRect? {
+        let defaultsKey = "NSWindow Frame \(windowFrameAutosaveName(forWindowIndex: windowIndex))"
+        guard let value = defaults.string(forKey: defaultsKey) else {
+            return nil
+        }
+
+        let components = value.split(whereSeparator: \.isWhitespace)
+        guard components.count >= 4,
+              let x = Double(components[0]),
+              let y = Double(components[1]),
+              let width = Double(components[2]),
+              let height = Double(components[3]) else {
+            return nil
+        }
+
+        return validatedPaneLayoutSeedFrameForRestore(
+            NSRect(
+                x: x,
+                y: y,
+                width: width,
+                height: height
+            )
+        )
+    }
+
+    static func windowFrameAutosaveName(forWindowIndex windowIndex: Int) -> String {
+        windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
+    }
+
     static func initialPaneLayoutContextForRestore(
         initialFrame: NSRect,
         config: AppConfig
@@ -1592,6 +1662,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let workspaceState = rootViewController.workspaceState
         return WorkspaceRecipeExporter.makeWindow(
             windowID: windowID,
+            frame: window.frame,
             worklanes: workspaceState.worklanes,
             activeWorklaneID: workspaceState.activeWorklaneID
         )

@@ -359,6 +359,11 @@ final class PaneContainerView: NSView {
             terminalHostView.onScrollWheel = onScrollWheel
         }
     }
+    var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled {
+        didSet {
+            terminalHostView.smoothScrollingEnabled = smoothScrollingEnabled
+        }
+    }
     var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
         didSet {}
     }
@@ -484,6 +489,7 @@ final class PaneContainerView: NSView {
         terminalHostView.layer?.cornerCurve = .continuous
         terminalHostView.layer?.masksToBounds = true
         terminalHostView.frame = terminalAnchorView.bounds
+        terminalHostView.smoothScrollingEnabled = smoothScrollingEnabled
         statusOverlayView.translatesAutoresizingMaskIntoConstraints = true
         statusOverlayView.autoresizingMask = [.width, .height]
         statusOverlayView.frame = bounds

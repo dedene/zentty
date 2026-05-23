@@ -601,6 +601,22 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(payload, .scrollbar(total: 120, offset: 35, len: 18))
     }
 
+    func test_copy_action_payload_copies_cell_size_values() {
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_CELL_SIZE,
+            action: ghostty_action_u(
+                cell_size: ghostty_action_cell_size_s(
+                    width: 9,
+                    height: 18
+                )
+            )
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(payload, .cellSize(width: 9, height: 18))
+    }
+
     func test_copy_action_payload_copies_desktop_notification_values() {
         let duplicatedTitle = strdup("Codex")
         let duplicatedBody = strdup("Needs your input")
@@ -795,8 +811,8 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(emittedSummary.scrollbarMaxOffsetRows, 960)
         XCTAssertEqual(emittedSummary.scrollbarMinVisibleRows, 64)
         XCTAssertEqual(emittedSummary.scrollbarMaxVisibleRows, 64)
-        XCTAssertEqual(emittedSummary.firstScrollbarPosition, "total:1024,offset:960,len:64")
-        XCTAssertEqual(emittedSummary.lastScrollbarPosition, "total:1024,offset:960,len:64")
+        XCTAssertEqual(emittedSummary.firstScrollbarPosition, "total:1024,offset:960.0,len:64")
+        XCTAssertEqual(emittedSummary.lastScrollbarPosition, "total:1024,offset:960.0,len:64")
         XCTAssertEqual(emittedSummary.reflectScrolledClipViewCount, 1)
         XCTAssertEqual(emittedSummary.scrollToRowActionCount, 1)
         XCTAssertEqual(emittedSummary.viewportSyncCount, 1)
@@ -809,7 +825,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertTrue(payload.contains("scrollbarBottomAlignedCount=1"))
         XCTAssertTrue(payload.contains("scrollbarAutoFollowAppliedCount=1"))
         XCTAssertTrue(payload.contains("scrollbarMaxTotalRows=1024"))
-        XCTAssertTrue(payload.contains("firstScrollbarPosition=total:1024,offset:960,len:64"))
+        XCTAssertTrue(payload.contains("firstScrollbarPosition=total:1024,offset:960.0,len:64"))
         XCTAssertTrue(payload.contains("reflectScrolledClipViewCount=1"))
         XCTAssertTrue(payload.contains("scrollToRowActionCount=1"))
         XCTAssertTrue(payload.contains("viewportSyncCount=1"))
@@ -834,7 +850,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
             documentHeightDeltaPoints: 0,
             reflected: false,
             scrollbarTotalRows: 10,
-            scrollbarOffsetRows: UInt64.max,
+            scrollbarOffsetRows: Double(UInt64.max),
             scrollbarVisibleRows: UInt64.max,
             wasAtBottom: nil,
             shouldAutoScroll: nil,
@@ -849,7 +865,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(emittedSummary.scrollbarBottomAlignedCount, 1)
         XCTAssertEqual(emittedSummary.scrollbarOffBottomCount, 0)
         XCTAssertEqual(emittedSummary.scrollbarMaxTotalRows, 10)
-        XCTAssertEqual(emittedSummary.scrollbarMaxOffsetRows, UInt64.max)
+        XCTAssertEqual(emittedSummary.scrollbarMaxOffsetRows, Double(UInt64.max))
         XCTAssertEqual(emittedSummary.scrollbarMaxVisibleRows, UInt64.max)
     }
 

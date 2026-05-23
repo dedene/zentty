@@ -198,6 +198,35 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
 
+    func test_builder_returns_cursor_resume_command_for_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-cursor",
+            kind: .agentResume,
+            toolName: "Cursor",
+            sessionID: "0CB916DB-26AA-40F2-86B5-1BA81B225FD2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "cursor-agent --resume=0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_nil_for_cursor_non_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-cursor",
+            kind: .agentResume,
+            toolName: "Cursor",
+            sessionID: "resume-this-session",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_kimi_resume_command_for_uuid_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-kimi",

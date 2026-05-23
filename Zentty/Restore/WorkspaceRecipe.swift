@@ -20,8 +20,53 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
 
     struct Window: Codable, Equatable, Sendable {
         var id: String
+        var frame: WindowFrame? = nil
         var worklanes: [Worklane]
         var activeWorklaneID: String?
+    }
+
+    struct WindowFrame: Codable, Equatable, Sendable {
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
+        var screenX: Double?
+        var screenY: Double?
+        var screenWidth: Double?
+        var screenHeight: Double?
+
+        init(
+            x: Double,
+            y: Double,
+            width: Double,
+            height: Double,
+            screenX: Double? = nil,
+            screenY: Double? = nil,
+            screenWidth: Double? = nil,
+            screenHeight: Double? = nil
+        ) {
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+            self.screenX = screenX
+            self.screenY = screenY
+            self.screenWidth = screenWidth
+            self.screenHeight = screenHeight
+        }
+
+        init(rect: CGRect) {
+            self.init(
+                x: Double(rect.origin.x),
+                y: Double(rect.origin.y),
+                width: Double(rect.size.width),
+                height: Double(rect.size.height)
+            )
+        }
+
+        var rect: CGRect {
+            CGRect(x: x, y: y, width: width, height: height)
+        }
     }
 
     struct Worklane: Codable, Equatable, Sendable {
@@ -55,11 +100,13 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
 enum WorkspaceRecipeExporter {
     static func makeWindow(
         windowID: WindowID,
+        frame: CGRect? = nil,
         worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID?
     ) -> WorkspaceRecipe.Window {
         WorkspaceRecipe.Window(
             id: windowID.rawValue,
+            frame: frame.map(WorkspaceRecipe.WindowFrame.init(rect:)),
             worklanes: worklanes.map(makeWorklane),
             activeWorklaneID: activeWorklaneID?.rawValue
         )

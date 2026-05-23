@@ -43,6 +43,11 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
             (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
         }
     }
+    var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled {
+        didSet {
+            (terminalView as? any TerminalSmoothScrollConfiguring)?.smoothScrollingEnabled = smoothScrollingEnabled
+        }
+    }
     var onSearchQueryChange: ((String) -> Void)?
     var onSearchNext: (() -> Void)?
     var onSearchPrevious: (() -> Void)?
@@ -67,6 +72,7 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         adapter.eventDidOccur = onEventDidOccur
         (terminalView as? any TerminalFocusReporting)?.onFocusDidChange = onFocusDidChange
         (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
+        (terminalView as? any TerminalSmoothScrollConfiguring)?.smoothScrollingEnabled = smoothScrollingEnabled
         (terminalView as? any TerminalContextMenuConfiguring)?.contextMenuBuilder = contextMenuBuilder
         setup()
     }

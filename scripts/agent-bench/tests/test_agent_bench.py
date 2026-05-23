@@ -126,6 +126,27 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertEqual(restore_launch.required_events, [])
         self.assertEqual(restore_launch.required_bootstrap_arguments, [["resume", "session-codex"]])
 
+    def test_cursor_profile_defines_session_capture_restore_and_interactive_completion(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+        cursor = profiles["cursor"]
+
+        self.assertIn("session_capture", cursor.expectations)
+        self.assertIn("restore_launch", cursor.expectations)
+        self.assertIn("interactive_turn_complete", cursor.expectations)
+        self.assertEqual(
+            cursor.expectations["session_capture"].session_identity.session_id_pattern,
+            "uuid",
+        )
+        self.assertEqual(
+            cursor.expectations["restore_launch"].required_bootstrap_arguments,
+            [["--resume=237d8c32-2a27-4850-8da8-3a110f13682c"]],
+        )
+        self.assertEqual(
+            cursor.expectations["interactive_turn_complete"].required_events,
+            ["beforeSubmitPrompt", "sessionStart", "stop"],
+        )
+
     def test_stop_race_fixture_contains_late_notification_after_stop(self):
         fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"
         events = []
@@ -305,6 +326,58 @@ class ExpectationTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.session_identity_observations[0]["session_id_source"], "session.id")
         self.assertEqual(result.session_identity_observations[0]["tracked_pid_source"], "agent.pid")
+
+    def test_validation_accepts_cursor_conversation_id_as_session_identity(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["sessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="uuid",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="session_capture",
+                event_name="sessionStart",
+                standard_input='{"hook_event_name":"sessionStart","conversation_id":"237d8c32-2a27-4850-8da8-3a110f13682c"}',
+                environment={"ZENTTY_CURSOR_PID": "5925"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("cursor", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(
+            result.session_identity_observations[0]["session_id_source"],
+            "conversation_id",
+        )
+
+    def test_validation_ignores_non_cursor_conversation_id_as_session_identity(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["sessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="uuid",
+                tracked_pid=False,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="codex",
+                scenario="session_capture",
+                event_name="sessionStart",
+                standard_input='{"event":"session.start","conversation_id":"237d8c32-2a27-4850-8da8-3a110f13682c"}',
+            )
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["session-id:uuid"])
 
     def test_validation_ignores_pid_environment_for_other_agents(self):
         scenario = agent_bench.ScenarioExpectation(
@@ -948,6 +1021,220 @@ class TaskObservationTests(unittest.TestCase):
             [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3, "source": "raw_tool_call"}],
         )
 
+    def test_extracts_cursor_todo_write_merge_progress_from_hook_payloads(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "conversation_id": "cursor-session",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "merge": False,
+                            "todos": [
+                                {"id": "dummy-1", "content": "Review logs", "status": "pending"},
+                                {"id": "dummy-2", "content": "Run tests", "status": "pending"},
+                                {"id": "dummy-3", "content": "Verify profile", "status": "pending"},
+                                {"id": "dummy-4", "content": "Check resume", "status": "pending"},
+                                {"id": "dummy-5", "content": "Smoke test", "status": "pending"},
+                            ],
+                        },
+                    }
+                ),
+            ),
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "conversation_id": "cursor-session",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "merge": True,
+                            "todos": [
+                                {"id": "dummy-1", "content": "Review logs", "status": "completed"},
+                                {"id": "dummy-3", "content": "Verify profile", "status": "completed"},
+                            ],
+                        },
+                    }
+                ),
+            ),
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "conversation_id": "cursor-session",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "merge": True,
+                            "todos": [{"id": "dummy-6", "content": "Validate AgentEventBridge", "status": "pending"}],
+                        },
+                    }
+                ),
+            ),
+        ]
+
+        observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
+
+        self.assertEqual(
+            observations[-1],
+            {"event": "preToolUse", "tool": "TodoWrite", "done": 2, "total": 6, "source": "raw_tool_call"},
+        )
+
+    def test_extracts_cursor_todo_write_progress_from_trace_extra(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="afterShellExecution",
+                adapter="cursor",
+                standard_input=json.dumps({"hook_event_name": "afterShellExecution"}),
+                extra={"task_progress": {"tool": "TodoWrite", "done": 1, "total": 3, "source": "cursor_transcript"}},
+            )
+        ]
+
+        observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
+
+        self.assertEqual(
+            observations,
+            [{"event": "afterShellExecution", "tool": "TodoWrite", "done": 1, "total": 3, "source": "cursor_transcript"}],
+        )
+
+    def test_extracts_cursor_todo_write_progress_from_transcript_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = pathlib.Path(tmp) / "cursor.jsonl"
+            transcript_path.write_text(
+                json.dumps(
+                    {
+                        "role": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "TodoWrite",
+                                    "input": {
+                                        "todos": [
+                                            {"content": "Review logs", "status": "completed"},
+                                            {"content": "Patch adapter", "status": "in_progress"},
+                                            {"content": "Run tests", "status": "pending"},
+                                        ]
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            progress = agent_bench.cursor_transcript_task_progress(
+                {"transcript_path": str(transcript_path)},
+                attempts=1,
+            )
+
+        self.assertEqual(
+            progress,
+            {"tool": "TodoWrite", "done": 1, "total": 3, "source": "cursor_transcript"},
+        )
+
+    def test_extracts_cursor_todo_write_merge_progress_from_transcript_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = pathlib.Path(tmp) / "cursor.jsonl"
+            transcript_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "role": "assistant",
+                                "message": {
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "name": "TodoWrite",
+                                            "input": {
+                                                "merge": False,
+                                                "todos": [
+                                                    {"id": "dummy-1", "content": "Review logs", "status": "pending"},
+                                                    {"id": "dummy-2", "content": "Run tests", "status": "pending"},
+                                                    {"id": "dummy-3", "content": "Verify profile", "status": "pending"},
+                                                    {"id": "dummy-4", "content": "Check resume", "status": "pending"},
+                                                    {"id": "dummy-5", "content": "Smoke test", "status": "pending"},
+                                                ],
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "role": "assistant",
+                                "message": {
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "name": "TodoWrite",
+                                            "input": {
+                                                "merge": True,
+                                                "todos": [
+                                                    {"id": "dummy-1", "content": "Review logs", "status": "completed"},
+                                                    {"id": "dummy-3", "content": "Verify profile", "status": "completed"},
+                                                ],
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "role": "assistant",
+                                "message": {
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "name": "TodoWrite",
+                                            "input": {
+                                                "merge": True,
+                                                "todos": [
+                                                    {"id": "dummy-6", "content": "Validate AgentEventBridge", "status": "pending"}
+                                                ],
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            progress = agent_bench.cursor_transcript_task_progress(
+                {"transcript_path": str(transcript_path)},
+                attempts=1,
+            )
+
+        self.assertEqual(
+            progress,
+            {"tool": "TodoWrite", "done": 2, "total": 6, "source": "cursor_transcript"},
+        )
+
     def test_extracts_canonical_task_progress_source(self):
         records = [
             agent_bench.TraceRecord(
@@ -969,11 +1256,33 @@ class TaskObservationTests(unittest.TestCase):
 
     def test_completed_tasks_scenario_without_todo_write_is_missing_task_hook(self):
         result = agent_bench.classify_completed_result(
-            agent="cursor",
+            agent="codex",
             scenario="tasks",
             expectation=agent_bench.ScenarioExpectation("tasks", ["sessionStart", "sessionEnd"]),
             records=[
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="tasks", event_name="sessionEnd"),
+            ],
+            terminal_observations=[],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "missing-task-hook")
+
+    def test_cursor_tasks_scenario_without_todo_write_is_missing_task_hook(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation("tasks", ["sessionStart", "afterShellExecution", "sessionEnd"]),
+            records=[
                 agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="afterShellExecution"),
                 agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
             ],
             terminal_observations=[],
@@ -987,6 +1296,68 @@ class TaskObservationTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.status, "fail")
         self.assertEqual(result.result_kind, "missing-task-hook")
+
+    def test_tasks_scenario_fails_when_expected_task_progress_is_missing(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation(
+                "tasks",
+                ["sessionStart", "afterShellExecution", "sessionEnd"],
+                expected_task_progress={"done": 2, "total": 6},
+            ),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(
+                    kind="hook",
+                    agent="cursor",
+                    scenario="tasks",
+                    event_name="afterShellExecution",
+                    extra={"task_progress": {"tool": "TodoWrite", "done": 0, "total": 1, "source": "cursor_transcript"}},
+                ),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
+            ],
+            terminal_observations=[],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-task-progress")
+
+    def test_tasks_scenario_passes_when_expected_task_progress_is_observed(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation(
+                "tasks",
+                ["sessionStart", "afterShellExecution", "sessionEnd"],
+                expected_task_progress={"done": 2, "total": 6},
+            ),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(
+                    kind="hook",
+                    agent="cursor",
+                    scenario="tasks",
+                    event_name="afterShellExecution",
+                    extra={"task_progress": {"tool": "TodoWrite", "done": 2, "total": 6, "source": "cursor_transcript"}},
+                ),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
+            ],
+            terminal_observations=[],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
 
 
 class IPCServerTests(unittest.TestCase):
@@ -1090,7 +1461,7 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("--force", profile.launch_args_by_scenario["smoke"])
         self.assertEqual(
             profile.expectations["smoke"].required_events,
-            ["sessionStart", "sessionEnd"],
+            ["sessionStart", "afterShellExecution", "sessionEnd"],
         )
 
     def test_cursor_approval_profile_bypasses_workspace_trust_for_permission_path(self):
@@ -1106,8 +1477,9 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("TodoWrite", profile.launch_args_by_scenario["tasks"][-1])
         self.assertEqual(
             profile.expectations["tasks"].required_events,
-            ["sessionStart", "preToolUse", "postToolUse", "sessionEnd"],
+            ["sessionStart", "afterShellExecution", "sessionEnd"],
         )
+        self.assertEqual(profile.expectations["tasks"].expected_task_progress, {"done": 2, "total": 6})
 
     def test_copilot_approval_profile_drives_interactive_prompt_like_a_person(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["copilot"]
@@ -1639,7 +2011,9 @@ class LaunchPlannerTests(unittest.TestCase):
             )
 
             self.assertNotIn("HOME", plan["setEnvironment"])
+            overlay_home = root / "run" / "overlays" / "smoke" / "cursor" / "home"
             overlay_config = pathlib.Path(plan["setEnvironment"]["CURSOR_CONFIG_DIR"])
+            self.assertEqual(overlay_config, overlay_home / ".cursor")
             overlay_hooks = overlay_config / "hooks.json"
 
             self.assertTrue(overlay_hooks.exists())

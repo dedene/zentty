@@ -13,6 +13,8 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         XCTAssertFalse(coalescer.enqueue(.pwd("/tmp/second")))
         XCTAssertFalse(coalescer.enqueue(.scrollbar(total: 1, offset: 0, len: 2)))
         XCTAssertFalse(coalescer.enqueue(.scrollbar(total: 9, offset: 3, len: 4)))
+        XCTAssertFalse(coalescer.enqueue(.cellSize(width: 16, height: 32)))
+        XCTAssertFalse(coalescer.enqueue(.cellSize(width: 8, height: 16)))
         XCTAssertFalse(coalescer.enqueue(.mouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)))
         XCTAssertFalse(coalescer.enqueue(.mouseShape(GHOSTTY_MOUSE_SHAPE_POINTER)))
 
@@ -43,6 +45,9 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         guard case .present(let scrollbar) = batch.scrollbar else {
             return XCTFail("Expected coalesced scrollbar")
         }
+        guard case .present(let cellSize) = batch.cellSize else {
+            return XCTFail("Expected coalesced cell size")
+        }
         guard case .present(let mouseShape) = batch.mouseShape else {
             return XCTFail("Expected coalesced mouse shape")
         }
@@ -55,6 +60,8 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         XCTAssertEqual(scrollbar.total, 9)
         XCTAssertEqual(scrollbar.offset, 3)
         XCTAssertEqual(scrollbar.len, 4)
+        XCTAssertEqual(cellSize.width, 8)
+        XCTAssertEqual(cellSize.height, 16)
         XCTAssertEqual(mouseShape, GHOSTTY_MOUSE_SHAPE_POINTER)
         XCTAssertEqual(progressReport, progress)
         XCTAssertEqual(
@@ -63,6 +70,7 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
                 .title,
                 .pwd,
                 .scrollbar,
+                .cellSize,
                 .mouseShape,
                 .progressReport,
                 .ordered(commandFinished),
