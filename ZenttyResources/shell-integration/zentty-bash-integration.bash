@@ -140,6 +140,7 @@ _zentty_agent_tool_for_command() {
         kimi|kimi-cli) printf '%s\n' "Kimi" ;;
         opencode) printf '%s\n' "OpenCode" ;;
         pi) printf '%s\n' "Pi" ;;
+        agy) printf '%s\n' "Antigravity" ;;
         *) return 1 ;;
     esac
 }

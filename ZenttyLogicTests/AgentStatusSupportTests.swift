@@ -89,6 +89,13 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolveKnown(named: "Kimi"), .kimi)
     }
 
+    func test_agent_tool_recognizes_agy_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "agy"), .agy)
+        XCTAssertEqual(AgentTool.resolve(named: "Antigravity"), .agy)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "agy"), .agy)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Antigravity"), .agy)
+    }
+
     func test_agent_tool_recognizer_infers_codex_from_explicit_attention_title() {
         XCTAssertEqual(
             AgentToolRecognizer.recognize(metadata: TerminalMetadata(
@@ -316,7 +323,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -420,7 +427,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Real binaries Zentty's wrappers expect on PATH. Note cursor resolves to `cursor-agent`,
         // not `cursor` (which is the Cursor IDE launcher).
-        for name in ["amp", "claude", "cursor-agent", "gemini", "kimi", "opencode"] {
+        for name in ["amp", "claude", "cursor-agent", "gemini", "kimi", "opencode", "agy"] {
             let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
@@ -437,6 +444,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("kimi", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
                 binURL.appendingPathComponent("pi", isDirectory: true).path,
+                binURL.appendingPathComponent("agy", isDirectory: true).path,
                 sharedURL.path,
                 realBinURL.path,
                 "/usr/bin",
@@ -453,6 +461,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("kimi", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
+                binURL.appendingPathComponent("agy", isDirectory: true).path,
             ]
         )
     }
@@ -2742,6 +2751,331 @@ final class AgentStatusSupportTests: XCTestCase {
 
             XCTAssertTrue(payloads.isEmpty, "\(event) for AskUserQuestion must not overwrite canonical needs-input")
         }
+    }
+
+    // MARK: - AgyHooksInstaller
+    //
+    // Full coverage of the installer behaviour lives in
+    // `AgyHooksInstallerTests`; the case below stays here as a smoke check
+    // that the installer is wired up against the same temp-home helper as
+    // the rest of this file (the bootstrap test below depends on it not
+    // littering the real ~/.gemini).
+
+    func test_agent_launch_bootstrap_agy_auto_installs_hooks_and_emits_wrapper_lifecycle() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-agy-runtime")
+        let home = try makeTemporaryDirectory(named: "agent-launch-agy-home")
+        let fakeBinDir = try makeTemporaryDirectory(named: "agent-launch-agy-bin")
+        let fakeAgy = fakeBinDir.appendingPathComponent("agy", isDirectory: false)
+        let logURL = fakeBinDir.appendingPathComponent("agy.log", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s|HOME=%s\\n' "$*" "$HOME" >> "$AGY_LOG"
+        exit 0
+        """.write(to: fakeAgy, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeAgy.path)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--print", "--prompt", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": home.path,
+                "AGY_LOG": logURL.path,
+                "ZENTTY_REAL_BINARY": fakeAgy.path,
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .agy
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, fakeAgy.path)
+        XCTAssertEqual(plan.arguments, ["--print", "--prompt", "hello"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "agy")
+        XCTAssertEqual(plan.preLaunchActions.count, 2)
+        XCTAssertEqual(plan.preLaunchActions.first?.arguments, ["--adapter=agy"])
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains(#""event":"session.start""#) == true)
+        XCTAssertTrue(plan.preLaunchActions[1].standardInput?.contains(#""event":"agent.running""#) == true)
+
+        // The placeholder session id is `zentty-placeholder-<uuid>`,
+        // exported via env and embedded in both pre-launch events. The
+        // prefix is what the resume builder uses to recognise this id and
+        // fall back to `agy --continue` if no real conversation_id ever
+        // arrives. Both events share the same placeholder so downstream
+        // consumers can match them up before supersession.
+        let placeholder = try XCTUnwrap(plan.setEnvironment["ZENTTY_AGY_PLACEHOLDER_SESSION_ID"], "missing placeholder session id env")
+        XCTAssertTrue(placeholder.hasPrefix("zentty-placeholder-"), "placeholder must carry the recognition prefix, got \(placeholder)")
+        let uuidPart = String(placeholder.dropFirst("zentty-placeholder-".count))
+        XCTAssertNotNil(UUID(uuidString: uuidPart), "placeholder must end in a valid UUID, got \(placeholder)")
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains(#""id":"\#(placeholder)""#) == true, "session.start must use the placeholder")
+        XCTAssertTrue(plan.preLaunchActions[1].standardInput?.contains(#""id":"\#(placeholder)""#) == true, "agent.running must use the same placeholder")
+        XCTAssertFalse(plan.preLaunchActions[0].standardInput?.contains("pane-antigravity") == true, "Old hard-coded session id must be gone")
+
+        // agy can't redirect its hooks path, so the launch plan auto-installs
+        // the status hooks into the launching session's ~/.gemini/config/.
+        let hooksURL = home
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hooksURL.path), "agyPlan must auto-install hooks.json")
+        let hooksData = try Data(contentsOf: hooksURL)
+        let hooksRoot = try XCTUnwrap(JSONSerialization.jsonObject(with: hooksData) as? [String: Any])
+        XCTAssertNotNil(hooksRoot["zentty"], "auto-installed hooks must live under the zentty group")
+
+        // The real agy binary must not have been executed by makePlan itself.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: logURL.path))
+        // We never touch the antigravity-cli subtree.
+        let settingsURL = home
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("antigravity-cli", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: settingsURL.path))
+    }
+
+    // MARK: - Agy adapter — added event coverage
+
+    func test_agy_adapter_keeps_unresolved_stop_when_background_work_is_pending() throws {
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data(#"""
+            {
+              "hook_event_name": "Stop",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "fullyIdle": false,
+              "terminationReason": "background work in progress"
+            }
+            """#.utf8),
+            environment: agyAdapterEnvironment(pid: "4242")
+        )
+
+        // `fullyIdle: false` means tools are still running; we surface
+        // `.unresolvedStop` so the UI doesn't flap into idle. The PID is
+        // intentionally not cleared.
+        XCTAssertEqual(payloads.map(\.state), [.unresolvedStop])
+        XCTAssertEqual(payloads.first?.text, "background work in progress")
+        XCTAssertTrue(payloads.allSatisfy { $0.pidEvent == nil })
+    }
+
+    func test_agy_adapter_treats_turn_completion_like_stop() throws {
+        // `turn-completion` is an alias for `Stop` that the Antigravity CLI
+        // emits at turn boundaries.
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data(#"""
+            {
+              "hook_event_name": "turn-completion",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "fullyIdle": true
+            }
+            """#.utf8),
+            environment: agyAdapterEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.map(\.state), [.idle])
+    }
+
+    func test_agy_adapter_emits_session_end_and_pid_clear_for_sessionend() throws {
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data(#"""
+            {
+              "hook_event_name": "SessionEnd",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d"
+            }
+            """#.utf8),
+            environment: agyAdapterEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads.first?.signalKind, .lifecycle)
+        XCTAssertEqual(payloads.last?.signalKind, .pid)
+        XCTAssertEqual(payloads.last?.pidEvent, .clear)
+    }
+
+    func test_agy_adapter_treats_notification_as_needs_input() throws {
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data(#"""
+            {
+              "hook_event_name": "Notification",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "message": "Approve deploy to production?"
+            }
+            """#.utf8),
+            environment: agyAdapterEnvironment()
+        )
+
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Approve deploy to production?")
+    }
+
+    func test_agy_adapter_prefers_explicit_event_positional_over_payload_field() throws {
+        // The installed shell hook passes the event name as the positional
+        // after `--adapter=agy`. When both arrive the explicit positional
+        // wins so we are not at the mercy of which JSON key Antigravity
+        // happens to use.
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data(#"""
+            {
+              "hook_event_name": "something-unknown",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "fullyIdle": true
+            }
+            """#.utf8),
+            defaultEventName: "stop",
+            environment: agyAdapterEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.map(\.state), [.idle])
+    }
+
+    // MARK: - Agy canonical re-emitter — added event coverage
+
+    func test_agy_reemitter_emits_idle_only_when_fully_idle() throws {
+        let idlePayload = Data(#"""
+        {
+          "hook_event_name": "Stop",
+          "conversationId": "CBEC30AA-F6C2-4B1C-AA7F-F6569C2E0C1D",
+          "fullyIdle": true
+        }
+        """#.utf8)
+        let pendingPayload = Data(#"""
+        {
+          "hook_event_name": "Stop",
+          "conversationId": "CBEC30AA-F6C2-4B1C-AA7F-F6569C2E0C1D",
+          "fullyIdle": false
+        }
+        """#.utf8)
+
+        let idleEmissions = AgyCanonicalReEmitter.reEmissions(forHookPayload: idlePayload)
+        let pendingEmissions = AgyCanonicalReEmitter.reEmissions(forHookPayload: pendingPayload)
+
+        XCTAssertEqual(idleEmissions.count, 1)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(idleEmissions.first).utf8)) as? [String: Any])
+        XCTAssertEqual(object["event"] as? String, "agent.idle")
+
+        XCTAssertTrue(pendingEmissions.isEmpty, "Stop with fullyIdle:false must not mint a canonical idle event")
+    }
+
+    func test_agy_reemitter_emits_session_end_envelope() throws {
+        let payload = Data(#"""
+        {
+          "hook_event_name": "SessionEnd",
+          "conversationId": "CBEC30AA-F6C2-4B1C-AA7F-F6569C2E0C1D"
+        }
+        """#.utf8)
+
+        let emissions = AgyCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(envelope.utf8)) as? [String: Any])
+        XCTAssertEqual(object["event"] as? String, "session.end")
+    }
+
+    func test_agy_reemitter_emits_needs_input_from_notification_with_text() throws {
+        let payload = Data(#"""
+        {
+          "hook_event_name": "Notification",
+          "conversationId": "CBEC30AA-F6C2-4B1C-AA7F-F6569C2E0C1D",
+          "message": "Approve deploy to production?"
+        }
+        """#.utf8)
+
+        let emissions = AgyCanonicalReEmitter.reEmissions(forHookPayload: payload)
+        let envelope = try XCTUnwrap(emissions.first)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(envelope.utf8)) as? [String: Any])
+        XCTAssertEqual(object["event"] as? String, "agent.needs-input")
+    }
+
+    // MARK: - AgyCanonicalReEmitter
+
+    func test_agy_canonical_reemitter_emits_session_start_from_preinvocation() throws {
+        let payload = Data("""
+        {
+          "hook_event_name": "PreInvocation",
+          "conversationId": "CBEC30AA-F6C2-4B1C-AA7F-F6569C2E0C1D",
+          "workspacePaths": ["/tmp/project"]
+        }
+        """.utf8)
+
+        let emissions = AgyCanonicalReEmitter.reEmissions(forHookPayload: payload)
+
+        let envelope = try XCTUnwrap(emissions.first)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(envelope.utf8)) as? [String: Any])
+        XCTAssertEqual(object["event"] as? String, "session.start")
+        let session = try XCTUnwrap(object["session"] as? [String: Any])
+        XCTAssertEqual(session["id"] as? String, "CBEC30AA-F6C2-4B1C-AA7F-F6569C2E0C1D")
+        let context = try XCTUnwrap(object["context"] as? [String: Any])
+        XCTAssertEqual(context["workingDirectory"] as? String, "/tmp/project")
+    }
+
+    // MARK: - Agy adapter
+
+    func test_agy_adapter_maps_preinvocation_to_running_with_official_fields() throws {
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data("""
+            {
+              "hook_event_name": "PreInvocation",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "workspacePaths": ["/tmp/project"],
+              "transcriptPath": "/tmp/project/transcript.jsonl"
+            }
+            """.utf8),
+            environment: agyAdapterEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].pid, 4242)
+        XCTAssertEqual(payloads[0].pidEvent, .attach)
+        XCTAssertEqual(payloads[1].state, .running)
+        XCTAssertEqual(payloads[1].sessionID, "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d")
+        XCTAssertEqual(payloads[1].agentWorkingDirectory, "/tmp/project")
+        XCTAssertEqual(payloads[1].agentTranscriptPath, "/tmp/project/transcript.jsonl")
+    }
+
+    func test_agy_adapter_maps_stop_fully_idle_to_idle_without_clearing_pid() throws {
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data("""
+            {
+              "hook_event_name": "Stop",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "workspacePaths": ["/tmp/project"],
+              "fullyIdle": true
+            }
+            """.utf8),
+            environment: agyAdapterEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.map(\.state), [.idle])
+        XCTAssertTrue(payloads.allSatisfy { $0.pidEvent == nil })
+        XCTAssertEqual(payloads.first?.sessionID, "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d")
+    }
+
+    func test_agy_adapter_maps_ask_tool_to_needs_input() throws {
+        let payloads = try AgentEventBridge.agyAdapter(
+            data: Data("""
+            {
+              "hook_event_name": "PreToolUse",
+              "conversationId": "cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+              "toolCall": {
+                "name": "ask_question",
+                "args": { "question": "Choose a deploy target?" }
+              }
+            }
+            """.utf8),
+            environment: agyAdapterEnvironment()
+        )
+
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Choose a deploy target?")
     }
 
     func test_grok_hooks_installer_uninstall_removes_new_layout() throws {
@@ -8003,6 +8337,18 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
+    private func agyAdapterEnvironment(pid: String? = nil) -> [String: String] {
+        var environment = [
+            "ZENTTY_WORKLANE_ID": "worklane-main",
+            "ZENTTY_PANE_ID": "worklane-main-shell",
+            "ZENTTY_PANE_TOKEN": "pane-token",
+        ]
+        if let pid {
+            environment["ZENTTY_AGY_PID"] = pid
+        }
+        return environment
+    }
+
     private func runShellIntegration(
         shell: ShellIntegrationTestShell,
         command: String,
@@ -8095,6 +8441,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("opencode", "opencode"),
             ("amp", "amp"),
             ("pi", "pi"),
+            ("agy", "agy"),
         ]
     }
 

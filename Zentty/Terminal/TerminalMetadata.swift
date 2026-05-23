@@ -1299,10 +1299,12 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "pi"
         case .grok:
             return "grok"
+        case .agy:
+            return "agy"
         case .custom(let name):
-            return name
+            return "custom:\(name)"
         case nil:
-            return "unknown"
+            return "none"
         }
     }
 

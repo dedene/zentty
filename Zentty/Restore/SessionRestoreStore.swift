@@ -453,7 +453,7 @@ enum SessionRestoreDraftExporter {
         switch tool {
         case .amp, .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
             return .sessionID
-        case .gemini, .pi, .grok:
+        case .gemini, .pi, .grok, .agy:
             return .workingDirectory
         case .cursor, .zentty, .custom:
             return .unsupported
@@ -600,6 +600,18 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "grok --resume"
+        case .agy:
+            // A placeholder id means we never received a real
+            // `conversation_id` from the agy hook stream; fall back to
+            // `--continue` so the user resumes their most recent session
+            // rather than seeing `agy --conversation <fake-uuid>` fail.
+            if draft.sessionID.isEmpty || draft.sessionID.hasPrefix("zentty-placeholder-") {
+                return "agy --continue"
+            }
+            if let sessionID = validatedAgySessionID(from: draft.sessionID) {
+                return "agy --conversation \(sessionID)"
+            }
+            return nil
         default:
             return nil
         }
@@ -675,6 +687,21 @@ enum AgentResumeCommandBuilder {
 
     private static func validatedAmpThreadID(from sessionID: String) -> String? {
         let pattern = #"^T-[A-Za-z0-9_-]+$"#
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
+    private static func validatedAgySessionID(from sessionID: String) -> String? {
+        // Antigravity session IDs are typical alphanumeric identifiers.
+        // The `zentty-placeholder-` prefix is what the launch bootstrap
+        // injects before the first real `conversation_id` arrives; it
+        // must never reach `agy --conversation`.
+        if sessionID.hasPrefix("zentty-placeholder-") {
+            return nil
+        }
+        let pattern = "^[A-Za-z0-9_-]+$"
         guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
             return nil
         }

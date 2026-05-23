@@ -114,8 +114,10 @@
 		3E0B2912AD7C4840949924C4 /* SidebarWorklaneRowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCFF1E41DE71CCD9D4E0AAA /* SidebarWorklaneRowChrome.swift */; };
 		3E4BB7BE063C68E84A15EBB2 /* ServerRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC23031701DC5B12A1848382 /* ServerRegistryTests.swift */; };
 		3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F299D46F21F8BC295D1F0B3 /* PaneContainerView.swift */; };
+		4009C50481B0344CD379E28C /* AgyCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8E072C80D640FFB3D8E022 /* AgyCanonicalReEmitter.swift */; };
 		4096366D6644DB3C2025914B /* PaneDragGhostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394D70AFA24A9257F4F58D0 /* PaneDragGhostView.swift */; };
 		41AB115C7B413B073FA53BD0 /* TaskManagerWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA67AC0576349EF49539363 /* TaskManagerWindowControllerTests.swift */; };
+		431F20BE5D3B0B049221ADCC /* AgyHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */; };
 		431F9BE9DC59C0FAFDA7FE74 /* ServerIPCCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783A3BBA14A7D266EEB43B31 /* ServerIPCCommandTests.swift */; };
 		436EBF7575C96541F36511A3 /* PaneDragSplitOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2BC275D0F7E90ACD593C6 /* PaneDragSplitOverlayView.swift */; };
 		43F75CCFD2060C335CEAEC51 /* GeneralSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88E1E64FB65E4B800852D7 /* GeneralSettingsSectionViewController.swift */; };
@@ -197,6 +199,7 @@
 		727FCBEA281EEB8A67E1D89D /* ThirdPartyLicenseCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08406A303FAF5F5CC9447272 /* ThirdPartyLicenseCatalog.swift */; };
 		731E192A944AF30FB531F314 /* PaneSearchHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48BB45FB1B15B96A8C195343 /* PaneSearchHUDView.swift */; };
 		738453B16B8499ADFB4722CB /* WindowChromeRowLayoutPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */; };
+		73DF3F48A4FDC64C88FCBE2E /* AgyHooksInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2EE42F8FEB23D0CF10CA377 /* AgyHooksInstallerTests.swift */; };
 		7416113E7130419074A5842C /* ClosedPaneRestoreHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C08D48B1B22F2F7C54A6BF /* ClosedPaneRestoreHelpers.swift */; };
 		74A2DE5A0880B028476E3D8D /* PaneStripMotionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD7AA3458BBF1FAEFFC158A /* PaneStripMotionControllerTests.swift */; };
 		74DD3B91C1EDDB0B50E27094 /* WorklaneStoreTeamAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF869D6D306AFE18589C8CF /* WorklaneStoreTeamAnchorTests.swift */; };
@@ -281,6 +284,7 @@
 		A313F3492C53D5CEF8A025F5 /* PaneFocusHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FE6D2FE3D589C3CEF772F6 /* PaneFocusHistoryTests.swift */; };
 		A31E0FD93C75D6B6059E3809 /* SidebarMotionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162C940D9CBDBBB47552AA86 /* SidebarMotionCoordinator.swift */; };
 		A3B9E7C21732F8FBD1AFF6B4 /* WorklaneStore+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5362E171051471B00419EB85 /* WorklaneStore+Restore.swift */; };
+		A4A53654BC7A3139C0256836 /* AgyCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8E072C80D640FFB3D8E022 /* AgyCanonicalReEmitter.swift */; };
 		A4F9BA4052B89971F4897D09 /* ShortcutsSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */; };
 		A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7017B142217423B1126B8E2A /* WindowChromeRowLayoutPlanner.swift */; };
 		A543B6ABD356776262A865EB /* LibghosttySurfaceKeyEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7905A1748912E4A0FDCC9A9B /* LibghosttySurfaceKeyEventTests.swift */; };
@@ -337,6 +341,7 @@
 		C749B84F3DFA56E1241551D1 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */; };
 		C7E03A7F4908AC8B2713A19B /* SidebarVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163D5C0FE862CC71E8B354E2 /* SidebarVisibilityController.swift */; };
 		C81F06F705D6F4A67A3DAE8F /* WorklaneSidebarSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */; };
+		C8AC887AB1E462D59D6619FF /* AgyHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */; };
 		C9042A63C4AF443C0A4C8A55 /* NotificationPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6480DAD70FC01A0FD0A8908 /* NotificationPopoverView.swift */; };
 		C989D4E5646E700C8802CBD9 /* PassiveServerDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7109E246F70CEBB6CD34E13F /* PassiveServerDetection.swift */; };
 		C9B81248B5AA76BE4CD7129F /* ServerRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F7BA09CEEB123D53CB10C4 /* ServerRegistry.swift */; };
@@ -720,6 +725,7 @@
 		916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowLayout.swift; sourceTree = "<group>"; };
 		91986D1792E0A3DD28D3A244 /* SidebarWorklaneRowDebugging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowDebugging.swift; sourceTree = "<group>"; };
 		932855A80F09B46E2143378A /* WorklaneStoreShellExitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreShellExitTests.swift; sourceTree = "<group>"; };
+		93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgyHooksInstaller.swift; sourceTree = "<group>"; };
 		93E9CA26FCDC9E619509598B /* GenericProgressReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenericProgressReducer.swift; sourceTree = "<group>"; };
 		94042661C850159F74FC9F69 /* PaneStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripViewTests.swift; sourceTree = "<group>"; };
 		95CBABCE53556478CD451A01 /* AppKitTestDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppKitTestDisplayTests.swift; sourceTree = "<group>"; };
@@ -743,6 +749,7 @@
 		A097B2335BF9F2F0D23A9148 /* TaskRunnerDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRunnerDiscoveryService.swift; sourceTree = "<group>"; };
 		A1762B3BE208D5BC1F3BDA20 /* AgentIPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIPCProtocol.swift; sourceTree = "<group>"; };
 		A23FA3A9E846FAAD01B1BB06 /* DragReorderHapticClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragReorderHapticClassifierTests.swift; sourceTree = "<group>"; };
+		A2EE42F8FEB23D0CF10CA377 /* AgyHooksInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgyHooksInstallerTests.swift; sourceTree = "<group>"; };
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A3F1AF8D07B9B05151774B4F /* WorklanePeekKeyMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekKeyMonitorTests.swift; sourceTree = "<group>"; };
 		A414B0A7FAAB8464A6432C77 /* SidebarWorklaneReorderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneReorderModel.swift; sourceTree = "<group>"; };
@@ -763,6 +770,7 @@
 		AC4C1F56E8C3A787C0F4EAA8 /* WorklaneStore+DragDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneStore+DragDrop.swift"; sourceTree = "<group>"; };
 		ACD2AD71B143BD29FDAA48FF /* TmuxCompatIPCHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatIPCHandler.swift; sourceTree = "<group>"; };
 		AD7E300A778738FA99DF6B1B /* TaskRunnerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRunnerModels.swift; sourceTree = "<group>"; };
+		AE8E072C80D640FFB3D8E022 /* AgyCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgyCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		AF38754F46DCDAAF2D32B847 /* PaneLayoutSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSizing.swift; sourceTree = "<group>"; };
 		AF50EC996DD0097909E99875 /* AgentLaunchBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLaunchBootstrap.swift; sourceTree = "<group>"; };
 		B0057216F25AA9654E5BDB87 /* ErrorReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporting.swift; sourceTree = "<group>"; };
@@ -1228,6 +1236,8 @@
 				D1DB0F3E90C5CCF115A2E27B /* AgentStatusCommand.swift */,
 				10C70E68528914C7BDC3B755 /* AgentStatusHelper.swift */,
 				B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */,
+				AE8E072C80D640FFB3D8E022 /* AgyCanonicalReEmitter.swift */,
+				93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */,
 				E455660542BED764C4FCF49E /* AmpPluginInstaller.swift */,
 				4A6979D10B68F312A3007DEC /* AmpResumeArgumentSanitizer.swift */,
 				C344F4EE24498B605D2794B3 /* ClaudeHookSessionStore.swift */,
@@ -1543,6 +1553,7 @@
 				38C15EEBB2B6060FDC3C8A05 /* AgentIPCDiscoveryTests.swift */,
 				C44EC40C277824843955668D /* AgentResumeCommandBuilderTests.swift */,
 				003771A9512A8005B0DCF7DE /* AgentStatusSupportTests.swift */,
+				A2EE42F8FEB23D0CF10CA377 /* AgyHooksInstallerTests.swift */,
 				3F4FEACEEB990E8008700659 /* AppConfigStoreTests.swift */,
 				2DD8525BB06D45D74C9E00C0 /* AppearanceSettingsSectionViewControllerTests.swift */,
 				48846247312C42A929369E20 /* AppKitTestCase.swift */,
@@ -1883,7 +1894,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
+			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/agy/agy\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
 		};
 		C7055FCE2E5119172F74E931 /* Verify GhosttyKit */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1916,6 +1927,7 @@
 				701C39983F9037EC0FCFFEE4 /* AgentIPCDiscoveryTests.swift in Sources */,
 				28E673F10881B25E277F61A6 /* AgentResumeCommandBuilderTests.swift in Sources */,
 				55C1CC506BD2F0613AD94835 /* AgentStatusSupportTests.swift in Sources */,
+				73DF3F48A4FDC64C88FCBE2E /* AgyHooksInstallerTests.swift in Sources */,
 				1AC994B38934FF453310224A /* AppConfigStoreTests.swift in Sources */,
 				6EE8E68B18266DDCC31CD766 /* AppKitTestCase.swift in Sources */,
 				0D118FCB36F18F809879411C /* AppKitTestDisplayTests.swift in Sources */,
@@ -2063,6 +2075,8 @@
 				6BDA3DD6058C31E9C1635868 /* AgentStatusCommand.swift in Sources */,
 				7564C7F11282A9CD3B3D0CC0 /* AgentStatusHelper.swift in Sources */,
 				04F27F3F3AE18FF0B4F78B44 /* AgentStatusPayload.swift in Sources */,
+				4009C50481B0344CD379E28C /* AgyCanonicalReEmitter.swift in Sources */,
+				431F20BE5D3B0B049221ADCC /* AgyHooksInstaller.swift in Sources */,
 				BD7EA4AEE8EB280F5A855B2C /* AmpPluginInstaller.swift in Sources */,
 				2C6C6FCC081720E010745882 /* AmpResumeArgumentSanitizer.swift in Sources */,
 				166BEE11322EC8809FACB201 /* AppCanvasView.swift in Sources */,
@@ -2352,6 +2366,8 @@
 				2646F473E8AB7B0F855F6857 /* AgentIPCClient.swift in Sources */,
 				880EF4CC0E61299FC43869BC /* AgentIPCProtocol.swift in Sources */,
 				F5A26C1A6A89ED60FFF6F341 /* AgentToolLauncher.swift in Sources */,
+				A4A53654BC7A3139C0256836 /* AgyCanonicalReEmitter.swift in Sources */,
+				C8AC887AB1E462D59D6619FF /* AgyHooksInstaller.swift in Sources */,
 				BF98C820ECF82C8A5810259F /* CursorHooksInstaller.swift in Sources */,
 				DB99D15DBBA9E04854EE979F /* DroidHooksInstaller.swift in Sources */,
 				2835550C9EC2274B56BB12EC /* GrokCanonicalReEmitter.swift in Sources */,

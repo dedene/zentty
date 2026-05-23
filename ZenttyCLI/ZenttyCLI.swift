@@ -26,6 +26,7 @@ struct ZenttyCLI: ParsableCommand {
             NotifyCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
+            AgyHookCommand.self,
             IPCCommand.self,
             LaunchCommand.self,
             InstallCommand.self,
@@ -41,6 +42,7 @@ private enum IntegrationTarget: String, CaseIterable {
     case cursorHooks = "cursor-hooks"
     case kimiHooks = "kimi-hooks"
     case grokHooks = "grok-hooks"
+    case agyHooks = "agy-hooks"
 
     static func resolve(_ raw: String) throws -> IntegrationTarget {
         guard let target = IntegrationTarget(rawValue: raw) else {
@@ -64,7 +66,11 @@ private func resolveInvokingCLIPath() -> String {
     guard result == 0 else {
         return CommandLine.arguments[0]
     }
-    return URL(fileURLWithPath: String(cString: buffer))
+    let executablePath = String(
+        decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
+        as: UTF8.self
+    )
+    return URL(fileURLWithPath: executablePath)
         .resolvingSymlinksInPath()
         .standardizedFileURL
         .path
@@ -99,6 +105,12 @@ struct InstallCommand: ParsableCommand {
         case .grokHooks:
             try GrokHooksInstaller.install(cliPath: resolveInvokingCLIPath())
             print("Installed Zentty Grok hooks (JSON + ~/.grok/hooks/) under \(GrokHooksInstaller.defaultUserHooksURL().path).")
+        case .agyHooks:
+            let cliPath = resolveInvokingCLIPath()
+            let hooksFileURL = AgyHooksInstaller.defaultUserHooksFileURL()
+            try AgyHooksInstaller.install(hooksFileURL: hooksFileURL, cliPath: cliPath)
+            let eventList = AgyHooksInstaller.events.map(\.agentEvent).joined(separator: ", ")
+            print("Installed Zentty Antigravity hooks at \(hooksFileURL.path) (events: \(eventList)).")
         }
     }
 }
@@ -126,6 +138,10 @@ struct UninstallCommand: ParsableCommand {
         case .grokHooks:
             try GrokHooksInstaller.uninstall()
             print("Removed Zentty Grok hook entries (JSON + directory) from \(GrokHooksInstaller.defaultUserHooksURL().path).")
+        case .agyHooks:
+            let hooksFileURL = AgyHooksInstaller.defaultUserHooksFileURL()
+            try AgyHooksInstaller.uninstall(hooksFileURL: hooksFileURL)
+            print("Removed Zentty Antigravity hook entries from \(hooksFileURL.path).")
         }
     }
 }
@@ -1012,6 +1028,160 @@ struct GeminiHookCommand: ParsableCommand {
     }
 }
 
+struct AgyHookCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "agy-hook",
+        abstract: "Forward an Antigravity hook payload to the running Zentty app.",
+        shouldDisplay: false
+    )
+
+    /// Hook event name as installed by `AgyHooksInstaller` (e.g.
+    /// `session-start`, `stop`, `pre-tool-use`). Optional only so legacy
+    /// callers that pre-date the event-positional install layout can still
+    /// pass the payload as the sole argument; new callers always pass the
+    /// event first.
+    @Argument(help: "Antigravity hook event name (e.g. session-start, stop, pre-tool-use). May be omitted when the legacy single-argument payload form is used.")
+    var eventOrPayload: String?
+
+    @Argument(help: "Raw JSON payload, when the legacy two-argument form is used.")
+    var legacyPayload: String?
+
+    mutating func run() throws {
+        if ProcessInfo.processInfo.environment["ZENTTY_AGY_HOOKS_DISABLED"] == "1" {
+            print("{}")
+            return
+        }
+
+        // Register the stdout response BEFORE parseInvocation() so that a
+        // thrown ValidationError still leaves Antigravity with a parseable
+        // `{}` instead of empty stdout + a non-zero exit code. The closure
+        // captures the mutable holders so it reflects the latest values
+        // even if a later error short-circuits normal completion.
+        var resolvedEvent: String?
+        var resolvedPayload = ""
+        defer {
+            print(Self.responsePayload(forEvent: resolvedEvent, payload: resolvedPayload))
+        }
+
+        let (event, payload) = try parseInvocation()
+        resolvedEvent = event
+        resolvedPayload = payload
+
+        let environment = ProcessInfo.processInfo.environment
+        guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"],
+              !socketPath.isEmpty,
+              IPCCommand.hasRequiredRoutingEnvironment(environment) else {
+            return
+        }
+
+        // Forward both `--adapter=agy` and (when present) the event name as
+        // a positional, matching the codex/copilot wire shape consumed by
+        // `AgentEventBridge`.
+        var arguments = ["--adapter=agy"]
+        if let event {
+            arguments.append(event)
+        }
+
+        let request = AgentIPCRequest(
+            kind: .ipc,
+            arguments: arguments,
+            standardInput: payload,
+            environment: IPCCommand.forwardedEnvironment(from: environment),
+            expectsResponse: false,
+            subcommand: "agent-event"
+        )
+
+        do {
+            _ = try AgentIPCClient.send(request: request, socketPath: socketPath)
+            IPCCommand.fanOutCanonicalReEmissions(
+                primaryArguments: arguments,
+                stdinPayload: payload,
+                environment: environment,
+                socketPath: socketPath,
+                subcommand: "agent-event"
+            )
+        } catch {
+            guard environment["ZENTTY_CLI_DEBUG"] == "1" else {
+                return
+            }
+            FileHandle.standardError.write(Data(("zentty agy-hook send failed: \(error.localizedDescription)\n").utf8))
+        }
+    }
+
+    /// Splits the raw positionals into `(event, payload)`. Three shapes are
+    /// supported, in order of preference:
+    ///   1. `agy-hook <event>` with payload on stdin (the install form).
+    ///   2. `agy-hook <event> <payload>` (test/legacy with both args).
+    ///   3. `agy-hook <payload>` (oldest legacy: payload only, no event).
+    private func parseInvocation() throws -> (event: String?, payload: String) {
+        let stdinPayload = readStandardInputPayload()
+
+        if let legacyPayload {
+            // Two positionals were passed → first is event, second is payload.
+            return (eventOrPayload, legacyPayload)
+        }
+
+        if let first = eventOrPayload {
+            if Self.looksLikeJSON(first) {
+                // Single positional that parses as JSON → it's the payload,
+                // no event was supplied.
+                return (nil, first)
+            }
+            // Single positional that doesn't look like JSON → it's the event;
+            // payload must be on stdin.
+            guard let stdinPayload else {
+                throw ValidationError("Missing Antigravity hook payload on stdin.")
+            }
+            return (first, stdinPayload)
+        }
+
+        // No positionals → payload must be on stdin.
+        guard let stdinPayload else {
+            throw ValidationError("Missing Antigravity hook payload.")
+        }
+        return (nil, stdinPayload)
+    }
+
+    private static func looksLikeJSON(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("{") || trimmed.hasPrefix("[")
+    }
+
+    /// Chooses the JSON response Antigravity expects on stdout for an event.
+    ///
+    /// - `pre-tool-use` returns `{"decision":"allow"}` so Antigravity proceeds
+    ///   with the tool call (the app would block via a separate decision
+    ///   pathway if a user needed to gate the call).
+    /// - `stop` returns `{"decision":""}` to confirm the agent may stop.
+    /// - Everything else returns `{}` (no-op acknowledgement).
+    ///
+    /// Both the explicit event positional and a `hook_event_name` field in
+    /// the payload are considered; the explicit value wins.
+    static func responsePayload(forEvent event: String?, payload: String) -> String {
+        let inferredFromPayload: String? = {
+            guard let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return JSONKeyAccess.firstString(in: object, keys: ["hook_event_name", "hookEventName", "event", "type"])
+        }()
+
+        let normalized = (event ?? inferredFromPayload ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+
+        switch normalized {
+        case "stop":
+            return #"{"decision":""}"#
+        case "pre-tool-use", "pretooluse":
+            return #"{"decision":"allow"}"#
+        default:
+            return "{}"
+        }
+    }
+}
+
 struct IPCCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ipc",
@@ -1034,6 +1204,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_CURSOR_PID",
         "ZENTTY_DROID_PID",
         "ZENTTY_KIMI_PID",
+        "ZENTTY_AGY_PID",
     ]
 
     @Argument(help: "Supported values: agent-event, agent-signal, agent-status")
@@ -1099,7 +1270,7 @@ struct IPCCommand: ParsableCommand {
         )
     }
 
-    private static func fanOutCanonicalReEmissions(
+    static func fanOutCanonicalReEmissions(
         primaryArguments: [String],
         stdinPayload: String?,
         environment: [String: String],
@@ -1176,7 +1347,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi, grok")
+    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi, grok, agy")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")
@@ -1297,7 +1468,10 @@ private struct ZenttyVersionMetadata {
             return URL(fileURLWithPath: CommandLine.arguments[0])
         }
 
-        let executablePath = String(cString: buffer)
+        let executablePath = String(
+            decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
         return URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().standardizedFileURL
     }
 }

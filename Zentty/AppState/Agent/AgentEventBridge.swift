@@ -74,6 +74,9 @@ enum AgentEventBridge {
                 payloads = try kimiAdapter(data: inputData, environment: environment)
             case "grok":
                 payloads = try grokAdapter(data: inputData, environment: environment)
+            case "agy":
+                let eventName = positionalArgs.first
+                payloads = try agyAdapter(data: inputData, defaultEventName: eventName, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
@@ -87,7 +90,7 @@ enum AgentEventBridge {
             return EXIT_SUCCESS
         } catch {
             agentEventBridgeLogger.error("run adapter=\(adapterLabel, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
-            if adapter == "claude" || adapter == "grok" {
+            if adapter == "claude" || adapter == "grok" || adapter == "agy" {
                 return EXIT_SUCCESS
             }
             writeError(error)

@@ -897,6 +897,8 @@ enum PanePresentationNormalizer {
             return ["pi", "π"].contains(normalized)
         case .grok:
             return ["grok", "grok build", "grok-build"].contains(normalized)
+        case .agy:
+            return ["agy", "antigravity"].contains(normalized)
         case .custom(let name):
             return normalized == name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }

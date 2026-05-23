@@ -226,6 +226,57 @@ final class SessionRestoreStoreTests: XCTestCase {
         XCTAssertEqual(decision.envelope.restoreDraftWindows, liveEnvelope.restoreDraftWindows)
     }
 
+    func test_draft_exporter_allows_agy_continue_restore_from_working_directory_without_session_id() throws {
+        let paneID = PaneID("pane-agy")
+        let pane = PaneState(
+            id: paneID,
+            title: "Antigravity",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+        )
+        let status = PaneAgentStatus(
+            tool: .agy,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: Date(),
+            trackedPID: 4242,
+            workingDirectory: "/tmp/project",
+            sessionID: nil
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("column-main"),
+                        panes: [pane],
+                        width: 800,
+                        focusedPaneID: paneID
+                    )
+                ],
+                focusedColumnID: PaneColumnID("column-main")
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(agentStatus: status)
+            ]
+        )
+
+        let draftWindow = try XCTUnwrap(
+            SessionRestoreDraftExporter.makeWindowDrafts(
+                windowID: WindowID("window-main"),
+                worklanes: [worklane],
+                isProcessAlive: { $0 == 4242 }
+            )
+        )
+        let draft = try XCTUnwrap(draftWindow.paneDrafts.first)
+
+        XCTAssertEqual(draft.toolName, "Antigravity")
+        XCTAssertEqual(draft.sessionID, "")
+        XCTAssertEqual(draft.workingDirectory, "/tmp/project")
+        XCTAssertEqual(AgentResumeCommandBuilder.command(for: draft), "agy --continue")
+    }
+
     func test_prepare_for_launch_throws_when_snapshot_is_corrupt() throws {
         let snapshotURL = directoryURL.appendingPathComponent("restore-snapshot.json")
         try Data("not valid json".utf8).write(to: snapshotURL, options: .atomic)

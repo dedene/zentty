@@ -524,7 +524,7 @@ final class AgentWrapperTests: XCTestCase {
     }
 
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
-        for tool in ["amp", "claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "grok", "kimi", "kimi-cli", "opencode", "pi"] {
+        for tool in ["amp", "claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "grok", "kimi", "kimi-cli", "opencode", "pi", "agy"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
             try harness.installRealBinary(
                 named: tool,
@@ -592,6 +592,71 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
         XCTAssertEqual(try harness.readArgumentCalls(named: "cli-args.log"), [["launch", "codex", "hello"]])
         XCTAssertEqual(try harness.readLines(named: "cli-env.log"), [harness.cliPath])
+        XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty)
+    }
+
+    func test_tool_wrapper_prefers_bundled_cli_next_to_wrapper_over_stale_environment_cli() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["agy", "zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "agy",
+            script: """
+            #!/bin/bash
+            set -euo pipefail
+            printf 'unexpected\n' >> "$REAL_ARGS_LOG"
+            """
+        )
+        try harness.installCliStub()
+
+        let bundledCLI = harness.wrapperBinURL
+            .appendingPathComponent("shared", isDirectory: true)
+            .appendingPathComponent("zentty", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: bundledCLI.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        #!/bin/bash
+        set -euo pipefail
+        {
+          printf '%s\n' '--call--'
+          for arg in "$@"; do
+            printf '%s\n' "$arg"
+          done
+        } >> "$BUNDLED_CLI_ARGS_LOG"
+        printf '%s\n' "${ZENTTY_CLI_BIN:-}" >> "$BUNDLED_CLI_ENV_LOG"
+        """.write(to: bundledCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledCLI.path)
+
+        let staleCLI = harness.logDirectoryURL.appendingPathComponent("stale-zentty", isDirectory: false)
+        try """
+        #!/bin/bash
+        set -euo pipefail
+        printf 'stale\n' >> "$CLI_ARGS_LOG"
+        """.write(to: staleCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staleCLI.path)
+
+        let result = try harness.run(
+            tool: "agy",
+            arguments: ["hello"],
+            extraEnvironment: [
+                "ZENTTY_CLI_BIN": staleCLI.path,
+                "ZENTTY_INSTANCE_SOCKET": harness.socketPath,
+                "ZENTTY_PANE_TOKEN": harness.paneToken,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+                "BUNDLED_CLI_ARGS_LOG": harness.logDirectoryURL
+                    .appendingPathComponent("bundled-cli-args.log", isDirectory: false)
+                    .path,
+                "BUNDLED_CLI_ENV_LOG": harness.logDirectoryURL
+                    .appendingPathComponent("bundled-cli-env.log", isDirectory: false)
+                    .path,
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readArgumentCalls(named: "bundled-cli-args.log"), [["launch", "agy", "hello"]])
+        XCTAssertEqual(try harness.readLines(named: "bundled-cli-env.log"), [bundledCLI.path])
+        XCTAssertTrue(try harness.readLines(named: "cli-args.log").isEmpty)
         XCTAssertTrue(try harness.readLines(named: "real-args.log").isEmpty)
     }
 
@@ -864,6 +929,74 @@ final class AgentWrapperTests: XCTestCase {
             throw XCTSkip("Built zentty CLI not found at \(cliURL.path)")
         }
         return cliURL.path
+    }
+
+    func test_real_cli_agy_hook_forwards_payload_to_agy_adapter_and_returns_empty_json() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"PreInvocation","conversationId":"session-agy"}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["agy-hook", payload]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        let stdout = Pipe()
+        process.standardOutput = stdout
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stdoutString = String(
+            data: stdout.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdoutString.trimmingCharacters(in: .whitespacesAndNewlines), "{}")
+        XCTAssertEqual(request.kind, .ipc)
+        XCTAssertEqual(request.subcommand, "agent-event")
+        XCTAssertEqual(request.arguments, ["--adapter=agy"])
+        XCTAssertEqual(request.standardInput, payload)
+    }
+
+    func test_real_cli_agy_hook_returns_non_continuing_stop_response() throws {
+        let server = try IPCRequestCaptureServer()
+        defer { server.invalidate() }
+
+        let payload = #"{"hook_event_name":"Stop","conversationId":"session-agy","fullyIdle":true}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["agy-hook", payload]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = "pane-token-under-test"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        process.environment = environment
+        process.standardError = Pipe()
+        let stdout = Pipe()
+        process.standardOutput = stdout
+
+        try process.run()
+        _ = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stdoutString = String(
+            data: stdout.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdoutString.trimmingCharacters(in: .whitespacesAndNewlines), #"{"decision":""}"#)
     }
 }
 
@@ -1278,7 +1411,7 @@ private final class WrapperHarness {
     }
 
     private var publicWrapperDirectories: [URL] {
-        ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"]
+        ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy"]
             .map { wrapperBinURL.appendingPathComponent($0, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -1289,6 +1422,8 @@ private final class WrapperHarness {
 
     private static func scriptRelativePath(for scriptName: String) -> String {
         switch scriptName {
+        case "amp":
+            return "amp/amp"
         case "claude":
             return "claude/claude"
         case "codex":
@@ -1301,6 +1436,8 @@ private final class WrapperHarness {
             return "droid/droid"
         case "gemini":
             return "gemini/gemini"
+        case "grok":
+            return "grok/grok"
         case "kimi":
             return "kimi/kimi"
         case "kimi-cli":
@@ -1309,6 +1446,8 @@ private final class WrapperHarness {
             return "opencode/opencode"
         case "pi":
             return "pi/pi"
+        case "agy":
+            return "agy/agy"
         case "zentty-agent-wrapper":
             return "shared/zentty-agent-wrapper"
         default:

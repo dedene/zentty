@@ -2,7 +2,13 @@
 
 set -euo pipefail
 
+trace() {
+    [[ "${ZENTTY_AGENT_WRAPPER_TRACE:-}" == "1" ]] || return 0
+    printf '[zentty-wrapper-trace] %s\n' "$*" >&2
+}
+
 tool_basename="${ZENTTY_AGENT_TOOL:-$(basename "$0")}"
+trace "tool=${tool_basename} self=$0 args=$*"
 
 kimi_passthrough_subcommand() {
     case "${1:-}" in
@@ -71,13 +77,33 @@ find_real_binary() {
 }
 
 zentty_cli_bin() {
+    local self_dir wrapper_root bundled_cli
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    wrapper_root="$(cd "${self_dir}/.." && pwd)"
+    bundled_cli="${wrapper_root}/shared/zentty"
+    trace "cli lookup: bundled=${bundled_cli} exists=$([[ -x "$bundled_cli" ]] && echo yes || echo no)"
+
+    if [[ -x "$bundled_cli" ]]; then
+        trace "cli resolved: bundled -> ${bundled_cli}"
+        printf '%s\n' "$bundled_cli"
+        return 0
+    fi
+
+    trace "cli lookup: ZENTTY_CLI_BIN=${ZENTTY_CLI_BIN:-UNSET} exists=$([[ -n "${ZENTTY_CLI_BIN:-}" && -x "${ZENTTY_CLI_BIN:-}" ]] && echo yes || echo no)"
     if [[ -n "${ZENTTY_CLI_BIN:-}" && -x "${ZENTTY_CLI_BIN}" ]]; then
+        trace "cli resolved: env ZENTTY_CLI_BIN -> ${ZENTTY_CLI_BIN}"
         printf '%s\n' "$ZENTTY_CLI_BIN"
         return 0
     fi
 
-    command -v zentty >/dev/null 2>&1 || return 1
-    command -v zentty
+    local path_zentty
+    if path_zentty="$(command -v zentty 2>/dev/null)"; then
+        trace "cli resolved: PATH -> ${path_zentty}"
+        printf '%s\n' "$path_zentty"
+        return 0
+    fi
+    trace "cli lookup: NOT FOUND (bundled missing, ZENTTY_CLI_BIN missing/unexec, no zentty on PATH)"
+    return 1
 }
 
 if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
@@ -87,8 +113,10 @@ if cli_bin="$(zentty_cli_bin 2>/dev/null)"; then
             echo "Error: $tool_basename not found in PATH" >&2
             exit 127
         }
+        trace "passthrough: tool-specific passthrough triggered; exec real binary ${real_binary}"
         exec "$real_binary" "$@"
     fi
+    trace "exec: ${cli_bin} launch ${tool_basename} $*"
     exec "$cli_bin" launch "$tool_basename" "$@"
 fi
 
@@ -97,4 +125,5 @@ real_binary="$(find_real_binary)" || {
     exit 127
 }
 
+trace "fallback: no zentty CLI resolved; exec real binary ${real_binary} (NO STATUS WILL BE EMITTED)"
 exec "$real_binary" "$@"

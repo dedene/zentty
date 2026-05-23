@@ -125,6 +125,15 @@ enum AgentLaunchBootstrap {
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
+        case .agy:
+            return agyPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                fileManager: fileManager
+            )
         }
     }
 
@@ -320,6 +329,70 @@ enum AgentLaunchBootstrap {
                     subcommand: "agent-event",
                     arguments: ["--adapter=grok"],
                     standardInput: sessionStartJSON
+                )
+            ]
+        )
+    }
+
+    private static func agyPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        // Auto-install the status hooks into ~/.gemini/config/hooks.json on
+        // launch (idempotent; only rewrites when content drifts). agy has no
+        // config-dir override, so unlike most agents we can't use an
+        // ephemeral overlay — we mirror Grok's persistent install instead.
+        // The installed hook command no-ops outside Zentty (it guards on the
+        // routing env), and ZENTTY_AGY_HOOKS_DISABLED=1 short-circuits before
+        // this point in AgentToolLauncher, so reaching here means hooks are
+        // wanted.
+        if let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank {
+            let home = environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()
+            try? AgyHooksInstaller.ensureInstalledForCurrentUser(cliPath: cliPath, home: home, fileManager: fileManager)
+        }
+
+        var setEnvironment: [String: String] = [
+            "ZENTTY_AGENT_TOOL": "agy",
+            "ZENTTY_AGY_PID": "\(getpid())",
+        ]
+        let argumentsJSON = (try? compactJSONString(arguments)) ?? "[]"
+
+        // The Antigravity CLI assigns its own `conversation_id` once a
+        // session opens; that real id arrives via the first hook and
+        // supersedes this placeholder downstream (see `AgyCanonicalReEmitter`
+        // and the agy adapter). The `zentty-placeholder-` prefix lets the
+        // resume builder recognise and reject the placeholder if no real
+        // id ever arrives (hooks disabled, agy crash before first hook,
+        // etc.), so we never end up calling `agy --conversation <fake>`.
+        let placeholderSessionID = "zentty-placeholder-\(UUID().uuidString.lowercased())"
+        setEnvironment["ZENTTY_AGY_PLACEHOLDER_SESSION_ID"] = placeholderSessionID
+
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Antigravity","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"session":{"id":"\(placeholderSessionID)"},"context":{"launch":{"arguments":\(argumentsJSON)}}}
+        """
+        let agentRunningJSON = """
+        {"version":1,"event":"agent.running","agent":{"name":"Antigravity","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"session":{"id":"\(placeholderSessionID)"},"context":{"launch":{"arguments":\(argumentsJSON)}}}
+        """
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: setEnvironment,
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: ["--adapter=agy"],
+                    standardInput: sessionStartJSON
+                ),
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: ["--adapter=agy"],
+                    standardInput: agentRunningJSON
                 )
             ]
         )

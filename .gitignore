@@ -9,6 +9,7 @@ FrameworksLocal
 tmp/
 .claude
 .opencode
+.antigravitycli/
 build/
 .agent-bench-runs/
 .clawpatch/
