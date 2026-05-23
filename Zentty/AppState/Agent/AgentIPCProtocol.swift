@@ -146,6 +146,11 @@ struct ServerListEntry: Codable, Equatable {
     let ports: [Int]
     let confidence: String
     let updatedAt: String
+    /// Relevance tier: "primary", "shown", or "hidden". Optional for decode
+    /// tolerance across version-skewed app/CLI pairs (added in response v2).
+    let tier: String?
+    /// Relevance reasons, e.g. ["ignored_port:9229", "running_pane"] (v2).
+    let reasons: [String]?
 }
 
 struct ServerListResult: Codable, Equatable {

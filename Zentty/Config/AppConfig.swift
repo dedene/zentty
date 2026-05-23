@@ -51,12 +51,16 @@ struct AppConfig: Equatable, Sendable {
         /// Installed built-in slugs and `custom:` ids the user wants in the Open Server browser menu (never includes `system-default`).
         var enabledBrowserTargetIDs: [String]
         var customBrowsers: [ServerBrowserCustomApp]
+        /// Canonical port rules whose detected servers are hidden from the menu and primary
+        /// selection. Bare ports (`"9229"`) or inclusive ranges (`"24678-24680"`); see `ServerPortRule`.
+        var ignoredPortRules: [String]
 
         static let `default` = ServerDetection(
             passiveDetectionEnabled: true,
             preferredBrowserID: ServerBrowserTarget.systemDefaultID,
             enabledBrowserTargetIDs: [],
-            customBrowsers: []
+            customBrowsers: [],
+            ignoredPortRules: []
         )
     }
 
@@ -363,7 +367,8 @@ extension AppConfig.ServerDetection {
             passiveDetectionEnabled: passiveDetectionEnabled,
             preferredBrowserID: normalizedPreferredBrowserID,
             enabledBrowserTargetIDs: normalizedEnabledBrowserTargetIDs,
-            customBrowsers: canonicalBrowsers
+            customBrowsers: canonicalBrowsers,
+            ignoredPortRules: ServerPortRule.canonicalStrings(ignoredPortRules)
         )
     }
 }

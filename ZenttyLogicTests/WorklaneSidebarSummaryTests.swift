@@ -40,8 +40,11 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             serverContext: WorklaneServerContext(
                 worklaneID: worklaneID,
                 focusedPaneID: paneA,
-                primaryServer: paneAServer,
-                servers: [paneBServer, unownedServer, paneAServer]
+                ranked: [
+                    RankedServer(server: paneBServer, tier: .shown, score: 0, reasons: []),
+                    RankedServer(server: unownedServer, tier: .shown, score: 0, reasons: []),
+                    RankedServer(server: paneAServer, tier: .primary, score: 0, reasons: []),
+                ]
             )
         )
 

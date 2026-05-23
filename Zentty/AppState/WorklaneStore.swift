@@ -77,8 +77,22 @@ struct WorklaneOpenWithContext: Equatable, Sendable {
 struct WorklaneServerContext: Equatable, Sendable {
     let worklaneID: WorklaneID
     let focusedPaneID: PaneID?
-    let primaryServer: DetectedServer?
-    let servers: [DetectedServer]
+    /// Full ranking including hidden entries (for the Hidden submenu and IPC).
+    /// `servers` and `primaryServer` are derived from this, so the three views can
+    /// never disagree.
+    let ranked: [RankedServer]
+
+    /// Highest-ranked visible server, or nil when every detected server is hidden.
+    var primaryServer: DetectedServer? {
+        ranked.first { $0.tier == .primary }?.server
+    }
+
+    /// Visible (non-hidden) servers in ranked order. Hidden servers are excluded so
+    /// existing consumers (menu, command palette, sidebar, chrome) drop ignored
+    /// ports automatically; use `ranked` to reach hidden entries.
+    var servers: [DetectedServer] {
+        ranked.filter { $0.tier != .hidden }.map(\.server)
+    }
 }
 
 struct PaneSplitOutResult: Equatable, Sendable {
@@ -377,6 +391,7 @@ final class WorklaneStore {
     private let scheduleReadyStatusTask: ReadyStatusScheduler
     let codexQuestionResolver: CodexQuestionResolver
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
+    private let serverDetectionProvider: @MainActor () -> AppConfig.ServerDetection
     /// In-memory mirror of `TmuxCompatStore.anchors` for this app session.
     /// Refreshed via `refreshTeamAnchors()` after any handler that mutates
     /// the on-disk store (split-window, kill-pane, kill-window, leader-close
@@ -448,7 +463,8 @@ final class WorklaneStore {
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         serverRegistry: ServerRegistry = ServerRegistry(),
         terminalDiagnostics: TerminalDiagnostics = .shared,
-        agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false }
+        agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false },
+        serverDetectionProvider: @escaping @MainActor () -> AppConfig.ServerDetection = { .default }
     ) {
         self.windowID = windowID
         self.gitContextResolver = gitContextResolver
@@ -461,6 +477,7 @@ final class WorklaneStore {
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.codexQuestionResolver = codexQuestionResolver
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
+        self.serverDetectionProvider = serverDetectionProvider
         self.runtimeIdentity = runtimeIdentity
         self.serverRegistry = serverRegistry
         let initialWorklanes = worklanes.isEmpty
@@ -509,19 +526,37 @@ final class WorklaneStore {
     func serverContext(for worklaneID: WorklaneID) -> WorklaneServerContext {
         let worklane = worklanes.first { $0.id == worklaneID }
         let focusedPaneID = worklane?.paneStripState.focusedPaneID
-        let servers = serverRegistry.servers(in: worklaneID)
-        let rememberedPrimaryServer = rememberedPrimaryServerOriginByWorklaneID[worklaneID].flatMap { origin in
-            servers.first { $0.origin == origin }
-        }
+        let merged = serverRegistry.servers(in: worklaneID)
+
+        let relevanceContext = ServerRelevanceContext(
+            focusedPaneID: focusedPaneID,
+            runningPaneIDs: runningPaneIDs(in: worklane),
+            ignoredPortRules: ServerPortRule.normalize(serverDetectionProvider().ignoredPortRules),
+            sessionSelectedOrigin: rememberedPrimaryServerOriginByWorklaneID[worklaneID],
+            now: currentDateProvider()
+        )
+        let ranked = ServerRelevance.rank(merged, context: relevanceContext)
 
         return WorklaneServerContext(
             worklaneID: worklaneID,
             focusedPaneID: focusedPaneID,
-            primaryServer: rememberedPrimaryServer ?? serverRegistry.primaryServer(
-                activeWorklaneID: worklaneID,
-                focusedPaneID: focusedPaneID
-            ),
-            servers: servers
+            ranked: ranked
+        )
+    }
+
+    /// Panes in `worklane` whose shell is currently executing a command — the
+    /// "active work" signal `ServerRelevance` boosts.
+    private func runningPaneIDs(in worklane: WorklaneState?) -> Set<PaneID> {
+        guard let worklane else {
+            return []
+        }
+        let livePaneIDs = Set(worklane.paneStripState.panes.map(\.id))
+        return Set(
+            worklane.auxiliaryStateByPaneID
+                .filter { paneID, auxiliary in
+                    livePaneIDs.contains(paneID) && auxiliary.shellActivityState == .commandRunning
+                }
+                .keys
         )
     }
 
@@ -565,8 +600,7 @@ final class WorklaneStore {
         source: DetectedServerSource,
         servers: [DetectedServer]
     ) {
-        serverRegistry.clearSource(source, worklaneID: worklaneID, paneID: nil)
-        servers.forEach(serverRegistry.upsert)
+        serverRegistry.replaceSource(source, worklaneID: worklaneID, servers: servers)
         notifyServerDetectionChanged(worklaneID: worklaneID, paneID: nil)
     }
 

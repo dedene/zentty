@@ -752,7 +752,7 @@ private enum ServerCommandIPC {
                 if let serverState = response?.result?.serverState {
                     try printJSON(serverState)
                 } else {
-                    try printJSON(ServerListResult(version: 1, primaryServerID: nil, servers: []))
+                    try printJSON(ServerListResult(version: 2, primaryServerID: nil, servers: []))
                 }
             }
         } catch ServerIPCCommandError.outsidePane {

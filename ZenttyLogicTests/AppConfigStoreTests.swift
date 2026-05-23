@@ -232,6 +232,7 @@ final class AppConfigStoreTests: XCTestCase {
             config.serverDetection.passiveDetectionEnabled = false
             config.serverDetection.preferredBrowserID = "custom:sizzy"
             config.serverDetection.enabledBrowserTargetIDs = ["firefox", "chrome", "custom:sizzy"]
+            config.serverDetection.ignoredPortRules = ["9229", "24678-24680"]
             config.serverDetection.customBrowsers = [
                 ServerBrowserCustomApp(
                     id: "custom:sizzy",
@@ -247,6 +248,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("passive_detection_enabled = false"))
         XCTAssertTrue(persisted.contains("preferred_browser_id = \"custom:sizzy\""))
         XCTAssertTrue(persisted.contains("enabled_browser_target_ids"))
+        XCTAssertTrue(persisted.contains("ignored_port_rules = [\"9229\", \"24678-24680\"]"))
         XCTAssertTrue(persisted.contains("[[server_detection.custom_browsers]]"))
         XCTAssertTrue(persisted.contains("bundle_identifier = \"com.sizzy.Sizzy\""))
 
@@ -262,6 +264,10 @@ final class AppConfigStoreTests: XCTestCase {
             reloadedStore.current.serverDetection.enabledBrowserTargetIDs,
             ["firefox", "chrome", "custom:sizzy"]
         )
+        XCTAssertEqual(
+            reloadedStore.current.serverDetection.ignoredPortRules,
+            ["9229", "24678-24680"]
+        )
         XCTAssertEqual(reloadedStore.current.serverDetection.customBrowsers, [
             ServerBrowserCustomApp(
                 id: "custom:sizzy",
@@ -270,6 +276,25 @@ final class AppConfigStoreTests: XCTestCase {
                 bundleIdentifier: "com.sizzy.Sizzy"
             )
         ])
+    }
+
+    func test_ignored_port_rules_drop_invalid_and_merge_on_load() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [server_detection]
+        passive_detection_enabled = true
+        ignored_port_rules = ["3001", "abc", "70000", "3000", "5000-4000"]
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        // "abc"/"70000"/"5000-4000" dropped; "3000" and "3001" merged into one range.
+        XCTAssertEqual(store.current.serverDetection.ignoredPortRules, ["3000-3001"])
     }
 
     func test_server_detection_enables_all_browsers_when_toml_key_absent() throws {

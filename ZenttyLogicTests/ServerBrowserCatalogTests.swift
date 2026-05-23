@@ -138,7 +138,8 @@ final class ServerBrowserCatalogTests: XCTestCase {
                         appPath: "/Applications/Other Chrome.app",
                         bundleIdentifier: "com.google.Chrome"
                     ),
-                ]
+                ],
+                ignoredPortRules: []
             ).normalized(),
             resolvedBuiltIns: [
                 browser(

@@ -258,6 +258,9 @@ final class RootViewController: NSViewController {
             gitContextResolver: gitContextResolver,
             agentTeamsEnabledProvider: { [weak configStore] in
                 configStore?.current.agentTeams.enabled ?? false
+            },
+            serverDetectionProvider: { [weak configStore] in
+                configStore?.current.serverDetection ?? .default
             }
         )
         self.peekController = WorklanePeekController(
@@ -2895,14 +2898,15 @@ final class RootViewController: NSViewController {
     private func serverResponse(for worklaneID: WorklaneID) -> AgentIPCResponseResult {
         let context = worklaneStore.serverContext(for: worklaneID)
         return AgentIPCResponseResult(serverState: ServerListResult(
-            version: 1,
+            version: 2,
             primaryServerID: context.primaryServer?.id,
-            servers: context.servers.map(serverListEntry)
+            servers: context.ranked.map(serverListEntry)
         ))
     }
 
-    private func serverListEntry(_ server: DetectedServer) -> ServerListEntry {
-        ServerListEntry(
+    private func serverListEntry(_ ranked: RankedServer) -> ServerListEntry {
+        let server = ranked.server
+        return ServerListEntry(
             id: server.id,
             origin: server.origin,
             url: server.url.absoluteString,
@@ -2912,8 +2916,31 @@ final class RootViewController: NSViewController {
             source: server.source.rawValue,
             ports: server.ports,
             confidence: server.confidence.rawValue,
-            updatedAt: Self.formatServerDate(server.updatedAt)
+            updatedAt: Self.formatServerDate(server.updatedAt),
+            tier: Self.tierString(ranked.tier),
+            reasons: ranked.reasons.map(Self.reasonString).sorted()
         )
+    }
+
+    private static func tierString(_ tier: ServerRelevanceTier) -> String {
+        switch tier {
+        case .primary: "primary"
+        case .shown: "shown"
+        case .hidden: "hidden"
+        }
+    }
+
+    private static func reasonString(_ reason: ServerRelevanceReason) -> String {
+        switch reason {
+        case .sessionSelected: "session_selected"
+        case .ignoredPort(let port): "ignored_port:\(port)"
+        case .manual: "manual"
+        case .runningPane: "running_pane"
+        case .focusedPane: "focused_pane"
+        case .source(let source): "source:\(source.rawValue)"
+        case .confidence(let confidence): "confidence:\(confidence.rawValue)"
+        case .fresh: "fresh"
+        }
     }
 
     private static func formatServerDate(_ date: Date) -> String {

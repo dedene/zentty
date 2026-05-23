@@ -154,6 +154,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         static let emptyStateTitle = "No detected servers"
         static let copyURLTitle = "Copy URL"
         static let settingsTitle = "Dev Server Settings…"
+        static let manageTitle = "Manage Servers…"
+        static let hiddenTitle = "Hidden…"
+        static func ignorePortTitle(_ port: Int) -> String { "Ignore port \(port)" }
+        static func stopIgnoringPortTitle(_ port: Int) -> String { "Stop ignoring port \(port)" }
+        static func ignoredPortHint(_ port: Int) -> String { "Ignored port \(port)" }
     }
 
     private static func isPreferredServerBrowser(_ browser: ServerBrowserTarget, preferredBrowserID: String) -> Bool {
@@ -1217,30 +1222,41 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         menu.autoenablesItems = false
 
         let context = rootViewController.activeServerContext
-        let primaryServerID = context.primaryServer?.id
+        let model = ServerMenuModel(context: context)
 
-        if context.servers.isEmpty {
+        if model.isEmpty {
             let item = NSMenuItem(title: ServerMenuContent.emptyStateTitle, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
-            ServerMenuOrdering.sortedForDisplay(context.servers).forEach { server in
-                let item = NSMenuItem(title: server.display, action: #selector(handleServerMenuItem(_:)), keyEquivalent: "")
+            for entry in model.visible {
+                let item = NSMenuItem(title: entry.server.display, action: #selector(handleServerMenuItem(_:)), keyEquivalent: "")
                 item.target = self
-                item.representedObject = server
-                item.toolTip = server.url.absoluteString
-                item.state = server.id == primaryServerID ? .on : .off
+                item.representedObject = entry.server
+                item.toolTip = entry.server.url.absoluteString
+                item.state = entry.isPrimary ? .on : .off
                 menu.addItem(item)
             }
 
-            menu.addItem(.separator())
-            let copyItem = NSMenuItem(title: ServerMenuContent.copyURLTitle, action: #selector(handleCopyServerURL(_:)), keyEquivalent: "")
-            copyItem.target = self
-            if let primaryServer = context.primaryServer {
-                copyItem.representedObject = primaryServer
+            if !model.manageable.isEmpty || !model.hidden.isEmpty {
+                if !model.visible.isEmpty {
+                    menu.addItem(.separator())
+                }
+                if !model.manageable.isEmpty {
+                    menu.addItem(makeManageServersMenuItem(model.manageable))
+                }
+                if !model.hidden.isEmpty {
+                    menu.addItem(makeHiddenServersMenuItem(model.hidden))
+                }
             }
-            copyItem.isEnabled = context.primaryServer != nil
-            menu.addItem(copyItem)
+
+            if let primaryServer = context.primaryServer {
+                menu.addItem(.separator())
+                let copyItem = NSMenuItem(title: ServerMenuContent.copyURLTitle, action: #selector(handleCopyServerURL(_:)), keyEquivalent: "")
+                copyItem.target = self
+                copyItem.representedObject = primaryServer
+                menu.addItem(copyItem)
+            }
         }
 
         menu.addItem(.separator())
@@ -1269,6 +1285,63 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return menu
     }
 
+    private func makeManageServersMenuItem(_ entries: [ServerMenuModel.Entry]) -> NSMenuItem {
+        let parent = NSMenuItem(title: ServerMenuContent.manageTitle, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "")
+        submenu.autoenablesItems = false
+
+        for entry in entries {
+            guard let port = entry.port else {
+                continue
+            }
+            let serverItem = NSMenuItem(title: entry.server.display, action: nil, keyEquivalent: "")
+            let serverSubmenu = NSMenu(title: "")
+            serverSubmenu.autoenablesItems = false
+            let ignoreItem = NSMenuItem(
+                title: ServerMenuContent.ignorePortTitle(port),
+                action: #selector(handleIgnorePort(_:)),
+                keyEquivalent: ""
+            )
+            ignoreItem.target = self
+            ignoreItem.representedObject = port
+            serverSubmenu.addItem(ignoreItem)
+            serverItem.submenu = serverSubmenu
+            submenu.addItem(serverItem)
+        }
+
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func makeHiddenServersMenuItem(_ entries: [ServerMenuModel.Entry]) -> NSMenuItem {
+        let parent = NSMenuItem(title: ServerMenuContent.hiddenTitle, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "")
+        submenu.autoenablesItems = false
+
+        for entry in entries {
+            guard let port = entry.port else {
+                continue
+            }
+            let serverItem = NSMenuItem(title: entry.server.display, action: nil, keyEquivalent: "")
+            serverItem.toolTip = ServerMenuContent.ignoredPortHint(port)
+            let serverSubmenu = NSMenu(title: "")
+            serverSubmenu.autoenablesItems = false
+            let stopItem = NSMenuItem(
+                title: ServerMenuContent.stopIgnoringPortTitle(port),
+                action: #selector(handleStopIgnoringPort(_:)),
+                keyEquivalent: ""
+            )
+            stopItem.target = self
+            stopItem.representedObject = port
+            serverSubmenu.addItem(stopItem)
+            serverItem.submenu = serverSubmenu
+            submenu.addItem(serverItem)
+        }
+
+        parent.submenu = submenu
+        return parent
+    }
+
     @objc
     private func handleServerMenuItem(_ sender: NSMenuItem) {
         guard let server = sender.representedObject as? DetectedServer else {
@@ -1276,6 +1349,34 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         _ = rootViewController.openServer(server)
+    }
+
+    @objc
+    private func handleIgnorePort(_ sender: NSMenuItem) {
+        guard let port = sender.representedObject as? Int else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.serverDetection.ignoredPortRules = ServerPortRule.addingPort(
+                port,
+                to: config.serverDetection.ignoredPortRules
+            )
+        }
+    }
+
+    @objc
+    private func handleStopIgnoringPort(_ sender: NSMenuItem) {
+        guard let port = sender.representedObject as? Int else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.serverDetection.ignoredPortRules = ServerPortRule.removingPort(
+                port,
+                from: config.serverDetection.ignoredPortRules
+            )
+        }
     }
 
     @objc

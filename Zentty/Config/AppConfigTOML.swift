@@ -90,6 +90,7 @@ enum AppConfigTOML {
         lines.append("passive_detection_enabled = \(config.serverDetection.passiveDetectionEnabled)")
         lines.append("preferred_browser_id = \(encode(string: config.serverDetection.preferredBrowserID))")
         lines.append("enabled_browser_target_ids = \(encode(strings: config.serverDetection.enabledBrowserTargetIDs))")
+        lines.append("ignored_port_rules = \(encode(strings: config.serverDetection.ignoredPortRules))")
 
         if !config.serverDetection.customBrowsers.isEmpty {
             lines.append("")
@@ -468,6 +469,11 @@ enum AppConfigTOML {
                 return false
             }
             config.serverDetection.enabledBrowserTargetIDs = values
+        case "ignored_port_rules":
+            guard let values = decodeStringArray(assignment.value) else {
+                return false
+            }
+            config.serverDetection.ignoredPortRules = values
         default:
             return true
         }

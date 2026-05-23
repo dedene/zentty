@@ -28,6 +28,11 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
     private var isApplyingPreferences = false
     private var currentServerDetection = AppConfig.ServerDetection.default
     private var currentVisibleTargets: [VisibleBrowserTarget] = []
+    private var ignoredPortsCard: SettingsCardView?
+    private let ignoredPortRulesStackView = NSStackView()
+    private let ignoredPortInputField = NSTextField()
+    private let addIgnoredPortButton = NSButton()
+    private var ignoredPortErrorLabel: NSTextField?
 
     static let defaultCustomBrowserPicker: () -> ServerBrowserCustomApp? = {
         let panel = NSOpenPanel()
@@ -183,6 +188,11 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
         rootStackView.addArrangedSubview(availableCard)
         availableCard.widthAnchor.constraint(equalTo: rootStackView.widthAnchor).isActive = true
 
+        let ignoredPortsCard = makeIgnoredPortsCard()
+        self.ignoredPortsCard = ignoredPortsCard
+        rootStackView.addArrangedSubview(ignoredPortsCard)
+        ignoredPortsCard.widthAnchor.constraint(equalTo: rootStackView.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             rootStackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             rootStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -205,8 +215,9 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
         let rowSpacing = rowCount > 1 ? availableTargetsStackView.spacing * CGFloat(rowCount - 1) : 0
         let availableInnerHeight = 16 + headerHeight + 12 + rowHeights + rowSpacing + 16
         let availableCardHeight = availableCard != nil ? availableInnerHeight : 0
+        let ignoredPortsHeight = ignoredPortsCard?.fittingSize.height ?? 0
 
-        return subtitleHeight + 16 + detectionHeight + 16 + defaultHeight + 16 + availableCardHeight
+        return subtitleHeight + 16 + detectionHeight + 16 + defaultHeight + 16 + availableCardHeight + 16 + ignoredPortsHeight
     }
 
     func apply(serverDetection: AppConfig.ServerDetection) {
@@ -240,6 +251,8 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
         passiveDetectionSwitch.state = currentServerDetection.passiveDetectionEnabled ? .on : .off
 
         rebuildVisibleTargetRows()
+        rebuildIgnoredPortRows()
+        hideIgnoredPortError()
 
         primaryBrowserPopup.removeAllItems()
         let items = availablePrimaryBrowserItems(for: currentServerDetection)
@@ -515,6 +528,152 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
         apply(serverDetection: configStore.current.serverDetection)
     }
 
+    private func makeIgnoredPortsCard() -> SettingsCardView {
+        let card = SettingsCardView()
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(text: "Ignored ports", font: .systemFont(ofSize: 13, weight: .semibold))
+        titleLabel.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(titleLabel)
+
+        let descriptionLabel = makeLabel(
+            text: "Servers on these ports are hidden from the server menu. Enter a port (9229) or a range (24678-24680).",
+            font: .systemFont(ofSize: 11, weight: .regular)
+        )
+        descriptionLabel.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(descriptionLabel)
+        descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        ignoredPortRulesStackView.orientation = .vertical
+        ignoredPortRulesStackView.alignment = .leading
+        ignoredPortRulesStackView.spacing = 8
+        stack.addArrangedSubview(ignoredPortRulesStackView)
+        ignoredPortRulesStackView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        let addRow = NSStackView()
+        addRow.orientation = .horizontal
+        addRow.alignment = .centerY
+        addRow.spacing = 8
+        ignoredPortInputField.placeholderString = "e.g. 9229 or 24678-24680"
+        ignoredPortInputField.target = self
+        ignoredPortInputField.action = #selector(handleAddIgnoredPort(_:))
+        ignoredPortInputField.translatesAutoresizingMaskIntoConstraints = false
+        ignoredPortInputField.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
+        addRow.addArrangedSubview(ignoredPortInputField)
+        addIgnoredPortButton.title = "Add"
+        addIgnoredPortButton.bezelStyle = .rounded
+        addIgnoredPortButton.target = self
+        addIgnoredPortButton.action = #selector(handleAddIgnoredPort(_:))
+        addIgnoredPortButton.setContentHuggingPriority(.required, for: .horizontal)
+        addRow.addArrangedSubview(addIgnoredPortButton)
+        stack.addArrangedSubview(addRow)
+
+        let errorLabel = makeLabel(text: "", font: .systemFont(ofSize: 11, weight: .regular))
+        errorLabel.textColor = .systemRed
+        errorLabel.isHidden = true
+        self.ignoredPortErrorLabel = errorLabel
+        stack.addArrangedSubview(errorLabel)
+        errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        card.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+        return card
+    }
+
+    private func rebuildIgnoredPortRows() {
+        ignoredPortRulesStackView.arrangedSubviews.forEach { view in
+            ignoredPortRulesStackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        guard !currentServerDetection.ignoredPortRules.isEmpty else {
+            let label = makeLabel(text: "No ignored ports.", font: .systemFont(ofSize: 11, weight: .regular))
+            label.textColor = .tertiaryLabelColor
+            ignoredPortRulesStackView.addArrangedSubview(label)
+            return
+        }
+
+        for rule in currentServerDetection.ignoredPortRules {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 8
+            row.translatesAutoresizingMaskIntoConstraints = false
+
+            let label = makeLabel(text: rule, font: .systemFont(ofSize: 12, weight: .regular))
+            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            row.addArrangedSubview(label)
+
+            let removeButton = NSButton()
+            removeButton.title = "Remove"
+            removeButton.bezelStyle = .rounded
+            removeButton.controlSize = .small
+            removeButton.target = self
+            removeButton.action = #selector(handleRemoveIgnoredPort(_:))
+            removeButton.identifier = NSUserInterfaceItemIdentifier(rule)
+            removeButton.setContentHuggingPriority(.required, for: .horizontal)
+            row.addArrangedSubview(removeButton)
+
+            ignoredPortRulesStackView.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: ignoredPortRulesStackView.widthAnchor).isActive = true
+        }
+    }
+
+    @objc
+    private func handleAddIgnoredPort(_ sender: Any?) {
+        guard !isApplyingPreferences else {
+            return
+        }
+
+        let text = ignoredPortInputField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else {
+            return
+        }
+        guard ServerPortRule.parse(text) != nil else {
+            showIgnoredPortError("Enter a port (e.g. 9229) or a range (e.g. 24678-24680).")
+            return
+        }
+
+        hideIgnoredPortError()
+        try? configStore.update { config in
+            config.serverDetection.ignoredPortRules.append(text)
+        }
+        ignoredPortInputField.stringValue = ""
+        apply(serverDetection: configStore.current.serverDetection)
+    }
+
+    @objc
+    private func handleRemoveIgnoredPort(_ sender: NSButton) {
+        guard let rule = sender.identifier?.rawValue else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.serverDetection.ignoredPortRules.removeAll { $0 == rule }
+        }
+        apply(serverDetection: configStore.current.serverDetection)
+    }
+
+    private func showIgnoredPortError(_ message: String) {
+        ignoredPortErrorLabel?.stringValue = message
+        ignoredPortErrorLabel?.isHidden = false
+        refreshScrollableContentLayout()
+    }
+
+    private func hideIgnoredPortError() {
+        ignoredPortErrorLabel?.isHidden = true
+        ignoredPortErrorLabel?.stringValue = ""
+    }
+
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = font
@@ -544,5 +703,27 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
     func setPassiveDetectionEnabledForTesting(_ enabled: Bool) {
         passiveDetectionSwitch.state = enabled ? .on : .off
         handlePassiveDetectionChanged(passiveDetectionSwitch)
+    }
+
+    var ignoredPortRulesForTesting: [String] {
+        currentServerDetection.ignoredPortRules
+    }
+
+    var ignoredPortErrorVisibleForTesting: Bool {
+        ignoredPortErrorLabel?.isHidden == false
+    }
+
+    /// Attempts to add `text` as an ignored-port rule. Returns true when accepted.
+    @discardableResult
+    func addIgnoredPortRuleForTesting(_ text: String) -> Bool {
+        ignoredPortInputField.stringValue = text
+        handleAddIgnoredPort(nil)
+        return ignoredPortErrorLabel?.isHidden ?? true
+    }
+
+    func removeIgnoredPortRuleForTesting(_ rule: String) {
+        let button = NSButton()
+        button.identifier = NSUserInterfaceItemIdentifier(rule)
+        handleRemoveIgnoredPort(button)
     }
 }
