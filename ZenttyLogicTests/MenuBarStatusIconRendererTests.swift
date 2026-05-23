@@ -159,6 +159,14 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
         )
     }
 
+    func test_antigravity_agent_icon_uses_generated_fallback() {
+        XCTAssertEqual(
+            MenuBarStatusIconRenderer.agentIconSource(for: .agy),
+            .generatedFallback
+        )
+        XCTAssertNotNil(MenuBarStatusIconRenderer.agentIconTemplateImage(for: .agy))
+    }
+
     func test_required_menu_bar_asset_names_are_present_in_bundle_or_source_catalog() {
         let requiredAssetNames = [
             "MenuBarAgentIdle",

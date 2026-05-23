@@ -74,26 +74,8 @@ final class AppConfigStore: @unchecked Sendable {
     let fileURL: URL
 
     private(set) var current: AppConfig
-    var onChange: ChangeHandler? {
-        didSet {
-            if let legacyObserverID {
-                changeHandlers.removeValue(forKey: legacyObserverID)
-                self.legacyObserverID = nil
-            }
-
-            guard let onChange else {
-                return
-            }
-
-            let observerID = UUID()
-            changeHandlers[observerID] = onChange
-            legacyObserverID = observerID
-        }
-    }
-
     private let fileWatcher = FileWatcher()
     private var changeHandlers: [UUID: ChangeHandler] = [:]
-    private var legacyObserverID: UUID?
 
     init(
         fileURL: URL? = nil,
@@ -170,10 +152,6 @@ final class AppConfigStore: @unchecked Sendable {
 
     func removeObserver(_ observerID: UUID) {
         changeHandlers.removeValue(forKey: observerID)
-        if legacyObserverID == observerID {
-            legacyObserverID = nil
-            onChange = nil
-        }
     }
 
     func reloadFromDisk() {

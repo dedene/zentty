@@ -18,7 +18,48 @@ final class ServerRegistry {
             source: server.source,
             paneID: server.paneID
         )
-        recordsByKey[key] = server
+        recordsByKey[key] = preservingFirstSeen(server, key: key, previous: recordsByKey[key])
+    }
+
+    /// Replaces every record for `(worklaneID, source)` in one shot, preserving
+    /// `firstSeenAt` for keys that survive the swap and forgetting removed ones.
+    ///
+    /// Passive sources (scanner, docker) re-publish their full result set every
+    /// poll; a plain clear-then-upsert would reset `firstSeenAt` to "now" each
+    /// cycle, so freshness is carried forward here for keys present before and
+    /// after.
+    func replaceSource(
+        _ source: DetectedServerSource,
+        worklaneID: WorklaneID,
+        servers: [DetectedServer]
+    ) {
+        let previous = recordsByKey
+        recordsByKey = recordsByKey.filter { key, _ in
+            key.worklaneID != worklaneID || key.source != source
+        }
+
+        for server in servers {
+            let key = RecordKey(
+                worklaneID: server.worklaneID,
+                origin: server.origin,
+                source: server.source,
+                paneID: server.paneID
+            )
+            recordsByKey[key] = preservingFirstSeen(server, key: key, previous: previous[key])
+        }
+    }
+
+    private func preservingFirstSeen(
+        _ server: DetectedServer,
+        key: RecordKey,
+        previous: DetectedServer?
+    ) -> DetectedServer {
+        guard let previous else {
+            return server
+        }
+        var preserved = server
+        preserved.firstSeenAt = min(previous.firstSeenAt, server.firstSeenAt)
+        return preserved
     }
 
     func clear(worklaneID: WorklaneID, paneID: PaneID) {
@@ -62,20 +103,6 @@ final class ServerRegistry {
             }
     }
 
-    func primaryServer(activeWorklaneID: WorklaneID, focusedPaneID: PaneID?) -> DetectedServer? {
-        let candidates = servers(in: activeWorklaneID)
-
-        if let focusedPaneID,
-           let focused = candidates
-               .filter({ $0.paneID == focusedPaneID })
-               .max(by: serverSortAscending)
-        {
-            return focused
-        }
-
-        return candidates.max(by: serverSortAscending)
-    }
-
     func server(matching rawOriginOrURL: String, in worklaneID: WorklaneID) -> DetectedServer? {
         let origin = (try? ServerURLNormalizer.normalize(rawOriginOrURL).origin) ?? rawOriginOrURL
         return servers(in: worklaneID).first { $0.origin == origin }
@@ -98,7 +125,8 @@ final class ServerRegistry {
             source: winner.source,
             ports: ports,
             confidence: winner.confidence,
-            updatedAt: winner.updatedAt
+            updatedAt: winner.updatedAt,
+            firstSeenAt: records.map(\.firstSeenAt).min()
         )
     }
 

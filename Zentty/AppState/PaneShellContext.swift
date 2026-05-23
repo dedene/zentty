@@ -116,7 +116,7 @@ extension PaneShellContext {
             return nil
         }
 
-        guard let home, !home.isEmpty, path.hasPrefix(home) else {
+        guard let home, !home.isEmpty else {
             return path
         }
 
@@ -124,6 +124,11 @@ extension PaneShellContext {
             return "~"
         }
 
-        return path.replacingOccurrences(of: home, with: "~", options: [.anchored])
+        let homePrefix = home.hasSuffix("/") ? home : home + "/"
+        guard path.hasPrefix(homePrefix) else {
+            return path
+        }
+
+        return "~/" + path.dropFirst(homePrefix.count)
     }
 }

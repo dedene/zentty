@@ -42,7 +42,12 @@ final class ServerListenerScannerTests: XCTestCase {
         )
 
         let servers = scanner.scan(context: context(panes: [
-            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: nil)
+            PaneScanContext(
+                paneID: paneA,
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                shellPID: nil
+            )
         ]))
 
         XCTAssertEqual(servers.count, 1)
@@ -62,8 +67,18 @@ final class ServerListenerScannerTests: XCTestCase {
         )
 
         let servers = scanner.scan(context: context(panes: [
-            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: nil),
-            PaneScanContext(paneID: paneB, workingDirectory: "/tmp/project/frontend", shellPID: nil),
+            PaneScanContext(
+                paneID: paneA,
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                shellPID: nil
+            ),
+            PaneScanContext(
+                paneID: paneB,
+                workingDirectory: "/tmp/project/frontend",
+                repositoryRoot: "/tmp/project",
+                shellPID: nil
+            ),
         ]))
 
         XCTAssertEqual(servers.single?.paneID, paneB)
@@ -82,8 +97,18 @@ final class ServerListenerScannerTests: XCTestCase {
         )
 
         let servers = scanner.scan(context: context(panes: [
-            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: nil),
-            PaneScanContext(paneID: paneB, workingDirectory: "/tmp/project", shellPID: nil),
+            PaneScanContext(
+                paneID: paneA,
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                shellPID: nil
+            ),
+            PaneScanContext(
+                paneID: paneB,
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                shellPID: nil
+            ),
         ]))
 
         XCTAssertEqual(servers.count, 1)
@@ -156,6 +181,80 @@ final class ServerListenerScannerTests: XCTestCase {
         ]))
 
         XCTAssertEqual(servers.map(\.origin), ["http://localhost:4000"])
+    }
+
+    func test_ignores_cwd_match_from_broad_roots() throws {
+        let homePath = NSHomeDirectory()
+        let cases = [
+            (panePath: "/", processPath: "/usr/local/share/service"),
+            (panePath: "/tmp", processPath: "/tmp/project"),
+            (panePath: "/private/tmp", processPath: "/private/tmp/project"),
+            (panePath: "/var/tmp", processPath: "/var/tmp/project"),
+            (panePath: "/Users", processPath: "\(homePath)/Library/Application Support/Redis"),
+            (panePath: homePath, processPath: "\(homePath)/Library/Application Support/Redis"),
+        ]
+
+        for testCase in cases {
+            let date = date
+            let scanner = ServerListenerScanner(
+                processInspector: FakeProcessInspector(
+                    sockets: [ListeningSocket(pid: 300, localHost: "localhost", port: 6379)],
+                    parentByPID: [:],
+                    cwdByPID: [300: testCase.processPath]
+                ),
+                currentDate: { date }
+            )
+
+            let servers = scanner.scan(context: context(panes: [
+                PaneScanContext(
+                    paneID: paneA,
+                    workingDirectory: testCase.panePath,
+                    repositoryRoot: testCase.panePath,
+                    shellPID: nil
+                )
+            ]))
+
+            XCTAssertTrue(servers.isEmpty, "Expected no cwd attribution for \(testCase.panePath)")
+        }
+    }
+
+    func test_ignores_cwd_match_without_repository_root() throws {
+        let date = date
+        let scanner = ServerListenerScanner(
+            processInspector: FakeProcessInspector(
+                sockets: [ListeningSocket(pid: 300, localHost: "localhost", port: 3000)],
+                parentByPID: [:],
+                cwdByPID: [300: "/tmp/project/frontend"]
+            ),
+            currentDate: { date }
+        )
+
+        let servers = scanner.scan(context: context(panes: [
+            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: nil)
+        ]))
+
+        XCTAssertTrue(servers.isEmpty)
+    }
+
+    func test_pid_descendant_attribution_still_works_from_home_directory() throws {
+        let homePath = NSHomeDirectory()
+        let date = date
+        let scanner = ServerListenerScanner(
+            processInspector: FakeProcessInspector(
+                sockets: [ListeningSocket(pid: 300, localHost: "localhost", port: 3000)],
+                parentByPID: [300: 200, 200: 100],
+                cwdByPID: [300: "\(homePath)/Library/Application Support/App"]
+            ),
+            currentDate: { date }
+        )
+
+        let servers = scanner.scan(context: context(panes: [
+            PaneScanContext(paneID: paneA, workingDirectory: homePath, shellPID: 100)
+        ]))
+
+        XCTAssertEqual(servers.single?.paneID, paneA)
+        XCTAssertEqual(servers.single?.confidence, .pid)
+        XCTAssertEqual(servers.single?.origin, "http://localhost:3000")
     }
 
     func test_later_discovered_subprocess_server_gets_newer_timestamp() throws {

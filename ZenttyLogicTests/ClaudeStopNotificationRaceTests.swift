@@ -23,26 +23,19 @@ final class ClaudeStopNotificationRaceTests: XCTestCase {
         "ZENTTY_WINDOW_ID": "window-stop-race",
     ]
 
-    private var stateURL: URL!
+    private var sessionStore: ClaudeHookSessionStore!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("zentty-claude-hook-race-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        stateURL = directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        sessionStore = ClaudeHookSessionStore(
+            stateURL: directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        )
 
-        // ClaudeHookSessionStore's convenience init reads this env var from
-        // ProcessInfo, so we must set it on the actual process — the
-        // environment dict passed to AgentEventBridge.run/claudeAdapter is
-        // only used for hook routing, not session-store path resolution.
-        setenv("ZENTTY_CLAUDE_HOOK_STATE_PATH", stateURL.path, 1)
-
-        addTeardownBlock { [stateURL] in
-            unsetenv("ZENTTY_CLAUDE_HOOK_STATE_PATH")
-            if let stateURL {
-                try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent())
-            }
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
         }
     }
 
@@ -60,9 +53,10 @@ final class ClaudeStopNotificationRaceTests: XCTestCase {
         ]
 
         for event in events {
-            let payloads = try AgentEventBridge.claudeAdapter(
-                data: Data(event.json.utf8),
-                environment: env
+            let payloads = try AgentEventBridge.claudeMakePayloads(
+                from: AgentEventBridge.claudeParseInput(Data(event.json.utf8)),
+                environment: env,
+                sessionStore: sessionStore
             )
             for payload in payloads {
                 reducer.apply(payload, now: baseTime.addingTimeInterval(event.offset))
@@ -115,9 +109,10 @@ final class ClaudeStopNotificationRaceTests: XCTestCase {
         ]
 
         for event in events {
-            let payloads = try AgentEventBridge.claudeAdapter(
-                data: Data(event.json.utf8),
-                environment: env
+            let payloads = try AgentEventBridge.claudeMakePayloads(
+                from: AgentEventBridge.claudeParseInput(Data(event.json.utf8)),
+                environment: env,
+                sessionStore: sessionStore
             )
             for payload in payloads {
                 reducer.apply(payload, now: baseTime.addingTimeInterval(event.offset))

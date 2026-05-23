@@ -33,6 +33,21 @@ class RedactionTests(unittest.TestCase):
         self.assertEqual(redacted["OPENAI_API_KEY"], "<redacted>")
         self.assertNotIn("PATH", redacted)
 
+    def test_redacts_personal_paths_from_routing_environment_values(self):
+        env = {
+            "HOME": "/Users/example",
+            "CODEX_HOME": "/Users/example/.codex",
+            "OPENCODE_CONFIG": "/Users/example/.config/opencode/config.json",
+            "ZENTTY_PANE_ID": "pane-1",
+        }
+
+        redacted = agent_bench.redacted_environment(env)
+
+        self.assertEqual(redacted["HOME"], "/Users/<user>")
+        self.assertEqual(redacted["CODEX_HOME"], "/Users/<user>/.codex")
+        self.assertEqual(redacted["OPENCODE_CONFIG"], "/Users/<user>/.config/opencode/config.json")
+        self.assertEqual(redacted["ZENTTY_PANE_ID"], "pane-1")
+
     def test_redacts_personal_fields_from_hook_standard_input(self):
         payload = {
             "hook_event_name": "sessionStart",
@@ -110,6 +125,27 @@ class SyntheticScenarioTests(unittest.TestCase):
 
         self.assertEqual(restore_launch.required_events, [])
         self.assertEqual(restore_launch.required_bootstrap_arguments, [["resume", "session-codex"]])
+
+    def test_cursor_profile_defines_session_capture_restore_and_interactive_completion(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+        cursor = profiles["cursor"]
+
+        self.assertIn("session_capture", cursor.expectations)
+        self.assertIn("restore_launch", cursor.expectations)
+        self.assertIn("interactive_turn_complete", cursor.expectations)
+        self.assertEqual(
+            cursor.expectations["session_capture"].session_identity.session_id_pattern,
+            "uuid",
+        )
+        self.assertEqual(
+            cursor.expectations["restore_launch"].required_bootstrap_arguments,
+            [["--resume=237d8c32-2a27-4850-8da8-3a110f13682c"]],
+        )
+        self.assertEqual(
+            cursor.expectations["interactive_turn_complete"].required_events,
+            ["beforeSubmitPrompt", "sessionStart", "stop"],
+        )
 
     def test_stop_race_fixture_contains_late_notification_after_stop(self):
         fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"
@@ -290,6 +326,58 @@ class ExpectationTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.session_identity_observations[0]["session_id_source"], "session.id")
         self.assertEqual(result.session_identity_observations[0]["tracked_pid_source"], "agent.pid")
+
+    def test_validation_accepts_cursor_conversation_id_as_session_identity(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["sessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="uuid",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="session_capture",
+                event_name="sessionStart",
+                standard_input='{"hook_event_name":"sessionStart","conversation_id":"237d8c32-2a27-4850-8da8-3a110f13682c"}',
+                environment={"ZENTTY_CURSOR_PID": "5925"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("cursor", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(
+            result.session_identity_observations[0]["session_id_source"],
+            "conversation_id",
+        )
+
+    def test_validation_ignores_non_cursor_conversation_id_as_session_identity(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["sessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="uuid",
+                tracked_pid=False,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="codex",
+                scenario="session_capture",
+                event_name="sessionStart",
+                standard_input='{"event":"session.start","conversation_id":"237d8c32-2a27-4850-8da8-3a110f13682c"}',
+            )
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["session-id:uuid"])
 
     def test_validation_ignores_pid_environment_for_other_agents(self):
         scenario = agent_bench.ScenarioExpectation(
@@ -933,13 +1021,268 @@ class TaskObservationTests(unittest.TestCase):
             [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3, "source": "raw_tool_call"}],
         )
 
+    def test_extracts_cursor_todo_write_merge_progress_from_hook_payloads(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "conversation_id": "cursor-session",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "merge": False,
+                            "todos": [
+                                {"id": "dummy-1", "content": "Review logs", "status": "pending"},
+                                {"id": "dummy-2", "content": "Run tests", "status": "pending"},
+                                {"id": "dummy-3", "content": "Verify profile", "status": "pending"},
+                                {"id": "dummy-4", "content": "Check resume", "status": "pending"},
+                                {"id": "dummy-5", "content": "Smoke test", "status": "pending"},
+                            ],
+                        },
+                    }
+                ),
+            ),
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "conversation_id": "cursor-session",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "merge": True,
+                            "todos": [
+                                {"id": "dummy-1", "content": "Review logs", "status": "completed"},
+                                {"id": "dummy-3", "content": "Verify profile", "status": "completed"},
+                            ],
+                        },
+                    }
+                ),
+            ),
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="preToolUse",
+                adapter="cursor",
+                standard_input=json.dumps(
+                    {
+                        "hook_event_name": "preToolUse",
+                        "conversation_id": "cursor-session",
+                        "tool_name": "TodoWrite",
+                        "tool_input": {
+                            "merge": True,
+                            "todos": [{"id": "dummy-6", "content": "Validate AgentEventBridge", "status": "pending"}],
+                        },
+                    }
+                ),
+            ),
+        ]
+
+        observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
+
+        self.assertEqual(
+            observations[-1],
+            {"event": "preToolUse", "tool": "TodoWrite", "done": 2, "total": 6, "source": "raw_tool_call"},
+        )
+
+    def test_extracts_cursor_todo_write_progress_from_trace_extra(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="cursor",
+                scenario="tasks",
+                event_name="afterShellExecution",
+                adapter="cursor",
+                standard_input=json.dumps({"hook_event_name": "afterShellExecution"}),
+                extra={"task_progress": {"tool": "TodoWrite", "done": 1, "total": 3, "source": "cursor_transcript"}},
+            )
+        ]
+
+        observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
+
+        self.assertEqual(
+            observations,
+            [{"event": "afterShellExecution", "tool": "TodoWrite", "done": 1, "total": 3, "source": "cursor_transcript"}],
+        )
+
+    def test_extracts_cursor_todo_write_progress_from_transcript_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = pathlib.Path(tmp) / "cursor.jsonl"
+            transcript_path.write_text(
+                json.dumps(
+                    {
+                        "role": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "TodoWrite",
+                                    "input": {
+                                        "todos": [
+                                            {"content": "Review logs", "status": "completed"},
+                                            {"content": "Patch adapter", "status": "in_progress"},
+                                            {"content": "Run tests", "status": "pending"},
+                                        ]
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            progress = agent_bench.cursor_transcript_task_progress(
+                {"transcript_path": str(transcript_path)},
+                attempts=1,
+            )
+
+        self.assertEqual(
+            progress,
+            {"tool": "TodoWrite", "done": 1, "total": 3, "source": "cursor_transcript"},
+        )
+
+    def test_extracts_cursor_todo_write_merge_progress_from_transcript_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = pathlib.Path(tmp) / "cursor.jsonl"
+            transcript_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "role": "assistant",
+                                "message": {
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "name": "TodoWrite",
+                                            "input": {
+                                                "merge": False,
+                                                "todos": [
+                                                    {"id": "dummy-1", "content": "Review logs", "status": "pending"},
+                                                    {"id": "dummy-2", "content": "Run tests", "status": "pending"},
+                                                    {"id": "dummy-3", "content": "Verify profile", "status": "pending"},
+                                                    {"id": "dummy-4", "content": "Check resume", "status": "pending"},
+                                                    {"id": "dummy-5", "content": "Smoke test", "status": "pending"},
+                                                ],
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "role": "assistant",
+                                "message": {
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "name": "TodoWrite",
+                                            "input": {
+                                                "merge": True,
+                                                "todos": [
+                                                    {"id": "dummy-1", "content": "Review logs", "status": "completed"},
+                                                    {"id": "dummy-3", "content": "Verify profile", "status": "completed"},
+                                                ],
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "role": "assistant",
+                                "message": {
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "name": "TodoWrite",
+                                            "input": {
+                                                "merge": True,
+                                                "todos": [
+                                                    {"id": "dummy-6", "content": "Validate AgentEventBridge", "status": "pending"}
+                                                ],
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            progress = agent_bench.cursor_transcript_task_progress(
+                {"transcript_path": str(transcript_path)},
+                attempts=1,
+            )
+
+        self.assertEqual(
+            progress,
+            {"tool": "TodoWrite", "done": 2, "total": 6, "source": "cursor_transcript"},
+        )
+
+    def test_extracts_canonical_task_progress_source(self):
+        records = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="grok",
+                scenario="tasks",
+                event_name="task.progress",
+                adapter="grok",
+                standard_input=json.dumps({"event": "task.progress", "progress": {"done": 2, "total": 4}}),
+            )
+        ]
+
+        observations = agent_bench.task_observations_for_records("grok", "tasks", records)
+
+        self.assertEqual(
+            observations,
+            [{"event": "task.progress", "tool": "TodoWrite", "done": 2, "total": 4, "source": "canonical"}],
+        )
+
     def test_completed_tasks_scenario_without_todo_write_is_missing_task_hook(self):
         result = agent_bench.classify_completed_result(
-            agent="cursor",
+            agent="codex",
             scenario="tasks",
             expectation=agent_bench.ScenarioExpectation("tasks", ["sessionStart", "sessionEnd"]),
             records=[
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="tasks", event_name="sessionEnd"),
+            ],
+            terminal_observations=[],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "missing-task-hook")
+
+    def test_cursor_tasks_scenario_without_todo_write_is_missing_task_hook(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation("tasks", ["sessionStart", "afterShellExecution", "sessionEnd"]),
+            records=[
                 agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="afterShellExecution"),
                 agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
             ],
             terminal_observations=[],
@@ -953,6 +1296,68 @@ class TaskObservationTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.status, "fail")
         self.assertEqual(result.result_kind, "missing-task-hook")
+
+    def test_tasks_scenario_fails_when_expected_task_progress_is_missing(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation(
+                "tasks",
+                ["sessionStart", "afterShellExecution", "sessionEnd"],
+                expected_task_progress={"done": 2, "total": 6},
+            ),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(
+                    kind="hook",
+                    agent="cursor",
+                    scenario="tasks",
+                    event_name="afterShellExecution",
+                    extra={"task_progress": {"tool": "TodoWrite", "done": 0, "total": 1, "source": "cursor_transcript"}},
+                ),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
+            ],
+            terminal_observations=[],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-task-progress")
+
+    def test_tasks_scenario_passes_when_expected_task_progress_is_observed(self):
+        result = agent_bench.classify_completed_result(
+            agent="cursor",
+            scenario="tasks",
+            expectation=agent_bench.ScenarioExpectation(
+                "tasks",
+                ["sessionStart", "afterShellExecution", "sessionEnd"],
+                expected_task_progress={"done": 2, "total": 6},
+            ),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionStart"),
+                agent_bench.TraceRecord(
+                    kind="hook",
+                    agent="cursor",
+                    scenario="tasks",
+                    event_name="afterShellExecution",
+                    extra={"task_progress": {"tool": "TodoWrite", "done": 2, "total": 6, "source": "cursor_transcript"}},
+                ),
+                agent_bench.TraceRecord(kind="hook", agent="cursor", scenario="tasks", event_name="sessionEnd"),
+            ],
+            terminal_observations=[],
+            output="ZENTTY_AGENT_BENCH_TASKS_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=False,
+            strict=False,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.result_kind, "hook-pass")
 
 
 class IPCServerTests(unittest.TestCase):
@@ -1031,7 +1436,7 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"],
+            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"],
         )
         for profile in profiles.values():
             self.assertIn("smoke", profile.expectations)
@@ -1056,7 +1461,7 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("--force", profile.launch_args_by_scenario["smoke"])
         self.assertEqual(
             profile.expectations["smoke"].required_events,
-            ["sessionStart", "sessionEnd"],
+            ["sessionStart", "afterShellExecution", "sessionEnd"],
         )
 
     def test_cursor_approval_profile_bypasses_workspace_trust_for_permission_path(self):
@@ -1072,8 +1477,9 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("TodoWrite", profile.launch_args_by_scenario["tasks"][-1])
         self.assertEqual(
             profile.expectations["tasks"].required_events,
-            ["sessionStart", "preToolUse", "postToolUse", "sessionEnd"],
+            ["sessionStart", "afterShellExecution", "sessionEnd"],
         )
+        self.assertEqual(profile.expectations["tasks"].expected_task_progress, {"done": 2, "total": 6})
 
     def test_copilot_approval_profile_drives_interactive_prompt_like_a_person(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["copilot"]
@@ -1167,6 +1573,33 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(profile.input_by_scenario["tui_restart"][0]["label"], "trust-workspace")
         self.assertEqual(profile.input_by_scenario["tui_restart"][1]["label"], "quit")
 
+    def test_classification_rejects_out_of_order_terminal_phase_requirements(self):
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="tui_restart",
+            expectation=agent_bench.ScenarioExpectation(
+                name="tui_restart",
+                required_events=[],
+                required_terminal_phases=["idle", "starting", "idle", "starting"],
+            ),
+            records=[],
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="starting", offset=0),
+                agent_bench.TerminalObservation(kind="title", text="idle", offset=1),
+                agent_bench.TerminalObservation(kind="title", text="starting", offset=2),
+                agent_bench.TerminalObservation(kind="title", text="idle", offset=3),
+            ],
+            output="",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=False,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "missing-terminal-phase")
+        self.assertEqual(result.missing_events, ["starting"])
+
     def test_gemini_smoke_profile_skips_trust_prompt_for_headless_runs(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["gemini"]
 
@@ -1177,6 +1610,126 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(profile.launch_args_by_scenario["approval"][0], "exec")
         self.assertIn("touch ZENTTY_AGENT_BENCH_APPROVAL_OK", profile.launch_args_by_scenario["approval"][1])
+
+    def test_agy_profile_uses_supported_headless_flags_and_wrapper_lifecycle(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+
+        self.assertIn("--print", profile.launch_args_by_scenario["smoke"])
+        self.assertIn("--prompt", profile.launch_args_by_scenario["smoke"])
+        self.assertNotIn("--format", profile.launch_args_by_scenario["smoke"])
+        self.assertEqual(
+            profile.expectations["smoke"].required_events,
+            ["session.start", "agent.running"],
+        )
+        self.assertEqual(
+            profile.expectations["restore_launch"].required_bootstrap_arguments,
+            [["--continue"]],
+        )
+
+    def test_agy_profile_session_capture_requires_uuid_session_identity(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        identity = profile.expectations["session_capture"].session_identity
+        self.assertIsNotNone(identity)
+        assert identity is not None  # narrow for type-checker
+        self.assertEqual(identity.session_id_pattern, "uuid")
+        self.assertTrue(identity.tracked_pid)
+
+    def test_agy_profile_tools_scenario_requires_tool_use_lifecycle_events(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        self.assertIn("tools", profile.launch_args_by_scenario)
+        self.assertIn("--dangerously-skip-permissions", profile.launch_args_by_scenario["tools"])
+        # Tool-use hook events show up in bench traces under the kebab-case
+        # positional our shell command passes through `agy-hook`, not the
+        # PascalCase names the Antigravity CLI uses in its JSON payload.
+        self.assertEqual(
+            profile.expectations["tools"].required_events,
+            ["session.start", "agent.running", "pre-tool-use", "post-tool-use", "stop"],
+        )
+
+    def test_agy_profile_restore_launch_with_id_asserts_conversation_flag(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        self.assertIn("restore_launch_with_id", profile.launch_args_by_scenario)
+        self.assertEqual(
+            profile.launch_args_by_scenario["restore_launch_with_id"][0],
+            "--conversation",
+        )
+        self.assertEqual(
+            profile.expectations["restore_launch_with_id"].required_bootstrap_arguments,
+            [["--conversation", "zentty-bench-conversation-fixture"]],
+        )
+
+    def test_agy_plan_installs_overlay_hooks_and_preserves_user_config(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = pathlib.Path(tmp)
+            # Populate HOME with a `.gemini/antigravity-cli/settings.json`
+            # we can verify the overlay does NOT surface, and a
+            # `.gemini/config/config.json` we can verify the overlay DOES
+            # surface (user settings must survive alongside our hooks.json).
+            real_home = run_dir / "real-home"
+            (real_home / ".gemini" / "antigravity-cli").mkdir(parents=True)
+            (real_home / ".gemini" / "antigravity-cli" / "settings.json").write_text("{}")
+            (real_home / ".gemini" / "config").mkdir(parents=True)
+            (real_home / ".gemini" / "config" / "config.json").write_text('{"theme":"dark"}')
+
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="tools",
+                run_dir=run_dir,
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["--print", "--prompt", "hello"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/agy",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty-bench",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_home = pathlib.Path(plan["setEnvironment"]["HOME"])
+
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "agy")
+            # The user's config.json survives via the symlinked config dir…
+            self.assertTrue((overlay_home / ".gemini" / "config" / "config.json").exists())
+            # …the antigravity-cli subtree is skipped…
+            self.assertFalse((overlay_home / ".gemini" / "antigravity-cli" / "settings.json").exists())
+            # …and we write a real hooks.json (not a symlink) so the tools
+            # scenario fires real hooks against the bench CLI.
+            overlay_hooks = overlay_home / ".gemini" / "config" / "hooks.json"
+            self.assertTrue(overlay_hooks.exists())
+            self.assertFalse(overlay_hooks.is_symlink())
+            hooks_doc = json.loads(overlay_hooks.read_text())
+            self.assertEqual(
+                set(hooks_doc["zentty"].keys()),
+                {"SessionStart", "PreInvocation", "Stop", "turn-completion",
+                 "Notification", "SessionEnd", "PreToolUse", "PostToolUse"},
+            )
+            # Tool-use events carry the matcher wrapper; lifecycle do not.
+            self.assertIn("matcher", hooks_doc["zentty"]["PreToolUse"][0])
+            self.assertNotIn("matcher", hooks_doc["zentty"]["Stop"][0])
+            # The bench CLI path is baked into the hook command, and the
+            # event positional is forwarded to agy-hook.
+            stop_cmd = hooks_doc["zentty"]["Stop"][0]["command"]
+            self.assertIn("/tmp/zentty-bench", stop_cmd)
+            self.assertIn("agy-hook stop", stop_cmd)
+
+            self.assertEqual([action["arguments"] for action in plan["preLaunchActions"]], [["--adapter=agy"], ["--adapter=agy"]])
+            self.assertIn('"event":"session.start"', plan["preLaunchActions"][0]["standardInput"])
+            self.assertIn('"event":"agent.running"', plan["preLaunchActions"][1]["standardInput"])
+
+            placeholder = plan["setEnvironment"]["ZENTTY_AGY_PLACEHOLDER_SESSION_ID"]
+            # The placeholder follows the `zentty-placeholder-<uuid>`
+            # pattern so the Swift resume builder can recognise and strip
+            # it; downstream code never confuses it for a real
+            # conversation_id.
+            self.assertTrue(placeholder.startswith("zentty-placeholder-"), placeholder)
+            import uuid as _uuid
+            _uuid.UUID(placeholder[len("zentty-placeholder-"):])
+            self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][0]["standardInput"])
+            self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][1]["standardInput"])
+            self.assertNotIn("pane-antigravity", plan["preLaunchActions"][0]["standardInput"])
 
     def test_claude_plan_installs_tool_use_hooks_for_permission_sensitive_tools(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]
@@ -1218,6 +1771,34 @@ class AppPathResolutionTests(unittest.TestCase):
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")
 
             self.assertTrue(agent_bench.app_has_agent_bench_resources(app_path))
+
+    def test_missing_agent_wrapper_resource_reports_absent_selected_wrapper(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            app_path = pathlib.Path(tmp) / "Zentty.app"
+            launcher = app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            missing = agent_bench.missing_agent_wrapper_resource(app_path, profile)
+
+        self.assertIn("missing agy wrapper directory", missing)
+
+    def test_missing_agent_wrapper_resource_accepts_executable_selected_wrapper(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            app_path = pathlib.Path(tmp) / "Zentty.app"
+            launcher = app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty"
+            wrapper = app_path / "Contents" / "Resources" / "bin" / "agy" / "agy"
+            launcher.parent.mkdir(parents=True)
+            wrapper.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+            wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+            wrapper.chmod(0o755)
+
+            missing = agent_bench.missing_agent_wrapper_resource(app_path, profile)
+
+        self.assertIsNone(missing)
 
     def test_no_build_resolver_skips_stale_build_debug_app_for_derived_data_app(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1430,7 +2011,9 @@ class LaunchPlannerTests(unittest.TestCase):
             )
 
             self.assertNotIn("HOME", plan["setEnvironment"])
+            overlay_home = root / "run" / "overlays" / "smoke" / "cursor" / "home"
             overlay_config = pathlib.Path(plan["setEnvironment"]["CURSOR_CONFIG_DIR"])
+            self.assertEqual(overlay_config, overlay_home / ".cursor")
             overlay_hooks = overlay_config / "hooks.json"
 
             self.assertTrue(overlay_hooks.exists())

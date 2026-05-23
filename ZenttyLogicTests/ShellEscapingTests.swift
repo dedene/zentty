@@ -30,6 +30,14 @@ final class ShellEscapingTests: XCTestCase {
         XCTAssertEqual(ShellEscaping.escapePath("/tmp/a\tb"), "/tmp/a\\\tb")
     }
 
+    func test_newline_is_escaped() {
+        XCTAssertEqual(ShellEscaping.escapePath("/tmp/a\nb"), "/tmp/a\\\nb")
+    }
+
+    func test_carriage_return_is_escaped() {
+        XCTAssertEqual(ShellEscaping.escapePath("/tmp/a\rb"), "/tmp/a\\\rb")
+    }
+
     func test_multiple_paths_joined() {
         let paths = ["/tmp/a b", "/tmp/c d"]
         let result = paths.map(ShellEscaping.escapePath).joined(separator: " ")

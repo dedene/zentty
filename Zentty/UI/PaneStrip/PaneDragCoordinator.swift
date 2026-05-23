@@ -171,6 +171,8 @@ final class PaneDragCoordinator {
     private static let popScale: CGFloat = 0.45
     private static let gapScreenPt: CGFloat = 20
     private static let splitDwellDuration: TimeInterval = 0.25
+    /// Above `PaneContainerView` chrome (zPosition 10) so split highlights paint over terminals.
+    private static let splitOverlayZPosition: CGFloat = 11
     private static let sidebarDeadZoneScreenPt: CGFloat = 20
 
     // MARK: - Shared Visual Layout
@@ -619,13 +621,30 @@ final class PaneDragCoordinator {
         // Convert cursor to content space
         let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
 
+        let arbitrationSplitHit = prospectiveSplitZoneHit(
+            cursorInStrip: cursorInStrip,
+            presentation: hitTestPresentation,
+            excludedPaneID: activeState.draggedPaneID,
+            zoomScale: currentZoom
+        )
+
         // Gap-based hit test with hysteresis
-        let gapHit = PaneDragHitTest.reorderGapHit(
+        var gapHit = PaneDragHitTest.reorderGapHit(
             cursorX: cursorInContent.x,
             visibleColumnFrames: layout.columnFrames,
             zoomScale: currentZoom,
             previousReducedIndex: currentReducedIndex
         )
+
+        if let activeGapHit = gapHit,
+           let arbitrationSplitHit,
+           PaneDragHitTest.shouldSuppressColumnReorderGap(
+               gapReducedIndex: activeGapHit.reducedIndex,
+               splitHit: arbitrationSplitHit,
+               columnIDsInOrder: hitTestPresentation.columns.map(\.columnID)
+           ) {
+            gapHit = nil
+        }
 
         if gapHit != nil {
             // Reorder gaps always win — clear any active split state
@@ -1500,18 +1519,50 @@ final class PaneDragCoordinator {
 
     // MARK: - Private — Split Target Evaluation
 
+    private func splitPresentationForHitTesting() -> StripPresentation? {
+        if isOptionHeld, let originalPresentation {
+            return originalPresentation
+        }
+        return reducedPresentation
+    }
+
+    private func prospectiveSplitZoneHit(
+        cursorInStrip: CGPoint,
+        presentation: StripPresentation,
+        excludedPaneID: PaneID,
+        zoomScale: CGFloat
+    ) -> SplitZoneHit? {
+        guard let paneStripView, let viewportView else { return nil }
+
+        let layout = makeDragVisualLayout(
+            presentation: presentation,
+            activeReducedGapIndex: nil,
+            zoomScale: zoomScale
+        )
+        let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
+
+        var columnForPane: [PaneID: PaneColumnID] = [:]
+        for pane in presentation.panes {
+            columnForPane[pane.paneID] = pane.columnID
+        }
+        let paneCountByColumn = Dictionary(
+            uniqueKeysWithValues: presentation.columns.map { ($0.columnID, $0.panes.count) }
+        )
+
+        return PaneDragHitTest.splitZoneHit(
+            cursorInContent: cursorInContent,
+            paneFramesByID: layout.paneFramesByID,
+            columnForPane: columnForPane,
+            paneCountByColumn: paneCountByColumn,
+            excludedPaneID: excludedPaneID,
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+    }
+
     private func evaluateSplitTarget(cursorInStrip: CGPoint) {
         guard case .active(let activeState) = phase,
-              let paneStripView, let viewportView,
-              let reducedPresentation else { return }
-
-        // Use original presentation when Option held so split zones match visual positions
-        let splitPresentation: StripPresentation
-        if isOptionHeld, let originalPresentation {
-            splitPresentation = originalPresentation
-        } else {
-            splitPresentation = reducedPresentation
-        }
+              let paneStripView,
+              let splitPresentation = splitPresentationForHitTesting() else { return }
 
         let currentZoom = paneStripView.currentZoomScale()
         let layout = makeDragVisualLayout(
@@ -1520,23 +1571,11 @@ final class PaneDragCoordinator {
             zoomScale: currentZoom
         )
 
-        let cursorInContent = paneStripView.convert(cursorInStrip, to: viewportView)
-
-        var columnForPane: [PaneID: PaneColumnID] = [:]
-        for pane in splitPresentation.panes {
-            columnForPane[pane.paneID] = pane.columnID
-        }
-        let paneCountByColumn = Dictionary(
-            uniqueKeysWithValues: splitPresentation.columns.map { ($0.columnID, $0.panes.count) }
-        )
-
-        let splitHit = PaneDragHitTest.splitZoneHit(
-            cursorInContent: cursorInContent,
-            paneFramesByID: layout.paneFramesByID,
-            columnForPane: columnForPane,
-            paneCountByColumn: paneCountByColumn,
+        let splitHit = prospectiveSplitZoneHit(
+            cursorInStrip: cursorInStrip,
+            presentation: splitPresentation,
             excludedPaneID: activeState.draggedPaneID,
-            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+            zoomScale: currentZoom
         )
 
         guard let splitHit else {
@@ -1560,7 +1599,7 @@ final class PaneDragCoordinator {
     // MARK: - Private — Split Overlay
 
     private func showSplitOverlay(for hit: SplitZoneHit, layout: DragVisualLayout) {
-        guard let viewportView, let draggedPaneView else { return }
+        guard let viewportView else { return }
 
         // Mutual exclusion: hide insertion line
         insertionLine?.isHidden = true
@@ -1601,7 +1640,8 @@ final class PaneDragCoordinator {
             }
         } else {
             let overlay = PaneDragSplitOverlayView(frame: overlayFrame)
-            viewportView.addSubview(overlay, positioned: .below, relativeTo: draggedPaneView)
+            overlay.layer?.zPosition = Self.splitOverlayZPosition
+            viewportView.addSubview(overlay)
             splitOverlay = overlay
             overlay.animateIn()
         }
@@ -1998,6 +2038,17 @@ final class PaneDragCoordinator {
         if case .active = phase {
             updateDuplicateVisuals()
         }
+    }
+
+    func satisfySplitDwellForTesting() {
+        splitDwellSatisfied = true
+        if case .active(let activeState) = phase {
+            evaluateSplitTarget(cursorInStrip: activeState.cursorPosition)
+        }
+    }
+
+    var splitOverlayForTesting: PaneDragSplitOverlayView? {
+        splitOverlay
     }
     #endif
 

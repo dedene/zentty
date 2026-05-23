@@ -2143,11 +2143,6 @@ final class PaneStripViewTests: AppKitTestCase {
             ],
             focusedColumnID: PaneColumnID("stack")
         )
-        let splitPresentation = PaneStripMotionController().presentation(
-            for: splitState,
-            in: paneStripView.bounds.size
-        )
-
         paneStripView.render(singlePane)
         paneStripView.layoutSubtreeIfNeeded()
 
@@ -2164,12 +2159,14 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertEqual(insertedAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let shellResumeHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
         let insertedResumeHeight = try XCTUnwrap(insertedAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
-        let expectedShellHeight = try XCTUnwrap(
-            splitPresentation.panes.first(where: { $0.paneID == PaneID("shell") })?.frame.height
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
-        let expectedInsertedHeight = try XCTUnwrap(
-            splitPresentation.panes.first(where: { $0.paneID == PaneID("pane-1") })?.frame.height
+        let insertedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "pane 1" })
         )
+        let expectedShellHeight = shellPane.terminalAnchorFrameForTesting.height
+        let expectedInsertedHeight = insertedPane.terminalAnchorFrameForTesting.height
         XCTAssertEqual(
             shellResumeHeight,
             expectedShellHeight,
@@ -2384,11 +2381,6 @@ final class PaneStripViewTests: AppKitTestCase {
             ],
             focusedColumnID: PaneColumnID("stack")
         )
-        let singlePanePresentation = PaneStripMotionController().presentation(
-            for: singlePane,
-            in: paneStripView.bounds.size
-        )
-
         paneStripView.render(splitState)
         paneStripView.layoutSubtreeIfNeeded()
 
@@ -2401,9 +2393,10 @@ final class PaneStripViewTests: AppKitTestCase {
 
         XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, false)
         let resumedHeight = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last?.height)
-        let expectedHeight = try XCTUnwrap(
-            singlePanePresentation.panes.first(where: { $0.paneID == PaneID("shell") })?.frame.height
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
+        let expectedHeight = shellPane.terminalAnchorFrameForTesting.height
         XCTAssertEqual(resumedHeight, expectedHeight, accuracy: 0.5)
     }
 
@@ -3698,6 +3691,67 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertEqual(paneStripView.currentZoomScale(), 1, accuracy: 0.001)
         XCTAssertEqual(paneStripView.dragScrollOffsetXForTesting, 0, accuracy: 0.001)
         XCTAssertEqual(alphaAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+    }
+
+    @MainActor
+    func test_split_drag_overlay_visible_above_adjacent_single_pane_column() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["top", "bottom"], width: 420),
+                makeColumn("right", paneIDs: ["solo"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+        paneStripView.dragOverlayView = paneStripView
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let topPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "top" })
+        )
+        let soloPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "solo" })
+        )
+        let viewport = try XCTUnwrap(topPane.superview)
+
+        let dragStart = paneStripView.convert(
+            CGPoint(x: topPane.frame.midX, y: topPane.frame.maxY - (PaneContainerView.dragZoneHeight / 2)),
+            from: viewport
+        )
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("top"), cursorInStrip: dragStart)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let splitCursorInViewport = CGPoint(
+            x: soloPane.frame.minX + soloPane.frame.width * 0.12,
+            y: soloPane.frame.midY
+        )
+        let splitCursorInStrip = paneStripView.convert(splitCursorInViewport, from: viewport)
+
+        paneStripView.movePaneDragForTesting(cursorInStrip: splitCursorInStrip)
+        paneStripView.satisfySplitDwellForTesting()
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let overlay = try XCTUnwrap(paneStripView.splitDragOverlayForTesting)
+        XCTAssertGreaterThan(overlay.alphaValue, 0.01)
+        XCTAssertEqual(overlay.layer?.zPosition, 11)
+
+        let expectedHalfWidth = soloPane.frame.width / 2
+        XCTAssertEqual(overlay.frame.minX, soloPane.frame.minX, accuracy: 1)
+        XCTAssertEqual(overlay.frame.width, expectedHalfWidth, accuracy: 1)
+        XCTAssertEqual(overlay.frame.minY, soloPane.frame.minY, accuracy: 1)
+        XCTAssertEqual(overlay.frame.height, soloPane.frame.height, accuracy: 1)
+
+        let soloIndex = viewport.subviews.firstIndex(of: soloPane)
+        let overlayIndex = viewport.subviews.firstIndex(of: overlay)
+        XCTAssertNotNil(soloIndex)
+        XCTAssertNotNil(overlayIndex)
+        XCTAssertGreaterThan(overlayIndex!, soloIndex!)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: splitCursorInStrip)
     }
 
     @MainActor

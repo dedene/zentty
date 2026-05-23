@@ -43,6 +43,19 @@ Guidelines:
 - Do not make manual edits directly in `Zentty.xcodeproj/project.pbxproj` unless Peter explicitly asks.
 - When project configuration changes are needed, update `project.yml` first and regenerate the project.
 
+## Agent Bench
+
+`scripts/agent-bench/` drives each supported agent CLI through the Zentty wrapper and asserts the hook events the integration depends on. It is the regression backstop for the Antigravity (agy) integration in particular, where the hook pipeline has historically been fragile.
+
+For the agy integration, the gate is `scripts/test-agy-bench`. It builds Zentty (skip with `--no-build`) and runs the full agy scenario sweep — `smoke,session_capture,approval,tools,restore_launch,restore_launch_with_id` — in `--strict` mode (auth-skip / binary-skip become failures).
+
+Re-run after:
+- any agy CLI version bump (it is the upstream side of the contract),
+- any change to `AgyHooksInstaller`, `agyAdapter`, or `AgyCanonicalReEmitter`,
+- any change to `scripts/agent-bench/profiles/agy.json`.
+
+Profile-level Python tests (`scripts/agent-bench/tests/test_agent_bench.py`) run via `python3 -m unittest discover scripts/agent-bench/tests` and catch bad profile shapes before the harness is even invoked.
+
 ## Error Handling
 
 Two-tier strategy based on execution context:

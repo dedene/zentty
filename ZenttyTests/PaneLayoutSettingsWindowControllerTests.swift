@@ -41,7 +41,10 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(tabController.tabStyle, .toolbar)
         XCTAssertNotNil(controller.window?.toolbar)
         XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
-        XCTAssertEqual(contentController.sectionTitles, ["General", "Appearance", "Shortcuts", "Open With", "Panes", "Agents"])
+        XCTAssertEqual(
+            contentController.sectionTitles,
+            ["General", "Appearance", "Shortcuts", "Open With", "Dev Servers", "Panes", "Agents"]
+        )
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
         XCTAssertEqual(controller.window?.title, "Panes")
 
@@ -51,7 +54,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(paneLayoutController.showsPaneLabelsForTesting)
         XCTAssertEqual(paneLayoutController.inactivePaneOpacityPercentageForTesting, 70)
         XCTAssertEqual(paneLayoutController.selectedRightSplitBehaviorModeForTesting, .adaptive)
-        XCTAssertEqual(paneLayoutController.visibleSplitWindowWidthForTesting, .px1440)
+        XCTAssertEqual(paneLayoutController.visibleSplitWindowWidthForTesting, .px1920)
     }
 
     func test_settings_window_uses_configured_test_screen() throws {
@@ -71,7 +74,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         waitForLayout()
 
         let window = try XCTUnwrap(controller.window)
-        XCTAssertEqual(window.screen?.localizedName, screenName)
+        let localizedName = try XCTUnwrap(window.screen?.localizedName)
+        XCTAssertTrue(HostedTestDisplay.screenName(localizedName, matches: screenName))
     }
 
     func test_panes_section_reads_persisted_controls_from_config() throws {
@@ -138,6 +142,43 @@ final class SettingsWindowControllerTests: XCTestCase {
                 stringValue: "Below this width, ⌘D adds a pane. At this width or wider, it splits right."
             )
         )
+    }
+
+    func test_panes_section_threshold_slider_updates_pane_layout_state_immediately() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+        let thresholdSlider = try XCTUnwrap(
+            panesController.view.firstDescendant(where: { view in
+                guard let slider = view as? NSSlider else { return false }
+                return slider.numberOfTickMarks == PaneVisibleSplitWindowWidth.allCases.count
+            }) as? NSSlider
+        )
+
+        thresholdSlider.integerValue = try XCTUnwrap(
+            PaneVisibleSplitWindowWidth.allCases.firstIndex(of: .px1920)
+        )
+        XCTAssertTrue(
+            NSApp.sendAction(try XCTUnwrap(thresholdSlider.action), to: thresholdSlider.target, from: thresholdSlider)
+        )
+
+        XCTAssertEqual(panesController.visibleSplitWindowWidthForTesting, .px1920)
+        XCTAssertEqual(store.current.paneLayout.visibleSplitWindowWidth, .px1920)
     }
 
     func test_settings_window_can_switch_to_shortcuts_section_and_read_effective_bindings() throws {

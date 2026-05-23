@@ -10,25 +10,52 @@
       "--force",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
+    "session_capture": [
+      "--print",
+      "--trust",
+      "--force",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
     "approval": [
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "interactive_turn_complete": [
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
     ],
     "tasks": [
       "--print",
       "--trust",
       "--force",
-      "Create a TodoWrite list with three tasks: Review logs, Patch adapter, Run tests. Mark Review logs complete, leave Patch adapter in progress, leave Run tests pending, then run this exact shell command: printf ZENTTY_AGENT_BENCH_TASKS_OK"
+      "Create a TodoWrite list with five tasks: Review logs, Run SessionRestoreStore unit tests, Verify cursor agent-bench profile config, Check resume command builder output, Smoke test Zentty todo sync integration. Mark Review logs complete. Mark Verify cursor agent-bench profile config complete. Then add one new pending TodoWrite task named Validate AgentEventBridge resume flow. Then run this exact shell command: printf ZENTTY_AGENT_BENCH_TASKS_OK"
+    ],
+    "restore_launch": [
+      "--resume=237d8c32-2a27-4850-8da8-3a110f13682c"
     ]
   },
   "expectations": {
     "smoke": {
-      "required_events": ["sessionStart", "sessionEnd"]
+      "required_events": ["sessionStart", "afterShellExecution", "sessionEnd"]
+    },
+    "session_capture": {
+      "required_events": ["sessionStart", "afterShellExecution", "sessionEnd"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
     },
     "approval": {
       "required_events": ["sessionStart", "beforeSubmitPrompt"]
     },
+    "interactive_turn_complete": {
+      "required_events": ["beforeSubmitPrompt", "sessionStart", "stop"]
+    },
     "tasks": {
-      "required_events": ["sessionStart", "preToolUse", "postToolUse", "sessionEnd"]
+      "required_events": ["sessionStart", "afterShellExecution", "sessionEnd"],
+      "expected_task_progress": {"done": 2, "total": 6}
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--resume=237d8c32-2a27-4850-8da8-3a110f13682c"]]
     }
   },
   "input_by_scenario": {
@@ -44,6 +71,12 @@
       {
         "after": 45,
         "text": "\u0003"
+      }
+    ],
+    "interactive_turn_complete": [
+      {
+        "match": "Workspace Trust Required|Trust this workspace",
+        "text": "a"
       }
     ]
   },

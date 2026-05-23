@@ -2,6 +2,63 @@ import XCTest
 @testable import Zentty
 
 final class WorkspaceRecipeTests: XCTestCase {
+    func test_window_frame_round_trips_and_missing_frame_decodes_as_nil() throws {
+        let frame = WorkspaceRecipe.WindowFrame(
+            x: 1721,
+            y: -1,
+            width: 1720,
+            height: 1410,
+            screenX: 0,
+            screenY: 0,
+            screenWidth: 3440,
+            screenHeight: 1410
+        )
+        let window = WorkspaceRecipe.Window(
+            id: "window-main",
+            frame: frame,
+            worklanes: [],
+            activeWorklaneID: nil
+        )
+
+        let data = try JSONEncoder().encode(window)
+        let restored = try JSONDecoder().decode(WorkspaceRecipe.Window.self, from: data)
+
+        XCTAssertEqual(restored.frame, frame)
+        XCTAssertEqual(restored.frame?.rect, NSRect(x: 1721, y: -1, width: 1720, height: 1410))
+        XCTAssertEqual(restored.frame?.screenX, 0)
+        XCTAssertEqual(restored.frame?.screenY, 0)
+        XCTAssertEqual(restored.frame?.screenWidth, 3440)
+        XCTAssertEqual(restored.frame?.screenHeight, 1410)
+
+        let legacyData = try XCTUnwrap(
+            """
+            {
+              "id": "legacy-window",
+              "worklanes": [],
+              "activeWorklaneID": null
+            }
+            """.data(using: .utf8)
+        )
+        let legacy = try JSONDecoder().decode(WorkspaceRecipe.Window.self, from: legacyData)
+
+        XCTAssertNil(legacy.frame)
+    }
+
+    func test_exporter_persists_window_frame_when_available() throws {
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            frame: NSRect(x: 14, y: 0, width: 1720, height: 1410),
+            worklanes: [],
+            activeWorklaneID: nil
+        )
+
+        XCTAssertEqual(window.frame?.rect, NSRect(x: 14, y: 0, width: 1720, height: 1410))
+        XCTAssertNil(window.frame?.screenX)
+        XCTAssertNil(window.frame?.screenY)
+        XCTAssertNil(window.frame?.screenWidth)
+        XCTAssertNil(window.frame?.screenHeight)
+    }
+
     func test_export_and_import_preserves_window_worklanes_layout_and_focus() throws {
         let baseDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.\(UUID().uuidString)", isDirectory: true)
@@ -130,6 +187,98 @@ final class WorkspaceRecipeTests: XCTestCase {
         XCTAssertEqual(
             restored.worklanes[0].paneStripState.panes.first(where: { $0.id == rightPaneID })?.sessionRequest.environmentVariables["ZENTTY_WINDOW_ID"],
             "window-main"
+        )
+    }
+
+    @MainActor
+    func test_export_and_import_after_last_pane_transfer_preserves_identical_panes() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1280,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.Transfer.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: sharedDirectory)
+        }
+        let sharedCWD = sharedDirectory.path
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedAuxiliary = PaneAuxiliaryState(
+            presentation: PanePresentationState(
+                cwd: sharedCWD,
+                rememberedTitle: "codex"
+            )
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: sourceWorklaneID,
+                    title: "SOURCE",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: sourcePaneID, title: "codex", sessionRequest: sharedRequest)],
+                        focusedPaneID: sourcePaneID
+                    ),
+                    auxiliaryStateByPaneID: [sourcePaneID: sharedAuxiliary]
+                ),
+                WorklaneState(
+                    id: targetWorklaneID,
+                    title: "TARGET",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: targetPaneID, title: "codex", sessionRequest: sharedRequest)],
+                        focusedPaneID: targetPaneID
+                    ),
+                    auxiliaryStateByPaneID: [targetPaneID: sharedAuxiliary]
+                ),
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: sourceWorklaneID
+        )
+
+        store.transferPaneToWorklane(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: store.worklanes,
+            activeWorklaneID: store.activeWorklaneID
+        )
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: layoutContext,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        XCTAssertEqual(window.worklanes.flatMap { $0.columns.flatMap { $0.panes.map(\.id) } }, [
+            targetPaneID.rawValue,
+            sourcePaneID.rawValue,
+        ])
+        XCTAssertEqual(restored.activeWorklaneID, targetWorklaneID)
+        XCTAssertEqual(restored.worklanes.map(\.id), [targetWorklaneID])
+
+        let restoredWorklane = try XCTUnwrap(restored.worklanes.first)
+        XCTAssertEqual(restoredWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(
+            restoredWorklane.paneStripState.panes.map(\.sessionRequest.workingDirectory),
+            [sharedCWD, sharedCWD]
+        )
+        XCTAssertEqual(
+            restoredWorklane.auxiliaryStateByPaneID.values.compactMap(\.presentation.rememberedTitle).sorted(),
+            ["codex", "codex"]
         )
     }
 
@@ -1375,6 +1524,73 @@ final class WorkspaceRecipeTests: XCTestCase {
                     kind: .agentResume,
                     toolName: "Claude Code",
                     sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
+
+    func test_exporter_keeps_restored_codex_restore_draft_without_live_identity_after_resume_command() {
+        let paneID = PaneID("pane-agent")
+        let restoredDraft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/old-project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "Codex",
+                        sessionRequest: TerminalSessionRequest(
+                            workingDirectory: "/tmp/project",
+                            command: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5"
+                        )
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        shellActivityState: .commandRunning,
+                        lastRunCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+                        restoredAgentRestoreDraft: restoredDraft
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { _ in false }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-agent",
+                    kind: .agentResume,
+                    toolName: "Codex",
+                    sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
                     workingDirectory: "/tmp/project",
                     trackedPID: 4242
                 )

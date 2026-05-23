@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import Zentty
 
@@ -89,6 +90,20 @@ final class PaneStripStoreTests: XCTestCase {
         return WorklaneStore(worklanes: [worklane])
     }
 
+    private func makeSinglePaneWorklane(id: String) -> WorklaneState {
+        let paneID = PaneID("pane-\(id)")
+        return WorklaneState(
+            id: WorklaneID(id),
+            title: id,
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: id),
+                ],
+                focusedPaneID: paneID
+            )
+        )
+    }
+
     func test_store_starts_with_single_main_worklane_and_first_active() {
         let store = WorklaneStore()
 
@@ -102,7 +117,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
-    func test_command_running_keeps_then_clears_restored_agent_restore_draft() throws {
+    func test_command_running_keeps_then_clears_non_codex_restored_agent_restore_draft() throws {
         let paneID = PaneID("pane-agent")
         let worklaneID = WorklaneID("main")
         let draft = PaneRestoreDraft(
@@ -168,6 +183,227 @@ final class PaneStripStoreTests: XCTestCase {
         store.applyAgentStatusPayload(shellRunningPayload)
 
         auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
+    func test_codex_restored_agent_restore_draft_survives_repeated_codex_command_without_replacement_identity() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: draft,
+                        restoredAgentAutoResumePending: true
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let shellRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+            origin: .shell,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        let auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliary.raw.restoredAgentRestoreDraft, draft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
+    func test_codex_restored_agent_restore_draft_clears_after_non_codex_command() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: draft,
+                        restoredAgentAutoResumePending: true
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let codexRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+            origin: .shell,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+        let nonCodexRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "ls",
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(codexRunningPayload)
+        store.applyAgentStatusPayload(nonCodexRunningPayload)
+
+        let auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
+    func test_codex_restored_agent_restore_draft_clears_after_live_replacement_identity_exists() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let livePID = Int32(getpid())
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: PaneAgentStatus(
+                            tool: .codex,
+                            state: .running,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: livePID,
+                            workingDirectory: "/tmp/project",
+                            sessionID: "019e4b24-6389-7ea2-95ec-27b4e2c000b6"
+                        ),
+                        restoredAgentRestoreDraft: draft
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let shellRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+            origin: .shell,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        let auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
         XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
         XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
     }
@@ -367,6 +603,30 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
             .tab
         )
+    }
+
+    func test_create_worklane_inserts_after_active_worklane() {
+        let nextIDs = TestIDSequence(["new", "pane"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("B"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+
+        let newWorklaneID = store.createWorklane()
+
+        XCTAssertEqual(newWorklaneID, WorklaneID("wl_new"))
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("A"),
+            WorklaneID("B"),
+            WorklaneID("wl_new"),
+            WorklaneID("C"),
+        ])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
     }
 
     func test_split_out_pane_to_new_window_extracts_pane_state_without_closing_source_worklane() throws {
@@ -3263,6 +3523,103 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(widths.count, 2)
         XCTAssertEqual(widths[0] / widths[1], 3 / 7, accuracy: 0.001)
         XCTAssertEqual(widths.reduce(0, +) + layoutContext.sizing.interPaneSpacing, layoutContext.availableWidth, accuracy: 0.001)
+    }
+
+    func test_transfer_last_pane_to_worklane_with_identical_pane_keeps_both_panes() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedCWD = "/tmp/shared-project"
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedShellContext = PaneShellContext(
+            scope: .local,
+            path: sharedCWD,
+            home: "/tmp",
+            user: "peter",
+            host: "mac"
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: sourceWorklaneID,
+                    title: "SOURCE",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: sourcePaneID,
+                                title: "codex",
+                                sessionRequest: sharedRequest
+                            )
+                        ],
+                        focusedPaneID: sourcePaneID
+                    ),
+                    auxiliaryStateByPaneID: [
+                        sourcePaneID: PaneAuxiliaryState(
+                            raw: PaneRawState(
+                                shellContext: sharedShellContext,
+                                hasCommandHistory: true
+                            )
+                        )
+                    ]
+                ),
+                WorklaneState(
+                    id: targetWorklaneID,
+                    title: "TARGET",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(
+                                id: targetPaneID,
+                                title: "codex",
+                                sessionRequest: sharedRequest
+                            )
+                        ],
+                        focusedPaneID: targetPaneID
+                    ),
+                    auxiliaryStateByPaneID: [
+                        targetPaneID: PaneAuxiliaryState(
+                            raw: PaneRawState(
+                                shellContext: sharedShellContext,
+                                hasCommandHistory: true
+                            )
+                        )
+                    ]
+                ),
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: sourceWorklaneID
+        )
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        store.transferPaneToWorklane(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        XCTAssertEqual(store.worklanes.map(\.id), [targetWorklaneID])
+        XCTAssertEqual(store.activeWorklaneID, targetWorklaneID)
+
+        let targetWorklane = try XCTUnwrap(store.worklanes.first)
+        XCTAssertEqual(targetWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(Set(targetWorklane.paneStripState.panes.map(\.id)).count, 2)
+        XCTAssertEqual(targetWorklane.paneStripState.focusedPaneID, sourcePaneID)
+        XCTAssertNotNil(targetWorklane.auxiliaryStateByPaneID[targetPaneID])
+        XCTAssertNotNil(targetWorklane.auxiliaryStateByPaneID[sourcePaneID])
+        XCTAssertTrue(changes.contains(.worklaneListChanged))
+        XCTAssertFalse(changes.contains(.paneStructure(sourceWorklaneID)))
     }
 
     func test_reorderPane_into_existing_column_moves_pane_into_stack_and_normalizes_widths() throws {

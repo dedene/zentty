@@ -794,8 +794,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
         var scrollbarUserScrolledAwayCount = 0
         var scrollbarExplicitSyncAllowedCount = 0
         var scrollbarMaxTotalRows: UInt64 = 0
-        var scrollbarMinOffsetRows: UInt64?
-        var scrollbarMaxOffsetRows: UInt64 = 0
+        var scrollbarMinOffsetRows: Double?
+        var scrollbarMaxOffsetRows: Double = 0
         var scrollbarMinVisibleRows: UInt64?
         var scrollbarMaxVisibleRows: UInt64 = 0
         var firstScrollbarPosition: String?
@@ -967,7 +967,7 @@ final class TerminalDiagnostics: @unchecked Sendable {
         documentHeightDeltaPoints: CGFloat,
         reflected: Bool,
         scrollbarTotalRows: UInt64?,
-        scrollbarOffsetRows: UInt64?,
+        scrollbarOffsetRows: Double?,
         scrollbarVisibleRows: UInt64?,
         wasAtBottom: Bool?,
         shouldAutoScroll: Bool?,
@@ -1255,11 +1255,11 @@ final class TerminalDiagnostics: @unchecked Sendable {
         #endif
     }
 
-    private static func rowsBelowViewport(total: UInt64, offset: UInt64, visible: UInt64) -> UInt64 {
-        let clampedOffset = min(offset, total)
-        let remainingRows = total - clampedOffset
-        let visibleRows = min(visible, remainingRows)
-        return remainingRows - visibleRows
+    private static func rowsBelowViewport(total: UInt64, offset: Double, visible: UInt64) -> Double {
+        let clampedOffset = min(max(offset, 0), max(0, Double(total) - Double(visible)))
+        let remainingRows = Double(total) - clampedOffset
+        let visibleRows = min(Double(visible), max(0, remainingRows))
+        return max(0, remainingRows - visibleRows)
     }
 
     private static func metadataChangeKindKey(_ kind: TerminalMetadataChangeKind) -> String {
@@ -1299,10 +1299,12 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "pi"
         case .grok:
             return "grok"
+        case .agy:
+            return "agy"
         case .custom(let name):
-            return name
+            return "custom:\(name)"
         case nil:
-            return "unknown"
+            return "none"
         }
     }
 
@@ -1324,6 +1326,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "ordered"
         case .scrollbar:
             return "scrollbar"
+        case .cellSize:
+            return "cellSize"
         case .mouseShape:
             return "mouseShape"
         }

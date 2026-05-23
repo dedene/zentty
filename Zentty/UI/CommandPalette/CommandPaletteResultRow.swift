@@ -54,6 +54,7 @@ struct CommandPaletteResultRow: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isSelected ? selectedBackgroundColor : (isHovered ? hoverBackgroundColor : .clear))
         )
+        .opacity(item.isEnabled ? 1 : 0.62)
         .onHover { hovering in
             isHovered = hovering
         }

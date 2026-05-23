@@ -26,6 +26,7 @@ final class WindowChromeView: NSView {
     private static let openWithMenuWidth: CGFloat = 24
     private static let openWithSectionSpacing: CGFloat = 14
     private static let openWithSegmentInset: CGFloat = 2
+    private static let trailingControlGap: CGFloat = openWithSectionSpacing - openWithSegmentInset
     fileprivate static let leadingItemSpacing: CGFloat = 10
     fileprivate static let reviewChipSpacing: CGFloat = 8
     fileprivate static let sectionSpacing: CGFloat = 12
@@ -74,6 +75,10 @@ final class WindowChromeView: NSView {
     private let openWithPrimaryButton = WindowChromeSegmentButton()
     private let openWithMenuButton = WindowChromeSegmentButton()
     private let openWithDividerView = NSView()
+    private var animatesNextRowLayout = false
+#if DEBUG
+    private(set) var lastRowLayoutWasAnimatedForTesting = false
+#endif
     private let focusedLabel = WindowChromeView.makeLabel(
         text: "",
         color: .secondaryLabelColor,
@@ -150,10 +155,17 @@ final class WindowChromeView: NSView {
 
     override func layout() {
         super.layout()
+        let animatesRowLayout = animatesNextRowLayout
+        animatesNextRowLayout = false
         layoutOpenWithControl()
         layoutServerControl()
         syncVisibleRowContent(forceChipRefresh: false)
-        layoutRowContent()
+        layoutRowContent(animated: animatesRowLayout)
+    }
+
+    func animateNextRowLayoutForSidebarTransition() {
+        animatesNextRowLayout = true
+        needsLayout = true
     }
 
     private func setup() {
@@ -673,13 +685,16 @@ final class WindowChromeView: NSView {
         }
     }
 
-    private func layoutRowContent() {
+    private func layoutRowContent(animated: Bool = false) {
         let leadingViews = visibleLeadingViews()
         let chipViews = reviewChipViews
         guard !leadingViews.isEmpty || !chipViews.isEmpty else {
             rowContainerView.isHidden = true
             rowContainerView.frame = .zero
             lastRowLayoutPlan = .empty
+#if DEBUG
+            lastRowLayoutWasAnimatedForTesting = false
+#endif
             return
         }
 
@@ -688,6 +703,9 @@ final class WindowChromeView: NSView {
             rowContainerView.isHidden = true
             rowContainerView.frame = .zero
             lastRowLayoutPlan = .empty
+#if DEBUG
+            lastRowLayoutWasAnimatedForTesting = false
+#endif
             return
         }
 
@@ -696,18 +714,29 @@ final class WindowChromeView: NSView {
         guard rowWidth > 0 else {
             rowContainerView.isHidden = true
             lastRowLayoutPlan = .empty
+#if DEBUG
+            lastRowLayoutWasAnimatedForTesting = false
+#endif
             return
         }
 
         let originX = lane.minX
 
         rowContainerView.isHidden = false
-        rowContainerView.frame = NSRect(
+        let rowFrame = NSRect(
             x: originX,
             y: floor((bounds.height - rowHeight) / 2) - 2,
             width: rowWidth,
             height: rowHeight
         )
+        if animated {
+            rowContainerView.animator().frame = rowFrame
+        } else {
+            rowContainerView.frame = rowFrame
+        }
+#if DEBUG
+        lastRowLayoutWasAnimatedForTesting = animated
+#endif
         hasEstablishedRenderableLayout = true
 
         let layoutPlan = makeLayoutPlan(
@@ -1013,9 +1042,24 @@ final class WindowChromeView: NSView {
 
     var visibleLaneFrame: NSRect {
         let minX = max(effectiveLeadingVisibleInset, leadingControlsInset)
-        let trailingInset = ChromeGeometry.headerHorizontalInset + openWithReservedWidth
-        let maxX = max(minX, bounds.width - trailingInset)
+        let maxX = max(minX, trailingControlLaneMaxX ?? fallbackVisibleLaneMaxX)
         return NSRect(x: minX, y: 0, width: maxX - minX, height: bounds.height)
+    }
+
+    private var trailingControlLaneMaxX: CGFloat? {
+        if currentServerState != nil, serverContainerView.frame.width > 0.5 {
+            return serverContainerView.frame.minX - Self.trailingControlGap
+        }
+
+        if currentOpenWithState != nil, openWithContainerView.frame.width > 0.5 {
+            return openWithContainerView.frame.minX - Self.trailingControlGap
+        }
+
+        return nil
+    }
+
+    private var fallbackVisibleLaneMaxX: CGFloat {
+        bounds.width - ChromeGeometry.headerHorizontalInset - openWithReservedWidth
     }
 
     private var openWithReservedWidth: CGFloat {

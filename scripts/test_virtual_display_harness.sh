@@ -9,6 +9,9 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 bin_dir="$tmp_dir/bin"
 mkdir -p "$bin_dir"
+zdot_dir="$tmp_dir/zdot"
+mkdir -p "$zdot_dir"
+: > "$zdot_dir/.zshenv"
 
 fake_betterdisplay="$tmp_dir/fake-betterdisplay"
 fake_curl="$bin_dir/curl"
@@ -39,6 +42,7 @@ case "${1:-}" in
 esac
 EOF
 chmod +x "$fake_betterdisplay"
+ln -s "$fake_betterdisplay" "$bin_dir/betterdisplaycli"
 
 cat > "$fake_curl" <<'EOF'
 #!/usr/bin/env zsh
@@ -50,15 +54,19 @@ case "$*" in
   *"/help"*)
     exit 0
     ;;
-  *"/command/create"*)
+  *"/create"*)
+    if [[ "${ZENTTY_FAKE_CURL_CREATE_STATUS:-}" == "404" ]]; then
+      print -u2 "curl: (22) The requested URL returned error: 404"
+      exit 22
+    fi
     touch "$ZENTTY_FAKE_DISPLAY_STATE"
     exit 0
     ;;
-  *"/command/set"*)
+  *"/set"*)
     [[ -f "$ZENTTY_FAKE_DISPLAY_STATE" ]]
     exit 0
     ;;
-  *"/command/discard"*)
+  *"/discard"*)
     rm -f "$ZENTTY_FAKE_DISPLAY_STATE"
     exit 0
     ;;
@@ -87,6 +95,7 @@ chmod +x "$bin_dir/xcodebuild"
 
 run_harness() {
   PATH="$bin_dir:$PATH" \
+    ZDOTDIR="$zdot_dir" \
     ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay \
     ZENTTY_BETTERDISPLAY_COMMAND="$fake_betterdisplay" \
     ZENTTY_TEST_SCREEN_EXISTS_COMMAND="$fake_screen_probe" \
@@ -99,6 +108,7 @@ run_harness() {
 
 run_http_harness() {
   PATH="$bin_dir:$PATH" \
+    ZDOTDIR="$zdot_dir" \
     ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay \
     ZENTTY_BETTERDISPLAY_HTTP_BASE="http://example.test" \
     ZENTTY_TEST_SCREEN_EXISTS_COMMAND="$fake_screen_probe" \
@@ -107,6 +117,21 @@ run_http_harness() {
     ZENTTY_FAKE_XCODEBUILD_LOG="$xcodebuild_log" \
     "$repo_root/scripts/test-on-virtual-display" -only-testing:ZenttyLogicTests \
     > "$tmp_dir/harness.http.out" 2> "$tmp_dir/harness.http.err"
+}
+
+run_http_404_harness() {
+  PATH="$bin_dir:$PATH" \
+    ZDOTDIR="$zdot_dir" \
+    ZENTTY_TEST_DISPLAY_PROVIDER=betterdisplay \
+    ZENTTY_BETTERDISPLAY_HTTP_BASE="http://example.test" \
+    ZENTTY_TEST_SCREEN_EXISTS_COMMAND="$fake_screen_probe" \
+    ZENTTY_FAKE_CURL_LOG="$curl_log" \
+    ZENTTY_FAKE_CURL_CREATE_STATUS=404 \
+    ZENTTY_FAKE_BETTERDISPLAY_LOG="$betterdisplay_log" \
+    ZENTTY_FAKE_DISPLAY_STATE="$display_state" \
+    ZENTTY_FAKE_XCODEBUILD_LOG="$xcodebuild_log" \
+    "$repo_root/scripts/test-on-virtual-display" -only-testing:ZenttyLogicTests \
+    > "$tmp_dir/harness.http-404.out" 2> "$tmp_dir/harness.http-404.err"
 }
 
 run_harness one &
@@ -161,7 +186,7 @@ if [[ "$help_count" != "1" ]]; then
   exit 1
 fi
 
-if ! grep -q '/command/create' "$curl_log"; then
+if ! grep -q '/create' "$curl_log"; then
   print -u2 "expected BetterDisplay HTTP fallback to create the virtual display"
   cat "$curl_log" >&2
   exit 1
@@ -176,6 +201,43 @@ fi
 http_xcodebuild_count="$(wc -l < "$xcodebuild_log" | tr -d '[:space:]')"
 if [[ "$http_xcodebuild_count" != "1" ]]; then
   print -u2 "expected HTTP fallback harness run to invoke xcodebuild once, got $http_xcodebuild_count"
+  cat "$xcodebuild_log" >&2
+  exit 1
+fi
+
+: > "$xcodebuild_log"
+: > "$curl_log"
+: > "$betterdisplay_log"
+rm -f "$display_state"
+
+if ! run_http_404_harness; then
+  print -u2 "HTTP 404 fallback harness run failed"
+  print -u2 -- "--- stdout ---"
+  cat "$tmp_dir/harness.http-404.out" >&2
+  print -u2 -- "--- stderr ---"
+  cat "$tmp_dir/harness.http-404.err" >&2
+  print -u2 -- "--- curl log ---"
+  cat "$curl_log" >&2 2>/dev/null || true
+  print -u2 -- "--- BetterDisplay log ---"
+  cat "$betterdisplay_log" >&2 2>/dev/null || true
+  exit 1
+fi
+
+if ! grep -q '/create' "$curl_log"; then
+  print -u2 "expected HTTP 404 fallback harness run to attempt HTTP create first"
+  cat "$curl_log" >&2
+  exit 1
+fi
+
+if ! grep -q '^create ' "$betterdisplay_log"; then
+  print -u2 "expected HTTP 404 fallback harness run to recover with BetterDisplay command transport"
+  cat "$betterdisplay_log" >&2
+  exit 1
+fi
+
+http_404_xcodebuild_count="$(wc -l < "$xcodebuild_log" | tr -d '[:space:]')"
+if [[ "$http_404_xcodebuild_count" != "1" ]]; then
+  print -u2 "expected HTTP 404 fallback harness run to invoke xcodebuild once, got $http_404_xcodebuild_count"
   cat "$xcodebuild_log" >&2
   exit 1
 fi

@@ -26,6 +26,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
     case opencode
     case pi
     case grok
+    case agy
 
     /// Names of the real CLI binary (or binaries) this wrapped tool resolves to on PATH.
     /// For most tools this matches `rawValue`, but cursor's CLI is shipped as `cursor-agent`
@@ -34,7 +35,7 @@ enum AgentBootstrapTool: String, Codable, Equatable {
         switch self {
         case .cursor:
             return ["cursor-agent"]
-        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .grok:
+        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .grok, .agy:
             return [rawValue]
         case .kimi:
             return [rawValue, "kimi-cli"]
@@ -146,6 +147,11 @@ struct ServerListEntry: Codable, Equatable {
     let ports: [Int]
     let confidence: String
     let updatedAt: String
+    /// Relevance tier: "primary", "shown", or "hidden". Optional for decode
+    /// tolerance across version-skewed app/CLI pairs (added in response v2).
+    let tier: String?
+    /// Relevance reasons, e.g. ["ignored_port:9229", "running_pane"] (v2).
+    let reasons: [String]?
 }
 
 struct ServerListResult: Codable, Equatable {

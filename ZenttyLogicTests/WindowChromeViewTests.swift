@@ -1034,6 +1034,45 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertLessThanOrEqual(view.rowFrame.maxX, view.visibleLaneFrame.maxX + 0.5)
     }
 
+    func test_window_chrome_centers_full_row_between_leading_and_trailing_controls() throws {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)
+        )
+
+        view.render(summary: WorklaneChromeSummary(
+            attention: nil,
+            focusedLabel: "Ready | zentty",
+            branch: "main",
+            pullRequest: nil,
+            reviewChips: []
+        ))
+        view.render(openWith: WindowChromeOpenWithState(
+            title: "Finder",
+            icon: nil,
+            isPrimaryEnabled: true,
+            isMenuEnabled: true
+        ))
+        view.leadingControlsInset = 210
+        view.layoutSubtreeIfNeeded()
+
+        let focusedLabel = try XCTUnwrap(findLabel(in: view, withText: "Ready | zentty"))
+        let branchLabel = try XCTUnwrap(findLabel(in: view, withText: "main"))
+        let focusedFrame = focusedLabel.convert(focusedLabel.bounds, to: view)
+        let branchFrame = branchLabel.convert(branchLabel.bounds, to: view)
+        let contentMinX = min(focusedFrame.minX, branchFrame.minX)
+        let contentMaxX = max(focusedFrame.maxX, branchFrame.maxX)
+
+        XCTAssertEqual(
+            (contentMinX + contentMaxX) / 2,
+            view.visibleLaneFrame.midX,
+            accuracy: 1.0
+        )
+        XCTAssertLessThanOrEqual(
+            view.visibleLaneFrame.maxX,
+            view.openWithControlFrame.minX - 8
+        )
+    }
+
     func test_window_chrome_uses_larger_open_with_glass_button_geometry() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 760, height: WindowChromeView.preferredHeight)

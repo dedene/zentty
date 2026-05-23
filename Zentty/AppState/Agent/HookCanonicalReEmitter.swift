@@ -10,7 +10,7 @@ import Foundation
 /// `GrokCanonicalReEmitter` mints them in Swift. The protocol exists so the
 /// CLI's fan-out site is generic: any future agent that needs the same
 /// treatment registers a conformance and adds itself to the registry below.
-protocol HookCanonicalReEmitter {
+protocol HookCanonicalReEmitter: Sendable {
     /// Canonical JSON envelopes to additionally send, one IPC request per
     /// element. Empty when the payload contains nothing worth re-emitting (or
     /// is already canonical itself).
@@ -22,6 +22,7 @@ protocol HookCanonicalReEmitter {
 enum HookCanonicalReEmitterRegistry {
     static let reEmitters: [String: any HookCanonicalReEmitter.Type] = [
         "grok": GrokCanonicalReEmitter.self,
+        "agy": AgyCanonicalReEmitter.self,
     ]
 
     /// Returns the re-emitter registered for the adapter encoded in `arg`

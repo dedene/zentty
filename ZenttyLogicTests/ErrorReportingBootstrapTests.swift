@@ -74,6 +74,74 @@ final class ErrorReportingBootstrapTests: XCTestCase {
     }
 
     @MainActor
+    func test_restart_requests_new_application_instance_and_terminates_after_successful_launch() async {
+        let applicationURL = URL(fileURLWithPath: "/Applications/Zentty.app")
+        var openedURL: URL?
+        var capturedConfiguration: NSWorkspace.OpenConfiguration?
+        var capturedCompletion: ((NSRunningApplication?, Error?) -> Void)?
+        var terminateCount = 0
+        let terminated = expectation(description: "terminated")
+
+        ErrorReportingApplicationRestart.restart(
+            applicationURL: applicationURL,
+            opener: { url, configuration, completion in
+                openedURL = url
+                capturedConfiguration = configuration
+                capturedCompletion = completion
+            },
+            terminate: {
+                terminateCount += 1
+                terminated.fulfill()
+            },
+            logLaunchFailure: { error in
+                XCTFail("Unexpected launch failure: \(error)")
+            }
+        )
+
+        XCTAssertEqual(openedURL, applicationURL)
+        XCTAssertTrue(capturedConfiguration?.activates ?? false)
+        XCTAssertTrue(capturedConfiguration?.createsNewApplicationInstance ?? false)
+        XCTAssertEqual(terminateCount, 0)
+
+        capturedCompletion?(NSRunningApplication.current, nil)
+
+        await fulfillment(of: [terminated], timeout: 1)
+        XCTAssertEqual(terminateCount, 1)
+    }
+
+    @MainActor
+    func test_restart_logs_launch_failure_and_does_not_terminate() async throws {
+        let applicationURL = URL(fileURLWithPath: "/Applications/Zentty.app")
+        let failure = NSError(
+            domain: "ZenttyTests.ErrorReportingRestart",
+            code: 42,
+            userInfo: [NSLocalizedDescriptionKey: "Launch denied"]
+        )
+        let loggedError = LockedValue<NSError?>(nil)
+        let logged = expectation(description: "launch failure logged")
+        let terminated = expectation(description: "should not terminate")
+        terminated.isInverted = true
+
+        ErrorReportingApplicationRestart.restart(
+            applicationURL: applicationURL,
+            opener: { _, _, completion in
+                completion(nil, failure)
+            },
+            terminate: {
+                terminated.fulfill()
+            },
+            logLaunchFailure: { error in
+                loggedError.set(error as NSError)
+                logged.fulfill()
+            }
+        )
+
+        await fulfillment(of: [logged, terminated], timeout: 0.1)
+        XCTAssertEqual(loggedError.get()?.domain, failure.domain)
+        XCTAssertEqual(loggedError.get()?.code, failure.code)
+    }
+
+    @MainActor
     func test_sentry_client_start_does_not_install_custom_event_or_breadcrumb_scrubbers() throws {
         let client = SentryErrorReportingClient()
 
@@ -105,5 +173,26 @@ private final class SpyErrorReportingClient: ErrorReportingClient {
 
     func start(configuration: ErrorReportingClientConfiguration) {
         startConfiguration = configuration
+    }
+}
+
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func set(_ newValue: Value) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }

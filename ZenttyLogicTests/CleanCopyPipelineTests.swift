@@ -213,16 +213,16 @@ final class CleanCopyPipelineTests: XCTestCase {
 
     func test_stripAgentPromptSelection_unwraps_chevron_prompt() {
         let input = """
-        › i want to add support from predefined task runners, similar to the config from cmux (see /Users/peter/Development/Personal/zentty/tmp/cmux), but i'd like
+        › i want to add support from predefined task runners, similar to existing terminal task runner configs, but i'd like
           to support also VSCode tasks or Taskfiles (from https://taskfile.dev)
 
-          first research what the most popular terminal task runners are, what cmux and vscode is doing
+          first research what the most popular terminal task runners are and what vscode is doing
           after that lets usete the $shaping skill and interview me in detail
         """
 
         XCTAssertEqual(
             CleanCopyPipeline.stripAgentPromptSelection(input),
-            "i want to add support from predefined task runners, similar to the config from cmux (see /Users/peter/Development/Personal/zentty/tmp/cmux), but i'd like to support also VSCode tasks or Taskfiles (from https://taskfile.dev)\n\nfirst research what the most popular terminal task runners are, what cmux and vscode is doing after that lets usete the $shaping skill and interview me in detail"
+            "i want to add support from predefined task runners, similar to existing terminal task runner configs, but i'd like to support also VSCode tasks or Taskfiles (from https://taskfile.dev)\n\nfirst research what the most popular terminal task runners are and what vscode is doing after that lets usete the $shaping skill and interview me in detail"
         )
     }
 
@@ -512,13 +512,13 @@ final class CleanCopyPipelineTests: XCTestCase {
 
     func test_pipeline_cleans_agent_prompt_selection() {
         let input = """
-        › i want to add support from predefined task runners, similar to cmux, but i'd like
+        › i want to add support from predefined task runners, similar to common terminal task runner configs, but i'd like
           to support also VSCode tasks or Taskfiles
         """
         let result = CleanCopyPipeline.clean(input)
         XCTAssertEqual(
             result.text,
-            "i want to add support from predefined task runners, similar to cmux, but i'd like to support also VSCode tasks or Taskfiles"
+            "i want to add support from predefined task runners, similar to common terminal task runner configs, but i'd like to support also VSCode tasks or Taskfiles"
         )
         XCTAssertTrue(result.wasModified)
     }

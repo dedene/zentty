@@ -113,6 +113,7 @@ struct ZenttyTheme: Equatable {
     let commandPaletteRowHoverBackground: NSColor
     let commandPaletteRowSelectedBackground: NSColor
     let commandPaletteSeparator: NSColor
+    let commandPaletteBackdrop: NSColor
     let underlapShadow: NSColor
     let sidebarGlassAppearance: ThemeChromeAppearance
     let sidebarGlassOpacity: CGFloat
@@ -147,7 +148,7 @@ struct ZenttyTheme: Equatable {
             lhs.commandPaletteBackground, lhs.commandPaletteBorder, lhs.commandPaletteShadow,
             lhs.commandPaletteText, lhs.commandPaletteSecondaryText,
             lhs.commandPaletteRowHoverBackground, lhs.commandPaletteRowSelectedBackground,
-            lhs.commandPaletteSeparator,
+            lhs.commandPaletteSeparator, lhs.commandPaletteBackdrop,
             lhs.underlapShadow,
             lhs.statusRunning, lhs.statusNeedsInput, lhs.statusStopped, lhs.statusReady, lhs.statusIdle,
         ].map(\.themeToken) == [
@@ -176,7 +177,7 @@ struct ZenttyTheme: Equatable {
             rhs.commandPaletteBackground, rhs.commandPaletteBorder, rhs.commandPaletteShadow,
             rhs.commandPaletteText, rhs.commandPaletteSecondaryText,
             rhs.commandPaletteRowHoverBackground, rhs.commandPaletteRowSelectedBackground,
-            rhs.commandPaletteSeparator,
+            rhs.commandPaletteSeparator, rhs.commandPaletteBackdrop,
             rhs.underlapShadow,
             rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusIdle,
         ].map(\.themeToken)
@@ -384,6 +385,13 @@ struct ZenttyTheme: Equatable {
             .mixed(towards: commandPaletteBase, amount: background.isDarkThemeColor ? 0.62 : 0.72)
             .withAlphaComponent(reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.64 : 0.76))
         commandPaletteSeparator = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.08 : 0.10)
+        let commandPaletteBackdropSource = startupSurfaceBase.srgbClamped
+        let commandPaletteBackdropBase = commandPaletteBackdropSource.isDarkThemeColor
+            ? commandPaletteBackdropSource.mixed(towards: .black, amount: 0.10)
+            : commandPaletteBackdropSource.mixed(towards: .white, amount: 0.08)
+        commandPaletteBackdrop = commandPaletteBackdropBase.withAlphaComponent(
+            reduceTransparency ? 0.48 : (commandPaletteBackdropSource.isDarkThemeColor ? 0.34 : 0.28)
+        )
         underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 

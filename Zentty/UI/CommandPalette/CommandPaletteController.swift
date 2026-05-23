@@ -6,13 +6,17 @@ final class CommandPaletteController {
     private var panel: CommandPalettePanel?
     private var hostingView: NSHostingView<CommandPaletteView>?
     private var glassSurface: GlassSurfaceView?
+    private weak var backdropView: CommandPaletteBackdropView?
     private weak var parentWindow: NSWindow?
     private var clickMonitor: Any?
     private var recentCommands = RecentCommandsTracker()
     private var lastFocusedPanePath: String?
+    private var taskRunnerActionsByID: [String: TaskRunnerAction] = [:]
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
     var onOpenServer: ((_ serverID: String) -> Void)?
+    var onRunTaskRunner: ((TaskRunnerAction) -> Void)?
+    var onOpenTaskRunnerSource: ((_ sourcePath: String) -> Void)?
     var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
     var onShowSettingsSection: ((SettingsSection) -> Void)?
     var onNavigateToPane: ((WorklaneID, PaneID) -> Void)?
@@ -23,6 +27,7 @@ final class CommandPaletteController {
     // Availability depends on focused-pane state for pane-local search commands.
     func show(
         in window: NSWindow,
+        backdropView: CommandPaletteBackdropView,
         theme: ZenttyTheme,
         shortcutManager: ShortcutManager,
         availabilityContext: CommandAvailabilityContext,
@@ -35,7 +40,8 @@ final class CommandPaletteController {
         openWithTargets: [OpenWithResolvedTarget] = [],
         openWithIconProvider: ((OpenWithResolvedTarget) -> NSImage?)? = nil,
         rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane,
-        servers: [DetectedServer] = []
+        servers: [DetectedServer] = [],
+        taskRunnerActions: [TaskRunnerAction] = []
     ) {
         if isShown {
             close()
@@ -43,6 +49,7 @@ final class CommandPaletteController {
         }
 
         lastFocusedPanePath = focusedPanePath
+        taskRunnerActionsByID = Dictionary(taskRunnerActions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         let availableIDs = CommandAvailabilityResolver.availableCommandIDs(for: availabilityContext)
         let commandItems = CommandPaletteItemBuilder.buildItems(
@@ -58,6 +65,7 @@ final class CommandPaletteController {
             iconProvider: openWithIconProvider
         )
         let serverItems = CommandPaletteItemBuilder.buildServerItems(servers: servers)
+        let taskRunnerItems = CommandPaletteItemBuilder.buildTaskRunnerItems(actions: taskRunnerActions)
         let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
         let settingsItems = CommandPaletteItemBuilder.buildSettingsItems()
         let paneItems = CommandPaletteItemBuilder.buildPaneItems(
@@ -75,6 +83,7 @@ final class CommandPaletteController {
         let restoredCommandItems = restoredCommandItem.map { [$0] } ?? []
         let allItems = restoredCommandItems
             + commandItems
+            + taskRunnerItems
             + paneItems
             + settingsItems
             + openWithItems
@@ -166,6 +175,9 @@ final class CommandPaletteController {
         glass.frame = containerView.bounds
         hosting.frame = containerView.bounds
 
+        backdropView.apply(theme: theme, animated: false)
+        backdropView.setVisible(true, animated: true)
+
         newPanel.alphaValue = 0
         window.addChildWindow(newPanel, ordered: .above)
         newPanel.makeKeyAndOrderFront(nil)
@@ -179,21 +191,33 @@ final class CommandPaletteController {
         self.panel = newPanel
         self.hostingView = hosting
         self.glassSurface = glass
+        self.backdropView = backdropView
         self.parentWindow = window
         installDismissMonitor()
     }
 
     func close() {
-        guard let panel, let parentWindow else { return }
+        guard let panel else { return }
+
+        let backdrop = backdropView
+        let parentWindow = parentWindow
 
         self.panel = nil
         self.hostingView = nil
         self.glassSurface = nil
+        self.backdropView = nil
         self.parentWindow = nil
 
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
             self.clickMonitor = nil
+        }
+
+        backdrop?.setVisible(false, animated: true)
+
+        guard let parentWindow else {
+            panel.orderOut(nil)
+            return
         }
 
         NSAnimationContext.runAnimationGroup({ context in
@@ -210,6 +234,7 @@ final class CommandPaletteController {
 
     func updateTheme(_ theme: ZenttyTheme) {
         glassSurface?.apply(theme: theme, animated: true)
+        backdropView?.apply(theme: theme, animated: true)
     }
 
     private func executeItem(_ itemID: CommandPaletteItemID) {
@@ -227,6 +252,13 @@ final class CommandPaletteController {
             onOpenWith?(stableID, path)
         case .server(let serverID):
             onOpenServer?(serverID)
+        case .taskRunner(let id):
+            guard let action = taskRunnerActionsByID[id] else { return }
+            if action.isEnabled {
+                onRunTaskRunner?(action)
+            } else {
+                onOpenTaskRunnerSource?(action.sourcePath)
+            }
         case .worklaneColor(let color):
             onSetWorklaneColor?(color)
         case .settings(let section):
@@ -288,6 +320,8 @@ private extension CommandPaletteItemID {
             false
         case .command, .openWith, .server, .worklaneColor, .settings:
             true
+        case .taskRunner:
+            false
         }
     }
 }

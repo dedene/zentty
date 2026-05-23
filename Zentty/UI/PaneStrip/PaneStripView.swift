@@ -90,6 +90,7 @@ final class PaneStripView: NSView {
     private var currentPaneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:]
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
+    private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var currentWorklaneColor: WorklaneColor?
     private var currentPresentation: StripPresentation?
     private var shortcutManager = ShortcutManager(shortcuts: .default)
@@ -339,6 +340,7 @@ final class PaneStripView: NSView {
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
+        smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
@@ -352,6 +354,7 @@ final class PaneStripView: NSView {
             AppConfig.Panes.minimumInactiveOpacity,
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
+        currentSmoothScrollingEnabled = smoothScrollingEnabled
         currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
@@ -384,6 +387,7 @@ final class PaneStripView: NSView {
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
+        smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat,
         animated: Bool,
@@ -397,6 +401,7 @@ final class PaneStripView: NSView {
             AppConfig.Panes.minimumInactiveOpacity,
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
+        currentSmoothScrollingEnabled = smoothScrollingEnabled
         currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
@@ -863,6 +868,7 @@ final class PaneStripView: NSView {
                 return
             }
 
+            paneView.smoothScrollingEnabled = currentSmoothScrollingEnabled
             let pane = state.panes[index]
             paneView.render(
                 pane: pane,
@@ -961,6 +967,7 @@ final class PaneStripView: NSView {
                     viewportDiagnosticsLaneRole: viewportDiagnosticsLaneRole,
                     viewportDiagnosticsIsZoomedOut: isZoomedOut
                 )
+                paneView.smoothScrollingEnabled = currentSmoothScrollingEnabled
                 paneView.updateShortcutTooltips(shortcutManager)
                 paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in
@@ -2345,6 +2352,18 @@ final class PaneStripView: NSView {
 
     func endPaneDragForTesting(cursorInStrip: CGPoint) {
         dragCoordinator.endDrag(at: cursorInStrip)
+    }
+
+    func movePaneDragForTesting(cursorInStrip: CGPoint) {
+        dragCoordinator.updateCursor(cursorInStrip)
+    }
+
+    func satisfySplitDwellForTesting() {
+        dragCoordinator.satisfySplitDwellForTesting()
+    }
+
+    var splitDragOverlayForTesting: PaneDragSplitOverlayView? {
+        dragCoordinator.splitOverlayForTesting
     }
 
     var dragPreviewBackgroundColorForTesting: NSColor? {

@@ -9,6 +9,14 @@ enum NotificationPopoverMetrics {
     static func preferredHeight(forEmpty isEmpty: Bool) -> CGFloat {
         isEmpty ? emptyStateHeight : populatedDefaultHeight
     }
+
+    static func liveHeight(forEmpty isEmpty: Bool, currentHeight: CGFloat?) -> CGFloat {
+        let preferredHeight = preferredHeight(forEmpty: isEmpty)
+        guard isEmpty, let currentHeight else {
+            return preferredHeight
+        }
+        return max(preferredHeight, currentHeight)
+    }
 }
 
 @MainActor
@@ -140,8 +148,10 @@ struct NotificationPopoverView: View {
             }
         }
         .frame(
-            width: NotificationPopoverMetrics.contentWidth,
-            height: height,
+            minWidth: NotificationPopoverMetrics.contentWidth,
+            maxWidth: NotificationPopoverMetrics.contentWidth,
+            minHeight: height,
+            maxHeight: .infinity,
             alignment: .top
         )
     }

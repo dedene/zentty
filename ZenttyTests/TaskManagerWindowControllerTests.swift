@@ -6,42 +6,47 @@ import XCTest
 @MainActor
 final class TaskManagerWindowControllerTests: XCTestCase {
     func test_expandedPaneRemainsExpandedAcrossTimerRefresh() throws {
-        let controller = makeController()
-        controller.show(sender: nil)
+        let controller = makeController(
+            paneTitleProvider: RefreshingPaneTitleProvider(
+                initialTitle: "Pane before refresh",
+                refreshedTitle: "Pane after refresh"
+            ).nextTitle
+        )
+        showControllerForHostedTesting(controller)
 
         let outlineView = try XCTUnwrap(controller.window?.contentView?.firstDescendant(ofType: NSOutlineView.self))
         XCTAssertGreaterThan(outlineView.numberOfRows, 0)
+        XCTAssertEqual(paneTitle(in: outlineView), "Pane before refresh")
         XCTAssertTrue(outlineView.isExpandable(outlineView.item(atRow: 0)!))
 
         outlineView.expandItem(outlineView.item(atRow: 0))
         XCTAssertTrue(outlineView.isItemExpanded(outlineView.item(atRow: 0)!))
 
-        let refreshed = expectation(description: "timer refresh")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
-            refreshed.fulfill()
-        }
-        wait(for: [refreshed], timeout: 3)
+        waitForPaneTitle("Pane after refresh", in: outlineView)
 
-        XCTAssertTrue(outlineView.isItemExpanded(outlineView.item(atRow: 0)!))
+        let refreshedItem = try XCTUnwrap(outlineView.item(atRow: 0))
+        XCTAssertTrue(outlineView.isItemExpanded(refreshedItem))
     }
 
     func test_selectedPaneRemainsSelectedAcrossTimerRefresh() throws {
-        let controller = makeController()
-        controller.show(sender: nil)
+        let controller = makeController(
+            paneTitleProvider: RefreshingPaneTitleProvider(
+                initialTitle: "Pane before refresh",
+                refreshedTitle: "Pane after refresh"
+            ).nextTitle
+        )
+        showControllerForHostedTesting(controller)
 
         let outlineView = try XCTUnwrap(controller.window?.contentView?.firstDescendant(ofType: NSOutlineView.self))
         XCTAssertGreaterThan(outlineView.numberOfRows, 0)
+        XCTAssertEqual(paneTitle(in: outlineView), "Pane before refresh")
 
         outlineView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         XCTAssertTrue(controller.window?.makeFirstResponder(outlineView) ?? false)
         XCTAssertEqual(outlineView.selectedRow, 0)
         XCTAssertTrue(controller.window?.firstResponder === outlineView)
 
-        let refreshed = expectation(description: "timer refresh")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
-            refreshed.fulfill()
-        }
-        wait(for: [refreshed], timeout: 3)
+        waitForPaneTitle("Pane after refresh", in: outlineView)
 
         XCTAssertEqual(outlineView.selectedRow, 0)
         XCTAssertTrue(controller.window?.firstResponder === outlineView)
@@ -49,7 +54,7 @@ final class TaskManagerWindowControllerTests: XCTestCase {
 
     func test_taskManagerShowsNativeColumnHeaders() throws {
         let controller = makeController()
-        controller.show(sender: nil)
+        showControllerForHostedTesting(controller)
 
         let outlineView = try XCTUnwrap(controller.window?.contentView?.firstDescendant(ofType: NSOutlineView.self))
         let headerView = try XCTUnwrap(outlineView.headerView)
@@ -70,7 +75,7 @@ final class TaskManagerWindowControllerTests: XCTestCase {
         let appearance = NSAppearance(named: .darkAqua)
         let theme = ZenttyTheme.fallback(for: appearance)
         let controller = makeController(appearance: appearance, theme: theme)
-        controller.show(sender: nil)
+        showControllerForHostedTesting(controller)
 
         let window = try XCTUnwrap(controller.window)
         let contentView = try XCTUnwrap(window.contentView)
@@ -94,7 +99,7 @@ final class TaskManagerWindowControllerTests: XCTestCase {
             appearance: NSAppearance(named: .aqua),
             theme: ZenttyTheme.fallback(for: NSAppearance(named: .aqua))
         )
-        controller.show(sender: nil)
+        showControllerForHostedTesting(controller)
 
         let darkAppearance = NSAppearance(named: .darkAqua)
         let darkTheme = ZenttyTheme.fallback(for: darkAppearance)
@@ -115,10 +120,10 @@ final class TaskManagerWindowControllerTests: XCTestCase {
 
     func test_commandWClosesTaskManagerWindow() throws {
         let controller = makeController()
-        controller.show(sender: nil)
+        showControllerForHostedTesting(controller)
 
         let window = try XCTUnwrap(controller.window)
-        window.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFrontForHostedTesting(nil)
         XCTAssertTrue(window.isVisible)
 
         let event = try XCTUnwrap(NSEvent.keyEvent(
@@ -140,7 +145,8 @@ final class TaskManagerWindowControllerTests: XCTestCase {
 
     private func makeController(
         appearance: NSAppearance? = nil,
-        theme: ZenttyTheme = ZenttyTheme.fallback(for: nil)
+        theme: ZenttyTheme = ZenttyTheme.fallback(for: nil),
+        paneTitleProvider: @escaping () -> String = { "Pane" }
     ) -> TaskManagerWindowController {
         let controller = TaskManagerWindowController(
             paneSourcesProvider: {
@@ -151,7 +157,7 @@ final class TaskManagerWindowControllerTests: XCTestCase {
                         worklaneID: WorklaneID("worklane-main"),
                         worklaneTitle: "Main",
                         paneID: PaneID("pane-main"),
-                        paneTitle: "Pane",
+                        paneTitle: paneTitleProvider(),
                         statusText: "Idle",
                         rootPID: Int32(ProcessInfo.processInfo.processIdentifier),
                         isRemote: false,
@@ -168,6 +174,73 @@ final class TaskManagerWindowControllerTests: XCTestCase {
             controller.close()
         }
         return controller
+    }
+
+    private func showControllerForHostedTesting(_ controller: TaskManagerWindowController) {
+        controller.window?.prepareForHostedTesting()
+        controller.show(sender: nil)
+        controller.window?.prepareForHostedTesting()
+    }
+
+    private func paneTitle(in outlineView: NSOutlineView) -> String? {
+        (outlineView.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)?
+            .textField?
+            .stringValue
+    }
+
+    private func waitForPaneTitle(
+        _ expectedTitle: String,
+        in outlineView: NSOutlineView,
+        timeout: TimeInterval = 3
+    ) {
+        let paneTitleUpdated = expectation(description: "pane title updated to \(expectedTitle)")
+        pollForPaneTitle(
+            expectedTitle,
+            in: outlineView,
+            until: Date().addingTimeInterval(timeout),
+            fulfilling: paneTitleUpdated
+        )
+        wait(for: [paneTitleUpdated], timeout: timeout + 0.5)
+        XCTAssertEqual(paneTitle(in: outlineView), expectedTitle)
+    }
+
+    private func pollForPaneTitle(
+        _ expectedTitle: String,
+        in outlineView: NSOutlineView,
+        until deadline: Date,
+        fulfilling expectation: XCTestExpectation
+    ) {
+        if paneTitle(in: outlineView) == expectedTitle {
+            expectation.fulfill()
+            return
+        }
+
+        guard Date() < deadline else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak outlineView] in
+            Task { @MainActor in
+                guard let self, let outlineView else { return }
+                self.pollForPaneTitle(expectedTitle, in: outlineView, until: deadline, fulfilling: expectation)
+            }
+        }
+    }
+}
+
+private final class RefreshingPaneTitleProvider {
+    private let initialTitle: String
+    private let refreshedTitle: String
+    private var callCount = 0
+
+    init(initialTitle: String, refreshedTitle: String) {
+        self.initialTitle = initialTitle
+        self.refreshedTitle = refreshedTitle
+    }
+
+    func nextTitle() -> String {
+        callCount += 1
+        return callCount == 1 ? initialTitle : refreshedTitle
     }
 }
 

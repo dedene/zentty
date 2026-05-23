@@ -36,6 +36,9 @@ final class WorklaneGitContextResolverTests: XCTestCase {
     private func makeRepository() throws -> URL {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
         try runGit(["init", "-b", "main"], in: rootURL)
         try runGit(["config", "user.email", "peter@example.com"], in: rootURL)
         try runGit(["config", "user.name", "Peter"], in: rootURL)
@@ -59,6 +62,11 @@ final class WorklaneGitContextResolverTests: XCTestCase {
         if process.terminationStatus != 0 {
             let message = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             XCTFail("git \(arguments.joined(separator: " ")) failed: \(message)")
+            throw NSError(
+                domain: "WorklaneGitContextResolverTests.runGit",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
         }
     }
 }

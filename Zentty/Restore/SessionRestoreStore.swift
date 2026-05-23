@@ -316,7 +316,7 @@ enum SessionRestoreDraftExporter {
         return restoredDraft
     }
 
-    private static func makeLivePaneDraft(
+    static func makeLivePaneDraft(
         paneID: PaneID,
         pane: PaneState,
         auxiliary: PaneAuxiliaryState,
@@ -451,11 +451,11 @@ enum SessionRestoreDraftExporter {
 
     private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
         switch tool {
-        case .amp, .claudeCode, .codex, .copilot, .droid, .kimi, .openCode:
+        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode:
             return .sessionID
-        case .gemini, .pi, .grok:
+        case .gemini, .pi, .grok, .agy:
             return .workingDirectory
-        case .cursor, .zentty, .custom:
+        case .zentty, .custom:
             return .unsupported
         }
     }
@@ -560,6 +560,12 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "copilot --resume=\(sessionID)"
+        case .cursor:
+            guard let sessionID = validatedCursorSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            return "cursor-agent --resume=\(sessionID)"
         case .gemini:
             guard hasWorkingDirectory(draft) else {
                 logRejectedWorkingDirectory(for: draft)
@@ -572,8 +578,6 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "kimi -r \(sessionID)"
-        case .cursor:
-            return nil
         case .droid:
             guard let sessionID = validatedDroidSessionID(from: draft.sessionID) else {
                 logRejectedSessionID(for: draft)
@@ -600,6 +604,18 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "grok --resume"
+        case .agy:
+            // A placeholder id means we never received a real
+            // `conversation_id` from the agy hook stream; fall back to
+            // `--continue` so the user resumes their most recent session
+            // rather than seeing `agy --conversation <fake-uuid>` fail.
+            if draft.sessionID.isEmpty || draft.sessionID.hasPrefix("zentty-placeholder-") {
+                return "agy --continue"
+            }
+            if let sessionID = validatedAgySessionID(from: draft.sessionID) {
+                return "agy --conversation \(sessionID)"
+            }
+            return nil
         default:
             return nil
         }
@@ -641,6 +657,13 @@ enum AgentResumeCommandBuilder {
         return uuid.uuidString.lowercased()
     }
 
+    private static func validatedCursorSessionID(from sessionID: String) -> String? {
+        guard let uuid = UUID(uuidString: sessionID) else {
+            return nil
+        }
+        return uuid.uuidString.lowercased()
+    }
+
     private static func validatedGrokSessionID(from sessionID: String) -> String? {
         // Grok Build sessions are typically UUIDs. We also accept reasonable
         // alphanumeric session identifiers (Grok may use short IDs in some modes).
@@ -675,6 +698,21 @@ enum AgentResumeCommandBuilder {
 
     private static func validatedAmpThreadID(from sessionID: String) -> String? {
         let pattern = #"^T-[A-Za-z0-9_-]+$"#
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
+    private static func validatedAgySessionID(from sessionID: String) -> String? {
+        // Antigravity session IDs are typical alphanumeric identifiers.
+        // The `zentty-placeholder-` prefix is what the launch bootstrap
+        // injects before the first real `conversation_id` arrives; it
+        // must never reach `agy --conversation`.
+        if sessionID.hasPrefix("zentty-placeholder-") {
+            return nil
+        }
+        let pattern = "^[A-Za-z0-9_-]+$"
         guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
             return nil
         }

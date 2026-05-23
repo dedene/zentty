@@ -154,6 +154,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         static let emptyStateTitle = "No detected servers"
         static let copyURLTitle = "Copy URL"
         static let settingsTitle = "Dev Server Settings…"
+        static let manageTitle = "Manage Servers…"
+        static let hiddenTitle = "Hidden…"
+        static func ignorePortTitle(_ port: Int) -> String { "Ignore port \(port)" }
+        static func stopIgnoringPortTitle(_ port: Int) -> String { "Stop ignoring port \(port)" }
+        static func ignoredPortHint(_ port: Int) -> String { "Ignored port \(port)" }
     }
 
     private static func isPreferredServerBrowser(_ browser: ServerBrowserTarget, preferredBrowserID: String) -> Bool {
@@ -203,6 +208,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
         windowIndex: Int = 0,
+        initialPaneLayoutFrame: NSRect? = nil,
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
@@ -211,9 +217,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             sidebarVisibilityDefaults: sidebarVisibilityDefaults,
             paneLayoutDefaults: paneLayoutDefaults
         )
-        let initialFrame = Self.defaultFrame()
+        let initialWindowFrame = Self.defaultFrame()
+        let initialLayoutFrame = initialPaneLayoutFrame ?? initialWindowFrame
         let initialLayoutContext = Self.initialPaneLayoutContext(
-            initialFrame: initialFrame,
+            initialFrame: initialLayoutFrame,
             config: resolvedConfigStore.current
         )
 
@@ -230,7 +237,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
         rootViewController.loadViewIfNeeded()
         let window = ProxyAwareWindow(
-            contentRect: initialFrame,
+            contentRect: initialWindowFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -255,12 +262,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // the shell fill instead of nothing (which is what produces the white seam).
         window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
-        rootViewController.view.frame = NSRect(origin: .zero, size: initialFrame.size)
+        rootViewController.view.frame = NSRect(origin: .zero, size: initialWindowFrame.size)
         rootViewController.view.autoresizingMask = [.width, .height]
         window.contentView = rootViewController.view
         if !Self.isHostedTestMode {
-            let autosaveName = windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
-            window.setFrameAutosaveName(autosaveName)
+            window.setFrameAutosaveName(Self.windowFrameAutosaveName(forWindowIndex: windowIndex))
         }
 
         self.rootViewController = rootViewController
@@ -349,6 +355,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             }
         }
         window.makeKeyAndOrderFront(sender)
+        rootViewController.view.needsLayout = true
+        rootViewController.view.layoutSubtreeIfNeeded()
         syncWindowAppearance()
         layoutTrafficLights()
         rootViewController.activateWindowBindingsIfNeeded()
@@ -392,6 +400,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         rootViewController.handleWindowDidResize()
         layoutTrafficLights()
+        onWorkspaceStateDidChange?()
+    }
+
+    func windowDidMove(_ notification: Notification) {
         onWorkspaceStateDidChange?()
     }
 
@@ -898,7 +910,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return (payload, runtime)
     }
 
-    /// Adopts the runtime and inserts the pane into the destination worklane.
+    /// Inserts the pane into the destination worklane, adopts the runtime, then
+    /// publishes the structural changes.
     /// Returns `true` on success. On failure (target worklane gone), neither the
     /// runtime nor the pane state is added — the caller still owns the runtime.
     @discardableResult
@@ -911,14 +924,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         guard store.worklanes.contains(where: { $0.id == targetWorklaneID }) else {
             return false
         }
+
+        var didInsert = false
+        store.batchUpdate {
+            didInsert = store.insertExtractedPane(
+                payload,
+                intoWorklane: targetWorklaneID,
+                singleColumnWidth: store.layoutContext.singlePaneWidth
+            )
+        }
+        guard didInsert else {
+            return false
+        }
         if let runtime {
             runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
         }
-        return store.insertExtractedPane(
-            payload,
-            intoWorklane: targetWorklaneID,
-            singleColumnWidth: store.layoutContext.singlePaneWidth
-        )
+        store.notify(.paneStructure(targetWorklaneID))
+        store.notify(.activeWorklaneChanged)
+        return true
     }
 
     func splitOutPaneForNewWindow(
@@ -1215,30 +1238,41 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         menu.autoenablesItems = false
 
         let context = rootViewController.activeServerContext
-        let primaryServerID = context.primaryServer?.id
+        let model = ServerMenuModel(context: context)
 
-        if context.servers.isEmpty {
+        if model.isEmpty {
             let item = NSMenuItem(title: ServerMenuContent.emptyStateTitle, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
-            ServerMenuOrdering.sortedForDisplay(context.servers).forEach { server in
-                let item = NSMenuItem(title: server.display, action: #selector(handleServerMenuItem(_:)), keyEquivalent: "")
+            for entry in model.visible {
+                let item = NSMenuItem(title: entry.server.display, action: #selector(handleServerMenuItem(_:)), keyEquivalent: "")
                 item.target = self
-                item.representedObject = server
-                item.toolTip = server.url.absoluteString
-                item.state = server.id == primaryServerID ? .on : .off
+                item.representedObject = entry.server
+                item.toolTip = entry.server.url.absoluteString
+                item.state = entry.isPrimary ? .on : .off
                 menu.addItem(item)
             }
 
-            menu.addItem(.separator())
-            let copyItem = NSMenuItem(title: ServerMenuContent.copyURLTitle, action: #selector(handleCopyServerURL(_:)), keyEquivalent: "")
-            copyItem.target = self
-            if let primaryServer = context.primaryServer {
-                copyItem.representedObject = primaryServer
+            if !model.manageable.isEmpty || !model.hidden.isEmpty {
+                if !model.visible.isEmpty {
+                    menu.addItem(.separator())
+                }
+                if !model.manageable.isEmpty {
+                    menu.addItem(makeManageServersMenuItem(model.manageable))
+                }
+                if !model.hidden.isEmpty {
+                    menu.addItem(makeHiddenServersMenuItem(model.hidden))
+                }
             }
-            copyItem.isEnabled = context.primaryServer != nil
-            menu.addItem(copyItem)
+
+            if let primaryServer = context.primaryServer {
+                menu.addItem(.separator())
+                let copyItem = NSMenuItem(title: ServerMenuContent.copyURLTitle, action: #selector(handleCopyServerURL(_:)), keyEquivalent: "")
+                copyItem.target = self
+                copyItem.representedObject = primaryServer
+                menu.addItem(copyItem)
+            }
         }
 
         menu.addItem(.separator())
@@ -1267,6 +1301,63 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return menu
     }
 
+    private func makeManageServersMenuItem(_ entries: [ServerMenuModel.Entry]) -> NSMenuItem {
+        let parent = NSMenuItem(title: ServerMenuContent.manageTitle, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "")
+        submenu.autoenablesItems = false
+
+        for entry in entries {
+            guard let port = entry.port else {
+                continue
+            }
+            let serverItem = NSMenuItem(title: entry.server.display, action: nil, keyEquivalent: "")
+            let serverSubmenu = NSMenu(title: "")
+            serverSubmenu.autoenablesItems = false
+            let ignoreItem = NSMenuItem(
+                title: ServerMenuContent.ignorePortTitle(port),
+                action: #selector(handleIgnorePort(_:)),
+                keyEquivalent: ""
+            )
+            ignoreItem.target = self
+            ignoreItem.representedObject = port
+            serverSubmenu.addItem(ignoreItem)
+            serverItem.submenu = serverSubmenu
+            submenu.addItem(serverItem)
+        }
+
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func makeHiddenServersMenuItem(_ entries: [ServerMenuModel.Entry]) -> NSMenuItem {
+        let parent = NSMenuItem(title: ServerMenuContent.hiddenTitle, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "")
+        submenu.autoenablesItems = false
+
+        for entry in entries {
+            guard let port = entry.port else {
+                continue
+            }
+            let serverItem = NSMenuItem(title: entry.server.display, action: nil, keyEquivalent: "")
+            serverItem.toolTip = ServerMenuContent.ignoredPortHint(port)
+            let serverSubmenu = NSMenu(title: "")
+            serverSubmenu.autoenablesItems = false
+            let stopItem = NSMenuItem(
+                title: ServerMenuContent.stopIgnoringPortTitle(port),
+                action: #selector(handleStopIgnoringPort(_:)),
+                keyEquivalent: ""
+            )
+            stopItem.target = self
+            stopItem.representedObject = port
+            serverSubmenu.addItem(stopItem)
+            serverItem.submenu = serverSubmenu
+            submenu.addItem(serverItem)
+        }
+
+        parent.submenu = submenu
+        return parent
+    }
+
     @objc
     private func handleServerMenuItem(_ sender: NSMenuItem) {
         guard let server = sender.representedObject as? DetectedServer else {
@@ -1274,6 +1365,34 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         _ = rootViewController.openServer(server)
+    }
+
+    @objc
+    private func handleIgnorePort(_ sender: NSMenuItem) {
+        guard let port = sender.representedObject as? Int else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.serverDetection.ignoredPortRules = ServerPortRule.addingPort(
+                port,
+                to: config.serverDetection.ignoredPortRules
+            )
+        }
+    }
+
+    @objc
+    private func handleStopIgnoringPort(_ sender: NSMenuItem) {
+        guard let port = sender.representedObject as? Int else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.serverDetection.ignoredPortRules = ServerPortRule.removingPort(
+                port,
+                from: config.serverDetection.ignoredPortRules
+            )
+        }
     }
 
     @objc
@@ -1594,6 +1713,61 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         defaultFrame()
     }
 
+    static func validatedPaneLayoutSeedFrameForRestore(_ frame: WorkspaceRecipe.WindowFrame?) -> NSRect? {
+        guard let frame else {
+            return nil
+        }
+
+        return validatedPaneLayoutSeedFrameForRestore(frame.rect)
+    }
+
+    static func validatedPaneLayoutSeedFrameForRestore(_ frame: NSRect?) -> NSRect? {
+        guard let frame,
+              frame.origin.x.isFinite,
+              frame.origin.y.isFinite,
+              frame.size.width.isFinite,
+              frame.size.height.isFinite,
+              frame.width >= 320,
+              frame.height >= 240
+        else {
+            return nil
+        }
+
+        return frame.integral
+    }
+
+    static func legacyAutosavedFrameForRestore(
+        windowIndex: Int,
+        defaults: UserDefaults = .standard
+    ) -> NSRect? {
+        let defaultsKey = "NSWindow Frame \(windowFrameAutosaveName(forWindowIndex: windowIndex))"
+        guard let value = defaults.string(forKey: defaultsKey) else {
+            return nil
+        }
+
+        let components = value.split(whereSeparator: \.isWhitespace)
+        guard components.count >= 4,
+              let x = Double(components[0]),
+              let y = Double(components[1]),
+              let width = Double(components[2]),
+              let height = Double(components[3]) else {
+            return nil
+        }
+
+        return validatedPaneLayoutSeedFrameForRestore(
+            NSRect(
+                x: x,
+                y: y,
+                width: width,
+                height: height
+            )
+        )
+    }
+
+    static func windowFrameAutosaveName(forWindowIndex windowIndex: Int) -> String {
+        windowIndex == 0 ? "MainWindow" : "ZenttyWindow-\(windowIndex)"
+    }
+
     static func initialPaneLayoutContextForRestore(
         initialFrame: NSRect,
         config: AppConfig
@@ -1605,6 +1779,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let workspaceState = rootViewController.workspaceState
         return WorkspaceRecipeExporter.makeWindow(
             windowID: windowID,
+            frame: window.frame,
             worklanes: workspaceState.worklanes,
             activeWorklaneID: workspaceState.activeWorklaneID
         )

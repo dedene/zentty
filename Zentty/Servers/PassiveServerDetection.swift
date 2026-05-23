@@ -107,6 +107,7 @@ struct PassiveServerDetectionSnapshot: Equatable, Sendable {
                     PaneScanContext(
                         paneID: pane.id,
                         workingDirectory: workingDirectory,
+                        repositoryRoot: auxiliary.gitContext?.repositoryRoot,
                         shellPID: auxiliary.raw.paneRootPID
                     ),
                     DockerPaneContext(

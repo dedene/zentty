@@ -505,7 +505,7 @@ extension WorklaneStore {
         let sourceIsEmpty = sourceWorklane.paneStripState.columns.isEmpty
         var sourceWorklaneRemoved = false
 
-        if sourceIsEmpty, worklanes.count > 1 {
+        if sourceIsEmpty {
             worklanes.remove(at: sourceIndex)
             sourceWorklaneRemoved = true
             if activeWorklaneID == sourceWorklaneID, let first = worklanes.first {
@@ -991,6 +991,7 @@ extension WorklaneStore {
             case .openCode: return "opencode"
             case .pi: return "pi"
             case .grok: return "grok"
+            case .agy: return "agy"
             case .custom(let name): return name
             }
         }

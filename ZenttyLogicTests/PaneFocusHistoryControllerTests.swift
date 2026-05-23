@@ -44,6 +44,14 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
             }
             handle.run()
         }
+
+        func runOldest(file: StaticString = #filePath, line: UInt = #line) {
+            guard handles.isEmpty == false else {
+                XCTFail("Expected a pending debounce callback", file: file, line: line)
+                return
+            }
+            handles.removeFirst().run()
+        }
     }
 
     private func ref(_ worklane: String, _ pane: String) -> WorklaneStore.PaneReference {
@@ -133,6 +141,11 @@ final class PaneFocusHistoryControllerTests: XCTestCase {
         controller.recordFocusChange(from: a)
         controller.recordFocusChange(from: b)
         controller.recordFocusChange(from: c)
+        scheduler.runOldest()
+        scheduler.runOldest()
+
+        XCTAssertFalse(controller.history.canGoBack)
+
         scheduler.runLatest()
 
         XCTAssertEqual(controller.history.backStack, [c])

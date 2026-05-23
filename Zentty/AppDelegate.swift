@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
+    private let windowFrameDefaults: UserDefaults
     private let notificationStore = NotificationStore()
     private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
         notificationStore: notificationStore,
@@ -44,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appUpdateController: AppUpdateControlling? = nil,
         sessionRestoreStore: SessionRestoreStore? = nil,
         sessionRestoreEnabled: Bool? = nil,
-        restoreErrorReporter: ((String) -> Void)? = nil
+        restoreErrorReporter: ((String) -> Void)? = nil,
+        windowFrameDefaults: UserDefaults
     ) {
         self.shouldOpenMainWindow = shouldOpenMainWindow
         self.runtimeRegistryFactory = runtimeRegistryFactory
@@ -53,10 +55,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? makeDefaultAppUpdateController(configStore: configStore)
         self.sessionRestoreStore = sessionRestoreStore
             ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
+        self.windowFrameDefaults = windowFrameDefaults
         self.isSessionRestoreEnabled = sessionRestoreEnabled
             ?? !Self.isHostedTestMode
         self.restoreErrorReporter = restoreErrorReporter
         super.init()
+    }
+
+    convenience init(
+        shouldOpenMainWindow: Bool = true,
+        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
+        configStore: AppConfigStore = AppConfigStore(),
+        appUpdateController: AppUpdateControlling? = nil,
+        sessionRestoreStore: SessionRestoreStore? = nil,
+        sessionRestoreEnabled: Bool? = nil,
+        restoreErrorReporter: ((String) -> Void)? = nil
+    ) {
+        self.init(
+            shouldOpenMainWindow: shouldOpenMainWindow,
+            runtimeRegistryFactory: runtimeRegistryFactory,
+            configStore: configStore,
+            appUpdateController: appUpdateController,
+            sessionRestoreStore: sessionRestoreStore,
+            sessionRestoreEnabled: sessionRestoreEnabled,
+            restoreErrorReporter: restoreErrorReporter,
+            windowFrameDefaults: .standard
+        )
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -313,7 +337,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeWindowController(
         windowID: WindowID,
         initialWorkspaceState: WindowWorkspaceState?,
-        runtimeRegistry: PaneRuntimeRegistry? = nil
+        runtimeRegistry: PaneRuntimeRegistry? = nil,
+        initialPaneLayoutFrame: NSRect? = nil
     ) -> MainWindowController {
         let index = nextWindowIndex
         nextWindowIndex += 1
@@ -324,6 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appUpdateStateStore: appUpdateController.updateStateStore,
             notificationStore: notificationStore,
             windowIndex: index,
+            initialPaneLayoutFrame: initialPaneLayoutFrame,
             initialWorkspaceState: initialWorkspaceState
         )
         let id = ObjectIdentifier(controller)
@@ -449,11 +475,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        destination.acceptCrossWindowPane(
+        guard destination.acceptCrossWindowPane(
             payload: extracted.payload,
             runtime: extracted.runtime,
             targetWorklaneID: request.destinationWorklaneID
-        )
+        ) else {
+            return
+        }
 
         if extracted.payload.sourceWindowShouldClose {
             source.closeWindowBypassingConfirmation()
@@ -680,10 +708,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.current
         var launchedControllers: [MainWindowController] = []
 
-        for recipeWindow in windows {
-            let initialFrame = MainWindowController.defaultFrameForRestore()
+        for (windowIndex, recipeWindow) in windows.enumerated() {
+            let paneLayoutSeedFrame = MainWindowController.legacyAutosavedFrameForRestore(
+                windowIndex: windowIndex,
+                defaults: windowFrameDefaults
+            )
+                ?? MainWindowController.validatedPaneLayoutSeedFrameForRestore(recipeWindow.frame)
+                ?? MainWindowController.defaultFrameForRestore()
             let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
-                initialFrame: initialFrame,
+                initialFrame: paneLayoutSeedFrame,
                 config: config
             )
             let importedState = WorkspaceRecipeImporter.makeWorklanes(
@@ -696,7 +729,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let controller = makeWindowController(
                 windowID: WindowID(recipeWindow.id),
-                initialWorkspaceState: importedState
+                initialWorkspaceState: importedState,
+                initialPaneLayoutFrame: paneLayoutSeedFrame
             )
             launchedControllers.append(controller)
         }

@@ -75,6 +75,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("show_labels = true"))
         XCTAssertTrue(persisted.contains("inactive_opacity = 0.7"))
         XCTAssertTrue(persisted.contains("show_project_icons = true"))
+        XCTAssertTrue(persisted.contains("smooth_scroll_enabled = false"))
         XCTAssertTrue(persisted.contains("[open_with]"))
         XCTAssertTrue(persisted.contains("enabled_target_ids = [\"finder\", \"vscode\", \"cursor\", \"xcode\"]"))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
@@ -90,6 +91,7 @@ final class AppConfigStoreTests: XCTestCase {
         show_labels = false
         inactive_opacity = 0.2
         show_project_icons = false
+        smooth_scroll_enabled = true
         """.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let store = AppConfigStore(
@@ -102,6 +104,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.panes.showLabels)
         XCTAssertEqual(store.current.panes.inactiveOpacity, 0.6, accuracy: 0.001)
         XCTAssertFalse(store.current.panes.showProjectIcons)
+        XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
     }
 
     func test_store_prefers_existing_config_file_over_user_defaults_migration() throws {
@@ -186,6 +189,7 @@ final class AppConfigStoreTests: XCTestCase {
             config.sidebar.width = 344
             config.sidebar.visibility = .pinnedOpen
             config.paneLayout.largeDisplayPreset = .roomy
+            config.panes.smoothScrollingEnabled = true
             config.openWith.primaryTargetID = "cursor"
             config.openWith.enabledTargetIDs = ["cursor", "finder"]
             config.errorReporting.enabled = false
@@ -202,6 +206,7 @@ final class AppConfigStoreTests: XCTestCase {
         let persisted = try String(contentsOf: fileURL)
         XCTAssertTrue(persisted.contains("width = 344"))
         XCTAssertTrue(persisted.contains("large_display = \"roomy\""))
+        XCTAssertTrue(persisted.contains("smooth_scroll_enabled = true"))
         XCTAssertTrue(persisted.contains("primary_target_id = \"cursor\""))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
         XCTAssertTrue(persisted.contains("enabled = false"))
@@ -227,6 +232,7 @@ final class AppConfigStoreTests: XCTestCase {
             config.serverDetection.passiveDetectionEnabled = false
             config.serverDetection.preferredBrowserID = "custom:sizzy"
             config.serverDetection.enabledBrowserTargetIDs = ["firefox", "chrome", "custom:sizzy"]
+            config.serverDetection.ignoredPortRules = ["9229", "24678-24680"]
             config.serverDetection.customBrowsers = [
                 ServerBrowserCustomApp(
                     id: "custom:sizzy",
@@ -242,6 +248,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("passive_detection_enabled = false"))
         XCTAssertTrue(persisted.contains("preferred_browser_id = \"custom:sizzy\""))
         XCTAssertTrue(persisted.contains("enabled_browser_target_ids"))
+        XCTAssertTrue(persisted.contains("ignored_port_rules = [\"9229\", \"24678-24680\"]"))
         XCTAssertTrue(persisted.contains("[[server_detection.custom_browsers]]"))
         XCTAssertTrue(persisted.contains("bundle_identifier = \"com.sizzy.Sizzy\""))
 
@@ -257,6 +264,10 @@ final class AppConfigStoreTests: XCTestCase {
             reloadedStore.current.serverDetection.enabledBrowserTargetIDs,
             ["firefox", "chrome", "custom:sizzy"]
         )
+        XCTAssertEqual(
+            reloadedStore.current.serverDetection.ignoredPortRules,
+            ["9229", "24678-24680"]
+        )
         XCTAssertEqual(reloadedStore.current.serverDetection.customBrowsers, [
             ServerBrowserCustomApp(
                 id: "custom:sizzy",
@@ -265,6 +276,25 @@ final class AppConfigStoreTests: XCTestCase {
                 bundleIdentifier: "com.sizzy.Sizzy"
             )
         ])
+    }
+
+    func test_ignored_port_rules_drop_invalid_and_merge_on_load() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [server_detection]
+        passive_detection_enabled = true
+        ignored_port_rules = ["3001", "abc", "70000", "3000", "5000-4000"]
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        // "abc"/"70000"/"5000-4000" dropped; "3000" and "3001" merged into one range.
+        XCTAssertEqual(store.current.serverDetection.ignoredPortRules, ["3000-3001"])
     }
 
     func test_server_detection_enables_all_browsers_when_toml_key_absent() throws {
@@ -398,7 +428,7 @@ final class AppConfigStoreTests: XCTestCase {
             paneLayoutDefaults: paneLayoutDefaults
         )
         let reloaded = expectation(description: "config reloaded from external edit")
-        store.onChange = { config in
+        _ = store.addObserver { config in
             guard config.sidebar.width == 401 else {
                 return
             }
@@ -439,7 +469,7 @@ final class AppConfigStoreTests: XCTestCase {
         )
         let invalidReload = expectation(description: "invalid reload ignored")
         invalidReload.isInverted = true
-        store.onChange = { _ in
+        _ = store.addObserver { _ in
             invalidReload.fulfill()
         }
 
@@ -541,6 +571,86 @@ final class AppConfigStoreTests: XCTestCase {
         ])
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["finder", "custom:valid"])
         XCTAssertEqual(store.current.openWith.primaryTargetID, "custom:valid")
+    }
+
+    func test_store_ignores_unknown_non_string_fields_in_open_with_custom_apps() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [open_with]
+        primary_target_id = "custom:duplicate"
+        enabled_target_ids = ["custom:duplicate", "custom:valid", "missing"]
+
+        [[open_with.custom_apps]]
+        id = "custom:valid"
+        name = "Valid App"
+        path = "/Applications/Valid.app"
+        launch_count = 3
+
+        [[open_with.custom_apps]]
+        id = "custom:duplicate"
+        name = "Duplicate Path"
+        path = "/Applications/Valid.app"
+        quarantined = false
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.openWith.customApps, [
+            OpenWithCustomApp(
+                id: "custom:valid",
+                name: "Valid App",
+                appPath: "/Applications/Valid.app"
+            )
+        ])
+        XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["custom:valid"])
+        XCTAssertEqual(store.current.openWith.primaryTargetID, "custom:valid")
+    }
+
+    func test_store_ignores_unknown_non_string_fields_in_server_custom_browsers() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [server_detection]
+        passive_detection_enabled = false
+        preferred_browser_id = "custom:duplicate"
+        enabled_browser_target_ids = ["custom:duplicate", "custom:valid", "missing"]
+
+        [[server_detection.custom_browsers]]
+        id = "custom:valid"
+        name = "Valid Browser"
+        path = "/Applications/Valid Browser.app"
+        bundle_identifier = "com.example.ValidBrowser"
+        priority = 10
+
+        [[server_detection.custom_browsers]]
+        id = "custom:duplicate"
+        name = "Duplicate Browser"
+        path = "/Applications/Valid Browser.app"
+        supports_profiles = true
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.serverDetection.passiveDetectionEnabled)
+        XCTAssertEqual(store.current.serverDetection.customBrowsers, [
+            ServerBrowserCustomApp(
+                id: "custom:valid",
+                name: "Valid Browser",
+                appPath: "/Applications/Valid Browser.app",
+                bundleIdentifier: "com.example.ValidBrowser"
+            )
+        ])
+        XCTAssertEqual(store.current.serverDetection.enabledBrowserTargetIDs, ["custom:valid"])
+        XCTAssertEqual(store.current.serverDetection.preferredBrowserID, "custom:valid")
     }
 
     func test_store_normalizes_duplicate_and_conflicting_shortcut_overrides_from_config_file() throws {
@@ -656,24 +766,25 @@ final class AppConfigStoreTests: XCTestCase {
             paneLayoutDefaults: paneLayoutDefaults
         )
 
-        let legacyObserverCalled = expectation(description: "legacy observer called")
-        let additionalObserverCalled = expectation(description: "additional observer called")
-        store.onChange = { config in
+        let firstObserverCalled = expectation(description: "first observer called")
+        let secondObserverCalled = expectation(description: "second observer called")
+        let firstObserverID = store.addObserver { config in
             XCTAssertEqual(config.sidebar.width, 333)
-            legacyObserverCalled.fulfill()
+            firstObserverCalled.fulfill()
         }
-        let observerID = store.addObserver { config in
+        let secondObserverID = store.addObserver { config in
             XCTAssertEqual(config.sidebar.width, 333)
-            additionalObserverCalled.fulfill()
+            secondObserverCalled.fulfill()
         }
 
         try store.update { config in
             config.sidebar.width = 333
         }
 
-        wait(for: [legacyObserverCalled, additionalObserverCalled], timeout: 2)
+        wait(for: [firstObserverCalled, secondObserverCalled], timeout: 2)
 
-        store.removeObserver(observerID)
+        store.removeObserver(firstObserverID)
+        store.removeObserver(secondObserverID)
     }
 
     func test_default_config_has_no_local_appearance_overrides() {

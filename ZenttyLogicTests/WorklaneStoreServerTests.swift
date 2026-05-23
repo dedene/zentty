@@ -119,11 +119,13 @@ final class WorklaneStoreServerTests: XCTestCase {
         store.register(server: proxy)
         store.register(server: app)
 
-        XCTAssertEqual(store.activeServerContext.primaryServer?.origin, "http://localhost:4568")
-
-        store.rememberPrimaryServer(app)
-
+        // Equal relevance scores → deterministic origin-ascending tiebreak picks 4567.
         XCTAssertEqual(store.activeServerContext.primaryServer?.origin, "http://localhost:4567")
+
+        // Session selection outranks every other signal.
+        store.rememberPrimaryServer(proxy)
+
+        XCTAssertEqual(store.activeServerContext.primaryServer?.origin, "http://localhost:4568")
 
         store.clearServers(worklaneID: worklaneID, paneID: paneA, source: .scanner)
 

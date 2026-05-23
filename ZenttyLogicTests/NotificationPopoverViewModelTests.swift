@@ -17,6 +17,18 @@ final class NotificationPopoverViewModelTests: XCTestCase {
         XCTAssertEqual(NotificationPopoverMetrics.populatedMaxHeight, 460)
     }
 
+    func test_live_popover_height_does_not_shrink_when_cleared_while_open() {
+        let populatedHeight = NotificationPopoverMetrics.preferredHeight(forEmpty: false)
+
+        XCTAssertEqual(
+            NotificationPopoverMetrics.liveHeight(
+                forEmpty: true,
+                currentHeight: populatedHeight
+            ),
+            populatedHeight
+        )
+    }
+
     func test_notification_view_fitting_height_matches_preferred_empty_panel_height() {
         let viewModel = NotificationPopoverViewModel(notifications: [])
         let controller = NotificationPopoverHostingController(viewModel: viewModel)

@@ -4,7 +4,7 @@ import GhosttyKit
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
     let total: UInt64
-    let offset: UInt64
+    let offset: Double
     let len: UInt64
 }
 
@@ -27,6 +27,7 @@ enum LibghosttySurfaceActionQueueEntry: Equatable {
     case pwd
     case progressReport
     case scrollbar
+    case cellSize
     case mouseShape
     case ordered(LibghosttySurfaceActionPayload)
 }
@@ -36,6 +37,7 @@ struct LibghosttySurfaceActionDrainBatch {
     var pwd: LibghosttySurfaceCoalescedValue<String?> = .absent
     var progressReport: LibghosttySurfaceCoalescedValue<TerminalProgressReport> = .absent
     var scrollbar: LibghosttySurfaceCoalescedValue<LibghosttySurfaceScrollbarUpdate> = .absent
+    var cellSize: LibghosttySurfaceCoalescedValue<(width: UInt32, height: UInt32)> = .absent
     var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
     var sequence: [LibghosttySurfaceActionQueueEntry] = []
 
@@ -51,6 +53,7 @@ final class LibghosttySurfaceActionCoalescer {
         var pwd: LibghosttySurfaceCoalescedValue<String?> = .absent
         var progressReport: LibghosttySurfaceCoalescedValue<TerminalProgressReport> = .absent
         var scrollbar: LibghosttySurfaceCoalescedValue<LibghosttySurfaceScrollbarUpdate> = .absent
+        var cellSize: LibghosttySurfaceCoalescedValue<(width: UInt32, height: UInt32)> = .absent
         var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
         var sequence: [LibghosttySurfaceActionQueueEntry] = []
 
@@ -80,6 +83,9 @@ final class LibghosttySurfaceActionCoalescer {
         case .scrollbar(let total, let offset, let len):
             state.scrollbar = .present(LibghosttySurfaceScrollbarUpdate(total: total, offset: offset, len: len))
             state.record(.scrollbar)
+        case .cellSize(let width, let height):
+            state.cellSize = .present((width: width, height: height))
+            state.record(.cellSize)
         case .mouseShape(let shape):
             state.mouseShape = .present(shape)
             state.record(.mouseShape)
@@ -111,6 +117,7 @@ final class LibghosttySurfaceActionCoalescer {
             pwd: state.pwd,
             progressReport: state.progressReport,
             scrollbar: state.scrollbar,
+            cellSize: state.cellSize,
             mouseShape: state.mouseShape,
             sequence: state.sequence
         )
@@ -118,6 +125,7 @@ final class LibghosttySurfaceActionCoalescer {
         state.pwd = .absent
         state.progressReport = .absent
         state.scrollbar = .absent
+        state.cellSize = .absent
         state.mouseShape = .absent
         state.sequence.removeAll(keepingCapacity: true)
         return batch
@@ -141,6 +149,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     var mouseCaptured: Bool {
         guard let surface else { return false }
         return ghostty_surface_mouse_captured(surface)
+    }
+
+    var mouseScrollIsTerminalInput: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_scroll_is_terminal_input(surface)
     }
 
     var cellWidth: CGFloat {
@@ -392,6 +405,41 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         _ = sendKey(event: event, action: .press, text: "\r", composing: false)
     }
 
+    func cancelPromptInput() {
+        submitControlKey(
+            character: "\u{5}",
+            charactersIgnoringModifiers: "e",
+            keyCode: UInt16(kVK_ANSI_E)
+        )
+        submitControlKey(
+            character: "\u{15}",
+            charactersIgnoringModifiers: "u",
+            keyCode: UInt16(kVK_ANSI_U)
+        )
+    }
+
+    private func submitControlKey(
+        character: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16
+    ) {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: character,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            return
+        }
+        _ = sendKey(event: event, action: .press, text: nil, composing: false)
+    }
+
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
         guard let surface else {
             return nil
@@ -483,6 +531,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
     }
 
+    func scroll(toOffset offset: Double) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_scroll_to_offset(surface, offset)
+    }
+
     func hasSelection() -> Bool {
         guard let surface else {
             return false
@@ -502,6 +558,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             y,
             Self.scrollMods(precision: precision, momentum: momentum)
         )
+    }
+
+    func setSmoothScrollingEnabled(_ enabled: Bool) {
+        guard let surface else {
+            return
+        }
+
+        ghostty_surface_set_smooth_scroll_enabled(surface, enabled)
     }
 
     func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {
@@ -594,6 +658,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
                 }
                 hasScrollback = scrollbar.total > scrollbar.len
                 hostView?.applyScrollbarUpdate(scrollbar)
+            case .cellSize:
+                flushMetadataIfNeeded()
+                guard let cellSize = batch.cellSize.value else {
+                    continue
+                }
+                hostView?.applyCellSizeUpdate(width: CGFloat(cellSize.width), height: CGFloat(cellSize.height))
             case .mouseShape:
                 flushMetadataIfNeeded()
                 guard let mouseShape = batch.mouseShape.value else {
@@ -633,6 +703,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             searchDidChange?(.selected(selected))
         case .scrollbar(let total, _, let len):
             hasScrollback = total > len
+        case .cellSize(let width, let height):
+            hostView?.applyCellSizeUpdate(width: CGFloat(width), height: CGFloat(height))
         case .openURL(let urlString):
             if let url = URL(string: urlString), url.scheme != nil {
                 NSWorkspace.shared.open(url)

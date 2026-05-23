@@ -13,6 +13,7 @@ enum AgentTool: Equatable, Sendable {
     case openCode
     case pi
     case grok
+    case agy
     case custom(String)
 
     var displayName: String {
@@ -41,6 +42,8 @@ enum AgentTool: Equatable, Sendable {
             return "Pi"
         case .grok:
             return "Grok"
+        case .agy:
+            return "Antigravity"
         case .custom(let name):
             return name
         }
@@ -120,6 +123,7 @@ enum AgentTool: Equatable, Sendable {
         ToolNameMatcher(tool: .openCode, isHookDrivenOnly: false, match: .containsAny(["opencode", "open code"])),
         ToolNameMatcher(tool: .pi, isHookDrivenOnly: false, match: .pi),
         ToolNameMatcher(tool: .grok, isHookDrivenOnly: false, match: .leadingToken(["grok", "grok-build"])),
+        ToolNameMatcher(tool: .agy, isHookDrivenOnly: false, match: .leadingToken(["agy", "antigravity"])),
     ]
 
     private static func matchesPi(_ normalized: String) -> Bool {

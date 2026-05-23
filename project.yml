@@ -61,6 +61,8 @@ targets:
       - path: Zentty/AppState/Agent/HookCanonicalReEmitter.swift
       - path: Zentty/AppState/Agent/JSONKeyAccess.swift
       - path: Zentty/AppState/Agent/KimiHooksInstaller.swift
+      - path: Zentty/AppState/Agent/AgyHooksInstaller.swift
+      - path: Zentty/AppState/Agent/AgyCanonicalReEmitter.swift
       - path: Zentty/AppState/Agent/JSONCRelaxedParse.swift
       - path: Zentty/Servers/ServerIPCCommands.swift
       - path: Zentty/Servers/ServerOutputURLDetector.swift
@@ -139,7 +141,7 @@ targets:
           mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/amp/plugins" "${RESOURCES_DST}/opencode/plugins" "${RESOURCES_DST}/pi/extensions" "${RESOURCES_DST}/ghostty" "${RESOURCES_DST}/terminfo"
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
           install -m 755 "${BUILT_PRODUCTS_DIR}/zentty" "${RESOURCES_DST}/bin/shared/zentty"
-          find "${RESOURCES_DST}/bin" -type f \( -path "*/amp/amp" -o -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/cursor/cursor-agent" -o -path "*/droid/droid" -o -path "*/gemini/gemini" -o -path "*/grok/grok" -o -path "*/kimi/kimi" -o -path "*/kimi/kimi-cli" -o -path "*/opencode/opencode" -o -path "*/pi/pi" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" -o -path "*/tmux-shim/tmux" \) -exec chmod 755 {} +
+          find "${RESOURCES_DST}/bin" -type f \( -path "*/amp/amp" -o -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/cursor/cursor-agent" -o -path "*/droid/droid" -o -path "*/gemini/gemini" -o -path "*/grok/grok" -o -path "*/kimi/kimi" -o -path "*/kimi/kimi-cli" -o -path "*/opencode/opencode" -o -path "*/pi/pi" -o -path "*/agy/agy" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" -o -path "*/tmux-shim/tmux" \) -exec chmod 755 {} +
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
           rsync -a --delete "${RESOURCES_SRC}/amp/" "${RESOURCES_DST}/amp/"
           rsync -a --delete "${RESOURCES_SRC}/opencode/" "${RESOURCES_DST}/opencode/"
@@ -164,8 +166,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
-        CURRENT_PROJECT_VERSION: 487
-        MARKETING_VERSION: 0.1.27
+        CURRENT_PROJECT_VERSION: 534
+        MARKETING_VERSION: 0.1.31
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
         SPARKLE_FEED_URL: ""

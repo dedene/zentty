@@ -16,7 +16,30 @@ final class PassiveServerDetectionTests: XCTestCase {
         let pane = try XCTUnwrap(context.scanner.panes.single)
         XCTAssertEqual(pane.paneID, paneID)
         XCTAssertEqual(pane.workingDirectory, "/tmp/project")
+        XCTAssertNil(pane.repositoryRoot)
         XCTAssertEqual(pane.shellPID, 4242)
+    }
+
+    func test_snapshot_includesRepositoryRootInScannerContext() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        applyPaneContext(path: "/tmp/project/frontend", paneID: paneID, to: store)
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project/frontend",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let snapshot = PassiveServerDetectionSnapshot(worklanes: store.worklanes)
+
+        let context = try XCTUnwrap(snapshot.contexts.single)
+        let pane = try XCTUnwrap(context.scanner.panes.single)
+        XCTAssertEqual(pane.workingDirectory, "/tmp/project/frontend")
+        XCTAssertEqual(pane.repositoryRoot, "/tmp/project")
     }
 
     func test_snapshot_continuesPollingWhileLocalPaneCommandIsRunning() throws {

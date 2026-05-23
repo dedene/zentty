@@ -33,21 +33,9 @@ enum GrokCanonicalReEmitter: HookCanonicalReEmitter {
 
         let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName", "event", "type"])?.lowercased()
 
-        var hookToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
-        var toolInput = JSONKeyAccess.firstObject(in: jsonObject, keys: ["tool_input", "toolInput", "input"])
-        if hookToolName == nil || toolInput == nil {
-            for nestKey in ["tool_use", "toolUse", "tool_use_input", "input"] {
-                if let nested = jsonObject[nestKey] as? [String: Any] {
-                    if hookToolName == nil {
-                        hookToolName = JSONKeyAccess.firstString(in: nested, keys: ["name", "tool_name", "toolName", "tool"])
-                    }
-                    if toolInput == nil {
-                        toolInput = JSONKeyAccess.firstObject(in: nested, keys: ["input", "tool_input", "toolInput"]) ?? nested
-                    }
-                    if hookToolName != nil && toolInput != nil { break }
-                }
-            }
-        }
+        let hookTool = hookToolContext(in: jsonObject)
+        let hookToolName = hookTool.name
+        let toolInput = hookTool.input
 
         var emissions: [String] = []
 
@@ -95,11 +83,35 @@ enum GrokCanonicalReEmitter: HookCanonicalReEmitter {
             || lowered == "todo"
     }
 
-    private static func isAskToolName(_ lowered: String) -> Bool {
+    static func hookToolName(in jsonObject: [String: Any]) -> String? {
+        hookToolContext(in: jsonObject).name
+    }
+
+    static func isAskToolName(_ lowered: String) -> Bool {
         guard !lowered.isEmpty else { return false }
         return lowered.contains("askuser")
             || lowered.contains("ask_user")
             || lowered.contains("askquestion")
+    }
+
+    private static func hookToolContext(in jsonObject: [String: Any]) -> (name: String?, input: [String: Any]?) {
+        var hookToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
+        var toolInput = JSONKeyAccess.firstObject(in: jsonObject, keys: ["tool_input", "toolInput", "input"])
+        if hookToolName == nil || toolInput == nil {
+            for nestKey in ["tool_use", "toolUse", "tool_use_input", "input"] {
+                guard let nested = jsonObject[nestKey] as? [String: Any] else {
+                    continue
+                }
+                if hookToolName == nil {
+                    hookToolName = JSONKeyAccess.firstString(in: nested, keys: ["name", "tool_name", "toolName", "tool"])
+                }
+                if toolInput == nil {
+                    toolInput = JSONKeyAccess.firstObject(in: nested, keys: ["input", "tool_input", "toolInput"]) ?? nested
+                }
+                if hookToolName != nil && toolInput != nil { break }
+            }
+        }
+        return (hookToolName, toolInput)
     }
 
     /// Structured allowlist of notification_type values that signal an input

@@ -198,6 +198,35 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
 
+    func test_builder_returns_cursor_resume_command_for_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-cursor",
+            kind: .agentResume,
+            toolName: "Cursor",
+            sessionID: "0CB916DB-26AA-40F2-86B5-1BA81B225FD2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "cursor-agent --resume=0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_nil_for_cursor_non_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-cursor",
+            kind: .agentResume,
+            toolName: "Cursor",
+            sessionID: "resume-this-session",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_kimi_resume_command_for_uuid_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-kimi",
@@ -363,5 +392,70 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
         )
 
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_agy_resume_command_for_alphanumeric_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agy",
+            kind: .agentResume,
+            toolName: "agy",
+            sessionID: "conversation-123",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "agy --conversation conversation-123"
+        )
+    }
+
+    func test_builder_returns_agy_continue_command_when_session_id_is_empty() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agy",
+            kind: .agentResume,
+            toolName: "agy",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "agy --continue"
+        )
+    }
+
+    func test_builder_returns_nil_for_agy_unsafe_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agy",
+            kind: .agentResume,
+            toolName: "agy",
+            sessionID: "sess; rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_falls_back_to_continue_when_agy_session_id_is_a_zentty_placeholder() {
+        // The launch bootstrap injects `zentty-placeholder-<uuid>` until the
+        // first real conversation_id arrives from a hook. If the user
+        // restores before that supersession ever happens we must not pass
+        // the placeholder to `--conversation` — agy would reject it.
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agy",
+            kind: .agentResume,
+            toolName: "agy",
+            sessionID: "zentty-placeholder-cbec30aa-f6c2-4b1c-aa7f-f6569c2e0c1d",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "agy --continue"
+        )
     }
 }

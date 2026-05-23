@@ -218,7 +218,7 @@ struct PaneLayoutPreferences: Equatable, Sendable {
         largeDisplayPreset: PaneLayoutPreset,
         ultrawidePreset: PaneLayoutPreset,
         rightSplitBehaviorMode: PaneSplitBehaviorMode = .adaptive,
-        visibleSplitWindowWidth: PaneVisibleSplitWindowWidth = .px1440
+        visibleSplitWindowWidth: PaneVisibleSplitWindowWidth = .px1920
     ) {
         self.laptopPreset = laptopPreset
         self.largeDisplayPreset = largeDisplayPreset
@@ -232,7 +232,7 @@ struct PaneLayoutPreferences: Equatable, Sendable {
         largeDisplayPreset: .balanced,
         ultrawidePreset: .balanced,
         rightSplitBehaviorMode: .adaptive,
-        visibleSplitWindowWidth: .px1440
+        visibleSplitWindowWidth: .px1920
     )
 
     func preset(for displayClass: DisplayClass) -> PaneLayoutPreset {
@@ -280,7 +280,7 @@ struct PaneLayoutContext: Equatable, Sendable {
         leadingVisibleInset: CGFloat,
         sizing: PaneLayoutSizing,
         rightSplitBehaviorMode: PaneSplitBehaviorMode = .adaptive,
-        visibleSplitWindowWidth: PaneVisibleSplitWindowWidth = .px1440
+        visibleSplitWindowWidth: PaneVisibleSplitWindowWidth = .px1920
     ) {
         self.displayClass = displayClass
         self.preset = preset
@@ -363,7 +363,7 @@ struct PaneLayoutContext: Equatable, Sendable {
         leadingVisibleInset: 0,
         sizing: .balanced,
         rightSplitBehaviorMode: .adaptive,
-        visibleSplitWindowWidth: .px1440
+        visibleSplitWindowWidth: .px1920
     )
 }
 
@@ -394,6 +394,8 @@ enum PaneLayoutPreferenceStore {
     static let laptopPresetKey = "RootViewController.paneLayout.laptopPreset"
     static let largeDisplayPresetKey = "RootViewController.paneLayout.largeDisplayPreset"
     static let ultrawidePresetKey = "RootViewController.paneLayout.ultrawidePreset"
+    static let rightSplitBehaviorModeKey = "RootViewController.paneLayout.rightSplitBehaviorMode"
+    static let visibleSplitWindowWidthKey = "RootViewController.paneLayout.visibleSplitWindowWidth"
 
     private static let testDefaultsSuiteName = "ZenttyTests.PaneLayoutPreferenceStore"
 
@@ -413,6 +415,14 @@ enum PaneLayoutPreferenceStore {
                 from: defaults,
                 key: ultrawidePresetKey,
                 fallback: PaneLayoutPreferences.default.ultrawidePreset
+            ),
+            rightSplitBehaviorMode: restoredRightSplitBehaviorMode(
+                from: defaults,
+                fallback: PaneLayoutPreferences.default.rightSplitBehaviorMode
+            ),
+            visibleSplitWindowWidth: restoredVisibleSplitWindowWidth(
+                from: defaults,
+                fallback: PaneLayoutPreferences.default.visibleSplitWindowWidth
             )
         )
     }
@@ -422,6 +432,14 @@ enum PaneLayoutPreferenceStore {
             preset.rawValue,
             forKey: key(for: displayClass)
         )
+    }
+
+    static func persist(_ mode: PaneSplitBehaviorMode, in defaults: UserDefaults) {
+        defaults.set(mode.rawValue, forKey: rightSplitBehaviorModeKey)
+    }
+
+    static func persist(_ width: PaneVisibleSplitWindowWidth, in defaults: UserDefaults) {
+        defaults.set(width.rawValue, forKey: visibleSplitWindowWidthKey)
     }
 
     static func userDefaults() -> UserDefaults {
@@ -448,6 +466,30 @@ enum PaneLayoutPreferenceStore {
         }
 
         return preset
+    }
+
+    private static func restoredRightSplitBehaviorMode(
+        from defaults: UserDefaults,
+        fallback: PaneSplitBehaviorMode
+    ) -> PaneSplitBehaviorMode {
+        guard let rawValue = defaults.string(forKey: rightSplitBehaviorModeKey),
+              let mode = PaneSplitBehaviorMode(rawValue: rawValue) else {
+            return fallback
+        }
+
+        return mode
+    }
+
+    private static func restoredVisibleSplitWindowWidth(
+        from defaults: UserDefaults,
+        fallback: PaneVisibleSplitWindowWidth
+    ) -> PaneVisibleSplitWindowWidth {
+        guard defaults.object(forKey: visibleSplitWindowWidthKey) != nil else {
+            return fallback
+        }
+
+        let rawValue = defaults.integer(forKey: visibleSplitWindowWidthKey)
+        return PaneVisibleSplitWindowWidth(rawValue: rawValue) ?? fallback
     }
 
     private static func key(for displayClass: DisplayClass) -> String {

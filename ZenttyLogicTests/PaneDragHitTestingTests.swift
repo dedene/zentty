@@ -78,7 +78,7 @@ final class PaneDragHitTestingTests: XCTestCase {
         XCTAssertEqual(hit, previousHit)
     }
 
-    func test_stackReorderGapHit_uses_outer_gap_center_not_pane_edge() {
+    func test_stackReorderGapHit_skips_single_pane_column_outer_gaps() {
         let columns = [
             ColumnPresentation(
                 columnID: PaneColumnID("stack"),
@@ -109,7 +109,91 @@ final class PaneDragHitTestingTests: XCTestCase {
         )
 
         XCTAssertNil(edgeHit)
-        XCTAssertEqual(gapHit, StackReorderGapHit(columnID: PaneColumnID("stack"), paneIndex: 0))
+        XCTAssertNil(gapHit)
+    }
+
+    func test_shouldSuppressColumnReorderGap_when_horizontal_split_on_targets_leading_edge() {
+        let splitHit = SplitZoneHit(
+            targetPaneID: PaneID("solo"),
+            targetColumnID: PaneColumnID("right"),
+            axis: .horizontal,
+            leading: true
+        )
+
+        XCTAssertTrue(
+            PaneDragHitTest.shouldSuppressColumnReorderGap(
+                gapReducedIndex: 1,
+                splitHit: splitHit,
+                columnIDsInOrder: [PaneColumnID("left"), PaneColumnID("right")]
+            )
+        )
+    }
+
+    func test_shouldSuppressColumnReorderGap_when_horizontal_split_on_sources_trailing_edge() {
+        let splitHit = SplitZoneHit(
+            targetPaneID: PaneID("remaining"),
+            targetColumnID: PaneColumnID("left"),
+            axis: .horizontal,
+            leading: false
+        )
+
+        XCTAssertTrue(
+            PaneDragHitTest.shouldSuppressColumnReorderGap(
+                gapReducedIndex: 1,
+                splitHit: splitHit,
+                columnIDsInOrder: [PaneColumnID("left"), PaneColumnID("right")]
+            )
+        )
+    }
+
+    func test_shouldSuppressColumnReorderGap_does_not_suppress_unrelated_vertical_split() {
+        let splitHit = SplitZoneHit(
+            targetPaneID: PaneID("solo"),
+            targetColumnID: PaneColumnID("right"),
+            axis: .vertical,
+            leading: true
+        )
+
+        XCTAssertFalse(
+            PaneDragHitTest.shouldSuppressColumnReorderGap(
+                gapReducedIndex: 1,
+                splitHit: splitHit,
+                columnIDsInOrder: [PaneColumnID("left"), PaneColumnID("right")]
+            )
+        )
+    }
+
+    func test_reorderGapHit_defers_to_horizontal_split_on_adjacent_single_pane() {
+        let columnFrames = [
+            CGRect(x: 0, y: 0, width: 320, height: 920),
+            CGRect(x: 340, y: 0, width: 320, height: 920),
+        ]
+        let gapHit = PaneDragHitTest.reorderGapHit(
+            cursorX: 350,
+            visibleColumnFrames: columnFrames,
+            zoomScale: 0.4,
+            previousReducedIndex: nil
+        )
+        let splitHit = PaneDragHitTest.splitZoneHit(
+            cursorInContent: CGPoint(x: 350, y: 460),
+            paneFramesByID: [
+                PaneID("solo"): CGRect(x: 340, y: 0, width: 320, height: 920),
+            ],
+            columnForPane: [PaneID("solo"): PaneColumnID("right")],
+            paneCountByColumn: [PaneColumnID("right"): 1],
+            excludedPaneID: PaneID("dragged"),
+            minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
+        )
+
+        XCTAssertNotNil(gapHit)
+        XCTAssertNotNil(splitHit)
+        XCTAssertTrue(
+            PaneDragHitTest.shouldSuppressColumnReorderGap(
+                gapReducedIndex: gapHit!.reducedIndex,
+                splitHit: splitHit!,
+                columnIDsInOrder: [PaneColumnID("left"), PaneColumnID("right")]
+            )
+        )
     }
 
     func test_splitZoneHit_rejects_horizontal_split_on_multi_pane_stack() {

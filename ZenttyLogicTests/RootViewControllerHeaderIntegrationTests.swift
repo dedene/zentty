@@ -161,8 +161,24 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, [])
     }
 
-    func test_root_controller_populates_header_from_live_review_state_resolver() {
-        let controller = makeController()
+    func test_root_controller_populates_header_from_live_review_state_resolver() async throws {
+        let runner = ReviewRefreshRunnerSpy(
+            pullRequestViewStdout: #"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#,
+            pullRequestChecksStdout: #"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"},{"bucket":"fail","state":"FAILURE","name":"e2e-macos"}]"#
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+        let controller = makeController(
+            reviewStateResolver: resolver,
+            gitContextResolver: StubPaneGitContextResolver(
+                resultByWorkingDirectory: [
+                    "/tmp/project": PaneGitContext(
+                        workingDirectory: "/tmp/project",
+                        repositoryRoot: "/tmp/project",
+                        reference: .branch("feature/review-band")
+                    ),
+                ]
+            )
+        )
         let paneID = PaneID("pane-claude")
 
         controller.replaceWorklanes([
@@ -179,21 +195,6 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
                         currentWorkingDirectory: "/tmp/project",
                         processName: "claude"
                     ),
-                ]
-                ,
-                reviewStateByPaneID: [
-                    paneID: WorklaneReviewState(
-                        branch: "feature/review-band",
-                        pullRequest: WorklanePullRequestSummary(
-                            number: 128,
-                            url: URL(string: "https://example.com/pr/128"),
-                            state: .draft
-                        ),
-                        reviewChips: [
-                            WorklaneReviewChip(text: "Draft", style: .info),
-                            WorklaneReviewChip(text: "2 failing", style: .danger),
-                        ]
-                    ),
                 ],
                 gitContextByPaneID: [
                     paneID: PaneGitContext(
@@ -208,6 +209,39 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         let chrome = controller.chromeView
         XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
+        XCTAssertEqual(chrome.pullRequestText, "")
+        XCTAssertEqual(chrome.reviewChipTexts, [])
+
+        try await runner.waitForPullRequestViewCount(1)
+        try await runner.waitForPullRequestChecksCount(1)
+        try await waitForReviewState(
+            in: controller,
+            paneID: paneID,
+            pullRequestNumber: 128,
+            reviewChipTexts: ["Draft", "2 failing"]
+        )
+        let presentation = try XCTUnwrap(
+            controller.worklaneStore.activeWorklane?
+                .auxiliaryStateByPaneID[paneID]?
+                .presentation
+        )
+        XCTAssertEqual(presentation.pullRequest?.number, 128)
+        XCTAssertEqual(presentation.reviewChips.map(\.text), ["Draft", "2 failing"])
+        try await waitForReviewHeader(
+            chrome,
+            render: { controller.focusPaneDirectly(paneID) },
+            pullRequestText: "PR #128",
+            reviewChipTexts: ["Draft", "2 failing"]
+        )
+        let pullRequestViewCalls = await runner.pullRequestViewCalls()
+        let pullRequestChecksCalls = await runner.pullRequestChecksCalls()
+        XCTAssertEqual(pullRequestViewCalls.count, 1)
+        XCTAssertEqual(Array(pullRequestViewCalls[0].prefix(3)), ["gh", "pr", "view"])
+        XCTAssertTrue(pullRequestViewCalls[0].contains("feature/review-band"))
+        XCTAssertEqual(pullRequestChecksCalls.count, 1)
+        XCTAssertEqual(Array(pullRequestChecksCalls[0].prefix(3)), ["gh", "pr", "checks"])
+        XCTAssertTrue(pullRequestChecksCalls[0].contains("feature/review-band"))
+
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
     }
@@ -1019,6 +1053,59 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
     private func requiredSingleLineWidth(of button: NSButton) -> CGFloat {
         ceil(max(button.fittingSize.width, button.intrinsicContentSize.width))
     }
+
+    private func waitForReviewHeader(
+        _ chrome: WindowChromeView,
+        render: () -> Void,
+        pullRequestText: String,
+        reviewChipTexts: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            render()
+            if chrome.pullRequestText == pullRequestText,
+               chrome.reviewChipTexts == reviewChipTexts {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTFail(
+            "Expected header PR \(pullRequestText) and chips \(reviewChipTexts), got PR \(chrome.pullRequestText) and chips \(chrome.reviewChipTexts)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func waitForReviewState(
+        in controller: RootViewController,
+        paneID: PaneID,
+        pullRequestNumber: Int,
+        reviewChipTexts: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<100 {
+            let reviewState = controller.worklaneStore.activeWorklane?
+                .auxiliaryStateByPaneID[paneID]?
+                .reviewState
+            if reviewState?.pullRequest?.number == pullRequestNumber,
+               reviewState?.reviewChips.map(\.text) == reviewChipTexts {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        let reviewState = controller.worklaneStore.activeWorklane?
+            .auxiliaryStateByPaneID[paneID]?
+            .reviewState
+        XCTFail(
+            "Expected resolver review state PR #\(pullRequestNumber) and chips \(reviewChipTexts), got \(String(describing: reviewState))",
+            file: file,
+            line: line
+        )
+    }
 }
 
 private extension NSView {
@@ -1052,7 +1139,17 @@ private struct StubPaneGitContextResolver: PaneGitContextResolving {
 }
 
 private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
+    private let pullRequestViewStdout: String
+    private let pullRequestChecksStdout: String
     private var calls: [[String]] = []
+
+    init(
+        pullRequestViewStdout: String = #"{"number":1588,"url":"https://github.com/zenjoy/zentty/pull/1588","isDraft":false,"state":"OPEN"}"#,
+        pullRequestChecksStdout: String = #"[]"#
+    ) {
+        self.pullRequestViewStdout = pullRequestViewStdout
+        self.pullRequestChecksStdout = pullRequestChecksStdout
+    }
 
     func run(arguments: [String], currentDirectoryPath _: String) async -> WorklaneReviewCommandResult {
         calls.append(arguments)
@@ -1070,11 +1167,11 @@ private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
         }
 
         if Array(arguments.prefix(3)) == ["gh", "pr", "view"] {
-            return result(stdout: #"{"number":1588,"url":"https://github.com/zenjoy/zentty/pull/1588","isDraft":false,"state":"OPEN"}"#)
+            return result(stdout: pullRequestViewStdout)
         }
 
         if Array(arguments.prefix(3)) == ["gh", "pr", "checks"] {
-            return result(stdout: #"[]"#)
+            return result(stdout: pullRequestChecksStdout)
         }
 
         return WorklaneReviewCommandResult(
@@ -1103,8 +1200,39 @@ private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
         )
     }
 
+    func waitForPullRequestChecksCount(
+        _ expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if pullRequestChecksCount >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTFail(
+            "Expected at least \(expectedCount) gh pr checks calls, got \(pullRequestChecksCount)",
+            file: file,
+            line: line
+        )
+    }
+
+    func pullRequestViewCalls() -> [[String]] {
+        calls.filter { Array($0.prefix(3)) == ["gh", "pr", "view"] }
+    }
+
+    func pullRequestChecksCalls() -> [[String]] {
+        calls.filter { Array($0.prefix(3)) == ["gh", "pr", "checks"] }
+    }
+
     private var pullRequestViewCount: Int {
         calls.filter { Array($0.prefix(3)) == ["gh", "pr", "view"] }.count
+    }
+
+    private var pullRequestChecksCount: Int {
+        calls.filter { Array($0.prefix(3)) == ["gh", "pr", "checks"] }.count
     }
 
     private func result(stdout: String) -> WorklaneReviewCommandResult {

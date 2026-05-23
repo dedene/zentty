@@ -151,6 +151,70 @@ final class SessionRestoreStoreTests: XCTestCase {
         XCTAssertEqual(decision.envelope.restoreDraftWindows, envelope.restoreDraftWindows)
     }
 
+    func test_exporter_creates_cursor_restore_draft_for_live_session() throws {
+        let paneID = PaneID("pane-cursor")
+        let worklaneID = WorklaneID("worklane-main")
+        let sessionID = "237d8c32-2a27-4850-8da8-3a110f13682c"
+        let livePID: Int32 = 4242
+
+        var worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("column-main"),
+                        panes: [
+                            PaneState(
+                                id: paneID,
+                                title: "Cursor",
+                                sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                            ),
+                        ],
+                        width: 640,
+                        focusedPaneID: paneID
+                    ),
+                ],
+                focusedColumnID: PaneColumnID("column-main")
+            )
+        )
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus = PaneAgentStatus(
+            tool: .cursor,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: Date(),
+            source: .explicit,
+            origin: .explicitHook,
+            confidence: .explicit,
+            trackedPID: livePID,
+            hasObservedRunning: true,
+            sessionID: sessionID
+        )
+
+        let windowDrafts = try XCTUnwrap(
+            SessionRestoreDraftExporter.makeWindowDrafts(
+                windowID: WindowID("window-main"),
+                worklanes: [worklane],
+                isProcessAlive: { $0 == livePID }
+            )
+        )
+
+        XCTAssertEqual(
+            windowDrafts.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: paneID.rawValue,
+                    kind: .agentResume,
+                    toolName: "Cursor",
+                    sessionID: sessionID,
+                    workingDirectory: "/tmp/project",
+                    trackedPID: livePID
+                ),
+            ]
+        )
+    }
+
     func test_clean_exit_save_preserves_existing_restore_drafts_for_matching_panes() throws {
         let workspace = WorkspaceRecipe(
             windows: [
@@ -224,6 +288,57 @@ final class SessionRestoreStoreTests: XCTestCase {
 
         XCTAssertEqual(decision.envelope.reason, .cleanExit)
         XCTAssertEqual(decision.envelope.restoreDraftWindows, liveEnvelope.restoreDraftWindows)
+    }
+
+    func test_draft_exporter_allows_agy_continue_restore_from_working_directory_without_session_id() throws {
+        let paneID = PaneID("pane-agy")
+        let pane = PaneState(
+            id: paneID,
+            title: "Antigravity",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+        )
+        let status = PaneAgentStatus(
+            tool: .agy,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: Date(),
+            trackedPID: 4242,
+            workingDirectory: "/tmp/project",
+            sessionID: nil
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("column-main"),
+                        panes: [pane],
+                        width: 800,
+                        focusedPaneID: paneID
+                    )
+                ],
+                focusedColumnID: PaneColumnID("column-main")
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(agentStatus: status)
+            ]
+        )
+
+        let draftWindow = try XCTUnwrap(
+            SessionRestoreDraftExporter.makeWindowDrafts(
+                windowID: WindowID("window-main"),
+                worklanes: [worklane],
+                isProcessAlive: { $0 == 4242 }
+            )
+        )
+        let draft = try XCTUnwrap(draftWindow.paneDrafts.first)
+
+        XCTAssertEqual(draft.toolName, "Antigravity")
+        XCTAssertEqual(draft.sessionID, "")
+        XCTAssertEqual(draft.workingDirectory, "/tmp/project")
+        XCTAssertEqual(AgentResumeCommandBuilder.command(for: draft), "agy --continue")
     }
 
     func test_prepare_for_launch_throws_when_snapshot_is_corrupt() throws {

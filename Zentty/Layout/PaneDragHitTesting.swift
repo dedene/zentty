@@ -57,6 +57,44 @@ enum PaneDragHitTest {
         return ReorderGapHit(reducedIndex: best.index)
     }
 
+    /// When the cursor is on a single-pane column's horizontal split edge, defer to split
+    /// targeting instead of showing an inter-column insertion line.
+    static func shouldSuppressColumnReorderGap(
+        gapReducedIndex: Int,
+        splitHit: SplitZoneHit,
+        columnIDsInOrder: [PaneColumnID]
+    ) -> Bool {
+        guard splitHit.axis == .horizontal else { return false }
+        guard !columnIDsInOrder.isEmpty else { return false }
+
+        if gapReducedIndex > 0, gapReducedIndex < columnIDsInOrder.count {
+            let rightColumnID = columnIDsInOrder[gapReducedIndex]
+            if splitHit.targetColumnID == rightColumnID, splitHit.leading {
+                return true
+            }
+            let leftColumnID = columnIDsInOrder[gapReducedIndex - 1]
+            if splitHit.targetColumnID == leftColumnID, !splitHit.leading {
+                return true
+            }
+        }
+
+        if gapReducedIndex == columnIDsInOrder.count {
+            let lastColumnID = columnIDsInOrder[columnIDsInOrder.count - 1]
+            if splitHit.targetColumnID == lastColumnID, !splitHit.leading {
+                return true
+            }
+        }
+
+        if gapReducedIndex == 0 {
+            let firstColumnID = columnIDsInOrder[0]
+            if splitHit.targetColumnID == firstColumnID, splitHit.leading {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // MARK: - Helpers
 
     private struct GapCandidate {
@@ -167,6 +205,13 @@ enum PaneDragHitTest {
         for column in columns where !column.panes.isEmpty {
             let horizontalBand = (column.frame.minX - activation)...(column.frame.maxX + activation)
             let paneFrames = column.panes.map(\.frame)
+
+            // Single-pane columns use edge split zones for top/bottom drops; stack gaps
+            // would preempt vertical split feedback.
+            guard paneFrames.count > 1 else {
+                continue
+            }
+
             let firstFrame = paneFrames[0]
             let topGapCenterY = (column.frame.maxY + firstFrame.maxY) / 2
             result.append(

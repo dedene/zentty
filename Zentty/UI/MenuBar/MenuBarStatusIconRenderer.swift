@@ -382,6 +382,8 @@ enum MenuBarStatusIconRenderer {
             return "AgentIconPi"
         case .grok:
             return "AgentIconGrok"
+        case .agy:
+            return nil
         case .custom:
             return nil
         }

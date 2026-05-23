@@ -27,7 +27,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -50,6 +50,7 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_DROID_PID",
     "ZENTTY_KIMI_PID",
     "ZENTTY_GROK_PID",
+    "ZENTTY_AGY_PID",
     "CODEX_HOME",
     "COPILOT_HOME",
     "KIMI_HOME",
@@ -90,6 +91,7 @@ class ScenarioExpectation:
     required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
     forbidden_events: list[str] = dataclasses.field(default_factory=list)
     forbidden_terminal_phases: list[str] = dataclasses.field(default_factory=list)
+    expected_task_progress: dict[str, int] | None = None
     session_identity: SessionIdentityExpectation | None = None
     synthetic: bool = False
     fixture: str | None = None
@@ -172,7 +174,7 @@ def redacted_environment(environment: dict[str, str]) -> dict[str, str]:
     for key, value in environment.items():
         if key not in ROUTING_ENV_KEYS and not SECRET_ENV_PATTERNS.search(key):
             continue
-        redacted[key] = "<redacted>" if SECRET_ENV_PATTERNS.search(key) else value
+        redacted[key] = "<redacted>" if SECRET_ENV_PATTERNS.search(key) else redact_pii_text(value)
     return redacted
 
 
@@ -354,7 +356,7 @@ def session_identity_observations_for_records(
             continue
 
         payload = parse_json_object(record.standard_input)
-        session_id, session_source = extract_session_id(payload)
+        session_id, session_source = extract_session_id(agent, payload)
         tracked_pid, pid_source = extract_tracked_pid(agent, payload, record.environment or {})
         if session_id is None and tracked_pid is None:
             continue
@@ -372,8 +374,13 @@ def session_identity_observations_for_records(
     return observations
 
 
-def extract_session_id(payload: dict[str, Any]) -> tuple[str | None, str | None]:
-    for key in ("session_id", "sessionId"):
+def extract_session_id(agent: str, payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    keys = ["session_id", "sessionId"]
+    # cursor and agy carry the session id under conversation_id/conversationId.
+    if agent in ("cursor", "agy"):
+        keys.extend(["conversation_id", "conversationId"])
+
+    for key in keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return (value.strip(), key)
@@ -432,18 +439,16 @@ def missing_required_terminal_phases(
     expectation: ScenarioExpectation,
     observations: list[TerminalObservation],
 ) -> list[str]:
-    observed_phases = [
-        phase
-        for observation in observations
-        if (phase := terminal_observation_phase(observation))
-    ]
-    observed_counts = Counter(observed_phases)
+    observed_phases = terminal_phase_sequence(observations)
     missing: list[str] = []
+    observed_index = 0
     for phase in expectation.required_terminal_phases:
-        if observed_counts[phase] > 0:
-            observed_counts[phase] -= 1
-        else:
+        while observed_index < len(observed_phases) and observed_phases[observed_index] != phase:
+            observed_index += 1
+        if observed_index >= len(observed_phases):
             missing.append(phase)
+            continue
+        observed_index += 1
     return missing
 
 
@@ -519,11 +524,18 @@ def classify_completed_result(
         result.detail = "missing required terminal phases"
         result.result_kind = "missing-terminal-phase"
         return result
-    if scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+    if scenario_requires_task_observation(agent, scenario) and not task_observations_for_records(agent, scenario, records):
         result.passed = False
         result.status = "fail"
         result.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
         result.result_kind = "missing-task-hook"
+        return result
+    task_observations = task_observations_for_records(agent, scenario, records)
+    if expectation.expected_task_progress and not expected_task_progress_observed(expectation, task_observations):
+        result.passed = False
+        result.status = "fail"
+        result.detail = "required TodoWrite task progress was not captured"
+        result.result_kind = "missing-task-progress"
         return result
     if scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
         result.passed = False
@@ -593,11 +605,19 @@ def classify_timeout_result(
             partial.missing_events = missing_terminal_phases
             partial.detail = "missing required terminal phases"
             partial.result_kind = "missing-terminal-phase"
-        elif scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+        elif scenario_requires_task_observation(agent, scenario) and not task_observations_for_records(agent, scenario, records):
             partial.passed = False
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
             partial.result_kind = "missing-task-hook"
+        elif expectation.expected_task_progress and not expected_task_progress_observed(
+            expectation,
+            task_observations_for_records(agent, scenario, records),
+        ):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = "required TodoWrite task progress was not captured"
+            partial.result_kind = "missing-task-progress"
         elif scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
             partial.passed = False
             partial.status = "fail"
@@ -725,7 +745,7 @@ def source_sort_key(source: str) -> int:
     return {"process": 0, "hook": 1, "terminal": 2}.get(source, 3)
 
 
-def scenario_requires_task_observation(scenario: str) -> bool:
+def scenario_requires_task_observation(agent: str, scenario: str) -> bool:
     return scenario == "tasks"
 
 
@@ -828,11 +848,46 @@ def terminal_phase_after_scripted_input(
     ]
     return terminal_final_phase(later_terminal_observations)
 
+
+def expected_task_progress_observed(
+    expectation: ScenarioExpectation,
+    observations: list[dict[str, Any]],
+) -> bool:
+    expected = expectation.expected_task_progress
+    if not expected:
+        return True
+    expected_done = expected.get("done")
+    expected_total = expected.get("total")
+    return any(
+        observation.get("done") == expected_done and observation.get("total") == expected_total
+        for observation in observations
+    )
+
+
 def task_observations_for_records(agent: str, scenario: str, records: list[TraceRecord]) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
+    cursor_updates_by_session: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         if record.agent != agent or record.scenario != scenario or record.kind != "hook":
             continue
+        if isinstance(record.extra, dict):
+            progress = record.extra.get("task_progress")
+            if isinstance(progress, dict):
+                done = progress.get("done")
+                total = progress.get("total")
+                tool = progress.get("tool")
+                source = progress.get("source")
+                if isinstance(done, int) and isinstance(total, int) and total > 0:
+                    observations.append(
+                        {
+                            "event": record.event_name or "",
+                            "tool": tool if isinstance(tool, str) and tool else "TodoWrite",
+                            "done": done,
+                            "total": total,
+                            "source": source if isinstance(source, str) and source else "trace_extra",
+                        }
+                    )
+                    continue
         payload = parse_json_object(record.standard_input)
 
         # Case 1: Raw PreToolUse / tool call with TodoWrite (traditional path, now grok-flexible)
@@ -856,7 +911,19 @@ def task_observations_for_records(agent: str, scenario: str, records: list[Trace
                             tool_input = first_object(nested, ["input", "tool_input", "toolInput"]) or nested
                             if tool_input:
                                 break
-                progress = todo_progress(tool_input)
+                progress = None
+                if agent == "cursor" and isinstance(tool_input, dict) and isinstance(tool_input.get("todos"), list):
+                    session_id = first_string(payload, ["conversation_id", "conversationId", "session_id", "sessionId"]) or "__default__"
+                    cursor_updates_by_session.setdefault(session_id, []).append(
+                        {
+                            "merge": bool(tool_input.get("merge", False)),
+                            "todos": tool_input.get("todos", []),
+                            "tool_input": tool_input,
+                        }
+                    )
+                    progress = cursor_progress_from_updates(cursor_updates_by_session[session_id])
+                if progress is None:
+                    progress = todo_progress(tool_input)
                 if progress:
                     observations.append(
                         {
@@ -928,6 +995,120 @@ def todo_progress_from_text(text: str) -> tuple[int, int] | None:
 
 def todo_status_is_complete(status: str) -> bool:
     return status.strip().lower() in {"completed", "complete", "done"}
+
+
+def cursor_trace_extra(agent: str | None, stdin_payload: str | None) -> dict[str, Any] | None:
+    if agent != "cursor" or not stdin_payload:
+        return None
+    payload = parse_json_object(stdin_payload)
+    task_progress = cursor_transcript_task_progress(payload)
+    if not task_progress:
+        return None
+    return {"task_progress": task_progress}
+
+
+def cursor_transcript_task_progress(payload: dict[str, Any], attempts: int = 5) -> dict[str, Any] | None:
+    transcript_path = first_string(payload, ["transcript_path", "transcriptPath"])
+    if not transcript_path:
+        return None
+    attempt_count = max(1, attempts)
+    for attempt in range(attempt_count):
+        text = read_text_file_tail(pathlib.Path(transcript_path), 256 * 1024)
+        if text is not None:
+            updates: list[dict[str, Any]] = []
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                updates.extend(cursor_todo_updates_in_object(record))
+            progress = cursor_progress_from_updates(updates)
+            if progress:
+                return {
+                    "tool": "TodoWrite",
+                    "done": progress[0],
+                    "total": progress[1],
+                    "source": "cursor_transcript",
+                }
+            for record_update in reversed(updates):
+                progress = todo_progress(record_update.get("tool_input"))
+                if progress:
+                    return {
+                        "tool": "TodoWrite",
+                        "done": progress[0],
+                        "total": progress[1],
+                        "source": "cursor_transcript",
+                    }
+        if attempt < attempt_count - 1:
+            time.sleep(0.05)
+    return None
+
+
+def cursor_progress_from_updates(updates: list[dict[str, Any]]) -> tuple[int, int] | None:
+    todos: dict[str, str] = {}
+    for update in updates:
+        if not update.get("merge", False):
+            todos = {}
+        for todo in update.get("todos", []):
+            if not isinstance(todo, dict):
+                continue
+            key = first_string(todo, ["id", "content", "text", "title"])
+            status = first_string(todo, ["status", "state"]) or "pending"
+            if key:
+                todos[key] = status
+    if not todos:
+        return None
+    return (sum(1 for status in todos.values() if todo_status_is_complete(status)), len(todos))
+
+
+def cursor_todo_updates_in_object(value: dict[str, Any], depth: int = 0) -> list[dict[str, Any]]:
+    if depth >= 6:
+        return []
+
+    tool_name = first_string(value, ["name", "tool_name", "toolName", "tool"])
+    if tool_name and tool_name.strip().lower() == "todowrite":
+        tool_input = first_object(value, ["input", "tool_input", "toolInput"])
+        if tool_input is None and "todos" in value:
+            tool_input = value
+        if isinstance(tool_input, dict) and isinstance(tool_input.get("todos"), list):
+            return [
+                {
+                    "merge": bool(tool_input.get("merge", False)),
+                    "todos": tool_input.get("todos", []),
+                    "tool_input": tool_input,
+                }
+            ]
+
+    updates: list[dict[str, Any]] = []
+    for key in ("message", "tool_use", "toolUse", "tool_use_input", "input"):
+        nested = value.get(key)
+        if isinstance(nested, dict):
+            updates.extend(cursor_todo_updates_in_object(nested, depth + 1))
+
+    for key in ("content", "messages"):
+        items = value.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                updates.extend(cursor_todo_updates_in_object(item, depth + 1))
+    return updates
+
+
+def read_text_file_tail(path: pathlib.Path, max_bytes: int) -> str | None:
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - max_bytes), os.SEEK_SET)
+            return handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
 
 
 def first_string(mapping: dict[str, Any], keys: list[str]) -> str | None:
@@ -1138,6 +1319,7 @@ class CaptureServer:
         environment = request.get("environment") if isinstance(request.get("environment"), dict) else {}
         hook = infer_hook_event(subcommand, [str(arg) for arg in args], stdin_payload if isinstance(stdin_payload, str) else None)
         agent = agent_from_adapter(hook.adapter, environment, stdin_payload if isinstance(stdin_payload, str) else None)
+        extra = cursor_trace_extra(agent, stdin_payload if isinstance(stdin_payload, str) else None)
         self.recorder.append(
             TraceRecord(
                 kind="hook",
@@ -1149,6 +1331,7 @@ class CaptureServer:
                 arguments=[str(arg) for arg in args],
                 standard_input=redact_standard_input(stdin_payload if isinstance(stdin_payload, str) else None),
                 environment=redacted_environment({str(k): str(v) for k, v in environment.items()}),
+                extra=extra,
             )
         )
 
@@ -1171,7 +1354,11 @@ class LaunchPlanner:
         executable = str(environment.get("ZENTTY_REAL_BINARY") or self.profile.command)
         arguments = [str(arg) for arg in request.get("arguments", [])]
         cli_path = str(environment.get("ZENTTY_CLI_BIN") or "")
-        if self.scenario == "restore_launch":
+        # All `restore_launch*` scenarios exercise the bootstrap argument
+        # forwarding path; we never need to actually execute the agent
+        # process (which can fail synchronously on bogus session ids and race
+        # the completion predicate).
+        if self.scenario.startswith("restore_launch"):
             return self._launch_plan("/usr/bin/true", [], {"ZENTTY_AGENT_TOOL": self.profile.name})
         method = getattr(self, f"_plan_{self.profile.name}", self._direct_plan)
         return method(executable, arguments, environment, cli_path)
@@ -1470,6 +1657,82 @@ class LaunchPlanner:
             {"ZENTTY_AGENT_TOOL": "grok", "HOME": str(home)},
         )
 
+    # Antigravity hook events Zentty subscribes to, kept in sync with
+    # AgyHooksInstaller.events on the Swift side. Tool-use events take the
+    # `{matcher, hooks:[...]}` wrapper; lifecycle events are plain entries.
+    _AGY_LIFECYCLE_HOOK_EVENTS = [
+        ("SessionStart", "session-start"),
+        ("PreInvocation", "prompt-submit"),
+        ("Stop", "stop"),
+        ("turn-completion", "turn-completion"),
+        ("Notification", "notification"),
+        ("SessionEnd", "session-end"),
+    ]
+    _AGY_TOOL_HOOK_EVENTS = [
+        ("PreToolUse", "pre-tool-use"),
+        ("PostToolUse", "post-tool-use"),
+    ]
+
+    @staticmethod
+    def _agy_hook_command(cli_path: str, cli_event: str) -> str:
+        # Mirror AgyHooksInstaller.hookCommand so the bench exercises the same
+        # shell shape the production installer writes.
+        escaped = shell_escape_double_quoted(cli_path)
+        return (
+            ": zentty-agy-hook-v1; "
+            'if [ "$ZENTTY_AGY_HOOKS_DISABLED" = "1" ]; then echo \'{}\'; exit 0; fi; '
+            f"\"{escaped}\" agy-hook {cli_event} 2>/dev/null || echo '{{}}'"
+        )
+
+    def _plan_agy(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        # Skip both `antigravity-cli` (auth/state we never touch) and `config`
+        # from the top-level symlink set so we can place a hooks.json we own
+        # under `.gemini/config/` without mutating the real user file.
+        home = self._overlay_home("agy", environment, {".gemini": {"antigravity-cli", "config"}})
+
+        # Rebuild `.gemini/config` in the overlay: symlink the real config's
+        # contents (so agy still sees the user's settings) except hooks.json,
+        # which we own and write fresh pointing at the bench CLI. This makes
+        # the `tools` scenario hermetic — it no longer depends on the host
+        # user having run `zentty install agy-hooks` first.
+        source_home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home()))
+        overlay_config = home / ".gemini" / "config"
+        symlink_directory_contents_skipping(
+            source_home / ".gemini" / "config", overlay_config, {"hooks.json"}
+        )
+        zentty_group: dict[str, Any] = {}
+        for agent_event, cli_event in self._AGY_LIFECYCLE_HOOK_EVENTS:
+            zentty_group[agent_event] = [
+                {"type": "command", "command": self._agy_hook_command(cli_path, cli_event), "timeout": 15}
+            ]
+        for agent_event, cli_event in self._AGY_TOOL_HOOK_EVENTS:
+            zentty_group[agent_event] = [
+                {"matcher": "*", "hooks": [{"type": "command", "command": self._agy_hook_command(cli_path, cli_event), "timeout": 120}]}
+            ]
+        (overlay_config / "hooks.json").write_text(json.dumps({"zentty": zentty_group}, indent=2))
+
+        # Mirror the per-launch placeholder the Swift bootstrap mints (see
+        # AgentLaunchBootstrap.agyPlan). The `zentty-placeholder-` prefix
+        # is what the resume builder uses to recognise and reject this id
+        # when no real `conversation_id` ever arrives from a hook.
+        placeholder_session_id = "zentty-placeholder-" + str(uuid.uuid4())
+        launch_context = json.dumps({"launch": {"arguments": arguments}}, separators=(",", ":"))
+        prelaunch = '{"version":1,"event":"session.start","agent":{"name":"Antigravity","pid":"__ZENTTY_SELF_PID__"},"session":{"id":"' + placeholder_session_id + '"},"context":' + launch_context + "}"
+        running = '{"version":1,"event":"agent.running","agent":{"name":"Antigravity","pid":"__ZENTTY_SELF_PID__"},"session":{"id":"' + placeholder_session_id + '"},"context":' + launch_context + "}"
+        return self._launch_plan(
+            executable,
+            arguments,
+            {
+                "ZENTTY_AGENT_TOOL": "agy",
+                "ZENTTY_AGY_PLACEHOLDER_SESSION_ID": placeholder_session_id,
+                "HOME": str(home),
+            },
+            prelaunch=[
+                {"subcommand": "agent-event", "arguments": ["--adapter=agy"], "standardInput": prelaunch},
+                {"subcommand": "agent-event", "arguments": ["--adapter=agy"], "standardInput": running},
+            ],
+        )
+
     def _launch_plan(
         self,
         executable: str,
@@ -1545,6 +1808,9 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 forbidden_events=list(value.get("forbidden_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
                 forbidden_terminal_phases=list(value.get("forbidden_terminal_phases", [])),
+                expected_task_progress=value.get("expected_task_progress")
+                if isinstance(value.get("expected_task_progress"), dict)
+                else None,
                 required_bootstrap_arguments=[
                     [str(argument) for argument in arguments]
                     for arguments in value.get("required_bootstrap_arguments", [])
@@ -1700,6 +1966,12 @@ class BenchRunner:
             )
         if profile.expectations[scenario].synthetic:
             return self._run_synthetic_scenario(agent, scenario, env)
+        if missing := missing_agent_wrapper_resource(self._resolved_app_path, profile):
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, missing, "missing-wrapper"),
+                [],
+                [],
+            )
         command = None
         for candidate in [profile.command] + profile.real_binary_names:
             command = shutil.which(candidate, path=env["PATH"])
@@ -1981,6 +2253,15 @@ class BenchRunner:
     def _write_report(self, results: list[ScenarioResult]) -> None:
         summary = [dataclasses.asdict(result) for result in results]
         write_json(self.run_dir / "summary.json", summary)
+        app_path = str(getattr(self, "_resolved_app_path", "") or "")
+        write_json(
+            self.run_dir / "metadata.json",
+            {
+                "app_path": app_path,
+                "strict": bool(self.args.strict),
+                "no_build": bool(self.args.no_build),
+            },
+        )
         timeline = [
             {"agent": result.agent, "scenario": result.scenario, **entry}
             for result in results
@@ -1988,6 +2269,8 @@ class BenchRunner:
         ]
         write_json(self.run_dir / "timeline.json", timeline)
         lines = ["# Agent Bench Report", ""]
+        if app_path:
+            lines.extend([f"App: `{app_path}`", ""])
         for result in results:
             marker = {"pass": "PASS", "fail": "FAIL", "skip": "SKIP"}[result.status]
             detail = f" - {result.detail}" if result.detail else ""
@@ -2209,6 +2492,28 @@ def parse_build_settings(output: str) -> dict[str, str]:
 
 def app_has_agent_bench_resources(app_path: pathlib.Path) -> bool:
     return (app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty").exists()
+
+
+def missing_agent_wrapper_resource(app_path: pathlib.Path, profile: AgentProfile) -> str | None:
+    resources_dir = app_path / "Contents" / "Resources"
+    shared_launcher = resources_dir / "bin" / "shared" / "zentty"
+    if not shared_launcher.exists():
+        return f"app is missing shared Zentty launcher: {shared_launcher}"
+
+    wrapper_dir = resources_dir / "bin" / profile.name
+    if not wrapper_dir.exists():
+        return f"app is missing {profile.name} wrapper directory: {wrapper_dir}"
+
+    candidate_names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
+    candidates = [wrapper_dir / name for name in candidate_names]
+    if not any(path.exists() for path in candidates):
+        names = ", ".join(path.name for path in candidates)
+        return f"app is missing {profile.name} wrapper executable in {wrapper_dir}: expected one of {names}"
+    if not any(os.access(path, os.X_OK) for path in candidates):
+        names = ", ".join(path.name for path in candidates)
+        return f"app has non-executable {profile.name} wrapper in {wrapper_dir}: expected one of {names}"
+
+    return None
 
 
 def latest_derived_data_zentty_app(home: pathlib.Path | None = None) -> pathlib.Path | None:

@@ -22,28 +22,6 @@ final class ServerRegistryTests: XCTestCase {
         XCTAssertEqual(servers.first?.ports, [5173])
     }
 
-    func test_focused_pane_server_is_primary_before_recent_worklane_server() throws {
-        let registry = ServerRegistry()
-
-        registry.upsert(try server("http://localhost:3000/", source: .watch, paneID: paneA, updatedAt: date(10)))
-        registry.upsert(try server("http://localhost:5173/", source: .watch, paneID: paneB, updatedAt: date(20)))
-
-        let primary = registry.primaryServer(activeWorklaneID: worklaneID, focusedPaneID: paneA)
-
-        XCTAssertEqual(primary?.origin, "http://localhost:3000")
-    }
-
-    func test_recent_worklane_server_is_primary_when_focused_pane_has_none() throws {
-        let registry = ServerRegistry()
-
-        registry.upsert(try server("http://localhost:3000/", source: .watch, paneID: paneA, updatedAt: date(10)))
-        registry.upsert(try server("http://localhost:5173/", source: .watch, paneID: paneB, updatedAt: date(20)))
-
-        let primary = registry.primaryServer(activeWorklaneID: worklaneID, focusedPaneID: nil)
-
-        XCTAssertEqual(primary?.origin, "http://localhost:5173")
-    }
-
     func test_ambiguous_scanner_result_is_worklane_level() throws {
         let registry = ServerRegistry()
 
@@ -133,12 +111,66 @@ final class ServerRegistryTests: XCTestCase {
         XCTAssertEqual(servers[1].origin, "http://localhost:4567")
     }
 
+    // MARK: - firstSeenAt preservation
+
+    func test_replace_source_preserves_first_seen_for_surviving_servers() throws {
+        let registry = ServerRegistry()
+        registry.replaceSource(.scanner, worklaneID: worklaneID, servers: [
+            try server("http://localhost:5173/", source: .scanner, paneID: paneA, updatedAt: date(10)),
+        ])
+
+        // Same server re-published on a later poll with a fresh timestamp.
+        registry.replaceSource(.scanner, worklaneID: worklaneID, servers: [
+            try server("http://localhost:5173/", source: .scanner, paneID: paneA, updatedAt: date(50)),
+        ])
+
+        let merged = registry.servers(in: worklaneID)
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.firstSeenAt, date(10))
+        XCTAssertEqual(merged.first?.updatedAt, date(50))
+    }
+
+    func test_replace_source_forgets_removed_servers() throws {
+        let registry = ServerRegistry()
+        registry.replaceSource(.scanner, worklaneID: worklaneID, servers: [
+            try server("http://localhost:5173/", source: .scanner, paneID: paneA, updatedAt: date(10)),
+        ])
+        // A poll without the server, then it returns: first-seen must not linger.
+        registry.replaceSource(.scanner, worklaneID: worklaneID, servers: [])
+        registry.replaceSource(.scanner, worklaneID: worklaneID, servers: [
+            try server("http://localhost:5173/", source: .scanner, paneID: paneA, updatedAt: date(99)),
+        ])
+
+        XCTAssertEqual(registry.servers(in: worklaneID).first?.firstSeenAt, date(99))
+    }
+
+    func test_upsert_preserves_first_seen_across_reupsert() throws {
+        let registry = ServerRegistry()
+        registry.upsert(try server("http://localhost:5173/", source: .manual, paneID: paneA, updatedAt: date(10)))
+        registry.upsert(try server("http://localhost:5173/", source: .manual, paneID: paneA, updatedAt: date(60)))
+
+        let merged = registry.servers(in: worklaneID)
+        XCTAssertEqual(merged.first?.firstSeenAt, date(10))
+        XCTAssertEqual(merged.first?.updatedAt, date(60))
+    }
+
+    func test_merged_server_keeps_earliest_first_seen() throws {
+        let registry = ServerRegistry()
+        registry.upsert(try server("http://localhost:5173/", source: .scanner, paneID: paneA, updatedAt: date(40), firstSeenAt: date(40)))
+        registry.upsert(try server("http://localhost:5173/app", source: .manual, paneID: paneA, updatedAt: date(20), firstSeenAt: date(20)))
+
+        let merged = registry.servers(in: worklaneID)
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.firstSeenAt, date(20))
+    }
+
     private func server(
         _ rawURL: String,
         worklaneID: WorklaneID? = nil,
         source: DetectedServerSource,
         paneID: PaneID?,
         updatedAt: Date,
+        firstSeenAt: Date? = nil,
         confidence: DetectedServerConfidence = .pid
     ) throws -> DetectedServer {
         let candidate = try ServerURLNormalizer.normalize(rawURL)
@@ -152,7 +184,8 @@ final class ServerRegistryTests: XCTestCase {
             source: source,
             ports: [candidate.port],
             confidence: confidence,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            firstSeenAt: firstSeenAt
         )
     }
 

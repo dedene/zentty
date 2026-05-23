@@ -1,22 +1,56 @@
+import AppKit
 import XCTest
 @testable import Zentty
 
 final class PaneLayoutPreferencesTests: XCTestCase {
+    private var defaultsSuiteNames: [String] = []
+
+    override func setUp() {
+        super.setUp()
+        defaultsSuiteNames = []
+        PaneLayoutPreferenceStore.reset()
+    }
+
     override func tearDown() {
+        defaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        defaultsSuiteNames.removeAll()
         PaneLayoutPreferenceStore.reset()
         super.tearDown()
     }
 
+    private func makeDefaults(suffix: String = #function) -> UserDefaults {
+        let suiteName = "ZenttyTests.PaneLayoutPreferencesTests.\(suffix).\(UUID().uuidString)"
+        defaultsSuiteNames.append(suiteName)
+        return UserDefaults(suiteName: suiteName) ?? .standard
+    }
+
     func test_restored_preferences_use_default_presets() {
         let preferences = PaneLayoutPreferenceStore.restoredPreferences(
-            from: PaneLayoutPreferenceStore.userDefaults()
+            from: makeDefaults()
         )
 
         XCTAssertEqual(preferences.laptopPreset, .compact)
         XCTAssertEqual(preferences.largeDisplayPreset, .balanced)
         XCTAssertEqual(preferences.ultrawidePreset, .balanced)
         XCTAssertEqual(preferences.rightSplitBehaviorMode, .adaptive)
-        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1440)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1920)
+    }
+
+    func test_restored_preferences_defaults_ignore_stale_shared_preference_suite() {
+        let sharedDefaults = PaneLayoutPreferenceStore.userDefaults()
+        PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .ultrawide, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.alwaysAdd, in: sharedDefaults)
+        PaneLayoutPreferenceStore.persist(.px2560, in: sharedDefaults)
+
+        let preferences = PaneLayoutPreferenceStore.restoredPreferences(
+            from: makeDefaults()
+        )
+
+        XCTAssertEqual(preferences, PaneLayoutPreferences.default)
     }
 
     func test_display_class_titles_use_behavior_labels() {
@@ -26,7 +60,7 @@ final class PaneLayoutPreferencesTests: XCTestCase {
     }
 
     func test_persisted_presets_restore_per_display_class() {
-        let defaults = PaneLayoutPreferenceStore.userDefaults()
+        let defaults = makeDefaults()
 
         PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: defaults)
         PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: defaults)
@@ -37,6 +71,29 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.laptopPreset, .roomy)
         XCTAssertEqual(preferences.largeDisplayPreset, .compact)
         XCTAssertEqual(preferences.ultrawidePreset, .compact)
+    }
+
+    func test_persisted_right_split_behavior_preferences_restore() {
+        let defaults = makeDefaults()
+
+        PaneLayoutPreferenceStore.persist(.alwaysAdd, in: defaults)
+        PaneLayoutPreferenceStore.persist(.px1920, in: defaults)
+
+        let preferences = PaneLayoutPreferenceStore.restoredPreferences(from: defaults)
+
+        XCTAssertEqual(preferences.rightSplitBehaviorMode, .alwaysAdd)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1920)
+    }
+
+    func test_invalid_persisted_right_split_behavior_preferences_fall_back_to_defaults() {
+        let defaults = makeDefaults()
+        defaults.set("unknown", forKey: PaneLayoutPreferenceStore.rightSplitBehaviorModeKey)
+        defaults.set(999, forKey: PaneLayoutPreferenceStore.visibleSplitWindowWidthKey)
+
+        let preferences = PaneLayoutPreferenceStore.restoredPreferences(from: defaults)
+
+        XCTAssertEqual(preferences.rightSplitBehaviorMode, .adaptive)
+        XCTAssertEqual(preferences.visibleSplitWindowWidth, .px1920)
     }
 
     func test_display_class_resolution_uses_viewport_width_even_when_screen_is_wider() {
@@ -283,5 +340,71 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertNil(outcome.dottedOutsidePane)
         XCTAssertTrue(outcome.solidPaneFrames.allSatisfy { outcome.windowFrame.contains($0) })
         XCTAssertFalse(outcome.shrinkArrows.isEmpty)
+    }
+}
+
+@MainActor
+final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
+    private var temporaryDirectoryURL: URL!
+    private var defaultsSuiteNames: [String] = []
+
+    override func setUpWithError() throws {
+        temporaryDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.PaneLayoutSettings.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        defaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        defaultsSuiteNames.removeAll()
+        if let temporaryDirectoryURL {
+            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+        }
+        temporaryDirectoryURL = nil
+    }
+
+    func test_smooth_scrolling_toggle_defaults_off_and_reflects_applied_panes() throws {
+        let controller = PaneLayoutSettingsSectionViewController(configStore: makeConfigStore())
+        controller.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.smoothScrollingForTesting)
+
+        controller.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            inactiveOpacity: 0.7,
+            showProjectIcons: true,
+            smoothScrollingEnabled: true
+        ))
+
+        XCTAssertTrue(controller.smoothScrollingForTesting)
+    }
+
+    func test_smooth_scrolling_toggle_persists_config_change() throws {
+        let store = makeConfigStore()
+        let controller = PaneLayoutSettingsSectionViewController(configStore: store)
+        controller.loadViewIfNeeded()
+
+        let toggle = controller.smoothScrollingSwitchForTesting
+        toggle.state = .on
+        _ = toggle.target?.perform(toggle.action, with: toggle)
+
+        XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
+    }
+
+    private func makeConfigStore() -> AppConfigStore {
+        AppConfigStore(
+            fileURL: temporaryDirectoryURL.appendingPathComponent("config.toml"),
+            sidebarWidthDefaults: makeDefaults(suffix: "sidebarWidth"),
+            sidebarVisibilityDefaults: makeDefaults(suffix: "sidebarVisibility"),
+            paneLayoutDefaults: makeDefaults(suffix: "paneLayout")
+        )
+    }
+
+    private func makeDefaults(suffix: String) -> UserDefaults {
+        let suiteName = "ZenttyTests.PaneLayoutSettings.\(suffix).\(UUID().uuidString)"
+        defaultsSuiteNames.append(suiteName)
+        return UserDefaults(suiteName: suiteName) ?? .standard
     }
 }

@@ -7,9 +7,12 @@ struct AgentToolLauncher {
     let environment: [String: String]
 
     func run() throws {
+        trace("entry tool=\(tool) args=\(arguments)")
         var executablePath = try findRealBinary()
+        trace("findRealBinary -> \(executablePath)")
         switch resolveMiseShimIfNeeded(executablePath) {
         case .success(let resolvedPath):
+            trace("mise resolved -> \(resolvedPath)")
             executablePath = resolvedPath
         case .failure(let diagnostic):
             failLaunch(with: diagnostic)
@@ -19,8 +22,13 @@ struct AgentToolLauncher {
 
         let directEnvironment = directEnvironmentPatch()
 
-        guard shouldAttemptBootstrap,
-              let socketPath = environment["ZENTTY_INSTANCE_SOCKET"]?.nonEmpty else {
+        trace("env check ZENTTY_PANE_TOKEN=\(envFlag("ZENTTY_PANE_TOKEN")) ZENTTY_WORKLANE_ID=\(envFlag("ZENTTY_WORKLANE_ID")) ZENTTY_PANE_ID=\(envFlag("ZENTTY_PANE_ID")) ZENTTY_INSTANCE_SOCKET=\(envFlag("ZENTTY_INSTANCE_SOCKET"))")
+        if let reason = bootstrapSkipReason {
+            trace("shouldAttemptBootstrap=false reason=\(reason); exec real binary directly (NO STATUS EMITTED)")
+            try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
+        }
+        guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"]?.nonEmpty else {
+            trace("ZENTTY_INSTANCE_SOCKET missing; exec real binary directly (NO STATUS EMITTED)")
             try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
         }
 
@@ -34,58 +42,92 @@ struct AgentToolLauncher {
         )
 
         do {
-            guard let response = try AgentIPCClient.send(request: request, socketPath: socketPath),
-                  let launchPlan = response.result?.launchPlan else {
+            trace("bootstrap IPC send socket=\(socketPath) tool=\(tool)")
+            guard let response = try AgentIPCClient.send(request: request, socketPath: socketPath) else {
+                trace("bootstrap IPC returned nil response; exec real binary directly (NO STATUS EMITTED)")
                 try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
             }
+            guard let launchPlan = response.result?.launchPlan else {
+                trace("bootstrap response ok=\(response.ok) error=\(String(describing: response.error)) has no launchPlan; exec real binary directly (NO STATUS EMITTED)")
+                try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
+            }
+            trace("bootstrap launchPlan received executable=\(launchPlan.executablePath) preLaunchActions=\(launchPlan.preLaunchActions.count)")
             try run(plan: launchPlan, socketPath: socketPath)
         } catch {
+            trace("bootstrap IPC threw \(error); exec real binary directly (NO STATUS EMITTED)")
             try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
         }
     }
 
-    private var shouldAttemptBootstrap: Bool {
-        guard environment["ZENTTY_PANE_TOKEN"]?.nonEmpty != nil,
-              environment["ZENTTY_WORKLANE_ID"]?.nonEmpty != nil,
-              environment["ZENTTY_PANE_ID"]?.nonEmpty != nil else {
-            return false
+    private func trace(_ message: @autoclosure () -> String) {
+        guard environment["ZENTTY_AGENT_WRAPPER_TRACE"] == "1" else { return }
+        let line = "[zentty-launcher-trace] \(message())\n"
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+
+    private func envFlag(_ key: String) -> String {
+        guard let value = environment[key], !value.isEmpty else { return "UNSET" }
+        return "set"
+    }
+
+    private var bootstrapSkipReason: String? {
+        if environment["ZENTTY_PANE_TOKEN"]?.nonEmpty == nil {
+            return "ZENTTY_PANE_TOKEN missing"
+        }
+        if environment["ZENTTY_WORKLANE_ID"]?.nonEmpty == nil {
+            return "ZENTTY_WORKLANE_ID missing"
+        }
+        if environment["ZENTTY_PANE_ID"]?.nonEmpty == nil {
+            return "ZENTTY_PANE_ID missing"
         }
 
         switch tool {
         case .amp:
             if environment["ZENTTY_AMP_HOOKS_DISABLED"] == "1" {
-                return false
+                return "ZENTTY_AMP_HOOKS_DISABLED=1"
             }
-            if Self.ampPassthroughSubcommands.contains(arguments.first ?? "") {
-                return false
+            if let subcommand = arguments.first, Self.ampPassthroughSubcommands.contains(subcommand) {
+                return "amp passthrough subcommand: \(subcommand)"
             }
-            if arguments.contains(where: Self.isAmpEarlyExitFlag) {
-                return false
+            if let flag = arguments.first(where: Self.isAmpEarlyExitFlag) {
+                return "amp early-exit flag: \(flag)"
             }
-            return true
+            return nil
         case .claude:
             if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1" {
-                return false
+                return "ZENTTY_CLAUDE_HOOKS_DISABLED=1"
             }
             let passthroughSubcommands: Set<String> = ["mcp", "config", "api-key"]
-            return !passthroughSubcommands.contains(arguments.first ?? "")
+            if let subcommand = arguments.first, passthroughSubcommands.contains(subcommand) {
+                return "claude passthrough subcommand: \(subcommand)"
+            }
+            return nil
         case .copilot:
-            return environment["ZENTTY_COPILOT_HOOKS_DISABLED"] != "1"
+            if environment["ZENTTY_COPILOT_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_COPILOT_HOOKS_DISABLED=1"
+            }
+            return nil
         case .cursor:
-            return environment["ZENTTY_CURSOR_HOOKS_DISABLED"] != "1"
+            if environment["ZENTTY_CURSOR_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_CURSOR_HOOKS_DISABLED=1"
+            }
+            return nil
         case .droid:
-            return environment["ZENTTY_DROID_HOOKS_DISABLED"] != "1"
+            if environment["ZENTTY_DROID_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_DROID_HOOKS_DISABLED=1"
+            }
+            return nil
         case .kimi:
             if environment["ZENTTY_KIMI_HOOKS_DISABLED"] == "1" {
-                return false
+                return "ZENTTY_KIMI_HOOKS_DISABLED=1"
             }
-            if Self.kimiPassthroughSubcommands.contains(arguments.first ?? "") {
-                return false
+            if let subcommand = arguments.first, Self.kimiPassthroughSubcommands.contains(subcommand) {
+                return "kimi passthrough subcommand: \(subcommand)"
             }
-            if arguments.contains(where: { Self.kimiEarlyExitFlags.contains($0) }) {
-                return false
+            if let flag = arguments.first(where: { Self.kimiEarlyExitFlags.contains($0) }) {
+                return "kimi early-exit flag: \(flag)"
             }
-            return true
+            return nil
         case .pi:
             // Pi has management subcommands (install/remove/update/list/…)
             // and early-exit flags (--help, --version, --list-models, …).
@@ -99,24 +141,35 @@ struct AgentToolLauncher {
             // cannot add shell subcommands, only slash commands / CLI flags
             // parsed after the extension loads, so only pi-core drift can
             // invalidate this list.
-            if Self.piPassthroughSubcommands.contains(arguments.first ?? "") {
-                return false
+            if let subcommand = arguments.first, Self.piPassthroughSubcommands.contains(subcommand) {
+                return "pi passthrough subcommand: \(subcommand)"
             }
-            if arguments.contains(where: { Self.piEarlyExitFlags.contains($0) }) {
-                return false
+            if let flag = arguments.first(where: { Self.piEarlyExitFlags.contains($0) }) {
+                return "pi early-exit flag: \(flag)"
             }
-            return true
+            return nil
         case .grok:
             if environment["ZENTTY_GROK_HOOKS_DISABLED"] == "1" {
-                return false
+                return "ZENTTY_GROK_HOOKS_DISABLED=1"
             }
             // Grok supports -p for headless/plan mode and standard --help/-v.
             // For now let the bootstrap run; the grokPlan emits a clean session.start
             // and the adapter is best-effort. Add passthrough lists later if
             // `grok login` or other management commands appear.
-            return true
+            return nil
+        case .agy:
+            if environment["ZENTTY_AGY_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_AGY_HOOKS_DISABLED=1"
+            }
+            if let subcommand = arguments.first, Self.agyPassthroughSubcommands.contains(subcommand) {
+                return "agy passthrough subcommand: \(subcommand)"
+            }
+            if let flag = arguments.first(where: { Self.agyEarlyExitFlags.contains($0) }) {
+                return "agy early-exit flag: \(flag)"
+            }
+            return nil
         case .codex, .gemini, .opencode:
-            return true
+            return nil
         }
     }
 
@@ -150,6 +203,14 @@ struct AgentToolLauncher {
 
     static let kimiEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-V",
+    ]
+
+    static let agyPassthroughSubcommands: Set<String> = [
+        "changelog", "help", "install", "login", "logout", "plugin", "plugins", "update", "version",
+    ]
+
+    static let agyEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-v",
     ]
 
     private func findRealBinary() throws -> String {
@@ -300,12 +361,15 @@ struct AgentToolLauncher {
             return "Pi"
         case .grok:
             return "Grok"
+        case .agy:
+            return "Antigravity"
         }
     }
 
     private func bootstrapEnvironment(realBinaryPath: String) -> [String: String] {
         let forwardedKeys = [
             "HOME",
+            "PWD",
             "PATH",
             "AMP_SETTINGS_FILE",
             "ZENTTY_CLI_BIN",
@@ -323,6 +387,7 @@ struct AgentToolLauncher {
             "ZENTTY_DROID_HOOKS_DISABLED",
             "ZENTTY_KIMI_HOOKS_DISABLED",
             "ZENTTY_GROK_HOOKS_DISABLED",
+            "ZENTTY_AGY_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -379,7 +444,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy:
             return EnvironmentPatch()
         }
     }
@@ -409,6 +474,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_KIMI_PID"] = "\(getpid())"
         case .grok:
             environmentPatch.set["ZENTTY_GROK_PID"] = "\(getpid())"
+        case .agy:
+            environmentPatch.set["ZENTTY_AGY_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -423,11 +490,12 @@ struct AgentToolLauncher {
         environmentPatch: EnvironmentPatch
     ) throws {
         guard !actions.isEmpty else {
+            trace("runPreLaunchActions: no actions to send")
             return
         }
 
         let actionEnvironment = mergedEnvironment(with: environmentPatch)
-        for action in actions {
+        for (index, action) in actions.enumerated() {
             let request = AgentIPCRequest(
                 kind: .ipc,
                 arguments: action.arguments,
@@ -439,7 +507,13 @@ struct AgentToolLauncher {
                 expectsResponse: false,
                 subcommand: action.subcommand
             )
-            _ = try? AgentIPCClient.send(request: request, socketPath: socketPath)
+            trace("preLaunchAction[\(index)] sending subcommand=\(action.subcommand) args=\(action.arguments) hasStdin=\(action.standardInput != nil)")
+            do {
+                _ = try AgentIPCClient.send(request: request, socketPath: socketPath)
+                trace("preLaunchAction[\(index)] sent OK")
+            } catch {
+                trace("preLaunchAction[\(index)] FAILED \(error) (suppressed in normal operation)")
+            }
         }
     }
 
@@ -458,6 +532,7 @@ struct AgentToolLauncher {
             "ZENTTY_DROID_PID",
             "ZENTTY_KIMI_PID",
             "ZENTTY_GROK_PID",
+            "ZENTTY_AGY_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

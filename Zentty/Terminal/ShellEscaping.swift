@@ -1,5 +1,5 @@
 enum ShellEscaping {
-    private static let shellSensitiveCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+    private static let shellSensitiveCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t\n\r"
 
     static func escapePath(_ path: String) -> String {
         var result = path

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 enum AgentStatusHelper {
-    private static let wrappedToolNames = ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"]
+    private static let wrappedToolNames = ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy"]
     private static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     static func runIfNeeded(arguments: [String], environment: [String: String]) -> Int32? {
@@ -63,6 +63,7 @@ enum AgentStatusHelper {
                     "kimi/kimi-cli",
                     "opencode/opencode",
                     "pi/pi",
+                    "agy/agy",
                     "shared/zentty-agent-wrapper",
                 ],
                 executableRelativePaths: [
@@ -78,6 +79,7 @@ enum AgentStatusHelper {
                     "kimi/kimi-cli",
                     "opencode/opencode",
                     "pi/pi",
+                    "agy/agy",
                     "shared/zentty-agent-wrapper",
                 ]
             ) {
@@ -241,20 +243,14 @@ enum AgentStatusHelper {
             return bundles
         }
         let shouldSearchAdjacentApp =
-            bundle == .main || bundle.bundleURL.pathExtension == "xctest"
+            bundle == .main || safeBundleURL(for: bundle)?.pathExtension == "xctest"
         guard shouldSearchAdjacentApp else {
             return bundles
         }
 
-        let bundleURLs = [bundle] + Bundle.allBundles + Bundle.allFrameworks
-        let candidateAppURLs = Set(bundleURLs.flatMap { candidate -> [URL] in
-            let urls = [
-                candidate.bundleURL,
-                candidate.resourceURL,
-                candidate.executableURL,
-            ].compactMap { $0?.standardizedFileURL }
-
-            return urls.flatMap { url -> [URL] in
+        let candidateBundleURLs = [bundle] + Bundle.allBundles + Bundle.allFrameworks
+        let candidateAppURLs = Set(candidateBundleURLs.flatMap { candidate -> [URL] in
+            safeBundleLocations(for: candidate).flatMap { url -> [URL] in
                 let baseDirectory = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
                 return [
                     baseDirectory.appendingPathComponent("Zentty.app", isDirectory: true),
@@ -263,8 +259,8 @@ enum AgentStatusHelper {
             }
         })
 
-        var seenPaths = Set(bundles.map(\.bundleURL.path))
-        for appURL in candidateAppURLs where appURL.path != bundle.bundleURL.path {
+        var seenPaths = Set(bundles.compactMap { safeBundleURL(for: $0)?.path })
+        for appURL in candidateAppURLs where appURL.path != safeBundleURL(for: bundle)?.path {
             guard !seenPaths.contains(appURL.path),
                   let appBundle = Bundle(url: appURL) else {
                 continue
@@ -274,5 +270,17 @@ enum AgentStatusHelper {
         }
 
         return bundles
+    }
+
+    private static func safeBundleURL(for bundle: Bundle) -> URL? {
+        bundle.value(forKey: "bundleURL") as? URL
+    }
+
+    private static func safeBundleLocations(for bundle: Bundle) -> [URL] {
+        [
+            bundle.value(forKey: "bundleURL") as? URL,
+            bundle.value(forKey: "resourceURL") as? URL,
+            bundle.value(forKey: "executableURL") as? URL,
+        ].compactMap { $0?.standardizedFileURL }
     }
 }

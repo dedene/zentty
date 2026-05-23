@@ -27,6 +27,43 @@ enum FocusedTerminalInterruptBridge {
     }
 }
 
+#if DEBUG
+struct SidebarChromeFrameMotionRecord: Equatable {
+    let duration: TimeInterval
+    let timingControlPoints: [CGPoint]
+    let sidebarStartFrame: CGRect
+    let sidebarTargetFrame: CGRect
+    let leadingControlsStartFrame: CGRect
+    let leadingControlsTargetFrame: CGRect
+
+    init(
+        duration: TimeInterval,
+        timingFunction: CAMediaTimingFunction,
+        sidebarStartFrame: CGRect,
+        sidebarTargetFrame: CGRect,
+        leadingControlsStartFrame: CGRect,
+        leadingControlsTargetFrame: CGRect
+    ) {
+        self.duration = duration
+        timingControlPoints = timingFunction.controlPointsForTesting
+        self.sidebarStartFrame = sidebarStartFrame
+        self.sidebarTargetFrame = sidebarTargetFrame
+        self.leadingControlsStartFrame = leadingControlsStartFrame
+        self.leadingControlsTargetFrame = leadingControlsTargetFrame
+    }
+}
+
+extension CAMediaTimingFunction {
+    var controlPointsForTesting: [CGPoint] {
+        (0..<4).map { index in
+            var values = [Float](repeating: 0, count: 2)
+            getControlPoint(at: index, values: &values)
+            return CGPoint(x: CGFloat(values[0]), y: CGFloat(values[1]))
+        }
+    }
+}
+#endif
+
 @MainActor
 final class RootViewController: NSViewController {
     private final class LocalEventMonitor {
@@ -86,6 +123,7 @@ final class RootViewController: NSViewController {
     private let serverOpenService: ServerOpening
     private let serverListenerScanner: ServerListenerScanner
     private let dockerServerDiscovery: DockerServerDiscovery
+    private let taskRunnerDiscoveryService = TaskRunnerDiscoveryService()
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
@@ -108,6 +146,7 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    private let commandPaletteBackdropView = CommandPaletteBackdropView()
     private let peekView = WorklanePeekView()
     private let peekKeyMonitor = WorklanePeekKeyMonitor()
     private let peekController: WorklanePeekController
@@ -128,6 +167,9 @@ final class RootViewController: NSViewController {
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var toggleLeadingConstraint: NSLayoutConstraint?
+#if DEBUG
+    private(set) var lastSidebarChromeFrameMotionForTesting: SidebarChromeFrameMotionRecord?
+#endif
     private var isFullScreen = false
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
@@ -189,6 +231,7 @@ final class RootViewController: NSViewController {
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
     private var appUpdateObserverID: UUID?
+    private var configObserverID: UUID?
     private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
@@ -255,6 +298,9 @@ final class RootViewController: NSViewController {
             gitContextResolver: gitContextResolver,
             agentTeamsEnabledProvider: { [weak configStore] in
                 configStore?.current.agentTeams.enabled ?? false
+            },
+            serverDetectionProvider: { [weak configStore] in
+                configStore?.current.serverDetection ?? .default
             }
         )
         self.peekController = WorklanePeekController(
@@ -272,7 +318,7 @@ final class RootViewController: NSViewController {
         appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
         }
-        configStore.onChange = { [weak self] config in
+        configObserverID = configStore.addObserver { [weak self] config in
             DispatchQueue.main.async {
                 self?.applyPersistedConfig(config)
             }
@@ -398,6 +444,9 @@ final class RootViewController: NSViewController {
             if let appUpdateObserverID {
                 appUpdateStateStore.removeObserver(appUpdateObserverID)
             }
+            if let configObserverID {
+                configStore.removeObserver(configObserverID)
+            }
         }
     }
 
@@ -456,7 +505,9 @@ final class RootViewController: NSViewController {
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         peekView.translatesAutoresizingMaskIntoConstraints = false
         peekView.isHidden = true
+        commandPaletteBackdropView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
+        view.addSubview(commandPaletteBackdropView)
         view.addSubview(peekView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
@@ -509,6 +560,11 @@ final class RootViewController: NSViewController {
             dragOverlayView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
             dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
+
+            commandPaletteBackdropView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
+            commandPaletteBackdropView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
+            commandPaletteBackdropView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
+            commandPaletteBackdropView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             // Worklane Peek overlay matches canvas frame too — it sits above
             // the panes but below the chrome and sidebar.
@@ -1139,6 +1195,12 @@ final class RootViewController: NSViewController {
             }
             commandPaletteController.onOpenServer = { [weak self] serverID in
                 self?.openServerFromPalette(serverID: serverID)
+            }
+            commandPaletteController.onRunTaskRunner = { [weak self] action in
+                self?.runTaskRunner(action)
+            }
+            commandPaletteController.onOpenTaskRunnerSource = { [weak self] sourcePath in
+                self?.openTaskRunnerSource(sourcePath: sourcePath)
             }
             commandPaletteController.onSetWorklaneColor = { [weak self] color in
                 guard let self else { return }
@@ -1789,9 +1851,20 @@ final class RootViewController: NSViewController {
             focusedOpenWithContext != nil
             ? availableOpenWithTargets
             : []
+        let taskRunnerActions: [TaskRunnerAction] = {
+            guard let focusedPanePath else { return [] }
+            do {
+                return try taskRunnerDiscoveryService.discover(focusedWorkingDirectory: focusedPanePath)
+            } catch {
+                Logger(subsystem: "be.zenjoy.zentty", category: "TaskRunners")
+                    .error("Task runner discovery failed: \(error.localizedDescription, privacy: .public)")
+                return []
+            }
+        }()
 
         commandPaletteController.show(
             in: window,
+            backdropView: commandPaletteBackdropView,
             theme: currentTheme,
             shortcutManager: shortcutManager,
             availabilityContext: availabilityContext,
@@ -1806,7 +1879,8 @@ final class RootViewController: NSViewController {
                 self?.openWithService.icon(for: target)
             },
             rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation,
-            servers: activeServerContext.servers
+        servers: activeServerContext.servers,
+        taskRunnerActions: taskRunnerActions
         )
     }
 
@@ -1874,6 +1948,78 @@ final class RootViewController: NSViewController {
         }
 
         _ = openServer(server)
+    }
+
+    private func runTaskRunner(_ action: TaskRunnerAction) {
+        guard action.isEnabled else {
+            openTaskRunnerSource(sourcePath: action.sourcePath)
+            return
+        }
+
+        switch taskRunnerLaunchDestination(for: action) {
+        case let .focusedPane(paneID):
+            guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+                runTaskRunnerInNewPane(action)
+                return
+            }
+
+            runtime.adapter.cancelPromptInput()
+            runtime.adapter.submitCommand(action.executionCommand)
+            runtime.hostView.focusTerminalIfReady()
+        case .newPane:
+            runTaskRunnerInNewPane(action)
+        }
+    }
+
+    private enum TaskRunnerLaunchDestination {
+        case focusedPane(PaneID)
+        case newPane
+    }
+
+    private func taskRunnerLaunchDestination(for action: TaskRunnerAction) -> TaskRunnerLaunchDestination {
+        guard
+            action.environment.isEmpty,
+            let activeWorklane = worklaneStore.activeWorklane,
+            let focusedPaneID = activeWorklane.paneStripState.focusedPaneID,
+            runtimeRegistry.runtime(for: focusedPaneID) != nil,
+            let auxiliaryState = activeWorklane.auxiliaryStateByPaneID[focusedPaneID],
+            auxiliaryState.shellActivityState == .promptIdle,
+            auxiliaryState.terminalProgress?.state.indicatesActivity != true
+        else {
+            return .newPane
+        }
+
+        return .focusedPane(focusedPaneID)
+    }
+
+    private func runTaskRunnerInNewPane(_ action: TaskRunnerAction) {
+        let request = TerminalSessionRequest(
+            workingDirectory: action.workingDirectory,
+            command: action.executionCommand,
+            inheritFromPaneID: worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+            environmentVariables: action.environment
+        )
+        guard let paneID = splitWithLayout(
+            placement: .afterFocused,
+            isHorizontal: true,
+            layout: .none,
+            sessionRequest: request
+        ) else {
+            showCommandFailureToast()
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.runtimeRegistry.runtime(for: paneID)?.hostView.focusTerminalIfReady()
+        }
+    }
+
+    private func openTaskRunnerSource(sourcePath: String) {
+        if let target = primaryOpenWithTarget {
+            openWithService.open(target: target, workingDirectory: sourcePath)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: sourcePath))
+        }
     }
 
     private func copyFocusedPanePath() {
@@ -2215,6 +2361,9 @@ final class RootViewController: NSViewController {
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
+        if commandPaletteController.isShown {
+            commandPaletteController.updateTheme(theme)
+        }
         applySidebarMotionState(
             sidebarMotionCoordinator.currentMotionState,
             animated: false,
@@ -2263,11 +2412,11 @@ final class RootViewController: NSViewController {
             sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth,
             availableWidth: resolvedSidebarAvailableWidth()
         )
-        let hiddenTravel = sidebarWidth + ShellMetrics.shellGap
-        let reservedInset = hiddenTravel * motionState.reservedFraction
-        let leadingConstant =
-            ShellMetrics.outerInset - ((1 - motionState.revealFraction) * hiddenTravel)
-        let floatingStrength = max(0, motionState.revealFraction - motionState.reservedFraction)
+        let motionTargets = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: motionState,
+            trafficLightAnchorX: trafficLightAnchor.x
+        )
 
         let duration = SidebarTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
         let timingFunction = SidebarTransitionProfile.resolvedTimingFunction(
@@ -2278,13 +2427,15 @@ final class RootViewController: NSViewController {
         let previousLayoutContext = currentPaneLayoutContext
         let previousFocusedColumnContentMinX = focusedPaneColumnContentMinX()
         worklaneStore.batchUpdate { [self] in
-            updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
+            updatePaneLayoutContextIfNeeded(
+                force: true,
+                leadingVisibleInsetOverride: motionTargets.reservedInset
+            )
         }
         let needsCanvasTransition =
-            abs(previousLeadingInset - reservedInset) > 0.001
+            abs(previousLeadingInset - motionTargets.reservedInset) > 0.001
             || previousWorklaneState != worklaneStore.state
             || previousLayoutContext != currentPaneLayoutContext
-        windowChromeView.leadingVisibleInset = reservedInset
         // When the leading inset changes, every column is proportionally
         // rescaled (see `WorklaneStore.readableWidthScaleFactor`) so the
         // focused column's content X shifts. Without compensation the
@@ -2301,16 +2452,16 @@ final class RootViewController: NSViewController {
         // shift that the first real render would then apply).
         let viewportWidth = appCanvasView.bounds.width
         if viewportWidth > 0.001,
-            abs(previousLeadingInset - reservedInset) > 0.001,
+            abs(previousLeadingInset - motionTargets.reservedInset) > 0.001,
             let previousMinX = previousFocusedColumnContentMinX,
             let nextMinX = focusedPaneColumnContentMinX()
         {
             let previousLaneWidth = max(1, viewportWidth - previousLeadingInset)
-            let nextLaneWidth = max(1, viewportWidth - reservedInset)
+            let nextLaneWidth = max(1, viewportWidth - motionTargets.reservedInset)
             let previousOffset = appCanvasView.currentPaneStripScrollOffset
             let previousScreenLeft = previousMinX - previousOffset
             let relativeInLane = (previousScreenLeft - previousLeadingInset) / previousLaneWidth
-            let nextScreenLeft = reservedInset + relativeInLane * nextLaneWidth
+            let nextScreenLeft = motionTargets.reservedInset + relativeInLane * nextLaneWidth
             let nextOffset = nextMinX - nextScreenLeft
             let offsetShift = nextOffset - previousOffset
             if abs(offsetShift) > 0.001 {
@@ -2319,58 +2470,83 @@ final class RootViewController: NSViewController {
         }
         if needsCanvasTransition {
             renderCoordinator.renderCanvas(
-                leadingVisibleInsetOverride: reservedInset,
+                leadingVisibleInsetOverride: motionTargets.reservedInset,
                 animated: animated,
                 duration: duration,
                 timingFunction: timingFunction
             )
         } else {
-            appCanvasView.leadingVisibleInset = reservedInset
-        }
-
-        let sidebarTrailingEdge = leadingConstant + sidebarWidth
-        let closedToggleTarget = trafficLightAnchor.x + SidebarToggleButton.spacingFromTrafficLights
-        let openToggleTarget = max(
-            closedToggleTarget,
-            sidebarTrailingEdge + ShellMetrics.shellGap
-        )
-        let toggleTarget =
-            motionState.reservedFraction == 1
-            ? openToggleTarget
-            : closedToggleTarget
-        windowChromeView.leadingControlsInset =
-            (toggleTarget - ShellMetrics.outerInset)
-            + LeadingChromeControlsBar.totalWidth
-        let pinnedHeaderContentMinX =
-            trafficLightAnchor.x
-            - leadingConstant
-            + SidebarToggleButton.spacingFromTrafficLights
-        // Skip the header-layout update when the sidebar will be hidden — the
-        // button is about to slide off-screen with the sidebar body, and
-        // re-snapping its X/Y offsets to the default (.hidden) values here
-        // would cause a visible 1-frame jump before the slide starts.
-        if motionState.revealFraction > 0 {
-            sidebarView.updateHeaderLayout(
-                visibilityMode: sidebarMotionCoordinator.mode,
-                pinnedContentMinX: pinnedHeaderContentMinX
-            )
-        }
-        if forceLayout {
-            sidebarView.layoutSubtreeIfNeeded()
+            appCanvasView.leadingVisibleInset = motionTargets.reservedInset
         }
 
         if animated, forceLayout {
+            let sidebarStartFrame = sidebarView.frame
+            let sidebarTargetFrame = sidebarFrame(
+                targetingLeadingConstant: motionTargets.sidebarLeadingConstant,
+                width: sidebarWidth
+            )
+            let leadingControlsStartFrame = leadingChromeControlsBar.frame
+            let leadingControlsTargetFrame = leadingChromeControlsFrame(
+                targetingLeadingConstant: motionTargets.leadingChromeControlsLeadingConstant
+            )
+#if DEBUG
+            lastSidebarChromeFrameMotionForTesting = SidebarChromeFrameMotionRecord(
+                duration: duration,
+                timingFunction: timingFunction,
+                sidebarStartFrame: sidebarStartFrame,
+                sidebarTargetFrame: sidebarTargetFrame,
+                leadingControlsStartFrame: leadingControlsStartFrame,
+                leadingControlsTargetFrame: leadingControlsTargetFrame
+            )
+#endif
+            windowChromeView.animateNextRowLayoutForSidebarTransition()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = timingFunction
                 context.allowsImplicitAnimation = true
-                self.sidebarLeadingConstraint?.animator().constant = leadingConstant
-                self.toggleLeadingConstraint?.animator().constant = toggleTarget
+                self.windowChromeView.leadingVisibleInset = motionTargets.reservedInset
+                self.applyWindowChromeLeadingControlsInset(
+                    motionTargets.windowChromeLeadingControlsInset,
+                    layoutImmediately: false
+                )
+                // Skip the header-layout update when the sidebar will be hidden:
+                // the button is about to slide off-screen with the sidebar body,
+                // and re-snapping its X/Y offsets to the default (.hidden) values
+                // would cause a visible 1-frame jump before the slide starts.
+                if motionState.revealFraction > 0 {
+                    self.sidebarView.updateHeaderLayout(
+                        visibilityMode: self.sidebarMotionCoordinator.mode,
+                        pinnedContentMinX: motionTargets.pinnedHeaderContentMinX
+                    )
+                }
+                self.sidebarLeadingConstraint?.constant = motionTargets.sidebarLeadingConstant
+                self.toggleLeadingConstraint?.constant =
+                    motionTargets.leadingChromeControlsLeadingConstant
+                self.sidebarView.animator().frame = sidebarTargetFrame
+                self.leadingChromeControlsBar.animator().frame = leadingControlsTargetFrame
+                self.windowChromeView.layoutSubtreeIfNeeded()
+            } completionHandler: {
+                self.sidebarView.frame = sidebarTargetFrame
+                self.leadingChromeControlsBar.frame = leadingControlsTargetFrame
                 self.view.layoutSubtreeIfNeeded()
             }
         } else {
-            sidebarLeadingConstraint?.constant = leadingConstant
-            toggleLeadingConstraint?.constant = toggleTarget
+            windowChromeView.leadingVisibleInset = motionTargets.reservedInset
+            applyWindowChromeLeadingControlsInset(
+                motionTargets.windowChromeLeadingControlsInset,
+                layoutImmediately: true
+            )
+            if motionState.revealFraction > 0 {
+                sidebarView.updateHeaderLayout(
+                    visibilityMode: sidebarMotionCoordinator.mode,
+                    pinnedContentMinX: motionTargets.pinnedHeaderContentMinX
+                )
+            }
+            if forceLayout {
+                sidebarView.layoutSubtreeIfNeeded()
+            }
+            sidebarLeadingConstraint?.constant = motionTargets.sidebarLeadingConstant
+            toggleLeadingConstraint?.constant = motionTargets.leadingChromeControlsLeadingConstant
             if forceLayout {
                 view.layoutSubtreeIfNeeded()
             }
@@ -2381,10 +2557,28 @@ final class RootViewController: NSViewController {
         CATransaction.setAnimationTimingFunction(animated ? timingFunction : nil)
         CATransaction.setDisableActions(!animated)
         sidebarView.layer?.shadowColor = currentTheme.underlapShadow.cgColor
-        sidebarView.layer?.shadowOpacity = Float(floatingStrength * 0.28)
-        sidebarView.layer?.shadowRadius = 18 * floatingStrength
+        sidebarView.layer?.shadowOpacity = Float(motionTargets.floatingStrength * 0.28)
+        sidebarView.layer?.shadowRadius = 18 * motionTargets.floatingStrength
         sidebarView.layer?.shadowOffset = CGSize(width: 0, height: -2)
         CATransaction.commit()
+    }
+
+    private func sidebarFrame(
+        targetingLeadingConstant leadingConstant: CGFloat,
+        width: CGFloat
+    ) -> CGRect {
+        var frame = sidebarView.frame
+        frame.origin.x = leadingConstant
+        frame.size.width = width
+        return frame
+    }
+
+    private func leadingChromeControlsFrame(
+        targetingLeadingConstant leadingConstant: CGFloat
+    ) -> CGRect {
+        var frame = leadingChromeControlsBar.frame
+        frame.origin.x = leadingConstant
+        return frame
     }
 
     var currentSidebarWidth: CGFloat {
@@ -2791,14 +2985,15 @@ final class RootViewController: NSViewController {
     private func serverResponse(for worklaneID: WorklaneID) -> AgentIPCResponseResult {
         let context = worklaneStore.serverContext(for: worklaneID)
         return AgentIPCResponseResult(serverState: ServerListResult(
-            version: 1,
+            version: 2,
             primaryServerID: context.primaryServer?.id,
-            servers: context.servers.map(serverListEntry)
+            servers: context.ranked.map(serverListEntry)
         ))
     }
 
-    private func serverListEntry(_ server: DetectedServer) -> ServerListEntry {
-        ServerListEntry(
+    private func serverListEntry(_ ranked: RankedServer) -> ServerListEntry {
+        let server = ranked.server
+        return ServerListEntry(
             id: server.id,
             origin: server.origin,
             url: server.url.absoluteString,
@@ -2808,8 +3003,31 @@ final class RootViewController: NSViewController {
             source: server.source.rawValue,
             ports: server.ports,
             confidence: server.confidence.rawValue,
-            updatedAt: Self.formatServerDate(server.updatedAt)
+            updatedAt: Self.formatServerDate(server.updatedAt),
+            tier: Self.tierString(ranked.tier),
+            reasons: ranked.reasons.map(Self.reasonString).sorted()
         )
+    }
+
+    private static func tierString(_ tier: ServerRelevanceTier) -> String {
+        switch tier {
+        case .primary: "primary"
+        case .shown: "shown"
+        case .hidden: "hidden"
+        }
+    }
+
+    private static func reasonString(_ reason: ServerRelevanceReason) -> String {
+        switch reason {
+        case .sessionSelected: "session_selected"
+        case .ignoredPort(let port): "ignored_port:\(port)"
+        case .manual: "manual"
+        case .runningPane: "running_pane"
+        case .focusedPane: "focused_pane"
+        case .source(let source): "source:\(source.rawValue)"
+        case .confidence(let confidence): "confidence:\(confidence.rawValue)"
+        case .fresh: "fresh"
+        }
     }
 
     private static func formatServerDate(_ date: Date) -> String {
@@ -3031,6 +3249,10 @@ final class RootViewController: NSViewController {
             copyFocusedPanePath()
         }
 
+        func runTaskRunnerForTesting(_ action: TaskRunnerAction) {
+            runTaskRunner(action)
+        }
+
         func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
             sidebarMotionCoordinator.handle(event)
             syncSidebarVisibilityControls(animated: false)
@@ -3079,7 +3301,7 @@ final class RootViewController: NSViewController {
         func paneLayoutMenuCommandTitlesForTesting() -> [String] {
             paneLayoutMenuCoordinator.makeMenu(
                 worklaneStore: worklaneStore,
-                rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
+            rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
             ).items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
@@ -3138,7 +3360,7 @@ final class RootViewController: NSViewController {
         func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
             paneLayoutMenuCoordinator.makeMenu(
                 worklaneStore: worklaneStore,
-                rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
+            rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
             ).items
                 .first { !$0.isSeparatorItem && $0.title == title }?
                 .submenu?
@@ -3219,7 +3441,18 @@ final class RootViewController: NSViewController {
             NSPoint(x: barMaxXInRoot, y: 0),
             from: view
         ).x
-        windowChromeView.leadingControlsInset = barMaxXInChrome
+        applyWindowChromeLeadingControlsInset(barMaxXInChrome)
+    }
+
+    private func applyWindowChromeLeadingControlsInset(
+        _ inset: CGFloat,
+        layoutImmediately: Bool = true
+    ) {
+        let previousInset = windowChromeView.leadingControlsInset
+        windowChromeView.leadingControlsInset = inset
+        if layoutImmediately, abs(previousInset - inset) > 0.5 {
+            windowChromeView.layoutSubtreeIfNeeded()
+        }
     }
 
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {
@@ -3348,6 +3581,10 @@ final class RootViewController: NSViewController {
         leadingVisibleInsetOverride: CGFloat? = nil,
         notifyLayoutResize: Bool = true
     ) -> Bool {
+        guard hasResolvedPaneLayoutBounds else {
+            return false
+        }
+
         let resolvedContext = resolveCurrentPaneLayoutContext(
             leadingVisibleInsetOverride: leadingVisibleInsetOverride
         )
@@ -3390,6 +3627,11 @@ final class RootViewController: NSViewController {
             leadingVisibleInset: leadingVisibleInsetOverride ?? appCanvasView.leadingVisibleInset,
             sizing: PaneLayoutSizing.forSidebarVisibility(sidebarMotionCoordinator.mode)
         )
+    }
+
+    private var hasResolvedPaneLayoutBounds: Bool {
+        appCanvasView.bounds.width > 0.5
+            || view.bounds.width > (ShellMetrics.outerInset * 2) + 0.5
     }
 }
 

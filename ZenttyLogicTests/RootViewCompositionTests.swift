@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class RootViewCompositionTests: AppKitTestCase {
+    private var defaultsSuiteNames: [String] = []
+
+    override func setUp() {
+        super.setUp()
+        defaultsSuiteNames = []
+        SidebarWidthPreference.reset()
+        SidebarVisibilityPreference.reset()
+        PaneLayoutPreferenceStore.reset()
+    }
+
     private func makeInterruptBridgeWorklane(
         tool: AgentTool = .kimi,
         state: PaneAgentState = .running,
@@ -52,21 +62,32 @@ final class RootViewCompositionTests: AppKitTestCase {
     }
 
     override func tearDown() {
+        defaultsSuiteNames.forEach {
+            UserDefaults(suiteName: $0)?.removePersistentDomain(forName: $0)
+        }
+        defaultsSuiteNames.removeAll()
         SidebarWidthPreference.reset()
         SidebarVisibilityPreference.reset()
         PaneLayoutPreferenceStore.reset()
         super.tearDown()
     }
 
+    private func makeDefaults(suffix: String = #function) -> UserDefaults {
+        let suiteName = "ZenttyTests.RootViewCompositionTests.\(suffix).\(UUID().uuidString)"
+        defaultsSuiteNames.append(suiteName)
+        return UserDefaults(suiteName: suiteName) ?? .standard
+    }
+
     private func makeController(
         configStore: AppConfigStore? = nil,
         openWithService: OpenWithServing = RootViewCompositionOpenWithService(),
         serverOpenService: ServerOpening = RootViewCompositionServerOpenService(),
-        sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaults(),
-        sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaults(),
-        paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaults(),
+        sidebarWidthDefaults: UserDefaults? = nil,
+        sidebarVisibilityDefaults: UserDefaults? = nil,
+        paneLayoutDefaults: UserDefaults? = nil,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        initialLayoutContext: PaneLayoutContext = .fallback
+        initialLayoutContext: PaneLayoutContext = .fallback,
+        initialWorkspaceState: WindowWorkspaceState? = nil
     ) -> RootViewController {
         let controller = RootViewController(
             configStore: configStore,
@@ -74,10 +95,11 @@ final class RootViewCompositionTests: AppKitTestCase {
             openWithService: openWithService,
             serverOpenService: serverOpenService,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
-            sidebarWidthDefaults: sidebarWidthDefaults,
-            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
-            paneLayoutDefaults: paneLayoutDefaults,
-            initialLayoutContext: initialLayoutContext
+            sidebarWidthDefaults: sidebarWidthDefaults ?? makeDefaults(suffix: "sidebarWidth"),
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults ?? makeDefaults(suffix: "sidebarVisibility"),
+            paneLayoutDefaults: paneLayoutDefaults ?? makeDefaults(suffix: "paneLayout"),
+            initialLayoutContext: initialLayoutContext,
+            initialWorkspaceState: initialWorkspaceState
         )
         addTeardownBlock {
             MainActor.assumeIsolated {
@@ -356,6 +378,95 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(toast.frame.midX, canvasView.bounds.midX, accuracy: 0.5)
     }
 
+    func test_transfer_last_pane_to_identical_worklane_renders_both_panes() throws {
+        let controller = makeController(
+            initialLayoutContext: PaneLayoutContext(
+                displayClass: .largeDisplay,
+                preset: .balanced,
+                viewportWidth: 1280,
+                leadingVisibleInset: 0,
+                sizing: .balanced
+            )
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedCWD = "/tmp/shared-project"
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedShellContext = PaneShellContext(
+            scope: .local,
+            path: sharedCWD,
+            home: "/tmp",
+            user: "peter",
+            host: "mac"
+        )
+
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: sourceWorklaneID,
+                title: "SOURCE",
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: sourcePaneID, title: "codex", sessionRequest: sharedRequest)
+                    ],
+                    focusedPaneID: sourcePaneID
+                ),
+                auxiliaryStateByPaneID: [
+                    sourcePaneID: PaneAuxiliaryState(
+                        raw: PaneRawState(
+                            shellContext: sharedShellContext,
+                            hasCommandHistory: true
+                        )
+                    )
+                ]
+            ),
+            WorklaneState(
+                id: targetWorklaneID,
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: targetPaneID, title: "codex", sessionRequest: sharedRequest)
+                    ],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [
+                    targetPaneID: PaneAuxiliaryState(
+                        raw: PaneRawState(
+                            shellContext: sharedShellContext,
+                            hasCommandHistory: true
+                        )
+                    )
+                ]
+            ),
+        ], activeWorklaneID: sourceWorklaneID)
+
+        controller.worklaneStore.transferPaneToWorklane(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: controller.worklaneStore.layoutContext.singlePaneWidth
+        )
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, targetWorklaneID)
+        XCTAssertEqual(controller.worklaneStore.worklanes.map(\.id), [targetWorklaneID])
+
+        let targetWorklane = try XCTUnwrap(controller.worklaneStore.worklanes.first)
+        XCTAssertEqual(targetWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(targetWorklane.paneStripState.focusedPaneID, sourcePaneID)
+
+        let renderedPaneIDs = Set(controller.appCanvasViewForTesting.descendantPaneViews().map(\.paneID))
+        XCTAssertEqual(renderedPaneIDs, [targetPaneID, sourcePaneID])
+    }
+
     func test_global_search_uses_sidebar_row_instead_of_floating_hud() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -524,6 +635,34 @@ final class RootViewCompositionTests: AppKitTestCase {
         )
     }
 
+    func test_all_root_controllers_observe_pane_layout_config_changes() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.SharedPaneLayout")
+        )
+        try configStore.update { config in
+            config.paneLayout.rightSplitBehaviorMode = .adaptive
+            config.paneLayout.visibleSplitWindowWidth = .px1920
+        }
+        let firstController = makeController(configStore: configStore)
+        let secondController = makeController(configStore: configStore)
+        firstController.loadViewIfNeeded()
+        secondController.loadViewIfNeeded()
+        firstController.view.frame = NSRect(x: 0, y: 0, width: 2200, height: 840)
+        secondController.view.frame = NSRect(x: 0, y: 0, width: 2200, height: 840)
+        firstController.view.layoutSubtreeIfNeeded()
+        secondController.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(firstController.paneLayoutMenuCommandTitlesForTesting().first, "Split Right")
+
+        try configStore.update { config in
+            config.paneLayout.visibleSplitWindowWidth = .px2560
+        }
+        waitForMainQueue()
+        firstController.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(firstController.paneLayoutMenuCommandTitlesForTesting().first, "Add Pane Right")
+    }
+
     func test_root_controller_handle_arrange_width_command_updates_active_pane_strip_state() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -648,6 +787,43 @@ final class RootViewCompositionTests: AppKitTestCase {
             windowChromeView.visibleLaneFrame.minX,
             barMaxXInChrome,
             accuracy: 0.5
+        )
+    }
+
+    func test_root_controller_centers_window_chrome_row_between_actual_left_and_right_controls_after_layout() throws {
+        let target = OpenWithResolvedTarget(
+            stableID: "cursor",
+            kind: .editor,
+            displayName: "Cursor",
+            builtInID: .cursor,
+            appPath: nil
+        )
+        let controller = makeController(
+            openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        let worklane = makeSinglePaneWorklane()
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let rootSubviews = controller.view.subviews
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
+        let leadingControlsBar = try XCTUnwrap(
+            rootSubviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
+        let rowFrame = frameInRoot(windowChromeView.rowFrame, within: windowChromeView)
+        let openWithFrame = frameInRoot(windowChromeView.openWithControlFrame, within: windowChromeView)
+        let expectedLaneMidX = (leadingControlsBar.frame.maxX + openWithFrame.minX) / 2
+
+        XCTAssertEqual(rowFrame.midX, expectedLaneMidX, accuracy: 8)
+
+        controller.setSidebarWidth(340)
+
+        XCTAssertEqual(
+            windowChromeView.rowFrame.midX,
+            windowChromeView.visibleLaneFrame.midX,
+            accuracy: 1.0
         )
     }
 
@@ -871,6 +1047,25 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(controller.currentSidebarWidth, 280, accuracy: 0.001)
     }
 
+    func test_root_controller_defaults_do_not_read_stale_shared_preference_suites() {
+        let sidebarWidthDefaults = SidebarWidthPreference.userDefaults()
+        let sidebarVisibilityDefaults = SidebarVisibilityPreference.userDefaults()
+        let paneLayoutDefaults = PaneLayoutPreferenceStore.userDefaults()
+        SidebarWidthPreference.persist(312, in: sidebarWidthDefaults)
+        SidebarVisibilityPreference.persist(.hidden, in: sidebarVisibilityDefaults)
+        PaneLayoutPreferenceStore.persist(.roomy, for: .laptop, in: paneLayoutDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .largeDisplay, in: paneLayoutDefaults)
+        PaneLayoutPreferenceStore.persist(.compact, for: .ultrawide, in: paneLayoutDefaults)
+
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.currentSidebarWidth, SidebarWidthPreference.defaultWidth, accuracy: 0.001)
+        XCTAssertEqual(controller.sidebarVisibilityMode, .pinnedOpen)
+        XCTAssertEqual(controller.currentPaneLayoutPreferences, PaneLayoutPreferences.default)
+    }
+
     func test_root_controller_keeps_single_pane_full_width_through_initial_layout_and_resize() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -962,6 +1157,97 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(appCanvasView.paneStripRenderCountForTesting - initialRenderCount, 1)
         XCTAssertEqual(appCanvasView.lastLeadingVisibleInsetForTesting, 0, accuracy: 0.001)
         XCTAssertTrue(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
+    func test_sidebar_chrome_motion_targets_coordinate_sidebar_icons_and_title_lane() {
+        let sidebarWidth: CGFloat = 280
+        let trafficLightAnchorX: CGFloat = 68
+
+        let pinned = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: .pinnedOpen,
+            trafficLightAnchorX: trafficLightAnchorX
+        )
+        let hidden = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: .hidden,
+            trafficLightAnchorX: trafficLightAnchorX
+        )
+        let hoverPeek = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: .hoverPeek,
+            trafficLightAnchorX: trafficLightAnchorX
+        )
+
+        XCTAssertEqual(pinned.reservedInset, sidebarWidth + ShellMetrics.shellGap, accuracy: 0.001)
+        XCTAssertEqual(hidden.reservedInset, 0, accuracy: 0.001)
+        XCTAssertEqual(hoverPeek.reservedInset, 0, accuracy: 0.001)
+        XCTAssertEqual(
+            hidden.sidebarLeadingConstant,
+            ShellMetrics.outerInset - sidebarWidth - ShellMetrics.shellGap,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            hidden.leadingChromeControlsLeadingConstant,
+            trafficLightAnchorX + SidebarToggleButton.spacingFromTrafficLights,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            hoverPeek.leadingChromeControlsLeadingConstant,
+            hidden.leadingChromeControlsLeadingConstant,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            pinned.windowChromeLeadingControlsInset,
+            pinned.leadingChromeControlsLeadingConstant - ShellMetrics.outerInset
+                + LeadingChromeControlsBar.totalWidth,
+            accuracy: 0.001
+        )
+    }
+
+    func test_animated_sidebar_toggle_marks_window_chrome_layout_as_animated() throws {
+        let controller = makeController()
+        hostInVisibleWindow(controller)
+
+        let windowChromeView = try XCTUnwrap(
+            controller.view.subviews.first { $0 is WindowChromeView } as? WindowChromeView
+        )
+
+        XCTAssertFalse(windowChromeView.lastRowLayoutWasAnimatedForTesting)
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+
+        XCTAssertTrue(windowChromeView.lastRowLayoutWasAnimatedForTesting)
+    }
+
+    func test_animated_sidebar_toggle_animates_sidebar_and_leading_controls_with_shared_timing() throws {
+        let controller = makeController()
+        hostInVisibleWindow(controller)
+
+        let sidebarView = try XCTUnwrap(
+            controller.view.subviews.first { $0 is SidebarView } as? SidebarView
+        )
+        let leadingControlsBar = try XCTUnwrap(
+            controller.view.subviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
+        let sidebarStartFrame = sidebarView.frame
+        let controlsStartFrame = leadingControlsBar.frame
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+
+        let motion = try XCTUnwrap(controller.lastSidebarChromeFrameMotionForTesting)
+        let expectedTiming = SidebarTransitionProfile.resolvedTimingFunction(
+            reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+
+        XCTAssertEqual(motion.duration, SidebarTransitionProfile.resolvedDuration(
+            reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        ), accuracy: 0.001)
+        XCTAssertEqual(motion.timingControlPoints, expectedTiming.controlPointsForTesting)
+        XCTAssertEqual(motion.sidebarStartFrame, sidebarStartFrame)
+        XCTAssertEqual(motion.leadingControlsStartFrame, controlsStartFrame)
+        XCTAssertLessThan(motion.sidebarTargetFrame.minX, sidebarStartFrame.minX)
+        XCTAssertLessThan(motion.leadingControlsTargetFrame.minX, controlsStartFrame.minX)
     }
 
     func test_root_controller_scales_multi_pane_widths_when_window_resizes() throws {
@@ -1786,6 +2072,55 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(borderFrameInRoot.minX, borderFrameInRoot.minY, accuracy: 0.001)
         XCTAssertEqual(rightGap, borderFrameInRoot.minY, accuracy: 0.001)
         XCTAssertFalse(controller.isSidebarFloating)
+    }
+
+    func test_root_controller_does_not_rescale_restored_columns_during_zero_bounds_initial_load() throws {
+        let paneID = PaneID("pane-main")
+        let secondPaneID = PaneID("pane-second")
+        let worklaneID = WorklaneID("worklane-main")
+        let restoredWidth: CGFloat = 1416
+        let initialContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1984,
+            leadingVisibleInset: 288,
+            sizing: .edgeAligned
+        )
+        let restoredState = WindowWorkspaceState(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: "Main",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("column-main"),
+                                panes: [PaneState(id: paneID, title: "main")],
+                                width: restoredWidth,
+                                focusedPaneID: paneID
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("column-second"),
+                                panes: [PaneState(id: secondPaneID, title: "second")],
+                                width: restoredWidth,
+                                focusedPaneID: secondPaneID
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("column-main")
+                    )
+                )
+            ],
+            activeWorklaneID: worklaneID
+        )
+        let controller = makeController(
+            initialLayoutContext: initialContext,
+            initialWorkspaceState: restoredState
+        )
+
+        controller.loadViewIfNeeded()
+
+        let columns = try XCTUnwrap(controller.workspaceState.worklanes.first?.paneStripState.columns)
+        XCTAssertEqual(columns.map { $0.width }, [restoredWidth, restoredWidth])
     }
 
     func test_root_controller_hover_peek_keeps_overlay_sidebar_out_of_layout() throws {

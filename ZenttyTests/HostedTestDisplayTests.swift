@@ -14,15 +14,24 @@ final class HostedTestDisplayTests: XCTestCase {
         let screen = try XCTUnwrap(
             HostedTestDisplay.screen(named: screenName) ?? NSScreen.main ?? NSScreen.screens.first
         )
-        let frame = HostedTestDisplay.centeredFrame(
-            forWindowFrame: NSRect(x: 0, y: 0, width: 320, height: 180),
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        addTeardownBlock { window.close() }
+        let originalFrame = window.frame
+
+        window.prepareForHostedTesting(onScreenNamed: screen.localizedName)
+
+        let expectedFrame = HostedTestDisplay.centeredFrame(
+            forWindowFrame: originalFrame,
             on: screen
         )
 
-        XCTAssertTrue(
-            frame.intersects(screen.visibleFrame),
-            "Prepared test windows should land on the requested screen"
-        )
+        XCTAssertEqual(window.frame.integral, expectedFrame.integral)
+        XCTAssertTrue(window.frame.intersects(screen.visibleFrame), "Prepared test windows should land on the requested screen")
     }
 
     func test_prepareForHostedTesting_does_not_move_window_without_matching_screen() {

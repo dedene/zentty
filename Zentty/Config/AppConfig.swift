@@ -51,12 +51,16 @@ struct AppConfig: Equatable, Sendable {
         /// Installed built-in slugs and `custom:` ids the user wants in the Open Server browser menu (never includes `system-default`).
         var enabledBrowserTargetIDs: [String]
         var customBrowsers: [ServerBrowserCustomApp]
+        /// Canonical port rules whose detected servers are hidden from the menu and primary
+        /// selection. Bare ports (`"9229"`) or inclusive ranges (`"24678-24680"`); see `ServerPortRule`.
+        var ignoredPortRules: [String]
 
         static let `default` = ServerDetection(
             passiveDetectionEnabled: true,
             preferredBrowserID: ServerBrowserTarget.systemDefaultID,
             enabledBrowserTargetIDs: [],
-            customBrowsers: []
+            customBrowsers: [],
+            ignoredPortRules: []
         )
     }
 
@@ -64,14 +68,28 @@ struct AppConfig: Equatable, Sendable {
         var showLabels: Bool
         var inactiveOpacity: CGFloat
         var showProjectIcons: Bool
+        var smoothScrollingEnabled: Bool
 
         static let minimumInactiveOpacity: CGFloat = 0.6
         static let maximumInactiveOpacity: CGFloat = 1.0
 
+        init(
+            showLabels: Bool,
+            inactiveOpacity: CGFloat,
+            showProjectIcons: Bool,
+            smoothScrollingEnabled: Bool = false
+        ) {
+            self.showLabels = showLabels
+            self.inactiveOpacity = inactiveOpacity
+            self.showProjectIcons = showProjectIcons
+            self.smoothScrollingEnabled = smoothScrollingEnabled
+        }
+
         static let `default` = Panes(
             showLabels: true,
             inactiveOpacity: 0.7,
-            showProjectIcons: true
+            showProjectIcons: true,
+            smoothScrollingEnabled: false
         )
     }
 
@@ -360,7 +378,8 @@ extension AppConfig.ServerDetection {
             passiveDetectionEnabled: passiveDetectionEnabled,
             preferredBrowserID: normalizedPreferredBrowserID,
             enabledBrowserTargetIDs: normalizedEnabledBrowserTargetIDs,
-            customBrowsers: canonicalBrowsers
+            customBrowsers: canonicalBrowsers,
+            ignoredPortRules: ServerPortRule.canonicalStrings(ignoredPortRules)
         )
     }
 }
@@ -389,7 +408,8 @@ extension AppConfig.Panes {
                 max(inactiveOpacity, AppConfig.Panes.minimumInactiveOpacity),
                 AppConfig.Panes.maximumInactiveOpacity
             ),
-            showProjectIcons: showProjectIcons
+            showProjectIcons: showProjectIcons,
+            smoothScrollingEnabled: smoothScrollingEnabled
         )
     }
 }

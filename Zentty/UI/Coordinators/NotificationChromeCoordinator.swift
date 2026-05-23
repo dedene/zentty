@@ -76,6 +76,10 @@ final class NotificationChromeCoordinator {
         popoverAnchorRectInParent()
     }
 
+    var popoverContentSizeForTesting: NSSize? {
+        notificationPopover?.contentSize
+    }
+
     static func popoverPreferredEdge(for positioningView: NSView) -> NSRectEdge {
         positioningView.isFlipped ? .maxY : .minY
     }
@@ -125,9 +129,8 @@ final class NotificationChromeCoordinator {
 
         let contentController = NotificationPopoverHostingController(viewModel: viewModel)
         let size = preferredPopoverSize()
+        contentController.view.translatesAutoresizingMaskIntoConstraints = false
         contentController.preferredContentSize = size
-        contentController.view.frame = NSRect(origin: .zero, size: size)
-        contentController.view.autoresizingMask = [.width, .height]
 
         let popover = NSPopover()
         popover.behavior = .transient
@@ -155,16 +158,22 @@ final class NotificationChromeCoordinator {
     private func updatePopoverSize() {
         guard let notificationPopover else { return }
 
-        let nextSize = preferredPopoverSize()
+        let nextSize = preferredPopoverSize(currentHeight: notificationPopover.contentSize.height)
         notificationPopover.contentSize = nextSize
         notificationPopover.contentViewController?.preferredContentSize = nextSize
-        notificationPopover.contentViewController?.view.frame = NSRect(origin: .zero, size: nextSize)
     }
 
     private func preferredPopoverSize() -> NSSize {
+        preferredPopoverSize(currentHeight: nil)
+    }
+
+    private func preferredPopoverSize(currentHeight: CGFloat?) -> NSSize {
         NSSize(
             width: NotificationPopoverMetrics.contentWidth,
-            height: NotificationPopoverMetrics.preferredHeight(forEmpty: store.notifications.isEmpty)
+            height: NotificationPopoverMetrics.liveHeight(
+                forEmpty: store.notifications.isEmpty,
+                currentHeight: currentHeight
+            )
         )
     }
 

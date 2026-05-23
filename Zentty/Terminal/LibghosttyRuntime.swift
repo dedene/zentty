@@ -12,7 +12,8 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case endSearch
     case searchTotal(Int)
     case searchSelected(Int)
-    case scrollbar(total: UInt64, offset: UInt64, len: UInt64)
+    case scrollbar(total: UInt64, offset: Double, len: UInt64)
+    case cellSize(width: UInt32, height: UInt32)
     case openURL(String)
     case mouseShape(ghostty_action_mouse_shape_e)
 }
@@ -72,7 +73,10 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
         return .searchSelected(Int(action.action.search_selected.selected))
     case GHOSTTY_ACTION_SCROLLBAR:
         let s = action.action.scrollbar
-        return .scrollbar(total: s.total, offset: s.offset, len: s.len)
+        return .scrollbar(total: s.total, offset: Double(s.offset), len: s.len)
+    case GHOSTTY_ACTION_CELL_SIZE:
+        let s = action.action.cell_size
+        return .cellSize(width: s.width, height: s.height)
     case GHOSTTY_ACTION_OPEN_URL:
         let openURL = action.action.open_url
         guard let urlPointer = openURL.url, openURL.len > 0 else {
@@ -466,29 +470,81 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
     static func paddingPolicyOverrideContents(userConfigContents: String?) -> String? {
         let keys = configuredKeys(in: userConfigContents)
-        let x = resolvedWindowPadding(for: "window-padding-x", in: userConfigContents)
-        let y = resolvedWindowPadding(for: "window-padding-y", in: userConfigContents)
+        let x = resolvedWindowPaddingX(in: userConfigContents)
+        let y = resolvedWindowPaddingY(in: userConfigContents)
 
         var lines: [String] = []
         if let x {
             lines.append("window-padding-x = \(x)")
         }
         if let y {
-            lines.append("window-padding-y = \(y)")
-        }
-        if !keys.contains("window-padding-balance") {
-            lines.append("window-padding-balance = true")
+            lines.append("window-padding-y = \(y.top),\(y.bottom)")
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
-    private static func resolvedWindowPadding(for key: String, in content: String?) -> Int? {
-        guard let parsed = lastIntValue(for: key, in: content) else {
+    private static func resolvedWindowPaddingX(in content: String?) -> Int? {
+        guard let parsed = lastIntValue(for: "window-padding-x", in: content) else {
             return defaultWindowPadding
         }
         if parsed < minimumWindowPadding {
             return minimumWindowPadding
         }
+        return nil
+    }
+
+    private struct WindowPaddingY: Equatable {
+        let top: Int
+        let bottom: Int
+    }
+
+    private static func resolvedWindowPaddingY(in content: String?) -> WindowPaddingY? {
+        guard let configured = lastWindowPaddingYValue(in: content) else {
+            return WindowPaddingY(top: defaultWindowPadding, bottom: defaultWindowPadding)
+        }
+
+        let resolved = WindowPaddingY(
+            top: max(configured.top, minimumWindowPadding),
+            bottom: max(configured.bottom, minimumWindowPadding)
+        )
+
+        return resolved == configured ? nil : resolved
+    }
+
+    private static func lastWindowPaddingYValue(in content: String?) -> WindowPaddingY? {
+        guard let content else {
+            return nil
+        }
+
+        var latest: WindowPaddingY?
+        for rawLine in content.split(whereSeparator: \.isNewline) {
+            guard let value = configValue(for: "window-padding-y", in: String(rawLine)) else {
+                continue
+            }
+
+            if let parsed = parseWindowPaddingY(value) {
+                latest = parsed
+            }
+        }
+
+        return latest
+    }
+
+    private static func parseWindowPaddingY(_ value: String) -> WindowPaddingY? {
+        let parts = value
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        if parts.count == 1, let padding = Int(parts[0]) {
+            return WindowPaddingY(top: padding, bottom: padding)
+        }
+
+        if parts.count == 2,
+           let top = Int(parts[0]),
+           let bottom = Int(parts[1]) {
+            return WindowPaddingY(top: top, bottom: bottom)
+        }
+
         return nil
     }
 
@@ -499,28 +555,35 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
 
         var latest: Int?
         for rawLine in content.split(whereSeparator: \.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+            guard let value = configValue(for: key, in: String(rawLine)) else {
                 continue
             }
 
-            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
-            guard parts.count == 2 else {
-                continue
-            }
-
-            let parsedKey = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard parsedKey == key else {
-                continue
-            }
-
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let intValue = Int(value) {
                 latest = intValue
             }
         }
 
         return latest
+    }
+
+    private static func configValue(for expectedKey: String, in rawLine: String) -> String? {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+            return nil
+        }
+
+        let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return nil
+        }
+
+        let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard key == expectedKey else {
+            return nil
+        }
+
+        return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func configuredThemeName(in content: String?) -> String? {

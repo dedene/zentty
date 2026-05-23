@@ -48,10 +48,23 @@ final class WorklaneStoreCrossWindowTransferTests: XCTestCase {
             singleColumnWidth: columnWidth
         ))
 
-        XCTAssertFalse(payload.sourceWorklaneRemoved)
+        XCTAssertTrue(payload.sourceWorklaneRemoved)
         XCTAssertTrue(payload.sourceWindowShouldClose)
-        XCTAssertEqual(store.worklanes.count, 1)
-        XCTAssertTrue(store.worklanes[0].paneStripState.panes.isEmpty)
+        XCTAssertTrue(store.worklanes.isEmpty)
+    }
+
+    func test_extract_lastPaneInOnlyWorklane_emitsWorklaneListChangedWithoutEmptyPaneStructure() throws {
+        let store = makeStoreWithSingleSoloWorklane()
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
+
+        _ = try XCTUnwrap(store.extractPaneForCrossWindowTransfer(
+            paneID: PaneID("only"),
+            singleColumnWidth: columnWidth
+        ))
+
+        XCTAssertTrue(changes.contains(.worklaneListChanged))
+        XCTAssertFalse(changes.contains(.paneStructure(WorklaneID("source"))))
     }
 
     func test_extract_emitsPaneStructureNotification_whenSourceRetained() throws {

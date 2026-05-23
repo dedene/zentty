@@ -157,6 +157,50 @@ struct SidebarMotionState: Equatable {
     }
 }
 
+@MainActor
+struct SidebarChromeMotionTargets: Equatable {
+    let reservedInset: CGFloat
+    let sidebarLeadingConstant: CGFloat
+    let leadingChromeControlsLeadingConstant: CGFloat
+    let windowChromeLeadingControlsInset: CGFloat
+    let pinnedHeaderContentMinX: CGFloat
+    let floatingStrength: CGFloat
+
+    init(
+        sidebarWidth: CGFloat,
+        motionState: SidebarMotionState,
+        trafficLightAnchorX: CGFloat
+    ) {
+        let hiddenTravel = sidebarWidth + ShellMetrics.shellGap
+        let reservedInset = hiddenTravel * motionState.reservedFraction
+        let sidebarLeadingConstant =
+            ShellMetrics.outerInset - ((1 - motionState.revealFraction) * hiddenTravel)
+        let sidebarTrailingEdge = sidebarLeadingConstant + sidebarWidth
+        let closedToggleTarget =
+            trafficLightAnchorX + SidebarToggleButton.spacingFromTrafficLights
+        let openToggleTarget = max(
+            closedToggleTarget,
+            sidebarTrailingEdge + ShellMetrics.shellGap
+        )
+        let leadingChromeControlsLeadingConstant =
+            motionState.reservedFraction == 1
+            ? openToggleTarget
+            : closedToggleTarget
+
+        self.reservedInset = reservedInset
+        self.sidebarLeadingConstant = sidebarLeadingConstant
+        self.leadingChromeControlsLeadingConstant = leadingChromeControlsLeadingConstant
+        self.windowChromeLeadingControlsInset =
+            (leadingChromeControlsLeadingConstant - ShellMetrics.outerInset)
+            + LeadingChromeControlsBar.totalWidth
+        self.pinnedHeaderContentMinX =
+            trafficLightAnchorX
+            - sidebarLeadingConstant
+            + SidebarToggleButton.spacingFromTrafficLights
+        self.floatingStrength = max(0, motionState.revealFraction - motionState.reservedFraction)
+    }
+}
+
 enum SidebarTransitionProfile {
     static let standardDuration: TimeInterval = 0.24
     static let reducedMotionDuration: TimeInterval = 0.14

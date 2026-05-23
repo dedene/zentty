@@ -112,6 +112,111 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         XCTAssertEqual(adapter.sentTexts.count, 1)
     }
 
+    func test_runTaskRunnerAtIdlePrompt_cancelsPromptAndSubmitsInFocusedPane() throws {
+        let adapter = RecordingRootTerminalAdapter()
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        let controller = makeController(runtimeRegistry: registry)
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-main")
+        let worklane = makeTaskRunnerWorklane(
+            paneID: paneID,
+            shellActivityState: .promptIdle
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        controller.runTaskRunnerForTesting(makeTaskRunnerAction(command: "pnpm run dev"))
+
+        XCTAssertEqual(adapter.cancelPromptInputCallCount, 1)
+        XCTAssertEqual(adapter.submittedCommands, ["pnpm run dev"])
+        XCTAssertEqual(controller.paneStripStateForTesting.panes.map(\.id), [paneID])
+    }
+
+    func test_runTaskRunnerWhileCommandRunning_opensNewPane() throws {
+        let adapter = RecordingRootTerminalAdapter()
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        let controller = makeController(runtimeRegistry: registry)
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-main")
+        let worklane = makeTaskRunnerWorklane(
+            paneID: paneID,
+            shellActivityState: .commandRunning
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        controller.runTaskRunnerForTesting(makeTaskRunnerAction(command: "pnpm run dev"))
+
+        XCTAssertEqual(adapter.cancelPromptInputCallCount, 0)
+        XCTAssertEqual(adapter.submittedCommands, [])
+        let panes = controller.paneStripStateForTesting.panes
+        XCTAssertEqual(panes.count, 2)
+        XCTAssertEqual(panes.last?.sessionRequest.command, "pnpm run dev")
+    }
+
+    func test_runTaskRunnerWithUnknownShellState_opensNewPane() throws {
+        let adapter = RecordingRootTerminalAdapter()
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        let controller = makeController(runtimeRegistry: registry)
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-main")
+        let worklane = makeTaskRunnerWorklane(
+            paneID: paneID,
+            shellActivityState: .unknown
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        controller.runTaskRunnerForTesting(makeTaskRunnerAction(command: "pnpm run dev"))
+
+        XCTAssertEqual(adapter.cancelPromptInputCallCount, 0)
+        XCTAssertEqual(adapter.submittedCommands, [])
+        XCTAssertEqual(controller.paneStripStateForTesting.panes.count, 2)
+    }
+
+    func test_runTaskRunnerAtIdlePromptWithActiveTerminalProgress_opensNewPane() throws {
+        let adapter = RecordingRootTerminalAdapter()
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        let controller = makeController(runtimeRegistry: registry)
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-main")
+        let worklane = makeTaskRunnerWorklane(
+            paneID: paneID,
+            shellActivityState: .promptIdle,
+            terminalProgress: TerminalProgressReport(state: .indeterminate, progress: nil)
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        controller.runTaskRunnerForTesting(makeTaskRunnerAction(command: "pnpm run dev"))
+
+        XCTAssertEqual(adapter.cancelPromptInputCallCount, 0)
+        XCTAssertEqual(adapter.submittedCommands, [])
+        XCTAssertEqual(controller.paneStripStateForTesting.panes.count, 2)
+    }
+
+    func test_runTaskRunnerAtIdlePromptWithEnvironment_opensNewPanePreservingEnvironment() throws {
+        let adapter = RecordingRootTerminalAdapter()
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        let controller = makeController(runtimeRegistry: registry)
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-main")
+        let worklane = makeTaskRunnerWorklane(
+            paneID: paneID,
+            shellActivityState: .promptIdle
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+
+        controller.runTaskRunnerForTesting(
+            makeTaskRunnerAction(
+                command: "npm run build",
+                environment: ["NODE_ENV": "production"]
+            )
+        )
+
+        XCTAssertEqual(adapter.cancelPromptInputCallCount, 0)
+        XCTAssertEqual(adapter.submittedCommands, [])
+        let panes = controller.paneStripStateForTesting.panes
+        XCTAssertEqual(panes.count, 2)
+        XCTAssertEqual(panes.last?.sessionRequest.environmentVariables["NODE_ENV"], "production")
+    }
+
     func test_root_controller_global_search_aggregates_results_across_worklanes() {
         let controller = makeController()
         controller.loadViewIfNeeded()
@@ -267,6 +372,48 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
 }
 
+private func makeTaskRunnerWorklane(
+    paneID: PaneID,
+    shellActivityState: PaneShellActivityState,
+    terminalProgress: TerminalProgressReport? = nil
+) -> WorklaneState {
+    WorklaneState(
+        id: WorklaneID("worklane-main"),
+        title: "MAIN",
+        paneStripState: PaneStripState(
+            panes: [PaneState(id: paneID, title: "shell")],
+            focusedPaneID: paneID
+        ),
+        auxiliaryStateByPaneID: [
+            paneID: PaneAuxiliaryState(
+                raw: PaneRawState(
+                    shellActivityState: shellActivityState,
+                    terminalProgress: terminalProgress
+                )
+            )
+        ]
+    )
+}
+
+private func makeTaskRunnerAction(
+    command: String,
+    environment: [String: String] = [:]
+) -> TaskRunnerAction {
+    TaskRunnerAction(
+        id: "package|/repo/package.json|dev",
+        title: "dev",
+        description: nil,
+        sourceKind: .packageScript,
+        sourcePath: "/repo/package.json",
+        sourceRoot: "/repo",
+        workingDirectory: "/repo",
+        executionCommand: command,
+        commandPreview: command,
+        environment: environment,
+        disabledReason: nil
+    )
+}
+
 private final class RecordingRootTerminalAdapter: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
@@ -274,6 +421,8 @@ private final class RecordingRootTerminalAdapter: TerminalAdapter {
     let cellWidth: CGFloat = 8
     let cellHeight: CGFloat = 16
     private(set) var sentTexts: [String] = []
+    private(set) var cancelPromptInputCallCount = 0
+    private(set) var submittedCommands: [String] = []
 
     func makeTerminalView() -> NSView {
         NSView()
@@ -285,6 +434,15 @@ private final class RecordingRootTerminalAdapter: TerminalAdapter {
 
     func sendText(_ text: String) {
         sentTexts.append(text)
+    }
+
+    func cancelPromptInput() {
+        cancelPromptInputCallCount += 1
+    }
+
+    func submitCommand(_ command: String) {
+        submittedCommands.append(command)
+        sendText(command + "\r")
     }
 
     func close() {}

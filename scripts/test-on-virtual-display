@@ -40,7 +40,7 @@ betterdisplay_http_request() {
   shift
 
   local curl_args arg parameter
-  curl_args=(-fsS --max-time "${ZENTTY_BETTERDISPLAY_HTTP_TIMEOUT:-10}" --get "$(betterdisplay_http_base)/command/${operation}")
+  curl_args=(-fsS --max-time "${ZENTTY_BETTERDISPLAY_HTTP_TIMEOUT:-10}" --get "$(betterdisplay_http_base)/${operation}")
   for arg in "$@"; do
     parameter="${arg#--}"
     parameter="${parameter#-}"
@@ -82,6 +82,21 @@ betterdisplay_request() {
     http) betterdisplay_http_request "$@" ;;
     *) return 1 ;;
   esac
+}
+
+retry_betterdisplay_request_with_command_transport() {
+  [[ "$betterdisplay_transport" == "http" ]] || return 1
+
+  if ! betterdisplay_command_path="$(betterdisplay_command)"; then
+    return 1
+  fi
+
+  betterdisplay_transport="command"
+  "$betterdisplay_command_path" "$@"
+}
+
+required_betterdisplay_request() {
+  betterdisplay_request "$@" || retry_betterdisplay_request_with_command_transport "$@"
 }
 
 print_betterdisplay_integration_help() {
@@ -249,8 +264,8 @@ ensure_betterdisplay() {
     return 0
   fi
 
-  betterdisplay_request create -type=VirtualScreen -virtualScreenName="$display_name" -virtualScreenSerial="$display_serial" -aspectWidth=16 -aspectHeight=10 -virtualScreenHiDPI=on
-  betterdisplay_request set -serial="$display_serial" -connected=on
+  required_betterdisplay_request create -type=VirtualScreen -virtualScreenName="$display_name" -virtualScreenSerial="$display_serial" -aspectWidth=16 -aspectHeight=10 -virtualScreenHiDPI=on
+  required_betterdisplay_request set -name="$display_name" -virtualScreenSerial="$display_serial" -connected=on
   wait_for_screen
   active_display_name="$(matched_screen_name || print -r -- "$display_name")"
 }

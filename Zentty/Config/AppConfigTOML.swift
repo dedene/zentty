@@ -48,6 +48,7 @@ enum AppConfigTOML {
         lines.append("show_labels = \(config.panes.showLabels)")
         lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
         lines.append("show_project_icons = \(config.panes.showProjectIcons)")
+        lines.append("smooth_scroll_enabled = \(config.panes.smoothScrollingEnabled)")
         lines.append("")
 
         if config.appearance != .default {
@@ -90,6 +91,7 @@ enum AppConfigTOML {
         lines.append("passive_detection_enabled = \(config.serverDetection.passiveDetectionEnabled)")
         lines.append("preferred_browser_id = \(encode(string: config.serverDetection.preferredBrowserID))")
         lines.append("enabled_browser_target_ids = \(encode(strings: config.serverDetection.enabledBrowserTargetIDs))")
+        lines.append("ignored_port_rules = \(encode(strings: config.serverDetection.ignoredPortRules))")
 
         if !config.serverDetection.customBrowsers.isEmpty {
             lines.append("")
@@ -480,6 +482,11 @@ enum AppConfigTOML {
                 return false
             }
             config.serverDetection.enabledBrowserTargetIDs = values
+        case "ignored_port_rules":
+            guard let values = decodeStringArray(assignment.value) else {
+                return false
+            }
+            config.serverDetection.ignoredPortRules = values
         default:
             return true
         }
@@ -534,6 +541,11 @@ enum AppConfigTOML {
                 return false
             }
             config.panes.showProjectIcons = value
+        case "smooth_scroll_enabled":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.panes.smoothScrollingEnabled = value
         default:
             return true
         }
@@ -545,16 +557,21 @@ enum AppConfigTOML {
         _ assignment: (key: String, value: String),
         into app: inout OpenWithCustomApp
     ) -> Bool {
-        guard let decoded = decodeString(assignment.value) else {
-            return false
-        }
-
         switch assignment.key {
         case "id":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             app.id = decoded
         case "name":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             app.name = decoded
         case "path":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             app.appPath = decoded
         default:
             return true
@@ -567,18 +584,26 @@ enum AppConfigTOML {
         _ assignment: (key: String, value: String),
         into browser: inout ServerBrowserCustomApp
     ) -> Bool {
-        guard let decoded = decodeString(assignment.value) else {
-            return false
-        }
-
         switch assignment.key {
         case "id":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.id = decoded
         case "name":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.name = decoded
         case "path":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.appPath = decoded
         case "bundle_identifier":
+            guard let decoded = decodeString(assignment.value) else {
+                return false
+            }
             browser.bundleIdentifier = decoded.isEmpty ? nil : decoded
         default:
             return true
