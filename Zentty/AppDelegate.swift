@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
     private var taskManagerWindowController: TaskManagerWindowController?
+    private var menuBarStatusController: MenuBarStatusController?
     private var lastKeyWindowControllerID: ObjectIdentifier?
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
@@ -101,12 +102,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.applyAuxiliaryWindowTheme()
+                self.applyMenuBarStatusConfig(config)
                 if self.isSessionRestoreEnabled {
                     self.handleRestorePreferenceChange(config.restore)
                 }
             }
         }
         UNUserNotificationCenter.current().delegate = self
+        applyMenuBarStatusConfig(configStore.current)
 
         guard shouldOpenMainWindow else { return }
 
@@ -196,6 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     func toggleSidebarMenuItem(_ sender: Any?) {
         keyWindowController?.toggleSidebar(sender)
+    }
+
+    @objc
+    func focusNextWaitingAgentPane(_ sender: Any?) {
+        _ = menuBarStatusController?.focusNextWaitingPane()
     }
 
     @objc
@@ -305,6 +313,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let configObserverID {
             configStore.removeObserver(configObserverID)
         }
+        menuBarStatusController?.stop()
+        menuBarStatusController = nil
         NSApp.dockTile.badgeLabel = nil
     }
 
@@ -375,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
+        syncMenuBarStatusSources()
         return controller
     }
 
@@ -500,6 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         } else {
+            syncMenuBarStatusSources()
             scheduleWorkspaceSnapshotSave()
         }
     }
@@ -637,6 +649,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.values.sorted { lhs, rhs in
             lhs.window.windowNumber < rhs.window.windowNumber
         }
+    }
+
+    private func applyMenuBarStatusConfig(_ config: AppConfig) {
+        if config.menuBar.showStatusItem {
+            let controller = menuBarStatusController ?? MenuBarStatusController(
+                configStore: configStore,
+                focusPaneHandler: { [weak self] windowID, worklaneID, paneID in
+                    self?.focusPaneFromMenuBar(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+                },
+                openSettingsHandler: { [weak self] in
+                    self?.showAgentsSettingsFromMenuBar()
+                }
+            )
+            menuBarStatusController = controller
+            controller.start()
+            syncMenuBarStatusSources()
+        } else {
+            menuBarStatusController?.stop()
+            menuBarStatusController = nil
+        }
+        menuBarStatusController?.refreshPresentation()
+    }
+
+    private func syncMenuBarStatusSources() {
+        guard let menuBarStatusController else { return }
+        menuBarStatusController.syncSources(orderedWindowControllers.map { controller in
+            MenuBarWorklaneSource(
+                windowID: controller.windowID,
+                windowTitle: controller.menuBarDisplayTitle,
+                worklaneStore: controller.worklaneStore
+            )
+        })
+    }
+
+    private func focusPaneFromMenuBar(windowID: WindowID, worklaneID: WorklaneID, paneID: PaneID) {
+        guard let controller = windowControllers.values.first(where: { $0.windowID == windowID }) else {
+            return
+        }
+        controller.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    private func showAgentsSettingsFromMenuBar() {
+        let controller = keyWindowController ?? orderedWindowControllers.first
+        controller?.showSettingsWindow(section: .agents, sender: nil)
     }
 
     private func launchWorkspace(_ envelope: SessionRestoreEnvelope) -> Bool {

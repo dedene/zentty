@@ -348,7 +348,7 @@ enum AppCommandRegistry {
         ),
         AppCommandDefinition(
             id: .jumpToLatestNotification,
-            title: "Jump To Latest Notification",
+            title: "Jump To Latest Attention Item",
             category: .notifications,
             defaultShortcut: .init(key: .character("u"), modifiers: [.command, .shift]),
             action: .jumpToLatestNotification,
@@ -950,7 +950,7 @@ extension AppCommandDefinition {
         case .copyRaw:
             "Copy the selected text exactly as it appears, without any cleanup."
         case .jumpToLatestNotification:
-            "Go to the most recent notification."
+            "Go to the most recent notification, or the next waiting agent pane."
         case .duplicateFocusedPane:
             "Duplicate the focused pane in a new column, keeping its working directory."
         case .movePaneToNewWindow:

@@ -154,6 +154,14 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = AgentCaffeination(enabled: true)
     }
 
+    struct MenuBar: Equatable, Sendable {
+        var showStatusItem: Bool
+
+        static let `default` = MenuBar(
+            showStatusItem: true
+        )
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -169,6 +177,7 @@ struct AppConfig: Equatable, Sendable {
     var restore: Restore
     var agentTeams: AgentTeams
     var agentCaffeination: AgentCaffeination
+    var menuBar: MenuBar
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -188,7 +197,8 @@ struct AppConfig: Equatable, Sendable {
         appearance: .default,
         restore: .default,
         agentTeams: .default,
-        agentCaffeination: .default
+        agentCaffeination: .default,
+        menuBar: .default
     )
 
     static func migrated(
@@ -214,7 +224,8 @@ struct AppConfig: Equatable, Sendable {
             appearance: .default,
             restore: .default,
             agentTeams: .default,
-            agentCaffeination: .default
+            agentCaffeination: .default,
+            menuBar: .default
         )
     }
 

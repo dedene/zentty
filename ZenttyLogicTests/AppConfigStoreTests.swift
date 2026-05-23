@@ -978,6 +978,49 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.agentCaffeination.enabled)
     }
 
+    func test_store_persists_only_menu_bar_visibility_in_toml() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.menuBar.showStatusItem = false
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[menu_bar]"))
+        XCTAssertTrue(persisted.contains("show_status_item = false"))
+        XCTAssertFalse(persisted.contains("indicator_style"))
+        XCTAssertFalse(persisted.contains("hide_idle_panes"))
+        XCTAssertFalse(persisted.contains("show_waiting_count_on_icon"))
+        XCTAssertFalse(persisted.contains("click_focuses_waiting_pane"))
+    }
+
+    func test_store_ignores_legacy_menu_bar_draft_keys() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [menu_bar]
+        show_status_item = false
+        indicator_style = "emoji"
+        hide_idle_panes = true
+        show_waiting_count_on_icon = true
+        click_focuses_waiting_pane = true
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.menuBar.showStatusItem)
+    }
+
     func test_store_reads_agent_teams_enabled_from_config_file() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """

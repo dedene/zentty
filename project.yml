@@ -95,8 +95,10 @@ targets:
       - path: Zentty/Updates/AppUpdateController.swift
       - path: Zentty/Updates/AppUpdateStateStore.swift
       - path: Zentty/Updates/SparkleAppUpdateController.swift
-    resources:
-      - path: ZenttyResources
+      - path: ZenttyResources/Assets.xcassets
+        buildPhase: resources
+      - path: ZenttyResources/ThirdPartyLicenses.json
+        buildPhase: resources
     dependencies:
       - target: ZenttyCLI
         embed: false

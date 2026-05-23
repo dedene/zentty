@@ -61,6 +61,7 @@ enum AppMenuBuilder {
         )
 
         apply(shortcutManager.shortcut(for: .openSettings), to: settingsItem)
+        applySystemImage("gearshape", title: "Settings…", to: settingsItem)
         hideItem.keyEquivalentModifierMask = [.command]
         hideOthersItem.keyEquivalentModifierMask = [.command, .option]
         showAllItem.keyEquivalentModifierMask = []
