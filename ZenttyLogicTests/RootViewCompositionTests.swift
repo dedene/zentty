@@ -790,6 +790,43 @@ final class RootViewCompositionTests: AppKitTestCase {
         )
     }
 
+    func test_root_controller_centers_window_chrome_row_between_actual_left_and_right_controls_after_layout() throws {
+        let target = OpenWithResolvedTarget(
+            stableID: "cursor",
+            kind: .editor,
+            displayName: "Cursor",
+            builtInID: .cursor,
+            appPath: nil
+        )
+        let controller = makeController(
+            openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        let worklane = makeSinglePaneWorklane()
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let rootSubviews = controller.view.subviews
+        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView } as? WindowChromeView)
+        let leadingControlsBar = try XCTUnwrap(
+            rootSubviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
+        let rowFrame = frameInRoot(windowChromeView.rowFrame, within: windowChromeView)
+        let openWithFrame = frameInRoot(windowChromeView.openWithControlFrame, within: windowChromeView)
+        let expectedLaneMidX = (leadingControlsBar.frame.maxX + openWithFrame.minX) / 2
+
+        XCTAssertEqual(rowFrame.midX, expectedLaneMidX, accuracy: 8)
+
+        controller.setSidebarWidth(340)
+
+        XCTAssertEqual(
+            windowChromeView.rowFrame.midX,
+            windowChromeView.visibleLaneFrame.midX,
+            accuracy: 1.0
+        )
+    }
+
     func test_root_controller_animates_width_preset_with_split_curve() throws {
         let controller = makeController()
         hostInVisibleWindow(controller)
@@ -1120,6 +1157,97 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(appCanvasView.paneStripRenderCountForTesting - initialRenderCount, 1)
         XCTAssertEqual(appCanvasView.lastLeadingVisibleInsetForTesting, 0, accuracy: 0.001)
         XCTAssertTrue(appCanvasView.lastPaneStripRenderWasAnimatedForTesting)
+    }
+
+    func test_sidebar_chrome_motion_targets_coordinate_sidebar_icons_and_title_lane() {
+        let sidebarWidth: CGFloat = 280
+        let trafficLightAnchorX: CGFloat = 68
+
+        let pinned = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: .pinnedOpen,
+            trafficLightAnchorX: trafficLightAnchorX
+        )
+        let hidden = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: .hidden,
+            trafficLightAnchorX: trafficLightAnchorX
+        )
+        let hoverPeek = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: .hoverPeek,
+            trafficLightAnchorX: trafficLightAnchorX
+        )
+
+        XCTAssertEqual(pinned.reservedInset, sidebarWidth + ShellMetrics.shellGap, accuracy: 0.001)
+        XCTAssertEqual(hidden.reservedInset, 0, accuracy: 0.001)
+        XCTAssertEqual(hoverPeek.reservedInset, 0, accuracy: 0.001)
+        XCTAssertEqual(
+            hidden.sidebarLeadingConstant,
+            ShellMetrics.outerInset - sidebarWidth - ShellMetrics.shellGap,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            hidden.leadingChromeControlsLeadingConstant,
+            trafficLightAnchorX + SidebarToggleButton.spacingFromTrafficLights,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            hoverPeek.leadingChromeControlsLeadingConstant,
+            hidden.leadingChromeControlsLeadingConstant,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            pinned.windowChromeLeadingControlsInset,
+            pinned.leadingChromeControlsLeadingConstant - ShellMetrics.outerInset
+                + LeadingChromeControlsBar.totalWidth,
+            accuracy: 0.001
+        )
+    }
+
+    func test_animated_sidebar_toggle_marks_window_chrome_layout_as_animated() throws {
+        let controller = makeController()
+        hostInVisibleWindow(controller)
+
+        let windowChromeView = try XCTUnwrap(
+            controller.view.subviews.first { $0 is WindowChromeView } as? WindowChromeView
+        )
+
+        XCTAssertFalse(windowChromeView.lastRowLayoutWasAnimatedForTesting)
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+
+        XCTAssertTrue(windowChromeView.lastRowLayoutWasAnimatedForTesting)
+    }
+
+    func test_animated_sidebar_toggle_animates_sidebar_and_leading_controls_with_shared_timing() throws {
+        let controller = makeController()
+        hostInVisibleWindow(controller)
+
+        let sidebarView = try XCTUnwrap(
+            controller.view.subviews.first { $0 is SidebarView } as? SidebarView
+        )
+        let leadingControlsBar = try XCTUnwrap(
+            controller.view.subviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
+        let sidebarStartFrame = sidebarView.frame
+        let controlsStartFrame = leadingControlsBar.frame
+
+        controller.handleSidebarVisibilityEvent(.togglePressed)
+
+        let motion = try XCTUnwrap(controller.lastSidebarChromeFrameMotionForTesting)
+        let expectedTiming = SidebarTransitionProfile.resolvedTimingFunction(
+            reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+
+        XCTAssertEqual(motion.duration, SidebarTransitionProfile.resolvedDuration(
+            reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        ), accuracy: 0.001)
+        XCTAssertEqual(motion.timingControlPoints, expectedTiming.controlPointsForTesting)
+        XCTAssertEqual(motion.sidebarStartFrame, sidebarStartFrame)
+        XCTAssertEqual(motion.leadingControlsStartFrame, controlsStartFrame)
+        XCTAssertLessThan(motion.sidebarTargetFrame.minX, sidebarStartFrame.minX)
+        XCTAssertLessThan(motion.leadingControlsTargetFrame.minX, controlsStartFrame.minX)
     }
 
     func test_root_controller_scales_multi_pane_widths_when_window_resizes() throws {

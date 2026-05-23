@@ -27,6 +27,43 @@ enum FocusedTerminalInterruptBridge {
     }
 }
 
+#if DEBUG
+struct SidebarChromeFrameMotionRecord: Equatable {
+    let duration: TimeInterval
+    let timingControlPoints: [CGPoint]
+    let sidebarStartFrame: CGRect
+    let sidebarTargetFrame: CGRect
+    let leadingControlsStartFrame: CGRect
+    let leadingControlsTargetFrame: CGRect
+
+    init(
+        duration: TimeInterval,
+        timingFunction: CAMediaTimingFunction,
+        sidebarStartFrame: CGRect,
+        sidebarTargetFrame: CGRect,
+        leadingControlsStartFrame: CGRect,
+        leadingControlsTargetFrame: CGRect
+    ) {
+        self.duration = duration
+        timingControlPoints = timingFunction.controlPointsForTesting
+        self.sidebarStartFrame = sidebarStartFrame
+        self.sidebarTargetFrame = sidebarTargetFrame
+        self.leadingControlsStartFrame = leadingControlsStartFrame
+        self.leadingControlsTargetFrame = leadingControlsTargetFrame
+    }
+}
+
+extension CAMediaTimingFunction {
+    var controlPointsForTesting: [CGPoint] {
+        (0..<4).map { index in
+            var values = [Float](repeating: 0, count: 2)
+            getControlPoint(at: index, values: &values)
+            return CGPoint(x: CGFloat(values[0]), y: CGFloat(values[1]))
+        }
+    }
+}
+#endif
+
 @MainActor
 final class RootViewController: NSViewController {
     private final class LocalEventMonitor {
@@ -130,6 +167,9 @@ final class RootViewController: NSViewController {
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var toggleLeadingConstraint: NSLayoutConstraint?
+#if DEBUG
+    private(set) var lastSidebarChromeFrameMotionForTesting: SidebarChromeFrameMotionRecord?
+#endif
     private var isFullScreen = false
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
@@ -2367,11 +2407,11 @@ final class RootViewController: NSViewController {
             sidebarWidthConstraint?.constant ?? SidebarWidthPreference.defaultWidth,
             availableWidth: resolvedSidebarAvailableWidth()
         )
-        let hiddenTravel = sidebarWidth + ShellMetrics.shellGap
-        let reservedInset = hiddenTravel * motionState.reservedFraction
-        let leadingConstant =
-            ShellMetrics.outerInset - ((1 - motionState.revealFraction) * hiddenTravel)
-        let floatingStrength = max(0, motionState.revealFraction - motionState.reservedFraction)
+        let motionTargets = SidebarChromeMotionTargets(
+            sidebarWidth: sidebarWidth,
+            motionState: motionState,
+            trafficLightAnchorX: trafficLightAnchor.x
+        )
 
         let duration = SidebarTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
         let timingFunction = SidebarTransitionProfile.resolvedTimingFunction(
@@ -2382,13 +2422,15 @@ final class RootViewController: NSViewController {
         let previousLayoutContext = currentPaneLayoutContext
         let previousFocusedColumnContentMinX = focusedPaneColumnContentMinX()
         worklaneStore.batchUpdate { [self] in
-            updatePaneLayoutContextIfNeeded(force: true, leadingVisibleInsetOverride: reservedInset)
+            updatePaneLayoutContextIfNeeded(
+                force: true,
+                leadingVisibleInsetOverride: motionTargets.reservedInset
+            )
         }
         let needsCanvasTransition =
-            abs(previousLeadingInset - reservedInset) > 0.001
+            abs(previousLeadingInset - motionTargets.reservedInset) > 0.001
             || previousWorklaneState != worklaneStore.state
             || previousLayoutContext != currentPaneLayoutContext
-        windowChromeView.leadingVisibleInset = reservedInset
         // When the leading inset changes, every column is proportionally
         // rescaled (see `WorklaneStore.readableWidthScaleFactor`) so the
         // focused column's content X shifts. Without compensation the
@@ -2405,16 +2447,16 @@ final class RootViewController: NSViewController {
         // shift that the first real render would then apply).
         let viewportWidth = appCanvasView.bounds.width
         if viewportWidth > 0.001,
-            abs(previousLeadingInset - reservedInset) > 0.001,
+            abs(previousLeadingInset - motionTargets.reservedInset) > 0.001,
             let previousMinX = previousFocusedColumnContentMinX,
             let nextMinX = focusedPaneColumnContentMinX()
         {
             let previousLaneWidth = max(1, viewportWidth - previousLeadingInset)
-            let nextLaneWidth = max(1, viewportWidth - reservedInset)
+            let nextLaneWidth = max(1, viewportWidth - motionTargets.reservedInset)
             let previousOffset = appCanvasView.currentPaneStripScrollOffset
             let previousScreenLeft = previousMinX - previousOffset
             let relativeInLane = (previousScreenLeft - previousLeadingInset) / previousLaneWidth
-            let nextScreenLeft = reservedInset + relativeInLane * nextLaneWidth
+            let nextScreenLeft = motionTargets.reservedInset + relativeInLane * nextLaneWidth
             let nextOffset = nextMinX - nextScreenLeft
             let offsetShift = nextOffset - previousOffset
             if abs(offsetShift) > 0.001 {
@@ -2423,58 +2465,83 @@ final class RootViewController: NSViewController {
         }
         if needsCanvasTransition {
             renderCoordinator.renderCanvas(
-                leadingVisibleInsetOverride: reservedInset,
+                leadingVisibleInsetOverride: motionTargets.reservedInset,
                 animated: animated,
                 duration: duration,
                 timingFunction: timingFunction
             )
         } else {
-            appCanvasView.leadingVisibleInset = reservedInset
-        }
-
-        let sidebarTrailingEdge = leadingConstant + sidebarWidth
-        let closedToggleTarget = trafficLightAnchor.x + SidebarToggleButton.spacingFromTrafficLights
-        let openToggleTarget = max(
-            closedToggleTarget,
-            sidebarTrailingEdge + ShellMetrics.shellGap
-        )
-        let toggleTarget =
-            motionState.reservedFraction == 1
-            ? openToggleTarget
-            : closedToggleTarget
-        windowChromeView.leadingControlsInset =
-            (toggleTarget - ShellMetrics.outerInset)
-            + LeadingChromeControlsBar.totalWidth
-        let pinnedHeaderContentMinX =
-            trafficLightAnchor.x
-            - leadingConstant
-            + SidebarToggleButton.spacingFromTrafficLights
-        // Skip the header-layout update when the sidebar will be hidden — the
-        // button is about to slide off-screen with the sidebar body, and
-        // re-snapping its X/Y offsets to the default (.hidden) values here
-        // would cause a visible 1-frame jump before the slide starts.
-        if motionState.revealFraction > 0 {
-            sidebarView.updateHeaderLayout(
-                visibilityMode: sidebarMotionCoordinator.mode,
-                pinnedContentMinX: pinnedHeaderContentMinX
-            )
-        }
-        if forceLayout {
-            sidebarView.layoutSubtreeIfNeeded()
+            appCanvasView.leadingVisibleInset = motionTargets.reservedInset
         }
 
         if animated, forceLayout {
+            let sidebarStartFrame = sidebarView.frame
+            let sidebarTargetFrame = sidebarFrame(
+                targetingLeadingConstant: motionTargets.sidebarLeadingConstant,
+                width: sidebarWidth
+            )
+            let leadingControlsStartFrame = leadingChromeControlsBar.frame
+            let leadingControlsTargetFrame = leadingChromeControlsFrame(
+                targetingLeadingConstant: motionTargets.leadingChromeControlsLeadingConstant
+            )
+#if DEBUG
+            lastSidebarChromeFrameMotionForTesting = SidebarChromeFrameMotionRecord(
+                duration: duration,
+                timingFunction: timingFunction,
+                sidebarStartFrame: sidebarStartFrame,
+                sidebarTargetFrame: sidebarTargetFrame,
+                leadingControlsStartFrame: leadingControlsStartFrame,
+                leadingControlsTargetFrame: leadingControlsTargetFrame
+            )
+#endif
+            windowChromeView.animateNextRowLayoutForSidebarTransition()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = timingFunction
                 context.allowsImplicitAnimation = true
-                self.sidebarLeadingConstraint?.animator().constant = leadingConstant
-                self.toggleLeadingConstraint?.animator().constant = toggleTarget
+                self.windowChromeView.leadingVisibleInset = motionTargets.reservedInset
+                self.applyWindowChromeLeadingControlsInset(
+                    motionTargets.windowChromeLeadingControlsInset,
+                    layoutImmediately: false
+                )
+                // Skip the header-layout update when the sidebar will be hidden:
+                // the button is about to slide off-screen with the sidebar body,
+                // and re-snapping its X/Y offsets to the default (.hidden) values
+                // would cause a visible 1-frame jump before the slide starts.
+                if motionState.revealFraction > 0 {
+                    self.sidebarView.updateHeaderLayout(
+                        visibilityMode: self.sidebarMotionCoordinator.mode,
+                        pinnedContentMinX: motionTargets.pinnedHeaderContentMinX
+                    )
+                }
+                self.sidebarLeadingConstraint?.constant = motionTargets.sidebarLeadingConstant
+                self.toggleLeadingConstraint?.constant =
+                    motionTargets.leadingChromeControlsLeadingConstant
+                self.sidebarView.animator().frame = sidebarTargetFrame
+                self.leadingChromeControlsBar.animator().frame = leadingControlsTargetFrame
+                self.windowChromeView.layoutSubtreeIfNeeded()
+            } completionHandler: {
+                self.sidebarView.frame = sidebarTargetFrame
+                self.leadingChromeControlsBar.frame = leadingControlsTargetFrame
                 self.view.layoutSubtreeIfNeeded()
             }
         } else {
-            sidebarLeadingConstraint?.constant = leadingConstant
-            toggleLeadingConstraint?.constant = toggleTarget
+            windowChromeView.leadingVisibleInset = motionTargets.reservedInset
+            applyWindowChromeLeadingControlsInset(
+                motionTargets.windowChromeLeadingControlsInset,
+                layoutImmediately: true
+            )
+            if motionState.revealFraction > 0 {
+                sidebarView.updateHeaderLayout(
+                    visibilityMode: sidebarMotionCoordinator.mode,
+                    pinnedContentMinX: motionTargets.pinnedHeaderContentMinX
+                )
+            }
+            if forceLayout {
+                sidebarView.layoutSubtreeIfNeeded()
+            }
+            sidebarLeadingConstraint?.constant = motionTargets.sidebarLeadingConstant
+            toggleLeadingConstraint?.constant = motionTargets.leadingChromeControlsLeadingConstant
             if forceLayout {
                 view.layoutSubtreeIfNeeded()
             }
@@ -2485,10 +2552,28 @@ final class RootViewController: NSViewController {
         CATransaction.setAnimationTimingFunction(animated ? timingFunction : nil)
         CATransaction.setDisableActions(!animated)
         sidebarView.layer?.shadowColor = currentTheme.underlapShadow.cgColor
-        sidebarView.layer?.shadowOpacity = Float(floatingStrength * 0.28)
-        sidebarView.layer?.shadowRadius = 18 * floatingStrength
+        sidebarView.layer?.shadowOpacity = Float(motionTargets.floatingStrength * 0.28)
+        sidebarView.layer?.shadowRadius = 18 * motionTargets.floatingStrength
         sidebarView.layer?.shadowOffset = CGSize(width: 0, height: -2)
         CATransaction.commit()
+    }
+
+    private func sidebarFrame(
+        targetingLeadingConstant leadingConstant: CGFloat,
+        width: CGFloat
+    ) -> CGRect {
+        var frame = sidebarView.frame
+        frame.origin.x = leadingConstant
+        frame.size.width = width
+        return frame
+    }
+
+    private func leadingChromeControlsFrame(
+        targetingLeadingConstant leadingConstant: CGFloat
+    ) -> CGRect {
+        var frame = leadingChromeControlsBar.frame
+        frame.origin.x = leadingConstant
+        return frame
     }
 
     var currentSidebarWidth: CGFloat {
@@ -3327,7 +3412,18 @@ final class RootViewController: NSViewController {
             NSPoint(x: barMaxXInRoot, y: 0),
             from: view
         ).x
-        windowChromeView.leadingControlsInset = barMaxXInChrome
+        applyWindowChromeLeadingControlsInset(barMaxXInChrome)
+    }
+
+    private func applyWindowChromeLeadingControlsInset(
+        _ inset: CGFloat,
+        layoutImmediately: Bool = true
+    ) {
+        let previousInset = windowChromeView.leadingControlsInset
+        windowChromeView.leadingControlsInset = inset
+        if layoutImmediately, abs(previousInset - inset) > 0.5 {
+            windowChromeView.layoutSubtreeIfNeeded()
+        }
     }
 
     func updatePaneLayoutPreferences(_ preferences: PaneLayoutPreferences) {
