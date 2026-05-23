@@ -27,7 +27,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -50,6 +50,7 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_DROID_PID",
     "ZENTTY_KIMI_PID",
     "ZENTTY_GROK_PID",
+    "ZENTTY_AGY_PID",
     "CODEX_HOME",
     "COPILOT_HOME",
     "KIMI_HOME",
@@ -373,7 +374,7 @@ def session_identity_observations_for_records(
 
 
 def extract_session_id(payload: dict[str, Any]) -> tuple[str | None, str | None]:
-    for key in ("session_id", "sessionId"):
+    for key in ("session_id", "sessionId", "conversationId", "conversation_id"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return (value.strip(), key)
@@ -1169,7 +1170,11 @@ class LaunchPlanner:
         executable = str(environment.get("ZENTTY_REAL_BINARY") or self.profile.command)
         arguments = [str(arg) for arg in request.get("arguments", [])]
         cli_path = str(environment.get("ZENTTY_CLI_BIN") or "")
-        if self.scenario == "restore_launch":
+        # All `restore_launch*` scenarios exercise the bootstrap argument
+        # forwarding path; we never need to actually execute the agent
+        # process (which can fail synchronously on bogus session ids and race
+        # the completion predicate).
+        if self.scenario.startswith("restore_launch"):
             return self._launch_plan("/usr/bin/true", [], {"ZENTTY_AGENT_TOOL": self.profile.name})
         method = getattr(self, f"_plan_{self.profile.name}", self._direct_plan)
         return method(executable, arguments, environment, cli_path)
@@ -1468,6 +1473,82 @@ class LaunchPlanner:
             {"ZENTTY_AGENT_TOOL": "grok", "HOME": str(home)},
         )
 
+    # Antigravity hook events Zentty subscribes to, kept in sync with
+    # AgyHooksInstaller.events on the Swift side. Tool-use events take the
+    # `{matcher, hooks:[...]}` wrapper; lifecycle events are plain entries.
+    _AGY_LIFECYCLE_HOOK_EVENTS = [
+        ("SessionStart", "session-start"),
+        ("PreInvocation", "prompt-submit"),
+        ("Stop", "stop"),
+        ("turn-completion", "turn-completion"),
+        ("Notification", "notification"),
+        ("SessionEnd", "session-end"),
+    ]
+    _AGY_TOOL_HOOK_EVENTS = [
+        ("PreToolUse", "pre-tool-use"),
+        ("PostToolUse", "post-tool-use"),
+    ]
+
+    @staticmethod
+    def _agy_hook_command(cli_path: str, cli_event: str) -> str:
+        # Mirror AgyHooksInstaller.hookCommand so the bench exercises the same
+        # shell shape the production installer writes.
+        escaped = shell_escape_double_quoted(cli_path)
+        return (
+            ": zentty-agy-hook-v1; "
+            'if [ "$ZENTTY_AGY_HOOKS_DISABLED" = "1" ]; then echo \'{}\'; exit 0; fi; '
+            f"\"{escaped}\" agy-hook {cli_event} 2>/dev/null || echo '{{}}'"
+        )
+
+    def _plan_agy(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        # Skip both `antigravity-cli` (auth/state we never touch) and `config`
+        # from the top-level symlink set so we can place a hooks.json we own
+        # under `.gemini/config/` without mutating the real user file.
+        home = self._overlay_home("agy", environment, {".gemini": {"antigravity-cli", "config"}})
+
+        # Rebuild `.gemini/config` in the overlay: symlink the real config's
+        # contents (so agy still sees the user's settings) except hooks.json,
+        # which we own and write fresh pointing at the bench CLI. This makes
+        # the `tools` scenario hermetic — it no longer depends on the host
+        # user having run `zentty install agy-hooks` first.
+        source_home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home()))
+        overlay_config = home / ".gemini" / "config"
+        symlink_directory_contents_skipping(
+            source_home / ".gemini" / "config", overlay_config, {"hooks.json"}
+        )
+        zentty_group: dict[str, Any] = {}
+        for agent_event, cli_event in self._AGY_LIFECYCLE_HOOK_EVENTS:
+            zentty_group[agent_event] = [
+                {"type": "command", "command": self._agy_hook_command(cli_path, cli_event), "timeout": 15}
+            ]
+        for agent_event, cli_event in self._AGY_TOOL_HOOK_EVENTS:
+            zentty_group[agent_event] = [
+                {"matcher": "*", "hooks": [{"type": "command", "command": self._agy_hook_command(cli_path, cli_event), "timeout": 120}]}
+            ]
+        (overlay_config / "hooks.json").write_text(json.dumps({"zentty": zentty_group}, indent=2))
+
+        # Mirror the per-launch placeholder the Swift bootstrap mints (see
+        # AgentLaunchBootstrap.agyPlan). The `zentty-placeholder-` prefix
+        # is what the resume builder uses to recognise and reject this id
+        # when no real `conversation_id` ever arrives from a hook.
+        placeholder_session_id = "zentty-placeholder-" + str(uuid.uuid4())
+        launch_context = json.dumps({"launch": {"arguments": arguments}}, separators=(",", ":"))
+        prelaunch = '{"version":1,"event":"session.start","agent":{"name":"Antigravity","pid":"__ZENTTY_SELF_PID__"},"session":{"id":"' + placeholder_session_id + '"},"context":' + launch_context + "}"
+        running = '{"version":1,"event":"agent.running","agent":{"name":"Antigravity","pid":"__ZENTTY_SELF_PID__"},"session":{"id":"' + placeholder_session_id + '"},"context":' + launch_context + "}"
+        return self._launch_plan(
+            executable,
+            arguments,
+            {
+                "ZENTTY_AGENT_TOOL": "agy",
+                "ZENTTY_AGY_PLACEHOLDER_SESSION_ID": placeholder_session_id,
+                "HOME": str(home),
+            },
+            prelaunch=[
+                {"subcommand": "agent-event", "arguments": ["--adapter=agy"], "standardInput": prelaunch},
+                {"subcommand": "agent-event", "arguments": ["--adapter=agy"], "standardInput": running},
+            ],
+        )
+
     def _launch_plan(
         self,
         executable: str,
@@ -1698,6 +1779,12 @@ class BenchRunner:
             )
         if profile.expectations[scenario].synthetic:
             return self._run_synthetic_scenario(agent, scenario, env)
+        if missing := missing_agent_wrapper_resource(self._resolved_app_path, profile):
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, missing, "missing-wrapper"),
+                [],
+                [],
+            )
         command = None
         for candidate in [profile.command] + profile.real_binary_names:
             command = shutil.which(candidate, path=env["PATH"])
@@ -1979,6 +2066,15 @@ class BenchRunner:
     def _write_report(self, results: list[ScenarioResult]) -> None:
         summary = [dataclasses.asdict(result) for result in results]
         write_json(self.run_dir / "summary.json", summary)
+        app_path = str(getattr(self, "_resolved_app_path", "") or "")
+        write_json(
+            self.run_dir / "metadata.json",
+            {
+                "app_path": app_path,
+                "strict": bool(self.args.strict),
+                "no_build": bool(self.args.no_build),
+            },
+        )
         timeline = [
             {"agent": result.agent, "scenario": result.scenario, **entry}
             for result in results
@@ -1986,6 +2082,8 @@ class BenchRunner:
         ]
         write_json(self.run_dir / "timeline.json", timeline)
         lines = ["# Agent Bench Report", ""]
+        if app_path:
+            lines.extend([f"App: `{app_path}`", ""])
         for result in results:
             marker = {"pass": "PASS", "fail": "FAIL", "skip": "SKIP"}[result.status]
             detail = f" - {result.detail}" if result.detail else ""
@@ -2207,6 +2305,28 @@ def parse_build_settings(output: str) -> dict[str, str]:
 
 def app_has_agent_bench_resources(app_path: pathlib.Path) -> bool:
     return (app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty").exists()
+
+
+def missing_agent_wrapper_resource(app_path: pathlib.Path, profile: AgentProfile) -> str | None:
+    resources_dir = app_path / "Contents" / "Resources"
+    shared_launcher = resources_dir / "bin" / "shared" / "zentty"
+    if not shared_launcher.exists():
+        return f"app is missing shared Zentty launcher: {shared_launcher}"
+
+    wrapper_dir = resources_dir / "bin" / profile.name
+    if not wrapper_dir.exists():
+        return f"app is missing {profile.name} wrapper directory: {wrapper_dir}"
+
+    candidate_names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
+    candidates = [wrapper_dir / name for name in candidate_names]
+    if not any(path.exists() for path in candidates):
+        names = ", ".join(path.name for path in candidates)
+        return f"app is missing {profile.name} wrapper executable in {wrapper_dir}: expected one of {names}"
+    if not any(os.access(path, os.X_OK) for path in candidates):
+        names = ", ".join(path.name for path in candidates)
+        return f"app has non-executable {profile.name} wrapper in {wrapper_dir}: expected one of {names}"
+
+    return None
 
 
 def latest_derived_data_zentty_app(home: pathlib.Path | None = None) -> pathlib.Path | None:

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# test-agy-bench — regression gate for the Antigravity (agy) integration.
+#
+# Builds Zentty in Debug (or reuses a derived build, see --no-build) and runs
+# the agent-bench harness against every scenario the agy profile defines.
+# Strict mode rejects auth-skip / binary-skip outcomes so a missing binary or
+# auth blocker fails the gate rather than silently passing.
+#
+# Re-run this after:
+#   * any agy CLI bump
+#   * changes to AgyHooksInstaller / agyAdapter / AgyCanonicalReEmitter
+#   * changes to scripts/agent-bench/profiles/agy.json
+#
+# Usage:
+#   scripts/test-agy-bench                 # full sweep, builds first
+#   scripts/test-agy-bench --no-build      # skip xcodebuild, reuse last build
+#   scripts/test-agy-bench --scenarios smoke,tools
+#
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+NO_BUILD=0
+SCENARIOS="smoke,session_capture,approval,tools,restore_launch,restore_launch_with_id"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-build) NO_BUILD=1; shift ;;
+    --scenarios) SCENARIOS="$2"; shift 2 ;;
+    --scenarios=*) SCENARIOS="${1#--scenarios=}"; shift ;;
+    -h|--help)
+      sed -n '2,18p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+BENCH_ARGS=(run --agents agy --scenarios "$SCENARIOS" --strict)
+if [[ $NO_BUILD -eq 1 ]]; then
+  BENCH_ARGS+=(--no-build)
+fi
+
+echo "==> Running agent-bench against scenarios: $SCENARIOS"
+python3 scripts/agent-bench/agent_bench.py "${BENCH_ARGS[@]}"

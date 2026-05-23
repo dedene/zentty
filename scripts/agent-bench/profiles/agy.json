@@ -1,0 +1,88 @@
+{
+  "name": "agy",
+  "command": "agy",
+  "real_binary_names": ["agy"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--print",
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK",
+      "--dangerously-skip-permissions",
+      "--print-timeout",
+      "90"
+    ],
+    "session_capture": [
+      "--print",
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK",
+      "--dangerously-skip-permissions",
+      "--print-timeout",
+      "90"
+    ],
+    "approval": [
+      "--prompt-interactive",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "tools": [
+      "--print",
+      "--prompt",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_TOOLS_OK",
+      "--dangerously-skip-permissions",
+      "--print-timeout",
+      "120"
+    ],
+    "restore_launch": [
+      "--continue"
+    ],
+    "restore_launch_with_id": [
+      "--conversation",
+      "zentty-bench-conversation-fixture"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session.start", "agent.running"]
+    },
+    "session_capture": {
+      "required_events": ["session.start", "agent.running"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
+    },
+    "approval": {
+      "required_events": ["session.start", "agent.running"]
+    },
+    "tools": {
+      "required_events": [
+        "session.start",
+        "agent.running",
+        "pre-tool-use",
+        "post-tool-use",
+        "stop"
+      ]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--continue"]]
+    },
+    "restore_launch_with_id": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--conversation", "zentty-bench-conversation-fixture"]]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Allow execution|Action Required",
+        "text": "y\n"
+      },
+      {
+        "after": 45,
+        "text": "\u0003"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in"]
+}

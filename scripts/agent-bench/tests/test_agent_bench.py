@@ -1065,7 +1065,7 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"],
+            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"],
         )
         for profile in profiles.values():
             self.assertIn("smoke", profile.expectations)
@@ -1239,6 +1239,126 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(profile.launch_args_by_scenario["approval"][0], "exec")
         self.assertIn("touch ZENTTY_AGENT_BENCH_APPROVAL_OK", profile.launch_args_by_scenario["approval"][1])
 
+    def test_agy_profile_uses_supported_headless_flags_and_wrapper_lifecycle(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+
+        self.assertIn("--print", profile.launch_args_by_scenario["smoke"])
+        self.assertIn("--prompt", profile.launch_args_by_scenario["smoke"])
+        self.assertNotIn("--format", profile.launch_args_by_scenario["smoke"])
+        self.assertEqual(
+            profile.expectations["smoke"].required_events,
+            ["session.start", "agent.running"],
+        )
+        self.assertEqual(
+            profile.expectations["restore_launch"].required_bootstrap_arguments,
+            [["--continue"]],
+        )
+
+    def test_agy_profile_session_capture_requires_uuid_session_identity(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        identity = profile.expectations["session_capture"].session_identity
+        self.assertIsNotNone(identity)
+        assert identity is not None  # narrow for type-checker
+        self.assertEqual(identity.session_id_pattern, "uuid")
+        self.assertTrue(identity.tracked_pid)
+
+    def test_agy_profile_tools_scenario_requires_tool_use_lifecycle_events(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        self.assertIn("tools", profile.launch_args_by_scenario)
+        self.assertIn("--dangerously-skip-permissions", profile.launch_args_by_scenario["tools"])
+        # Tool-use hook events show up in bench traces under the kebab-case
+        # positional our shell command passes through `agy-hook`, not the
+        # PascalCase names the Antigravity CLI uses in its JSON payload.
+        self.assertEqual(
+            profile.expectations["tools"].required_events,
+            ["session.start", "agent.running", "pre-tool-use", "post-tool-use", "stop"],
+        )
+
+    def test_agy_profile_restore_launch_with_id_asserts_conversation_flag(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        self.assertIn("restore_launch_with_id", profile.launch_args_by_scenario)
+        self.assertEqual(
+            profile.launch_args_by_scenario["restore_launch_with_id"][0],
+            "--conversation",
+        )
+        self.assertEqual(
+            profile.expectations["restore_launch_with_id"].required_bootstrap_arguments,
+            [["--conversation", "zentty-bench-conversation-fixture"]],
+        )
+
+    def test_agy_plan_installs_overlay_hooks_and_preserves_user_config(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = pathlib.Path(tmp)
+            # Populate HOME with a `.gemini/antigravity-cli/settings.json`
+            # we can verify the overlay does NOT surface, and a
+            # `.gemini/config/config.json` we can verify the overlay DOES
+            # surface (user settings must survive alongside our hooks.json).
+            real_home = run_dir / "real-home"
+            (real_home / ".gemini" / "antigravity-cli").mkdir(parents=True)
+            (real_home / ".gemini" / "antigravity-cli" / "settings.json").write_text("{}")
+            (real_home / ".gemini" / "config").mkdir(parents=True)
+            (real_home / ".gemini" / "config" / "config.json").write_text('{"theme":"dark"}')
+
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="tools",
+                run_dir=run_dir,
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["--print", "--prompt", "hello"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/agy",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty-bench",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_home = pathlib.Path(plan["setEnvironment"]["HOME"])
+
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "agy")
+            # The user's config.json survives via the symlinked config dir…
+            self.assertTrue((overlay_home / ".gemini" / "config" / "config.json").exists())
+            # …the antigravity-cli subtree is skipped…
+            self.assertFalse((overlay_home / ".gemini" / "antigravity-cli" / "settings.json").exists())
+            # …and we write a real hooks.json (not a symlink) so the tools
+            # scenario fires real hooks against the bench CLI.
+            overlay_hooks = overlay_home / ".gemini" / "config" / "hooks.json"
+            self.assertTrue(overlay_hooks.exists())
+            self.assertFalse(overlay_hooks.is_symlink())
+            hooks_doc = json.loads(overlay_hooks.read_text())
+            self.assertEqual(
+                set(hooks_doc["zentty"].keys()),
+                {"SessionStart", "PreInvocation", "Stop", "turn-completion",
+                 "Notification", "SessionEnd", "PreToolUse", "PostToolUse"},
+            )
+            # Tool-use events carry the matcher wrapper; lifecycle do not.
+            self.assertIn("matcher", hooks_doc["zentty"]["PreToolUse"][0])
+            self.assertNotIn("matcher", hooks_doc["zentty"]["Stop"][0])
+            # The bench CLI path is baked into the hook command, and the
+            # event positional is forwarded to agy-hook.
+            stop_cmd = hooks_doc["zentty"]["Stop"][0]["command"]
+            self.assertIn("/tmp/zentty-bench", stop_cmd)
+            self.assertIn("agy-hook stop", stop_cmd)
+
+            self.assertEqual([action["arguments"] for action in plan["preLaunchActions"]], [["--adapter=agy"], ["--adapter=agy"]])
+            self.assertIn('"event":"session.start"', plan["preLaunchActions"][0]["standardInput"])
+            self.assertIn('"event":"agent.running"', plan["preLaunchActions"][1]["standardInput"])
+
+            placeholder = plan["setEnvironment"]["ZENTTY_AGY_PLACEHOLDER_SESSION_ID"]
+            # The placeholder follows the `zentty-placeholder-<uuid>`
+            # pattern so the Swift resume builder can recognise and strip
+            # it; downstream code never confuses it for a real
+            # conversation_id.
+            self.assertTrue(placeholder.startswith("zentty-placeholder-"), placeholder)
+            import uuid as _uuid
+            _uuid.UUID(placeholder[len("zentty-placeholder-"):])
+            self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][0]["standardInput"])
+            self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][1]["standardInput"])
+            self.assertNotIn("pane-antigravity", plan["preLaunchActions"][0]["standardInput"])
+
     def test_claude_plan_installs_tool_use_hooks_for_permission_sensitive_tools(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]
         with tempfile.TemporaryDirectory() as tmp:
@@ -1279,6 +1399,34 @@ class AppPathResolutionTests(unittest.TestCase):
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")
 
             self.assertTrue(agent_bench.app_has_agent_bench_resources(app_path))
+
+    def test_missing_agent_wrapper_resource_reports_absent_selected_wrapper(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            app_path = pathlib.Path(tmp) / "Zentty.app"
+            launcher = app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            missing = agent_bench.missing_agent_wrapper_resource(app_path, profile)
+
+        self.assertIn("missing agy wrapper directory", missing)
+
+    def test_missing_agent_wrapper_resource_accepts_executable_selected_wrapper(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            app_path = pathlib.Path(tmp) / "Zentty.app"
+            launcher = app_path / "Contents" / "Resources" / "bin" / "shared" / "zentty"
+            wrapper = app_path / "Contents" / "Resources" / "bin" / "agy" / "agy"
+            launcher.parent.mkdir(parents=True)
+            wrapper.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+            wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+            wrapper.chmod(0o755)
+
+            missing = agent_bench.missing_agent_wrapper_resource(app_path, profile)
+
+        self.assertIsNone(missing)
 
     def test_no_build_resolver_skips_stale_build_debug_app_for_derived_data_app(self):
         with tempfile.TemporaryDirectory() as tmp:
