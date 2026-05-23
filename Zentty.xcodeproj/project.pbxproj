@@ -410,6 +410,7 @@
 		DE22542885A2BE164FE9090E /* KeyboardShortcutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF1AD0DA5648D1E48300407 /* KeyboardShortcutPreview.swift */; };
 		DFC95AFE3D93BC03C215FC0E /* WorkspaceTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E99517E9EAA4D99552859C /* WorkspaceTemplate.swift */; };
 		E091B391CA413E9D9C495CB6 /* WorklaneAttentionSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */; };
+		E092E65843424D641089F829 /* MenuBarAgentIconInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBA78773A292B4B9858DD5 /* MenuBarAgentIconInspector.swift */; };
 		E1386EB98808607C67C5A1DF /* WorklaneStoreColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */; };
 		E1A94D74E0101FEB0BB2C79C /* PaneDragHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F876089DABC0460791806F3E /* PaneDragHitTesting.swift */; };
 		E2A2053AF99C0387818EE8D8 /* WorklaneAttentionNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6243B7C8B8AE57798C0BFC0 /* WorklaneAttentionNotificationCoordinator.swift */; };
@@ -714,6 +715,7 @@
 		771FEDEE47A531015097EFC7 /* WorkspaceRecipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecipeTests.swift; sourceTree = "<group>"; };
 		7790121822A61AC4121DF708 /* AgentToolLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolLauncher.swift; sourceTree = "<group>"; };
 		77C34091F1CB5D75D73EF939 /* NotificationChromeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationChromeCoordinatorTests.swift; sourceTree = "<group>"; };
+		77EBA78773A292B4B9858DD5 /* MenuBarAgentIconInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAgentIconInspector.swift; sourceTree = "<group>"; };
 		78278FD169410081D05304FB /* FlippedSidebarDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlippedSidebarDocumentView.swift; sourceTree = "<group>"; };
 		783A3BBA14A7D266EEB43B31 /* ServerIPCCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerIPCCommandTests.swift; sourceTree = "<group>"; };
 		789E529A7E4C195C7F216396 /* PresentationDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationDraft.swift; sourceTree = "<group>"; };
@@ -1006,6 +1008,7 @@
 		0A3CC85E4F4F5760B08E8DE8 /* MenuBar */ = {
 			isa = PBXGroup;
 			children = (
+				77EBA78773A292B4B9858DD5 /* MenuBarAgentIconInspector.swift */,
 				1AB0C0B38C36D85DBCBACF25 /* MenuBarFleetState.swift */,
 				3FBE996639899C1B264848CE /* MenuBarFleetSummary.swift */,
 				2A043993267A274777D7B47F /* MenuBarPaneSnapshot.swift */,
@@ -2254,6 +2257,7 @@
 				1139F5A8823B615631F1616C /* LibghosttyView.swift in Sources */,
 				8788243DE8CD13BCFE0D3BE1 /* LicensesWindowController.swift in Sources */,
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
+				E092E65843424D641089F829 /* MenuBarAgentIconInspector.swift in Sources */,
 				257E94D0CDB7BC7915DCD926 /* MenuBarFleetState.swift in Sources */,
 				823E76AAB26EB40EB60908ED /* MenuBarFleetSummary.swift in Sources */,
 				A703587C5927A81A32B78B27 /* MenuBarPaneSnapshot.swift in Sources */,

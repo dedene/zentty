@@ -215,9 +215,7 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
     private func refresh() {
         guard isStarted else { return }
 
-        let snapshots = MenuBarPaneSnapshotBuilder.snapshots(
-            from: sources
-        )
+        let snapshots = currentSnapshots()
         let fleetSummary = MenuBarFleetSummary.from(snapshots: snapshots)
         let fleetState = MenuBarFleetState.aggregate(snapshots.map(\.fleetState))
         let presentation = MenuBarStatusPresentation.resolve(
@@ -237,6 +235,15 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
         if isMenuOpen {
             rebuildMenu()
         }
+    }
+
+    private func currentSnapshots() -> [MenuBarPaneSnapshot] {
+#if DEBUG
+        if iconInspectorEnabled {
+            return MenuBarAgentIconInspector.syntheticSnapshots()
+        }
+#endif
+        return MenuBarPaneSnapshotBuilder.snapshots(from: sources)
     }
 
     private func apply(_ presentation: MenuBarStatusPresentation) {
@@ -273,6 +280,20 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
     }
 
 #if DEBUG
+    private var iconInspectorEnabled = false
+
+    var isIconInspectorEnabled: Bool { iconInspectorEnabled }
+
+    /// Fills the dropdown with one synthetic row per agent (or restores the real
+    /// snapshots) so the icons can be inspected, then pops the menu open.
+    func toggleIconInspector() {
+        iconInspectorEnabled.toggle()
+        refresh()
+        if iconInspectorEnabled {
+            statusItem?.button?.performClick(nil)
+        }
+    }
+
     private(set) var menuCloseRequestCountForTesting = 0
 
     static func isMenuRelevantForTesting(_ change: WorklaneChange) -> Bool {

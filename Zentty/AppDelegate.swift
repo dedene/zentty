@@ -206,6 +206,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = menuBarStatusController?.focusNextWaitingPane()
     }
 
+#if DEBUG
+    @objc
+    func toggleAgentIconInspector(_ sender: Any?) {
+        guard let controller = menuBarStatusController else {
+            // The menu bar status item is disabled in Settings, so there is no
+            // dropdown to inspect. Enable "Show menu bar status item" first.
+            NSSound.beep()
+            return
+        }
+        controller.toggleIconInspector()
+        if let item = sender as? NSMenuItem {
+            item.state = controller.isIconInspectorEnabled ? .on : .off
+        }
+    }
+#endif
+
     @objc
     func showAboutWindow(_ sender: Any?) {
         let appearance = resolvedAboutAppearance

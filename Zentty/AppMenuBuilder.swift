@@ -83,9 +83,27 @@ enum AppMenuBuilder {
         mainMenu.addItem(makeSectionMenuItem(section: .navigation, shortcutManager: shortcutManager))
         mainMenu.addItem(makeViewMenuItem(shortcutManager: shortcutManager))
         mainMenu.addItem(makeWindowMenuItem(shortcutManager: shortcutManager))
+#if DEBUG
+        mainMenu.addItem(makeDebugMenuItem())
+#endif
 
         return mainMenu
     }
+
+#if DEBUG
+    private static func makeDebugMenuItem() -> NSMenuItem {
+        let debugMenuItem = NSMenuItem()
+        let debugMenu = NSMenu(title: "Debug")
+        let inspectIconsItem = NSMenuItem(
+            title: "Inspect Agent Icons",
+            action: #selector(AppDelegate.toggleAgentIconInspector(_:)),
+            keyEquivalent: ""
+        )
+        debugMenu.addItem(inspectIconsItem)
+        debugMenuItem.submenu = debugMenu
+        return debugMenuItem
+    }
+#endif
 
     static func resolvedAppName(bundle: Bundle = .main) -> String {
         if let bundleName = bundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String,
