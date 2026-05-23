@@ -1061,14 +1061,19 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertTrue(envelope.contains("\"total\":3"))
     }
 
-    func test_grok_adapter_pre_tool_use_ask_user_question_emits_running_and_reemitter_emits_needs_input() throws {
+    func test_grok_adapter_pre_tool_use_ask_user_question_emits_no_lifecycle_but_reemitter_emits_needs_input() throws {
         let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion","message":"Which file should I open?"}"#
         let payload = json.data(using: .utf8)!
 
+        // ask_user_question is a needs-input prompt. Like Notification, the
+        // adapter intentionally emits no lifecycle payload — a .running here
+        // would downgrade a prior .needsInput — and the canonical re-emit
+        // carries the needs-input signal instead.
         let adapterPayloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
-        XCTAssertEqual(adapterPayloads.count, 1)
-        XCTAssertEqual(adapterPayloads[0].state, .running)
-        XCTAssertEqual(adapterPayloads[0].toolName, "Grok")
+        XCTAssertTrue(
+            adapterPayloads.isEmpty,
+            "ask_user_question must not emit a lifecycle payload; the canonical re-emit carries needs-input."
+        )
 
         let canonicals = GrokCanonicalReEmitter.reEmissions(forHookPayload: payload)
         let envelope = try XCTUnwrap(canonicals.first)
