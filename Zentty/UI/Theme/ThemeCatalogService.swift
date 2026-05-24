@@ -20,6 +20,7 @@ enum GhosttyThemeLibrary {
     static let fallbackThemeName = "Zentty-Default"
     static let fallbackDisplayName = "Zentty Default Theme"
     static let fallbackPersistedThemeName = "GitHub-Dark-Personal"
+    static let fallbackLightThemeName = "GitHub Light Default"
 
     private static let fallbackThemeAliases: Set<String> = [
         "Zentty-Default",

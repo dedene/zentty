@@ -19,14 +19,41 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             subtitle: "Using your Ghostty config.",
             showsCreateSharedConfigAction: false
         )
+        var themePreferences = AppearanceThemePreferences(
+            mode: .alwaysDark,
+            darkThemeName: nil,
+            lightThemeName: nil
+        )
         var syncOpenCodeThemeWithTerminal = false
         private(set) var appliedThemes: [String] = []
+        private(set) var appliedThemeSlots: [AppearanceThemeSlot] = []
+        private(set) var appliedThemeModes: [AppConfig.Appearance.ThemeMode] = []
+        private(set) var resetThemePreferencesCallCount = 0
         private(set) var appliedOpacities: [CGFloat] = []
         private(set) var appliedOpenCodeThemeSyncValues: [Bool] = []
         private(set) var createSharedConfigCallCount = 0
 
         func applyTheme(_ name: String, presentingWindow _: NSWindow?) async {
             appliedThemes.append(name)
+        }
+
+        func applyTheme(_ name: String, slot: AppearanceThemeSlot, presentingWindow _: NSWindow?) async {
+            appliedThemes.append(name)
+            appliedThemeSlots.append(slot)
+        }
+
+        func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode, presentingWindow _: NSWindow?) async {
+            themePreferences.mode = mode
+            appliedThemeModes.append(mode)
+        }
+
+        func resetThemePreferences(presentingWindow _: NSWindow?) async {
+            themePreferences = AppearanceThemePreferences(
+                mode: .alwaysDark,
+                darkThemeName: nil,
+                lightThemeName: nil
+            )
+            resetThemePreferencesCallCount += 1
         }
 
         func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow _: NSWindow?) async {
@@ -105,6 +132,18 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         }
 
         return nil
+    }
+
+    private func labelStrings(in view: NSView) -> [String] {
+        let ownLabel = (view as? NSTextField)
+            .flatMap { $0.isEditable ? nil : $0.stringValue }
+            .map { [$0] } ?? []
+
+        return ownLabel + view.subviews.flatMap { labelStrings(in: $0) }
+    }
+
+    private func viewClassNames(in view: NSView) -> [String] {
+        [String(describing: type(of: view))] + view.subviews.flatMap { viewClassNames(in: $0) }
     }
 
     private func makeVisibleWindow(
@@ -200,6 +239,132 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertEqual(coordinator.appliedThemes, ["Dracula"])
     }
 
+    func testSelectingLightSlotAppliesThemeToLightPreference() async {
+        let themes = [
+            makeTheme(name: "TokyoNight", background: "#05070A", foreground: "#F0F3F6"),
+            makeTheme(name: "GitHub Light Default", background: "#FFFFFF", foreground: "#102030"),
+        ]
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(
+            themes: themes,
+            configCoordinator: coordinator
+        )
+        await controller.loadThemesForTesting()
+
+        controller.selectThemeSlotForTesting(.light)
+        await controller.selectThemeForTesting("GitHub Light Default")
+
+        XCTAssertEqual(coordinator.appliedThemes, ["GitHub Light Default"])
+        XCTAssertEqual(coordinator.appliedThemeSlots, [.light])
+        XCTAssertEqual(controller.editingThemeSlotForTesting, .light)
+    }
+
+    func testThemeModeSelectionCallsCoordinator() async {
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+
+        await controller.selectThemeModeForTesting(.followMacOS)
+
+        XCTAssertEqual(coordinator.appliedThemeModes, [.followMacOS])
+        XCTAssertEqual(controller.themeModeForTesting, .followMacOS)
+    }
+
+    func testThemePickerHasSeparateThemesSection() {
+        let (controller, _, _) = makeController()
+        controller.loadViewIfNeeded()
+
+        let labels = labelStrings(in: controller.view)
+
+        XCTAssertTrue(labels.contains("Theme Behavior"))
+        XCTAssertTrue(labels.contains("Themes"))
+        XCTAssertTrue(labels.contains("Choose the dark and light themes used by the behavior above."))
+    }
+
+    func testThemeSlotTabsRenderSelectedThemePreviews() async {
+        let themes = [
+            makeTheme(name: "DarkTheme", background: "#05070A", foreground: "#F0F3F6"),
+            makeTheme(name: "LightTheme", background: "#FFFFFF", foreground: "#102030"),
+        ]
+        let coordinator = StubConfigCoordinator()
+        coordinator.themePreferences.darkThemeName = "DarkTheme"
+        coordinator.themePreferences.lightThemeName = "LightTheme"
+        let (controller, _, _) = makeController(
+            themes: themes,
+            configCoordinator: coordinator
+        )
+
+        await controller.loadThemesForTesting()
+
+        let slotPreviewCount = viewClassNames(in: controller.view)
+            .filter { $0.contains("ThemeSlotPreviewView") }
+            .count
+        XCTAssertEqual(slotPreviewCount, 2)
+    }
+
+    func testThemeFilterDefaultsToEditingSlotBrightness() async {
+        let themes = [
+            makeTheme(name: "DarkTheme", background: "#05070A", foreground: "#F0F3F6"),
+            makeTheme(name: "LightTheme", background: "#FFFFFF", foreground: "#102030"),
+        ]
+        let (controller, _, _) = makeController(themes: themes)
+        await controller.loadThemesForTesting()
+
+        XCTAssertEqual(controller.themes.map(\.name), ["DarkTheme"])
+
+        controller.selectThemeSlotForTesting(.light)
+        XCTAssertEqual(controller.themes.map(\.name), ["LightTheme"])
+    }
+
+    func testExplicitAllThemeFilterPersistsWhenSwitchingSlots() async {
+        let themes = [
+            makeTheme(name: "DarkTheme", background: "#05070A", foreground: "#F0F3F6"),
+            makeTheme(name: "LightTheme", background: "#FFFFFF", foreground: "#102030"),
+        ]
+        let (controller, _, _) = makeController(themes: themes)
+        await controller.loadThemesForTesting()
+
+        controller.setThemeCatalogFilterForTesting(2)
+        controller.selectThemeSlotForTesting(.light)
+
+        XCTAssertEqual(controller.themes.map(\.name), ["DarkTheme", "LightTheme"])
+    }
+
+    func testResetThemePreferencesClearsTransientSlotAndFilterChoices() async {
+        let themes = [
+            makeTheme(name: "DarkTheme", background: "#05070A", foreground: "#F0F3F6"),
+            makeTheme(name: "LightTheme", background: "#FFFFFF", foreground: "#102030"),
+        ]
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(
+            themes: themes,
+            configCoordinator: coordinator
+        )
+        await controller.loadThemesForTesting()
+
+        controller.setThemeCatalogFilterForTesting(2)
+        controller.selectThemeSlotForTesting(.light)
+        await controller.resetThemePreferencesForTesting()
+
+        XCTAssertEqual(coordinator.resetThemePreferencesCallCount, 1)
+        XCTAssertEqual(controller.editingThemeSlotForTesting, .dark)
+        XCTAssertEqual(controller.themes.map(\.name), ["DarkTheme"])
+    }
+
+    func testCurrentThemeSummaryShowsEffectiveTheme() async {
+        let themes = [
+            makeTheme(name: "TokyoNight", displayName: "Tokyo Night"),
+        ]
+        let (controller, _, _) = makeController(
+            themes: themes,
+            activeThemeName: "TokyoNight"
+        )
+
+        await controller.loadThemesForTesting()
+
+        XCTAssertEqual(controller.currentThemeSummaryForTesting, "Current: Tokyo Night")
+    }
+
     func testHandleAppearanceChangeRefreshesActiveTheme() async {
         var currentAppearanceTheme: String? = "LightTheme"
 
@@ -247,6 +412,29 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
         XCTAssertEqual(controller.activeThemeNameForTesting, "Zentty-Default")
         XCTAssertEqual(controller.themes.map(\.displayName), ["Zentty Default Theme", "TokyoNight"])
+    }
+
+    func testSavedBuiltInAliasSelectsCanonicalPreviewTheme() async {
+        let themes = [
+            makeTheme(
+                name: "Zentty-Default",
+                displayName: "Zentty Default Theme",
+                background: "#0A0C10",
+                foreground: "#F0F3F6"
+            ),
+            makeTheme(name: "TokyoNight"),
+        ]
+        let coordinator = StubConfigCoordinator()
+        coordinator.themePreferences.darkThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
+
+        let (controller, _, _) = makeController(
+            themes: themes,
+            configCoordinator: coordinator
+        )
+
+        await controller.loadThemesForTesting()
+
+        XCTAssertEqual(controller.selectedPreviewThemeNameForTesting, "Zentty-Default")
     }
 
     func testMissingCurrentThemeFallsBackToBuiltInDefaultTheme() async {

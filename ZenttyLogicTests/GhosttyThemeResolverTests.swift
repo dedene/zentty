@@ -17,6 +17,52 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
         }
     }
 
+    func test_themeSpec_formatter_uses_pair_for_follow_macos() throws {
+        let spec = GhosttyThemeSpec(
+            mode: .followMacOS,
+            darkThemeName: "Catppuccin Frappe",
+            lightThemeName: "Catppuccin Latte"
+        )
+
+        XCTAssertEqual(spec.rawValue, "dark:Catppuccin Frappe,light:Catppuccin Latte")
+        XCTAssertEqual(spec.themeName(for: NSAppearance(named: .darkAqua)), "Catppuccin Frappe")
+        XCTAssertEqual(spec.themeName(for: NSAppearance(named: .aqua)), "Catppuccin Latte")
+    }
+
+    func test_themeSpec_formatter_uses_selected_slot_for_always_modes() throws {
+        let darkSpec = GhosttyThemeSpec(
+            mode: .alwaysDark,
+            darkThemeName: "TokyoNight",
+            lightThemeName: "GitHub Light Default"
+        )
+        let lightSpec = GhosttyThemeSpec(
+            mode: .alwaysLight,
+            darkThemeName: "TokyoNight",
+            lightThemeName: "GitHub Light Default"
+        )
+
+        XCTAssertEqual(darkSpec.rawValue, "TokyoNight")
+        XCTAssertEqual(darkSpec.themeName(for: NSAppearance(named: .aqua)), "TokyoNight")
+        XCTAssertEqual(lightSpec.rawValue, "GitHub Light Default")
+        XCTAssertEqual(lightSpec.themeName(for: NSAppearance(named: .darkAqua)), "GitHub Light Default")
+    }
+
+    func test_themeSpec_parser_reads_pair_from_ghostty_theme_spec() throws {
+        let spec = try XCTUnwrap(GhosttyThemeSpec(rawValue: "light:Catppuccin Latte,dark:Catppuccin Frappe"))
+
+        XCTAssertEqual(spec.mode, .followMacOS)
+        XCTAssertEqual(spec.darkThemeName, "Catppuccin Frappe")
+        XCTAssertEqual(spec.lightThemeName, "Catppuccin Latte")
+    }
+
+    func test_themeSpec_parser_reads_single_theme_as_always_dark_preference() throws {
+        let spec = try XCTUnwrap(GhosttyThemeSpec(rawValue: "TokyoNight"))
+
+        XCTAssertEqual(spec.mode, .alwaysDark)
+        XCTAssertEqual(spec.darkThemeName, "TokyoNight")
+        XCTAssertNil(spec.lightThemeName)
+    }
+
     func test_resolve_applies_config_overrides_after_theme_values() throws {
         let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let configURL = temporaryDirectoryURL.appendingPathComponent("config")

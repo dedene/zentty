@@ -7,6 +7,126 @@ struct GhosttyThemeResolution {
     let watchedURLs: [URL]
 }
 
+struct GhosttyThemeSpec: Equatable {
+    var mode: AppConfig.Appearance.ThemeMode
+    var darkThemeName: String?
+    var lightThemeName: String?
+
+    init(
+        mode: AppConfig.Appearance.ThemeMode,
+        darkThemeName: String?,
+        lightThemeName: String?
+    ) {
+        self.mode = mode
+        self.darkThemeName = Self.sanitizedThemeName(darkThemeName)
+        self.lightThemeName = Self.sanitizedThemeName(lightThemeName)
+    }
+
+    init?(rawValue: String) {
+        let components = Self.components(from: rawValue)
+        guard !components.isEmpty else {
+            return nil
+        }
+
+        var darkThemeName: String?
+        var lightThemeName: String?
+        var unqualifiedThemeName: String?
+
+        for component in components {
+            if component.hasPrefix("dark:") {
+                darkThemeName = Self.sanitizedThemeName(String(component.dropFirst("dark:".count)))
+            } else if component.hasPrefix("light:") {
+                lightThemeName = Self.sanitizedThemeName(String(component.dropFirst("light:".count)))
+            } else if unqualifiedThemeName == nil {
+                unqualifiedThemeName = Self.sanitizedThemeName(component)
+            }
+        }
+
+        if darkThemeName != nil || lightThemeName != nil {
+            self.init(
+                mode: darkThemeName != nil && lightThemeName != nil ? .followMacOS : (darkThemeName != nil ? .alwaysDark : .alwaysLight),
+                darkThemeName: darkThemeName,
+                lightThemeName: lightThemeName
+            )
+        } else if let unqualifiedThemeName {
+            self.init(mode: .alwaysDark, darkThemeName: unqualifiedThemeName, lightThemeName: nil)
+        } else {
+            return nil
+        }
+    }
+
+    var rawValue: String {
+        switch mode {
+        case .followMacOS:
+            return "dark:\(resolvedDarkThemeName),light:\(resolvedLightThemeName)"
+        case .alwaysDark:
+            return resolvedDarkThemeName
+        case .alwaysLight:
+            return resolvedLightThemeName
+        }
+    }
+
+    var resolvedDarkThemeName: String {
+        darkThemeName ?? GhosttyThemeLibrary.fallbackPersistedThemeName
+    }
+
+    var resolvedLightThemeName: String {
+        lightThemeName ?? GhosttyThemeLibrary.fallbackLightThemeName
+    }
+
+    func themeName(for appearance: NSAppearance?) -> String {
+        switch mode {
+        case .followMacOS:
+            let isDarkMode = appearance?.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDarkMode ? resolvedDarkThemeName : resolvedLightThemeName
+        case .alwaysDark:
+            return resolvedDarkThemeName
+        case .alwaysLight:
+            return resolvedLightThemeName
+        }
+    }
+
+    static func rawThemeSpec(in contents: String) -> String? {
+        for rawLine in contents.split(whereSeparator: \.isNewline).reversed() {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+                continue
+            }
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                continue
+            }
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard key == "theme" else {
+                continue
+            }
+            return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+
+        return nil
+    }
+
+    private static func components(from rawValue: String) -> [String] {
+        rawValue
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func sanitizedThemeName(_ rawThemeName: String?) -> String? {
+        guard let rawThemeName else {
+            return nil
+        }
+
+        let sanitized = rawThemeName
+            .filter { $0 != "\"" && !$0.isNewline }
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? nil : sanitized
+    }
+}
+
 private let themeLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Theme")
 
 final class GhosttyThemeResolver {
@@ -147,32 +267,7 @@ final class GhosttyThemeResolver {
     }
 
     private func resolveThemeName(from themeSpec: String, appearance: NSAppearance?) -> String {
-        let components = themeSpec
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let isDarkMode = appearance?.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-
-        for component in components {
-            if component.hasPrefix("light:"), !isDarkMode {
-                return String(component.dropFirst("light:".count))
-            }
-            if component.hasPrefix("dark:"), isDarkMode {
-                return String(component.dropFirst("dark:".count))
-            }
-        }
-
-        if let first = components.first {
-            if first.hasPrefix("light:") {
-                return String(first.dropFirst("light:".count))
-            }
-            if first.hasPrefix("dark:") {
-                return String(first.dropFirst("dark:".count))
-            }
-            return first
-        }
-
-        return themeSpec
+        GhosttyThemeSpec(rawValue: themeSpec)?.themeName(for: appearance) ?? themeSpec
     }
 
     private func resolveThemeURL(named themeName: String) -> URL? {

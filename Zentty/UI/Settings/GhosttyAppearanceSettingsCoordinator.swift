@@ -7,6 +7,48 @@ struct AppearanceSettingsSourceState: Equatable {
     var showsCreateSharedConfigAction: Bool
 }
 
+enum AppearanceThemeSlot: Equatable {
+    case dark
+    case light
+}
+
+struct AppearanceThemePreferences: Equatable {
+    var mode: AppConfig.Appearance.ThemeMode
+    var darkThemeName: String?
+    var lightThemeName: String?
+
+    init(
+        mode: AppConfig.Appearance.ThemeMode,
+        darkThemeName: String?,
+        lightThemeName: String?
+    ) {
+        self.mode = mode
+        self.darkThemeName = darkThemeName
+        self.lightThemeName = lightThemeName
+    }
+
+    init(appearance: AppConfig.Appearance) {
+        self.init(
+            mode: appearance.themeMode,
+            darkThemeName: appearance.preferredDarkThemeName ?? appearance.localThemeName,
+            lightThemeName: appearance.preferredLightThemeName
+        )
+    }
+
+    func themeName(for slot: AppearanceThemeSlot) -> String {
+        switch slot {
+        case .dark:
+            darkThemeName ?? GhosttyThemeLibrary.fallbackThemeName
+        case .light:
+            lightThemeName ?? GhosttyThemeLibrary.fallbackLightThemeName
+        }
+    }
+
+    var activeSlot: AppearanceThemeSlot {
+        mode == .alwaysLight ? .light : .dark
+    }
+}
+
 enum GhosttySharedConfigDecision: Equatable {
     case createSharedConfig
     case keepOnlyInZentty
@@ -40,8 +82,12 @@ typealias GhosttySharedConfigDecisionProvider = @MainActor (NSWindow?) async -> 
 @MainActor
 protocol AppearanceSettingsConfigCoordinating {
     var sourceState: AppearanceSettingsSourceState { get }
+    var themePreferences: AppearanceThemePreferences { get }
     var syncOpenCodeThemeWithTerminal: Bool { get }
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async
+    func applyTheme(_ name: String, slot: AppearanceThemeSlot, presentingWindow: NSWindow?) async
+    func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode, presentingWindow: NSWindow?) async
+    func resetThemePreferences(presentingWindow: NSWindow?) async
     func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow: NSWindow?) async
     func applyOpenCodeThemeSync(_ enabled: Bool) async
     func createSharedConfig(presentingWindow: NSWindow?) async
@@ -101,18 +147,44 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         configStore.current.appearance.syncOpenCodeThemeWithTerminal
     }
 
+    var themePreferences: AppearanceThemePreferences {
+        resolvedThemePreferences()
+    }
+
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async {
+        await applyTheme(name, slot: themePreferences.activeSlot, presentingWindow: presentingWindow)
+    }
+
+    func applyTheme(_ name: String, slot: AppearanceThemeSlot, presentingWindow: NSWindow?) async {
         let sanitized = GhosttyConfigWriter.sanitizedThemeName(name)
         let persistedThemeName = GhosttyThemeLibrary.persistedThemeName(for: sanitized)
         guard !persistedThemeName.isEmpty else {
             return
         }
 
-        await applyMutation(
-            PendingMutation(
-                key: "theme",
-                value: persistedThemeName,
-                applyLocally: { $0.appearance.localThemeName = persistedThemeName }
+        var preferences = themePreferences
+        switch slot {
+        case .dark:
+            preferences.darkThemeName = persistedThemeName
+        case .light:
+            preferences.lightThemeName = persistedThemeName
+        }
+
+        await applyThemePreferences(preferences, presentingWindow: presentingWindow)
+    }
+
+    func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode, presentingWindow: NSWindow?) async {
+        var preferences = themePreferences
+        preferences.mode = mode
+        await applyThemePreferences(preferences, presentingWindow: presentingWindow)
+    }
+
+    func resetThemePreferences(presentingWindow: NSWindow?) async {
+        await applyThemePreferences(
+            AppearanceThemePreferences(
+                mode: .alwaysDark,
+                darkThemeName: GhosttyThemeLibrary.fallbackPersistedThemeName,
+                lightThemeName: GhosttyThemeLibrary.fallbackLightThemeName
             ),
             presentingWindow: presentingWindow
         )
@@ -163,28 +235,7 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
             return
         }
 
-        let resolvedDecision: GhosttySharedConfigDecision
-        if let decision = promptSession.decision {
-            resolvedDecision = decision
-        } else if promptSession.hasPromptedThisSession {
-            resolvedDecision = .keepOnlyInZentty
-        } else {
-            resolvedDecision = await decisionProvider(presentingWindow)
-            if resolvedDecision == .cancel {
-                promptSession.markPromptedWithoutDecision()
-            } else {
-                promptSession.record(resolvedDecision)
-            }
-        }
-
-        switch resolvedDecision {
-        case .createSharedConfig:
-            createSharedConfig(from: stack, pendingMutation: mutation)
-        case .keepOnlyInZentty:
-            persistLocalOnlyMutation(mutation)
-        case .cancel:
-            return
-        }
+        persistLocalOnlyMutation(mutation)
     }
 
     private func currentStack() -> GhosttyConfigEnvironment.ResolvedStack? {
@@ -204,6 +255,177 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         } catch {
             logger.error("Failed to persist local-only Ghostty appearance override: \(error.localizedDescription)")
         }
+    }
+
+    private func applyThemePreferences(
+        _ preferences: AppearanceThemePreferences,
+        presentingWindow _: NSWindow?
+    ) async {
+        let spec = GhosttyThemeSpec(
+            mode: preferences.mode,
+            darkThemeName: preferences.darkThemeName,
+            lightThemeName: preferences.lightThemeName
+        )
+
+        guard let stack = currentStack() else {
+            return
+        }
+
+        do {
+            try configStore.update { config in
+                apply(preferences: preferences, to: &config.appearance)
+            }
+        } catch {
+            logger.error("Failed to persist theme preferences: \(error.localizedDescription)")
+        }
+
+        if let writeTargetURL = stack.writeTargetURL {
+            writeSharedValue(spec.rawValue, forKey: "theme", to: writeTargetURL)
+            runtimeReload()
+            return
+        }
+
+        if stack.mode == .sharedGhostty {
+            createSharedConfig(
+                from: stack,
+                pendingMutation: PendingMutation(
+                    key: "theme",
+                    value: spec.rawValue,
+                    applyLocally: { _ in }
+                )
+            )
+            return
+        }
+
+        runtimeReload()
+    }
+
+    private func apply(preferences: AppearanceThemePreferences, to appearance: inout AppConfig.Appearance) {
+        appearance.themeMode = preferences.mode
+        appearance.preferredDarkThemeName = preferences.darkThemeName
+        appearance.preferredLightThemeName = preferences.lightThemeName
+        appearance.localThemeName = preferences.mode == .alwaysDark ? preferences.darkThemeName : nil
+    }
+
+    private func resolvedThemePreferences() -> AppearanceThemePreferences {
+        var preferences = AppearanceThemePreferences(appearance: configStore.current.appearance)
+        guard let stack = currentStack(),
+              stack.mode == .sharedGhostty,
+              let sharedThemeSpec = resolvedSharedThemeSpec(from: stack) else {
+            return preferences
+        }
+
+        if sharedThemeSpec.hasQualifiedSlot {
+            preferences.mode = sharedThemeSpec.spec.mode
+            preferences.darkThemeName = sharedThemeSpec.spec.darkThemeName ?? preferences.darkThemeName
+            preferences.lightThemeName = sharedThemeSpec.spec.lightThemeName ?? preferences.lightThemeName
+            return preferences
+        }
+
+        if preferences.mode == .alwaysLight {
+            preferences.lightThemeName = sharedThemeSpec.spec.darkThemeName
+                ?? sharedThemeSpec.spec.lightThemeName
+                ?? preferences.lightThemeName
+            return preferences
+        }
+
+        preferences.mode = sharedThemeSpec.spec.mode
+        preferences.darkThemeName = sharedThemeSpec.spec.darkThemeName ?? preferences.darkThemeName
+        preferences.lightThemeName = sharedThemeSpec.spec.lightThemeName ?? preferences.lightThemeName
+        return preferences
+    }
+
+    private struct SharedThemeSpec {
+        var spec: GhosttyThemeSpec
+        var hasQualifiedSlot: Bool
+    }
+
+    private func resolvedSharedThemeSpec(from stack: GhosttyConfigEnvironment.ResolvedStack) -> SharedThemeSpec? {
+        var visitedPaths: Set<String> = []
+        var resolvedRawThemeSpec: String?
+
+        for loadFile in stack.loadFiles {
+            resolvedRawThemeSpec = rawThemeSpec(at: loadFile, visitedPaths: &visitedPaths) ?? resolvedRawThemeSpec
+        }
+
+        guard let resolvedRawThemeSpec,
+              let spec = GhosttyThemeSpec(rawValue: resolvedRawThemeSpec) else {
+            return nil
+        }
+
+        return SharedThemeSpec(
+            spec: spec,
+            hasQualifiedSlot: rawThemeSpecHasQualifiedSlot(resolvedRawThemeSpec)
+        )
+    }
+
+    private func rawThemeSpecHasQualifiedSlot(_ rawValue: String) -> Bool {
+        rawValue
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .split(separator: ",")
+            .contains { slot in
+                let trimmedSlot = slot.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmedSlot.hasPrefix("dark:") || trimmedSlot.hasPrefix("light:")
+            }
+    }
+
+    private func rawThemeSpec(at url: URL, visitedPaths: inout Set<String>) -> String? {
+        let normalizedPath = url.standardizedFileURL.path
+        guard visitedPaths.insert(normalizedPath).inserted else {
+            return nil
+        }
+
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+
+        var resolvedRawThemeSpec: String?
+        for rawLine in contents.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if key == "config-file",
+               let includedURL = resolveIncludedConfigURL(rawValue: value, relativeTo: url) {
+                resolvedRawThemeSpec = rawThemeSpec(at: includedURL, visitedPaths: &visitedPaths) ?? resolvedRawThemeSpec
+                continue
+            }
+
+            guard key == "theme" else {
+                continue
+            }
+
+            resolvedRawThemeSpec = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+
+        return resolvedRawThemeSpec
+    }
+
+    private func resolveIncludedConfigURL(rawValue: String, relativeTo sourceURL: URL) -> URL? {
+        let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard !value.isEmpty else {
+            return nil
+        }
+
+        if value.hasPrefix("/") {
+            return URL(fileURLWithPath: value)
+        }
+        if value.hasPrefix("~") {
+            return URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
+        }
+
+        return sourceURL.deletingLastPathComponent().appendingPathComponent(value)
     }
 
     private func createSharedConfig(
@@ -228,9 +450,6 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         do {
             try fileManager.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(content.utf8).write(to: targetURL, options: .atomic)
-            try configStore.update { config in
-                config.appearance = .default
-            }
             runtimeReload()
         } catch {
             logger.error("Failed to create shared Ghostty config at \(targetURL.path, privacy: .public): \(error.localizedDescription)")

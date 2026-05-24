@@ -52,7 +52,9 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         XCTAssertTrue(content.contains("theme = TokyoNight"))
         XCTAssertEqual(decisionCallCount, 0)
         XCTAssertEqual(reloadCount, 1)
-        XCTAssertEqual(store.current.appearance, .default)
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "TokyoNight")
+        XCTAssertNil(store.current.appearance.preferredLightThemeName)
         XCTAssertEqual(
             coordinator.sourceState,
             AppearanceSettingsSourceState(
@@ -95,7 +97,7 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
                        """.trimmingCharacters(in: .whitespacesAndNewlines))
         XCTAssertEqual(decisionCallCount, 0)
         XCTAssertEqual(reloadCount, 1)
-        XCTAssertEqual(store.current.appearance, .default)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "TokyoNight")
         XCTAssertEqual(
             coordinator.sourceState,
             AppearanceSettingsSourceState(
@@ -105,7 +107,7 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         )
     }
 
-    func test_keepOnlyInZentty_prompt_persistsLocalOverrides_andOnlyPromptsOncePerSession() async throws {
+    func test_localOnlyAppearanceChangesPersistWithoutPrompt() async throws {
         let store = makeConfigStore()
         let promptSession = GhosttySharedConfigPromptSession()
         var decisionCallCount = 0
@@ -124,8 +126,9 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         await coordinator.applyBackgroundOpacity(0.67, presentingWindow: nil)
 
         XCTAssertEqual(store.current.appearance.localThemeName, "TokyoNight")
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "TokyoNight")
         XCTAssertEqual(try XCTUnwrap(store.current.appearance.localBackgroundOpacity), 0.67, accuracy: 0.0001)
-        XCTAssertEqual(decisionCallCount, 1)
+        XCTAssertEqual(decisionCallCount, 0)
         XCTAssertEqual(reloadCount, 2)
         XCTAssertNil(try? String(contentsOf: coordinatorTestCreateTargetURL(), encoding: .utf8))
         XCTAssertEqual(
@@ -152,13 +155,17 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         await coordinator.applyTheme("Zentty-Default", presentingWindow: nil)
 
         XCTAssertEqual(store.current.appearance.localThemeName, persistedFallbackThemeName)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, persistedFallbackThemeName)
         XCTAssertEqual(reloadCount, 1)
     }
 
-    func test_createSharedConfig_seedsBundledDefaultsAndLocalOverrides_thenClearsLocalState() async throws {
+    func test_createSharedConfig_seedsBundledDefaultsAndLocalOverrides_thenKeepsLocalThemeMemory() async throws {
         let store = makeConfigStore()
         try store.update { config in
+            config.appearance.preferredDarkThemeName = "LocalTheme"
+            config.appearance.preferredLightThemeName = "GitHub Light Default"
             config.appearance.localThemeName = "LocalTheme"
+            config.appearance.localBackgroundOpacity = 0.65
         }
 
         var reloadCount = 0
@@ -168,41 +175,123 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
             runtimeReload: { reloadCount += 1 }
         )
 
-        await coordinator.applyBackgroundOpacity(0.65, presentingWindow: nil)
+        await coordinator.createSharedConfig(presentingWindow: nil)
 
         let targetURL = coordinatorTestCreateTargetURL()
         let content = try String(contentsOf: targetURL, encoding: .utf8)
         XCTAssertTrue(content.contains("theme = LocalTheme"))
         XCTAssertTrue(content.contains("background-opacity = 0.65"))
-        XCTAssertEqual(store.current.appearance, .default)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "LocalTheme")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "GitHub Light Default")
         XCTAssertEqual(reloadCount, 1)
     }
 
-    func test_cancel_prompt_skipsCurrentMutation_thenFutureWritesStayLocalWithoutReprompt() async throws {
+    func test_applyThemeMode_writesGhosttyPairAndKeepsInactiveSlotMemory() async throws {
         let store = makeConfigStore()
-        let promptSession = GhosttySharedConfigPromptSession()
-        var decisionCallCount = 0
         var reloadCount = 0
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: "theme = TokyoNight\n"
+        )
+        try store.update { config in
+            config.appearance.preferredLightThemeName = "GitHub Light Default"
+        }
         let coordinator = makeCoordinator(
             store: store,
-            decisionProvider: { _ in
-                decisionCallCount += 1
-                return .cancel
-            },
-            promptSession: promptSession,
+            decisionProvider: { _ in .cancel },
             runtimeReload: { reloadCount += 1 }
         )
 
-        await coordinator.applyTheme("TokyoNight", presentingWindow: nil)
-        XCTAssertEqual(store.current.appearance, .default)
-        XCTAssertEqual(decisionCallCount, 1)
-        XCTAssertEqual(reloadCount, 0)
+        await coordinator.applyThemeMode(.followMacOS, presentingWindow: nil)
 
-        await coordinator.applyBackgroundOpacity(0.55, presentingWindow: nil)
+        let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = dark:TokyoNight,light:GitHub Light Default"))
+        XCTAssertEqual(store.current.appearance.themeMode, .followMacOS)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "TokyoNight")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "GitHub Light Default")
+        XCTAssertEqual(reloadCount, 1)
+    }
 
-        XCTAssertNil(store.current.appearance.localThemeName)
-        XCTAssertEqual(try XCTUnwrap(store.current.appearance.localBackgroundOpacity), 0.55, accuracy: 0.0001)
-        XCTAssertEqual(decisionCallCount, 1)
+    func test_applyAlwaysLightMode_keepsModeAndDarkThemeMemoryWhenSharedConfigStoresSingleTheme() async throws {
+        let store = makeConfigStore()
+        var reloadCount = 0
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: "theme = TokyoNight\n"
+        )
+        try store.update { config in
+            config.appearance.preferredLightThemeName = "GitHub Light Default"
+        }
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .cancel },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        await coordinator.applyThemeMode(.alwaysLight, presentingWindow: nil)
+
+        let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = GitHub Light Default"))
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysLight)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "TokyoNight")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "GitHub Light Default")
+        XCTAssertEqual(coordinator.themePreferences.mode, .alwaysLight)
+        XCTAssertEqual(coordinator.themePreferences.darkThemeName, "TokyoNight")
+        XCTAssertEqual(coordinator.themePreferences.lightThemeName, "GitHub Light Default")
+        XCTAssertEqual(reloadCount, 1)
+    }
+
+    func test_applyThemeMode_respectsThemeDeclaredAfterConfigFileInclude() async throws {
+        let store = makeConfigStore()
+        var reloadCount = 0
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: """
+            theme = ParentBefore
+            config-file = child.conf
+            theme = ParentAfter
+            """
+        )
+        _ = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/child.conf",
+            contents: "theme = ChildTheme\n"
+        )
+        try store.update { config in
+            config.appearance.preferredLightThemeName = "GitHub Light Default"
+        }
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .cancel },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        XCTAssertEqual(coordinator.themePreferences.darkThemeName, "ParentAfter")
+
+        await coordinator.applyThemeMode(.followMacOS, presentingWindow: nil)
+
+        let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = dark:ParentAfter,light:GitHub Light Default"))
+        XCTAssertEqual(store.current.appearance.themeMode, .followMacOS)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "ParentAfter")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "GitHub Light Default")
+        XCTAssertEqual(reloadCount, 1)
+    }
+
+    func test_resetThemePreferencesRestoresAlwaysDarkWithRememberedLightDefault() async throws {
+        let store = makeConfigStore()
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        await coordinator.resetThemePreferences(presentingWindow: nil)
+
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, GhosttyThemeLibrary.fallbackPersistedThemeName)
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, GhosttyThemeLibrary.fallbackLightThemeName)
+        XCTAssertEqual(store.current.appearance.localThemeName, GhosttyThemeLibrary.fallbackPersistedThemeName)
         XCTAssertEqual(reloadCount, 1)
     }
 

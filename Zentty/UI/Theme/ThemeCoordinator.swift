@@ -1,5 +1,30 @@
 import AppKit
 
+private final class SystemAppearanceObserver: @unchecked Sendable {
+    private let notificationCenter: DistributedNotificationCenter
+    private let token: NSObjectProtocol
+
+    init(
+        notificationCenter: DistributedNotificationCenter,
+        onChange: @escaping @MainActor () -> Void
+    ) {
+        self.notificationCenter = notificationCenter
+        self.token = notificationCenter.addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                onChange()
+            }
+        }
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
 /// Resolves and watches Ghostty themes, notifying its owner when the active theme changes.
 ///
 /// `ThemeCoordinator` owns the `GhosttyThemeResolver` and `GhosttyThemeWatcher`.
@@ -25,13 +50,15 @@ final class ThemeCoordinator {
 
     private let themeResolver: GhosttyThemeResolver
     private let themeWatcher: GhosttyThemeWatcher
+    private var systemAppearanceObserver: SystemAppearanceObserver?
 
     // MARK: - Init
 
     init(
         themeResolver: GhosttyThemeResolver = GhosttyThemeResolver(),
         themeWatcher: GhosttyThemeWatcher = GhosttyThemeWatcher(),
-        initialTheme: ZenttyTheme = ZenttyTheme.fallback(for: nil)
+        initialTheme: ZenttyTheme = ZenttyTheme.fallback(for: nil),
+        distributedNotificationCenter: DistributedNotificationCenter = .default()
     ) {
         self.themeResolver = themeResolver
         self.themeWatcher = themeWatcher
@@ -40,6 +67,12 @@ final class ThemeCoordinator {
         themeWatcher.onChange = { [weak self] in
             self?.refreshTheme(for: NSApp.effectiveAppearance, animated: true, forceTerminalReload: true)
         }
+        systemAppearanceObserver = SystemAppearanceObserver(
+            notificationCenter: distributedNotificationCenter,
+            onChange: { [weak self] in
+                self?.refreshTheme(for: NSApp.effectiveAppearance, animated: true)
+            }
+        )
     }
 
     // MARK: - Theme resolution

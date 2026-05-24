@@ -3539,7 +3539,7 @@ final class RootViewController: NSViewController {
         syncAgentCaffeinationState()
 
         if appearanceDidChange {
-            themeCoordinator.refreshTheme(for: view.effectiveAppearance, animated: true)
+            themeCoordinator.refreshTheme(for: NSApp.effectiveAppearance, animated: true)
         }
     }
 

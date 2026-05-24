@@ -787,20 +787,26 @@ final class AppConfigStoreTests: XCTestCase {
         store.removeObserver(secondObserverID)
     }
 
-    func test_default_config_has_no_local_appearance_overrides() {
+    func test_default_config_preserves_current_dark_theme_behavior_without_persisted_appearance_section() {
         XCTAssertEqual(AppConfig.default.appearance, .default)
         XCTAssertNil(AppConfig.default.appearance.localThemeName)
+        XCTAssertEqual(AppConfig.default.appearance.themeMode, .alwaysDark)
+        XCTAssertNil(AppConfig.default.appearance.preferredDarkThemeName)
+        XCTAssertNil(AppConfig.default.appearance.preferredLightThemeName)
         XCTAssertNil(AppConfig.default.appearance.localBackgroundOpacity)
         XCTAssertTrue(AppConfig.default.appearance.syncOpenCodeThemeWithTerminal)
 
         let persisted = AppConfigTOML.encode(.default)
         XCTAssertFalse(persisted.contains("[appearance]"))
         XCTAssertFalse(persisted.contains("local_theme_name"))
+        XCTAssertFalse(persisted.contains("theme_mode"))
+        XCTAssertFalse(persisted.contains("preferred_dark_theme_name"))
+        XCTAssertFalse(persisted.contains("preferred_light_theme_name"))
         XCTAssertFalse(persisted.contains("local_background_opacity"))
         XCTAssertFalse(persisted.contains("sync_opencode_theme_with_terminal"))
     }
 
-    func test_store_persists_opencode_theme_sync_opt_out_in_toml() throws {
+    func test_store_persists_explicit_theme_preferences_in_toml() throws {
         let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         let store = AppConfigStore(
@@ -811,20 +817,56 @@ final class AppConfigStoreTests: XCTestCase {
         )
 
         try store.update { config in
-            config.appearance.localThemeName = persistedFallbackThemeName
+            config.appearance.themeMode = .followMacOS
+            config.appearance.preferredDarkThemeName = persistedFallbackThemeName
+            config.appearance.preferredLightThemeName = "GitHub Light Default"
             config.appearance.localBackgroundOpacity = 0.87
             config.appearance.syncOpenCodeThemeWithTerminal = false
         }
 
         let persisted = try String(contentsOf: fileURL, encoding: .utf8)
         XCTAssertTrue(persisted.contains("[appearance]"))
-        XCTAssertTrue(persisted.contains("local_theme_name = \"\(persistedFallbackThemeName)\""))
+        XCTAssertFalse(persisted.contains("local_theme_name"))
+        XCTAssertTrue(persisted.contains("theme_mode = \"followMacOS\""))
+        XCTAssertTrue(persisted.contains("preferred_dark_theme_name = \"\(persistedFallbackThemeName)\""))
+        XCTAssertTrue(persisted.contains("preferred_light_theme_name = \"GitHub Light Default\""))
         XCTAssertTrue(persisted.contains("local_background_opacity = 0.87"))
         XCTAssertTrue(persisted.contains("sync_opencode_theme_with_terminal = false"))
 
-        XCTAssertEqual(store.current.appearance.localThemeName, persistedFallbackThemeName)
+        XCTAssertEqual(store.current.appearance.themeMode, .followMacOS)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, persistedFallbackThemeName)
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "GitHub Light Default")
         XCTAssertEqual(Double(store.current.appearance.localBackgroundOpacity ?? 0), 0.87, accuracy: 0.0001)
         XCTAssertFalse(store.current.appearance.syncOpenCodeThemeWithTerminal)
+    }
+
+    func test_store_reads_legacy_local_theme_name_as_always_dark_preference() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [sidebar]
+        width = 260
+        visibility = "pinnedOpen"
+
+        [pane_layout]
+        laptop = "balanced"
+        large_display = "balanced"
+        ultrawide = "balanced"
+
+        [appearance]
+        local_theme_name = "TokyoNight"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "TokyoNight")
+        XCTAssertNil(store.current.appearance.preferredLightThemeName)
+        XCTAssertEqual(store.current.appearance.localThemeName, "TokyoNight")
     }
 
     func test_store_reads_local_appearance_overrides_from_config_file() throws {

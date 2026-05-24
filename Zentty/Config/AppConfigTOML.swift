@@ -53,8 +53,14 @@ enum AppConfigTOML {
 
         if config.appearance != .default {
             lines.append("[appearance]")
-            if let localThemeName = config.appearance.localThemeName {
-                lines.append("local_theme_name = \(encode(string: localThemeName))")
+            if config.appearance.themeMode != AppConfig.Appearance.default.themeMode {
+                lines.append("theme_mode = \(encode(string: config.appearance.themeMode.rawValue))")
+            }
+            if let preferredDarkThemeName = config.appearance.preferredDarkThemeName {
+                lines.append("preferred_dark_theme_name = \(encode(string: preferredDarkThemeName))")
+            }
+            if let preferredLightThemeName = config.appearance.preferredLightThemeName {
+                lines.append("preferred_light_theme_name = \(encode(string: preferredLightThemeName))")
             }
             if let localBackgroundOpacity = config.appearance.localBackgroundOpacity {
                 lines.append("local_background_opacity = \(format(number: localBackgroundOpacity))")
@@ -504,6 +510,24 @@ enum AppConfigTOML {
                 return false
             }
             config.appearance.localThemeName = value
+            config.appearance.themeMode = .alwaysDark
+            config.appearance.preferredDarkThemeName = value
+        case "theme_mode":
+            guard let value = decodeString(assignment.value),
+                  let mode = AppConfig.Appearance.ThemeMode(rawValue: value) else {
+                return false
+            }
+            config.appearance.themeMode = mode
+        case "preferred_dark_theme_name":
+            guard let value = decodeString(assignment.value) else {
+                return false
+            }
+            config.appearance.preferredDarkThemeName = value
+        case "preferred_light_theme_name":
+            guard let value = decodeString(assignment.value) else {
+                return false
+            }
+            config.appearance.preferredLightThemeName = value
         case "local_background_opacity":
             guard let value = Double(assignment.value) else {
                 return false

@@ -17,12 +17,24 @@ enum AppUpdateChannel: String, CaseIterable, Equatable, Sendable {
 
 struct AppConfig: Equatable, Sendable {
     struct Appearance: Equatable, Sendable {
+        enum ThemeMode: String, CaseIterable, Equatable, Sendable {
+            case followMacOS
+            case alwaysDark
+            case alwaysLight
+        }
+
         var localThemeName: String?
+        var themeMode: ThemeMode
+        var preferredDarkThemeName: String?
+        var preferredLightThemeName: String?
         var localBackgroundOpacity: CGFloat?
         var syncOpenCodeThemeWithTerminal: Bool
 
         static let `default` = Appearance(
             localThemeName: nil,
+            themeMode: .alwaysDark,
+            preferredDarkThemeName: nil,
+            preferredLightThemeName: nil,
             localBackgroundOpacity: nil,
             syncOpenCodeThemeWithTerminal: true
         )
@@ -657,8 +669,8 @@ struct GhosttyConfigEnvironment {
     private func localOverrideContents(from appearance: AppConfig.Appearance) -> String? {
         var lines: [String] = []
 
-        if let themeName = sanitizedThemeName(appearance.localThemeName) {
-            lines.append("theme = \(themeName)")
+        if let themeSpec = localThemeSpec(from: appearance) {
+            lines.append("theme = \(themeSpec.rawValue)")
         }
 
         if let opacity = appearance.localBackgroundOpacity {
@@ -667,6 +679,24 @@ struct GhosttyConfigEnvironment {
         }
 
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private func localThemeSpec(from appearance: AppConfig.Appearance) -> GhosttyThemeSpec? {
+        let preferredDarkThemeName = sanitizedThemeName(appearance.preferredDarkThemeName)
+            ?? sanitizedThemeName(appearance.localThemeName)
+        let preferredLightThemeName = sanitizedThemeName(appearance.preferredLightThemeName)
+
+        guard preferredDarkThemeName != nil
+            || preferredLightThemeName != nil
+            || appearance.themeMode != AppConfig.Appearance.default.themeMode else {
+            return nil
+        }
+
+        return GhosttyThemeSpec(
+            mode: appearance.themeMode,
+            darkThemeName: preferredDarkThemeName,
+            lightThemeName: preferredLightThemeName
+        )
     }
 
     private func sanitizedThemeName(_ rawThemeName: String?) -> String? {
