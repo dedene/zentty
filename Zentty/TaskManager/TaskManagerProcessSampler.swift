@@ -1,64 +1,104 @@
 import Darwin
 import Foundation
 
+/// One reading of a single process: cumulative CPU time plus the instantaneous
+/// fields the Task Manager displays directly.
+struct TaskManagerProbeSample {
+    let cpuTimeNanoseconds: UInt64
+    let parentPID: Int32?
+    let name: String
+    let memoryBytes: UInt64
+}
+
+/// Abstracts the OS-level process probing so the sampler's delta/prune logic can
+/// be exercised deterministically in tests without real subprocesses.
+protocol TaskManagerProcessProbing {
+    func treePIDs(rootPID: Int32) -> [Int32]
+    func sample(pid: Int32) -> TaskManagerProbeSample?
+}
+
 final class TaskManagerProcessSampler {
-    private struct Sample: Sendable {
+    private struct Sample {
         let cpuTimeNanoseconds: UInt64
         let sampledAt: Date
     }
 
+    private let probe: TaskManagerProcessProbing
     private var previousSamplesByPID: [Int32: Sample] = [:]
 
+    init(probe: TaskManagerProcessProbing = DarwinProcessProbe()) {
+        self.probe = probe
+    }
+
+    /// Samples every supplied root PID in a single pass and prunes history against
+    /// the union of all live PIDs.
+    ///
+    /// This is the API the Task Manager refresh loop must use: pruning per tree in
+    /// isolation would wipe every *other* tree's previous sample on the same tick,
+    /// forcing all CPU deltas to zero whenever more than one pane is shown.
+    func sample(rootPIDs: [Int32], now: Date = Date()) -> [Int32: TaskManagerProcessTree] {
+        var trees: [Int32: TaskManagerProcessTree] = [:]
+        var nextSamples: [Int32: Sample] = [:]
+
+        for rootPID in rootPIDs where rootPID > 0 {
+            let pids = probe.treePIDs(rootPID: rootPID)
+            guard !pids.isEmpty else {
+                continue
+            }
+
+            let metrics = pids.compactMap { pid -> TaskManagerProcessMetric? in
+                guard let reading = probe.sample(pid: pid) else {
+                    return nil
+                }
+                let previous = previousSamplesByPID[pid]
+                nextSamples[pid] = Sample(cpuTimeNanoseconds: reading.cpuTimeNanoseconds, sampledAt: now)
+                return TaskManagerProcessMetric(
+                    pid: pid,
+                    parentPID: reading.parentPID,
+                    name: reading.name,
+                    cpuPercent: Self.cpuPercent(current: reading.cpuTimeNanoseconds, previous: previous, now: now),
+                    memoryBytes: reading.memoryBytes
+                )
+            }
+
+            trees[rootPID] = TaskManagerProcessTree(
+                rootPID: rootPID,
+                processes: metrics,
+                networkBytesPerSecond: nil
+            )
+        }
+
+        // Drop history for PIDs that are no longer part of any sampled tree. Done
+        // once per pass over the union, so sibling trees never erase each other.
+        previousSamplesByPID = nextSamples
+        return trees
+    }
+
+    /// Single-tree convenience for one-shot callers (e.g. workspace template
+    /// capture) that only need the process topology, not CPU deltas.
     func sample(rootPID: Int32, now: Date = Date()) -> TaskManagerProcessTree? {
         guard rootPID > 0 else {
             return nil
         }
-
-        let pids = processTreePIDs(rootPID: rootPID)
-        guard !pids.isEmpty else {
-            previousSamplesByPID[rootPID] = nil
-            return nil
-        }
-
-        let metrics = pids.compactMap { pid -> TaskManagerProcessMetric? in
-            guard let info = taskInfo(pid: pid) else {
-                return nil
-            }
-            let totalCPUTime = UInt64(info.pti_total_user) + UInt64(info.pti_total_system)
-            let previous = previousSamplesByPID[pid]
-            previousSamplesByPID[pid] = Sample(cpuTimeNanoseconds: totalCPUTime, sampledAt: now)
-
-            let elapsed = previous.map { now.timeIntervalSince($0.sampledAt) } ?? 0
-            let cpuPercent: Double
-            if let previous, elapsed > 0 {
-                let delta = totalCPUTime > previous.cpuTimeNanoseconds
-                    ? totalCPUTime - previous.cpuTimeNanoseconds
-                    : 0
-                cpuPercent = Double(delta) / (elapsed * 1_000_000_000) * 100
-            } else {
-                cpuPercent = 0
-            }
-
-            return TaskManagerProcessMetric(
-                pid: pid,
-                parentPID: parentPID(pid: pid),
-                name: processName(pid: pid),
-                cpuPercent: cpuPercent,
-                memoryBytes: UInt64(max(info.pti_resident_size, 0))
-            )
-        }
-
-        let livePIDSet = Set(pids)
-        previousSamplesByPID = previousSamplesByPID.filter { livePIDSet.contains($0.key) }
-
-        return TaskManagerProcessTree(
-            rootPID: rootPID,
-            processes: metrics,
-            networkBytesPerSecond: nil
-        )
+        return sample(rootPIDs: [rootPID], now: now)[rootPID]
     }
 
-    private func processTreePIDs(rootPID: Int32) -> [Int32] {
+    private static func cpuPercent(current: UInt64, previous: Sample?, now: Date) -> Double {
+        guard let previous else {
+            return 0
+        }
+        let elapsed = now.timeIntervalSince(previous.sampledAt)
+        guard elapsed > 0, current > previous.cpuTimeNanoseconds else {
+            return 0
+        }
+        let delta = current - previous.cpuTimeNanoseconds
+        return Double(delta) / (elapsed * 1_000_000_000) * 100
+    }
+}
+
+/// Real macOS process probing via `proc_*` syscalls.
+struct DarwinProcessProbe: TaskManagerProcessProbing {
+    func treePIDs(rootPID: Int32) -> [Int32] {
         guard processExists(rootPID) else {
             return []
         }
@@ -78,6 +118,18 @@ final class TaskManagerProcessSampler {
         }
 
         return result
+    }
+
+    func sample(pid: Int32) -> TaskManagerProbeSample? {
+        guard let info = taskInfo(pid: pid) else {
+            return nil
+        }
+        return TaskManagerProbeSample(
+            cpuTimeNanoseconds: UInt64(info.pti_total_user) + UInt64(info.pti_total_system),
+            parentPID: parentPID(pid: pid),
+            name: processName(pid: pid),
+            memoryBytes: UInt64(max(info.pti_resident_size, 0))
+        )
     }
 
     private func childPIDs(parentPID: Int32) -> [Int32] {

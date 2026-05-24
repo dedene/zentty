@@ -347,8 +347,11 @@ final class TaskManagerWindowController: NSWindowController, NSOutlineViewDataSo
 
     private func refresh() {
         let paneSources = paneSourcesProvider()
+        // Sample every pane's tree in one pass so the sampler can keep per-pane CPU
+        // history; sampling trees one at a time wipes siblings' history each tick.
+        let treesByRootPID = sampler.sample(rootPIDs: paneSources.compactMap(\.rootPID))
         rows = paneSources.map { pane in
-            let processTree = pane.rootPID.flatMap { sampler.sample(rootPID: $0) }
+            let processTree = pane.rootPID.flatMap { treesByRootPID[$0] }
             return TaskManagerPaneRowBuilder.row(
                 for: pane,
                 processTree: processTree,

@@ -54,6 +54,7 @@
 		16E1DE875672D6743DF1B86D /* WindowChromeViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */; };
 		17245348FB36801D95C10395 /* ShellMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */; };
 		173791FED7615617FAF34B05 /* CommandPaletteTaskRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D7092CD7460BABDBD68C6E /* CommandPaletteTaskRunnerTests.swift */; };
+		1831BA926C62620FC97C9D07 /* TaskManagerProcessSamplerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B147E532F92E9849DAF51188 /* TaskManagerProcessSamplerTests.swift */; };
 		196932893F690C070D526631 /* MockTerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765B5594B1CFDD53C4A7C00B /* MockTerminalAdapter.swift */; };
 		1A296EF0C60861DCA54D8B8E /* LibghosttySurfaceActionCoalescerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20951EA69B03694C17C61738 /* LibghosttySurfaceActionCoalescerTests.swift */; };
 		1AAB70DF7B2347FC5AFE54B5 /* BundledGhosttyThemeResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312AF7E528937EA1BA1B5D84 /* BundledGhosttyThemeResourcesTests.swift */; };
@@ -834,6 +835,7 @@
 		AF50EC996DD0097909E99875 /* AgentLaunchBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLaunchBootstrap.swift; sourceTree = "<group>"; };
 		B0057216F25AA9654E5BDB87 /* ErrorReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporting.swift; sourceTree = "<group>"; };
 		B0A60B6840D10C04CE85782D /* PaneDragSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragSession.swift; sourceTree = "<group>"; };
+		B147E532F92E9849DAF51188 /* TaskManagerProcessSamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerProcessSamplerTests.swift; sourceTree = "<group>"; };
 		B1F616D86BF9A658C1E1A9D7 /* GhosttyAppearanceSettingsCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAppearanceSettingsCoordinator.swift; sourceTree = "<group>"; };
 		B308B03F54BFA5F3812B101D /* SidebarRowDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRowDiffTests.swift; sourceTree = "<group>"; };
 		B3412D29DDE6DAF450D4E7CE /* RecentCommandsTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentCommandsTrackerTests.swift; sourceTree = "<group>"; };
@@ -1760,6 +1762,7 @@
 				52C47988FC977CAE87970482 /* SidebarWorklaneRowPresentationTests.swift */,
 				96218BAE51D065EB4C3DF588 /* SparkleAppUpdateControllerTests.swift */,
 				664E62FC352B56CA7B035AC1 /* TaskManagerPresentationTests.swift */,
+				B147E532F92E9849DAF51188 /* TaskManagerProcessSamplerTests.swift */,
 				8AF50948B1AF143E418C8144 /* TaskManagerRootPIDTests.swift */,
 				8B1279FB2EA650A570BAD4E8 /* TaskRunnerDiscoveryTests.swift */,
 				02F71D1415EE0BF0891E75B0 /* TerminalClipboardTests.swift */,
@@ -2148,6 +2151,7 @@
 				E4DDBFE9C7BEAE5D693A2F85 /* SidebarWorklaneRowPresentationTests.swift in Sources */,
 				48AAE3252CEE1E6E73CE2046 /* SparkleAppUpdateControllerTests.swift in Sources */,
 				863C32186E18155D92C16E25 /* TaskManagerPresentationTests.swift in Sources */,
+				1831BA926C62620FC97C9D07 /* TaskManagerProcessSamplerTests.swift in Sources */,
 				0F7546B851229BA46CC5DCFA /* TaskManagerRootPIDTests.swift in Sources */,
 				95D1F7229A7EB9656B36F1C3 /* TaskRunnerDiscoveryTests.swift in Sources */,
 				028F1F462FC45BC0DFB33F15 /* TerminalClipboardTests.swift in Sources */,
