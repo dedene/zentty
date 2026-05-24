@@ -133,6 +133,31 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
         )
     }
 
+    func test_custom_rows_claim_cursor_updates_for_arrow_cursor() {
+        let menu = NSMenu()
+        let running = paneSnapshot(fleetState: .active, statusLabel: "Running")
+
+        MenuBarStatusMenuBuilder.rebuild(
+            menu: menu,
+            snapshots: [running],
+            fleetSummary: MenuBarFleetSummary.from(snapshots: [running]),
+            target: nil,
+            rowAction: #selector(NSObject.description),
+            settingsAction: #selector(NSObject.description)
+        )
+
+        let row = try! XCTUnwrap(menu.items[1].view)
+        row.updateTrackingAreas()
+        row.resetCursorRects()
+
+        XCTAssertTrue(
+            row.trackingAreas.contains { $0.options.contains(.cursorUpdate) },
+            "Custom status menu rows must claim cursor updates so stale cursors from underlying windows do not leak into the menu."
+        )
+        let cursorDebugging = try! XCTUnwrap(row as? MenuBarAgentRowCursorDebugging)
+        XCTAssertTrue(cursorDebugging.debugUsesArrowCursorForTesting)
+    }
+
     func test_agent_icon_stays_light_when_dark_menu_row_appearance_changes_after_rebuild() {
         let menu = NSMenu()
         menu.appearance = NSAppearance(named: .darkAqua)

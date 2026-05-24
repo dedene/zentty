@@ -181,6 +181,13 @@ final class MenuBarPaneMenuItemPayload: NSObject {
     }
 }
 
+#if DEBUG
+@MainActor
+protocol MenuBarAgentRowCursorDebugging {
+    var debugUsesArrowCursorForTesting: Bool { get }
+}
+#endif
+
 @MainActor
 private final class MenuBarAgentRowView: NSView {
     private enum Metrics {
@@ -213,6 +220,9 @@ private final class MenuBarAgentRowView: NSView {
     private let progressRevealView = SidebarTaskProgressRevealView()
     private var trackingAreaValue: NSTrackingArea?
     private var isHovered = false
+#if DEBUG
+    private var didInstallArrowCursorRectForTesting = false
+#endif
 
     init(
         snapshot: MenuBarPaneSnapshot,
@@ -257,7 +267,7 @@ private final class MenuBarAgentRowView: NSView {
         }
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -265,11 +275,27 @@ private final class MenuBarAgentRowView: NSView {
         trackingAreaValue = trackingArea
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+#if DEBUG
+        didInstallArrowCursorRectForTesting = true
+#endif
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        NSCursor.arrow.set()
+    }
+
     override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        NSCursor.arrow.set()
         setHovered(true)
     }
 
     override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
         setHovered(false)
     }
 
@@ -444,6 +470,14 @@ private final class MenuBarAgentRowView: NSView {
         return "\(Int(hours / 24))d ago"
     }
 }
+
+#if DEBUG
+extension MenuBarAgentRowView: MenuBarAgentRowCursorDebugging {
+    var debugUsesArrowCursorForTesting: Bool {
+        didInstallArrowCursorRectForTesting
+    }
+}
+#endif
 
 @MainActor
 private final class MenuBarAgentIconView: NSView {
