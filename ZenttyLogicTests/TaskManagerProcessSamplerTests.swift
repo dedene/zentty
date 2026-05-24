@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import Zentty
 
@@ -87,6 +88,34 @@ final class TaskManagerProcessSamplerTests: XCTestCase {
 
         XCTAssertNil(sampler.sample(rootPID: 0))
         XCTAssertNil(sampler.sample(rootPID: -1))
+    }
+
+    // Regression: PROC_PIDTASKINFO CPU times are mach ticks, not nanoseconds.
+    // Without the timebase conversion, Apple Silicon under-reports CPU by ~40x
+    // (a fully-busy core showed ~2.4% instead of ~100%).
+    func test_mach_time_converts_to_nanoseconds_on_apple_silicon() {
+        // Apple Silicon timebase: 125/3 ≈ 41.67 ns per tick.
+        let timebase = mach_timebase_info_data_t(numer: 125, denom: 3)
+
+        XCTAssertEqual(DarwinProcessProbe.nanoseconds(fromMachTime: 3, timebase: timebase), 125)
+        XCTAssertEqual(DarwinProcessProbe.nanoseconds(fromMachTime: 24, timebase: timebase), 1_000)
+
+        // One core fully busy for 1s reads ~24M ticks; must resolve to ~1e9 ns.
+        let oneSecondOfTicks: UInt64 = 24_000_000
+        let ns = DarwinProcessProbe.nanoseconds(fromMachTime: oneSecondOfTicks, timebase: timebase)
+        XCTAssertEqual(Double(ns), 1_000_000_000, accuracy: 1_000)
+    }
+
+    func test_mach_time_passthrough_on_intel_timebase() {
+        // Intel timebase is 1/1, so ticks already equal nanoseconds.
+        let timebase = mach_timebase_info_data_t(numer: 1, denom: 1)
+
+        XCTAssertEqual(DarwinProcessProbe.nanoseconds(fromMachTime: 123_456, timebase: timebase), 123_456)
+    }
+
+    func test_mach_time_guards_degenerate_timebase() {
+        let zeroDenom = mach_timebase_info_data_t(numer: 125, denom: 0)
+        XCTAssertEqual(DarwinProcessProbe.nanoseconds(fromMachTime: 99, timebase: zeroDenom), 99)
     }
 
     private final class FakeProbe: TaskManagerProcessProbing {

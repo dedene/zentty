@@ -98,6 +98,13 @@ final class TaskManagerProcessSampler {
 
 /// Real macOS process probing via `proc_*` syscalls.
 struct DarwinProcessProbe: TaskManagerProcessProbing {
+    /// Process mach timebase; constant for the process lifetime.
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
     func treePIDs(rootPID: Int32) -> [Int32] {
         guard processExists(rootPID) else {
             return []
@@ -124,12 +131,29 @@ struct DarwinProcessProbe: TaskManagerProcessProbing {
         guard let info = taskInfo(pid: pid) else {
             return nil
         }
+        let cpuTicks = UInt64(info.pti_total_user) + UInt64(info.pti_total_system)
         return TaskManagerProbeSample(
-            cpuTimeNanoseconds: UInt64(info.pti_total_user) + UInt64(info.pti_total_system),
+            cpuTimeNanoseconds: Self.nanoseconds(fromMachTime: cpuTicks, timebase: Self.timebase),
             parentPID: parentPID(pid: pid),
             name: processName(pid: pid),
             memoryBytes: UInt64(max(info.pti_resident_size, 0))
         )
+    }
+
+    /// `proc_pidinfo(PROC_PIDTASKINFO)` reports CPU time in mach absolute-time
+    /// units, not nanoseconds. On Intel the timebase is 1/1 so they coincide; on
+    /// Apple Silicon a tick is ~41.67ns (timebase 125/3), so the raw value must be
+    /// scaled or CPU% reads ~40x too low.
+    static func nanoseconds(fromMachTime ticks: UInt64, timebase: mach_timebase_info_data_t) -> UInt64 {
+        guard timebase.numer != 0, timebase.denom != 0, timebase.numer != timebase.denom else {
+            return ticks
+        }
+        let scaled = ticks.multipliedReportingOverflow(by: UInt64(timebase.numer))
+        guard !scaled.overflow else {
+            // Unreachable for realistic CPU times; fall back to lossy float math.
+            return UInt64((Double(ticks) * Double(timebase.numer) / Double(timebase.denom)).rounded())
+        }
+        return scaled.partialValue / UInt64(timebase.denom)
     }
 
     private func childPIDs(parentPID: Int32) -> [Int32] {
