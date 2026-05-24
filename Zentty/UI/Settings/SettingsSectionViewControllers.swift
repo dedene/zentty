@@ -337,7 +337,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         contentStack.addArrangedSubview(optionsRow)
         optionsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
-        PaneSplitBehaviorMode.allCases.forEach { mode in
+        let optionViews = PaneSplitBehaviorMode.allCases.map { mode in
             let optionView = PaneSplitBehaviorOptionView(
                 mode: mode,
                 title: title(for: mode),
@@ -347,7 +347,11 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
             optionView.action = #selector(handleRightSplitBehaviorChanged(_:))
             behaviorOptionViews[mode] = optionView
             optionsRow.addArrangedSubview(optionView)
+            return optionView
         }
+        NSLayoutConstraint.activate(
+            optionViews.dropFirst().map { $0.heightAnchor.constraint(equalTo: optionViews[0].heightAnchor) }
+        )
 
         let thresholdStack = NSStackView()
         thresholdStack.orientation = .vertical

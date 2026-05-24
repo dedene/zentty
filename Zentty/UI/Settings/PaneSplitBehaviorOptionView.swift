@@ -274,19 +274,41 @@ final class PaneSplitBehaviorOptionView: NSControl {
 
     private func updateAppearance() {
         let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let baseSurfaceColor = isDarkMode
+            ? NSColor(srgbRed: 0.17, green: 0.17, blue: 0.17, alpha: 1)
+            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let selectedBackgroundColor =
+            baseSurfaceColor.blended(
+                withFraction: isDarkMode ? 0.24 : 0.12,
+                of: .controlAccentColor
+            ) ?? NSColor.controlAccentColor.withAlphaComponent(isDarkMode ? 0.24 : 0.12)
+        let highlightedBackgroundColor =
+            baseSurfaceColor.blended(
+                withFraction: isDarkMode ? 0.16 : 0.08,
+                of: .controlAccentColor
+            ) ?? NSColor.controlAccentColor.withAlphaComponent(isDarkMode ? 0.16 : 0.08)
+
         if isSelected {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(isDarkMode ? 0.18 : 0.12).cgColor
-            layer?.borderColor = NSColor.controlAccentColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(selectedBackgroundColor)
+            layer?.borderColor = resolvedCGColor(.controlAccentColor)
         } else if isHighlighted {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
-            layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.5).cgColor
+            layer?.backgroundColor = resolvedCGColor(highlightedBackgroundColor)
+            layer?.borderColor = resolvedCGColor(NSColor.controlAccentColor.withAlphaComponent(0.5))
         } else {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(isDarkMode ? 0.16 : 0.5).cgColor
-            layer?.borderColor = (isDarkMode
+            layer?.backgroundColor = resolvedCGColor(baseSurfaceColor)
+            layer?.borderColor = resolvedCGColor(isDarkMode
                 ? NSColor.white.withAlphaComponent(0.12)
-                : NSColor.black.withAlphaComponent(0.12)).cgColor
+                : NSColor.black.withAlphaComponent(0.12))
         }
         previewView.isSelected = isSelected
+    }
+
+    private func resolvedCGColor(_ color: NSColor) -> CGColor {
+        var resolvedColor = color
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolvedColor = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolvedColor.cgColor
     }
 }
 

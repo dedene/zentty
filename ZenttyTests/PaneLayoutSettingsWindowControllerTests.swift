@@ -189,6 +189,71 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(store.current.paneLayout.visibleSplitWindowWidth, .px1920)
     }
 
+    func test_panes_section_right_behavior_options_keep_equal_heights() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+        panesController.view.layoutSubtreeIfNeeded()
+
+        let optionViews = panesController.view.descendants(ofType: PaneSplitBehaviorOptionView.self)
+        XCTAssertEqual(optionViews.count, PaneSplitBehaviorMode.allCases.count)
+
+        let roundedHeights = Set(optionViews.map { Int($0.frame.height.rounded()) })
+        XCTAssertEqual(roundedHeights.count, 1)
+    }
+
+    func test_panes_section_unselected_right_behavior_options_use_light_surface_in_aqua() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        controller.window?.appearance = NSAppearance(named: .aqua)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+        panesController.view.layoutSubtreeIfNeeded()
+
+        let unselectedOptionViews = panesController.view
+            .descendants(ofType: PaneSplitBehaviorOptionView.self)
+            .filter { $0.mode != .adaptive }
+        XCTAssertEqual(unselectedOptionViews.count, PaneSplitBehaviorMode.allCases.count - 1)
+
+        for optionView in unselectedOptionViews {
+            let backgroundColor = try XCTUnwrap(optionView.layer?.backgroundColor)
+            let color = try XCTUnwrap(NSColor(cgColor: backgroundColor)?.usingColorSpace(.sRGB))
+            let brightness = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+
+            XCTAssertGreaterThanOrEqual(color.alphaComponent, 0.95)
+            XCTAssertGreaterThan(brightness, 0.9)
+        }
+    }
+
     func test_settings_window_can_switch_to_shortcuts_section_and_read_effective_bindings() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
@@ -1825,6 +1890,16 @@ private extension NSView {
         }
 
         return nil
+    }
+
+    func descendants<T: NSView>(ofType type: T.Type) -> [T] {
+        subviews.flatMap { subview -> [T] in
+            var matches = subview.descendants(ofType: type)
+            if let match = subview as? T {
+                matches.insert(match, at: 0)
+            }
+            return matches
+        }
     }
 
     func firstDescendant(where predicate: (NSView) -> Bool) -> NSView? {
