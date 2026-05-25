@@ -1120,7 +1120,7 @@ extension WorklaneStore {
             return
         }
 
-        codexRestartLogger.notice(
+        codexRestartLogger.debug(
             "\(stage, privacy: .public) pane=\(paneID.rawValue, privacy: .public) change=\(String(describing: metadataChangeKind), privacy: .public) prevTitle=\(previousMetadata?.title ?? "<nil>", privacy: .public) title=\(metadata.title ?? "<nil>", privacy: .public) prevProcess=\(previousMetadata?.processName ?? "<nil>", privacy: .public) process=\(metadata.processName ?? "<nil>", privacy: .public) recognized=\(recognizedTool?.displayName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState.agentStatus), privacy: .public) sessions=\(auxiliaryState.agentReducerState.sessionsByID.count, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState.raw), privacy: .public)"
         )
     }
