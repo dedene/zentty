@@ -8506,6 +8506,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let scriptURL = hermesHome.appendingPathComponent("hooks/zentty-status/on-session-start.sh")
         XCTAssertTrue(FileManager.default.fileExists(atPath: scriptURL.path))
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(script.contains("ZENTTY_HERMES_PID=\"$PPID\""))
         XCTAssertTrue(script.contains("hermes-hook on-session-start"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: hermesHome.appendingPathComponent("shell-hooks-allowlist.json").path))
     }

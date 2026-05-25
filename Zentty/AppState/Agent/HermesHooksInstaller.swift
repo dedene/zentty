@@ -272,6 +272,11 @@ enum HermesHooksInstaller {
             exit 0
         fi
 
+        if [ -z "${ZENTTY_HERMES_PID:-}" ] && [ -n "${PPID:-}" ]; then
+            ZENTTY_HERMES_PID="$PPID"
+            export ZENTTY_HERMES_PID
+        fi
+
         "$ZENTTY_BIN" hermes-hook \(event.cliEvent) || printf '{}\\n'
         exit 0
         """

@@ -54,6 +54,8 @@ final class HermesHooksInstallerTests: XCTestCase {
             .appendingPathComponent("hooks/zentty-status/on-session-start.sh", isDirectory: false)
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
         XCTAssertTrue(script.contains("/opt/zentty/bin/zentty"))
+        XCTAssertTrue(script.contains("ZENTTY_HERMES_PID=\"$PPID\""))
+        XCTAssertTrue(script.contains("export ZENTTY_HERMES_PID"))
         XCTAssertTrue(script.contains("hermes-hook on-session-start"))
         let attributes = try FileManager.default.attributesOfItem(atPath: scriptURL.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.uint16Value, 0o755)

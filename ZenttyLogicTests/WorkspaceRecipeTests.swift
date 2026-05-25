@@ -1244,6 +1244,57 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
     }
 
+    func test_exporter_persists_hermes_restore_draft_when_tracked_pid_and_session_id_exist() throws {
+        let paneID = PaneID("pane-hermes")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Hermes")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: PaneAgentStatus(
+                            tool: .hermes,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: 4242,
+                            workingDirectory: "/tmp/project",
+                            sessionID: "20260525_154137_ca1d63"
+                        )
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 4242 }
+        )
+
+        let draft = drafts?.paneDrafts.first
+        XCTAssertEqual(draft?.toolName, "Hermes Agent")
+        XCTAssertEqual(draft?.sessionID, "20260525_154137_ca1d63")
+        XCTAssertEqual(draft?.trackedPID, 4242)
+        XCTAssertEqual(AgentResumeCommandBuilder.command(for: try XCTUnwrap(draft)), "hermes --resume 20260525_154137_ca1d63")
+    }
+
     func test_exporter_persists_pi_restore_draft_without_session_id_when_cwd_and_pid_exist() {
         let paneID = PaneID("pane-pi")
         let worklane = WorklaneState(
