@@ -700,7 +700,6 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(harness.surface.sentScrollOffsets.count - startCount, 2)
     }
 
-    #if DEBUG
     func test_smooth_sampler_records_terminal_frame_meter_sample_when_enabled() throws {
         TerminalFrameMeter.shared.resetForTesting()
         TerminalFrameMeter.shared.isEnabled = true
@@ -1007,8 +1006,7 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
             historyPoints: [
                 .init(timestamp: 0, framesPerSecond: nil, severity: .stable),
                 .init(timestamp: 1.0 / 120.0, framesPerSecond: 120, severity: .stable),
-                .init(timestamp: 1.0 / 120.0 + 1.0 / 45.0, framesPerSecond: 45, severity: .warning),
-                .init(timestamp: 1.0 / 120.0 + 1.0 / 45.0 + 1.0 / 120.0, framesPerSecond: 120, severity: .stable)
+                .init(timestamp: 1.0 / 120.0 + 1.0 / 45.0, framesPerSecond: 45, severity: .warning)
             ]
         ))
 
@@ -1179,14 +1177,15 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         frameMeterSampler.triggerFrame()
         TerminalFrameMeter.shared.setNowForTesting((1.0 / 120.0) + (1.0 / 30.0))
         frameMeterSampler.triggerFrame()
+        TerminalFrameMeter.shared.setNowForTesting((1.0 / 120.0) + (1.0 / 30.0) + (1.0 / 30.0))
+        frameMeterSampler.triggerFrame()
 
         let snapshot = harness.hostView.debugFrameMeterHUDSnapshotForTesting
-        XCTAssertEqual(snapshot.graphPointCount, 3)
+        XCTAssertEqual(snapshot.graphPointCount, 4)
         XCTAssertEqual(snapshot.graphWarningCount, 0)
         XCTAssertEqual(snapshot.graphCriticalCount, 1)
-        XCTAssertEqual(snapshot.severity, .critical)
+        XCTAssertEqual(snapshot.severity, .warning)
     }
-    #endif
 
     func test_pane_scroll_routing_wins_before_native_scroll() throws {
         let harness = makeScrollHostHarness(smoothScrollingEnabled: true)

@@ -20,7 +20,6 @@ enum ZenttyPerformanceSignposts {
     }
 }
 
-#if DEBUG
 @MainActor
 final class TerminalFrameMeter {
     enum SampleKind: String, Equatable {
@@ -36,6 +35,17 @@ final class TerminalFrameMeter {
 
         var isDip: Bool {
             self != .stable
+        }
+
+        static func classify(framesPerSecond: Double, preferredFramesPerSecond: Int) -> Severity {
+            let target = Double(max(1, preferredFramesPerSecond))
+            if framesPerSecond < target * 0.30 {
+                return .critical
+            }
+            if framesPerSecond < target * 0.50 {
+                return .warning
+            }
+            return .stable
         }
     }
 
@@ -217,12 +227,14 @@ final class TerminalFrameMeter {
         latestSnapshotsByPane[sample.paneID] = snapshot
 
         if elapsed >= 1.0 {
+            #if DEBUG
             let tickFPS = Double(stats.tickFrameCount) / elapsed
             let offsetFPS = Double(stats.offsetFrameCount) / elapsed
             let sentFPS = Double(stats.sentFrameCount) / elapsed
             logger.log(
                 "pane=\(sample.paneID.rawValue, privacy: .public) tickFPS=\(tickFPS, format: .fixed(precision: 1)) offsetFPS=\(offsetFPS, format: .fixed(precision: 1)) sentFPS=\(sentFPS, format: .fixed(precision: 1)) target=\(preferredFramesPerSecond, privacy: .public) late=\(stats.lateFrameCount, privacy: .public)/\(stats.tickFrameCount, privacy: .public) maxDeltaMs=\(stats.mainDeltaMaxMilliseconds, format: .fixed(precision: 2)) rowOffset=\(stats.latestRowOffset, format: .fixed(precision: 2)) displayID=\(stats.displayID.map(String.init) ?? "nil", privacy: .public) live=\(stats.isLiveScrolling, privacy: .public) pacing=\(stats.pacingMode.rawValue, privacy: .public)"
             )
+            #endif
             stats = PaneStats(
                 windowStartedAt: sample.timestamp,
                 lastTimestamp: sample.timestamp,
@@ -253,16 +265,10 @@ final class TerminalFrameMeter {
         }
 
         let framesPerSecond = 1.0 / delta
-        let target = Double(preferredFramesPerSecond)
-        let targetFrameDuration = 1.0 / target
-        let severity: Severity
-        if framesPerSecond < target * 0.50 || delta > targetFrameDuration * 2.0 {
-            severity = .critical
-        } else if framesPerSecond < target * 0.65 || delta > targetFrameDuration * 1.55 {
-            severity = .warning
-        } else {
-            severity = .stable
-        }
+        let severity = Severity.classify(
+            framesPerSecond: framesPerSecond,
+            preferredFramesPerSecond: preferredFramesPerSecond
+        )
         return HistoryPoint(timestamp: timestamp, framesPerSecond: framesPerSecond, severity: severity)
     }
 
@@ -304,7 +310,6 @@ final class TerminalFrameMeter {
         latestSnapshotsByPane[paneID]
     }
 }
-#endif
 
 struct TerminalMetadata: Equatable {
     var title: String?

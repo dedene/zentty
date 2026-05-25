@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import XCTest
 @testable import Zentty
@@ -83,6 +84,37 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertNil(openServerDefinition.defaultShortcut)
         XCTAssertEqual(openServerDefinition.action, .openSelectedServer)
         XCTAssertNil(openServerDefinition.menuItem)
+    }
+
+    func test_registry_includes_theme_mode_commands_without_default_shortcuts() {
+        let toggle = AppCommandRegistry.definition(for: .toggleLightDarkTheme)
+        let dark = AppCommandRegistry.definition(for: .useDarkTheme)
+        let light = AppCommandRegistry.definition(for: .useLightTheme)
+        let auto = AppCommandRegistry.definition(for: .useAutoTheme)
+
+        XCTAssertEqual(toggle.title, "Toggle Light/Dark Theme")
+        XCTAssertEqual(toggle.category, .general)
+        XCTAssertNil(toggle.defaultShortcut)
+        XCTAssertEqual(toggle.action, .themeMode(.toggle))
+        XCTAssertNil(toggle.menuItem)
+
+        XCTAssertEqual(dark.title, "Use Dark Theme")
+        XCTAssertEqual(dark.category, .general)
+        XCTAssertNil(dark.defaultShortcut)
+        XCTAssertEqual(dark.action, .themeMode(.dark))
+        XCTAssertNil(dark.menuItem)
+
+        XCTAssertEqual(light.title, "Use Light Theme")
+        XCTAssertEqual(light.category, .general)
+        XCTAssertNil(light.defaultShortcut)
+        XCTAssertEqual(light.action, .themeMode(.light))
+        XCTAssertNil(light.menuItem)
+
+        XCTAssertEqual(auto.title, "Use Auto Theme")
+        XCTAssertEqual(auto.category, .general)
+        XCTAssertNil(auto.defaultShortcut)
+        XCTAssertEqual(auto.action, .themeMode(.auto))
+        XCTAssertNil(auto.menuItem)
     }
 
     func test_registry_includes_duplicate_this_pane_command_without_default_shortcut() {
@@ -768,6 +800,32 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertGreaterThan(model.rows[1].slots[0].widthUnits, 1.5)
         XCTAssertGreaterThan(model.rows[2].slots[0].widthUnits, 1.8)
         XCTAssertGreaterThan(model.rows[3].slots[0].widthUnits, 2.1)
+    }
+
+    @MainActor
+    func test_app_menu_places_performance_overlay_below_task_manager() throws {
+        let mainMenu = AppMenuBuilder.makeMainMenu(appName: "Zentty")
+        let windowMenu = try XCTUnwrap(appMenu(named: "Window", in: mainMenu))
+
+        let taskManagerIndex = try XCTUnwrap(windowMenu.items.firstIndex { $0.title == "Task Manager" })
+        let performanceOverlayItem = windowMenu.items[taskManagerIndex + 1]
+
+        XCTAssertEqual(performanceOverlayItem.title, "Performance Overlay")
+        XCTAssertEqual(performanceOverlayItem.action, #selector(AppDelegate.toggleTerminalFrameMeter(_:)))
+        XCTAssertEqual(performanceOverlayItem.state, .off)
+    }
+
+    @MainActor
+    func test_debug_menu_does_not_duplicate_performance_overlay_toggle() throws {
+        let mainMenu = AppMenuBuilder.makeMainMenu(appName: "Zentty")
+        let debugMenu = try XCTUnwrap(appMenu(named: "Debug", in: mainMenu))
+
+        XCTAssertNil(debugMenu.item(withTitle: "Terminal Frame Meter"))
+        XCTAssertNil(debugMenu.item(withTitle: "Performance Overlay"))
+    }
+
+    private func appMenu(named title: String, in mainMenu: NSMenu) -> NSMenu? {
+        mainMenu.items.first { $0.submenu?.title == title }?.submenu
     }
 }
 

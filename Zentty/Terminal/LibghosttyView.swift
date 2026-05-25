@@ -46,10 +46,10 @@ private final class LibghosttyOverlayHostView: NSView {
     }
 }
 
-#if DEBUG
 @MainActor
 private final class TerminalFrameMeterHistoryGraphView: NSView {
     private var historyPoints: [TerminalFrameMeter.HistoryPoint] = []
+    private var renderedHistoryPoints: [TerminalFrameMeter.HistoryPoint] = []
     private var targetFramesPerSecond = 120
 
     override var isFlipped: Bool {
@@ -74,6 +74,10 @@ private final class TerminalFrameMeterHistoryGraphView: NSView {
     func update(historyPoints: [TerminalFrameMeter.HistoryPoint], targetFramesPerSecond: Int) {
         self.historyPoints = historyPoints
         self.targetFramesPerSecond = max(1, targetFramesPerSecond)
+        renderedHistoryPoints = Self.smoothedHistoryPoints(
+            historyPoints,
+            targetFramesPerSecond: self.targetFramesPerSecond
+        )
         needsDisplay = true
     }
 
@@ -82,15 +86,15 @@ private final class TerminalFrameMeterHistoryGraphView: NSView {
     }
 
     var historyDipCountForTesting: Int {
-        historyPoints.filter(\.isDip).count
+        renderedHistoryPoints.filter(\.isDip).count
     }
 
     var historyWarningCountForTesting: Int {
-        historyPoints.filter { $0.severity == .warning }.count
+        renderedHistoryPoints.filter { $0.severity == .warning }.count
     }
 
     var historyCriticalCountForTesting: Int {
-        historyPoints.filter { $0.severity == .critical }.count
+        renderedHistoryPoints.filter { $0.severity == .critical }.count
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -115,7 +119,7 @@ private final class TerminalFrameMeterHistoryGraphView: NSView {
     }
 
     private func drawFPSLine() {
-        let drawablePoints = historyPoints.enumerated().compactMap { index, point -> NSPoint? in
+        let drawablePoints = renderedHistoryPoints.enumerated().compactMap { index, point -> NSPoint? in
             guard let framesPerSecond = point.framesPerSecond else {
                 return nil
             }
@@ -137,7 +141,7 @@ private final class TerminalFrameMeterHistoryGraphView: NSView {
     }
 
     private func drawDipMarkers() {
-        let dipPoints = historyPoints.enumerated().filter { $0.element.isDip }
+        let dipPoints = renderedHistoryPoints.enumerated().filter { $0.element.isDip }
         guard !dipPoints.isEmpty else {
             return
         }
@@ -161,12 +165,49 @@ private final class TerminalFrameMeterHistoryGraphView: NSView {
     }
 
     private func xPosition(for index: Int) -> CGFloat {
-        guard historyPoints.count > 1 else {
+        guard renderedHistoryPoints.count > 1 else {
             return bounds.width
         }
 
-        let progress = CGFloat(index) / CGFloat(historyPoints.count - 1)
+        let progress = CGFloat(index) / CGFloat(renderedHistoryPoints.count - 1)
         return progress * bounds.width
+    }
+
+    private static func smoothedHistoryPoints(
+        _ points: [TerminalFrameMeter.HistoryPoint],
+        targetFramesPerSecond: Int
+    ) -> [TerminalFrameMeter.HistoryPoint] {
+        var smoothedFramesPerSecond: Double?
+        var previousRawSeverity = TerminalFrameMeter.Severity.stable
+
+        return points.map { point in
+            guard let framesPerSecond = point.framesPerSecond else {
+                previousRawSeverity = point.severity
+                return .init(timestamp: point.timestamp, framesPerSecond: nil, severity: .stable)
+            }
+
+            let smoothed = smoothedFramesPerSecond.map { previous in
+                previous + ((framesPerSecond - previous) * 0.25)
+            } ?? framesPerSecond
+            smoothedFramesPerSecond = smoothed
+
+            var severity = TerminalFrameMeter.Severity.classify(
+                framesPerSecond: smoothed,
+                preferredFramesPerSecond: targetFramesPerSecond
+            )
+            if severity != .critical,
+               point.severity == .critical,
+               previousRawSeverity == .critical {
+                severity = .critical
+            } else if severity == .stable,
+                      point.severity == .warning,
+                      previousRawSeverity == .warning {
+                severity = .warning
+            }
+            previousRawSeverity = point.severity
+
+            return .init(timestamp: point.timestamp, framesPerSecond: smoothed, severity: severity)
+        }
     }
 
     private func color(for severity: TerminalFrameMeter.Severity) -> NSColor {
@@ -282,23 +323,14 @@ final class TerminalFrameMeterHUDView: NSView {
     }
 
     private func statusSeverity(for snapshot: TerminalFrameMeter.Snapshot) -> TerminalFrameMeter.Severity {
-        if let latestHistorySeverity = snapshot.historyPoints.last?.severity,
-           latestHistorySeverity != .stable {
-            return latestHistorySeverity
-        }
-
         guard let framesPerSecond = snapshot.framesPerSecond else {
             return .stable
         }
 
-        let target = Double(snapshot.preferredFramesPerSecond)
-        if framesPerSecond < target * 0.50 {
-            return .critical
-        }
-        if framesPerSecond < target * 0.65 || snapshot.lateFrameRatio > 0.18 {
-            return .warning
-        }
-        return .stable
+        return TerminalFrameMeter.Severity.classify(
+            framesPerSecond: framesPerSecond,
+            preferredFramesPerSecond: snapshot.preferredFramesPerSecond
+        )
     }
 
     private func color(for severity: TerminalFrameMeter.Severity) -> NSColor {
@@ -312,7 +344,6 @@ final class TerminalFrameMeterHUDView: NSView {
         }
     }
 }
-#endif
 
 @MainActor
 private final class LibghosttyScrollView: NSScrollView {
@@ -416,10 +447,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let scrollFrameSampler: any TerminalScrollFrameSampling
     private let scrollView: LibghosttyScrollView
     private let overlayHostView = LibghosttyOverlayHostView()
-    #if DEBUG
     private let frameMeterSampler: any TerminalScrollFrameSampling
     private let frameMeterHUDView = TerminalFrameMeterHUDView(frame: NSRect(x: 0, y: 0, width: 128, height: 48))
-    #endif
     private let documentView: NSView
     private let surfaceView: LibghosttyView
     private var isLiveScrolling = false
@@ -496,9 +525,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         self.surfaceView = surfaceView
         self.scrollView = LibghosttyScrollView()
         self.documentView = NSView(frame: .zero)
-        #if DEBUG
         self.frameMeterSampler = frameMeterSampler ?? TerminalScrollFrameSampler()
-        #endif
         super.init(frame: .zero)
 
         translatesAutoresizingMaskIntoConstraints = false
@@ -534,11 +561,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollFrameSampler.onFrame = { [weak self] in
             self?.sampleSmoothScrollFrame()
         }
-        #if DEBUG
         self.frameMeterSampler.onFrame = { [weak self] in
             self?.recordFrameMeterDisplayTick()
         }
-        #endif
 
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
@@ -547,10 +572,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         overlayHostView.autoresizingMask = [.width, .height]
         overlayHostView.frame = bounds
         addSubview(overlayHostView)
-        #if DEBUG
         overlayHostView.addSubview(frameMeterHUDView)
         syncFrameMeterHUDVisibility()
-        #endif
 
         surfaceView.scrollbarHandler = self
 
@@ -579,14 +602,12 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             name: NSScrollView.didLiveScrollNotification,
             object: scrollView
         )
-        #if DEBUG
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleFrameMeterStateDidChangeNotification),
             name: TerminalFrameMeter.stateDidChangeNotification,
             object: TerminalFrameMeter.shared
         )
-        #endif
     }
 
     @available(*, unavailable)
@@ -600,9 +621,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             surfaceView.onBackingPropertiesDidChange = nil
             surfaceView.onCellSizeDidChange = nil
             scrollFrameSampler.stop()
-            #if DEBUG
             frameMeterSampler.stop()
-            #endif
         }
     }
 
@@ -610,18 +629,14 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
             stopSmoothScrollFrameSampling()
-            #if DEBUG
             stopFrameMeterSampling()
-            #endif
             stopSelectionAutoscrollTimer()
         }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        #if DEBUG
         startFrameMeterSamplingIfNeeded()
-        #endif
     }
 
     override func layout() {
@@ -629,9 +644,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             super.layout()
             scrollView.frame = bounds
             overlayHostView.frame = bounds
-            #if DEBUG
             layoutFrameMeterHUD()
-            #endif
             surfaceView.frame.size = scrollView.bounds.size
             documentView.frame.size.width = scrollView.bounds.width
             updateSurfaceViewportDiagnosticsContext()
@@ -733,11 +746,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView
     }
 
-    #if DEBUG
     var debugFrameMeterHUDSnapshotForTesting: TerminalFrameMeterHUDView.Snapshot {
         frameMeterHUDView.snapshotForTesting
     }
-    #endif
 
     @objc
     private func handleScrollChangeNotification(_ notification: Notification) {
@@ -765,7 +776,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         }
     }
 
-    #if DEBUG
     @objc
     private func handleFrameMeterStateDidChangeNotification(_ notification: Notification) {
         syncFrameMeterHUDVisibility()
@@ -811,7 +821,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private func stopFrameMeterSampling() {
         frameMeterSampler.stop()
     }
-    #endif
 
     private func updateSelectionAutoscrollTimerState() {
         if surfaceView.isSelectionDragActive {
@@ -901,7 +910,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         let offsetChanged = lastSampledSmoothScrollOffset
             .map { abs($0 - offset) > smoothScrollOffsetEpsilonRows } ?? true
 
-        #if DEBUG
         if offsetChanged {
             recordFrameMeterSample(
                 kind: .offset,
@@ -909,11 +917,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
                 pacingMode: scrollFrameSampler.pacingMode
             )
         }
-        #endif
 
         let didSendScroll = handleLiveScroll(force: force)
 
-        #if DEBUG
         if didSendScroll {
             recordFrameMeterSample(
                 kind: .sent,
@@ -921,7 +927,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
                 pacingMode: scrollFrameSampler.pacingMode
             )
         }
-        #endif
 
         let isInBounds = offset >= 0 && offset <= maxOffset
         let isStable = lastSampledSmoothScrollOffset
@@ -943,7 +948,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         return max(60, min(240, framesPerSecond))
     }
 
-    #if DEBUG
     private func recordFrameMeterDisplayTick() {
         let rowOffset = currentLiveRowOffset() ??
             lastSampledSmoothScrollOffset ??
@@ -975,7 +979,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             frameMeterHUDView.isHidden = true
         }
     }
-    #endif
 
     private func beginBackingMetricsReconciliation() {
         guard smoothScrollingEnabled else {

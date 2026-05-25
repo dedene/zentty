@@ -99,14 +99,7 @@ enum AppMenuBuilder {
             action: #selector(AppDelegate.toggleAgentIconInspector(_:)),
             keyEquivalent: ""
         )
-        let frameMeterItem = NSMenuItem(
-            title: "Terminal Frame Meter",
-            action: #selector(AppDelegate.toggleTerminalFrameMeter(_:)),
-            keyEquivalent: ""
-        )
-        frameMeterItem.state = TerminalFrameMeter.shared.isEnabled ? .on : .off
         debugMenu.addItem(inspectIconsItem)
-        debugMenu.addItem(frameMeterItem)
         debugMenuItem.submenu = debugMenu
         return debugMenuItem
     }
@@ -199,6 +192,7 @@ enum AppMenuBuilder {
         menu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
         menu.addItem(makeSeparatorItem())
         addMenuEntries(AppCommandRegistry.menuEntriesBySection[.window] ?? [], to: menu, shortcutManager: shortcutManager)
+        menu.addItem(makePerformanceOverlayMenuItem())
         menu.addItem(makeSeparatorItem())
         menu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
 
@@ -268,6 +262,17 @@ enum AppMenuBuilder {
         let item = NSMenuItem(title: menuDefinition.title, action: menuDefinition.selector, keyEquivalent: "")
         applySystemImage(menuDefinition.systemImageName, title: menuDefinition.title, to: item)
         apply(shortcutManager.shortcut(for: commandID), to: item)
+        return item
+    }
+
+    private static func makePerformanceOverlayMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(
+            title: "Performance Overlay",
+            action: #selector(AppDelegate.toggleTerminalFrameMeter(_:)),
+            keyEquivalent: ""
+        )
+        item.state = TerminalFrameMeter.shared.isEnabled ? .on : .off
+        applySystemImage("waveform.path.ecg", title: "Performance Overlay", to: item)
         return item
     }
 
@@ -365,6 +370,7 @@ enum AppMenuBuilder {
                 ("Zoom", #selector(NSWindow.performZoom(_:))),
                 (nil, nil),
                 ("Task Manager", #selector(AppDelegate.showTaskManager(_:))),
+                ("Performance Overlay", #selector(AppDelegate.toggleTerminalFrameMeter(_:))),
                 (nil, nil),
                 ("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
             ], in: windowMenu)

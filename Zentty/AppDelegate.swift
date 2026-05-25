@@ -246,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = controller.isIconInspectorEnabled ? .on : .off
         }
     }
+#endif
 
     @objc
     func toggleTerminalFrameMeter(_ sender: Any?) {
@@ -254,7 +255,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = TerminalFrameMeter.shared.isEnabled ? .on : .off
         }
     }
-#endif
 
     @objc
     func showAboutWindow(_ sender: Any?) {
@@ -963,12 +963,10 @@ extension AppDelegate: NSMenuItemValidation {
             return appUpdateController.canCheckForUpdates
         }
 
-        #if DEBUG
         if menuItem.action == #selector(toggleTerminalFrameMeter(_:)) {
             menuItem.state = TerminalFrameMeter.shared.isEnabled ? .on : .off
             return true
         }
-        #endif
 
         return true
     }
