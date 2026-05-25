@@ -9,7 +9,8 @@
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
     "session_capture": [
-      "--tui",
+      "chat",
+      "--query",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
     "restore_launch_with_id": [
@@ -22,7 +23,7 @@
       "required_events": []
     },
     "session_capture": {
-      "required_events": ["session.start", "agent.running"],
+      "required_events": ["session.start", "agent.running", "post-llm-call"],
       "session_identity": {
         "session_id_pattern": "non-empty",
         "tracked_pid": true

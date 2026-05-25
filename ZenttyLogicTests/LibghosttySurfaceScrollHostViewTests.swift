@@ -612,7 +612,12 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
 
     func test_smooth_backing_metrics_change_stops_live_scroll_sampler() throws {
         let sampler = ScrollFrameSamplerSpy()
-        let harness = makeScrollHostHarness(smoothScrollingEnabled: true, scrollFrameSampler: sampler)
+        let frameMeterSampler = ScrollFrameSamplerSpy()
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            scrollFrameSampler: sampler,
+            frameMeterSampler: frameMeterSampler
+        )
         let scrollView = try scrollView(from: harness.hostView)
         NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
 
@@ -630,6 +635,7 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
 
         XCTAssertEqual(sampler.startCalls.count, 1)
+        XCTAssertTrue(sampler.startCalls[0].view === harness.surfaceView)
         XCTAssertGreaterThan(sampler.startCalls[0].preferredFramesPerSecond, 0)
     }
 
@@ -694,6 +700,494 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(harness.surface.sentScrollOffsets.count - startCount, 2)
     }
 
+    #if DEBUG
+    func test_smooth_sampler_records_terminal_frame_meter_sample_when_enabled() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let sampler = ScrollFrameSamplerSpy()
+        let frameMeterSampler = ScrollFrameSamplerSpy()
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            scrollFrameSampler: sampler,
+            frameMeterSampler: frameMeterSampler
+        )
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scrollView = try scrollView(from: harness.hostView)
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: scrollView.contentView.bounds.origin.y + 8))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        sampler.triggerFrame()
+
+        let samples = TerminalFrameMeter.shared.samplesForTesting()
+        XCTAssertEqual(samples.map(\.sampleKind), [.offset, .sent])
+        XCTAssertEqual(samples.last?.paneID, PaneID("test-pane"))
+        XCTAssertEqual(samples.last?.rowOffset ?? 0, 189.5, accuracy: 0.001)
+        XCTAssertGreaterThan(samples.last?.preferredFramesPerSecond ?? 0, 0)
+    }
+
+    func test_terminal_frame_meter_tracks_tick_offset_and_sent_frame_rates_separately() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let paneID = PaneID("meter-pane")
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: true,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: true,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: true,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10.25,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: true,
+            sampleKind: .offset,
+            pacingMode: .appKitDisplayLink
+        )
+        let snapshot = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10.25,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: true,
+            sampleKind: .sent,
+            pacingMode: .appKitDisplayLink
+        )
+
+        let tickFPS = try XCTUnwrap(snapshot?.tickFramesPerSecond)
+        let offsetFPS = try XCTUnwrap(snapshot?.offsetFramesPerSecond)
+        let sentFPS = try XCTUnwrap(snapshot?.sentFramesPerSecond)
+        XCTAssertGreaterThan(tickFPS, sentFPS)
+        XCTAssertEqual(offsetFPS, sentFPS, accuracy: 0.001)
+        XCTAssertEqual(snapshot?.pacingMode, .appKitDisplayLink)
+    }
+
+    func test_terminal_frame_meter_records_tick_history_and_dip_markers() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.clearNowForTesting()
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let paneID = PaneID("history-pane")
+        TerminalFrameMeter.shared.setNowForTesting(0)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting(1.0 / 120.0)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting((1.0 / 120.0) + (1.0 / 30.0))
+        let snapshot = try XCTUnwrap(TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        ))
+
+        XCTAssertEqual(snapshot.historyPoints.count, 3)
+        XCTAssertNil(snapshot.historyPoints[0].framesPerSecond)
+        XCTAssertEqual(try XCTUnwrap(snapshot.historyPoints[1].framesPerSecond), 120, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(snapshot.historyPoints[2].framesPerSecond), 30, accuracy: 0.001)
+        XCTAssertFalse(snapshot.historyPoints[1].isDip)
+        XCTAssertTrue(snapshot.historyPoints[2].isDip)
+    }
+
+    func test_terminal_frame_meter_treats_minor_high_refresh_jitter_as_stable() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.clearNowForTesting()
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let paneID = PaneID("stable-history-pane")
+        TerminalFrameMeter.shared.setNowForTesting(0)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting(1.0 / 113.0)
+        let snapshot = try XCTUnwrap(TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        ))
+
+        XCTAssertEqual(snapshot.historyPoints.count, 2)
+        XCTAssertEqual(try XCTUnwrap(snapshot.historyPoints[1].framesPerSecond), 113, accuracy: 0.001)
+        XCTAssertEqual(snapshot.historyPoints[1].severity, .stable)
+        XCTAssertFalse(snapshot.historyPoints[1].isDip)
+    }
+
+    func test_terminal_frame_meter_marks_orange_below_half_and_red_below_thirty_percent() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.clearNowForTesting()
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let paneID = PaneID("severity-history-pane")
+        TerminalFrameMeter.shared.setNowForTesting(0)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting(1.0 / 90.0)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting((1.0 / 90.0) + (1.0 / 59.0))
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting((1.0 / 90.0) + (1.0 / 59.0) + (1.0 / 35.0))
+        let snapshot = try XCTUnwrap(TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        ))
+
+        XCTAssertEqual(snapshot.historyPoints.map(\.severity), [.stable, .stable, .warning, .critical])
+        XCTAssertEqual(snapshot.historyPoints.filter(\.isDip).count, 2)
+    }
+
+    func test_terminal_frame_meter_hud_marks_orange_below_half_and_red_below_thirty_percent() throws {
+        let hudView = TerminalFrameMeterHUDView(frame: NSRect(x: 0, y: 0, width: 128, height: 48))
+        hudView.update(with: TerminalFrameMeter.Snapshot(
+            paneID: PaneID("hud-severity-pane"),
+            tickFramesPerSecond: 90,
+            offsetFramesPerSecond: nil,
+            sentFramesPerSecond: nil,
+            preferredFramesPerSecond: 120,
+            lateFrameRatio: 0,
+            maxDeltaMilliseconds: nil,
+            rowOffset: 0,
+            displayID: nil,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink,
+            historyPoints: []
+        ))
+        XCTAssertEqual(hudView.snapshotForTesting.severity, .stable)
+
+        hudView.update(with: TerminalFrameMeter.Snapshot(
+            paneID: PaneID("hud-severity-pane"),
+            tickFramesPerSecond: 59,
+            offsetFramesPerSecond: nil,
+            sentFramesPerSecond: nil,
+            preferredFramesPerSecond: 120,
+            lateFrameRatio: 0,
+            maxDeltaMilliseconds: nil,
+            rowOffset: 0,
+            displayID: nil,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink,
+            historyPoints: []
+        ))
+        XCTAssertEqual(hudView.snapshotForTesting.severity, .warning)
+
+        hudView.update(with: TerminalFrameMeter.Snapshot(
+            paneID: PaneID("hud-severity-pane"),
+            tickFramesPerSecond: 35,
+            offsetFramesPerSecond: nil,
+            sentFramesPerSecond: nil,
+            preferredFramesPerSecond: 120,
+            lateFrameRatio: 0,
+            maxDeltaMilliseconds: nil,
+            rowOffset: 0,
+            displayID: nil,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink,
+            historyPoints: []
+        ))
+        XCTAssertEqual(hudView.snapshotForTesting.severity, .critical)
+    }
+
+    func test_terminal_frame_meter_hud_graph_smooths_single_frame_warning_spikes() throws {
+        let hudView = TerminalFrameMeterHUDView(frame: NSRect(x: 0, y: 0, width: 128, height: 48))
+        hudView.update(with: TerminalFrameMeter.Snapshot(
+            paneID: PaneID("hud-smoothed-history-pane"),
+            tickFramesPerSecond: 92,
+            offsetFramesPerSecond: nil,
+            sentFramesPerSecond: nil,
+            preferredFramesPerSecond: 120,
+            lateFrameRatio: 0.37,
+            maxDeltaMilliseconds: nil,
+            rowOffset: 0,
+            displayID: nil,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink,
+            historyPoints: [
+                .init(timestamp: 0, framesPerSecond: nil, severity: .stable),
+                .init(timestamp: 1.0 / 120.0, framesPerSecond: 120, severity: .stable),
+                .init(timestamp: 1.0 / 120.0 + 1.0 / 45.0, framesPerSecond: 45, severity: .warning),
+                .init(timestamp: 1.0 / 120.0 + 1.0 / 45.0 + 1.0 / 120.0, framesPerSecond: 120, severity: .stable)
+            ]
+        ))
+
+        let snapshot = hudView.snapshotForTesting
+        XCTAssertEqual(snapshot.severity, .stable)
+        XCTAssertEqual(snapshot.graphWarningCount, 0)
+        XCTAssertEqual(snapshot.graphCriticalCount, 0)
+    }
+
+    func test_terminal_frame_meter_history_ignores_non_tick_samples_and_prunes_to_recent_window() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.clearNowForTesting()
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let paneID = PaneID("pruned-history-pane")
+        TerminalFrameMeter.shared.setNowForTesting(0)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting(1)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting(1.5)
+        _ = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10.25,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: true,
+            sampleKind: .sent,
+            pacingMode: .appKitDisplayLink
+        )
+        TerminalFrameMeter.shared.setNowForTesting(6.25)
+        let snapshot = try XCTUnwrap(TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: 10.5,
+            preferredFramesPerSecond: 120,
+            displayID: 42,
+            isLiveScrolling: false,
+            sampleKind: .tick,
+            pacingMode: .appKitDisplayLink
+        ))
+
+        XCTAssertEqual(snapshot.historyPoints.map(\.timestamp), [6.25])
+        XCTAssertEqual(TerminalFrameMeter.shared.samplesForTesting().map(\.sampleKind), [.tick, .tick, .sent, .tick])
+    }
+
+    func test_terminal_frame_meter_hud_is_small_and_updates_when_enabled() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        TerminalFrameMeter.shared.isEnabled = true
+        addTeardownBlock {
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let sampler = ScrollFrameSamplerSpy()
+        let frameMeterSampler = ScrollFrameSamplerSpy()
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            scrollFrameSampler: sampler,
+            frameMeterSampler: frameMeterSampler
+        )
+        harness.hostView.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
+        harness.hostView.layoutSubtreeIfNeeded()
+        XCTAssertFalse(harness.hostView.debugFrameMeterHUDSnapshotForTesting.isHidden)
+
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scrollView = try scrollView(from: harness.hostView)
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: scrollView.contentView.bounds.origin.y + 8))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        sampler.triggerFrame()
+
+        let snapshot = harness.hostView.debugFrameMeterHUDSnapshotForTesting
+        XCTAssertFalse(snapshot.isHidden)
+        XCTAssertEqual(snapshot.frame.width, 128)
+        XCTAssertEqual(snapshot.frame.height, 48)
+        XCTAssertGreaterThan(snapshot.frame.minX, 660)
+        XCTAssertGreaterThan(snapshot.frame.minY, 430)
+        XCTAssertTrue(snapshot.primaryText.hasPrefix("FPS"))
+        XCTAssertTrue(snapshot.primaryText.contains("/"))
+        XCTAssertTrue(snapshot.secondaryText.contains("sent"))
+        XCTAssertTrue(snapshot.secondaryText.contains("late"))
+    }
+
+    func test_terminal_frame_meter_hud_shows_when_enabled_before_scrolling() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        addTeardownBlock {
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let frameMeterSampler = ScrollFrameSamplerSpy()
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            frameMeterSampler: frameMeterSampler
+        )
+        XCTAssertTrue(harness.hostView.debugFrameMeterHUDSnapshotForTesting.isHidden)
+
+        TerminalFrameMeter.shared.isEnabled = true
+
+        let snapshot = harness.hostView.debugFrameMeterHUDSnapshotForTesting
+        XCTAssertFalse(snapshot.isHidden)
+        XCTAssertEqual(snapshot.primaryText, "FPS --")
+        XCTAssertEqual(snapshot.severity, .stable)
+        XCTAssertEqual(frameMeterSampler.startCalls.count, 1)
+        XCTAssertTrue(frameMeterSampler.startCalls[0].view === harness.surfaceView)
+    }
+
+    func test_terminal_frame_meter_records_display_ticks_without_scrolling() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        addTeardownBlock {
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let frameMeterSampler = ScrollFrameSamplerSpy()
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            frameMeterSampler: frameMeterSampler
+        )
+
+        TerminalFrameMeter.shared.isEnabled = true
+        frameMeterSampler.triggerFrame()
+
+        let samples = TerminalFrameMeter.shared.samplesForTesting()
+        XCTAssertEqual(samples.map(\.sampleKind), [.tick])
+        XCTAssertEqual(samples[0].pacingMode, .appKitDisplayLink)
+        XCTAssertTrue(harness.hostView.debugFrameMeterHUDSnapshotForTesting.primaryText.hasPrefix("FPS"))
+    }
+
+    func test_terminal_frame_meter_hud_graph_receives_history_after_display_ticks() throws {
+        TerminalFrameMeter.shared.resetForTesting()
+        addTeardownBlock {
+            TerminalFrameMeter.shared.clearNowForTesting()
+            TerminalFrameMeter.shared.isEnabled = false
+            TerminalFrameMeter.shared.resetForTesting()
+        }
+
+        let frameMeterSampler = ScrollFrameSamplerSpy()
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            frameMeterSampler: frameMeterSampler
+        )
+
+        TerminalFrameMeter.shared.setNowForTesting(0)
+        TerminalFrameMeter.shared.isEnabled = true
+        frameMeterSampler.triggerFrame()
+        TerminalFrameMeter.shared.setNowForTesting(1.0 / 120.0)
+        frameMeterSampler.triggerFrame()
+        TerminalFrameMeter.shared.setNowForTesting((1.0 / 120.0) + (1.0 / 30.0))
+        frameMeterSampler.triggerFrame()
+
+        let snapshot = harness.hostView.debugFrameMeterHUDSnapshotForTesting
+        XCTAssertEqual(snapshot.graphPointCount, 3)
+        XCTAssertEqual(snapshot.graphWarningCount, 0)
+        XCTAssertEqual(snapshot.graphCriticalCount, 1)
+        XCTAssertEqual(snapshot.severity, .critical)
+    }
+    #endif
+
     func test_pane_scroll_routing_wins_before_native_scroll() throws {
         let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
         var routedCount = 0
@@ -728,6 +1222,7 @@ private func waitForMainQueue(
 private func makeScrollHostHarness(
     smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
     scrollFrameSampler: any TerminalScrollFrameSampling = ScrollFrameSamplerSpy(),
+    frameMeterSampler: (any TerminalScrollFrameSampling)? = nil,
     backingScale: CGFloat = 1,
     cellHeight: CGFloat = 16
 ) -> (
@@ -744,7 +1239,8 @@ private func makeScrollHostHarness(
         surfaceView: surfaceView,
         paneID: PaneID("test-pane"),
         diagnostics: .shared,
-        scrollFrameSampler: scrollFrameSampler
+        scrollFrameSampler: scrollFrameSampler,
+        frameMeterSampler: frameMeterSampler
     )
     hostView.smoothScrollingEnabled = smoothScrollingEnabled
     hostView.frame = NSRect(x: 0, y: 0, width: 800, height: 160)
@@ -818,22 +1314,30 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
 
 private final class ScrollFrameSamplerSpy: TerminalScrollFrameSampling, @unchecked Sendable {
     struct StartCall: Equatable {
-        let displayID: UInt32?
+        weak var view: NSView?
         let preferredFramesPerSecond: Int
+
+        static func == (lhs: StartCall, rhs: StartCall) -> Bool {
+            lhs.view === rhs.view &&
+                lhs.preferredFramesPerSecond == rhs.preferredFramesPerSecond
+        }
     }
 
     var onFrame: (() -> Void)?
+    private(set) var pacingMode: TerminalScrollFramePacingMode = .stopped
     private(set) var startCalls: [StartCall] = []
     private(set) var stopCallCount = 0
 
-    func start(displayID: UInt32?, preferredFramesPerSecond: Int) {
+    func start(attachedTo view: NSView, preferredFramesPerSecond: Int) {
+        pacingMode = .appKitDisplayLink
         startCalls.append(StartCall(
-            displayID: displayID,
+            view: view,
             preferredFramesPerSecond: preferredFramesPerSecond
         ))
     }
 
     func stop() {
+        pacingMode = .stopped
         stopCallCount += 1
     }
 

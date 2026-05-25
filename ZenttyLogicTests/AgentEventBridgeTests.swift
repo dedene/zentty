@@ -1665,6 +1665,71 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.sessionID, "hermes-session-123")
     }
 
+    func test_hermes_adapter_pre_tool_call_clarify_maps_to_needs_input_question() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"""
+            {
+              "session_id": "hermes-session-123",
+              "cwd": "/tmp/project",
+              "tool_name": "clarify",
+              "tool_input": { "question": "Which deployment target should I use?" }
+            }
+            """#.utf8),
+            defaultEventName: "pre-tool-call",
+            environment: hermesEnvironment()
+        )
+
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .question)
+        XCTAssertEqual(payload.text, "Which deployment target should I use?")
+        XCTAssertEqual(payload.sessionID, "hermes-session-123")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_hermes_adapter_pre_tool_call_clarify_with_choices_maps_to_decision() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"""
+            {
+              "session_id": "hermes-session-123",
+              "tool_name": "clarify",
+              "tool_input": {
+                "question": "Which deployment target should I use?",
+                "choices": ["Staging", "Production"]
+              }
+            }
+            """#.utf8),
+            defaultEventName: "pre-tool-call",
+            environment: hermesEnvironment()
+        )
+
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .decision)
+        XCTAssertEqual(payload.text, "Which deployment target should I use?\n- Staging\n- Production")
+    }
+
+    func test_hermes_adapter_post_tool_call_clarify_restores_running() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","tool_name":"clarify"}"#.utf8),
+            defaultEventName: "post-tool-call",
+            environment: hermesEnvironment()
+        )
+
+        XCTAssertEqual(payloads.map(\.state), [.running])
+        XCTAssertEqual(payloads.first?.interactionKind, .none)
+    }
+
+    func test_hermes_adapter_pre_tool_call_non_clarify_stays_running() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","tool_name":"shell"}"#.utf8),
+            defaultEventName: "pre-tool-call",
+            environment: hermesEnvironment()
+        )
+
+        XCTAssertEqual(payloads.map(\.state), [.running])
+    }
+
     func test_hermes_adapter_post_approval_response_restores_running() throws {
         let payloads = try AgentEventBridge.hermesAdapter(
             data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
@@ -1676,18 +1741,52 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads.first?.interactionKind, .none)
     }
 
-    func test_hermes_adapter_session_end_clears_lifecycle_and_pid() throws {
+    func test_hermes_adapter_session_end_marks_idle_without_clearing_live_tui_pid() throws {
         let payloads = try AgentEventBridge.hermesAdapter(
             data: Data(#"{"session_id":"hermes-session-123"}"#.utf8),
             defaultEventName: "on-session-end",
             environment: hermesEnvironment(pid: "4242")
         )
 
-        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].signalKind, .lifecycle)
-        XCTAssertNil(payloads[0].state)
-        XCTAssertEqual(payloads[1].signalKind, .pid)
-        XCTAssertEqual(payloads[1].pidEvent, .clear)
+        XCTAssertEqual(payloads[0].state, .idle)
+        XCTAssertNil(payloads[0].pidEvent)
+    }
+
+    func test_hermes_adapter_session_end_retains_reducer_session_for_restore() throws {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let sessionStartPayloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "on-session-start",
+            environment: hermesEnvironment(pid: "4242")
+        )
+        let runningPayloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "pre-llm-call",
+            environment: hermesEnvironment(pid: "4242")
+        )
+        let endedPayloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "on-session-end",
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        var reducerState = PaneAgentReducerState()
+        for payload in sessionStartPayloads {
+            reducerState.apply(payload, now: startedAt)
+        }
+        for payload in runningPayloads {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(1))
+        }
+        for payload in endedPayloads {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(2))
+        }
+
+        let status = try XCTUnwrap(reducerState.reducedStatus(now: startedAt.addingTimeInterval(2)))
+        XCTAssertEqual(status.state, .idle)
+        XCTAssertEqual(status.sessionID, "hermes-session-123")
+        XCTAssertEqual(status.trackedPID, 4242)
     }
 
     // MARK: - Adapter Test Helpers

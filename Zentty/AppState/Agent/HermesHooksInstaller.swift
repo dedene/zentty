@@ -9,6 +9,9 @@ enum HermesHooksInstaller {
 
     static let hookMarker = "# zentty hermes hooks begin"
     private static let hookEndMarker = "# zentty hermes hooks end"
+    private static let managedScriptsDirectoryName = "zentty-status"
+    private static let managedScriptMarker = "zentty hermes hook script v1"
+    private static let legacyManagedScriptMarker = "ipc agent-event --adapter=hermes"
 
     static let events: [Event] = [
         Event(name: "on_session_start", cliEvent: "on-session-start", timeout: 5),
@@ -57,15 +60,27 @@ enum HermesHooksInstaller {
         try fileManager.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: allowlistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
+        let wroteScripts = try installManagedScripts(
+            hermesHomeURL: configURL.deletingLastPathComponent(),
+            cliPath: cliPath,
+            fileManager: fileManager
+        )
+
         let existingConfig = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        let nextConfig = installManagedBlock(in: existingConfig, cliPath: cliPath)
+        let nextConfig = installManagedBlock(
+            in: existingConfig,
+            hermesHomeURL: configURL.deletingLastPathComponent()
+        )
         let wroteConfig = existingConfig != nextConfig || !fileManager.fileExists(atPath: configURL.path)
         if wroteConfig {
             try nextConfig.write(to: configURL, atomically: true, encoding: .utf8)
         }
 
         let existingAllowlist = readAllowlist(at: allowlistURL)
-        let nextAllowlist = mergedAllowlist(existingAllowlist, cliPath: cliPath)
+        let nextAllowlist = mergedAllowlist(
+            existingAllowlist,
+            hermesHomeURL: configURL.deletingLastPathComponent()
+        )
         let existingAllowlistData = try? JSONSerialization.data(
             withJSONObject: existingAllowlist,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -79,7 +94,7 @@ enum HermesHooksInstaller {
             try nextAllowlistData.write(to: allowlistURL, options: .atomic)
         }
 
-        return wroteConfig || wroteAllowlist
+        return wroteScripts || wroteConfig || wroteAllowlist
     }
 
     static func uninstall(
@@ -111,6 +126,11 @@ enum HermesHooksInstaller {
         if existingAllowlistData != nextAllowlistData {
             try nextAllowlistData.write(to: allowlistURL, options: .atomic)
         }
+
+        let scriptsURL = managedScriptsDirectoryURL(hermesHomeURL: configURL.deletingLastPathComponent())
+        if fileManager.fileExists(atPath: scriptsURL.path) {
+            try? fileManager.removeItem(at: scriptsURL)
+        }
     }
 
     @discardableResult
@@ -127,7 +147,7 @@ enum HermesHooksInstaller {
         )
     }
 
-    private static func installManagedBlock(in source: String, cliPath: String) -> String {
+    private static func installManagedBlock(in source: String, hermesHomeURL: URL) -> String {
         var text = removeManagedBlock(from: source)
         if text.isEmpty {
             text = "hooks:\n"
@@ -139,7 +159,7 @@ enum HermesHooksInstaller {
             text.replaceSubrange(range, with: "hooks:")
         }
 
-        let block = managedHookBlock(cliPath: cliPath)
+        let block = managedHookBlock(hermesHomeURL: hermesHomeURL)
         guard let hooksRange = text.range(of: #"(?m)^hooks:\s*$"#, options: .regularExpression) else {
             if !text.hasSuffix("\n") { text += "\n" }
             return text + "\nhooks:\n" + block
@@ -156,11 +176,11 @@ enum HermesHooksInstaller {
         return text
     }
 
-    private static func managedHookBlock(cliPath: String) -> String {
+    private static func managedHookBlock(hermesHomeURL: URL) -> String {
         var lines = ["  \(hookMarker)"]
         for event in events {
             lines.append("  \(event.name):")
-            lines.append("    - command: \"\(yamlDoubleQuoted(hookCommand(cliPath: cliPath, event: event)))\"")
+            lines.append("    - command: \"\(yamlDoubleQuoted(hookCommand(hermesHomeURL: hermesHomeURL, event: event)))\"")
             lines.append("      timeout: \(event.timeout)")
         }
         lines.append("  \(hookEndMarker)")
@@ -177,10 +197,99 @@ enum HermesHooksInstaller {
         return lines.joined(separator: "\n")
     }
 
-    private static func hookCommand(cliPath: String, event: Event) -> String {
-        let script = #"if [ "$ZENTTY_HERMES_HOOKS_DISABLED" = "1" ]; then echo "{}"; exit 0; fi; "#
-            + "\(shellQuotedIfNeeded(cliPath)) hermes-hook \(event.cliEvent) || echo '{}'"
-        return "sh -c \(shellQuotedArgument(script))"
+    private static func installManagedScripts(
+        hermesHomeURL: URL,
+        cliPath: String,
+        fileManager: FileManager
+    ) throws -> Bool {
+        let scriptsURL = managedScriptsDirectoryURL(hermesHomeURL: hermesHomeURL)
+        try fileManager.createDirectory(at: scriptsURL, withIntermediateDirectories: true)
+
+        var wrote = false
+        var currentScriptNames = Set<String>()
+        for event in events {
+            let scriptURL = managedScriptURL(hermesHomeURL: hermesHomeURL, event: event)
+            currentScriptNames.insert(scriptURL.lastPathComponent)
+            let body = managedScriptBody(cliPath: cliPath, event: event)
+            let data = Data(body.utf8)
+            if (try? Data(contentsOf: scriptURL)) != data {
+                try data.write(to: scriptURL, options: .atomic)
+                wrote = true
+            }
+            let attributes = try? fileManager.attributesOfItem(atPath: scriptURL.path)
+            let permissions = attributes?[.posixPermissions] as? NSNumber
+            if permissions?.uint16Value != 0o755 {
+                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+                wrote = true
+            }
+        }
+        if try removeStaleManagedScripts(
+            in: scriptsURL,
+            currentScriptNames: currentScriptNames,
+            fileManager: fileManager
+        ) {
+            wrote = true
+        }
+        return wrote
+    }
+
+    private static func removeStaleManagedScripts(
+        in scriptsURL: URL,
+        currentScriptNames: Set<String>,
+        fileManager: FileManager
+    ) throws -> Bool {
+        var removed = false
+        let fileNames = (try? fileManager.contentsOfDirectory(atPath: scriptsURL.path)) ?? []
+        for fileName in fileNames where !currentScriptNames.contains(fileName) {
+            let scriptURL = scriptsURL.appendingPathComponent(fileName, isDirectory: false)
+            guard let script = try? String(contentsOf: scriptURL, encoding: .utf8),
+                  script.contains(managedScriptMarker) || script.contains(legacyManagedScriptMarker) else {
+                continue
+            }
+            try fileManager.removeItem(at: scriptURL)
+            removed = true
+        }
+        return removed
+    }
+
+    private static func managedScriptBody(cliPath: String, event: Event) -> String {
+        """
+        #!/bin/sh
+        # Zentty-managed Hermes hook.
+        # Marker: \(managedScriptMarker)
+
+        if [ "${ZENTTY_HERMES_HOOKS_DISABLED:-}" = "1" ]; then
+            printf '{}\\n'
+            exit 0
+        fi
+
+        ZENTTY_BIN=\(shellQuotedArgument(cliPath))
+        if [ -z "$ZENTTY_BIN" ] || [ ! -x "$ZENTTY_BIN" ]; then
+            ZENTTY_BIN="$(command -v zentty 2>/dev/null || true)"
+        fi
+        if [ -z "$ZENTTY_BIN" ]; then
+            printf '{}\\n'
+            exit 0
+        fi
+
+        "$ZENTTY_BIN" hermes-hook \(event.cliEvent) || printf '{}\\n'
+        exit 0
+        """
+    }
+
+    private static func hookCommand(hermesHomeURL: URL, event: Event) -> String {
+        managedScriptURL(hermesHomeURL: hermesHomeURL, event: event).path
+    }
+
+    private static func managedScriptsDirectoryURL(hermesHomeURL: URL) -> URL {
+        hermesHomeURL
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent(managedScriptsDirectoryName, isDirectory: true)
+    }
+
+    private static func managedScriptURL(hermesHomeURL: URL, event: Event) -> URL {
+        managedScriptsDirectoryURL(hermesHomeURL: hermesHomeURL)
+            .appendingPathComponent("\(event.cliEvent).sh", isDirectory: false)
     }
 
     private static func readAllowlist(at url: URL) -> [String: Any] {
@@ -191,18 +300,18 @@ enum HermesHooksInstaller {
         return object
     }
 
-    private static func mergedAllowlist(_ allowlist: [String: Any], cliPath: String) -> [String: Any] {
+    private static func mergedAllowlist(_ allowlist: [String: Any], hermesHomeURL: URL) -> [String: Any] {
         var next = allowlist
         var approvals = (next["approvals"] as? [[String: Any]]) ?? []
         approvals.removeAll { approval in
             guard let command = approval["command"] as? String else { return false }
-            return command.contains("zentty hermes-hook")
+            return isManagedHookCommand(command)
         }
         let timestamp = ISO8601DateFormatter().string(from: Date())
         approvals.append(contentsOf: events.map { event in
             [
                 "event": event.name,
-                "command": hookCommand(cliPath: cliPath, event: event),
+                "command": hookCommand(hermesHomeURL: hermesHomeURL, event: event),
                 "approved_at": timestamp,
             ]
         })
@@ -215,22 +324,21 @@ enum HermesHooksInstaller {
         let approvals = (next["approvals"] as? [[String: Any]]) ?? []
         next["approvals"] = approvals.filter { approval in
             guard let command = approval["command"] as? String else { return true }
-            return !command.contains("zentty hermes-hook")
+            return !isManagedHookCommand(command)
         }
         return next
+    }
+
+    private static func isManagedHookCommand(_ command: String) -> Bool {
+        command.contains("zentty hermes-hook")
+            || command.contains("/hooks/\(managedScriptsDirectoryName)/")
+            || command.contains("\\/hooks\\/\(managedScriptsDirectoryName)\\/")
     }
 
     private static func yamlDoubleQuoted(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-    }
-
-    private static func shellQuotedIfNeeded(_ value: String) -> String {
-        if value.range(of: #"^[A-Za-z0-9_./:=+-]+$"#, options: .regularExpression) != nil {
-            return value
-        }
-        return shellQuotedArgument(value)
     }
 
     private static func shellQuotedArgument(_ value: String) -> String {

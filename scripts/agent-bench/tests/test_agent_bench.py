@@ -1438,6 +1438,7 @@ class ProfileTests(unittest.TestCase):
             sorted(profiles),
             ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi"],
         )
+        self.assertEqual(sorted(agent_bench.SUPPORTED_AGENTS), sorted(profiles))
         for profile in profiles.values():
             self.assertIn("smoke", profile.expectations)
 
@@ -1768,16 +1769,33 @@ class ProfileTests(unittest.TestCase):
             config = (hermes_home / "config.yaml").read_text(encoding="utf-8")
             self.assertIn("on_session_start:", config)
             self.assertIn("pre_approval_request:", config)
-            self.assertIn("hermes-hook on-session-start", config)
+            self.assertIn("/hooks/zentty-status/on-session-start.sh", config)
+            self.assertNotIn("sh -c", config)
+            hook_script = hermes_home / "hooks" / "zentty-status" / "on-session-start.sh"
+            self.assertTrue(hook_script.exists())
+            self.assertTrue(os.access(hook_script, os.X_OK))
+            hook_script_text = hook_script.read_text(encoding="utf-8")
+            self.assertIn("/tmp/zentty-bench", hook_script_text)
+            self.assertIn("hermes-hook on-session-start", hook_script_text)
 
             allowlist = json.loads((hermes_home / "shell-hooks-allowlist.json").read_text(encoding="utf-8"))
             self.assertEqual({item["event"] for item in allowlist["approvals"]}, {event[0] for event in agent_bench.LaunchPlanner._HERMES_HOOK_EVENTS})
+            self.assertTrue(all("/hooks/zentty-status/" in item["command"] for item in allowlist["approvals"]))
 
             self.assertEqual([action["arguments"] for action in plan["preLaunchActions"]], [["--adapter=hermes"], ["--adapter=hermes"]])
             self.assertIn('"event":"session.start"', plan["preLaunchActions"][0]["standardInput"])
             self.assertIn('"event":"agent.running"', plan["preLaunchActions"][1]["standardInput"])
             self.assertNotIn('"session"', plan["preLaunchActions"][0]["standardInput"])
             self.assertIn('"arguments":["--tui","--model","anthropic/claude-sonnet-4.6"]', plan["preLaunchActions"][0]["standardInput"])
+
+    def test_hermes_profile_waits_for_turn_completion_hook(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["hermes"]
+
+        self.assertEqual(profile.launch_args_by_scenario["session_capture"][:2], ["chat", "--query"])
+        self.assertEqual(
+            profile.expectations["session_capture"].required_events,
+            ["session.start", "agent.running", "post-llm-call"],
+        )
 
     def test_claude_plan_installs_tool_use_hooks_for_permission_sensitive_tools(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]

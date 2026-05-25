@@ -568,8 +568,13 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
 
 enum AgentToolRecognizer {
     static func recognize(metadata: TerminalMetadata?) -> AgentTool? {
-        AgentTool.resolveKnown(named: metadata?.title)
-            ?? AgentTool.resolveKnown(named: metadata?.processName)
+        let processTool = AgentTool.resolveKnown(named: metadata?.processName)
+        if processTool == .hermes {
+            return .hermes
+        }
+
+        return AgentTool.resolveKnown(named: metadata?.title)
+            ?? processTool
             ?? codexFromVolatileTitle(metadata?.title)
     }
 

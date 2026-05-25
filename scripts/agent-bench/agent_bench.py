@@ -27,7 +27,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -1671,13 +1671,34 @@ class LaunchPlanner:
     ]
 
     @staticmethod
-    def _hermes_hook_command(cli_path: str, cli_event: str) -> str:
-        escaped = shell_escape_double_quoted(cli_path)
+    def _hermes_hook_script_body(cli_path: str, cli_event: str) -> str:
         return (
-            ": zentty-hermes-hook-v1; "
-            'if [ "$ZENTTY_HERMES_HOOKS_DISABLED" = "1" ]; then echo \'{}\'; exit 0; fi; '
-            f"\"{escaped}\" hermes-hook {cli_event} || echo '{{}}'"
+            "#!/bin/sh\n"
+            "# Zentty-managed Hermes hook.\n"
+            "# Marker: zentty hermes hook script v1\n\n"
+            "if [ \"${ZENTTY_HERMES_HOOKS_DISABLED:-}\" = \"1\" ]; then\n"
+            "    printf '{}\\n'\n"
+            "    exit 0\n"
+            "fi\n\n"
+            f"ZENTTY_BIN={shlex.quote(cli_path)}\n"
+            "if [ -z \"$ZENTTY_BIN\" ] || [ ! -x \"$ZENTTY_BIN\" ]; then\n"
+            "    ZENTTY_BIN=\"$(command -v zentty 2>/dev/null || true)\"\n"
+            "fi\n"
+            "if [ -z \"$ZENTTY_BIN\" ]; then\n"
+            "    printf '{}\\n'\n"
+            "    exit 0\n"
+            "fi\n\n"
+            f"\"$ZENTTY_BIN\" hermes-hook {cli_event} || printf '{{}}\\n'\n"
+            "exit 0\n"
         )
+
+    @classmethod
+    def _write_hermes_hook_script(cls, hooks_dir: pathlib.Path, cli_path: str, cli_event: str) -> pathlib.Path:
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        script_path = hooks_dir / f"{cli_event}.sh"
+        script_path.write_text(cls._hermes_hook_script_body(cli_path, cli_event), encoding="utf-8")
+        script_path.chmod(0o755)
+        return script_path
 
     def _plan_hermes(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         home = self._overlay_dir("hermes") / "home"
@@ -1688,8 +1709,9 @@ class LaunchPlanner:
 
         config_lines = ["hooks:"]
         approvals = []
+        hooks_dir = hermes_home / "hooks" / "zentty-status"
         for event_name, cli_event, timeout in self._HERMES_HOOK_EVENTS:
-            command = self._hermes_hook_command(cli_path, cli_event)
+            command = str(self._write_hermes_hook_script(hooks_dir, cli_path, cli_event))
             config_lines.extend([
                 f"  {event_name}:",
                 f"    - command: {json.dumps(command)}",

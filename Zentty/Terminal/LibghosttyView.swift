@@ -1,5 +1,4 @@
 import AppKit
-import CoreVideo
 import GhosttyKit
 import QuartzCore
 
@@ -29,109 +28,6 @@ private enum TerminalBindingAction {
     static let scrollToBottom = "scroll_to_bottom"
 }
 
-protocol TerminalScrollFrameSampling: AnyObject, Sendable {
-    var onFrame: (() -> Void)? { get set }
-
-    func start(displayID: UInt32?, preferredFramesPerSecond: Int)
-    func stop()
-}
-
-final class TerminalScrollFrameSampler: TerminalScrollFrameSampling, @unchecked Sendable {
-    var onFrame: (() -> Void)?
-
-    private var displayLink: CVDisplayLink?
-    private var fallbackTimer: Timer?
-    private var isRunning = false
-
-    func start(displayID: UInt32?, preferredFramesPerSecond: Int) {
-        guard !isRunning else {
-            return
-        }
-
-        isRunning = true
-        if startDisplayLink(displayID: displayID) {
-            return
-        }
-
-        startFallbackTimer(preferredFramesPerSecond: preferredFramesPerSecond)
-    }
-
-    func stop() {
-        guard isRunning || displayLink != nil || fallbackTimer != nil else {
-            return
-        }
-
-        isRunning = false
-        if let displayLink {
-            CVDisplayLinkStop(displayLink)
-        }
-        displayLink = nil
-        fallbackTimer?.invalidate()
-        fallbackTimer = nil
-    }
-
-    deinit {
-        stop()
-    }
-
-    private func startDisplayLink(displayID: UInt32?) -> Bool {
-        var link: CVDisplayLink?
-        guard CVDisplayLinkCreateWithActiveCGDisplays(&link) == kCVReturnSuccess,
-              let link else {
-            return false
-        }
-
-        if let displayID {
-            CVDisplayLinkSetCurrentCGDisplay(link, CGDirectDisplayID(displayID))
-        }
-
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, context in
-            guard let context else {
-                return kCVReturnSuccess
-            }
-
-            let sampler = Unmanaged<TerminalScrollFrameSampler>
-                .fromOpaque(context)
-                .takeUnretainedValue()
-            sampler.displayLinkDidFire()
-            return kCVReturnSuccess
-        }
-
-        guard CVDisplayLinkSetOutputCallback(link, callback, context) == kCVReturnSuccess,
-              CVDisplayLinkStart(link) == kCVReturnSuccess else {
-            CVDisplayLinkStop(link)
-            return false
-        }
-
-        displayLink = link
-        return true
-    }
-
-    private func startFallbackTimer(preferredFramesPerSecond: Int) {
-        let framesPerSecond = max(60, min(240, preferredFramesPerSecond))
-        let timer = Timer(timeInterval: 1.0 / Double(framesPerSecond), repeats: true) { [weak self] _ in
-            guard let self, self.isRunning else {
-                return
-            }
-
-            self.onFrame?()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        fallbackTimer = timer
-    }
-
-    private func displayLinkDidFire() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isRunning else {
-                return
-            }
-
-            self.onFrame?()
-        }
-    }
-}
-
 @MainActor
 private final class LibghosttyOverlayHostView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -149,6 +45,274 @@ private final class LibghosttyOverlayHostView: NSView {
         return nil
     }
 }
+
+#if DEBUG
+@MainActor
+private final class TerminalFrameMeterHistoryGraphView: NSView {
+    private var historyPoints: [TerminalFrameMeter.HistoryPoint] = []
+    private var targetFramesPerSecond = 120
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(historyPoints: [TerminalFrameMeter.HistoryPoint], targetFramesPerSecond: Int) {
+        self.historyPoints = historyPoints
+        self.targetFramesPerSecond = max(1, targetFramesPerSecond)
+        needsDisplay = true
+    }
+
+    var historyPointCountForTesting: Int {
+        historyPoints.count
+    }
+
+    var historyDipCountForTesting: Int {
+        historyPoints.filter(\.isDip).count
+    }
+
+    var historyWarningCountForTesting: Int {
+        historyPoints.filter { $0.severity == .warning }.count
+    }
+
+    var historyCriticalCountForTesting: Int {
+        historyPoints.filter { $0.severity == .critical }.count
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard bounds.width > 2, bounds.height > 2 else {
+            return
+        }
+
+        drawTargetLine()
+        drawFPSLine()
+        drawDipMarkers()
+    }
+
+    private func drawTargetLine() {
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        path.move(to: NSPoint(x: 0, y: 0.5))
+        path.line(to: NSPoint(x: bounds.width, y: 0.5))
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        path.stroke()
+    }
+
+    private func drawFPSLine() {
+        let drawablePoints = historyPoints.enumerated().compactMap { index, point -> NSPoint? in
+            guard let framesPerSecond = point.framesPerSecond else {
+                return nil
+            }
+
+            return graphPoint(index: index, framesPerSecond: framesPerSecond)
+        }
+        guard !drawablePoints.isEmpty else {
+            return
+        }
+
+        let path = NSBezierPath()
+        path.lineWidth = 1.5
+        path.move(to: drawablePoints[0])
+        for point in drawablePoints.dropFirst() {
+            path.line(to: point)
+        }
+        NSColor.systemGreen.setStroke()
+        path.stroke()
+    }
+
+    private func drawDipMarkers() {
+        let dipPoints = historyPoints.enumerated().filter { $0.element.isDip }
+        guard !dipPoints.isEmpty else {
+            return
+        }
+
+        for (index, point) in dipPoints {
+            color(for: point.severity).setStroke()
+            let x = xPosition(for: index)
+            let path = NSBezierPath()
+            path.lineWidth = 1
+            path.move(to: NSPoint(x: x, y: 0))
+            path.line(to: NSPoint(x: x, y: bounds.height))
+            path.stroke()
+        }
+    }
+
+    private func graphPoint(index: Int, framesPerSecond: Double) -> NSPoint {
+        let clampedFPS = max(0, min(Double(targetFramesPerSecond), framesPerSecond))
+        let normalized = clampedFPS / Double(targetFramesPerSecond)
+        let y = bounds.height - (CGFloat(normalized) * bounds.height)
+        return NSPoint(x: xPosition(for: index), y: max(0, min(bounds.height, y)))
+    }
+
+    private func xPosition(for index: Int) -> CGFloat {
+        guard historyPoints.count > 1 else {
+            return bounds.width
+        }
+
+        let progress = CGFloat(index) / CGFloat(historyPoints.count - 1)
+        return progress * bounds.width
+    }
+
+    private func color(for severity: TerminalFrameMeter.Severity) -> NSColor {
+        switch severity {
+        case .stable:
+            return .systemGreen
+        case .warning:
+            return .systemOrange
+        case .critical:
+            return .systemRed
+        }
+    }
+}
+
+@MainActor
+final class TerminalFrameMeterHUDView: NSView {
+    struct Snapshot: Equatable {
+        let isHidden: Bool
+        let frame: NSRect
+        let primaryText: String
+        let secondaryText: String
+        let graphPointCount: Int
+        let graphDipCount: Int
+        let graphWarningCount: Int
+        let graphCriticalCount: Int
+        let severity: TerminalFrameMeter.Severity
+    }
+
+    private let primaryLabel = NSTextField(labelWithString: "FPS --")
+    private let secondaryLabel = NSTextField(labelWithString: "late --  max --")
+    private let graphView = TerminalFrameMeterHistoryGraphView(frame: NSRect(x: 0, y: 0, width: 114, height: 12))
+    private var displayedSeverity: TerminalFrameMeter.Severity = .stable
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = true
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+        layer?.borderWidth = 1
+        layer?.cornerRadius = 6
+        alphaValue = 0.92
+
+        primaryLabel.font = .monospacedSystemFont(ofSize: 10, weight: .semibold)
+        primaryLabel.textColor = .systemGreen
+        primaryLabel.alignment = .left
+        primaryLabel.lineBreakMode = .byClipping
+
+        secondaryLabel.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
+        secondaryLabel.textColor = .secondaryLabelColor
+        secondaryLabel.alignment = .left
+        secondaryLabel.lineBreakMode = .byClipping
+
+        addSubview(primaryLabel)
+        addSubview(secondaryLabel)
+        addSubview(graphView)
+        showWaiting()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        primaryLabel.frame = NSRect(x: 7, y: bounds.height - 17, width: bounds.width - 14, height: 12)
+        secondaryLabel.frame = NSRect(x: 7, y: bounds.height - 29, width: bounds.width - 14, height: 11)
+        graphView.frame = NSRect(x: 7, y: 5, width: bounds.width - 14, height: 12)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func showWaiting() {
+        isHidden = false
+        displayedSeverity = .stable
+        primaryLabel.stringValue = "FPS --"
+        primaryLabel.textColor = .secondaryLabelColor
+        secondaryLabel.stringValue = "sent -- late --"
+        graphView.update(historyPoints: [], targetFramesPerSecond: 120)
+    }
+
+    func update(with snapshot: TerminalFrameMeter.Snapshot) {
+        isHidden = false
+        let fpsText = snapshot.tickFramesPerSecond.map { String(format: "%.0f", $0) } ?? "--"
+        primaryLabel.stringValue = "FPS \(fpsText)/\(snapshot.preferredFramesPerSecond)"
+        displayedSeverity = statusSeverity(for: snapshot)
+        primaryLabel.textColor = color(for: displayedSeverity)
+
+        let latePercentage = Int((snapshot.lateFrameRatio * 100).rounded())
+        let sentText = snapshot.sentFramesPerSecond.map { String(format: "%.0f", $0) } ?? "--"
+        secondaryLabel.stringValue = "sent \(sentText) late \(latePercentage)%"
+        graphView.update(
+            historyPoints: snapshot.historyPoints,
+            targetFramesPerSecond: snapshot.preferredFramesPerSecond
+        )
+    }
+
+    var snapshotForTesting: Snapshot {
+        Snapshot(
+            isHidden: isHidden,
+            frame: frame,
+            primaryText: primaryLabel.stringValue,
+            secondaryText: secondaryLabel.stringValue,
+            graphPointCount: graphView.historyPointCountForTesting,
+            graphDipCount: graphView.historyDipCountForTesting,
+            graphWarningCount: graphView.historyWarningCountForTesting,
+            graphCriticalCount: graphView.historyCriticalCountForTesting,
+            severity: displayedSeverity
+        )
+    }
+
+    private func statusSeverity(for snapshot: TerminalFrameMeter.Snapshot) -> TerminalFrameMeter.Severity {
+        if let latestHistorySeverity = snapshot.historyPoints.last?.severity,
+           latestHistorySeverity != .stable {
+            return latestHistorySeverity
+        }
+
+        guard let framesPerSecond = snapshot.framesPerSecond else {
+            return .stable
+        }
+
+        let target = Double(snapshot.preferredFramesPerSecond)
+        if framesPerSecond < target * 0.50 {
+            return .critical
+        }
+        if framesPerSecond < target * 0.65 || snapshot.lateFrameRatio > 0.18 {
+            return .warning
+        }
+        return .stable
+    }
+
+    private func color(for severity: TerminalFrameMeter.Severity) -> NSColor {
+        switch severity {
+        case .stable:
+            return .systemGreen
+        case .warning:
+            return .systemOrange
+        case .critical:
+            return .systemRed
+        }
+    }
+}
+#endif
 
 @MainActor
 private final class LibghosttyScrollView: NSScrollView {
@@ -252,6 +416,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let scrollFrameSampler: any TerminalScrollFrameSampling
     private let scrollView: LibghosttyScrollView
     private let overlayHostView = LibghosttyOverlayHostView()
+    #if DEBUG
+    private let frameMeterSampler: any TerminalScrollFrameSampling
+    private let frameMeterHUDView = TerminalFrameMeterHUDView(frame: NSRect(x: 0, y: 0, width: 128, height: 48))
+    #endif
     private let documentView: NSView
     private let surfaceView: LibghosttyView
     private var isLiveScrolling = false
@@ -319,7 +487,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView: LibghosttyView,
         paneID: PaneID,
         diagnostics: TerminalDiagnostics,
-        scrollFrameSampler: any TerminalScrollFrameSampling = TerminalScrollFrameSampler()
+        scrollFrameSampler: any TerminalScrollFrameSampling = TerminalScrollFrameSampler(),
+        frameMeterSampler: (any TerminalScrollFrameSampling)? = nil
     ) {
         self.paneID = paneID
         self.diagnostics = diagnostics
@@ -327,6 +496,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         self.surfaceView = surfaceView
         self.scrollView = LibghosttyScrollView()
         self.documentView = NSView(frame: .zero)
+        #if DEBUG
+        self.frameMeterSampler = frameMeterSampler ?? TerminalScrollFrameSampler()
+        #endif
         super.init(frame: .zero)
 
         translatesAutoresizingMaskIntoConstraints = false
@@ -362,6 +534,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollFrameSampler.onFrame = { [weak self] in
             self?.sampleSmoothScrollFrame()
         }
+        #if DEBUG
+        self.frameMeterSampler.onFrame = { [weak self] in
+            self?.recordFrameMeterDisplayTick()
+        }
+        #endif
 
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
@@ -370,6 +547,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         overlayHostView.autoresizingMask = [.width, .height]
         overlayHostView.frame = bounds
         addSubview(overlayHostView)
+        #if DEBUG
+        overlayHostView.addSubview(frameMeterHUDView)
+        syncFrameMeterHUDVisibility()
+        #endif
 
         surfaceView.scrollbarHandler = self
 
@@ -398,6 +579,14 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             name: NSScrollView.didLiveScrollNotification,
             object: scrollView
         )
+        #if DEBUG
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFrameMeterStateDidChangeNotification),
+            name: TerminalFrameMeter.stateDidChangeNotification,
+            object: TerminalFrameMeter.shared
+        )
+        #endif
     }
 
     @available(*, unavailable)
@@ -407,17 +596,32 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        surfaceView.onBackingPropertiesDidChange = nil
-        surfaceView.onCellSizeDidChange = nil
-        scrollFrameSampler.stop()
+        MainActor.assumeIsolated {
+            surfaceView.onBackingPropertiesDidChange = nil
+            surfaceView.onCellSizeDidChange = nil
+            scrollFrameSampler.stop()
+            #if DEBUG
+            frameMeterSampler.stop()
+            #endif
+        }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
             stopSmoothScrollFrameSampling()
+            #if DEBUG
+            stopFrameMeterSampling()
+            #endif
             stopSelectionAutoscrollTimer()
         }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        #if DEBUG
+        startFrameMeterSamplingIfNeeded()
+        #endif
     }
 
     override func layout() {
@@ -425,6 +629,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             super.layout()
             scrollView.frame = bounds
             overlayHostView.frame = bounds
+            #if DEBUG
+            layoutFrameMeterHUD()
+            #endif
             surfaceView.frame.size = scrollView.bounds.size
             documentView.frame.size.width = scrollView.bounds.width
             updateSurfaceViewportDiagnosticsContext()
@@ -526,6 +733,12 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView
     }
 
+    #if DEBUG
+    var debugFrameMeterHUDSnapshotForTesting: TerminalFrameMeterHUDView.Snapshot {
+        frameMeterHUDView.snapshotForTesting
+    }
+    #endif
+
     @objc
     private func handleScrollChangeNotification(_ notification: Notification) {
         handleScrollChange()
@@ -551,6 +764,54 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             handleLiveScroll()
         }
     }
+
+    #if DEBUG
+    @objc
+    private func handleFrameMeterStateDidChangeNotification(_ notification: Notification) {
+        syncFrameMeterHUDVisibility()
+    }
+
+    private func syncFrameMeterHUDVisibility() {
+        guard TerminalFrameMeter.shared.isEnabled else {
+            stopFrameMeterSampling()
+            frameMeterHUDView.isHidden = true
+            return
+        }
+
+        startFrameMeterSamplingIfNeeded()
+        if let snapshot = TerminalFrameMeter.shared.latestSnapshot(for: paneID) {
+            frameMeterHUDView.update(with: snapshot)
+        } else {
+            frameMeterHUDView.showWaiting()
+        }
+    }
+
+    private func layoutFrameMeterHUD() {
+        let size = NSSize(width: 128, height: 48)
+        let inset: CGFloat = 8
+        frameMeterHUDView.frame = NSRect(
+            x: max(inset, overlayHostView.bounds.width - size.width - inset),
+            y: max(inset, overlayHostView.bounds.height - size.height - inset),
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func startFrameMeterSamplingIfNeeded() {
+        guard TerminalFrameMeter.shared.isEnabled else {
+            return
+        }
+
+        frameMeterSampler.start(
+            attachedTo: surfaceView,
+            preferredFramesPerSecond: preferredScrollFramesPerSecond()
+        )
+    }
+
+    private func stopFrameMeterSampling() {
+        frameMeterSampler.stop()
+    }
+    #endif
 
     private func updateSelectionAutoscrollTimerState() {
         if surfaceView.isSelectionDragActive {
@@ -612,7 +873,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         smoothScrollStableFrameCount = 0
         lastSampledSmoothScrollOffset = nil
         scrollFrameSampler.start(
-            displayID: surfaceView.currentDisplayID,
+            attachedTo: surfaceView,
             preferredFramesPerSecond: preferredScrollFramesPerSecond()
         )
     }
@@ -637,7 +898,30 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             return
         }
 
-        handleLiveScroll(force: force)
+        let offsetChanged = lastSampledSmoothScrollOffset
+            .map { abs($0 - offset) > smoothScrollOffsetEpsilonRows } ?? true
+
+        #if DEBUG
+        if offsetChanged {
+            recordFrameMeterSample(
+                kind: .offset,
+                rowOffset: offset,
+                pacingMode: scrollFrameSampler.pacingMode
+            )
+        }
+        #endif
+
+        let didSendScroll = handleLiveScroll(force: force)
+
+        #if DEBUG
+        if didSendScroll {
+            recordFrameMeterSample(
+                kind: .sent,
+                rowOffset: offset,
+                pacingMode: scrollFrameSampler.pacingMode
+            )
+        }
+        #endif
 
         let isInBounds = offset >= 0 && offset <= maxOffset
         let isStable = lastSampledSmoothScrollOffset
@@ -658,6 +942,40 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         let framesPerSecond = window?.screen?.maximumFramesPerSecond ?? NSScreen.main?.maximumFramesPerSecond ?? 120
         return max(60, min(240, framesPerSecond))
     }
+
+    #if DEBUG
+    private func recordFrameMeterDisplayTick() {
+        let rowOffset = currentLiveRowOffset() ??
+            lastSampledSmoothScrollOffset ??
+            lastSentOffset ??
+            0
+        recordFrameMeterSample(
+            kind: .tick,
+            rowOffset: rowOffset,
+            pacingMode: frameMeterSampler.pacingMode
+        )
+    }
+
+    private func recordFrameMeterSample(
+        kind: TerminalFrameMeter.SampleKind,
+        rowOffset: Double,
+        pacingMode: TerminalScrollFramePacingMode
+    ) {
+        if let frameMeterSnapshot = TerminalFrameMeter.shared.recordScrollFrameSample(
+            paneID: paneID,
+            rowOffset: rowOffset,
+            preferredFramesPerSecond: preferredScrollFramesPerSecond(),
+            displayID: surfaceView.currentDisplayID,
+            isLiveScrolling: isLiveScrolling,
+            sampleKind: kind,
+            pacingMode: pacingMode
+        ) {
+            frameMeterHUDView.update(with: frameMeterSnapshot)
+        } else {
+            frameMeterHUDView.isHidden = true
+        }
+    }
+    #endif
 
     private func beginBackingMetricsReconciliation() {
         guard smoothScrollingEnabled else {
@@ -1054,10 +1372,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         body()
     }
 
-    private func handleLiveScroll(force: Bool = false) {
+    @discardableResult
+    private func handleLiveScroll(force: Bool = false) -> Bool {
         let cellHeight = terminalCellHeightPoints
         guard cellHeight > 0 else {
-            return
+            return false
         }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
@@ -1080,13 +1399,14 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         snapLiveScrollToRowIfNeeded(offset: offset, cellHeight: cellHeight)
         let offsetEpsilon = smoothScrollingEnabled ? smoothScrollOffsetEpsilonRows : 0.01
         guard force || lastSentOffset.map({ abs($0 - offset) >= offsetEpsilon }) ?? true else {
-            return
+            return false
         }
 
         lastSentOffset = offset
         lastSentRow = Int(max(0, offset).rounded(.down))
         diagnostics.recordScrollToRowAction(paneID: paneID)
         surfaceView.scroll(toOffset: offset)
+        return true
     }
 
     private func recordScrollHostSync(_ body: () -> ScrollHostSyncMetrics) {
@@ -1276,6 +1596,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         let metalLayer = CAMetalLayer()
         metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         metalLayer.contentsScale = currentScaleFactor
+        metalLayer.displaySyncEnabled = true
         return metalLayer
     }
 

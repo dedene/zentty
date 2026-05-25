@@ -18,10 +18,11 @@
 /// 1. CopilotTitleNeedsInputReducer   — Copilot title "Asking…" → needsInput
 /// 2. CodexTitlePromotionReducer       — Codex title promotes starting/idle
 /// 3. ClaudeCodeTitleOverrideReducer   — Claude title overrides running→idle
-/// 4. CopilotOSCProgressReducer        — Copilot OSC upgrades idle→running
-/// 5. ExplicitAgentStateReducer        — default agentStatus.state mapping
-/// 6. FallbackTitleHeuristicReducer    — title-based phase when no hooks
-/// 7. GenericProgressReducer           — unknown tool + OSC → running
+/// 4. HermesTitleOverrideReducer       — Hermes TUI title is realtime phase
+/// 5. CopilotOSCProgressReducer        — Copilot OSC upgrades idle→running
+/// 6. ExplicitAgentStateReducer        — default agentStatus.state mapping
+/// 7. FallbackTitleHeuristicReducer    — title-based phase when no hooks
+/// 8. GenericProgressReducer           — unknown tool + OSC → running
 /// ```
 struct PresentationPipeline: Sendable {
     let reducers: [any PresentationReducer & Sendable]
@@ -45,6 +46,7 @@ struct PresentationPipeline: Sendable {
         CopilotTitleNeedsInputReducer(),
         CodexTitlePromotionReducer(),
         ClaudeCodeTitleOverrideReducer(),
+        HermesTitleOverrideReducer(),
         CopilotOSCProgressReducer(),
         ExplicitAgentStateReducer(),
         FallbackTitleHeuristicReducer(),

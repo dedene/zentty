@@ -225,7 +225,7 @@ struct AgentToolLauncher {
     ]
 
     static let hermesEarlyExitFlags: Set<String> = [
-        "--help", "-h", "--version", "-V", "--list-tools", "--list-toolsets", "--oneshot", "-z", "--query", "-q", "--quiet", "-Q",
+        "--help", "-h", "--version", "-V", "--list-tools", "--list-toolsets",
     ]
 
     private static func isHermesPassthroughSubcommand(_ argument: String) -> Bool {

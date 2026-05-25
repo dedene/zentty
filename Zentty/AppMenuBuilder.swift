@@ -99,7 +99,14 @@ enum AppMenuBuilder {
             action: #selector(AppDelegate.toggleAgentIconInspector(_:)),
             keyEquivalent: ""
         )
+        let frameMeterItem = NSMenuItem(
+            title: "Terminal Frame Meter",
+            action: #selector(AppDelegate.toggleTerminalFrameMeter(_:)),
+            keyEquivalent: ""
+        )
+        frameMeterItem.state = TerminalFrameMeter.shared.isEnabled ? .on : .off
         debugMenu.addItem(inspectIconsItem)
+        debugMenu.addItem(frameMeterItem)
         debugMenuItem.submenu = debugMenu
         return debugMenuItem
     }

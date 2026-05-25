@@ -267,6 +267,10 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(source.contains("Self.isHermesPassthroughSubcommand(subcommand)"))
         XCTAssertTrue(source.contains("!argument.hasPrefix(\"-\") && argument != \"chat\""))
         XCTAssertTrue(source.contains("\"--resume\"") == false)
+        XCTAssertTrue(source.contains("\"--query\"") == false)
+        XCTAssertTrue(source.contains("\"-q\"") == false)
+        XCTAssertTrue(source.contains("\"--oneshot\"") == false)
+        XCTAssertTrue(source.contains("\"-z\"") == false)
     }
 
     func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
@@ -8497,6 +8501,12 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let config = try String(contentsOf: hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)
         XCTAssertTrue(config.contains(HermesHooksInstaller.hookMarker))
+        XCTAssertTrue(config.contains("/hooks/zentty-status/on-session-start.sh"))
+        XCTAssertFalse(config.contains("sh -c"))
+        let scriptURL = hermesHome.appendingPathComponent("hooks/zentty-status/on-session-start.sh")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scriptURL.path))
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(script.contains("hermes-hook on-session-start"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: hermesHome.appendingPathComponent("shell-hooks-allowlist.json").path))
     }
 

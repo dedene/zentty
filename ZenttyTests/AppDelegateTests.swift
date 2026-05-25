@@ -354,6 +354,21 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNil(recursiveMenuItem(matchingTitle: "Task Manager", action: nil, in: viewMenu))
     }
 
+    #if DEBUG
+    func test_application_launch_places_terminal_frame_meter_in_debug_menu() throws {
+        NSApp.mainMenu = nil
+
+        let delegate = AppDelegate(shouldOpenMainWindow: false)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        let debugMenu = try XCTUnwrap(menu(named: "Debug"))
+        let frameMeterItem = try XCTUnwrap(debugMenu.items.first(where: { $0.title == "Terminal Frame Meter" }))
+
+        XCTAssertEqual(frameMeterItem.action, #selector(AppDelegate.toggleTerminalFrameMeter(_:)))
+        XCTAssertEqual(frameMeterItem.state, .off)
+    }
+    #endif
+
     @objc func test_application_launch_keeps_existing_main_menu_semantically_valid() {
         let existingMenu = AppMenuBuilder.makeMainMenu(appName: "Zentty")
         NSApp.mainMenu = existingMenu

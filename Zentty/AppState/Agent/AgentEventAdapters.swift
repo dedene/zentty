@@ -2365,7 +2365,30 @@ extension AgentEventBridge {
             payloads.append(lifecyclePayload(target: target, toolName: toolName, state: .starting, sessionID: sessionID, cwd: cwd))
             return payloads
 
-        case "pre_llm_call", "pre_tool_call", "post_tool_call", "post_approval_response":
+        case "pre_llm_call", "post_tool_call", "post_approval_response":
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
+
+        case "pre_tool_call":
+            if hermesIsClarifyTool(in: jsonObject) {
+                let (message, kind) = hermesClarifyInteraction(in: jsonObject)
+                return [AgentStatusPayload(
+                    windowID: target.windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID,
+                    state: .needsInput,
+                    origin: .explicitHook,
+                    toolName: toolName,
+                    text: message,
+                    lifecycleEvent: .update,
+                    interactionKind: kind,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil,
+                    agentWorkingDirectory: cwd
+                )]
+            }
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
 
         case "post_llm_call":
@@ -2392,23 +2415,7 @@ extension AgentEventBridge {
             )]
 
         case "on_session_end", "on_session_finalize", "session_end", "end":
-            return [
-                AgentStatusPayload(
-                    windowID: target.windowID,
-                    worklaneID: target.worklaneID,
-                    paneID: target.paneID,
-                    signalKind: .lifecycle,
-                    state: nil,
-                    origin: .explicitHook,
-                    toolName: toolName,
-                    text: nil,
-                    sessionID: sessionID,
-                    artifactKind: nil,
-                    artifactLabel: nil,
-                    artifactURL: nil
-                ),
-                pidPayload(target: target, toolName: toolName, pid: nil, event: .clear, sessionID: sessionID)
-            ]
+            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd)]
 
         default:
             return []
@@ -2446,5 +2453,51 @@ extension AgentEventBridge {
         let message = JSONKeyAccess.firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "description"])
             ?? "Hermes needs your approval"
         return (message, .approval)
+    }
+
+    private static func hermesIsClarifyTool(in jsonObject: [String: Any]) -> Bool {
+        let toolCall = JSONKeyAccess.firstObject(in: jsonObject, keys: ["tool_call", "toolCall", "tool"])
+        let rawName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool", "name"])
+            ?? JSONKeyAccess.firstString(in: toolCall, keys: ["tool_name", "toolName", "name"])
+        return rawName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clarify"
+    }
+
+    private static func hermesClarifyInteraction(in jsonObject: [String: Any]) -> (String, PaneAgentInteractionKind) {
+        let toolInput = hermesToolInput(in: jsonObject)
+        let question = JSONKeyAccess.firstString(in: toolInput, keys: ["question", "prompt", "message", "text", "description"])
+            ?? JSONKeyAccess.firstString(in: jsonObject, keys: ["question", "prompt", "message", "text", "description"])
+            ?? "Hermes needs your input"
+        let choices = hermesStringArray(in: toolInput, keys: ["choices", "options"])
+        guard !choices.isEmpty else {
+            return (question, .question)
+        }
+        return (([question] + choices.map { "- \($0)" }).joined(separator: "\n"), .decision)
+    }
+
+    private static func hermesToolInput(in jsonObject: [String: Any]) -> [String: Any]? {
+        if let toolInput = JSONKeyAccess.firstObject(in: jsonObject, keys: ["tool_input", "toolInput", "input", "args", "arguments"]) {
+            return toolInput
+        }
+        let toolCall = JSONKeyAccess.firstObject(in: jsonObject, keys: ["tool_call", "toolCall", "tool"])
+        return JSONKeyAccess.firstObject(in: toolCall, keys: ["tool_input", "toolInput", "input", "args", "arguments"])
+    }
+
+    private static func hermesStringArray(in object: [String: Any]?, keys: [String]) -> [String] {
+        guard let object else { return [] }
+        for key in keys {
+            if let values = object[key] as? [String] {
+                return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+            if let values = object[key] as? [[String: Any]] {
+                let labels = values.compactMap {
+                    JSONKeyAccess.firstString(in: $0, keys: ["label", "text", "value", "name"])
+                }
+                if !labels.isEmpty {
+                    return labels
+                }
+            }
+        }
+        return []
     }
 }

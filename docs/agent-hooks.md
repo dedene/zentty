@@ -343,8 +343,9 @@ Wrapped `hermes` launches get persistent status hooks in the active Hermes home 
 Zentty registers these Hermes events:
 
 - `on_session_start` / `on_session_reset` -> `session.start`
-- `pre_llm_call`, `pre_tool_call`, `post_tool_call`, `post_approval_response` -> `running`
+- `pre_llm_call`, non-clarify `pre_tool_call`, `post_tool_call`, `post_approval_response` -> `running`
 - `post_llm_call` -> `idle`
+- `pre_tool_call(clarify)` -> `needs-input` with question or decision text
 - `pre_approval_request` -> `needs-input` with approval text
 - `on_session_end` / `on_session_finalize` -> `session.end`
 
