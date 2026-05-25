@@ -1426,10 +1426,9 @@ final class WindowChromeViewTests: AppKitTestCase {
         ))
         XCTAssertFalse(view.currentPanesConfigForTesting.showProjectIcons)
         XCTAssertFalse(view.isFocusedProxyIconHidden)
-
-        let workspaceIcon = NSWorkspace.shared.icon(forFile: cwdPath)
-        workspaceIcon.size = NSSize(width: 14, height: 14)
-        XCTAssertEqual(view.focusedProxyIconImage?.tiffRepresentation, workspaceIcon.tiffRepresentation)
+        XCTAssertEqual(view.focusedProxyIconCwdPath, cwdPath)
+        XCTAssertEqual(view.focusedProxyIconImage?.size, NSSize(width: 14, height: 14))
+        XCTAssertFalse(view.isFocusedProxyIconTemplate)
 
         view.apply(panes: AppConfig.Panes(
             showLabels: true,

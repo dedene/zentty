@@ -242,17 +242,10 @@ enum MenuBarStatusIconRenderer {
         if let appBundle = hostingAppBundle() {
             append(appBundle)
         }
-        for bundle in Bundle.allBundles {
-            append(bundle)
-        }
         return bundles
     }
 
     private static func hostingAppBundle() -> Bundle? {
-        if let bundle = Bundle.allBundles.first(where: { $0.bundleURL.lastPathComponent == "Zentty.app" }) {
-            return bundle
-        }
-
         for key in ["BUILT_PRODUCTS_DIR", "TEST_RUNNER_BUILT_PRODUCTS_DIR"] {
             guard let builtProducts = ProcessInfo.processInfo.environment[key] else {
                 continue

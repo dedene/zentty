@@ -355,14 +355,14 @@ final class AppDelegateTests: XCTestCase {
     }
 
     #if DEBUG
-    func test_application_launch_places_terminal_frame_meter_in_debug_menu() throws {
+    func test_application_launch_places_performance_overlay_in_window_menu() throws {
         NSApp.mainMenu = nil
 
         let delegate = AppDelegate(shouldOpenMainWindow: false)
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
 
-        let debugMenu = try XCTUnwrap(menu(named: "Debug"))
-        let frameMeterItem = try XCTUnwrap(debugMenu.items.first(where: { $0.title == "Terminal Frame Meter" }))
+        let windowMenu = try XCTUnwrap(menu(named: "Window"))
+        let frameMeterItem = try XCTUnwrap(windowMenu.items.first(where: { $0.title == "Performance Overlay" }))
 
         XCTAssertEqual(frameMeterItem.action, #selector(AppDelegate.toggleTerminalFrameMeter(_:)))
         XCTAssertEqual(frameMeterItem.state, .off)
@@ -503,10 +503,8 @@ final class AppDelegateTests: XCTestCase {
         wait(for: [closed], timeout: 2.0)
 
         XCTAssertEqual(delegate.windowControllerCount, 1)
-        let visibleLaunchedWindows = NSApp.windows.filter { window in
-            originalWindows.contains(where: { $0 === window }) == false && window.isVisible
-        }
-        XCTAssertEqual(visibleLaunchedWindows.count, 1)
+        let visibleManagedWindows = delegate.windowControllersForTesting.map(\.window).filter(\.isVisible)
+        XCTAssertEqual(visibleManagedWindows.count, 1)
     }
 
     func test_application_quit_prompt_attaches_to_key_window_when_background_window_has_active_terminal_progress() throws {
@@ -995,11 +993,8 @@ final class AppDelegateTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }
         wait(for: [settled], timeout: 2.0)
 
-        let launchedWindow = try XCTUnwrap(
-            NSApp.windows.first(where: { window in
-                !originalWindows.contains(where: { $0 === window }) && window.isVisible
-            })
-        )
+        let launchedWindow = try XCTUnwrap(delegate.windowControllersForTesting.first?.window)
+        XCTAssertTrue(launchedWindow.isVisible)
         let contentView = try XCTUnwrap(launchedWindow.contentView)
         let leadingControlsBar = try XCTUnwrap(
             contentView.firstDescendant(ofType: LeadingChromeControlsBar.self)

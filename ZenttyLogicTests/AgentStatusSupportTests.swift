@@ -628,12 +628,22 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_repository_shell_integrations_tag_amp_shell_activity() throws {
+        let fakeBinDirectory = try makeTemporaryDirectory(named: "shell-integration-fake-amp-bin")
+        let fakeAmpURL = fakeBinDirectory.appendingPathComponent("amp", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeAmpURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeAmpURL.path)
+        let path = [
+            fakeBinDirectory.path,
+            ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+        ].joined(separator: ":")
+
         for shell in [ShellIntegrationTestShell.zsh, .bash] {
             let signals = try runShellIntegration(
                 shell: shell,
                 command: shell == .zsh
-                    ? #"_zentty_preexec "amp \"summarize this\"""#
-                    : #"amp "summarize this" 2>/dev/null || true"#
+                    ? #"_zentty_preexec "amp --execute \"summarize this\"""#
+                    : #"amp --execute "summarize this" 2>/dev/null || true"#,
+                extraEnvironment: ["PATH": path]
             )
 
             XCTAssertTrue(
@@ -8662,7 +8672,8 @@ final class AgentStatusSupportTests: XCTestCase {
         let scriptURL = hermesHome.appendingPathComponent("hooks/zentty-status/on-session-start.sh")
         XCTAssertTrue(FileManager.default.fileExists(atPath: scriptURL.path))
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
-        XCTAssertTrue(script.contains("ZENTTY_HERMES_PID=\"$PPID\""))
+        XCTAssertTrue(script.contains("ZENTTY_HERMES_PID=\"$ZENTTY_RESOLVED_HERMES_PID\""))
+        XCTAssertTrue(script.contains("export ZENTTY_HERMES_PID"))
         XCTAssertTrue(script.contains("hermes-hook on-session-start"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: hermesHome.appendingPathComponent("shell-hooks-allowlist.json").path))
     }
