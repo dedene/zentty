@@ -212,6 +212,102 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         XCTAssertEqual(reloadCount, 1)
     }
 
+    func test_applyThemeModeCommand_togglesAlwaysDarkToAlwaysLightAndKeepsThemeMemory() async throws {
+        let store = makeConfigStore()
+        try store.update { config in
+            config.appearance.themeMode = .alwaysDark
+            config.appearance.preferredDarkThemeName = "DarkTheme"
+            config.appearance.preferredLightThemeName = "LightTheme"
+            config.appearance.localThemeName = "DarkTheme"
+        }
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .cancel },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        let result = await coordinator.applyThemeModeCommand(.toggle, effectiveAppearanceIsDark: true)
+
+        XCTAssertEqual(result, .alwaysLight)
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysLight)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "DarkTheme")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "LightTheme")
+        XCTAssertNil(store.current.appearance.localThemeName)
+        XCTAssertEqual(reloadCount, 1)
+    }
+
+    func test_applyThemeModeCommand_togglesAlwaysLightToAlwaysDarkAndKeepsThemeMemory() async throws {
+        let store = makeConfigStore()
+        try store.update { config in
+            config.appearance.themeMode = .alwaysLight
+            config.appearance.preferredDarkThemeName = "DarkTheme"
+            config.appearance.preferredLightThemeName = "LightTheme"
+            config.appearance.localThemeName = nil
+        }
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .cancel },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        let result = await coordinator.applyThemeModeCommand(.toggle, effectiveAppearanceIsDark: false)
+
+        XCTAssertEqual(result, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "DarkTheme")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "LightTheme")
+        XCTAssertEqual(store.current.appearance.localThemeName, "DarkTheme")
+        XCTAssertEqual(reloadCount, 1)
+    }
+
+    func test_applyThemeModeCommand_togglesAutoToOppositeEffectiveAppearance() async throws {
+        let store = makeConfigStore()
+        try store.update { config in
+            config.appearance.themeMode = .followMacOS
+            config.appearance.preferredDarkThemeName = "DarkTheme"
+            config.appearance.preferredLightThemeName = "LightTheme"
+        }
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .cancel },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        let lightResult = await coordinator.applyThemeModeCommand(.toggle, effectiveAppearanceIsDark: true)
+        XCTAssertEqual(lightResult, .alwaysLight)
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysLight)
+
+        let darkResult = await coordinator.applyThemeModeCommand(.toggle, effectiveAppearanceIsDark: false)
+        XCTAssertEqual(darkResult, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.preferredDarkThemeName, "DarkTheme")
+        XCTAssertEqual(store.current.appearance.preferredLightThemeName, "LightTheme")
+        XCTAssertEqual(reloadCount, 2)
+    }
+
+    func test_applyThemeModeCommand_explicitCommandsSelectRequestedMode() async throws {
+        let store = makeConfigStore()
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .cancel },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        let autoResult = await coordinator.applyThemeModeCommand(.auto, effectiveAppearanceIsDark: false)
+        let lightResult = await coordinator.applyThemeModeCommand(.light, effectiveAppearanceIsDark: false)
+        let darkResult = await coordinator.applyThemeModeCommand(.dark, effectiveAppearanceIsDark: false)
+
+        XCTAssertEqual(autoResult, .followMacOS)
+        XCTAssertEqual(lightResult, .alwaysLight)
+        XCTAssertEqual(darkResult, .alwaysDark)
+        XCTAssertEqual(store.current.appearance.themeMode, .alwaysDark)
+        XCTAssertEqual(reloadCount, 3)
+    }
+
     func test_applyAlwaysLightMode_keepsModeAndDarkThemeMemoryWhenSharedConfigStoresSingleTheme() async throws {
         let store = makeConfigStore()
         var reloadCount = 0

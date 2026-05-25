@@ -1395,6 +1395,8 @@ final class RootViewController: NSViewController {
             onServerPrimaryRequested?()
         case .openBranchOnRemote:
             openBranchOnRemote()
+        case .themeMode(let command):
+            applyThemeModeCommand(command)
         case .openSettings:
             onShowSettingsRequested?()
         case .newWindow:
@@ -2143,6 +2145,17 @@ final class RootViewController: NSViewController {
         }
 
         NSWorkspace.shared.open(branchURL)
+    }
+
+    @discardableResult
+    func applyThemeModeCommand(_ command: AppearanceThemeModeCommand) -> AppConfig.Appearance.ThemeMode {
+        let appearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
+        let effectiveAppearanceIsDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let coordinator = GhosttyAppearanceSettingsCoordinator(configStore: configStore)
+        return coordinator.applyThemeModeCommandSync(
+            command,
+            effectiveAppearanceIsDark: effectiveAppearanceIsDark
+        )
     }
 
     var focusedTerminalHasSelection: Bool {

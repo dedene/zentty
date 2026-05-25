@@ -72,6 +72,10 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case openWithSelectedApp = "open_with.selected_app"
     case openSelectedServer = "server.open_selected"
     case openBranchOnRemote = "branch.open_remote"
+    case toggleLightDarkTheme = "theme.toggle_light_dark"
+    case useDarkTheme = "theme.use_dark"
+    case useLightTheme = "theme.use_light"
+    case useAutoTheme = "theme.use_auto"
     case openSettings = "app.open_settings"
     case newWindow = "app.new_window"
     case closeWindow = "app.close_window"
@@ -111,6 +115,7 @@ enum AppAction: Equatable, Sendable {
     case openWithSelectedApp
     case openSelectedServer
     case openBranchOnRemote
+    case themeMode(AppearanceThemeModeCommand)
     case openSettings
     case newWindow
     case closeWindow
@@ -735,6 +740,38 @@ enum AppCommandRegistry {
             menuItem: nil
         ),
         AppCommandDefinition(
+            id: .toggleLightDarkTheme,
+            title: "Toggle Light/Dark Theme",
+            category: .general,
+            defaultShortcut: nil,
+            action: .themeMode(.toggle),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .useDarkTheme,
+            title: "Use Dark Theme",
+            category: .general,
+            defaultShortcut: nil,
+            action: .themeMode(.dark),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .useLightTheme,
+            title: "Use Light Theme",
+            category: .general,
+            defaultShortcut: nil,
+            action: .themeMode(.light),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .useAutoTheme,
+            title: "Use Auto Theme",
+            category: .general,
+            defaultShortcut: nil,
+            action: .themeMode(.auto),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
             id: .openSettings,
             title: "Open Settings",
             category: .general,
@@ -1023,6 +1060,14 @@ extension AppCommandDefinition {
             "Open the selected detected server in the selected browser."
         case .openBranchOnRemote:
             "Open the current branch on GitHub or your remote host."
+        case .toggleLightDarkTheme:
+            "Switch between the selected dark and light terminal themes."
+        case .useDarkTheme:
+            "Use the selected dark terminal theme."
+        case .useLightTheme:
+            "Use the selected light terminal theme."
+        case .useAutoTheme:
+            "Follow macOS light and dark appearance."
         case .openSettings:
             "Open settings."
         case .newWindow:

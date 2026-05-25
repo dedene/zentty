@@ -22,6 +22,7 @@ struct ZenttyCLI: ParsableCommand {
             GridCommand.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
+            ThemeCommandGroup.self,
             ServerCommandGroup.self,
             NotifyCommand.self,
             CodexNotifyCommand.self,
@@ -749,6 +750,78 @@ struct LayoutCommand: ParsableCommand {
         }
         args += target.selectorArguments()
         _ = try PaneIPC.send(subcommand: "layout", arguments: args)
+    }
+}
+
+// MARK: - Theme Commands
+
+struct ThemeCommandGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "theme",
+        abstract: "Control Zentty's light and dark theme mode.",
+        subcommands: [
+            ThemeToggleCommand.self,
+            ThemeDarkCommand.self,
+            ThemeLightCommand.self,
+            ThemeAutoCommand.self,
+        ]
+    )
+}
+
+private enum ThemeCommandIPC {
+    static func send(_ command: String) throws {
+        let response = try PaneIPC.send(
+            subcommand: "theme",
+            arguments: [command],
+            expectsResponse: true
+        )
+        if let stdout = response?.result?.stdout {
+            print(stdout, terminator: "")
+        }
+    }
+}
+
+struct ThemeToggleCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "toggle",
+        abstract: "Toggle between the selected light and dark themes."
+    )
+
+    mutating func run() throws {
+        try ThemeCommandIPC.send("toggle")
+    }
+}
+
+struct ThemeDarkCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "dark",
+        abstract: "Use the selected dark theme."
+    )
+
+    mutating func run() throws {
+        try ThemeCommandIPC.send("dark")
+    }
+}
+
+struct ThemeLightCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "light",
+        abstract: "Use the selected light theme."
+    )
+
+    mutating func run() throws {
+        try ThemeCommandIPC.send("light")
+    }
+}
+
+struct ThemeAutoCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "auto",
+        abstract: "Follow macOS light and dark appearance."
+    )
+
+    mutating func run() throws {
+        try ThemeCommandIPC.send("auto")
     }
 }
 

@@ -83,6 +83,30 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
         XCTAssertTrue(items.first?.searchText.contains("github branch") == true)
     }
 
+    func testThemeCommandsAreAvailableInCommandPalette() {
+        let items = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [
+                .toggleLightDarkTheme,
+                .useDarkTheme,
+                .useLightTheme,
+                .useAutoTheme,
+            ],
+            shortcutManager: shortcutManager
+        )
+
+        XCTAssertEqual(
+            items.map(\.title),
+            [
+                "Toggle Light/Dark Theme",
+                "Use Dark Theme",
+                "Use Light Theme",
+                "Use Auto Theme",
+            ]
+        )
+        XCTAssertTrue(items.allSatisfy { $0.shortcutDisplay == nil })
+        XCTAssertEqual(Set(items.map(\.iconSystemName)), ["circle.lefthalf.filled"])
+    }
+
     func testEmptyAvailableIDsProducesNoItems() {
         let items = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: [],

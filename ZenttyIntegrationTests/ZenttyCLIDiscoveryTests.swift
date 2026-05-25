@@ -186,11 +186,117 @@ final class ZenttyCLIDiscoveryTests: XCTestCase {
         )
     }
 
+    func test_real_cli_theme_toggle_forwards_theme_request() throws {
+        let server = try RequestCaptureServer(
+            response: AgentIPCResponse(
+                id: "theme-1",
+                ok: true,
+                result: AgentIPCResponseResult(stdout: "light\n")
+            )
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["theme", "toggle"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_WINDOW_ID"] = "window-main"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment["ZENTTY_PANE_TOKEN"] = "token-main"
+        process.environment = environment
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.availableData, encoding: .utf8)
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stdout, "light\n")
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "theme")
+        XCTAssertEqual(request.arguments, ["toggle"])
+        XCTAssertTrue(request.expectsResponse)
+    }
+
+    func test_real_cli_theme_explicit_modes_forward_matching_theme_request() throws {
+        for command in ["dark", "light", "auto"] {
+            let server = try RequestCaptureServer(
+                response: AgentIPCResponse(
+                    id: "theme-\(command)",
+                    ok: true,
+                    result: AgentIPCResponseResult(stdout: "\(command)\n")
+                )
+            )
+            defer { server.invalidate() }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+            process.arguments = ["theme", command]
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+            environment["ZENTTY_WINDOW_ID"] = "window-main"
+            environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+            environment["ZENTTY_PANE_ID"] = "pane-main"
+            environment["ZENTTY_PANE_TOKEN"] = "token-main"
+            process.environment = environment
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+
+            try process.run()
+            let request = try server.receiveOneRequest()
+            process.waitUntilExit()
+
+            XCTAssertEqual(process.terminationStatus, 0)
+            XCTAssertEqual(request.kind, .pane)
+            XCTAssertEqual(request.subcommand, "theme")
+            XCTAssertEqual(request.arguments, [command])
+            XCTAssertTrue(request.expectsResponse)
+        }
+    }
+
+    func test_real_cli_theme_fails_outside_zentty_instance() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["theme", "toggle"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "ZENTTY_INSTANCE_SOCKET")
+        process.environment = environment
+        process.standardOutput = Pipe()
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertNotEqual(process.terminationStatus, 0)
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.availableData,
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertTrue(
+            stderr.contains("Not running inside a Zentty instance"),
+            "Expected theme command to require a Zentty instance, got: \(stderr)"
+        )
+    }
+
     private func builtCLIPath() throws -> String {
         if let builtProductsDir = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"] {
             return URL(fileURLWithPath: builtProductsDir, isDirectory: true)
                 .appendingPathComponent("zentty", isDirectory: false)
                 .path
+        }
+        let testBundleProductsURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let testBundleCLIURL = testBundleProductsURL.appendingPathComponent("zentty", isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: testBundleCLIURL.path) {
+            return testBundleCLIURL.path
         }
         throw XCTSkip("BUILT_PRODUCTS_DIR is unavailable.")
     }

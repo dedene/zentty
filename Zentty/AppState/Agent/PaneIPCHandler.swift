@@ -11,6 +11,21 @@ enum PaneIPCSubcommand: String {
     case layout
     case notify
     case worklaneColor = "worklane-color"
+    case theme
+}
+
+enum PaneThemeIPCError: LocalizedError {
+    case missingCommand
+    case unsupportedCommand(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCommand:
+            "Missing theme command."
+        case .unsupportedCommand(let command):
+            "Unsupported theme command: \(command)"
+        }
+    }
 }
 
 enum PaneGridIPCError: LocalizedError {
@@ -283,7 +298,7 @@ enum PaneIPCHandler {
             throw PaneRoutingError.paneNotFound
         }
 
-        if subcommand != .list && subcommand != .worklaneColor && subcommand != .notify {
+        if subcommand != .list && subcommand != .worklaneColor && subcommand != .notify && subcommand != .theme {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -311,7 +326,25 @@ enum PaneIPCHandler {
             return try handleNotify(arguments: request.arguments, target: target, appDelegate: appDelegate)
         case .worklaneColor:
             return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
+        case .theme:
+            return try handleTheme(arguments: request.arguments, windowController: windowController)
         }
+    }
+
+    @MainActor
+    private static func handleTheme(
+        arguments: [String],
+        windowController: MainWindowController
+    ) throws -> AgentIPCResponseResult {
+        guard let rawCommand = arguments.first else {
+            throw PaneThemeIPCError.missingCommand
+        }
+        guard let command = AppearanceThemeModeCommand(rawValue: rawCommand) else {
+            throw PaneThemeIPCError.unsupportedCommand(rawCommand)
+        }
+
+        let result = windowController.applyThemeModeCommand(command)
+        return AgentIPCResponseResult(stdout: "\(result.cliToken)\n")
     }
 
     @MainActor

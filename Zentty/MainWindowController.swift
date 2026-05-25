@@ -982,6 +982,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
+    func applyThemeModeCommand(_ command: AppearanceThemeModeCommand) -> AppConfig.Appearance.ThemeMode {
+        rootViewController.applyThemeModeCommand(command)
+    }
+
+    @discardableResult
     func splitWithLayout(
         placement: PanePlacement,
         isHorizontal: Bool,

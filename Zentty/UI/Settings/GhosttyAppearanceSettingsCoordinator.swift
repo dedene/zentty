@@ -12,6 +12,49 @@ enum AppearanceThemeSlot: Equatable {
     case light
 }
 
+enum AppearanceThemeModeCommand: String, Equatable, Sendable {
+    case toggle
+    case dark
+    case light
+    case auto
+
+    func resolvedMode(
+        currentMode: AppConfig.Appearance.ThemeMode,
+        effectiveAppearanceIsDark: Bool
+    ) -> AppConfig.Appearance.ThemeMode {
+        switch self {
+        case .dark:
+            .alwaysDark
+        case .light:
+            .alwaysLight
+        case .auto:
+            .followMacOS
+        case .toggle:
+            switch currentMode {
+            case .alwaysDark:
+                .alwaysLight
+            case .alwaysLight:
+                .alwaysDark
+            case .followMacOS:
+                effectiveAppearanceIsDark ? .alwaysLight : .alwaysDark
+            }
+        }
+    }
+}
+
+extension AppConfig.Appearance.ThemeMode {
+    var cliToken: String {
+        switch self {
+        case .followMacOS:
+            "auto"
+        case .alwaysDark:
+            "dark"
+        case .alwaysLight:
+            "light"
+        }
+    }
+}
+
 struct AppearanceThemePreferences: Equatable {
     var mode: AppConfig.Appearance.ThemeMode
     var darkThemeName: String?
@@ -170,23 +213,47 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
             preferences.lightThemeName = persistedThemeName
         }
 
-        await applyThemePreferences(preferences, presentingWindow: presentingWindow)
+        applyThemePreferences(preferences)
     }
 
     func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode, presentingWindow: NSWindow?) async {
+        applyThemeMode(mode)
+    }
+
+    @discardableResult
+    func applyThemeModeCommand(
+        _ command: AppearanceThemeModeCommand,
+        effectiveAppearanceIsDark: Bool
+    ) async -> AppConfig.Appearance.ThemeMode {
+        applyThemeModeCommandSync(command, effectiveAppearanceIsDark: effectiveAppearanceIsDark)
+    }
+
+    @discardableResult
+    func applyThemeModeCommandSync(
+        _ command: AppearanceThemeModeCommand,
+        effectiveAppearanceIsDark: Bool
+    ) -> AppConfig.Appearance.ThemeMode {
+        let mode = command.resolvedMode(
+            currentMode: themePreferences.mode,
+            effectiveAppearanceIsDark: effectiveAppearanceIsDark
+        )
+        applyThemeMode(mode)
+        return mode
+    }
+
+    private func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode) {
         var preferences = themePreferences
         preferences.mode = mode
-        await applyThemePreferences(preferences, presentingWindow: presentingWindow)
+        applyThemePreferences(preferences)
     }
 
     func resetThemePreferences(presentingWindow: NSWindow?) async {
-        await applyThemePreferences(
+        applyThemePreferences(
             AppearanceThemePreferences(
                 mode: .alwaysDark,
                 darkThemeName: GhosttyThemeLibrary.fallbackPersistedThemeName,
                 lightThemeName: GhosttyThemeLibrary.fallbackLightThemeName
-            ),
-            presentingWindow: presentingWindow
+            )
         )
     }
 
@@ -257,10 +324,7 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         }
     }
 
-    private func applyThemePreferences(
-        _ preferences: AppearanceThemePreferences,
-        presentingWindow _: NSWindow?
-    ) async {
+    private func applyThemePreferences(_ preferences: AppearanceThemePreferences) {
         let spec = GhosttyThemeSpec(
             mode: preferences.mode,
             darkThemeName: preferences.darkThemeName,
