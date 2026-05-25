@@ -218,6 +218,16 @@ final class ErrorReportingBootstrapTests: XCTestCase {
         ))
         XCTAssertTrue(limiter.shouldRecord(category: "zentty.render.sidebar", minInterval: 10, now: start))
     }
+
+    @MainActor
+    func test_terminal_input_breadcrumb_throttler_throttles_high_frequency_events() {
+        let throttler = TerminalInputBreadcrumbThrottler(minInterval: 10)
+        let start = Date(timeIntervalSince1970: 100)
+
+        XCTAssertTrue(throttler.shouldRecord(now: start))
+        XCTAssertFalse(throttler.shouldRecord(now: start.addingTimeInterval(5)))
+        XCTAssertTrue(throttler.shouldRecord(now: start.addingTimeInterval(11)))
+    }
 }
 
 private final class SpyErrorReportingClient: ErrorReportingClient {

@@ -23,8 +23,6 @@ final class SessionRestoreStore {
     let snapshotURL: URL
     let lifecycleURL: URL
     private let fileManager: FileManager
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
 
     init(
         snapshotURL: URL,
@@ -34,7 +32,6 @@ final class SessionRestoreStore {
         self.snapshotURL = snapshotURL
         self.lifecycleURL = lifecycleURL
         self.fileManager = fileManager
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
     convenience init(configDirectoryURL: URL) {
@@ -115,7 +112,7 @@ final class SessionRestoreStore {
         }
 
         let data = try Data(contentsOf: url)
-        return try decoder.decode(type, from: data)
+        return try Self.makeDecoder().decode(type, from: data)
     }
 
     private func persist<T: Encodable>(
@@ -126,8 +123,76 @@ final class SessionRestoreStore {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let data = try encoder.encode(value)
+        let data = try Self.makeEncoder().encode(value)
         try data.write(to: url, options: .atomic)
+    }
+
+    private static func makeEncoder() -> JSONEncoder {
+        JSONEncoder()
+    }
+
+    private static func makeDecoder() -> JSONDecoder {
+        JSONDecoder()
+    }
+}
+
+enum SessionRestorePersistenceRequest: Sendable {
+    case none
+    case saveSnapshot(SessionRestoreEnvelope)
+    case deleteSnapshot
+}
+
+final class SessionRestoreSnapshotPersistence: @unchecked Sendable {
+    private let store: SessionRestoreStore
+    private let queue = DispatchQueue(label: "be.zenjoy.zentty.session-restore-persistence")
+    private var latestAcceptedGeneration: UInt64 = 0
+
+    init(store: SessionRestoreStore) {
+        self.store = store
+    }
+
+    func persistAsync(_ request: SessionRestorePersistenceRequest, generation: UInt64) {
+        queue.async {
+            self.persistIfCurrent(request, generation: generation)
+        }
+    }
+
+    func persistSynchronously(_ request: SessionRestorePersistenceRequest, generation: UInt64) {
+        queue.sync {
+            guard generation >= self.latestAcceptedGeneration else {
+                return
+            }
+            self.latestAcceptedGeneration = generation
+            self.persist(request)
+        }
+    }
+
+    func waitForPendingOperationsForTesting() {
+        queue.sync {}
+    }
+
+    private func persistIfCurrent(_ request: SessionRestorePersistenceRequest, generation: UInt64) {
+        guard generation >= latestAcceptedGeneration else {
+            return
+        }
+
+        latestAcceptedGeneration = generation
+        persist(request)
+    }
+
+    private func persist(_ request: SessionRestorePersistenceRequest) {
+        do {
+            switch request {
+            case .none:
+                break
+            case .saveSnapshot(let envelope):
+                try store.saveSnapshot(envelope)
+            case .deleteSnapshot:
+                try store.deleteSnapshot()
+            }
+        } catch {
+            sessionRestoreLogger.error("Failed to persist restore snapshot: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 

@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
+    private let sessionRestorePersistence: SessionRestoreSnapshotPersistence
     private let windowFrameDefaults: UserDefaults
     private let notificationStore = NotificationStore()
     private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var configObserverID: UUID?
     private var nextWindowIndex = 0
     private var pendingSnapshotSaveTask: Task<Void, Never>?
+    private var snapshotSaveGeneration: UInt64 = 0
     private var isLaunchingWorkspace = false
     private let isSessionRestoreEnabled: Bool
     private let restoreErrorReporter: ((String) -> Void)?
@@ -53,8 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.configStore = configStore
         self.appUpdateController = appUpdateController
             ?? makeDefaultAppUpdateController(configStore: configStore)
-        self.sessionRestoreStore = sessionRestoreStore
+        let resolvedSessionRestoreStore = sessionRestoreStore
             ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
+        self.sessionRestoreStore = resolvedSessionRestoreStore
+        self.sessionRestorePersistence = SessionRestoreSnapshotPersistence(store: resolvedSessionRestoreStore)
         self.windowFrameDefaults = windowFrameDefaults
         self.isSessionRestoreEnabled = sessionRestoreEnabled
             ?? !Self.isHostedTestMode
@@ -339,8 +343,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
         if isSessionRestoreEnabled {
+            snapshotSaveGeneration &+= 1
+            let generation = snapshotSaveGeneration
             pendingSnapshotSaveTask?.cancel()
-            saveWorkspaceSnapshot(reason: .cleanExit)
+            persistWorkspaceSnapshot(reason: .cleanExit, generation: generation, synchronously: true)
             try? sessionRestoreStore.markCleanExit()
         }
         AgentIPCServer.shared.stop()
@@ -615,8 +621,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if restore.restoreWorkspaceOnLaunch {
             scheduleWorkspaceSnapshotSave()
         } else {
+            snapshotSaveGeneration &+= 1
             pendingSnapshotSaveTask?.cancel()
-            try? sessionRestoreStore.deleteSnapshot()
+            sessionRestorePersistence.persistAsync(.deleteSnapshot, generation: snapshotSaveGeneration)
         }
     }
 
@@ -629,6 +636,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        snapshotSaveGeneration &+= 1
+        let generation = snapshotSaveGeneration
         pendingSnapshotSaveTask?.cancel()
         pendingSnapshotSaveTask = Task { @MainActor [weak self] in
             guard let self else {
@@ -640,28 +649,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            self.saveWorkspaceSnapshot(reason: .liveSnapshot)
+            guard generation == self.snapshotSaveGeneration else {
+                return
+            }
+
+            self.persistWorkspaceSnapshot(reason: .liveSnapshot, generation: generation, synchronously: false)
         }
     }
 
-    private func saveWorkspaceSnapshot(reason: SessionRestoreEnvelope.SaveReason) {
+    private func persistWorkspaceSnapshot(
+        reason: SessionRestoreEnvelope.SaveReason,
+        generation: UInt64,
+        synchronously: Bool
+    ) {
+        let request = workspaceSnapshotPersistenceRequest(reason: reason)
+        if synchronously {
+            sessionRestorePersistence.persistSynchronously(request, generation: generation)
+        } else {
+            sessionRestorePersistence.persistAsync(request, generation: generation)
+        }
+    }
+
+    private func workspaceSnapshotPersistenceRequest(reason: SessionRestoreEnvelope.SaveReason) -> SessionRestorePersistenceRequest {
         if !configStore.current.restore.restoreWorkspaceOnLaunch {
-            try? sessionRestoreStore.deleteSnapshot()
-            return
+            return .deleteSnapshot
         }
 
         let envelope = currentSessionRestoreEnvelope(reason: reason)
         guard let envelope else {
-            return
+            return .none
         }
 
         let defaultWorkingDirectory = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         guard WorkspaceRecipeMeaningfulness.isMeaningful(envelope.workspace, defaultWorkingDirectory: defaultWorkingDirectory) else {
-            try? sessionRestoreStore.deleteSnapshot()
-            return
+            return .deleteSnapshot
         }
 
-        try? sessionRestoreStore.saveSnapshot(envelope)
+        return .saveSnapshot(envelope)
     }
 
     private func currentSessionRestoreEnvelope(reason: SessionRestoreEnvelope.SaveReason) -> SessionRestoreEnvelope? {

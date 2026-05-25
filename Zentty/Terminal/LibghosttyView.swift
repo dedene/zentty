@@ -1225,9 +1225,11 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var lastViewportSignature: ViewportSignature?
+    private var lastLayerGeometrySignature: ViewportSignature?
     private var isViewportSyncSuspended = false
     private(set) var hasValidViewportSync = false
     private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
+    private let inputBreadcrumbThrottler = TerminalInputBreadcrumbThrottler()
     private var keyTextAccumulator = ""
     private var markedTextStorage = ""
     private var markedTextSelection = NSRange(location: NSNotFound, length: 0)
@@ -1492,8 +1494,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
 
         onExplicitWheelScroll?()
-        ZenttyBreadcrumbs.record(
-            category: "zentty.input.terminal",
+        recordTerminalInputBreadcrumb(
             message: "scroll",
             data: [
                 "precision": event.hasPreciseScrollingDeltas,
@@ -1510,8 +1511,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     override func keyDown(with event: NSEvent) {
-        ZenttyBreadcrumbs.record(
-            category: "zentty.input.terminal",
+        recordTerminalInputBreadcrumb(
             message: "key",
             data: [
                 "repeat": event.isARepeat,
@@ -1887,12 +1887,13 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
 
         let viewportSize = normalizedBackingViewportSize
-        syncLayerGeometry(viewportSize: viewportSize)
         let viewportSignature = ViewportSignature(
             size: viewportSize,
             scale: currentScaleFactor,
             displayID: currentDisplayID
         )
+
+        syncLayerGeometryIfNeeded(signature: viewportSignature)
 
         guard viewportSignature != lastViewportSignature else {
             recordViewportDiagnostics(.syncSkippedDuplicate, nextSignature: viewportSignature)
@@ -1998,16 +1999,36 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         )
     }
 
-    private func syncLayerGeometry(viewportSize: CGSize) {
-        let scale = currentScaleFactor
+    private func syncLayerGeometryIfNeeded(signature: ViewportSignature) {
+        let shouldUpdateLayerScale = layer?.contentsScale != signature.scale
+        let shouldUpdateDrawableSize = (layer as? CAMetalLayer).map { $0.drawableSize != signature.size } ?? false
+        guard shouldUpdateLayerScale || shouldUpdateDrawableSize || lastLayerGeometrySignature != signature else {
+            return
+        }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.contentsScale = scale
-        if let metalLayer = layer as? CAMetalLayer, metalLayer.drawableSize != viewportSize {
-            metalLayer.drawableSize = viewportSize
+        if shouldUpdateLayerScale {
+            layer?.contentsScale = signature.scale
+        }
+        if shouldUpdateDrawableSize, let metalLayer = layer as? CAMetalLayer {
+            metalLayer.drawableSize = signature.size
         }
         CATransaction.commit()
+        lastLayerGeometrySignature = signature
+    }
+
+    private func recordTerminalInputBreadcrumb(message: String, data: [String: Any]) {
+        let now = Date()
+        guard inputBreadcrumbThrottler.shouldRecord(now: now) else {
+            return
+        }
+        ZenttyBreadcrumbs.record(
+            category: "zentty.input.terminal",
+            message: message,
+            data: data,
+            now: now
+        )
     }
 
     private func fallbackText(for event: NSEvent) -> String? {

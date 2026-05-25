@@ -97,7 +97,9 @@ final class ThemeCoordinator {
 
         let didChange = theme != currentTheme
         currentTheme = theme
-        onThemeDidChange?(theme, animated && didChange)
+        if didChange {
+            onThemeDidChange?(theme, animated)
+        }
         if didChange || forceTerminalReload {
             onTerminalConfigReload?()
         }

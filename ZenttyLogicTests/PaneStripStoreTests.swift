@@ -9335,6 +9335,83 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_clear_stale_agent_sessions_caches_process_liveness_per_pid() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let pid: Int32 = 42_424
+        let now = Date()
+        var livenessCalls = 0
+        let context = AgentSessionSweepContext(
+            processAliveResolver: { checkedPID in
+                XCTAssertEqual(checkedPID, pid)
+                livenessCalls += 1
+                return true
+            },
+            workingDirectoryResolver: { _ in nil }
+        )
+        var reducerState = PaneAgentReducerState()
+        reducerState.sessionsByID["session-a"] = runningSession(id: "session-a", pid: pid, now: now)
+        reducerState.sessionsByID["session-b"] = runningSession(id: "session-b", pid: pid, now: now)
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
+        worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = reducerState.reducedStatus(now: now)
+        store.activeWorklane = worklane
+
+        store.clearStaleAgentSessions(sweepContext: context)
+
+        XCTAssertEqual(livenessCalls, 1)
+    }
+
+    func test_clear_stale_agent_sessions_caches_working_directory_per_pid() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let pid: Int32 = 42_425
+        let now = Date()
+        var cwdCalls = 0
+        let context = AgentSessionSweepContext(
+            processAliveResolver: { _ in true },
+            workingDirectoryResolver: { checkedPID in
+                XCTAssertEqual(checkedPID, pid)
+                cwdCalls += 1
+                return "/tmp/project"
+            }
+        )
+        var reducerState = PaneAgentReducerState()
+        reducerState.sessionsByID["session-a"] = runningSession(id: "session-a", pid: pid, now: now)
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState = reducerState
+        worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = reducerState.reducedStatus(now: now)
+        store.activeWorklane = worklane
+
+        store.clearStaleAgentSessions(sweepContext: context)
+        store.clearStaleAgentSessions(sweepContext: context)
+
+        XCTAssertEqual(cwdCalls, 1)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.workingDirectory, "/tmp/project")
+    }
+
+    private func runningSession(id: String, pid: Int32, now: Date) -> PaneAgentSessionState {
+        PaneAgentSessionState(
+            sessionID: id,
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .running,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: now,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: pid,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: nil,
+            unresolvedStopVisibleUntil: nil
+        )
+    }
+
     func test_pane_context_signal_stores_local_context_and_formats_home_relative_display() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

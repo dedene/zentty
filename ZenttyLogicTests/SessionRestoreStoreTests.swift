@@ -108,6 +108,41 @@ final class SessionRestoreStoreTests: XCTestCase {
         )
     }
 
+    func test_snapshot_persistence_drops_stale_async_generation_after_newer_sync_write() throws {
+        let persistence = SessionRestoreSnapshotPersistence(store: store)
+        let staleEnvelope = envelope(windowID: "window-stale")
+        let currentEnvelope = envelope(windowID: "window-current")
+
+        persistence.persistSynchronously(.saveSnapshot(currentEnvelope), generation: 2)
+        persistence.persistAsync(.saveSnapshot(staleEnvelope), generation: 1)
+        persistence.waitForPendingOperationsForTesting()
+
+        let decision = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true))
+        XCTAssertEqual(decision.envelope.workspace.windows.map(\.id), ["window-current"])
+    }
+
+    func test_snapshot_persistence_serializes_clean_exit_after_pending_live_write() throws {
+        let persistence = SessionRestoreSnapshotPersistence(store: store)
+
+        persistence.persistAsync(.saveSnapshot(envelope(windowID: "window-live")), generation: 1)
+        persistence.persistSynchronously(.saveSnapshot(envelope(windowID: "window-clean-exit")), generation: 2)
+
+        let decision = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true))
+        XCTAssertEqual(decision.envelope.workspace.windows.map(\.id), ["window-clean-exit"])
+    }
+
+    func test_compact_snapshot_encoder_remains_compatible_with_pretty_printed_snapshots() throws {
+        let prettyEncoder = JSONEncoder()
+        prettyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let snapshotURL = directoryURL.appendingPathComponent("restore-snapshot.json")
+        let data = try prettyEncoder.encode(envelope(windowID: "window-pretty"))
+        try data.write(to: snapshotURL)
+
+        let decision = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true))
+
+        XCTAssertEqual(decision.envelope.workspace.windows.map(\.id), ["window-pretty"])
+    }
+
     func test_save_snapshot_round_trips_restore_drafts() throws {
         let envelope = SessionRestoreEnvelope(
             workspace: WorkspaceRecipe(
@@ -212,6 +247,20 @@ final class SessionRestoreStoreTests: XCTestCase {
                     trackedPID: livePID
                 ),
             ]
+        )
+    }
+
+    private func envelope(windowID: String) -> SessionRestoreEnvelope {
+        SessionRestoreEnvelope(
+            workspace: WorkspaceRecipe(
+                windows: [
+                    WorkspaceRecipe.Window(
+                        id: windowID,
+                        worklanes: [],
+                        activeWorklaneID: nil
+                    ),
+                ]
+            )
         )
     }
 

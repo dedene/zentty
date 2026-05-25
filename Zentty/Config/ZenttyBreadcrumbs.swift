@@ -68,6 +68,25 @@ final class ZenttyBreadcrumbRateLimiter: @unchecked Sendable {
     }
 }
 
+@MainActor
+final class TerminalInputBreadcrumbThrottler {
+    private let minInterval: TimeInterval
+    private var lastRecordedAt: Date?
+
+    init(minInterval: TimeInterval = 10) {
+        self.minInterval = minInterval
+    }
+
+    func shouldRecord(now: Date = Date()) -> Bool {
+        if let lastRecordedAt, now.timeIntervalSince(lastRecordedAt) < minInterval {
+            return false
+        }
+
+        lastRecordedAt = now
+        return true
+    }
+}
+
 enum ZenttyBreadcrumbs {
     private static let rateLimiter = ZenttyBreadcrumbRateLimiter()
     private static let defaultHighFrequencyInterval: TimeInterval = 10

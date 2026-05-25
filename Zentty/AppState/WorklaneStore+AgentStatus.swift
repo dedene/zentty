@@ -7,6 +7,49 @@ private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "
 private let codexRestartLogger = Logger(subsystem: "be.zenjoy.zentty", category: "CodexRestart")
 @MainActor private var loggedUnclassifiedCodexDesktopNotifications: Set<String> = []
 
+final class AgentSessionSweepContext {
+    private let processAliveResolver: (Int32) -> Bool
+    private let workingDirectoryResolver: (Int32) -> String?
+    private var processAliveByPID: [Int32: Bool] = [:]
+    private var workingDirectoryByPID: [Int32: String] = [:]
+    private var missingWorkingDirectoryPIDs: Set<Int32> = []
+
+    init(
+        processAliveResolver: @escaping (Int32) -> Bool = WorklaneStore.defaultIsProcessAlive(pid:),
+        workingDirectoryResolver: @escaping (Int32) -> String? = ProcessCWDResolver.workingDirectory(for:)
+    ) {
+        self.processAliveResolver = processAliveResolver
+        self.workingDirectoryResolver = workingDirectoryResolver
+    }
+
+    func isProcessAlive(pid: Int32) -> Bool {
+        if let cached = processAliveByPID[pid] {
+            return cached
+        }
+
+        let resolved = processAliveResolver(pid)
+        processAliveByPID[pid] = resolved
+        return resolved
+    }
+
+    func workingDirectory(for pid: Int32) -> String? {
+        if missingWorkingDirectoryPIDs.contains(pid) {
+            return nil
+        }
+        if let cached = workingDirectoryByPID[pid] {
+            return cached
+        }
+
+        guard let resolved = workingDirectoryResolver(pid) else {
+            missingWorkingDirectoryPIDs.insert(pid)
+            return nil
+        }
+
+        workingDirectoryByPID[pid] = resolved
+        return resolved
+    }
+}
+
 extension WorklaneStore {
     private static let codexInputSubmitStabilizationWindow: TimeInterval = 0.35
     private static let codexInterruptSuppressionWindow: TimeInterval = PaneAgentReducerState.stopGraceWindow + 1
@@ -1176,6 +1219,10 @@ extension WorklaneStore {
     }
 
     func clearStaleAgentSessions() {
+        clearStaleAgentSessions(sweepContext: AgentSessionSweepContext())
+    }
+
+    func clearStaleAgentSessions(sweepContext: AgentSessionSweepContext) {
         let now = currentDateProvider()
         for worklaneIndex in worklanes.indices {
             var worklane = worklanes[worklaneIndex]
@@ -1185,7 +1232,7 @@ extension WorklaneStore {
             for (paneID, aux) in worklane.auxiliaryStateByPaneID {
                 if !aux.agentReducerState.sessionsByID.isEmpty {
                     var reducerState = aux.agentReducerState
-                    reducerState.sweep(now: now, isProcessAlive: Self.isProcessAlive(pid:))
+                    reducerState.sweep(now: now, isProcessAlive: sweepContext.isProcessAlive(pid:))
                     var reducedStatus = Self.hydratedStatus(
                         reducerState.reducedStatus(now: now),
                         existingStatus: aux.agentStatus
@@ -1193,7 +1240,7 @@ extension WorklaneStore {
                     if let trackedPID = reducedStatus?.trackedPID,
                        (reducedStatus?.state == .starting || reducedStatus?.state == .running),
                        reducedStatus?.workingDirectory == nil,
-                       let processCwd = ProcessCWDResolver.workingDirectory(for: trackedPID),
+                       let processCwd = sweepContext.workingDirectory(for: trackedPID),
                        WorklaneContextFormatter.trimmed(processCwd) != nil {
                         reducedStatus?.workingDirectory = processCwd
                     }
@@ -1213,7 +1260,7 @@ extension WorklaneStore {
                     continue
                 }
 
-                guard let trackedPID = status.trackedPID, !Self.isProcessAlive(pid: trackedPID) else {
+                guard let trackedPID = status.trackedPID, !sweepContext.isProcessAlive(pid: trackedPID) else {
                     continue
                 }
 
@@ -1682,7 +1729,7 @@ extension WorklaneStore {
         }
     }
 
-    private static func isProcessAlive(pid: Int32) -> Bool {
+    nonisolated fileprivate static func defaultIsProcessAlive(pid: Int32) -> Bool {
         guard pid > 0 else {
             return false
         }
@@ -1692,6 +1739,10 @@ extension WorklaneStore {
         }
 
         return errno == EPERM
+    }
+
+    private static func isProcessAlive(pid: Int32) -> Bool {
+        defaultIsProcessAlive(pid: pid)
     }
 
     private static func shouldClearRestoredAgentRestoreDraftOnCommandRunning(

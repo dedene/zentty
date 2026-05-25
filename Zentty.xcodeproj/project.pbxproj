@@ -439,6 +439,7 @@
 		E6D0CAB78E81B81367E2F583 /* AgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEEE6EDBC73B9A55E684093 /* AgentStatus.swift */; };
 		E6DB3D37929BDB0F6583E0E5 /* OpenWithCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19801FEA1E31AE1665776372 /* OpenWithCatalog.swift */; };
 		E7AF4214CD5B4B304CD0AB12 /* SidebarCreateWorklaneButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE51D9EBCFFBCD584611F064 /* SidebarCreateWorklaneButton.swift */; };
+		E89B19464162224F2C5AC2BD /* ThemeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51BFAD9337055E61275E0F7D /* ThemeCoordinatorTests.swift */; };
 		E94E1DACAFBCE24E8AA485C5 /* SidebarShimmerColorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7F2B3A458136A7651CA4BA /* SidebarShimmerColorResolver.swift */; };
 		E95C4FC6740D1885397423A2 /* ServerIPCCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0633B563FD38C6FAF61062 /* ServerIPCCommands.swift */; };
 		E9BF42DC69D4CF63845BCBE2 /* SidebarWorklaneRowLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BC50CDB5D0B82695D9A2D4 /* SidebarWorklaneRowLayoutTests.swift */; };
@@ -673,6 +674,7 @@
 		4EB1561FD9C602B6D306155C /* TerminalClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboard.swift; sourceTree = "<group>"; };
 		501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneNavigationButtons.swift; sourceTree = "<group>"; };
 		50D5CEB5E915AE3FBE158512 /* LibghosttyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyView.swift; sourceTree = "<group>"; };
+		51BFAD9337055E61275E0F7D /* ThemeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCoordinatorTests.swift; sourceTree = "<group>"; };
 		51F182C0E58D8DC4249303AA /* GhosttyThemeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolver.swift; sourceTree = "<group>"; };
 		52C47988FC977CAE87970482 /* SidebarWorklaneRowPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowPresentationTests.swift; sourceTree = "<group>"; };
 		53055103EE2424B9E14A2878 /* PaneNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneNotificationCoordinator.swift; sourceTree = "<group>"; };
@@ -1777,6 +1779,7 @@
 				8B1279FB2EA650A570BAD4E8 /* TaskRunnerDiscoveryTests.swift */,
 				02F71D1415EE0BF0891E75B0 /* TerminalClipboardTests.swift */,
 				315E199A7E5DFC5BA83F6225 /* ThemeCatalogServiceTests.swift */,
+				51BFAD9337055E61275E0F7D /* ThemeCoordinatorTests.swift */,
 				4CA937E13903E6F4629AE7AA /* ThirdPartyLicenseCatalogTests.swift */,
 				8747D7DA152CB73E2CF991C6 /* TmuxCompatArgumentsTests.swift */,
 				F9FCFF921453188C98C2AC4D /* TmuxCompatPaneContextTests.swift */,
@@ -2167,6 +2170,7 @@
 				95D1F7229A7EB9656B36F1C3 /* TaskRunnerDiscoveryTests.swift in Sources */,
 				028F1F462FC45BC0DFB33F15 /* TerminalClipboardTests.swift in Sources */,
 				F3EEEE8B6ACBE33992176FD2 /* ThemeCatalogServiceTests.swift in Sources */,
+				E89B19464162224F2C5AC2BD /* ThemeCoordinatorTests.swift in Sources */,
 				6910CC9A449CF438EEFE8022 /* ThirdPartyLicenseCatalogTests.swift in Sources */,
 				BAC8B4AAA7C594E4CB41FA02 /* TmuxCompatArgumentsTests.swift in Sources */,
 				F51166C499CADC539B7CD6E6 /* TmuxCompatPaneContextTests.swift in Sources */,
