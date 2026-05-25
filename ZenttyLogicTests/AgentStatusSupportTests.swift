@@ -1001,6 +1001,12 @@ final class AgentStatusSupportTests: XCTestCase {
         let plugin = try String(contentsOf: pluginURL, encoding: .utf8)
         XCTAssertTrue(plugin.contains("process.env.ZENTTY_CLI_BIN"))
         XCTAssertTrue(plugin.contains("[resolvedCliBin, \"ipc\", \"agent-event\"]"))
+        XCTAssertTrue(plugin.contains("\"experimental.session.compacting\""))
+        XCTAssertTrue(plugin.contains("\"session.next.compaction.started\""))
+        XCTAssertTrue(plugin.contains("\"session.compacted\""))
+        XCTAssertTrue(plugin.contains("part.type === \"compaction\""))
+        XCTAssertTrue(plugin.contains("event: \"agent.compacting\""))
+        XCTAssertTrue(plugin.contains("event: \"agent.compacted\""))
         XCTAssertTrue(plugin.contains("event: \"task.progress\""))
         XCTAssertTrue(plugin.contains("stdio: [\"pipe\", \"ignore\", \"ignore\"]"))
     }
@@ -1061,6 +1067,30 @@ final class AgentStatusSupportTests: XCTestCase {
                 ],
             ],
             [
+                "type": "message.part.updated",
+                "properties": [
+                    "part": [
+                        "sessionID": "session-1",
+                        "type": "compaction",
+                    ],
+                    "cwd": "/tmp/project",
+                ],
+            ],
+            [
+                "type": "session.next.compaction.started",
+                "properties": [
+                    "session_id": "session-1",
+                    "reason": "manual",
+                ],
+            ],
+            [
+                "type": "session.compacted",
+                "properties": [
+                    "sessionID": "session-1",
+                    "cwd": "/tmp/project",
+                ],
+            ],
+            [
                 "type": "session.idle",
                 "properties": [
                     "sessionID": "session-1",
@@ -1082,6 +1112,8 @@ final class AgentStatusSupportTests: XCTestCase {
         const { ZenttyOpenCodePlugin } = await import(process.env.ZENTTY_PLUGIN_URL)
         const events = await Bun.file(process.env.ZENTTY_EVENTS_JSON).json()
         const plugin = await ZenttyOpenCodePlugin({ directory: "/tmp/project" })
+        const output = { context: [] }
+        await plugin["experimental.session.compacting"]({ sessionID: "session-1" }, output)
         for (const event of events) {
           await plugin.event({ event })
         }
@@ -1120,16 +1152,26 @@ final class AgentStatusSupportTests: XCTestCase {
             }
 
         XCTAssertEqual(canonicalEvents.compactMap { $0["event"] as? String }, [
+            "agent.compacting",
             "agent.running",
             "agent.running",
             "task.progress",
+            "agent.compacting",
+            "agent.compacting",
+            "agent.compacted",
             "agent.idle",
             "agent.idle",
         ])
-        let idleWithProgress = try XCTUnwrap(canonicalEvents[3]["progress"] as? [String: Any])
+        let compactingState = try XCTUnwrap(canonicalEvents[0]["state"] as? [String: Any])
+        XCTAssertEqual(compactingState["text"] as? String, "Compacting")
+        let messagePartCompactingState = try XCTUnwrap(canonicalEvents[4]["state"] as? [String: Any])
+        XCTAssertEqual(messagePartCompactingState["text"] as? String, "Compacting")
+        let sessionNextCompactingState = try XCTUnwrap(canonicalEvents[5]["state"] as? [String: Any])
+        XCTAssertEqual(sessionNextCompactingState["text"] as? String, "Compacting")
+        let idleWithProgress = try XCTUnwrap(canonicalEvents[7]["progress"] as? [String: Any])
         XCTAssertEqual(idleWithProgress["done"] as? Int, 1)
         XCTAssertEqual(idleWithProgress["total"] as? Int, 3)
-        XCTAssertNil(canonicalEvents[4]["progress"])
+        XCTAssertNil(canonicalEvents[8]["progress"])
     }
 
     func test_repository_claude_wrapper_delegates_to_launch_cli() throws {
@@ -1502,6 +1544,8 @@ final class AgentStatusSupportTests: XCTestCase {
             preToolUseEntries.compactMap { $0["matcher"] as? String },
             ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"]
         )
+        XCTAssertNotNil(hooks["PreCompact"])
+        XCTAssertNotNil(hooks["PostCompact"])
         XCTAssertNotNil(hooks["TaskCompleted"])
     }
 
@@ -1558,6 +1602,8 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PermissionRequest=") && $0.contains("permission-request") })
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PostToolUse=") && $0.contains("post-tool-use") })
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.UserPromptSubmit=") && $0.contains("prompt-submit") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PreCompact=") && $0.contains("pre-compact") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PostCompact=") && $0.contains("post-compact") })
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.Stop=") && $0.contains("stop") })
         XCTAssertFalse(hookConfigArguments.contains { $0.contains("\t") })
         let hookStateArgument = try XCTUnwrap(hookConfigArguments.first { $0.hasPrefix("hooks.state=") })
@@ -1566,8 +1612,10 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:permission_request:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:post_tool_use:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:user_prompt_submit:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:pre_compact:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:post_compact:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:stop:0:0""#))
-        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 6)
+        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 8)
         let sourceConfig = try String(contentsOf: sourceConfigURL, encoding: .utf8)
         XCTAssertFalse(sourceConfig.contains("hooks.state"))
         XCTAssertTrue(plan.arguments.contains("features.hooks=true"))
@@ -6104,6 +6152,48 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 5))
+    }
+
+    func test_opencode_canonical_compacting_event() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.compacting","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
+        let payload = try XCTUnwrap(
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertEqual(payload.text, "Compacting")
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
+        XCTAssertEqual(payload.interactionKind, .none)
+        XCTAssertEqual(payload.confidence, .explicit)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_opencode_canonical_compacted_event_keeps_running_without_text() throws {
+        let input = try AgentEventBridge.parseInput(Data("""
+        {"version":1,"event":"agent.compacted","agent":{"name":"OpenCode"},"session":{"id":"session-1"},"context":{"workingDirectory":"/tmp/project"}}
+        """.utf8))
+        let payload = try XCTUnwrap(
+            AgentEventBridge.makePayloads(from: input, environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "worklane-main-shell",
+            ]).first
+        )
+
+        XCTAssertEqual(payload.state, .running)
+        XCTAssertEqual(payload.toolName, "OpenCode")
+        XCTAssertNil(payload.text)
+        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
+        XCTAssertEqual(payload.interactionKind, .none)
+        XCTAssertEqual(payload.confidence, .explicit)
+        XCTAssertEqual(payload.sessionID, "session-1")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
     }
 
     func test_opencode_canonical_needs_input_approval() throws {

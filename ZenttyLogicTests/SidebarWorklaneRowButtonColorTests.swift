@@ -123,6 +123,24 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
         XCTAssertEqual(row.debugSnapshotForTesting.statusProgressColor.srgbClamped, theme.statusRunning.srgbClamped)
     }
 
+    func test_compacting_status_uses_running_status_color() throws {
+        let row = makeRow()
+        let theme = darkTheme(foreground: "#F0F3F6")
+
+        row.configure(
+            with: makeSummary(
+                color: nil,
+                statusText: "Compacting",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(row.debugSnapshotForTesting.statusTextColor.srgbClamped, theme.statusRunning.srgbClamped)
+    }
+
     func test_colored_worklane_focused_pane_title_shimmer_is_desaturated_while_status_stays_semantic() throws {
         let row = makeRow(width: 320, height: 110)
         let theme = darkTheme(foreground: "#F0F3F6")

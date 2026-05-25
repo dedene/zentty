@@ -1720,6 +1720,46 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertTrue(paneRow.isWorking)
     }
 
+    func test_builder_uses_compacting_agent_status_text_while_remaining_running() {
+        let paneID = PaneID("worklane-main-agent-compacting")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main-agent-compacting"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "Thinking",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "claude",
+                    gitBranch: "main"
+                )
+            ],
+            agentStatusByPaneID: [
+                paneID: PaneAgentStatus(
+                    tool: .claudeCode,
+                    state: .running,
+                    text: "Compacting",
+                    artifactLink: nil,
+                    updatedAt: Date(timeIntervalSince1970: 42)
+                )
+            ]
+        )
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
+        let paneRow = try! XCTUnwrap(summary.paneRows.first)
+
+        XCTAssertEqual(paneRow.statusText, "Compacting")
+        XCTAssertEqual(paneRow.attentionState, .running)
+        XCTAssertTrue(paneRow.isWorking)
+
+        let renderPlan = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: 320)
+        let renderedPaneRow = try! XCTUnwrap(renderPlan.paneRows.first)
+        XCTAssertEqual(renderedPaneRow.statusSymbolName, "square.stack.3d.down.right.fill")
+    }
+
     func test_builder_uses_exact_codex_status_title_as_primary_when_running() {
         let paneID = PaneID("worklane-main-codex-running")
         let worklane = WorklaneState(

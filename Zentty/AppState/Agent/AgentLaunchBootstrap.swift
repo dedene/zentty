@@ -539,6 +539,8 @@ enum AgentLaunchBootstrap {
                 "PermissionRequest": claudeHookEntries(command: hookCommand, timeout: 10),
                 "UserPromptSubmit": claudeHookEntries(command: hookCommand, timeout: 10),
                 "PreToolUse": claudePreToolUseHookEntries(command: hookCommand, timeout: 5),
+                "PreCompact": claudeHookEntries(command: hookCommand, timeout: 10),
+                "PostCompact": claudeHookEntries(command: hookCommand, timeout: 10),
                 "TaskCreated": claudeHookEntries(command: hookCommand, timeout: 5),
                 "TaskCompleted": claudeHookEntries(command: hookCommand, timeout: 5),
             ],
@@ -997,6 +999,8 @@ enum AgentLaunchBootstrap {
             CodexHookSpec(eventName: "PermissionRequest", eventKey: "permission_request", eventArgument: "permission-request", timeout: 10),
             CodexHookSpec(eventName: "PostToolUse", eventKey: "post_tool_use", eventArgument: "post-tool-use", timeout: 10),
             CodexHookSpec(eventName: "UserPromptSubmit", eventKey: "user_prompt_submit", eventArgument: "prompt-submit", timeout: 10),
+            CodexHookSpec(eventName: "PreCompact", eventKey: "pre_compact", eventArgument: "pre-compact", timeout: 10),
+            CodexHookSpec(eventName: "PostCompact", eventKey: "post_compact", eventArgument: "post-compact", timeout: 10),
             CodexHookSpec(eventName: "Stop", eventKey: "stop", eventArgument: "stop", timeout: 10),
         ]
     }

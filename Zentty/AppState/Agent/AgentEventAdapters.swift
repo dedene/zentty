@@ -1172,6 +1172,29 @@ extension AgentEventBridge {
                 cwd: cwd,
                 transcriptPath: transcriptPath
             )]
+        case "PreCompact":
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                text: "Compacting",
+                lifecycleEvent: .toolActivity,
+                interactionKind: .none,
+                sessionID: sessionID,
+                cwd: cwd,
+                transcriptPath: transcriptPath
+            )]
+        case "PostCompact":
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                interactionKind: .none,
+                sessionID: sessionID,
+                cwd: cwd,
+                transcriptPath: transcriptPath
+            )]
         case "Stop":
             return [lifecyclePayload(
                 target: target,
@@ -1194,6 +1217,8 @@ extension AgentEventBridge {
         case "permission-request": return "PermissionRequest"
         case "post-tool-use": return "PostToolUse"
         case "prompt-submit": return "UserPromptSubmit"
+        case "pre-compact": return "PreCompact"
+        case "post-compact": return "PostCompact"
         case "stop": return "Stop"
         default: return nil
         }
@@ -1765,6 +1790,27 @@ extension AgentEventBridge {
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
             )]
 
+        case "PreCompact":
+            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
+            let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
+            return [claudeLifecyclePayload(
+                target: target, state: .running, text: "Compacting", cwd: input.cwd ?? existing?.cwd,
+                interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
+                taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
+            )]
+
+        case "PostCompact":
+            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
+            return [claudeLifecyclePayload(
+                target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
+                interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
+                taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
+            )]
+
         case "TaskCreated":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             guard let sessionID = input.sessionID, let taskID = input.taskID else { return [] }
@@ -1967,7 +2013,9 @@ extension AgentEventBridge {
         target: (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID),
         toolName: String,
         state: PaneAgentState,
+        text: String? = nil,
         lifecycleEvent: AgentLifecycleEvent = .update,
+        interactionKind: PaneAgentInteractionKind? = nil,
         sessionID: String? = nil,
         cwd: String? = nil,
         taskProgress: PaneAgentTaskProgress? = nil,
@@ -1980,8 +2028,9 @@ extension AgentEventBridge {
             state: state,
             origin: .explicitHook,
             toolName: toolName,
-            text: nil,
+            text: text,
             lifecycleEvent: lifecycleEvent,
+            interactionKind: interactionKind,
             confidence: .explicit,
             sessionID: sessionID,
             taskProgress: taskProgress,

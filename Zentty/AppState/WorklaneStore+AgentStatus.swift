@@ -1321,6 +1321,9 @@ extension WorklaneStore {
                 : nil,
             unresolvedStopVisibleUntil: existingStatus.state == .unresolvedStop
                 ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.unresolvedStopVisibilityWindow)
+                : nil,
+            transientTextVisibleUntil: existingStatus.text == PaneAgentReducerState.compactingStatusText
+                ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow)
                 : nil
         )
         return seededReducerState

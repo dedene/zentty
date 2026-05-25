@@ -1424,7 +1424,17 @@ class LaunchPlanner:
     def _plan_claude(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         hook_command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
         settings = {"hooks": {}}
-        for event in ("Stop", "SessionEnd", "Notification", "PermissionRequest", "UserPromptSubmit", "TaskCreated", "TaskCompleted"):
+        for event in (
+            "Stop",
+            "SessionEnd",
+            "Notification",
+            "PermissionRequest",
+            "UserPromptSubmit",
+            "PreCompact",
+            "PostCompact",
+            "TaskCreated",
+            "TaskCompleted",
+        ):
             settings["hooks"][event] = [{"matcher": "", "hooks": [{"type": "command", "command": hook_command, "timeout": 10}]}]
         settings["hooks"]["SessionStart"] = [
             {"matcher": matcher, "hooks": [{"type": "command", "command": hook_command, "timeout": 10}]}
@@ -1444,6 +1454,8 @@ class LaunchPlanner:
             ("PermissionRequest", "permission_request", "permission-request"),
             ("PostToolUse", "post_tool_use", "post-tool-use"),
             ("UserPromptSubmit", "user_prompt_submit", "prompt-submit"),
+            ("PreCompact", "pre_compact", "pre-compact"),
+            ("PostCompact", "post_compact", "post-compact"),
             ("Stop", "stop", "stop"),
         ]
         hook_config_args = ["features.hooks=true"]

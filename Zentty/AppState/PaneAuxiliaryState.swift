@@ -414,6 +414,7 @@ enum PanePresentationNormalizer {
             hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
             suppressIdleLabel: codexBackgroundWait,
+            explicitStatusText: raw.agentStatus?.text,
             notificationText: raw.lastDesktopNotificationText,
             notificationDate: raw.lastDesktopNotificationDate
         )
@@ -698,6 +699,7 @@ enum PanePresentationNormalizer {
         hasObservedRunning: Bool,
         showsReadyStatus: Bool,
         suppressIdleLabel: Bool = false,
+        explicitStatusText: String? = nil,
         notificationText: String? = nil,
         notificationDate: Date? = nil,
         now: Date = Date()
@@ -720,7 +722,8 @@ enum PanePresentationNormalizer {
         case .starting:
             return nil
         case .running:
-            return runningStatusText(taskProgress: taskProgress)
+            return WorklaneContextFormatter.trimmed(explicitStatusText)
+                ?? runningStatusText(taskProgress: taskProgress)
         case .needsInput:
             return interactionKind.statusLabel
         case .unresolvedStop:

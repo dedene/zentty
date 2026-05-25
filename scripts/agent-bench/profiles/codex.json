@@ -46,6 +46,9 @@
     "question_interrupt": [
       "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
     ],
+    "manual_compact": [
+      "--no-alt-screen"
+    ],
     "restore_launch": [
       "resume",
       "session-codex"
@@ -94,6 +97,9 @@
     "question_interrupt": {
       "required_events": ["session-start", "prompt-submit"]
     },
+    "manual_compact": {
+      "required_events": ["pre-compact", "post-compact"]
+    },
     "restore_launch": {
       "required_events": [],
       "required_bootstrap_arguments": [["resume", "session-codex"]]
@@ -140,6 +146,18 @@
         "match": "Context 100% left",
         "text": "/quit\n",
         "label": "quit"
+      }
+    ],
+    "manual_compact": [
+      {
+        "match": "trust",
+        "text": "1\n",
+        "label": "trust-workspace"
+      },
+      {
+        "match": "Ready \\| codex-manual_compact",
+        "text": "/compact\r",
+        "label": "manual-compact"
       }
     ]
   },
