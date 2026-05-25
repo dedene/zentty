@@ -1754,6 +1754,10 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.statusText, "Compacting")
         XCTAssertEqual(paneRow.attentionState, .running)
         XCTAssertTrue(paneRow.isWorking)
+
+        let renderPlan = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: 320)
+        let renderedPaneRow = try! XCTUnwrap(renderPlan.paneRows.first)
+        XCTAssertEqual(renderedPaneRow.statusSymbolName, "square.stack.3d.down.right.fill")
     }
 
     func test_builder_uses_exact_codex_status_title_as_primary_when_running() {

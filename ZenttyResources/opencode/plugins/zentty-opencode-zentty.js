@@ -131,16 +131,34 @@ function resolveWorkingDirectory(sessionID, cwd, fallbackDirectory) {
   return resolved
 }
 
+function canonicalBase(sessionID, cwd) {
+  const base = { version: 1, agent: { name: "OpenCode" } }
+  if (sessionID) base.session = { id: sessionID }
+  if (cwd) base.context = { workingDirectory: cwd }
+  return base
+}
+
 function normalizeEnvelope(event, fallbackDirectory) {
-  const properties = event?.properties ?? {}
-  const eventType = firstString(event?.type)
+  const rawEventType = firstString(event?.type)
+  const syncEventName = firstString(event?.name)
+  const eventType =
+    rawEventType === "sync" && syncEventName
+      ? syncEventName.replace(/\.\d+$/, "")
+      : rawEventType
+  const properties = event?.properties ?? event?.data ?? {}
   const sessionID = firstString(
     properties.sessionID,
+    properties.session_id,
     properties.id,
     properties.info?.id,
     properties.permission?.sessionID,
+    properties.permission?.session_id,
     properties.tool?.sessionID,
+    properties.tool?.session_id,
     properties.todo?.sessionID,
+    properties.todo?.session_id,
+    properties.part?.sessionID,
+    properties.part?.session_id,
   )
 
   if (eventType === "session.created" || eventType === "session.updated") {
@@ -156,6 +174,22 @@ function normalizeEnvelope(event, fallbackDirectory) {
       sessionID,
       cwd,
       status: firstString(properties.status?.type, properties.status),
+    })
+  }
+
+  if (eventType === "session.compacted") {
+    return enrichWithTaskProgress(sessionID, {
+      eventType,
+      sessionID,
+      cwd: resolveWorkingDirectory(sessionID, firstString(properties.cwd), fallbackDirectory),
+    })
+  }
+
+  if (eventType === "session.next.compaction.started") {
+    return enrichWithTaskProgress(sessionID, {
+      eventType,
+      sessionID,
+      cwd: resolveWorkingDirectory(sessionID, firstString(properties.cwd), fallbackDirectory),
     })
   }
 
@@ -217,10 +251,18 @@ function normalizeEnvelope(event, fallbackDirectory) {
 
   if (eventType === "message.part.updated") {
     const part = properties.part ?? {}
-    const partSessionID = firstString(part.sessionID, sessionID)
+    const partSessionID = firstString(part.sessionID, part.session_id, sessionID)
     const toolName = firstString(part.tool)
     const toolStatus = firstString(part.state?.status)
     const questions = Array.isArray(part.state?.input?.questions) ? part.state.input.questions : []
+
+    if (part.type === "compaction") {
+      return enrichWithTaskProgress(partSessionID, {
+        eventType: "session.next.compaction.started",
+        sessionID: partSessionID,
+        cwd: resolveWorkingDirectory(partSessionID, firstString(properties.cwd), fallbackDirectory),
+      })
+    }
 
     if (toolName === "question" && questions.length > 0 && toolStatus !== "completed") {
       return enrichWithTaskProgress(partSessionID, {
@@ -256,9 +298,7 @@ function describeQuestion(questions) {
 function toCanonicalEvent(envelope) {
   if (!envelope || !envelope.eventType) return undefined
 
-  const base = { version: 1, agent: { name: "OpenCode" } }
-  if (envelope.sessionID) base.session = { id: envelope.sessionID }
-  if (envelope.cwd) base.context = { workingDirectory: envelope.cwd }
+  const base = canonicalBase(envelope.sessionID, envelope.cwd)
 
   const progress =
     envelope.taskProgressTotalCount > 0
@@ -278,6 +318,10 @@ function toCanonicalEvent(envelope) {
     }
     case "session.idle":
       return { ...base, event: "agent.idle", progress }
+    case "session.next.compaction.started":
+      return { ...base, event: "agent.compacting", state: { text: "Compacting" }, progress }
+    case "session.compacted":
+      return { ...base, event: "agent.compacted", progress }
     case "permission.asked":
     case "permission.updated":
       return {
@@ -310,11 +354,8 @@ function toCanonicalEvent(envelope) {
   }
 }
 
-async function forwardEnvelope(envelope) {
-  if (!hasZenttyIntegration || !envelope) return
-
-  const canonical = toCanonicalEvent(envelope)
-  if (!canonical) return
+async function forwardCanonical(canonical) {
+  if (!hasZenttyIntegration || !canonical) return
 
   const subprocess = Bun.spawn([resolvedCliBin, "ipc", "agent-event"], {
     stdio: ["pipe", "ignore", "ignore"],
@@ -325,12 +366,32 @@ async function forwardEnvelope(envelope) {
   await subprocess.exited
 }
 
+async function forwardEnvelope(envelope) {
+  if (!hasZenttyIntegration || !envelope) return
+
+  const canonical = toCanonicalEvent(envelope)
+  await forwardCanonical(canonical)
+}
+
 export const ZenttyOpenCodePlugin = async ({ directory }) => {
   if (!hasZenttyIntegration) {
     return {}
   }
 
   return {
+    "experimental.session.compacting": async (input) => {
+      const sessionID = firstString(input?.sessionID, input?.session?.id)
+      const cwd = resolveWorkingDirectory(
+        sessionID,
+        firstString(input?.cwd, input?.workingDirectory, input?.directory),
+        directory,
+      )
+      await forwardCanonical({
+        ...canonicalBase(sessionID, cwd),
+        event: "agent.compacting",
+        state: { text: "Compacting" },
+      })
+    },
     event: async ({ event }) => {
       const envelope = normalizeEnvelope(event, directory)
       await forwardEnvelope(envelope)

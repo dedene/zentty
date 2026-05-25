@@ -138,6 +138,12 @@ class SyntheticScenarioTests(unittest.TestCase):
             profiles["claude"].expectations["manual_compact"].required_events,
             ["SessionStart", "PreCompact"],
         )
+        self.assertEqual(
+            profiles["opencode"].expectations["manual_compact"].required_events,
+            ["session.start", "agent.compacting"],
+        )
+        self.assertIn("manual_compact", profiles["opencode"].input_by_scenario)
+        self.assertEqual(profiles["opencode"].input_by_scenario["manual_compact"][0]["text"], "/compact\r")
 
     def test_cursor_profile_defines_session_capture_restore_and_interactive_completion(self):
         profile_dir = ROOT / "profiles"

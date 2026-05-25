@@ -16,6 +16,7 @@
       "run",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
     ],
+    "manual_compact": [],
     "restore_launch": [
       "--session",
       "ses_ZenttyBenchRestore"
@@ -35,6 +36,9 @@
     "approval": {
       "required_events": ["session.start", "agent.needs-input"]
     },
+    "manual_compact": {
+      "required_events": ["session.start", "agent.compacting"]
+    },
     "restore_launch": {
       "required_events": [],
       "required_bootstrap_arguments": [["--session", "ses_ZenttyBenchRestore"]]
@@ -49,6 +53,13 @@
       {
         "after": 45,
         "text": "\u0003"
+      }
+    ],
+    "manual_compact": [
+      {
+        "after": 5,
+        "text": "/compact\r",
+        "label": "manual-compact"
       }
     ]
   },

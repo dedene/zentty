@@ -285,6 +285,50 @@ enum AgentEventBridge {
                 agentLaunchSnapshot: input.agentLaunchSnapshot
             )]
 
+        case "agent.compacting":
+            return [AgentStatusPayload(
+                windowID: target.windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: toolName,
+                text: input.stateText ?? PaneAgentReducerState.compactingStatusText,
+                lifecycleEvent: .toolActivity,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: input.sessionID,
+                parentSessionID: input.parentSessionID,
+                taskProgress: taskProgress,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
+            )]
+
+        case "agent.compacted":
+            return [AgentStatusPayload(
+                windowID: target.windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: toolName,
+                text: nil,
+                lifecycleEvent: .toolActivity,
+                interactionKind: .none,
+                confidence: .explicit,
+                sessionID: input.sessionID,
+                parentSessionID: input.parentSessionID,
+                taskProgress: taskProgress,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: input.workingDirectory,
+                agentLaunchSnapshot: input.agentLaunchSnapshot
+            )]
+
         case "agent.idle":
             let lifecycleEvent: AgentLifecycleEvent = input.stopCandidate ? .stopCandidate : .update
             return [AgentStatusPayload(

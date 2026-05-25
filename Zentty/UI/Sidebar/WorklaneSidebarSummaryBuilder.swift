@@ -27,6 +27,8 @@ enum WorklaneSidebarSummaryBuilder {
         let isWorking: Bool
     }
 
+    private static let compactingStatusSymbolName = "square.stack.3d.down.right.fill"
+
     private struct WorklaneSidebarIdentity {
         let paneID: PaneID?
         let primaryText: String
@@ -201,7 +203,7 @@ enum WorklaneSidebarSummaryBuilder {
                 interactionLabel: attention.interactionLabel ?? attention.interactionKind?.defaultLabel,
                 interactionSymbolName: attention.interactionSymbolName
                     ?? attention.interactionKind?.defaultSymbolName
-                    ?? defaultSymbolName(for: attention.state),
+                    ?? defaultSymbolName(for: attention.state, statusText: progressPresentation.statusText),
                 taskProgress: progressPresentation.taskProgress
             )
         }
@@ -690,7 +692,7 @@ enum WorklaneSidebarSummaryBuilder {
             interactionLabel: presentation.interactionLabel ?? presentation.interactionKind?.defaultLabel,
             interactionSymbolName: presentation.interactionSymbolName
                 ?? presentation.interactionKind?.defaultSymbolName
-                ?? attentionState.map(defaultSymbolName(for:)),
+                ?? attentionState.map { defaultSymbolName(for: $0, statusText: progressPresentation.statusText) },
             taskProgress: progressPresentation.taskProgress,
             isWorking: presentation.isWorking
         )
@@ -1024,8 +1026,18 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func defaultSymbolName(for state: WorklaneAttentionState) -> String {
+        defaultSymbolName(for: state, statusText: nil)
+    }
+
+    private static func defaultSymbolName(
+        for state: WorklaneAttentionState,
+        statusText: String?
+    ) -> String {
         switch state {
         case .running:
+            if statusText == PaneAgentReducerState.compactingStatusText {
+                return compactingStatusSymbolName
+            }
             return "bolt.fill"
         case .needsInput:
             return "ellipsis.circle"
