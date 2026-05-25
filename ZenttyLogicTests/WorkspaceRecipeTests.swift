@@ -1295,6 +1295,202 @@ final class WorkspaceRecipeTests: XCTestCase {
         XCTAssertEqual(AgentResumeCommandBuilder.command(for: try XCTUnwrap(draft)), "hermes --resume 20260525_154137_ca1d63")
     }
 
+    func test_exporter_recovers_hermes_restore_draft_from_live_descendant_when_tracked_pid_is_missing() throws {
+        let paneID = PaneID("pane-hermes")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Hermes")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        paneRootPID: 61825,
+                        agentStatus: PaneAgentStatus(
+                            tool: .hermes,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: nil,
+                            workingDirectory: "/tmp/project",
+                            sessionID: "20260525_163202_f0218c"
+                        )
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 62132 },
+            resolveLiveAgentPID: { tool, rootPID in
+                XCTAssertEqual(tool, .hermes)
+                XCTAssertEqual(rootPID, 61825)
+                return 62132
+            }
+        )
+
+        let draft = drafts?.paneDrafts.first
+        XCTAssertEqual(draft?.toolName, "Hermes Agent")
+        XCTAssertEqual(draft?.sessionID, "20260525_163202_f0218c")
+        XCTAssertEqual(draft?.trackedPID, 62132)
+        XCTAssertEqual(AgentResumeCommandBuilder.command(for: try XCTUnwrap(draft)), "hermes --resume 20260525_163202_f0218c")
+    }
+
+    func test_exporter_skips_hermes_restore_draft_when_missing_tracked_pid_has_no_live_descendant() {
+        let paneID = PaneID("pane-hermes")
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Hermes")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        paneRootPID: 61825,
+                        agentStatus: PaneAgentStatus(
+                            tool: .hermes,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: nil,
+                            workingDirectory: "/tmp/project",
+                            sessionID: "20260525_163202_f0218c"
+                        )
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { _ in false },
+            resolveLiveAgentPID: { _, _ in nil }
+        )
+
+        XCTAssertNil(drafts)
+    }
+
+    func test_exporter_recovers_hidden_hermes_restore_draft_from_live_descendant_when_tracked_pid_is_missing() throws {
+        let paneID = PaneID("pane-hermes")
+        var reducerState = PaneAgentReducerState()
+        let baseTime = Date(timeIntervalSince1970: 1_778_000_000)
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("main"),
+                paneID: paneID,
+                state: .running,
+                origin: .explicitHook,
+                toolName: AgentTool.hermes.displayName,
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                sessionID: "20260525_163202_f0218c",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/project"
+            ),
+            now: baseTime
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("main"),
+                paneID: paneID,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: AgentTool.hermes.displayName,
+                text: nil,
+                lifecycleEvent: .update,
+                interactionKind: PaneAgentInteractionKind.none,
+                confidence: .explicit,
+                sessionID: "20260525_163202_f0218c",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentWorkingDirectory: "/tmp/project"
+            ),
+            now: baseTime.addingTimeInterval(5)
+        )
+
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Hermes")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        paneRootPID: 61825,
+                        agentStatus: nil,
+                        agentReducerState: reducerState
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 62132 },
+            resolveLiveAgentPID: { tool, rootPID in
+                XCTAssertEqual(tool, .hermes)
+                XCTAssertEqual(rootPID, 61825)
+                return 62132
+            }
+        )
+
+        let draft = drafts?.paneDrafts.first
+        XCTAssertEqual(draft?.toolName, "Hermes Agent")
+        XCTAssertEqual(draft?.sessionID, "20260525_163202_f0218c")
+        XCTAssertEqual(draft?.trackedPID, 62132)
+        XCTAssertEqual(AgentResumeCommandBuilder.command(for: try XCTUnwrap(draft)), "hermes --resume 20260525_163202_f0218c")
+    }
+
     func test_exporter_persists_pi_restore_draft_without_session_id_when_cwd_and_pid_exist() {
         let paneID = PaneID("pane-pi")
         let worklane = WorklaneState(

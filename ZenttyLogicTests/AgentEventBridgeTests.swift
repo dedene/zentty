@@ -1582,6 +1582,80 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[1].agentWorkingDirectory, "/tmp/project")
     }
 
+    func test_hermes_adapter_canonical_session_start_uses_environment_pid() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"""
+            {
+              "version": 1,
+              "event": "session.start",
+              "agent": { "name": "Hermes Agent" },
+              "session": { "id": "hermes-session-123" },
+              "context": { "workingDirectory": "/tmp/project" }
+            }
+            """#.utf8),
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        let pidPayload = try XCTUnwrap(payloads.first { $0.signalKind == .pid })
+        XCTAssertEqual(pidPayload.pidEvent, .attach)
+        XCTAssertEqual(pidPayload.pid, 4242)
+        XCTAssertEqual(pidPayload.toolName, "Hermes Agent")
+        XCTAssertEqual(pidPayload.sessionID, "hermes-session-123")
+        let lifecyclePayload = try XCTUnwrap(payloads.first { $0.signalKind == .lifecycle })
+        XCTAssertEqual(lifecyclePayload.state, .starting)
+        XCTAssertEqual(lifecyclePayload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_hermes_adapter_canonical_running_event_recovers_environment_pid() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"""
+            {
+              "version": 1,
+              "event": "agent.running",
+              "agent": { "name": "Hermes Agent" },
+              "session": { "id": "hermes-session-123" },
+              "context": { "workingDirectory": "/tmp/project" }
+            }
+            """#.utf8),
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        let pidPayload = try XCTUnwrap(payloads.first { $0.signalKind == .pid })
+        XCTAssertEqual(pidPayload.pidEvent, .attach)
+        XCTAssertEqual(pidPayload.pid, 4242)
+        let lifecyclePayload = try XCTUnwrap(payloads.first { $0.signalKind == .lifecycle })
+        XCTAssertEqual(lifecyclePayload.state, .running)
+
+        var reducerState = PaneAgentReducerState()
+        for payload in payloads {
+            reducerState.apply(payload, now: Date(timeIntervalSince1970: 100))
+        }
+
+        let status = try XCTUnwrap(reducerState.reducedStatus(now: Date(timeIntervalSince1970: 100)))
+        XCTAssertEqual(status.sessionID, "hermes-session-123")
+        XCTAssertEqual(status.trackedPID, 4242)
+    }
+
+    func test_hermes_adapter_canonical_event_without_session_id_does_not_attach_environment_pid() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"""
+            {
+              "version": 1,
+              "event": "agent.running",
+              "agent": { "name": "Hermes Agent" },
+              "context": { "workingDirectory": "/tmp/project" }
+            }
+            """#.utf8),
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertNil(payloads.first { $0.signalKind == .pid })
+        XCTAssertEqual(payloads[0].state, .running)
+    }
+
     func test_hermes_real_session_start_inherits_bootstrap_launch_snapshot() throws {
         let bootstrapInput = try AgentEventBridge.parseInput(Data(#"""
         {

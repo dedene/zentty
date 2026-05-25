@@ -20,6 +20,7 @@ class RedactionTests(unittest.TestCase):
         env = {
             "ZENTTY_PANE_ID": "pane-1",
             "ZENTTY_WORKLANE_ID": "worklane-1",
+            "ZENTTY_HERMES_PID": "4242",
             "ZENTTY_PANE_TOKEN": "pane-secret",
             "OPENAI_API_KEY": "sk-secret",
             "PATH": "/usr/bin",
@@ -29,6 +30,7 @@ class RedactionTests(unittest.TestCase):
 
         self.assertEqual(redacted["ZENTTY_PANE_ID"], "pane-1")
         self.assertEqual(redacted["ZENTTY_WORKLANE_ID"], "worklane-1")
+        self.assertEqual(redacted["ZENTTY_HERMES_PID"], "4242")
         self.assertEqual(redacted["ZENTTY_PANE_TOKEN"], "<redacted>")
         self.assertEqual(redacted["OPENAI_API_KEY"], "<redacted>")
         self.assertNotIn("PATH", redacted)
@@ -1738,8 +1740,29 @@ class ProfileTests(unittest.TestCase):
             run_dir = pathlib.Path(tmp)
             real_home = run_dir / "real-home"
             (real_home / ".hermes").mkdir(parents=True)
+            (real_home / ".hermes" / "hooks").mkdir()
+            (real_home / ".hermes" / "hooks" / "foreign.sh").write_text("# untouched\n", encoding="utf-8")
+            (real_home / ".hermes" / "logs").mkdir()
+            (real_home / ".hermes" / "logs" / "agent.log").write_text("real log\n", encoding="utf-8")
+            (real_home / ".hermes" / "auth.json").write_text("{}")
             (real_home / ".hermes" / "credentials.json").write_text("{}")
-            (real_home / ".hermes" / "config.yaml").write_text("model: test\n")
+            (real_home / ".hermes" / "state.db").write_text("state")
+            (real_home / ".hermes" / "state.db-wal").write_text("wal")
+            (real_home / ".hermes" / "config.yaml").write_text(
+                "\n".join([
+                    "model: test",
+                    "providers:",
+                    "  xai-oauth:",
+                    "    base_url: https://api.x.ai/v1",
+                    "hooks:",
+                    "  on_session_start:",
+                    "    - command: /real/hooks/old.sh",
+                    "      timeout: 99",
+                    "terminal:",
+                    "  backend: local",
+                ]) + "\n",
+                encoding="utf-8",
+            )
 
             plan = agent_bench.LaunchPlanner(
                 profile=profile,
@@ -1762,20 +1785,36 @@ class ProfileTests(unittest.TestCase):
 
             self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "hermes")
             self.assertEqual(hermes_home, overlay_home / ".hermes")
+            self.assertTrue((hermes_home / "auth.json").exists())
+            self.assertFalse((hermes_home / "auth.json").is_symlink())
+            self.assertTrue((hermes_home / "state.db").exists())
+            self.assertFalse((hermes_home / "state.db").is_symlink())
+            self.assertTrue((hermes_home / "state.db-wal").exists())
+            self.assertFalse((hermes_home / "state.db-wal").is_symlink())
             self.assertTrue((hermes_home / "credentials.json").exists())
             self.assertFalse((hermes_home / "config.yaml").is_symlink())
             self.assertFalse((hermes_home / "shell-hooks-allowlist.json").is_symlink())
 
             config = (hermes_home / "config.yaml").read_text(encoding="utf-8")
+            self.assertIn("model: test", config)
+            self.assertIn("providers:", config)
+            self.assertIn("terminal:", config)
             self.assertIn("on_session_start:", config)
             self.assertIn("pre_approval_request:", config)
             self.assertIn("/hooks/zentty-status/on-session-start.sh", config)
+            self.assertNotIn("/real/hooks/old.sh", config)
             self.assertNotIn("sh -c", config)
             hook_script = hermes_home / "hooks" / "zentty-status" / "on-session-start.sh"
+            self.assertFalse((hermes_home / "hooks").is_symlink())
+            self.assertFalse((hermes_home / "logs").is_symlink())
+            self.assertEqual((real_home / ".hermes" / "hooks" / "foreign.sh").read_text(encoding="utf-8"), "# untouched\n")
+            self.assertEqual((real_home / ".hermes" / "logs" / "agent.log").read_text(encoding="utf-8"), "real log\n")
             self.assertTrue(hook_script.exists())
             self.assertTrue(os.access(hook_script, os.X_OK))
             hook_script_text = hook_script.read_text(encoding="utf-8")
             self.assertIn("/tmp/zentty-bench", hook_script_text)
+            self.assertIn("zentty_resolve_hermes_pid()", hook_script_text)
+            self.assertIn("ZENTTY_HERMES_PID=\"$ZENTTY_RESOLVED_HERMES_PID\"", hook_script_text)
             self.assertIn("hermes-hook on-session-start", hook_script_text)
 
             allowlist = json.loads((hermes_home / "shell-hooks-allowlist.json").read_text(encoding="utf-8"))

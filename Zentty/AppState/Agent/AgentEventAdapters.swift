@@ -2342,7 +2342,24 @@ extension AgentEventBridge {
 
         if (jsonObject["version"] as? Int) == 1,
            let eventName = jsonObject["event"] as? String, !eventName.isEmpty {
-            return try makePayloads(from: parseInput(data), environment: environment)
+            let input = try parseInput(data)
+            var payloads = try makePayloads(from: input, environment: environment)
+            if input.sessionID != nil,
+               payloads.contains(where: { $0.signalKind == .pid }) == false,
+               let pid = parseAgentPID(from: environment, key: "ZENTTY_HERMES_PID") {
+                let target = try currentTarget(from: environment)
+                payloads.insert(
+                    pidPayload(
+                        target: target,
+                        toolName: AgentTool.hermes.displayName,
+                        pid: pid,
+                        event: .attach,
+                        sessionID: input.sessionID
+                    ),
+                    at: 0
+                )
+            }
+            return payloads
         }
 
         let target = try currentTarget(from: environment)

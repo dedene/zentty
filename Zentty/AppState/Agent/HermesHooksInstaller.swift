@@ -272,9 +272,26 @@ enum HermesHooksInstaller {
             exit 0
         fi
 
-        if [ -z "${ZENTTY_HERMES_PID:-}" ] && [ -n "${PPID:-}" ]; then
-            ZENTTY_HERMES_PID="$PPID"
-            export ZENTTY_HERMES_PID
+        zentty_resolve_hermes_pid() {
+            candidate="${PPID:-}"
+            while [ -n "$candidate" ] && [ "$candidate" -gt 1 ] 2>/dev/null; do
+                command_line="$(ps -p "$candidate" -o command= 2>/dev/null || true)"
+                case "$command_line" in
+                    *"/hermes"*|*" hermes"*|*"hermes-agent"*)
+                        printf '%s\\n' "$candidate"
+                        return 0
+                        ;;
+                esac
+                candidate="$(ps -p "$candidate" -o ppid= 2>/dev/null | tr -d ' ' || true)"
+            done
+            return 1
+        }
+
+        if [ -z "${ZENTTY_HERMES_PID:-}" ]; then
+            if ZENTTY_RESOLVED_HERMES_PID="$(zentty_resolve_hermes_pid)"; then
+                ZENTTY_HERMES_PID="$ZENTTY_RESOLVED_HERMES_PID"
+                export ZENTTY_HERMES_PID
+            fi
         fi
 
         "$ZENTTY_BIN" hermes-hook \(event.cliEvent) || printf '{}\\n'

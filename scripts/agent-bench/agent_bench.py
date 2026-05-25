@@ -48,6 +48,7 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_GEMINI_PID",
     "ZENTTY_CURSOR_PID",
     "ZENTTY_DROID_PID",
+    "ZENTTY_HERMES_PID",
     "ZENTTY_KIMI_PID",
     "ZENTTY_GROK_PID",
     "ZENTTY_AGY_PID",
@@ -1688,6 +1689,26 @@ class LaunchPlanner:
             "    printf '{}\\n'\n"
             "    exit 0\n"
             "fi\n\n"
+            "zentty_resolve_hermes_pid() {\n"
+            "    candidate=\"${PPID:-}\"\n"
+            "    while [ -n \"$candidate\" ] && [ \"$candidate\" -gt 1 ] 2>/dev/null; do\n"
+            "        command_line=\"$(ps -p \"$candidate\" -o command= 2>/dev/null || true)\"\n"
+            "        case \"$command_line\" in\n"
+            "            *\"/hermes\"*|*\" hermes\"*|*\"hermes-agent\"*)\n"
+            "                printf '%s\\n' \"$candidate\"\n"
+            "                return 0\n"
+            "                ;;\n"
+            "        esac\n"
+            "        candidate=\"$(ps -p \"$candidate\" -o ppid= 2>/dev/null | tr -d ' ' || true)\"\n"
+            "    done\n"
+            "    return 1\n"
+            "}\n\n"
+            "if [ -z \"${ZENTTY_HERMES_PID:-}\" ]; then\n"
+            "    if ZENTTY_RESOLVED_HERMES_PID=\"$(zentty_resolve_hermes_pid)\"; then\n"
+            "        ZENTTY_HERMES_PID=\"$ZENTTY_RESOLVED_HERMES_PID\"\n"
+            "        export ZENTTY_HERMES_PID\n"
+            "    fi\n"
+            "fi\n\n"
             f"\"$ZENTTY_BIN\" hermes-hook {cli_event} || printf '{{}}\\n'\n"
             "exit 0\n"
         )
@@ -1705,14 +1726,38 @@ class LaunchPlanner:
         home.mkdir(parents=True, exist_ok=True)
         source_hermes_home = config_source_dir(environment, "HERMES_HOME", ".hermes")
         hermes_home = home / ".hermes"
-        symlink_directory_contents_skipping(source_hermes_home, hermes_home, {"config.yaml", "shell-hooks-allowlist.json"})
+        mutable_names = {
+            ".hermes_history",
+            ".update_check",
+            "audio_cache",
+            "auth.json",
+            "auth.lock",
+            "config.yaml",
+            "hooks",
+            "image_cache",
+            "interrupt_debug.log",
+            "logs",
+            "pairing",
+            "sandboxes",
+            "sessions",
+            "shell-hooks-allowlist.json",
+            "shell-hooks-allowlist.json.lock",
+            "state.db",
+            "state.db-shm",
+            "state.db-wal",
+        }
+        symlink_directory_contents_skipping(source_hermes_home, hermes_home, mutable_names)
+        for mutable_file_name in ["auth.json", "state.db", "state.db-shm", "state.db-wal"]:
+            source_file = source_hermes_home / mutable_file_name
+            if source_file.exists():
+                shutil.copy2(source_file, hermes_home / mutable_file_name)
 
-        config_lines = ["hooks:"]
+        hook_config_lines = ["hooks:"]
         approvals = []
         hooks_dir = hermes_home / "hooks" / "zentty-status"
         for event_name, cli_event, timeout in self._HERMES_HOOK_EVENTS:
             command = str(self._write_hermes_hook_script(hooks_dir, cli_path, cli_event))
-            config_lines.extend([
+            hook_config_lines.extend([
                 f"  {event_name}:",
                 f"    - command: {json.dumps(command)}",
                 f"      timeout: {timeout}",
@@ -1722,7 +1767,10 @@ class LaunchPlanner:
                 "command": command,
                 "approved_at": "agent-bench",
             })
-        (hermes_home / "config.yaml").write_text("\n".join(config_lines) + "\n", encoding="utf-8")
+        source_config = source_hermes_home / "config.yaml"
+        source_config_text = source_config.read_text(encoding="utf-8") if source_config.exists() else ""
+        config_text = replace_top_level_yaml_block(source_config_text, "hooks", "\n".join(hook_config_lines))
+        (hermes_home / "config.yaml").write_text(config_text, encoding="utf-8")
         write_json(hermes_home / "shell-hooks-allowlist.json", {"approvals": approvals})
 
         launch: dict[str, Any] = {"arguments": arguments}
@@ -2711,6 +2759,33 @@ def remove_top_level_toml_key(text: str, key: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines)
+
+
+def replace_top_level_yaml_block(text: str, key: str, replacement: str) -> str:
+    lines = text.splitlines()
+    output: list[str] = []
+    index = 0
+    key_pattern = re.compile(rf"^{re.escape(key)}:\s*(?:#.*)?$")
+    while index < len(lines):
+        line = lines[index]
+        if key_pattern.match(line):
+            index += 1
+            while index < len(lines):
+                candidate = lines[index]
+                is_top_level = bool(candidate.strip()) and not candidate.startswith((" ", "\t"))
+                is_comment = candidate.lstrip().startswith("#")
+                if is_top_level and not is_comment:
+                    break
+                index += 1
+            continue
+        output.append(line)
+        index += 1
+
+    base = "\n".join(output).rstrip()
+    replacement = replacement.rstrip()
+    if base:
+        return f"{base}\n\n{replacement}\n"
+    return f"{replacement}\n"
 
 
 def symlink_directory_contents_skipping(source: pathlib.Path, destination: pathlib.Path, skipping: set[str]) -> None:

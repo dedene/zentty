@@ -319,10 +319,13 @@ struct PaneRestoreDraft: Codable, Equatable, Sendable {
 }
 
 enum SessionRestoreDraftExporter {
+    typealias LiveAgentPIDResolver = (_ tool: AgentTool, _ paneRootPID: Int32?) -> Int32?
+
     static func makeWindowDrafts(
         windowID: WindowID,
         worklanes: [WorklaneState],
-        isProcessAlive: (Int32) -> Bool = defaultIsProcessAlive
+        isProcessAlive: (Int32) -> Bool = defaultIsProcessAlive,
+        resolveLiveAgentPID: LiveAgentPIDResolver = defaultResolveLiveAgentPID
     ) -> SessionRestoreDraftWindow? {
         let paneDrafts = worklanes.flatMap { worklane in
             worklane.paneStripState.panes.compactMap { pane in
@@ -330,7 +333,8 @@ enum SessionRestoreDraftExporter {
                     paneID: pane.id,
                     pane: pane,
                     worklane: worklane,
-                    isProcessAlive: isProcessAlive
+                    isProcessAlive: isProcessAlive,
+                    resolveLiveAgentPID: resolveLiveAgentPID
                 )
             }
         }
@@ -349,7 +353,8 @@ enum SessionRestoreDraftExporter {
         paneID: PaneID,
         pane: PaneState,
         worklane: WorklaneState,
-        isProcessAlive: (Int32) -> Bool
+        isProcessAlive: (Int32) -> Bool,
+        resolveLiveAgentPID: LiveAgentPIDResolver
     ) -> PaneRestoreDraft? {
         guard let auxiliary = worklane.auxiliaryStateByPaneID[paneID] else {
             return nil
@@ -361,7 +366,8 @@ enum SessionRestoreDraftExporter {
             paneID: paneID,
             pane: pane,
             auxiliary: auxiliary,
-            isProcessAlive: isProcessAlive
+            isProcessAlive: isProcessAlive,
+            resolveLiveAgentPID: resolveLiveAgentPID
         ) {
             return liveDraft
         }
@@ -385,7 +391,8 @@ enum SessionRestoreDraftExporter {
         paneID: PaneID,
         pane: PaneState,
         auxiliary: PaneAuxiliaryState,
-        isProcessAlive: (Int32) -> Bool
+        isProcessAlive: (Int32) -> Bool,
+        resolveLiveAgentPID: LiveAgentPIDResolver = defaultResolveLiveAgentPID
     ) -> PaneRestoreDraft? {
         let resolvedWorkingDirectory = workingDirectory(
             agentStatus: auxiliary.agentStatus,
@@ -407,62 +414,106 @@ enum SessionRestoreDraftExporter {
             )
         }
 
-        guard let session = restorableHiddenSession(
-            in: auxiliary.agentReducerState,
-            workingDirectory: resolvedWorkingDirectory,
-            isProcessAlive: isProcessAlive
-        ) else {
-            return nil
+        if let agentStatus = auxiliary.agentStatus,
+           let trackedPID = recoveredTrackedPID(
+               for: agentStatus.tool,
+               paneRootPID: auxiliary.raw.paneRootPID,
+               isProcessAlive: isProcessAlive,
+               resolveLiveAgentPID: resolveLiveAgentPID
+           ) {
+            return makeRestorableDraft(
+                paneID: paneID.rawValue,
+                tool: agentStatus.tool,
+                sessionID: agentStatus.sessionID,
+                workingDirectory: resolvedWorkingDirectory,
+                trackedPID: trackedPID,
+                agentLaunchSnapshot: agentStatus.agentLaunchSnapshot
+            )
         }
 
-        guard let trackedPID = session.trackedPID else {
+        guard let hiddenSession = restorableHiddenSession(
+            in: auxiliary.agentReducerState,
+            workingDirectory: resolvedWorkingDirectory,
+            paneRootPID: auxiliary.raw.paneRootPID,
+            isProcessAlive: isProcessAlive,
+            resolveLiveAgentPID: resolveLiveAgentPID
+        ) else {
             return nil
         }
 
         return makeRestorableDraft(
             paneID: paneID.rawValue,
-            tool: session.tool,
-            sessionID: session.sessionID,
+            tool: hiddenSession.session.tool,
+            sessionID: hiddenSession.session.sessionID,
             workingDirectory: resolvedWorkingDirectory,
-            trackedPID: trackedPID,
-            agentLaunchSnapshot: session.agentLaunchSnapshot
+            trackedPID: hiddenSession.trackedPID,
+            agentLaunchSnapshot: hiddenSession.session.agentLaunchSnapshot
         )
     }
 
     private static func restorableHiddenSession(
         in reducerState: PaneAgentReducerState,
         workingDirectory: String?,
-        isProcessAlive: (Int32) -> Bool
-    ) -> PaneAgentSessionState? {
+        paneRootPID: Int32?,
+        isProcessAlive: (Int32) -> Bool,
+        resolveLiveAgentPID: LiveAgentPIDResolver
+    ) -> (session: PaneAgentSessionState, trackedPID: Int32)? {
         reducerState.sessionsByID.values
-            .filter { session in
-                guard let trackedPID = session.trackedPID,
-                      isProcessAlive(trackedPID) else {
-                    return false
+            .compactMap { session -> (session: PaneAgentSessionState, trackedPID: Int32)? in
+                let trackedPID: Int32?
+                if let sessionPID = session.trackedPID, isProcessAlive(sessionPID) {
+                    trackedPID = sessionPID
+                } else {
+                    trackedPID = recoveredTrackedPID(
+                        for: session.tool,
+                        paneRootPID: paneRootPID,
+                        isProcessAlive: isProcessAlive,
+                        resolveLiveAgentPID: resolveLiveAgentPID
+                    )
+                }
+                guard let trackedPID else {
+                    return nil
                 }
 
                 switch session.state {
                 case .starting, .running, .needsInput, .idle:
-                    return makeRestorableDraft(
+                    guard makeRestorableDraft(
                         paneID: "",
                         tool: session.tool,
                         sessionID: session.sessionID,
                         workingDirectory: workingDirectory,
                         trackedPID: trackedPID
-                    ) != nil
+                    ) != nil else {
+                        return nil
+                    }
+                    return (session, trackedPID)
                 case .unresolvedStop:
-                    return false
+                    return nil
                 }
             }
             .sorted { lhs, rhs in
-                let lhsRank = restoreRank(for: lhs)
-                let rhsRank = restoreRank(for: rhs)
+                let lhsRank = restoreRank(for: lhs.session)
+                let rhsRank = restoreRank(for: rhs.session)
                 if lhsRank != rhsRank {
                     return lhsRank < rhsRank
                 }
-                return lhs.updatedAt > rhs.updatedAt
+                return lhs.session.updatedAt > rhs.session.updatedAt
             }
             .first
+    }
+
+    private static func recoveredTrackedPID(
+        for tool: AgentTool,
+        paneRootPID: Int32?,
+        isProcessAlive: (Int32) -> Bool,
+        resolveLiveAgentPID: LiveAgentPIDResolver
+    ) -> Int32? {
+        guard tool == .hermes,
+              let recoveredPID = resolveLiveAgentPID(tool, paneRootPID),
+              isProcessAlive(recoveredPID) else {
+            return nil
+        }
+        return recoveredPID
     }
 
     private enum RestoreIdentityRequirement {
@@ -579,6 +630,47 @@ enum SessionRestoreDraftExporter {
         }
 
         return errno == EPERM
+    }
+
+    private static func defaultResolveLiveAgentPID(tool: AgentTool, paneRootPID: Int32?) -> Int32? {
+        guard tool == .hermes,
+              let paneRootPID,
+              paneRootPID > 0 else {
+            return nil
+        }
+
+        return HermesProcessResolver.liveHermesDescendantPID(rootPID: paneRootPID)
+    }
+}
+
+private enum HermesProcessResolver {
+    static func liveHermesDescendantPID(rootPID: Int32) -> Int32? {
+        DarwinProcessProbe().treePIDs(rootPID: rootPID)
+            .filter { $0 != rootPID }
+            .first { pid in
+                guard let executablePath = executablePath(pid: pid) else {
+                    return false
+                }
+                return isHermesExecutablePath(executablePath)
+            }
+    }
+
+    private static func executablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let result = buffer.withUnsafeMutableBufferPointer { pointer in
+            proc_pidpath(pid, pointer.baseAddress, UInt32(pointer.count))
+        }
+        guard result > 0 else {
+            return nil
+        }
+        return String(cString: buffer)
+    }
+
+    private static func isHermesExecutablePath(_ path: String) -> Bool {
+        let normalizedPath = path.lowercased()
+        return normalizedPath.contains("/.hermes/hermes-agent/")
+            || normalizedPath.hasSuffix("/bin/hermes")
+            || normalizedPath.hasSuffix("/hermes")
     }
 }
 
