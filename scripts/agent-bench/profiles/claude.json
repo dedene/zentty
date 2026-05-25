@@ -37,6 +37,10 @@
       "1.00",
       "For an integration hook regression test, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool. Put the text ZENTTY_AGENT_BENCH_APPROVAL_OK in the file."
     ],
+    "manual_compact": [
+      "--setting-sources",
+      "project,local"
+    ],
     "restore_launch": [
       "--resume",
       "237d8c32-2a27-4850-8da8-3a110f13682c"
@@ -62,6 +66,9 @@
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Notification"],
       "post_stop_notification_required": true
     },
+    "manual_compact": {
+      "required_events": ["SessionStart", "PreCompact"]
+    },
     "restore_launch": {
       "required_events": [],
       "required_bootstrap_arguments": [["--resume", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
@@ -72,6 +79,14 @@
       {
         "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
         "text": "1\n"
+      }
+    ],
+    "manual_compact": [
+      {
+        "match": "for shortcuts|Claude Code",
+        "after": 1,
+        "text": "/compact\r",
+        "label": "manual-compact"
       }
     ]
   },

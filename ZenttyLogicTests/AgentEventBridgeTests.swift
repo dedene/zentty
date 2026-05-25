@@ -902,6 +902,39 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .starting)
     }
 
+    func test_codex_hook_pre_compact_sets_running_compacting_text() throws {
+        let json = #"{"hook_event_name": "PreCompact", "session_id": "s1", "cwd": "/tmp/project", "trigger": "manual"}"#
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].text, "Compacting")
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].toolName, "Codex")
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_codex_hook_post_compact_clears_compacting_text() throws {
+        let json = #"{"hook_event_name": "PostCompact", "session_id": "s1", "cwd": "/tmp/project", "trigger": "auto"}"#
+        let payloads = try AgentEventBridge.codexAdapter(data: Data(json.utf8), defaultEventName: nil, environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertNil(payloads[0].text)
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_codex_hook_compact_events_map_from_cli_args() throws {
+        let prePayloads = try AgentEventBridge.codexAdapter(data: Data(), defaultEventName: "pre-compact", environment: codexEnvironment())
+        let postPayloads = try AgentEventBridge.codexAdapter(data: Data(), defaultEventName: "post-compact", environment: codexEnvironment())
+
+        XCTAssertEqual(prePayloads.first?.state, .running)
+        XCTAssertEqual(prePayloads.first?.text, "Compacting")
+        XCTAssertEqual(postPayloads.first?.state, .running)
+        XCTAssertNil(postPayloads.first?.text)
+    }
+
     func test_codex_hook_permission_request_default_event_maps_to_needs_input_approval() throws {
         let payloads = try AgentEventBridge.codexAdapter(data: Data(), defaultEventName: "permission-request", environment: codexEnvironment())
 
@@ -1487,6 +1520,29 @@ final class AgentEventBridgeTests: XCTestCase {
 
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].interactionKind, .none)
+    }
+
+    func test_claude_adapter_pre_compact_sets_running_compacting_text() throws {
+        let json = #"{"hook_event_name": "PreCompact", "session_id": "cs1", "cwd": "/tmp/project", "trigger": "manual"}"#
+        let payloads = try AgentEventBridge.claudeAdapter(data: Data(json.utf8), environment: claudeEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].text, "Compacting")
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].toolName, "Claude Code")
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_claude_adapter_post_compact_clears_compacting_text() throws {
+        let json = #"{"hook_event_name": "PostCompact", "session_id": "cs1", "cwd": "/tmp/project", "trigger": "auto"}"#
+        let payloads = try AgentEventBridge.claudeAdapter(data: Data(json.utf8), environment: claudeEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertNil(payloads[0].text)
+        XCTAssertEqual(payloads[0].interactionKind, .none)
+        XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
     }
 
     func test_claude_adapter_pre_tool_use_ask_user_question() throws {

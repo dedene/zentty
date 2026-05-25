@@ -126,6 +126,19 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertEqual(restore_launch.required_events, [])
         self.assertEqual(restore_launch.required_bootstrap_arguments, [["resume", "session-codex"]])
 
+    def test_compact_profiles_require_pre_and_post_compact_hooks(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+
+        self.assertEqual(
+            profiles["codex"].expectations["manual_compact"].required_events,
+            ["pre-compact", "post-compact"],
+        )
+        self.assertEqual(
+            profiles["claude"].expectations["manual_compact"].required_events,
+            ["SessionStart", "PreCompact"],
+        )
+
     def test_cursor_profile_defines_session_capture_restore_and_interactive_completion(self):
         profile_dir = ROOT / "profiles"
         profiles = agent_bench.load_profiles(profile_dir)
@@ -1965,6 +1978,70 @@ class EnvironmentTests(unittest.TestCase):
 
 
 class LaunchPlannerTests(unittest.TestCase):
+    def test_codex_plan_installs_compact_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            profile = agent_bench.AgentProfile(
+                name="codex",
+                command="codex",
+                real_binary_names=["codex"],
+                version_args=["--version"],
+                launch_args_by_scenario={"manual_compact": []},
+                expectations={"manual_compact": agent_bench.ScenarioExpectation("manual_compact", ["pre-compact"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="manual_compact",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/codex",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                    },
+                }
+            )
+
+            config_arguments = [argument for argument in plan["arguments"] if argument.startswith("hooks.")]
+            self.assertTrue(any(argument.startswith("hooks.PreCompact=") and "pre-compact" in argument for argument in config_arguments))
+            self.assertTrue(any(argument.startswith("hooks.PostCompact=") and "post-compact" in argument for argument in config_arguments))
+            state_argument = next(argument for argument in config_arguments if argument.startswith("hooks.state="))
+            self.assertIn("pre_compact", state_argument)
+            self.assertIn("post_compact", state_argument)
+
+    def test_claude_plan_installs_compact_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            profile = agent_bench.AgentProfile(
+                name="claude",
+                command="claude",
+                real_binary_names=["claude"],
+                version_args=["--version"],
+                launch_args_by_scenario={"manual_compact": []},
+                expectations={"manual_compact": agent_bench.ScenarioExpectation("manual_compact", ["PreCompact"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="manual_compact",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                    },
+                }
+            )
+
+            settings_index = plan["arguments"].index("--settings")
+            settings = json.loads(plan["arguments"][settings_index + 1])
+            self.assertIn("PreCompact", settings["hooks"])
+            self.assertIn("PostCompact", settings["hooks"])
+
     def test_codex_plan_unsets_nested_zentty_codex_home(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

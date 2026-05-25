@@ -23,6 +23,7 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var completionCandidateDeadline: Date?
     var idleVisibleUntil: Date?
     var unresolvedStopVisibleUntil: Date?
+    var transientTextVisibleUntil: Date?
     /// Timestamp of the most recent explicit Stop-style transition into
     /// `.idle`. Used by `shouldApplyLifecycle` to ignore weaker `.needsInput`
     /// signals that arrive moments after Stop — e.g., a generic Claude
@@ -37,6 +38,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
     static let idleVisibilityWindow: TimeInterval = 120
     static let unresolvedStopVisibilityWindow: TimeInterval = 600
     static let staleSessionVisibilityWindow: TimeInterval = 1_800
+    static let transientRunningTextVisibilityWindow: TimeInterval = 1_800
+    static let compactingStatusText = "Compacting"
     /// How long after an explicit Stop we ignore non-explicit `.needsInput`
     /// payloads. Real follow-up interactions (PermissionRequest,
     /// AskUserQuestion) come through with `.explicit` confidence and bypass
@@ -417,7 +420,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return PaneAgentStatus(
             tool: session.tool,
             state: session.state,
-            text: session.text,
+            text: Self.visibleText(for: session, now: now),
             artifactLink: session.artifactLink,
             updatedAt: session.updatedAt,
             source: session.source,
@@ -478,6 +481,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             completionCandidateDeadline: nil,
             idleVisibleUntil: nil,
             unresolvedStopVisibleUntil: nil,
+            transientTextVisibleUntil: nil,
             explicitIdleSince: nil
         )
 
@@ -553,6 +557,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.explicitIdleSince = nil
         case .idle:
             session.text = nil
+            session.transientTextVisibleUntil = nil
             session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
             // Stamp the moment we accepted an explicit Stop (or equivalent
             // .idle transition) so a late, lower-confidence `.needsInput`
@@ -565,11 +570,26 @@ struct PaneAgentReducerState: Equatable, Sendable {
             }
         case .unresolvedStop:
             session.text = nil
+            session.transientTextVisibleUntil = nil
             session.trackedPID = nil
             session.unresolvedStopVisibleUntil = now.addingTimeInterval(Self.unresolvedStopVisibilityWindow)
             session.explicitIdleSince = nil
         case .running, .starting:
-            session.text = nil
+            if let payloadText {
+                session.text = payloadText
+                session.transientTextVisibleUntil = Self.transientTextVisibleUntil(for: payloadText, now: now)
+            } else if Self.shouldPreserveTransientRunningText(
+                existingText,
+                previousState: previousState,
+                existingVisibleUntil: session.transientTextVisibleUntil,
+                lifecycleEvent: payload.lifecycleEvent,
+                now: now
+            ) {
+                session.text = existingText
+            } else {
+                session.text = nil
+                session.transientTextVisibleUntil = nil
+            }
             session.explicitIdleSince = nil
         }
 
@@ -609,6 +629,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.hasObservedRunning = session.hasObservedRunning || inferredSession.hasObservedRunning
             session.artifactLink = session.artifactLink ?? inferredSession.artifactLink
             session.text = session.text ?? inferredSession.text
+            session.transientTextVisibleUntil = session.transientTextVisibleUntil ?? inferredSession.transientTextVisibleUntil
             session.taskProgress = session.taskProgress ?? inferredSession.taskProgress
             session.agentLaunchSnapshot = session.agentLaunchSnapshot ?? inferredSession.agentLaunchSnapshot
             if inferredSession.updatedAt > session.updatedAt {
@@ -634,6 +655,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.hasObservedRunning = session.hasObservedRunning || fallbackSession.hasObservedRunning
         session.artifactLink = session.artifactLink ?? fallbackSession.artifactLink
         session.text = session.text ?? fallbackSession.text
+        session.transientTextVisibleUntil = session.transientTextVisibleUntil ?? fallbackSession.transientTextVisibleUntil
         session.trackedPID = session.trackedPID ?? fallbackSession.trackedPID
         session.taskProgress = session.taskProgress ?? fallbackSession.taskProgress
         session.agentLaunchSnapshot = session.agentLaunchSnapshot ?? fallbackSession.agentLaunchSnapshot
@@ -674,6 +696,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 completionCandidateDeadline: nil,
                 idleVisibleUntil: nil,
                 unresolvedStopVisibleUntil: nil,
+                transientTextVisibleUntil: nil,
                 explicitIdleSince: nil
             )
 
@@ -850,6 +873,42 @@ struct PaneAgentReducerState: Equatable, Sendable {
         case .explicitAPI, .explicitHook, .shell:
             return false
         }
+    }
+
+    private static func visibleText(for session: PaneAgentSessionState, now: Date) -> String? {
+        guard let text = session.text else {
+            return nil
+        }
+        guard isTransientRunningText(text),
+              session.state == .running || session.state == .starting else {
+            return text
+        }
+        return session.transientTextVisibleUntil.map { now <= $0 } == true ? text : nil
+    }
+
+    private static func shouldPreserveTransientRunningText(
+        _ existingText: String?,
+        previousState: PaneAgentState,
+        existingVisibleUntil: Date?,
+        lifecycleEvent: AgentLifecycleEvent?,
+        now: Date
+    ) -> Bool {
+        guard let existingText,
+              isTransientRunningText(existingText),
+              previousState == .running || previousState == .starting,
+              lifecycleEvent == .toolActivity,
+              let existingVisibleUntil else {
+            return false
+        }
+        return now <= existingVisibleUntil
+    }
+
+    private static func isTransientRunningText(_ text: String) -> Bool {
+        text == compactingStatusText
+    }
+
+    private static func transientTextVisibleUntil(for text: String, now: Date) -> Date? {
+        isTransientRunningText(text) ? now.addingTimeInterval(transientRunningTextVisibilityWindow) : nil
     }
 
     private static func preferred(lhs: PaneAgentSessionState, rhs: PaneAgentSessionState) -> Bool {

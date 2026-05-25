@@ -107,6 +107,169 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(4))?.state, .running)
     }
 
+    func test_running_signal_preserves_explicit_transient_text_for_visibility_window() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "Compacting",
+                lifecycleEvent: .toolActivity,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt)?.state, .running)
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt)?.text, "Compacting")
+        XCTAssertNil(
+            reducerState.reducedStatus(
+                now: startedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow + 0.1)
+            )?.text
+        )
+    }
+
+    func test_post_compact_keeps_compacting_text_visible_while_running() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "Compacting",
+                lifecycleEvent: .toolActivity,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .toolActivity,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(0.1)
+        )
+
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(0.2))?.text, "Compacting")
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(5))?.text, "Compacting")
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(300))?.text, "Compacting")
+        XCTAssertNil(
+            reducerState.reducedStatus(
+                now: startedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow + 0.2)
+            )?.text
+        )
+    }
+
+    func test_compacting_text_clears_when_session_becomes_idle() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: "Compacting",
+                lifecycleEvent: .toolActivity,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .turnComplete,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(5)
+        )
+
+        let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(5))
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertNil(status?.text)
+    }
+
+    func test_shell_state_does_not_extend_compacting_text_deadline() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: "Compacting",
+                lifecycleEvent: .toolActivity,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .commandRunning,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow - 0.1)
+        )
+
+        XCTAssertNil(
+            reducerState.reducedStatus(
+                now: startedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow + 0.1)
+            )?.text
+        )
+    }
+
     func test_idle_without_prior_running_does_not_surface_status() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

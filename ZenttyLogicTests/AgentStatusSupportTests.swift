@@ -1498,6 +1498,8 @@ final class AgentStatusSupportTests: XCTestCase {
             preToolUseEntries.compactMap { $0["matcher"] as? String },
             ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"]
         )
+        XCTAssertNotNil(hooks["PreCompact"])
+        XCTAssertNotNil(hooks["PostCompact"])
         XCTAssertNotNil(hooks["TaskCompleted"])
     }
 
@@ -1554,6 +1556,8 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PermissionRequest=") && $0.contains("permission-request") })
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PostToolUse=") && $0.contains("post-tool-use") })
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.UserPromptSubmit=") && $0.contains("prompt-submit") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PreCompact=") && $0.contains("pre-compact") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.PostCompact=") && $0.contains("post-compact") })
         XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.Stop=") && $0.contains("stop") })
         XCTAssertFalse(hookConfigArguments.contains { $0.contains("\t") })
         let hookStateArgument = try XCTUnwrap(hookConfigArguments.first { $0.hasPrefix("hooks.state=") })
@@ -1562,8 +1566,10 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:permission_request:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:post_tool_use:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:user_prompt_submit:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:pre_compact:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:post_compact:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:stop:0:0""#))
-        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 6)
+        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 8)
         let sourceConfig = try String(contentsOf: sourceConfigURL, encoding: .utf8)
         XCTAssertFalse(sourceConfig.contains("hooks.state"))
         XCTAssertTrue(plan.arguments.contains("features.hooks=true"))
