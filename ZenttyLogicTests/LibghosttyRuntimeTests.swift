@@ -75,6 +75,58 @@ final class LibghosttyRuntimeTests: XCTestCase {
         XCTAssertFalse(contents?.contains("quick-terminal-position") ?? true)
     }
 
+    func testConcreteThemeOverrideContents_resolvesConditionalThemeToDarkSlot() {
+        let contents = LibghosttyRuntime.concreteThemeOverrideContents(
+            userConfigContents: """
+            theme = light:GitHub Light Default,dark:GitHub-Dark-Personal
+            """,
+            appearance: NSAppearance(named: .darkAqua)
+        )
+
+        XCTAssertEqual(contents, "theme = GitHub-Dark-Personal")
+    }
+
+    func testConcreteThemeOverrideContents_resolvesConditionalThemeToLightSlot() {
+        let contents = LibghosttyRuntime.concreteThemeOverrideContents(
+            userConfigContents: """
+            theme = light:GitHub Light Default,dark:GitHub-Dark-Personal
+            """,
+            appearance: NSAppearance(named: .aqua)
+        )
+
+        XCTAssertEqual(contents, "theme = GitHub Light Default")
+    }
+
+    func testConcreteThemeOverrideContents_skipsSingleTheme() {
+        let contents = LibghosttyRuntime.concreteThemeOverrideContents(
+            userConfigContents: """
+            theme = GitHub-Dark-Personal
+            """,
+            appearance: NSAppearance(named: .darkAqua)
+        )
+
+        XCTAssertNil(contents)
+    }
+
+    func testBuiltInThemeOverrideContents_inlinesFallbackAfterConcreteConditionalOverride() {
+        let mergedContents = """
+        theme = light:GitHub Light Default,dark:GitHub-Dark-Personal
+        \(LibghosttyRuntime.concreteThemeOverrideContents(
+            userConfigContents: "theme = light:GitHub Light Default,dark:GitHub-Dark-Personal",
+            appearance: NSAppearance(named: .darkAqua)
+        ) ?? "")
+        """
+
+        let contents = LibghosttyRuntime.builtInThemeOverrideContents(
+            userConfigContents: mergedContents,
+            themeDirectories: []
+        )
+
+        XCTAssertNotNil(contents)
+        XCTAssertTrue(contents?.contains("background = #0A0C10") ?? false)
+        XCTAssertTrue(contents?.contains("foreground = #F0F3F6") ?? false)
+    }
+
     func testBuiltInThemeOverrideContents_skipsInliningWhenThemeFileExists() throws {
         let persistedFallbackThemeName = GhosttyThemeLibrary.fallbackPersistedThemeName
         let themeDirectoryURL = FileManager.default.temporaryDirectory

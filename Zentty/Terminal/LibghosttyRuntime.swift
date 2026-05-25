@@ -359,6 +359,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     }
 
     private static let localOverridePath = NSTemporaryDirectory() + "zentty-ghostty-local-overrides.conf"
+    private static let concreteThemeOverridePath = NSTemporaryDirectory() + "zentty-ghostty-concrete-theme-override.conf"
     private static let builtInThemeOverridePath = NSTemporaryDirectory() + "zentty-ghostty-built-in-theme-override.conf"
     private static let transparentOverridePath = NSTemporaryDirectory() + "zentty-ghostty-transparent-override.conf"
     private static let paddingPolicyOverridePath = NSTemporaryDirectory() + "zentty-ghostty-padding-policy-override.conf"
@@ -384,10 +385,25 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
 
         let mergedUserConfigContents = stack?.mergedUserConfigContents()
+        let concreteThemeOverrideContents = concreteThemeOverrideContents(
+            userConfigContents: mergedUserConfigContents,
+            appearance: NSApp.effectiveAppearance
+        )
+        if let concreteThemeOverrideContents {
+            loadConfigFile(
+                contents: concreteThemeOverrideContents,
+                path: concreteThemeOverridePath,
+                into: config
+            )
+        }
+        let effectiveUserConfigContents = mergedConfigContents(
+            mergedUserConfigContents,
+            concreteThemeOverrideContents
+        )
 
-        loadBuiltInThemeOverride(config, userConfigContents: mergedUserConfigContents)
-        loadTransparentBackgroundOverride(config, userConfigContents: mergedUserConfigContents)
-        loadPaddingPolicyOverride(config, userConfigContents: mergedUserConfigContents)
+        loadBuiltInThemeOverride(config, userConfigContents: effectiveUserConfigContents)
+        loadTransparentBackgroundOverride(config, userConfigContents: effectiveUserConfigContents)
+        loadPaddingPolicyOverride(config, userConfigContents: effectiveUserConfigContents)
     }
 
     private static func loadBuiltInThemeOverride(
@@ -455,6 +471,21 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
 
         return sections.isEmpty ? nil : sections.joined(separator: "\n")
+    }
+
+    static func concreteThemeOverrideContents(
+        userConfigContents: String?,
+        appearance: NSAppearance?
+    ) -> String? {
+        guard
+            let themeSpec = configuredThemeName(in: userConfigContents),
+            let parsed = GhosttyThemeSpec(rawValue: themeSpec),
+            parsed.mode == .followMacOS
+        else {
+            return nil
+        }
+
+        return "theme = \(parsed.themeName(for: appearance))"
     }
 
     static func transparentBackgroundOverrideContents(userConfigContents: String?) -> String? {
@@ -584,6 +615,17 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
 
         return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func mergedConfigContents(_ sections: String?...) -> String? {
+        let nonEmptySections = sections
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !nonEmptySections.isEmpty else {
+            return nil
+        }
+
+        return nonEmptySections.joined(separator: "\n")
     }
 
     private static func configuredThemeName(in content: String?) -> String? {
