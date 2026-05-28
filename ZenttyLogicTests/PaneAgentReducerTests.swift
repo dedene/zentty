@@ -137,7 +137,7 @@ final class PaneAgentReducerTests: XCTestCase {
         )
     }
 
-    func test_post_compact_keeps_compacting_text_visible_while_running() {
+    func test_post_compact_clears_compacting_text_while_running() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
 
@@ -165,7 +165,7 @@ final class PaneAgentReducerTests: XCTestCase {
                 origin: .explicitHook,
                 toolName: "Codex",
                 text: nil,
-                lifecycleEvent: .toolActivity,
+                lifecycleEvent: .update,
                 sessionID: "session-1",
                 artifactKind: nil,
                 artifactLabel: nil,
@@ -174,14 +174,8 @@ final class PaneAgentReducerTests: XCTestCase {
             now: startedAt.addingTimeInterval(0.1)
         )
 
-        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(0.2))?.text, "Compacting")
-        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(5))?.text, "Compacting")
-        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(300))?.text, "Compacting")
-        XCTAssertNil(
-            reducerState.reducedStatus(
-                now: startedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow + 0.2)
-            )?.text
-        )
+        XCTAssertNil(reducerState.reducedStatus(now: startedAt.addingTimeInterval(0.2))?.text)
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt.addingTimeInterval(0.2))?.state, .running)
     }
 
     func test_compacting_text_clears_when_session_becomes_idle() {

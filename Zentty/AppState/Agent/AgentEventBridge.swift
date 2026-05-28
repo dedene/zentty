@@ -316,7 +316,7 @@ enum AgentEventBridge {
                 origin: .explicitHook,
                 toolName: toolName,
                 text: nil,
-                lifecycleEvent: .toolActivity,
+                lifecycleEvent: .update,
                 interactionKind: .none,
                 confidence: .explicit,
                 sessionID: input.sessionID,

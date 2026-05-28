@@ -921,6 +921,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertNil(payloads[0].text)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
         XCTAssertEqual(payloads[0].interactionKind, .none)
         XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
     }
@@ -1541,6 +1542,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertNil(payloads[0].text)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
         XCTAssertEqual(payloads[0].interactionKind, .none)
         XCTAssertEqual(payloads[0].agentWorkingDirectory, "/tmp/project")
     }

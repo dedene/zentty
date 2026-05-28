@@ -1189,7 +1189,7 @@ extension AgentEventBridge {
                 target: target,
                 toolName: toolName,
                 state: .running,
-                lifecycleEvent: .toolActivity,
+                lifecycleEvent: .update,
                 interactionKind: .none,
                 sessionID: sessionID,
                 cwd: cwd,

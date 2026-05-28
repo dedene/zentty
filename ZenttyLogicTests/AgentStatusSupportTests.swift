@@ -6199,7 +6199,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(payload.state, .running)
         XCTAssertEqual(payload.toolName, "OpenCode")
         XCTAssertNil(payload.text)
-        XCTAssertEqual(payload.lifecycleEvent, .toolActivity)
+        XCTAssertEqual(payload.lifecycleEvent, .update)
         XCTAssertEqual(payload.interactionKind, .none)
         XCTAssertEqual(payload.confidence, .explicit)
         XCTAssertEqual(payload.sessionID, "session-1")

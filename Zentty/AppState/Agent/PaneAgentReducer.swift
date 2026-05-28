@@ -38,7 +38,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
     static let idleVisibilityWindow: TimeInterval = 120
     static let unresolvedStopVisibilityWindow: TimeInterval = 600
     static let staleSessionVisibilityWindow: TimeInterval = 1_800
-    static let transientRunningTextVisibilityWindow: TimeInterval = 1_800
+    // Fallback only: explicit compact-end events should clear this immediately.
+    static let transientRunningTextVisibilityWindow: TimeInterval = 120
     static let compactingStatusText = "Compacting"
     /// How long after an explicit Stop we ignore non-explicit `.needsInput`
     /// payloads. Real follow-up interactions (PermissionRequest,
