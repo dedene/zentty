@@ -129,9 +129,12 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertEqual(result, "ls\ncd foo\npwd\noutput\necho hi")
     }
 
-    func test_stripPrompts_percent_sign() {
+    func test_stripPrompts_does_not_strip_percent_prefix() {
+        // % is no longer a candidate prompt — too many false positives in prose
+        // (e.g. "10% done", "5% used"). zsh users who genuinely paste % prompts
+        // pay a small tax in exchange for far fewer false strips.
         let input = "% ls\n% cd\n% pwd\n% echo"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), "ls\ncd\npwd\necho")
+        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
     }
 
     func test_stripPrompts_hash_sign() {
@@ -527,6 +530,192 @@ final class CleanCopyPipelineTests: XCTestCase {
         let input = "curl -I https://example.com | │ head -n 5"
         let result = CleanCopyPipeline.clean(input)
         XCTAssertEqual(result.text, "curl -I https://example.com | head -n 5")
+        XCTAssertTrue(result.wasModified)
+    }
+
+    // MARK: - Strict-Majority Prompt Threshold
+
+    func test_stripPrompts_below_strict_majority_does_not_strip() {
+        // 3 of 6 lines have "$ " — needs >= n/2+1 = 4 to strip
+        let input = "$ ls\n$ cd\n$ pwd\nout1\nout2\nout3"
+        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+    }
+
+    func test_stripPrompts_at_strict_majority_strips() {
+        // 4 of 6 lines have "$ " — meets n/2+1 = 4
+        let input = "$ ls\n$ cd\n$ pwd\n$ echo\nout1\nout2"
+        XCTAssertEqual(
+            CleanCopyPipeline.stripPrompts(input),
+            "ls\ncd\npwd\necho\nout1\nout2"
+        )
+    }
+
+    func test_stripPrompts_n5_three_matches_strips() {
+        // n=5, 3 matches: strict-majority threshold (n/2+1 = 3) — strips.
+        // The prior >0.6 continuous threshold would have required 4 here;
+        // this test pins the looser-for-odd-n behavior down.
+        let input = "$ ls\n$ cd\n$ pwd\nout1\nout2"
+        XCTAssertEqual(
+            CleanCopyPipeline.stripPrompts(input),
+            "ls\ncd\npwd\nout1\nout2"
+        )
+    }
+
+    func test_stripPrompts_n5_three_blockquote_lines_strips_accepted_tradeoff() {
+        // Accepted trade-off: 3-of-5 `> ` lines hit the true-majority threshold and
+        // strip, even though this looks like a markdown blockquote. Pins the
+        // deliberate odd-n behavior; see detectPromptPattern.
+        let input = "> quoted one\n> quoted two\n> quoted three\nplain four\nplain five"
+        XCTAssertEqual(
+            CleanCopyPipeline.stripPrompts(input),
+            "quoted one\nquoted two\nquoted three\nplain four\nplain five"
+        )
+    }
+
+    // MARK: - Agent Prompt Rule Detection
+
+    func test_stripAgentPromptSelection_ignores_ascii_dash_rule() {
+        // A plain "----------" run is a markdown HR, not an agent rule separator.
+        // Earlier behavior treated it as a rule and discarded the content above it.
+        let input = """
+        › Here is text above
+        ----------
+        And text below the rule
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Here is text above ---------- And text below the rule"
+        )
+    }
+
+    func test_stripAgentPromptSelection_skips_reflow_over_60_lines() {
+        // Synthetic 70 non-empty lines under a chevron — safety valve returns nil.
+        let body = Array(repeating: "more content here", count: 70).joined(separator: "\n")
+        let input = "› first line\n" + body
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    // MARK: - Token-Preserving Flatten
+
+    func test_stripAgentPromptSelection_preserves_hyphen_wrapped_token() {
+        let input = """
+        › open /tmp/scan-qr-f1cc4328-eb1d-4a3c-9bd2-
+          f1a4ccda5f6a.png
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "open /tmp/scan-qr-f1cc4328-eb1d-4a3c-9bd2-f1a4ccda5f6a.png"
+        )
+    }
+
+    func test_stripAgentPromptSelection_rejoins_capitalized_identifier() {
+        let input = """
+        › export N
+          ODE_PATH=/usr/bin
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "export NODE_PATH=/usr/bin"
+        )
+    }
+
+    func test_stripAgentPromptSelection_does_not_fuse_standalone_capitals() {
+        // A single uppercase word at a wrap boundary must NOT fuse with the next
+        // line's leading capital. The rejoin rule requires the second token to be
+        // 2+ identifier chars, so split identifiers (N -> ODE_PATH) still join
+        // while two real words stay separated.
+        let input = """
+        › Grade A
+          B students passed
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Grade A B students passed"
+        )
+    }
+
+    func test_stripAgentPromptSelection_preserves_space_after_period() {
+        // Sentence-boundary "." must NOT fuse with the next-line capital. The
+        // capital regex's LHS class excludes "." for this reason — the newline
+        // has to survive to the "\n+ -> ' '" pass so a space lands between sentences.
+        let input = """
+        › Here is the answer.
+          Here is more context.
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Here is the answer. Here is more context."
+        )
+    }
+
+    func test_stripAgentPromptSelection_rejoins_path_segment() {
+        let input = """
+        › open ~/Library/
+          Application Support/Zentty
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "open ~/Library/Application Support/Zentty"
+        )
+    }
+
+    // MARK: - Horizontal Box Drawing
+
+    func test_stripBoxDrawingArtifacts_removes_full_border_box() {
+        let input = "┌──────┐\n│ hello │\n└──────┘"
+        XCTAssertEqual(CleanCopyPipeline.stripBoxDrawingArtifacts(input), "hello")
+    }
+
+    func test_stripBoxDrawingArtifacts_drops_internal_horizontal_separator() {
+        let input = "above\n──────\nbelow"
+        XCTAssertEqual(CleanCopyPipeline.stripBoxDrawingArtifacts(input), "above\nbelow")
+    }
+
+    func test_stripBoxDrawingArtifacts_handles_rounded_corner_panel() {
+        let input = "╭──────╮\n│ hello │\n╰──────╯"
+        XCTAssertEqual(CleanCopyPipeline.stripBoxDrawingArtifacts(input), "hello")
+    }
+
+    func test_stripBoxDrawingArtifacts_preserves_em_dash() {
+        // U+2014 em-dash is NOT a box-drawing character; prose stays intact.
+        XCTAssertNil(CleanCopyPipeline.stripBoxDrawingArtifacts("em — dash — usage"))
+    }
+
+    func test_stripBoxDrawingArtifacts_lone_separator_returns_nil() {
+        // A selection that is nothing but a divider has no real content to clean —
+        // returning nil keeps the original on the clipboard instead of emptying it.
+        XCTAssertNil(CleanCopyPipeline.stripBoxDrawingArtifacts("──────"))
+    }
+
+    func test_pipeline_lone_separator_is_unmodified() {
+        let result = CleanCopyPipeline.clean("──────")
+        XCTAssertEqual(result.text, "──────")
+        XCTAssertFalse(result.wasModified)
+    }
+
+    // MARK: - End-to-End Panel
+
+    func test_pipeline_strips_full_claude_code_panel() {
+        let input = """
+        ╭──────────────────────────────────╮
+        │   Hello, this is the message.    │
+        ╰──────────────────────────────────╯
+        """
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, "Hello, this is the message.")
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_strips_double_line_panel() {
+        // ║ (U+2551) is the double-line vertical; needs to be in boxDrawingCharacterClass
+        // so the middle line gets its leading/trailing decoration stripped end-to-end.
+        let input = """
+        ╔══════════════════╗
+        ║   Hello, world.   ║
+        ╚══════════════════╝
+        """
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, "Hello, world.")
         XCTAssertTrue(result.wasModified)
     }
 }

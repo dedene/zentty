@@ -104,8 +104,6 @@ enum CleanCopyPipeline {
 
     // MARK: - Pass 4: Prompt Detection
 
-    private static let promptCharacters: Set<Character> = ["$", ">", "%", "#"]
-
     static func stripPrompts(_ input: String) -> String {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false)
         let nonEmptyLines = lines.filter { !$0.allSatisfy(\.isWhitespace) }
@@ -124,7 +122,7 @@ enum CleanCopyPipeline {
     }
 
     private static func detectPromptPattern(nonEmptyLines: [Substring]) -> String? {
-        let candidates = ["$ ", "> ", "% ", "# "]
+        let candidates = ["$ ", "> ", "# "]
         let lineCount = nonEmptyLines.count
 
         for candidate in candidates {
@@ -136,9 +134,13 @@ enum CleanCopyPipeline {
                     return candidate
                 }
             } else {
-                // Multi-line: need >60% consistency
-                let ratio = Double(matchCount) / Double(lineCount)
-                if ratio > 0.6 {
+                // Multi-line: strict (true) majority of non-empty lines must match.
+                // n/2+1 with integer division — n=4 needs 3, n=5 needs 3, n=6 needs 4, n=7 needs 4.
+                // Looser than the prior >0.6 threshold for odd n (n=5 used to need 4) — this is
+                // deliberate: it cleans the dominant terminal shape (e.g. 3 commands + 2 output
+                // lines). Accepted trade-off: a 3-of-5 markdown blockquote/comment selection also
+                // loses its `> `/`# ` markers; rare in terminal pastes, so the shell case wins.
+                if matchCount >= lineCount / 2 + 1 {
                     return candidate
                 }
             }
@@ -149,7 +151,10 @@ enum CleanCopyPipeline {
     // MARK: - Pass 4b: Agent Prompt Cleanup
 
     private static let agentPromptMarkers: Set<Character> = ["›", "❯"]
-    private static let boxDrawingCharacterClass = "[│┃╎╏┆┇┊┋╽╿￨｜]"
+    private static let boxDrawingCharacterClass = "[│┃║╎╏┆┇┊┋╽╿￨｜]"
+    private static let borderBoxCharacterClass = "[─━┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬╭╮╯╰┏┓┗┛┣┫┳┻╋]"
+
+    private static let maxAgentPromptReflowLines = 60
 
     static func stripAgentPromptSelection(_ input: String) -> String? {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -162,6 +167,8 @@ enum CleanCopyPipeline {
         else {
             return nil
         }
+
+        guard nonEmpty.count <= maxAgentPromptReflowLines else { return nil }
 
         let candidateLines: [String]
         if let ruleIndex = lines.firstIndex(where: isAgentPromptRuleLine(_:)) {
@@ -187,9 +194,9 @@ enum CleanCopyPipeline {
 
         let content = contentLines.joined(separator: "\n")
         guard !isLikelySourceCode(content),
-              !isLikelyList(nonEmptyContentLines),
-              !isLikelyStructuredData(nonEmptyContentLines),
-              !isLikelyShellTranscript(nonEmptyContentLines)
+              !isLikelyList(content),
+              !isLikelyStructuredData(content),
+              !isLikelyShellTranscript(content)
         else {
             return nil
         }
@@ -215,7 +222,7 @@ enum CleanCopyPipeline {
     private static func isAgentPromptRuleLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= 10 else { return false }
-        let ruleCharacters: Set<Character> = ["─", "━", "—", "-"]
+        let ruleCharacters: Set<Character> = ["─", "━", "—"]
         let ruleCount = trimmed.count(where: { ruleCharacters.contains($0) })
         return ruleCount >= 10 && ruleCount == trimmed.count
     }
@@ -250,11 +257,74 @@ enum CleanCopyPipeline {
         return result
     }
 
+    /// Collapses a single agent-reply paragraph (already split on blank lines by
+    /// `flattenWrappedPromptLines`) into one flat string. The ordered rejoin regexes
+    /// assume the input is one paragraph with no double newlines — passing
+    /// multi-paragraph input here would let `\n+ -> " "` swallow paragraph breaks.
+    ///
+    /// Known accepted false-positive: the path-segment rule fuses any line ending in
+    /// `/` or `~` with the next line, including prose shapes like
+    /// `"Save in /tmp/\n  Then run command"`. Path-wrap is far more common in agent
+    /// output than this shape, so the trade-off favours the path-wrap case.
     private static func flattenPromptParagraph(_ lines: [String]) -> String {
-        lines
-            .joined(separator: " ")
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = lines.joined(separator: "\n")
+
+        // Hyphen-token boundary: keep wrapped tokens like UUIDs joined without an inserted space.
+        // Lookbehind excludes "-" so a markdown HR run (----------) does not fuse with the next line.
+        result = result.replacingOccurrences(
+            of: #"(?<=[A-Za-z0-9._~])-\s*\n\s*([A-Za-z0-9._~-])"#,
+            with: "-$1",
+            options: .regularExpression
+        )
+
+        // Capitalized identifier mid-break: "N\nODE_PATH" -> "NODE_PATH".
+        // "." is intentionally absent from the LHS so a sentence-boundary like
+        // "Here is the answer.\nHere is more context." does NOT fuse into ".H" —
+        // the later "\n+ -> ' '" pass needs the newline to survive and become a space.
+        // "-" is absent from both sides so a dash run (markdown HR) doesn't fuse with the next line.
+        // The trailing (?=[A-Z0-9_.]) requires the next-line token to continue as an
+        // identifier (2+ chars), so a split identifier (N -> ODE_PATH) still joins while
+        // two standalone capitals don't: "Grade A\nB students" stays "Grade A B students"
+        // (the newline survives to the "\n+ -> ' '" pass). It also subsumes the old (?!\n).
+        result = result.replacingOccurrences(
+            of: #"(?<!\n)([A-Z0-9_])\s*\n\s*([A-Z0-9_.])(?=[A-Z0-9_.])"#,
+            with: "$1$2",
+            options: .regularExpression
+        )
+
+        // Path segment after / or ~: ".../foo/\nbar" -> ".../foo/bar".
+        // Pinned by test_stripAgentPromptSelection_rejoins_path_segment.
+        // Accepted false-positive: prose ending with a trailing "/" or "~" fuses with
+        // the next line ("Save in /tmp/\n  Then run command" -> "Save in /tmp/Then run command").
+        // Don't "fix" this by tightening without a replacement rule for the real path-wrap case.
+        result = result.replacingOccurrences(
+            of: #"(?<=[/~])\s*\n\s*([A-Za-z0-9._-])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        // Backslash line continuations collapse to a single space
+        result = result.replacingOccurrences(
+            of: #"\\\s*\n"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        // Remaining newlines fold to a single space
+        result = result.replacingOccurrences(
+            of: #"\n+"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        // Final whitespace squeeze
+        result = result.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func isLikelySourceCode(_ text: String) -> Bool {
@@ -274,8 +344,10 @@ enum CleanCopyPipeline {
         return hasCodeLine && hasCodePunctuation
     }
 
-    private static func isLikelyList(_ lines: [String]) -> Bool {
-        let nonEmpty = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    private static func isLikelyList(_ text: String) -> Bool {
+        let nonEmpty = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard nonEmpty.count >= 2 else { return false }
 
         let listishCount = nonEmpty.count { line in
@@ -287,16 +359,16 @@ enum CleanCopyPipeline {
         return listishCount >= (nonEmpty.count / 2 + 1)
     }
 
-    private static func isLikelyStructuredData(_ lines: [String]) -> Bool {
-        lines.contains { line in
+    private static func isLikelyStructuredData(_ text: String) -> Bool {
+        text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if ["{", "}", "[", "]"].contains(trimmed) { return true }
             return trimmed.range(of: #"^["'][^"']+["']\s*:"#, options: .regularExpression) != nil
         }
     }
 
-    private static func isLikelyShellTranscript(_ lines: [String]) -> Bool {
-        let promptLineCount = lines.count { line in
+    private static func isLikelyShellTranscript(_ text: String) -> Bool {
+        let promptLineCount = text.split(separator: "\n", omittingEmptySubsequences: false).count { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             return trimmed.hasPrefix("$ ")
                 || trimmed.hasPrefix("# ")
@@ -370,10 +442,22 @@ enum CleanCopyPipeline {
 
     static func stripBoxDrawingArtifacts(_ input: String) -> String? {
         let boxRegex = try? NSRegularExpression(pattern: boxDrawingCharacterClass)
+        let borderRegex = try? NSRegularExpression(pattern: borderBoxCharacterClass)
         let fullRange = NSRange(input.startIndex..., in: input)
-        guard boxRegex?.firstMatch(in: input, range: fullRange) != nil else { return nil }
+        guard boxRegex?.firstMatch(in: input, range: fullRange) != nil
+            || borderRegex?.firstMatch(in: input, range: fullRange) != nil
+        else { return nil }
 
-        var result = input.replacingOccurrences(of: "│ │", with: " ")
+        // Drop full-border lines (e.g. ┌────┐ / └────┘ panel edges, ──── separators).
+        // Requires at least 3 border chars so a lone diagram glyph stays untouched.
+        let borderLinePattern = #"^\s*\#(borderBoxCharacterClass){3,}\s*$"#
+        var result = input.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                line.range(of: borderLinePattern, options: .regularExpression) == nil
+            }
+            .joined(separator: "\n")
+
+        result = result.replacingOccurrences(of: "│ │", with: " ")
 
         let boxAfterPipePattern = #"\|[ \t]*\#(boxDrawingCharacterClass)+[ \t]*"#
         result = result.replacingOccurrences(
@@ -442,6 +526,12 @@ enum CleanCopyPipeline {
         )
 
         let cleaned = trimTrailingWhitespacePerLine(result)
+        // Decoration-only selections (e.g. a lone "──────" divider or "│" fragment) can
+        // reduce to nothing. Treat that as a no-op so we never overwrite the clipboard with
+        // an empty string — an unchanged selection beats an emptied one.
+        if cleaned.allSatisfy(\.isWhitespace), !input.allSatisfy(\.isWhitespace) {
+            return nil
+        }
         return cleaned == input ? nil : cleaned
     }
 
