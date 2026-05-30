@@ -151,6 +151,7 @@ final class SidebarGlobalSearchRowView: NSView {
     }
 
     func controlPointInWindowForTesting(_ control: ControlKind) -> NSPoint? {
+        layoutSubtreeIfNeeded()
         let target: NSView = switch control {
         case .previous:
             previousButton

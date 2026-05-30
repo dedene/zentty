@@ -378,8 +378,8 @@ final class SidebarView: NSView {
 
         addSubview(backgroundView)
         addSubview(headerView)
-        addSubview(globalSearchRowView)
         addSubview(listScrollView)
+        addSubview(globalSearchRowView)
         addSubview(headerDividerView)
         addSubview(updateAvailableRowView)
         addSubview(resizeHandleView)

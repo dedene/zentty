@@ -1747,6 +1747,7 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("proxy context settled", delay: 0.05)
         controller.rootViewControllerForTesting.handle(.globalFind)
         controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+        controller.rootViewControllerForTesting.settleSidebarTransitionForTesting()
         waitForLayout("global search settled", delay: 0.05)
 
         let nextPoint = try XCTUnwrap(
@@ -1768,6 +1769,7 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("proxy context settled", delay: 0.05)
         controller.rootViewControllerForTesting.handle(.globalFind)
         controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+        controller.rootViewControllerForTesting.settleSidebarTransitionForTesting()
         waitForLayout("global search settled", delay: 0.05)
 
         let nextPoint = try XCTUnwrap(
@@ -1949,6 +1951,7 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("proxy context settled", delay: 0.05)
         controller.rootViewControllerForTesting.handle(.globalFind)
         controller.rootViewControllerForTesting.updateGlobalSearchQueryForTesting("build")
+        controller.rootViewControllerForTesting.settleSidebarTransitionForTesting()
         waitForLayout("global search settled", delay: 0.05)
 
         let clearPoint = try XCTUnwrap(
