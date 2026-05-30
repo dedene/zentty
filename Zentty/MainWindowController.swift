@@ -1231,11 +1231,20 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         _ = rootViewController.openServer(server)
     }
 
+    /// Pops `menu` so its right edge aligns with `anchorRect`'s right edge,
+    /// dropping from `anchorRect.minY`. Used by the trailing chrome segment menus.
+    private func popUpRightAligned(_ menu: NSMenu, under anchorRect: NSRect, in view: NSView) {
+        let location = NSPoint(x: anchorRect.maxX - menu.size.width, y: anchorRect.minY)
+        menu.popUp(positioning: nil, at: location, in: view)
+    }
+
     private func showServerMenu() {
         let menu = makeServerMenu()
-        let anchorRect = rootViewController.chromeView.serverMenuAnchorRect
-        let menuLocation = NSPoint(x: anchorRect.minX, y: anchorRect.minY)
-        menu.popUp(positioning: nil, at: menuLocation, in: rootViewController.chromeView)
+        popUpRightAligned(
+            menu,
+            under: rootViewController.chromeView.serverMenuAnchorRect,
+            in: rootViewController.chromeView
+        )
     }
 
     private func makeServerMenu() -> NSMenu {
@@ -1430,9 +1439,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     private func showOpenWithMenu() {
         let menu = makeOpenWithMenu()
-        let anchorRect = rootViewController.chromeView.openWithMenuAnchorRect
-        let menuLocation = NSPoint(x: anchorRect.minX, y: anchorRect.minY)
-        menu.popUp(positioning: nil, at: menuLocation, in: rootViewController.chromeView)
+        popUpRightAligned(
+            menu,
+            under: rootViewController.chromeView.openWithMenuAnchorRect,
+            in: rootViewController.chromeView
+        )
     }
 
     private func makeOpenWithMenu() -> NSMenu {
