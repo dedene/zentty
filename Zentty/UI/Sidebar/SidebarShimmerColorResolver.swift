@@ -125,8 +125,14 @@ enum SidebarShimmerColorResolver {
             return desaturated(color, saturationMultiplier: 0.68)
                 .mixed(towards: neutralTarget(for: theme), amount: theme.sidebarGlassAppearance == .dark ? 0.16 : 0.10)
         case .unfocusedPane:
-            return desaturated(color, saturationMultiplier: 0.24)
-                .mixed(towards: neutralTarget(for: theme), amount: theme.sidebarGlassAppearance == .dark ? 0.48 : 0.34)
+            // An unfocused pane's primary text is rendered in neutral dim grey
+            // (`theme.secondaryText`), so a chromatic band reads as a stray
+            // colour streak sweeping across otherwise-grey glyphs. Keep only a
+            // whisper of the worklane hue and let the sweep read mostly as a
+            // faint brightness sheen — the neutral-mix target is already
+            // theme-correct (black in dark, a light grey in light).
+            return desaturated(color, saturationMultiplier: 0.13)
+                .mixed(towards: neutralTarget(for: theme), amount: theme.sidebarGlassAppearance == .dark ? 0.52 : 0.40)
         }
     }
 
@@ -162,7 +168,7 @@ enum SidebarShimmerColorResolver {
         case .focusedPane:
             return 0.88
         case .unfocusedPane:
-            return 0.62
+            return 0.58
         }
     }
 
