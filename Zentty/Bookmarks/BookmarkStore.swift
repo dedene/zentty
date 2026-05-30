@@ -136,12 +136,15 @@ final class BookmarkStore {
     private func persist() {
         let bundle = WorkspaceTemplateBundle(savedAt: Date(), templates: templates)
         do {
+            // Write through a symlinked bookmarks.json so dotfile setups keep their link
+            // instead of having it clobbered by the atomic temp+rename.
+            let targetURL = fileManager.resolvingSymlinkTarget(at: fileURL)
             try fileManager.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
+                at: targetURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             let data = try encoder.encode(bundle)
-            try data.write(to: fileURL, options: .atomic)
+            try data.write(to: targetURL, options: .atomic)
         } catch {
             bookmarkStoreLogger.error(
                 "Failed to persist bookmarks to \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
