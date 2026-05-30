@@ -25,6 +25,14 @@ if ($env | get -o ZENTTY_SHELL_INTEGRATION_XDG_DIR | default '') != '' {
     hide-env ZENTTY_SHELL_INTEGRATION_XDG_DIR
 }
 
+# Internal bookkeeping that must survive across hook invocations (dedupe keys,
+# last-reported pid, the loaded guard above) lives in $env on purpose. Nushell hook
+# closures have no non-exported persistent scope — a plain `let`/`mut` would not carry
+# from one prompt to the next — so $env is the only place to keep this state. The
+# trade-off is that these `_zentty_`-prefixed entries are exported to child processes,
+# unlike the non-exported shell vars bash/zsh/fish use. That is harmless: the names are
+# namespaced, and XDG_DATA_DIRS is already stripped above so nested shells do not
+# re-autoload off the inherited ZENTTY_NU_INTEGRATION_LOADED.
 $env._zentty_shell_activity_last = ''
 
 def _zentty_print_tty [sequence: string] {
@@ -48,7 +56,13 @@ def _zentty_real_binary_candidates [tool_name: string] {
 
 def _zentty_is_executable [candidate: string] {
     if $candidate == '' { return false }
-    try { ^test -x $candidate; true } catch { false }
+    # Native check (no fork). _zentty_ensure_wrapper_path calls this O(wrappers x PATH)
+    # times on every pre_prompt and pre_execution; spawning external `test` here cost
+    # tens-to-hundreds of ms per prompt (bash/zsh/fish use shell builtins). `path expand`
+    # resolves symlinks so we read the real target's mode, matching `test -x` semantics
+    # for Homebrew-style symlinked CLIs (nushell's `ls` reports a symlink's own mode,
+    # which always carries an x bit). Missing paths fall through try/catch to false.
+    try { (ls -l ($candidate | path expand) | get 0.mode | str contains 'x') } catch { false }
 }
 
 def _zentty_agent_signal [...args: string] {

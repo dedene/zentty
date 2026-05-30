@@ -821,10 +821,8 @@ final class AgentStatusSupportTests: XCTestCase {
             )
 
             XCTAssertTrue(
-                signals.contains(where: {
-                    $0.contains("shell-state running") && ($0.contains("Codex") || $0.contains("codex"))
-                }),
-                "Expected \(shell) integration to tag codex shell activity (running state), got: \(signals)"
+                signals.contains(where: { $0.contains("shell-state running --tool Codex") }),
+                "Expected \(shell) integration to tag codex shell activity with --tool Codex, got: \(signals)"
             )
         }
     }
@@ -1134,6 +1132,85 @@ final class AgentStatusSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_nu_shell_integration_enables_wrapper_when_real_binary_is_symlink_to_executable() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-symlink-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        // Real binary reached through a symlink, like a Homebrew-installed CLI
+        // (/opt/homebrew/bin/codex -> ../Cellar/.../codex). The native executable
+        // check must follow the link to the real target's mode.
+        let realTargetDir = try makeTemporaryDirectory(named: "shell-nu-symlink-real-target")
+        let realTargetURL = realTargetDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realTargetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realTargetURL.path)
+
+        let symlinkBinDir = try makeTemporaryDirectory(named: "shell-nu-symlink-bin")
+        let symlinkURL = symlinkBinDir.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: realTargetURL)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["\(symlinkBinDir.path)" "/usr/bin" "/bin"]
+            _zentty_ensure_wrapper_path
+            which codex | get 0.path
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_nu_shell_integration_does_not_enable_wrapper_when_real_binary_symlink_target_not_executable() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-dangling-symlink-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        // Symlink whose target is NOT executable. nushell `ls` reports the symlink's
+        // own mode (which always carries an x bit), so a naive mode check would wrongly
+        // enable the wrapper here; `path expand` resolves to the non-executable target
+        // and correctly leaves it disabled, matching `test -x`.
+        let realTargetDir = try makeTemporaryDirectory(named: "shell-nu-dangling-symlink-target")
+        let realTargetURL = realTargetDir.appendingPathComponent("codex", isDirectory: false)
+        try "not executable\n".write(to: realTargetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: realTargetURL.path)
+
+        let symlinkBinDir = try makeTemporaryDirectory(named: "shell-nu-dangling-symlink-bin")
+        let symlinkURL = symlinkBinDir.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: realTargetURL)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["\(symlinkBinDir.path)" "/usr/bin" "/bin"]
+            _zentty_ensure_wrapper_path
+            print $"active=<($env.ZENTTY_WRAPPER_BIN_DIRS? | default '')>"
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("active=<>"), result.stdout)
     }
 
     func test_nu_shell_integration_does_not_enable_non_executable_wrapper_file() throws {
