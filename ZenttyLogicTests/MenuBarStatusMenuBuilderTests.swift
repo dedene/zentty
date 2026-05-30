@@ -74,63 +74,34 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
         )
     }
 
-    func test_status_label_uses_readable_badge_hue_for_waiting_rows() {
-        let menu = NSMenu()
-        menu.appearance = NSAppearance(named: .aqua)
-        let waiting = paneSnapshot(fleetState: .waiting, statusLabel: "Needs decision")
-
-        MenuBarStatusMenuBuilder.rebuild(
-            menu: menu,
-            snapshots: [waiting],
-            fleetSummary: MenuBarFleetSummary.from(snapshots: [waiting]),
-            target: nil,
-            rowAction: #selector(NSObject.description),
-            settingsAction: #selector(NSObject.description)
-        )
-
-        let row = try! XCTUnwrap(menu.items[1].view)
+    func test_status_pill_uses_palette_color_for_waiting_rows() {
+        let row = buildRow(for: paneSnapshot(fleetState: .waiting, statusLabel: "Needs decision"))
         let statusLabel = try! XCTUnwrap(textFields(in: row).first { $0.stringValue == "Needs decision" })
-        assertReadableStatusColor(statusLabel.textColor, fleetState: .waiting)
+        assertPillLabelColor(statusLabel.textColor, kind: .needsInput)
     }
 
-    func test_status_label_uses_readable_badge_hue_for_running_rows() {
-        let menu = NSMenu()
-        menu.appearance = NSAppearance(named: .aqua)
-        let running = paneSnapshot(fleetState: .active, statusLabel: "Running")
-
-        MenuBarStatusMenuBuilder.rebuild(
-            menu: menu,
-            snapshots: [running],
-            fleetSummary: MenuBarFleetSummary.from(snapshots: [running]),
-            target: nil,
-            rowAction: #selector(NSObject.description),
-            settingsAction: #selector(NSObject.description)
-        )
-
-        let row = try! XCTUnwrap(menu.items[1].view)
+    func test_status_pill_uses_palette_color_for_running_rows() {
+        let row = buildRow(for: paneSnapshot(fleetState: .active, statusLabel: "Running"))
         let statusLabel = try! XCTUnwrap(textFields(in: row).first { $0.stringValue == "Running" })
-        assertReadableStatusColor(statusLabel.textColor, fleetState: .active)
+        assertPillLabelColor(statusLabel.textColor, kind: .running)
     }
 
-    func test_status_label_uses_badge_color_for_idle_rows() {
-        let menu = NSMenu()
-        let idle = paneSnapshot(fleetState: .idle, statusLabel: "Idle")
-
-        MenuBarStatusMenuBuilder.rebuild(
-            menu: menu,
-            snapshots: [idle],
-            fleetSummary: MenuBarFleetSummary.from(snapshots: [idle]),
-            target: nil,
-            rowAction: #selector(NSObject.description),
-            settingsAction: #selector(NSObject.description)
-        )
-
-        let row = try! XCTUnwrap(menu.items[1].view)
+    func test_status_pill_uses_palette_color_for_idle_rows() {
+        let row = buildRow(for: paneSnapshot(fleetState: .idle, statusLabel: "Idle"))
         let statusLabel = try! XCTUnwrap(textFields(in: row).first { $0.stringValue == "Idle" })
-        XCTAssertEqual(
-            statusLabel.textColor?.srgbClamped,
-            MenuBarStatusIconRenderer.dotColor(for: .idle).srgbClamped
-        )
+        assertPillLabelColor(statusLabel.textColor, kind: .idle)
+    }
+
+    func test_status_pill_uses_ready_color_for_agent_ready_rows() {
+        // 'Agent ready' is fleetState .idle + attentionState .ready, and must
+        // read as the blue ready pill rather than plain idle gray.
+        let row = buildRow(for: paneSnapshot(
+            fleetState: .idle,
+            statusLabel: "Agent ready",
+            attentionState: .ready
+        ))
+        let statusLabel = try! XCTUnwrap(textFields(in: row).first { $0.stringValue == "Agent ready" })
+        assertPillLabelColor(statusLabel.textColor, kind: .ready)
     }
 
     func test_custom_rows_claim_cursor_updates_for_arrow_cursor() {
@@ -242,49 +213,35 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
         ceil(label.fittingSize.width)
     }
 
-    private func assertReadableStatusColor(
+    private func buildRow(
+        for snapshot: MenuBarPaneSnapshot,
+        appearance: NSAppearance? = NSAppearance(named: .aqua)
+    ) -> NSView {
+        let menu = NSMenu()
+        menu.appearance = appearance
+        MenuBarStatusMenuBuilder.rebuild(
+            menu: menu,
+            snapshots: [snapshot],
+            fleetSummary: MenuBarFleetSummary.from(snapshots: [snapshot]),
+            target: nil,
+            rowAction: #selector(NSObject.description),
+            settingsAction: #selector(NSObject.description)
+        )
+        return menu.items[1].view!
+    }
+
+    private func assertPillLabelColor(
         _ color: NSColor?,
-        fleetState: MenuBarFleetState,
+        kind: MenuBarStatusKind,
+        isDark: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let color = try! XCTUnwrap(color, file: file, line: line).srgbClamped
-        let dotColor = MenuBarStatusIconRenderer.dotColor(for: fleetState).srgbClamped
-        let translucentLightMenuBackground = NSColor(calibratedWhite: 0.74, alpha: 1)
-
-        XCTAssertNotEqual(color, dotColor, "Menu text should not use the raw badge fill color", file: file, line: line)
-        XCTAssertGreaterThanOrEqual(
-            color.contrastRatio(against: translucentLightMenuBackground),
-            4.5,
-            "Menu text should remain readable on the native light translucent menu background",
-            file: file,
-            line: line
-        )
-        XCTAssertLessThanOrEqual(
-            color.contrastRatio(against: translucentLightMenuBackground),
-            4.75,
-            "Menu text should stay close to the contrast threshold so the status hue remains vibrant in light mode",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            hue(of: color),
-            hue(of: dotColor),
-            accuracy: 0.03,
-            "Menu text should preserve the badge hue while adjusting contrast",
-            file: file,
-            line: line
-        )
-    }
-
-    private func hue(of color: NSColor) -> CGFloat {
-        let rgb = color.usingColorSpace(.deviceRGB) ?? color
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
-        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-        return hue
+        let actual = try! XCTUnwrap(color, file: file, line: line).srgbClamped
+        let expected = MenuBarStatusPalette.labelColor(for: kind, isDark: isDark).srgbClamped
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
     }
 
     func test_itemTitle_uses_accessibility_summary() {
@@ -520,6 +477,7 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
     private func paneSnapshot(
         fleetState: MenuBarFleetState,
         statusLabel: String,
+        attentionState: WorklaneAttentionState? = nil,
         windowTitle: String = "Window 1",
         primaryText: String = "Claude Code"
     ) -> MenuBarPaneSnapshot {
@@ -532,7 +490,7 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
             primaryText: primaryText,
             contextText: "zentty · main",
             statusLabel: statusLabel,
-            attentionState: fleetState.menuAttentionState,
+            attentionState: attentionState ?? fleetState.menuAttentionState,
             fleetState: fleetState,
             updatedAt: Date(timeIntervalSince1970: 0),
             taskProgress: nil,

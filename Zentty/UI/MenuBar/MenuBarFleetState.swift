@@ -1,7 +1,7 @@
 import Foundation
 
 /// Aggregate menu bar status across all agent panes (claude-status style).
-enum MenuBarFleetState: Equatable, Sendable {
+enum MenuBarFleetState: Equatable, Sendable, CaseIterable {
     case waiting
     case stopped
     case compacting

@@ -200,8 +200,6 @@ private final class MenuBarAgentRowView: NSView {
         static let iconTextSpacing: CGFloat = 10
         // Gap between the title/context column and the right-aligned status block.
         static let columnGap: CGFloat = 16
-        // Width reserved left of the status text for the task-progress indicator.
-        static let progressLeadingWidth: CGFloat = 13
     }
 
     private let snapshot: MenuBarPaneSnapshot
@@ -214,10 +212,8 @@ private final class MenuBarAgentRowView: NSView {
     private let iconView = MenuBarAgentIconView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let contextLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
+    private let pillView = MenuBarStatusPillView()
     private let ageLabel = NSTextField(labelWithString: "")
-    private let progressIndicator = SidebarTaskProgressIndicatorView()
-    private let progressRevealView = SidebarTaskProgressRevealView()
     private var trackingAreaValue: NSTrackingArea?
     private var isHovered = false
 #if DEBUG
@@ -301,10 +297,7 @@ private final class MenuBarAgentRowView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        statusLabel.textColor = MenuBarStatusIconRenderer.statusTextColor(
-            for: snapshot.fleetState,
-            appearance: menuAppearance ?? effectiveAppearance
-        )
+        configurePill()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -332,19 +325,19 @@ private final class MenuBarAgentRowView: NSView {
 
         let rightEdge = bounds.width - Metrics.horizontalPadding
         let textX = iconView.frame.maxX + Metrics.iconTextSpacing
-        let statusY: CGFloat = ageLabel.stringValue.isEmpty ? 13 : 22
+        let hasAge = ageLabel.stringValue.isEmpty == false
 
-        // Size the status/age block to its actual content and hug the right edge,
+        // Right block: the status pill, with the age label beneath it when
+        // present. Size it to the pill's actual content and hug the right edge,
         // so short statuses (e.g. "Idle") don't reserve a wide empty column. The
         // title/context then fill the remaining width up to a small gap.
-        // Measure the text directly (not via intrinsicContentSize): a truncating
-        // label that gets a narrow frame during the menu's sizing passes reports a
-        // shrunken intrinsicContentSize, which would clip the status text.
-        let statusTextWidth = measuredTextWidth(of: statusLabel)
+        let pillSize = pillView.intrinsicContentSize
         let ageTextWidth = measuredTextWidth(of: ageLabel)
-        let revealWidth = (progressIndicator.isHidden || isHovered == false) ? 0 : progressRevealView.expandedWidth
-        let progressWidth: CGFloat = progressIndicator.isHidden ? 0 : (Metrics.progressLeadingWidth + revealWidth)
-        let rightBlockWidth = max(progressWidth + statusTextWidth, ageTextWidth)
+        // Never let an unusually long status push the pill into the icon/title:
+        // cap its width at the space right of the title start and let the pill
+        // truncate its own label.
+        let pillWidth = min(pillSize.width, max(0, rightEdge - textX))
+        let rightBlockWidth = max(pillWidth, ageTextWidth)
         let rightBlockX = rightEdge - rightBlockWidth
 
         let textWidth = max(0, rightBlockX - textX - Metrics.columnGap)
@@ -353,13 +346,18 @@ private final class MenuBarAgentRowView: NSView {
         titleLabel.frame = NSRect(x: textX, y: 21, width: textWidth, height: titleHeight)
         contextLabel.frame = NSRect(x: textX, y: 5, width: textWidth, height: contextHeight)
 
-        let statusTextX = rightEdge - statusTextWidth
-        statusLabel.frame = NSRect(x: statusTextX, y: statusY, width: statusTextWidth, height: 17)
-        if progressIndicator.isHidden == false {
-            let revealX = statusTextX - revealWidth
-            progressRevealView.frame = NSRect(x: revealX, y: statusY, width: revealWidth, height: 16)
-            progressIndicator.frame = NSRect(x: revealX - Metrics.progressLeadingWidth, y: statusY + 2, width: 11, height: 11)
-        }
+        // On two-line (timestamp) rows, center the pill on the title line so its
+        // box matches the title's and the age sits on the subtitle line — equal
+        // padding above/below. On single-line rows, center it in the row.
+        let pillY = hasAge
+            ? (titleLabel.frame.midY - pillSize.height / 2).rounded()
+            : ((bounds.height - pillSize.height) / 2).rounded()
+        pillView.frame = NSRect(
+            x: rightEdge - pillWidth,
+            y: pillY,
+            width: pillWidth,
+            height: pillSize.height
+        )
         ageLabel.frame = NSRect(x: rightEdge - ageTextWidth, y: 5, width: ageTextWidth, height: 16)
     }
 
@@ -377,22 +375,17 @@ private final class MenuBarAgentRowView: NSView {
         contextLabel.lineBreakMode = .byTruncatingMiddle
         contextLabel.maximumNumberOfLines = 1
 
-        statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        statusLabel.alignment = .right
-        statusLabel.lineBreakMode = .byTruncatingTail
-        statusLabel.maximumNumberOfLines = 1
-
         ageLabel.font = .systemFont(ofSize: 11, weight: .regular)
         ageLabel.textColor = .secondaryLabelColor
         ageLabel.alignment = .right
         ageLabel.lineBreakMode = .byTruncatingTail
         ageLabel.maximumNumberOfLines = 1
 
-        progressIndicator.onHoverEntered = { [weak self] in
+        pillView.onProgressHoverEntered = { [weak self] in
             self?.setHovered(true)
         }
 
-        [iconView, titleLabel, contextLabel, statusLabel, ageLabel, progressIndicator, progressRevealView].forEach {
+        [iconView, titleLabel, contextLabel, pillView, ageLabel].forEach {
             addSubview($0)
         }
     }
@@ -405,30 +398,23 @@ private final class MenuBarAgentRowView: NSView {
         )
         titleLabel.stringValue = snapshot.primaryText
         contextLabel.stringValue = snapshot.contextText ?? snapshot.agentTool.displayName
-        statusLabel.stringValue = snapshot.statusLabel
-        statusLabel.textColor = MenuBarStatusIconRenderer.statusTextColor(
-            for: snapshot.fleetState,
-            appearance: menuAppearance ?? effectiveAppearance
-        )
         ageLabel.stringValue = ageText(for: snapshot)
-
-        let progressColor = snapshot.fleetState == .idle ? NSColor.secondaryLabelColor : NSColor.systemGreen
-        progressIndicator.configure(
-            taskProgress: snapshot.taskProgress,
-            color: progressColor,
-            animated: false,
-            reducedMotion: true
-        )
-        progressRevealView.configure(
-            taskProgress: snapshot.taskProgress,
-            color: progressColor,
-            font: .systemFont(ofSize: 11, weight: .regular)
-        )
-        progressRevealView.setRevealed(false, animated: false, reducedMotion: true)
+        configurePill()
 
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(MenuBarStatusMenuBuilder.itemTitle(for: snapshot))
         setAccessibilityValue(snapshot.contextText)
+    }
+
+    private func configurePill() {
+        pillView.configure(
+            kind: MenuBarStatusKind(snapshot: snapshot),
+            text: snapshot.statusLabel,
+            taskProgress: snapshot.taskProgress,
+            appearance: menuAppearance ?? effectiveAppearance,
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        )
+        needsLayout = true
     }
 
     /// Full rendered width of a label's text, independent of its current frame
@@ -441,7 +427,7 @@ private final class MenuBarAgentRowView: NSView {
     private func setHovered(_ hovered: Bool) {
         guard isHovered != hovered else { return }
         isHovered = hovered
-        progressRevealView.setRevealed(hovered, animated: true, reducedMotion: false)
+        pillView.setRevealed(hovered, animated: true, reducedMotion: false)
         needsLayout = true
         needsDisplay = true
     }
@@ -542,7 +528,8 @@ private final class MenuBarAgentIconView: NSView {
         imageView.image = MenuBarStatusIconRenderer.agentIconImage(
             for: agentTool,
             fleetState: fleetState,
-            appearance: menuAppearance ?? effectiveAppearance
+            appearance: menuAppearance ?? effectiveAppearance,
+            badged: false
         )
     }
 }

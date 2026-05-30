@@ -131,10 +131,11 @@ enum MenuBarStatusIconRenderer {
     static func agentIconImage(
         for agentTool: AgentTool,
         fleetState: MenuBarFleetState,
-        appearance: NSAppearance? = nil
+        appearance: NSAppearance? = nil,
+        badged: Bool = true
     ) -> NSImage? {
         guard let baseImage = agentIconTemplateImage(for: agentTool) else { return nil }
-        guard fleetState != .idle else {
+        guard badged, fleetState != .idle else {
             return unbadgedAgentImage(
                 baseImage: baseImage,
                 canvasSide: agentIconSide,
@@ -176,56 +177,6 @@ enum MenuBarStatusIconRenderer {
         case .idle:
             return .secondaryLabelColor
         }
-    }
-
-    static func statusTextColor(
-        for fleetState: MenuBarFleetState,
-        appearance: NSAppearance? = nil
-    ) -> NSColor {
-        let badgeColor = dotColor(for: fleetState)
-        guard fleetState != .idle else { return badgeColor }
-
-        return readableStatusTextColor(
-            from: badgeColor,
-            on: menuTextContrastBackground(for: appearance)
-        )
-    }
-
-    private static func menuTextContrastBackground(for appearance: NSAppearance?) -> NSColor {
-        let appearanceName = appearance?.bestMatch(from: [.aqua, .darkAqua])
-        if appearanceName == .darkAqua {
-            return NSColor(calibratedWhite: 0.18, alpha: 1)
-        }
-        return NSColor(calibratedWhite: 0.74, alpha: 1)
-    }
-
-    private static func readableStatusTextColor(
-        from color: NSColor,
-        on background: NSColor,
-        minimumContrast: CGFloat = 4.5
-    ) -> NSColor {
-        let base = color.srgbClamped.withAlphaComponent(1)
-        guard base.contrastRatio(against: background) < minimumContrast else {
-            return base
-        }
-
-        let target = background.isDarkThemeColor ? NSColor.white : NSColor.black
-        var low: CGFloat = 0
-        var high: CGFloat = 1
-        var best = base.ensuringTextContrast(on: background, minimum: minimumContrast)
-
-        for _ in 0..<18 {
-            let amount = (low + high) / 2
-            let candidate = base.mixed(towards: target, amount: amount).withAlphaComponent(1)
-            if candidate.contrastRatio(against: background) >= minimumContrast {
-                best = candidate
-                high = amount
-            } else {
-                low = amount
-            }
-        }
-
-        return best
     }
 
     private static func menuBarResourceBundles() -> [Bundle] {
