@@ -42,9 +42,13 @@ final class GhosttyConfigWriter: GhosttyConfigWriting {
 
     private func writeAtomically(_ content: String) {
         let data = Data(content.utf8)
-        let directory = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: configURL, options: .atomic)
+        let fileManager = FileManager.default
+        // Write through a symlinked ghostty config so dotfile setups keep their link
+        // instead of having it clobbered by the atomic temp+rename.
+        let targetURL = fileManager.resolvingSymlinkTarget(at: configURL)
+        let directory = targetURL.deletingLastPathComponent()
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: targetURL, options: .atomic)
     }
 
     static func sanitizedThemeName(_ name: String) -> String {

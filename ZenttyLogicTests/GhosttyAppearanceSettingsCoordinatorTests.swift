@@ -186,6 +186,43 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         XCTAssertEqual(reloadCount, 1)
     }
 
+    func test_createSharedConfig_preservesSymlinkedTarget() async throws {
+        let store = makeConfigStore()
+        try store.update { config in
+            config.appearance.preferredDarkThemeName = "LocalTheme"
+            config.appearance.localThemeName = "LocalTheme"
+        }
+
+        // Stow-style: ~/.config/ghostty/config.ghostty is a symlink into a dotfiles repo.
+        let dotfilesDir = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        try FileManager.default.createDirectory(at: dotfilesDir, withIntermediateDirectories: true)
+        let dotfilesTarget = dotfilesDir.appendingPathComponent("config")
+
+        let linkURL = coordinatorTestCreateTargetURL()
+        try FileManager.default.createDirectory(
+            at: linkURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: dotfilesTarget)
+
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .createSharedConfig },
+            runtimeReload: {}
+        )
+
+        await coordinator.createSharedConfig(presentingWindow: nil)
+
+        // The link must survive instead of being replaced by a regular file...
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            dotfilesTarget.path
+        )
+        // ...and the generated config lands in the real dotfiles target.
+        let content = try String(contentsOf: dotfilesTarget, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = LocalTheme"))
+    }
+
     func test_applyThemeMode_writesGhosttyPairAndKeepsInactiveSlotMemory() async throws {
         let store = makeConfigStore()
         var reloadCount = 0
