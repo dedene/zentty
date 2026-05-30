@@ -150,7 +150,7 @@ enum CleanCopyPipeline {
 
     // MARK: - Pass 4b: Agent Prompt Cleanup
 
-    private static let agentPromptMarkers: Set<Character> = ["›", "❯"]
+    private static let agentPromptMarkers: Set<Character> = ["›", "❯", "•", "⏺", "●"]
     private static let boxDrawingCharacterClass = "[│┃║╎╏┆┇┊┋╽╿￨｜]"
     private static let borderBoxCharacterClass = "[─━┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬╭╮╯╰┏┓┗┛┣┫┳┻╋]"
 
@@ -169,6 +169,15 @@ enum CleanCopyPipeline {
         }
 
         guard nonEmpty.count <= maxAgentPromptReflowLines else { return nil }
+
+        // Agent reflow targets a single message: one leading marker, then continuation lines.
+        // Two or more marker-led lines means a real bullet list (• a / • b), a multi-message
+        // selection, or stacked ⏺ tool calls — reflowing would fuse them. Bail.
+        let markerLineCount = nonEmpty.count { line in
+            guard let first = line.trimmingCharacters(in: .whitespaces).first else { return false }
+            return agentPromptMarkers.contains(first)
+        }
+        guard markerLineCount <= 1 else { return nil }
 
         let candidateLines: [String]
         if let ruleIndex = lines.firstIndex(where: isAgentPromptRuleLine(_:)) {

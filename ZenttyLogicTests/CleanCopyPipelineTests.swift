@@ -327,6 +327,118 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
     }
 
+    // MARK: - Bullet / Marker Agent Output
+
+    func test_pipeline_cleans_bullet_led_agent_output() {
+        // Peter's example: a • bullet message with an indented continuation paragraph.
+        let input = """
+        • Hi Peter — I'll keep this review tight and focus only on issues worth fixing before merge.
+
+          Using the code-review skill because this is a branch diff review.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "Hi Peter — I'll keep this review tight and focus only on issues worth fixing before merge."
+                + "\n\nUsing the code-review skill because this is a branch diff review."
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_stripAgentPromptSelection_reflows_bullet_wrapped_paragraph() {
+        let input = """
+        • Hi Peter — I'll keep this review
+          tight and focus only on issues.
+
+          Using the code-review skill.
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Hi Peter — I'll keep this review tight and focus only on issues."
+                + "\n\nUsing the code-review skill."
+        )
+    }
+
+    func test_stripAgentPromptSelection_cleans_record_circle_message() {
+        // ⏺ (U+23FA) is Claude Code's message/tool-line marker.
+        let input = """
+        ⏺ Ran the analysis and found two
+          issues worth fixing.
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Ran the analysis and found two issues worth fixing."
+        )
+    }
+
+    func test_stripAgentPromptSelection_cleans_filled_circle_message() {
+        // ● (U+25CF) is used as a leading status/message glyph by some agents.
+        let input = """
+        ● Models available and ready
+          to take the next task.
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Models available and ready to take the next task."
+        )
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_bullet_list() {
+        let input = """
+        • first item
+        • second item
+        • third item
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_short_wrapped_bullet_list() {
+        // The regression the multi-marker guard exists for: a 2-item • list whose first item
+        // wraps. Stripping the first bullet would undercount the list, so the older post-strip
+        // isLikelyList check alone would have reflowed these into one run.
+        let input = """
+        • First item that wraps onto
+          a second line
+        • Second item
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_stacked_tool_calls() {
+        // Two ⏺ tool-call lines are separate messages, not one wrapped paragraph.
+        let input = """
+        ⏺ Read(CleanCopyPipeline.swift)
+        ⏺ Edit(CleanCopyPipeline.swift)
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_does_not_flatten_filled_circle_list() {
+        let input = """
+        ● one
+        ● two
+        ● three
+        """
+
+        XCTAssertNil(CleanCopyPipeline.stripAgentPromptSelection(input))
+    }
+
+    func test_stripAgentPromptSelection_strips_single_bullet_line() {
+        // Accepted trade-off: a lone single-line bullet loses its marker, consistent with how
+        // › / ❯ treat single lines. Rare in terminal pastes.
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection("• just one thing"),
+            "just one thing"
+        )
+    }
+
     // MARK: - Box Drawing Cleanup
 
     func test_stripBoxDrawingArtifacts_removes_pipe_decoration() {
