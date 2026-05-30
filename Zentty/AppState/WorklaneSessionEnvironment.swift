@@ -9,6 +9,7 @@ enum WorklaneSessionEnvironment {
         "ZDOTDIR",
         "PROMPT_COMMAND",
         "GHOSTTY_LOG",
+        "XDG_DATA_DIRS",
     ]
 
     static func make(
@@ -75,6 +76,26 @@ enum WorklaneSessionEnvironment {
             }
 
             environment["PROMPT_COMMAND"] = ". \"\(shellIntegrationDirectory)/zentty-bash-integration.bash\""
+
+            // fish and nushell discover their integration files through XDG_DATA_DIRS.
+            // We inject it for every pane because make() does not know the shell type
+            // here; only fish/nu read it (bash/zsh load via ZDOTDIR/PROMPT_COMMAND). The
+            // fish/nu integration scripts strip this entry back out early at load, so
+            // their sessions and children see a clean value — bash/zsh never read it.
+            // The "/usr/local/share:/usr/share" fallback when XDG_DATA_DIRS is unset is
+            // deliberate: collapsing it to only our dir breaks XDG-aware apps (cf. Ghostty
+            // ghostty-org/ghostty#2711, where GTK apps crashed).
+            let xdgDir = shellIntegrationDirectory
+            environment["ZENTTY_SHELL_INTEGRATION_XDG_DIR"] = xdgDir
+            let currentXdg = processEnvironment["XDG_DATA_DIRS"] ?? "/usr/local/share:/usr/share"
+            let xdgEntries = currentXdg
+                .split(separator: ":")
+                .map(String.init)
+                .filter { !$0.isEmpty && $0 != xdgDir }
+            environment["XDG_DATA_DIRS"] = ([xdgDir] + xdgEntries).joined(separator: ":")
+            if let orig = processEnvironment["XDG_DATA_DIRS"], !orig.isEmpty {
+                environment["ZENTTY_ORIGINAL_XDG_DATA_DIRS"] = orig
+            }
         }
 
         if let ghosttyLog = processEnvironment["GHOSTTY_LOG"], !ghosttyLog.isEmpty {

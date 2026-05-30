@@ -158,6 +158,8 @@ enum AgentStatusHelper {
                     ".zshenv",
                     "zentty-zsh-integration.zsh",
                     "zentty-bash-integration.bash",
+                    "fish/vendor_conf.d/zentty-shell-integration.fish",
+                    "nushell/vendor/autoload/zentty.nu",
                 ],
                 executableRelativePaths: []
             ) {

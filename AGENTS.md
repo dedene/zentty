@@ -26,6 +26,7 @@ Guidelines:
 - New tests go in `ZenttyLogicTests` unless they call `showWindow()`, `makeKeyAndOrderFront()`, or access `NSApp` lifecycle.
 - Use `scripts/test-on-virtual-display -only-testing:ZenttyLogicTests` for local `ZenttyLogicTests` runs that may create real AppKit windows.
 - Use `scripts/test-hosted-on-virtual-display` for local `ZenttyTests` runs that open real AppKit windows.
+- Use `scripts/test-modern-shell-integrations` before release after changing shell integration; it requires local `fish`, `nu`, and `/usr/bin/expect`, and fails if the fish/nu resource files are not tracked.
 - Tests that create windows must close them in `tearDown` or `addTeardownBlock`.
 - Use XCTest expectations instead of `RunLoop.current.run(until:)`.
 - The app host runs inert during tests (no main window, `.prohibited` activation policy) via `XCTestConfigurationFilePath` detection in `main.swift`.

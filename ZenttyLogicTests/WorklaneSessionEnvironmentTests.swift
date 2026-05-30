@@ -105,4 +105,43 @@ final class WorklaneSessionEnvironmentTests: XCTestCase {
             .count
         XCTAssertEqual(occurrences, 1, "Shim directory should appear exactly once on PATH")
     }
+
+    func test_make_injects_and_preserves_xdg_data_dirs_for_modern_shells() throws {
+        let env = WorklaneSessionEnvironment.make(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            processEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "XDG_DATA_DIRS": "/custom/xdg:/usr/local/share:/usr/share",
+            ],
+            agentTeamsEnabled: false
+        )
+
+        XCTAssertNotNil(env["ZENTTY_SHELL_INTEGRATION_DIR"])
+        XCTAssertEqual(env["ZENTTY_SHELL_INTEGRATION"], "1")
+
+        let shellIntegrationDirectory = try XCTUnwrap(env["ZENTTY_SHELL_INTEGRATION_DIR"])
+        let entries = try XCTUnwrap(env["XDG_DATA_DIRS"]).split(separator: ":").map(String.init)
+        XCTAssertEqual(entries.first, shellIntegrationDirectory)
+        XCTAssertTrue(entries.contains("/custom/xdg"), "must preserve prior XDG entries")
+
+        XCTAssertEqual(env["ZENTTY_SHELL_INTEGRATION_XDG_DIR"], shellIntegrationDirectory)
+        XCTAssertEqual(env["ZENTTY_ORIGINAL_XDG_DATA_DIRS"], "/custom/xdg:/usr/local/share:/usr/share")
+    }
+
+    func test_make_injects_xdg_even_when_no_prior_xdg_data_dirs() throws {
+        let env = WorklaneSessionEnvironment.make(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            processEnvironment: ["PATH": "/usr/bin:/bin"],
+            agentTeamsEnabled: false
+        )
+
+        let shellIntegrationDirectory = try XCTUnwrap(env["ZENTTY_SHELL_INTEGRATION_DIR"])
+        let entries = try XCTUnwrap(env["XDG_DATA_DIRS"]).split(separator: ":").map(String.init)
+        XCTAssertEqual(entries.first, shellIntegrationDirectory)
+        XCTAssertEqual(env["ZENTTY_SHELL_INTEGRATION_XDG_DIR"], shellIntegrationDirectory)
+    }
 }
