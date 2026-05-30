@@ -738,6 +738,98 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    /// Regression: fish drops an empty list from an unquoted argument, so in a non-git directory
+    /// `--git-branch $git_branch` became a dangling `--git-branch` with no value. The real CLI
+    /// parser rejects a trailing valueless flag and `_zentty_agent_signal` swallows the failure,
+    /// so the pane-context signal was silently lost on every prompt outside a repo. This drives the
+    /// real fish script in a non-git dir and feeds its emitted argv through the real parser — it
+    /// throws against the unfixed script and passes once the values are quoted.
+    func test_fish_pane_context_signal_is_parseable_in_non_git_directory() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        // A fresh temp dir is never inside a git repo, so _zentty_local_git_branch returns empty.
+        let nonGitDirectory = try makeTemporaryDirectory(named: "shell-fish-non-git")
+        let invocations = try capturedAgentSignalArgv(
+            shell: .fish,
+            command: "cd \(shellQuoted(nonGitDirectory.path)); _zentty_emit_pane_context",
+            extraEnvironment: ["TTY": "/dev/null"]
+        )
+
+        // The explicit emit runs last, in the non-git dir, so the final pane-context is its signal.
+        let paneContexts = invocations.filter { $0.contains("pane-context") }
+        let argv = try XCTUnwrap(
+            paneContexts.last,
+            "fish emitted no pane-context signal; invocations=\(invocations)"
+        )
+
+        // Structural: the dangling-flag regression makes "--git-branch" the final token.
+        let flagIndex = try XCTUnwrap(
+            argv.firstIndex(of: "--git-branch"),
+            "pane-context signal missing --git-branch: \(argv)"
+        )
+        XCTAssertLessThan(
+            flagIndex, argv.count - 1,
+            "fish left a valueless --git-branch (dangling flag): \(argv)"
+        )
+
+        // Contract: the emitted argv must parse with the real CLI parser. Pre-fix this throws
+        // AgentStatusPayloadError.invalidArguments("Missing value for --git-branch").
+        let command = try AgentSignalCommand.parse(
+            arguments: argv,
+            environment: [
+                "ZENTTY_WORKLANE_ID": "worklane-under-test",
+                "ZENTTY_PANE_ID": "pane-under-test",
+            ]
+        )
+        XCTAssertEqual(command.payload.signalKind, .paneContext)
+        XCTAssertTrue(
+            (command.payload.paneContext?.gitBranch ?? "").isEmpty,
+            "non-git directory should report an empty branch, not a dropped value: \(argv)"
+        )
+    }
+
+    /// Every other nu wrapper test calls `_zentty_ensure_wrapper_path` directly, in the top-level
+    /// (env-propagating) scope. Real sessions enable the wrapper from inside a pre_prompt *closure*.
+    /// This fires the registered closure with env redirection — what nushell's hook machinery does —
+    /// to prove the `--env` PATH mutation propagates out of the closure boundary into the REPL.
+    func test_nu_shell_integration_enables_wrapper_through_pre_prompt_hook_closure() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-hook-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-nu-hook-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["\(realBinDir.path)" "/usr/bin" "/bin"]
+            do --env ($env.config.hooks.pre_prompt | last)
+            print $"active=<($env.ZENTTY_WRAPPER_BIN_DIRS? | default '')>"
+            which codex | get 0.path
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains("active=<\(wrapperDir.path)>"),
+            "pre_prompt closure did not propagate wrapper enablement to the REPL: \(result.stdout)"
+        )
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
     func test_fish_shell_integration_reports_numeric_pane_root_pid() throws {
         guard ShellIntegrationTestShell.fish.isAvailable else {
             throw XCTSkip("fish not available on this host")
@@ -9059,6 +9151,49 @@ final class AgentStatusSupportTests: XCTestCase {
         return log
             .split(whereSeparator: \.isNewline)
             .map(String.init)
+    }
+
+    /// Runs the integration and captures each `zentty ipc agent-signal …` invocation as a
+    /// faithful argv array. The shared `runShellIntegrationCommand` fake CLI logs space-joined
+    /// `$*`, which loses argument boundaries and silently swallows a trailing empty value — so
+    /// it cannot distinguish `--git-branch ""` from a dangling `--git-branch`. This substitutes a
+    /// boundary-preserving CLI (args RS/0x1E-delimited, invocations GS/0x1D-terminated; neither
+    /// byte appears in the paths/branches we emit) so the captured argv can be fed to the real
+    /// parser. Only `ZENTTY_CLI_BIN` and `LOG_FILE` are overridden; the shared runner is reused.
+    private func capturedAgentSignalArgv(
+        shell: ShellIntegrationTestShell,
+        command: String,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> [[String]] {
+        let scratch = try makeTemporaryDirectory(named: "shell-argv-capture")
+        let cliURL = scratch.appendingPathComponent("zentty", isDirectory: false)
+        let logURL = scratch.appendingPathComponent("argv.log", isDirectory: false)
+        try """
+        #!/bin/sh
+        for a in "$@"; do printf '%s\\036' "$a" >> "$LOG_FILE"; done
+        printf '\\035' >> "$LOG_FILE"
+        """.write(to: cliURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
+
+        var environment = extraEnvironment
+        environment["ZENTTY_CLI_BIN"] = cliURL.path
+        environment["LOG_FILE"] = logURL.path
+        _ = try runShellIntegrationCommand(shell: shell, command: command, extraEnvironment: environment)
+
+        guard let raw = try? String(contentsOf: logURL, encoding: .utf8) else {
+            return []
+        }
+        let groupSeparator: Character = "\u{1D}"
+        let recordSeparator: Character = "\u{1E}"
+        return raw
+            .split(separator: groupSeparator, omittingEmptySubsequences: true)
+            .map { record -> [String] in
+                // Each arg is terminated by RS, so a split keeps every (possibly empty) value
+                // plus one trailing artifact after the final RS — drop only that artifact.
+                var parts = record.split(separator: recordSeparator, omittingEmptySubsequences: false).map(String.init)
+                if !parts.isEmpty { parts.removeLast() }
+                return parts
+            }
     }
 
     private func missingWrapperCommand(for shell: ShellIntegrationTestShell, realBinDir: URL) -> String {

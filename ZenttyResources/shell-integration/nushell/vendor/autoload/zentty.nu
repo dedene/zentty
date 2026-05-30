@@ -144,7 +144,15 @@ def _zentty_local_git_branch [] {
 }
 
 def _zentty_reset_title_to_cwd [] {
-    let title = ($env.PWD | str replace $env.HOME '~')
+    # Anchor to the leading path prefix (port of bash/zsh ${PWD/#$HOME/~}); a plain
+    # `str replace` rewrites the first $HOME match anywhere in the path.
+    let pwd = $env.PWD
+    let home = $env.HOME
+    let title = if ($pwd | str starts-with $home) {
+        '~' + ($pwd | str substring ($home | str length)..)
+    } else {
+        $pwd
+    }
     _zentty_print_tty $"\e]2;($title)\a"
 }
 

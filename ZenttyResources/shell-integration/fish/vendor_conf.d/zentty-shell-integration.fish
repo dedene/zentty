@@ -223,7 +223,9 @@ function _zentty_local_git_branch
 end
 
 function _zentty_reset_title_to_cwd
-    _zentty_print_tty (printf '\e]2;%s\a' (string replace -- $HOME '~' $PWD))
+    # Anchor to the leading path prefix (port of bash/zsh ${PWD/#$HOME/~}); an
+    # unanchored replace would rewrite $HOME anywhere it appears in the path.
+    _zentty_print_tty (printf '\e]2;%s\a' (string replace -r -- "^"(string escape --style=regex -- $HOME) '~' $PWD))
 end
 
 function _zentty_emit_pane_context
@@ -232,12 +234,17 @@ function _zentty_emit_pane_context
     set -l git_branch ""
 
     if _zentty_is_remote_shell
-        _zentty_agent_signal pane-context remote --path $cwd_path --home $home_path --user $USER --host (_zentty_hostname) --git-branch $git_branch
+        # Quote every value: a fish command substitution that yields no output
+        # (e.g. an empty git branch) collapses to a zero-element list, which would
+        # DROP the flag's value and leave a dangling "--git-branch". The CLI parser
+        # rejects a trailing valueless flag, so the whole signal would be discarded.
+        # Quoting guarantees exactly one (possibly empty) argument per value.
+        _zentty_agent_signal pane-context remote --path "$cwd_path" --home "$home_path" --user "$USER" --host (_zentty_hostname) --git-branch "$git_branch"
         return 0
     end
 
     set git_branch (_zentty_local_git_branch)
-    _zentty_agent_signal pane-context local --path $cwd_path --home $home_path --user $USER --host (_zentty_hostname) --git-branch $git_branch
+    _zentty_agent_signal pane-context local --path "$cwd_path" --home "$home_path" --user "$USER" --host (_zentty_hostname) --git-branch "$git_branch"
 end
 
 function _zentty_report_directory_change
