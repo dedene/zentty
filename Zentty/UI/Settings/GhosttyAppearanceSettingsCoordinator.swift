@@ -496,7 +496,9 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         from stack: GhosttyConfigEnvironment.ResolvedStack,
         pendingMutation: PendingMutation?
     ) {
-        let targetURL = stack.preferredCreateTargetURL
+        // Resolve a symlinked target so a stowed ghostty config keeps its link instead
+        // of being clobbered by the atomic temp+rename (see FileManager+SymlinkWrite).
+        let targetURL = fileManager.resolvingSymlinkTarget(at: stack.preferredCreateTargetURL)
         var content = stack.loadFiles.compactMap { try? String(contentsOf: $0, encoding: .utf8) }
             .joined(separator: "\n")
         content = applyingOverrides(from: stack.localOverrideContents, to: content)

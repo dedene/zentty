@@ -197,9 +197,14 @@ final class AppConfigStore: @unchecked Sendable {
     }
 
     private static func persist(config: AppConfig, to fileURL: URL, fileManager: FileManager) throws {
-        let directoryURL = fileURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        // Write through a symlinked config.toml so dotfile setups (Stow, chezmoi, …)
+        // keep their link instead of having it clobbered by the atomic temp+rename.
+        let targetURL = fileManager.resolvingSymlinkTarget(at: fileURL)
+        try fileManager.createDirectory(
+            at: targetURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         let source = AppConfigTOML.encode(config.normalized())
-        try Data(source.utf8).write(to: fileURL, options: .atomic)
+        try Data(source.utf8).write(to: targetURL, options: .atomic)
     }
 }

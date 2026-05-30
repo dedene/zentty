@@ -219,6 +219,109 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.customApps.map(\.id), ["custom:bbedit"])
     }
 
+    // MARK: - Symlinked config (issue #15)
+
+    func test_store_preserves_symlinked_config_on_save() throws {
+        let repoDirURL = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        let homeDirURL = temporaryDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDirURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeDirURL, withIntermediateDirectories: true)
+
+        let targetURL = repoDirURL.appendingPathComponent("config.toml")
+        try "[sidebar]\nwidth = 100\n".write(to: targetURL, atomically: true, encoding: .utf8)
+
+        // Stow-style: ~/.config/zentty/config.toml -> dotfiles/config.toml
+        let linkURL = homeDirURL.appendingPathComponent("config.toml")
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let store = AppConfigStore(
+            fileURL: linkURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.sidebar.width = 344
+        }
+
+        // The link must survive the save instead of becoming a regular file.
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            targetURL.path
+        )
+        // The new content lands in the real target...
+        let targetContents = try String(contentsOf: targetURL, encoding: .utf8)
+        XCTAssertTrue(targetContents.contains("width = 344"))
+        // ...and is visible when reading through the link.
+        let throughLink = try String(contentsOf: linkURL, encoding: .utf8)
+        XCTAssertTrue(throughLink.contains("width = 344"))
+        // In-memory state reflects the save and isn't clobbered by a stray reload.
+        XCTAssertEqual(store.current.sidebar.width, 344)
+    }
+
+    func test_store_preserves_relative_symlink_on_save() throws {
+        let repoDirURL = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        let homeDirURL = temporaryDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDirURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeDirURL, withIntermediateDirectories: true)
+
+        let targetURL = repoDirURL.appendingPathComponent("config.toml")
+        try "[sidebar]\nwidth = 100\n".write(to: targetURL, atomically: true, encoding: .utf8)
+
+        let linkURL = homeDirURL.appendingPathComponent("config.toml")
+        try FileManager.default.createSymbolicLink(
+            atPath: linkURL.path,
+            withDestinationPath: "../dotfiles/config.toml"
+        )
+
+        let store = AppConfigStore(
+            fileURL: linkURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.sidebar.width = 512
+        }
+
+        // The relative link is preserved verbatim.
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            "../dotfiles/config.toml"
+        )
+        let targetContents = try String(contentsOf: targetURL, encoding: .utf8)
+        XCTAssertTrue(targetContents.contains("width = 512"))
+        XCTAssertEqual(store.current.sidebar.width, 512)
+    }
+
+    func test_store_preserves_symlink_on_initial_create() throws {
+        let repoDirURL = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        let homeDirURL = temporaryDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDirURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeDirURL, withIntermediateDirectories: true)
+
+        // Link points at a target that does not exist yet (broken link), so init
+        // takes the `.missing` persist path and must materialize the target.
+        let targetURL = repoDirURL.appendingPathComponent("config.toml")
+        let linkURL = homeDirURL.appendingPathComponent("config.toml")
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        _ = AppConfigStore(
+            fileURL: linkURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            targetURL.path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: targetURL.path))
+    }
+
     func test_config_round_trips_server_detection_and_browser_preference() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         let store = AppConfigStore(

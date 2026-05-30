@@ -52,6 +52,31 @@ final class BookmarkStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.templates.map(\.name), ["Demo"])
     }
 
+    func test_upsert_preserves_symlinked_file_on_save() throws {
+        let repoDirURL = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        let homeDirURL = temporaryDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDirURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeDirURL, withIntermediateDirectories: true)
+
+        let targetURL = repoDirURL.appendingPathComponent("bookmarks.json")
+        // Stow-style: ~/.config/zentty/bookmarks.json -> dotfiles/bookmarks.json
+        let linkURL = homeDirURL.appendingPathComponent("bookmarks.json")
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let store = BookmarkStore(fileURL: linkURL)
+        store.upsert(WorkspaceTemplate(name: "Demo", kind: .bookmark))
+
+        // The link must survive the save instead of becoming a regular file...
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            targetURL.path
+        )
+        // ...and the bookmarks land in the real target, readable through the link.
+        let reloaded = BookmarkStore(fileURL: linkURL)
+        XCTAssertEqual(reloaded.templates.map(\.name), ["Demo"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: targetURL.path))
+    }
+
     func test_upsert_updates_existing_template() {
         let store = BookmarkStore(fileURL: fileURL)
         let id = UUID()

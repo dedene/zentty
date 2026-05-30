@@ -155,4 +155,32 @@ final class GhosttyConfigWriterTests: XCTestCase {
         XCTAssertTrue(content.contains("font-size = 16"))
         XCTAssertFalse(content.contains("font-size = 14"))
     }
+
+    // MARK: - Symlink preservation (issue #15)
+
+    func test_writeTheme_preserves_symlinked_config_on_save() throws {
+        let repoDirURL = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        let homeDirURL = temporaryDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDirURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeDirURL, withIntermediateDirectories: true)
+
+        let targetURL = repoDirURL.appendingPathComponent("config")
+        try "theme = OldTheme\n".write(to: targetURL, atomically: true, encoding: .utf8)
+
+        // Stow-style: ~/.config/ghostty/config -> dotfiles/config
+        let linkURL = homeDirURL.appendingPathComponent("config")
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let writer = GhosttyConfigWriter(configURL: linkURL)
+        writer.writeTheme("NewTheme")
+
+        // The link must survive instead of becoming a regular file.
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            targetURL.path
+        )
+        let targetContents = try String(contentsOf: targetURL, encoding: .utf8)
+        XCTAssertTrue(targetContents.contains("theme = NewTheme"))
+        XCTAssertFalse(targetContents.contains("OldTheme"))
+    }
 }
