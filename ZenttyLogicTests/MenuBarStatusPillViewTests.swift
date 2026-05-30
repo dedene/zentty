@@ -161,6 +161,34 @@ final class MenuBarStatusPillViewTests: AppKitTestCase {
         XCTAssertLessThan(label.frame.width, intrinsicWidth)
     }
 
+    func test_reveal_detail_is_vertically_aligned_with_label() throws {
+        let aqua = NSAppearance(named: .aqua)
+        let pill = makePill()
+        let progress = try XCTUnwrap(PaneAgentTaskProgress(doneCount: 1, totalCount: 4))
+        pill.configure(
+            kind: .running,
+            text: "Running",
+            taskProgress: progress,
+            appearance: aqua,
+            reduceTransparency: false
+        )
+        pill.setRevealed(true, animated: false, reducedMotion: true)
+        pill.frame = NSRect(x: 0, y: 0, width: pill.intrinsicContentSize.width, height: 18)
+        pill.layoutSubtreeIfNeeded()
+
+        let label = try XCTUnwrap(
+            pill.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "Running" }
+        )
+        let reveal = try XCTUnwrap(pill.subviews.compactMap { $0 as? SidebarTaskProgressRevealView }.first)
+        XCTAssertGreaterThan(reveal.frame.width, 0, "reveal must be laid out with width when revealed")
+        XCTAssertEqual(
+            reveal.frame.midY,
+            label.frame.midY,
+            accuracy: 0.5,
+            "the hover-reveal detail must share the status label's vertical center"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makePill() -> MenuBarStatusPillView {

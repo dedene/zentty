@@ -142,22 +142,22 @@ final class MenuBarStatusPillView: NSView {
         }
         x += leadingWidth + Metrics.leadingToContentGap
 
+        // Vertically center the label, and place the hover-reveal detail in the
+        // same band so its "N/M tasks ·" text shares the label's baseline
+        // instead of riding high in a full-height box.
+        let labelHeight = ceil(label.fittingSize.height)
+        let contentY = ((bounds.height - labelHeight) / 2).rounded()
+
         let revealWidth = (hasProgress && isRevealed) ? revealView.expandedWidth : 0
-        revealView.frame = NSRect(x: x, y: 0, width: revealWidth, height: bounds.height)
+        revealView.frame = NSRect(x: x, y: contentY, width: revealWidth, height: labelHeight)
         x += revealWidth
 
-        let labelHeight = ceil(label.fittingSize.height)
         // Clamp to the room left inside the pill so the label truncates (it's
         // .byTruncatingTail) instead of being hard-clipped by the capsule when
         // the row frames the pill narrower than its intrinsic width.
         let availableLabelWidth = max(0, bounds.width - x - Metrics.paddingTrailing)
         let labelWidth = min(ceil(label.fittingSize.width), availableLabelWidth)
-        label.frame = NSRect(
-            x: x,
-            y: ((bounds.height - labelHeight) / 2).rounded(),
-            width: labelWidth,
-            height: labelHeight
-        )
+        label.frame = NSRect(x: x, y: contentY, width: labelWidth, height: labelHeight)
     }
 
     private func setup() {

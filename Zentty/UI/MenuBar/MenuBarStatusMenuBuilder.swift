@@ -346,7 +346,12 @@ private final class MenuBarAgentRowView: NSView {
         titleLabel.frame = NSRect(x: textX, y: 21, width: textWidth, height: titleHeight)
         contextLabel.frame = NSRect(x: textX, y: 5, width: textWidth, height: contextHeight)
 
-        let pillY = hasAge ? 22 : ((bounds.height - pillSize.height) / 2).rounded()
+        // On two-line (timestamp) rows, center the pill on the title line so its
+        // box matches the title's and the age sits on the subtitle line — equal
+        // padding above/below. On single-line rows, center it in the row.
+        let pillY = hasAge
+            ? (titleLabel.frame.midY - pillSize.height / 2).rounded()
+            : ((bounds.height - pillSize.height) / 2).rounded()
         pillView.frame = NSRect(
             x: rightEdge - pillWidth,
             y: pillY,
