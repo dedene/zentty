@@ -114,8 +114,18 @@ struct AppConfig: Equatable, Sendable {
     struct Notifications: Equatable, Sendable {
         /// Empty string means system default sound.
         var soundName: String
+        /// Display name for a user-chosen custom sound file (when soundName is the internal custom file).
+        var customSoundDisplayName: String?
 
-        static let `default` = Notifications(soundName: "")
+        static let `default` = Notifications(soundName: "", customSoundDisplayName: nil)
+
+        func normalized() -> Notifications {
+            var normalized = self
+            if !NotificationSoundManager.isCustomSoundName(normalized.soundName) {
+                normalized.customSoundDisplayName = nil
+            }
+            return normalized
+        }
     }
 
     struct Confirmations: Equatable, Sendable {
@@ -247,6 +257,7 @@ struct AppConfig: Equatable, Sendable {
         normalized.openWith = normalized.openWith.normalized()
         normalized.serverDetection = normalized.serverDetection.normalized()
         normalized.shortcuts = normalized.shortcuts.normalized()
+        normalized.notifications = normalized.notifications.normalized()
         return normalized
     }
 }

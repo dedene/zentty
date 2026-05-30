@@ -1202,6 +1202,121 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(store.current.agentTeams.enabled)
     }
 
+    func test_notifications_custom_sound_display_name_roundtrips_through_toml_and_store() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        let customName = "zentty-custom-sample.caf"
+        try store.update { config in
+            config.notifications.soundName = customName
+            config.notifications.customSoundDisplayName = "My Personal Chime.mp3"
+        }
+
+        XCTAssertEqual(store.current.notifications.soundName, customName)
+        XCTAssertEqual(store.current.notifications.customSoundDisplayName, "My Personal Chime.mp3")
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[notifications]"))
+        XCTAssertTrue(persisted.contains("sound_name = \"zentty-custom-sample.caf\""))
+        XCTAssertTrue(persisted.contains("custom_sound_display_name = \"My Personal Chime.mp3\""))
+
+        // Simulate reload from disk (new store instance)
+        let reloaded = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertEqual(reloaded.current.notifications.soundName, customName)
+        XCTAssertEqual(reloaded.current.notifications.customSoundDisplayName, "My Personal Chime.mp3")
+
+        // Clearing custom display on switch to system sound
+        try reloaded.update { config in
+            config.notifications.soundName = "Tink"
+            config.notifications.customSoundDisplayName = nil
+        }
+        let cleared = try String(contentsOf: fileURL)
+        XCTAssertFalse(cleared.contains("custom_sound_display_name"))
+        XCTAssertTrue(cleared.contains("sound_name = \"Tink\""))
+    }
+
+    func test_notifications_legacy_custom_sound_name_without_display_roundtrips() throws {
+        // The pre-rotation fixed file name must still be recognised as a custom sound so
+        // existing configs keep their selection after upgrade.
+        let legacyName = "zentty-custom-notification.caf"
+        XCTAssertTrue(NotificationSoundManager.isCustomSoundName(legacyName))
+
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [notifications]
+        sound_name = "\(legacyName)"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        // Custom name + nil display (from decode starting at .default) survives normalization.
+        XCTAssertEqual(store.current.notifications.soundName, legacyName)
+        XCTAssertNil(store.current.notifications.customSoundDisplayName)
+
+        let reloaded = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertEqual(reloaded.current.notifications.soundName, legacyName)
+        XCTAssertNil(reloaded.current.notifications.customSoundDisplayName)
+    }
+
+    func test_notifications_custom_sound_display_name_is_normalized_away_for_system_sound_on_load() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [notifications]
+        sound_name = "Glass"
+        custom_sound_display_name = "Stale Custom.mp3"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.notifications.soundName, "Glass")
+        XCTAssertNil(store.current.notifications.customSoundDisplayName)
+    }
+
+    func test_notifications_custom_sound_display_name_is_normalized_away_for_system_sound_on_update() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.notifications.soundName = "Glass"
+            config.notifications.customSoundDisplayName = "Stale Custom.mp3"
+        }
+
+        XCTAssertEqual(store.current.notifications.soundName, "Glass")
+        XCTAssertNil(store.current.notifications.customSoundDisplayName)
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertFalse(persisted.contains("custom_sound_display_name"))
+    }
+
     private func makeDefaults(suffix: String) -> UserDefaults {
         let suiteName = "ZenttyTests.AppConfigStoreTests.\(suffix).\(UUID().uuidString)"
         defaultsSuiteNames.append(suiteName)

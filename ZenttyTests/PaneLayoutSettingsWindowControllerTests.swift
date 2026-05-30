@@ -5,6 +5,21 @@ import XCTest
 
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
+    private var savedSoundsDirectoryOverride: URL?
+    private var tempSoundsDir: URL?
+
+    override func setUp() {
+        super.setUp()
+        // Notification-sound settings tests can trigger pruneCustomSounds, which scans the
+        // sounds directory. Redirect it at a temp dir so it never touches the real
+        // ~/Library/Sounds (and never deletes a developer's installed custom sound).
+        savedSoundsDirectoryOverride = NotificationSoundManager.soundsDirectoryOverride
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.SettingsWindow.Sounds.\(UUID().uuidString)", isDirectory: true)
+        tempSoundsDir = tempDir
+        NotificationSoundManager.soundsDirectoryOverride = tempDir
+    }
+
     override func tearDown() {
         NSApp.windows.forEach { window in
             window.orderOut(nil)
@@ -14,6 +29,11 @@ final class SettingsWindowControllerTests: XCTestCase {
         let settled = XCTestExpectation(description: "AppKit window teardown settled")
         DispatchQueue.main.async { settled.fulfill() }
         _ = XCTWaiter.wait(for: [settled], timeout: 1.0)
+
+        NotificationSoundManager.soundsDirectoryOverride = savedSoundsDirectoryOverride
+        if let tempSoundsDir {
+            try? FileManager.default.removeItem(at: tempSoundsDir)
+        }
 
         super.tearDown()
     }
@@ -1519,6 +1539,107 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
         )
         XCTAssertEqual(notificationsController.selectedSoundName, "Glass")
+    }
+
+    func test_notifications_section_shows_custom_sound_entry_without_display_name() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let customName = "zentty-custom-sample.caf"
+        try store.update { config in
+            config.notifications.soundName = customName
+            config.notifications.customSoundDisplayName = nil
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .notifications
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .notifications, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let notificationsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
+        )
+        XCTAssertEqual(notificationsController.selectedSoundName, customName)
+        XCTAssertEqual(notificationsController.selectedSoundTitle, "Custom: Custom Sound")
+        XCTAssertTrue(notificationsController.availableSoundNames.contains(customName))
+    }
+
+    func test_notifications_section_clearsCustomDisplayName_whenSwitchingToSystemSound() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.notifications.soundName = "zentty-custom-sample.caf"
+            config.notifications.customSoundDisplayName = "Personal Chime.mp3"
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .notifications
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .notifications, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let notificationsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
+        )
+        notificationsController.selectSoundForTesting("Glass")
+
+        XCTAssertEqual(store.current.notifications.soundName, "Glass")
+        XCTAssertNil(store.current.notifications.customSoundDisplayName)
+        // Regression: the custom file is pruned on switch, so its stale "Custom: …" popup
+        // entry must be rebuilt away — otherwise reselecting it points at a deleted file.
+        XCTAssertFalse(notificationsController.availableSoundNames.contains("zentty-custom-sample.caf"))
+        XCTAssertEqual(notificationsController.selectedSoundName, "Glass")
+    }
+
+    func test_notifications_section_caps_custom_sound_popup_width_for_long_display_name() throws {
+        let longName = String(repeating: "VeryLongCustomNotificationSoundName", count: 8) + ".aiff"
+        let customName = "zentty-custom-sample.caf"
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.notifications.soundName = customName
+            config.notifications.customSoundDisplayName = longName
+        }
+
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .notifications
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .notifications, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let notificationsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
+        )
+        XCTAssertEqual(notificationsController.selectedSoundName, customName)
+        XCTAssertLessThanOrEqual(notificationsController.soundPopupWidthForTesting, 260)
+        XCTAssertEqual(notificationsController.selectedSoundTooltip, "Custom: \(longName)")
     }
 
     func test_updates_privacy_section_defaults_update_channel_to_stable() throws {

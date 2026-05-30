@@ -179,6 +179,7 @@
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
+		5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */; };
 		60F13E1D9931F1321C002362 /* ServerRelevance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66E9360C107E9A7D3F05652 /* ServerRelevance.swift */; };
 		617C88C4ED936D565FD635F7 /* WorklaneReviewStateResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FE17A010577717370EFBCB /* WorklaneReviewStateResolver.swift */; };
 		6219CFABA673D1F436C3EBB2 /* PresentationDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789E529A7E4C195C7F216396 /* PresentationDraft.swift */; };
@@ -457,6 +458,7 @@
 		EDDA5E4E1273F0E81FBBE882 /* SettingsNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC29DBB882ABDF747B9DDA76 /* SettingsNavigationHistory.swift */; };
 		EDE18C0DA4C79997711F2528 /* ZenttyBreadcrumbs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B83CC56F8834AA75E2315BC /* ZenttyBreadcrumbs.swift */; };
 		EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63590216920018B71F1ACB7A /* AppDelegateTests.swift */; };
+		EE2D32723FAD470779B8D7F9 /* NotificationSoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E706A2076EAD5DD8C5AD0882 /* NotificationSoundManager.swift */; };
 		EE970D14373E2C135E45C480 /* ThemeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73931D75238B5C4F1427B708 /* ThemeCoordinator.swift */; };
 		EEC22296EE34DF6250AD3DAD /* BookmarkNameSuggester.swift in Sources */ = {isa = PBXBuildFile; fileRef = D08C0137453B47FE9FC59D1E /* BookmarkNameSuggester.swift */; };
 		EF0F88674C95591761ACB87B /* BookmarksPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F8BB4DD16E95F8BDEFA2 /* BookmarksPopoverView.swift */; };
@@ -819,6 +821,7 @@
 		9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		9C9964E75CAB137C49B15001 /* AboutMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadataTests.swift; sourceTree = "<group>"; };
 		9D4020F350259F84864071D9 /* PathCopiedToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathCopiedToastView.swift; sourceTree = "<group>"; };
+		9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundManagerTests.swift; sourceTree = "<group>"; };
 		9DBF3974DC90A1B68DB02135 /* BookmarksPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksPopoverMetrics.swift; sourceTree = "<group>"; };
 		9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
 		9E981E6DAD0FE2A00554CEEA /* WorklaneStoreCrossWindowTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreCrossWindowTransferTests.swift; sourceTree = "<group>"; };
@@ -968,6 +971,7 @@
 		E5F5891F160455B55F41BB5F /* HermesHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesHooksInstaller.swift; sourceTree = "<group>"; };
 		E6D7092CD7460BABDBD68C6E /* CommandPaletteTaskRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteTaskRunnerTests.swift; sourceTree = "<group>"; };
 		E6F07CFD4C44251C24400B38 /* WorklaneSessionEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSessionEnvironment.swift; sourceTree = "<group>"; };
+		E706A2076EAD5DD8C5AD0882 /* NotificationSoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundManager.swift; sourceTree = "<group>"; };
 		E84313842197C75BCA9CE6E8 /* HermesTitleOverrideReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesTitleOverrideReducer.swift; sourceTree = "<group>"; };
 		E89BAAA51D175EA4CC9174AA /* RecentCommandsTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentCommandsTracker.swift; sourceTree = "<group>"; };
 		EA5DD7A1968777DF9C77029D /* LibghosttySelectionAutoscrollControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySelectionAutoscrollControllerTests.swift; sourceTree = "<group>"; };
@@ -1110,6 +1114,7 @@
 		1C0506CDB868054B09C5CA8D /* AppState */ = {
 			isa = PBXGroup;
 			children = (
+				E706A2076EAD5DD8C5AD0882 /* NotificationSoundManager.swift */,
 				9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */,
 				E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */,
 				54894343178398AA618315E4 /* PaneFocusHistory.swift */,
@@ -1748,6 +1753,7 @@
 				FD6F1935CE1012DD80C4954D /* MenuBarStatusPresentationTests.swift */,
 				88AFF05A04C7107BED6423F8 /* MoveToWorklaneMenuBuilderTests.swift */,
 				C771F4DD0F6077D2E72754D0 /* NotificationPopoverViewModelTests.swift */,
+				9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */,
 				859E02462A30A35800CA0123 /* NotificationStoreTests.swift */,
 				11E538276A60D58C85CD53E0 /* OpenCodeLiveThemeSyncTests.swift */,
 				C675B0F7ABA617674B6D9A82 /* OpenCodeThemeSyncTests.swift */,
@@ -2143,6 +2149,7 @@
 				308705984BE6FCCDC7CB25F8 /* MenuBarStatusPresentationTests.swift in Sources */,
 				B4C1005AD0D618DCB0A4C13D /* MoveToWorklaneMenuBuilderTests.swift in Sources */,
 				D4A63F03ECDA1CF35971F9DE /* NotificationPopoverViewModelTests.swift in Sources */,
+				5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */,
 				F326460BA08B4AB927FD355F /* NotificationStoreTests.swift in Sources */,
 				03C2B5400305B015742248E2 /* OpenCodeLiveThemeSyncTests.swift in Sources */,
 				D5977945BCFB04E468408EC3 /* OpenCodeThemeSyncTests.swift in Sources */,
@@ -2359,6 +2366,7 @@
 				F12EB9E3A329F13DDB765ADC /* NotificationChromeCoordinator.swift in Sources */,
 				FA750A3CFFC86E664AAA4A00 /* NotificationInboxButton.swift in Sources */,
 				C9042A63C4AF443C0A4C8A55 /* NotificationPopoverView.swift in Sources */,
+				EE2D32723FAD470779B8D7F9 /* NotificationSoundManager.swift in Sources */,
 				AF800D9AC1461F47A82F6214 /* NotificationStore.swift in Sources */,
 				22A5ED0A03EBCBB3248944C3 /* NotificationsSettingsSectionViewController.swift in Sources */,
 				AA1411A91AE771850C12A19B /* OpenCodeLiveThemeSync.swift in Sources */,

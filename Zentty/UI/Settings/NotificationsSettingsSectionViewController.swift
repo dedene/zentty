@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
@@ -10,6 +11,9 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
             "Purr", "Sosumi", "Submarine", "Tink",
         ]
     }
+
+    private struct ChooseCustomSoundSentinel {}
+    private let chooseCustomSentinel = ChooseCustomSoundSentinel()
 
     private let configStore: AppConfigStore
     private var currentNotifications: AppConfig.Notifications = .default
@@ -193,17 +197,14 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
         rightStack.spacing = 8
         rightStack.translatesAutoresizingMaskIntoConstraints = false
 
-        soundPopupButton.removeAllItems()
-        soundPopupButton.addItem(withTitle: "Default")
-        soundPopupButton.lastItem?.representedObject = "" as String
-        for sound in Sound.systemSounds {
-            soundPopupButton.addItem(withTitle: sound)
-            soundPopupButton.lastItem?.representedObject = sound as String
-        }
         soundPopupButton.target = self
         soundPopupButton.action = #selector(handleSoundChanged(_:))
-        soundPopupButton.setContentHuggingPriority(.required, for: .horizontal)
+        soundPopupButton.cell?.lineBreakMode = .byTruncatingMiddle
+        soundPopupButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        soundPopupButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         rightStack.addArrangedSubview(soundPopupButton)
+        soundPopupButton.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
+        rebuildSoundPopupItems()
 
         playButton.bezelStyle = .rounded
         playButton.image = NSImage(
@@ -262,15 +263,37 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
 
     @objc
     private func handleSoundChanged(_ sender: NSPopUpButton) {
-        guard let soundName = sender.selectedItem?.representedObject as? String else { return }
+        let rep = sender.selectedItem?.representedObject
+        if rep is ChooseCustomSoundSentinel {
+            presentCustomSoundPicker()
+            // Revert visual selection immediately; picker sheet will drive final state
+            selectSoundPopupItem(for: currentNotifications.soundName)
+            return
+        }
+        guard let soundName = rep as? String else { return }
+        let isCustom = NotificationSoundManager.isCustomSoundName(soundName)
         try? configStore.update { config in
             config.notifications.soundName = soundName
+            if !isCustom {
+                config.notifications.customSoundDisplayName = nil
+            }
         }
         currentNotifications = configStore.current.notifications
+        if !isCustom {
+            // Switching back to a system/default sound: drop the orphaned custom file now.
+            // Synchronous on the main actor — this user-initiated settings change already
+            // writes TOML synchronously, and inline ordering removes the install/prune race.
+            NotificationSoundManager.pruneCustomSounds(keeping: nil)
+            // Rebuild so the now-stale "Custom: …" entry (its file was just deleted) disappears.
+            selectSoundPopupItem(for: soundName)
+        }
     }
 
     @objc
     private func handlePlaySound(_ sender: Any?) {
+        if NotificationSoundManager.playPreview(for: currentNotifications.soundName) {
+            return
+        }
         let soundName = currentNotifications.soundName
         if soundName.isEmpty {
             NSSound(named: "Tink")?.play()
@@ -324,6 +347,7 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
 
     private func selectSoundPopupItem(for soundName: String) {
         guard isViewLoaded else { return }
+        rebuildSoundPopupItems()
         let index =
             soundPopupButton.itemArray.firstIndex {
                 ($0.representedObject as? String) == soundName
@@ -337,6 +361,93 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0
         return label
+    }
+
+    // MARK: - Sound Popup (dynamic for custom)
+
+    private func rebuildSoundPopupItems() {
+        soundPopupButton.removeAllItems()
+
+        soundPopupButton.addItem(withTitle: "Default")
+        soundPopupButton.lastItem?.representedObject = "" as String
+
+        for sound in Sound.systemSounds {
+            soundPopupButton.addItem(withTitle: sound)
+            soundPopupButton.lastItem?.representedObject = sound as String
+        }
+
+        // Keep the installed custom sound selectable even when older config has no display name.
+        if NotificationSoundManager.isCustomSoundName(currentNotifications.soundName) {
+            let display = currentNotifications.customSoundDisplayName ?? "Custom Sound"
+            let title = "Custom: \(display)"
+            soundPopupButton.addItem(withTitle: title)
+            soundPopupButton.lastItem?.representedObject = currentNotifications.soundName as String
+            soundPopupButton.lastItem?.toolTip = title
+        }
+
+        soundPopupButton.addItem(withTitle: "Choose Custom Audio File…")
+        soundPopupButton.lastItem?.representedObject = chooseCustomSentinel
+    }
+
+    private func presentCustomSoundPicker() {
+        guard let window = view.window else { return }
+        let panel = NSOpenPanel()
+        panel.prompt = "Choose"
+        panel.message = "Select a short audio file (WAV, AIFF, CAF, MP3, M4A, etc.) to use for notifications."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self = self, response == .OK, let url = panel.url else {
+                self?.selectSoundPopupItem(for: self?.currentNotifications.soundName ?? "")
+                return
+            }
+            self.installAndSelectCustomSound(from: url)
+        }
+    }
+
+    private func installAndSelectCustomSound(from source: URL) {
+        setCustomSoundInstallInProgress(true)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.setCustomSoundInstallInProgress(false)
+            }
+
+            do {
+                let (internalName, displayName) = try await NotificationSoundManager.installCustomSound(from: source) {
+                    internalName, displayName in
+                    try self.configStore.update { config in
+                        config.notifications.soundName = internalName
+                        config.notifications.customSoundDisplayName = displayName
+                    }
+                }
+                self.currentNotifications = self.configStore.current.notifications
+                self.rebuildSoundPopupItems()
+                self.selectSoundPopupItem(for: internalName)
+                _ = NotificationSoundManager.playPreview(for: internalName)
+            } catch {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Could not install custom sound"
+                alert.informativeText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                if let win = self.view.window {
+                    alert.beginSheetModal(for: win) { _ in
+                        self.selectSoundPopupItem(for: self.currentNotifications.soundName)
+                    }
+                } else {
+                    alert.runModal()
+                    self.selectSoundPopupItem(for: self.currentNotifications.soundName)
+                }
+            }
+        }
+    }
+
+    private func setCustomSoundInstallInProgress(_ isInProgress: Bool) {
+        soundPopupButton.isEnabled = !isInProgress
+        playButton.isEnabled = !isInProgress
     }
 
     // MARK: - For Testing
@@ -353,14 +464,38 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
         (soundPopupButton.selectedItem?.representedObject as? String) ?? ""
     }
 
+    var selectedSoundTitle: String {
+        soundPopupButton.selectedItem?.title ?? ""
+    }
+
+    var selectedSoundTooltip: String? {
+        soundPopupButton.selectedItem?.toolTip
+    }
+
+    var soundPopupWidthForTesting: CGFloat {
+        soundPopupButton.frame.width
+    }
+
     var availableSoundNames: [String] {
         soundPopupButton.itemArray.compactMap { $0.representedObject as? String }
+    }
+
+    func selectSoundForTesting(_ soundName: String) {
+        selectSoundPopupItem(for: soundName)
+        handleSoundChanged(soundPopupButton)
     }
 }
 
 func resolvedNotificationSound(for soundName: String) -> UNNotificationSound {
-    if soundName.isEmpty {
+    guard let notificationSoundName = resolvedNotificationSoundName(for: soundName) else {
         return .default
     }
-    return UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+    return UNNotificationSound(named: notificationSoundName)
+}
+
+func resolvedNotificationSoundName(for soundName: String) -> UNNotificationSoundName? {
+    if soundName.isEmpty {
+        return nil
+    }
+    return UNNotificationSoundName(rawValue: soundName)
 }
