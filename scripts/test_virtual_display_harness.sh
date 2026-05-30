@@ -150,9 +150,16 @@ if [[ "$create_count" != "1" ]]; then
   exit 1
 fi
 
+disconnect_count="$(grep -c -- '-connected=off' "$betterdisplay_log" 2>/dev/null || true)"
+if [[ "$disconnect_count" != "1" ]]; then
+  print -u2 "expected the last harness run to disconnect the shared virtual display once, got $disconnect_count disconnect calls"
+  cat "$betterdisplay_log" >&2
+  exit 1
+fi
+
 discard_count="$(grep -c '^discard ' "$betterdisplay_log" 2>/dev/null || true)"
-if [[ "$discard_count" != "1" ]]; then
-  print -u2 "expected the last harness run to discard the shared virtual display once, got $discard_count discard calls"
+if [[ "$discard_count" != "0" ]]; then
+  print -u2 "expected no discard calls (display is kept registered for reuse), got $discard_count discard calls"
   cat "$betterdisplay_log" >&2
   exit 1
 fi

@@ -272,9 +272,18 @@ ensure_betterdisplay() {
 
 cleanup_betterdisplay() {
   resolve_betterdisplay_transport || return 0
-  betterdisplay_request discard -serial="$display_serial" >/dev/null 2>&1 || \
-    betterdisplay_request discard -name="$active_display_name" >/dev/null 2>&1 || \
-    betterdisplay_request discard -name="$display_name" >/dev/null 2>&1 || true
+  # Disconnect rather than discard. Discarding destroys the virtual screen, so
+  # macOS mints a fresh display UUID on the next create. Menu-bar managers like
+  # Thaw/Ice key per-display settings by UUID and never prune them, so a
+  # discard-per-run leaks a new ghost display into their config every run; it
+  # also lets concurrent agents stack duplicate "Name (1)" displays. Keeping the
+  # screen registered preserves its UUID, so the next run reconnects the same
+  # screen (by name, via connect_existing_betterdisplay) and Thaw keeps one entry.
+  # BetterDisplay assigns its own serial, so -name is the selector that matches;
+  # -serial is kept only as a harmless last-ditch fallback.
+  betterdisplay_request set -name="$active_display_name" -connected=off >/dev/null 2>&1 || \
+    betterdisplay_request set -name="$display_name" -connected=off >/dev/null 2>&1 || \
+    betterdisplay_request set -serial="$display_serial" -connected=off >/dev/null 2>&1 || true
 }
 
 ensure_simpledisplay() {
