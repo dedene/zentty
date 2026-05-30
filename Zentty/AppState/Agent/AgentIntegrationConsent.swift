@@ -247,3 +247,11 @@ enum AgentIntegrationHooks {
         try handlers(for: tool)?.uninstall()
     }
 }
+
+extension Notification.Name {
+    /// Posted (in-process) when a persistent agent's on-disk hooks may have just
+    /// changed — e.g. a pane launch reinstalled them via `AgentLaunchBootstrap`.
+    /// The Agents settings panel observes this to re-check `isInstalled` and clear
+    /// a stale "Hooks missing" warning while it is already open.
+    static let agentIntegrationHooksDidChange = Notification.Name("AgentIntegrationHooksDidChange")
+}

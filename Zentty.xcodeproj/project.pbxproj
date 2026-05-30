@@ -388,6 +388,7 @@
 		C8AC887AB1E462D59D6619FF /* AgyHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */; };
 		C9042A63C4AF443C0A4C8A55 /* NotificationPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6480DAD70FC01A0FD0A8908 /* NotificationPopoverView.swift */; };
 		C989D4E5646E700C8802CBD9 /* PassiveServerDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7109E246F70CEBB6CD34E13F /* PassiveServerDetection.swift */; };
+		C9ACF6200671CC901D3D0C6C /* CaretTooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDC8BA5388C2EC99E6DA4E4D /* CaretTooltip.swift */; };
 		C9B81248B5AA76BE4CD7129F /* ServerRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F7BA09CEEB123D53CB10C4 /* ServerRegistry.swift */; };
 		C9BCF024E2100C86C60ED966 /* WorkspaceRecipeColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79741EFBC870D776F45B8E7 /* WorkspaceRecipeColorTests.swift */; };
 		C9ED7FA8D89698D7E7644E36 /* LibghosttySelectionAutoscrollController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4069DF835DCBC34EAFA18963 /* LibghosttySelectionAutoscrollController.swift */; };
@@ -1014,6 +1015,7 @@
 		FD08AC7A7561005FD819D5D4 /* CleanCopyPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanCopyPipelineTests.swift; sourceTree = "<group>"; };
 		FD6261C82AADF1EDAAA09BC9 /* PaneStripMotionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripMotionController.swift; sourceTree = "<group>"; };
 		FD6F1935CE1012DD80C4954D /* MenuBarStatusPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusPresentationTests.swift; sourceTree = "<group>"; };
+		FDC8BA5388C2EC99E6DA4E4D /* CaretTooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaretTooltip.swift; sourceTree = "<group>"; };
 		FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostViewTests.swift; sourceTree = "<group>"; };
 		FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		FFA39255E836211E35CAFF5F /* WorklaneState+Testing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneState+Testing.swift"; sourceTree = "<group>"; };
@@ -1542,6 +1544,7 @@
 			isa = PBXGroup;
 			children = (
 				D0E4530192DE360F32303E65 /* AppearanceSettingsSectionViewController.swift */,
+				FDC8BA5388C2EC99E6DA4E4D /* CaretTooltip.swift */,
 				FA88E1E64FB65E4B800852D7 /* GeneralSettingsSectionViewController.swift */,
 				B1F616D86BF9A658C1E1A9D7 /* GhosttyAppearanceSettingsCoordinator.swift */,
 				74A553F140B785B8FE4755F8 /* KeyboardShortcutPreviewView.swift */,
@@ -2307,6 +2310,7 @@
 				FB0610B393299F59045FDD97 /* BookmarksPopoverMetrics.swift in Sources */,
 				EF0F88674C95591761ACB87B /* BookmarksPopoverView.swift in Sources */,
 				667A04C8CFE0127371DF68C6 /* BookmarksPopoverViewModel.swift in Sources */,
+				C9ACF6200671CC901D3D0C6C /* CaretTooltip.swift in Sources */,
 				6AF1CD2BF77470AF7368F0F5 /* ClaudeCodeTitleOverrideReducer.swift in Sources */,
 				720727A2DA0A0EA0C32EC86E /* ClaudeHookSessionStore.swift in Sources */,
 				ED27476E195CD5905EA8FE99 /* CleanCopyPipeline.swift in Sources */,

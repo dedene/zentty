@@ -63,9 +63,106 @@ enum AgentBootstrapTool: String, Codable, Equatable, CaseIterable {
     /// so a restored pane is treated as an "agent pane" iff its command would
     /// actually trip the wrapper.
     static func wrappedAgent(forCommand command: String) -> AgentBootstrapTool? {
-        guard let firstToken = command.split(separator: " ").first else { return nil }
-        let binaryName = (String(firstToken) as NSString).lastPathComponent
+        guard let binaryName = wrappedAgentBinaryName(forCommand: command) else { return nil }
         return allCases.first { $0.realBinaryNames.contains(binaryName) }
+    }
+
+    private static func wrappedAgentBinaryName(forCommand command: String) -> String? {
+        let words = shellWords(from: command)
+        guard var executable = words.first else { return nil }
+
+        if (executable as NSString).lastPathComponent == "env" {
+            guard let envExecutable = words.dropFirst().first(where: { !isEnvironmentAssignment($0) }) else {
+                return nil
+            }
+            executable = envExecutable
+        }
+
+        return (executable as NSString).lastPathComponent
+    }
+
+    private static func isEnvironmentAssignment(_ word: String) -> Bool {
+        guard let equalsIndex = word.firstIndex(of: "="),
+              equalsIndex > word.startIndex
+        else { return false }
+
+        let name = word[..<equalsIndex]
+        guard let first = name.first,
+              first == "_" || first.isLetter
+        else { return false }
+
+        return name.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
+    }
+
+    /// Minimal shell-word splitting for restored launch commands. It is not a full
+    /// shell parser; it only preserves quoted whitespace well enough to skip
+    /// `env NAME=value` prefixes and inspect the real executable token.
+    private static func shellWords(from command: String) -> [String] {
+        enum Quote {
+            case none
+            case single
+            case double
+        }
+
+        var words: [String] = []
+        var current = ""
+        var hasCurrentWord = false
+        var quote: Quote = .none
+        var isEscaped = false
+
+        for character in command {
+            if isEscaped {
+                current.append(character)
+                hasCurrentWord = true
+                isEscaped = false
+                continue
+            }
+
+            switch quote {
+            case .none:
+                if character == "\\" {
+                    isEscaped = true
+                    hasCurrentWord = true
+                } else if character == "'" {
+                    quote = .single
+                    hasCurrentWord = true
+                } else if character == "\"" {
+                    quote = .double
+                    hasCurrentWord = true
+                } else if character.isWhitespace {
+                    if hasCurrentWord {
+                        words.append(current)
+                        current = ""
+                        hasCurrentWord = false
+                    }
+                } else {
+                    current.append(character)
+                    hasCurrentWord = true
+                }
+            case .single:
+                if character == "'" {
+                    quote = .none
+                } else {
+                    current.append(character)
+                }
+            case .double:
+                if character == "\"" {
+                    quote = .none
+                } else if character == "\\" {
+                    isEscaped = true
+                } else {
+                    current.append(character)
+                }
+            }
+        }
+
+        if isEscaped {
+            current.append("\\")
+        }
+        if hasCurrentWord {
+            words.append(current)
+        }
+        return words
     }
 }
 

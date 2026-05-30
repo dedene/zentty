@@ -857,6 +857,7 @@ final class AgentIPCServer: @unchecked Sendable {
                 fileManager: .default,
                 integrationDecision: decision
             )
+            notifyHooksDidChangeIfPersistent(decision: decision, tool: request.tool)
             guard request.expectsResponse else { return nil }
             return AgentIPCResponse(
                 id: request.id,
@@ -903,7 +904,7 @@ final class AgentIPCServer: @unchecked Sendable {
         } else {
             decision = .proceed
         }
-        return try AgentLaunchBootstrap.makePlan(
+        let plan = try AgentLaunchBootstrap.makePlan(
             request: request,
             target: target,
             runtimeDirectoryURL: runtimeDirectoryURL,
@@ -911,6 +912,26 @@ final class AgentIPCServer: @unchecked Sendable {
             fileManager: .default,
             integrationDecision: decision
         )
+        notifyHooksDidChangeIfPersistent(decision: decision, tool: request.tool)
+        return plan
+    }
+
+    /// Signal the Agents settings panel to re-check on-disk hook status after a
+    /// launch may have (re)installed hooks. Only `.proceed` reaches the per-tool
+    /// installer switch in `makePlan`, and only persistent tools write disk hooks,
+    /// so we gate on both — ephemeral and disabled/suppressed launches never post.
+    /// The disk write inside `makePlan` is synchronous and already done by the time
+    /// we post. We hop to the main thread because the observer (a `@MainActor`
+    /// settings panel) is selector-based and runs on the posting thread, and this
+    /// runs on a background IPC connection / consent thread.
+    private static func notifyHooksDidChangeIfPersistent(
+        decision: AgentIntegrationDecision,
+        tool: AgentBootstrapTool?
+    ) {
+        guard decision == .proceed, tool?.integrationClass == .persistent else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .agentIntegrationHooksDidChange, object: nil)
+        }
     }
 
     private static func readRequestData(from fileDescriptor: Int32) throws -> Data {

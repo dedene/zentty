@@ -274,6 +274,22 @@ final class AgentIntegrationConsentTests: XCTestCase {
         XCTAssertEqual(registered, ["pane-xyz"], "an agent resume command must register the restore token")
     }
 
+    func test_makePane_registers_forEnvPrefixedHermesResumeCommand() {
+        var registered: [String] = []
+        _ = PaneRestorationBuilder.makePane(
+            makeRestoreInputs(command: #"env HERMES_HOME='/tmp/hermes profile' hermes --resume hermes-session-123"#),
+            windowID: WindowID("w"),
+            worklaneID: WorklaneID("wl"),
+            processEnvironment: ["HOME": "/tmp"]
+        ) { registered.append($0.rawValue) }
+
+        XCTAssertEqual(
+            registered,
+            ["pane-xyz"],
+            "an env-prefixed Hermes restore command must register the restore token"
+        )
+    }
+
     private func makeRestoreInputs(command: String?) -> PaneRestorationBuilder.PaneInputs {
         PaneRestorationBuilder.PaneInputs(
             id: PaneID("pane-xyz"),
@@ -301,5 +317,24 @@ final class AgentIntegrationConsentTests: XCTestCase {
         )
         XCTAssertNil(AgentBootstrapTool.wrappedAgent(forCommand: "vim"))
         XCTAssertNil(AgentBootstrapTool.wrappedAgent(forCommand: ""))
+    }
+
+    func test_wrappedAgent_matchesEnvPrefixedHermesCommand() {
+        XCTAssertEqual(
+            AgentBootstrapTool.wrappedAgent(
+                forCommand: #"env HERMES_HOME='/tmp/hermes profile' hermes --resume hermes-session-123"#
+            ),
+            .hermes
+        )
+        XCTAssertEqual(
+            AgentBootstrapTool.wrappedAgent(
+                forCommand: #"/usr/bin/env HERMES_HOME='/tmp/hermes profile' hermes --resume hermes-session-123"#
+            ),
+            .hermes
+        )
+        XCTAssertNil(
+            AgentBootstrapTool.wrappedAgent(forCommand: "env FOO=bar vim notes.txt"),
+            "env-prefixed non-agent commands must stay non-agents"
+        )
     }
 }
