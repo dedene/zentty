@@ -1793,6 +1793,66 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         _ = handleSecondaryMouseUpForContextMenuRouting(event)
     }
 
+    override func otherMouseDown(with event: NSEvent) {
+        guard let button = Self.ghosttyMouseButton(forButtonNumber: event.buttonNumber) else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        // Match left/right click: focus the clicked pane so a middle-click paste (and
+        // any subsequent typing) lands in the pane the user actually clicked.
+        window?.makeFirstResponder(self)
+        forwardMousePosition(event)
+        _ = surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_PRESS,
+            button: button,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        forwardMousePosition(event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard let button = Self.ghosttyMouseButton(forButtonNumber: event.buttonNumber) else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        forwardMousePosition(event)
+        _ = surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: button,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+    }
+
+    /// Maps an AppKit `otherMouse*` button number to the libghostty mouse button enum.
+    ///
+    /// `otherMouseDown` fires for the middle button and any extra buttons (back/forward),
+    /// so we map only the buttons libghostty understands and ignore the rest. Mirrors
+    /// Ghostty's own `Ghostty.Input.MouseButton(fromNSEventButtonNumber:)` mapping; the
+    /// middle button is what enables middle-click paste (libghostty pastes the selection
+    /// clipboard on a middle-button press).
+    private static func ghosttyMouseButton(
+        forButtonNumber buttonNumber: Int
+    ) -> ghostty_input_mouse_button_e? {
+        switch buttonNumber {
+        case 2: return GHOSTTY_MOUSE_MIDDLE
+        case 3: return GHOSTTY_MOUSE_EIGHT // back
+        case 4: return GHOSTTY_MOUSE_NINE // forward
+        default: return nil
+        }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if consumeScrollWheelForTerminalInputIfNeeded(event) {
             return
