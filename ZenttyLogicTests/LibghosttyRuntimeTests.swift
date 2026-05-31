@@ -218,6 +218,49 @@ final class LibghosttyRuntimeTests: XCTestCase {
         XCTAssertEqual(contents, "background-opacity = 0\n")
     }
 
+    func testTransparentBackgroundOverrideContents_skipsTransparencyWhenBackgroundImageConfigured() {
+        let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
+            userConfigContents: """
+            background-opacity = 0.95
+            background-image = /Users/me/Pictures/wallpaper.png
+            background-image-fit = cover
+            """
+        )
+
+        XCTAssertNil(contents)
+    }
+
+    func testTransparentBackgroundOverrideContents_skipsTransparencyWhenBackgroundImageConfiguredWithBlur() {
+        let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
+            userConfigContents: """
+            background-image = /Users/me/Pictures/wallpaper.png
+            background-blur = 25
+            """
+        )
+
+        XCTAssertNil(contents)
+    }
+
+    func testTransparentBackgroundOverrideContents_forcesTransparencyWhenBackgroundImageValueIsEmpty() {
+        let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
+            userConfigContents: """
+            background-image =
+            """
+        )
+
+        XCTAssertEqual(contents, "background-opacity = 0\nbackground-blur-radius = 20\n")
+    }
+
+    func testTransparentBackgroundOverrideContents_forcesTransparencyWhenBackgroundImageIsCommentedOut() {
+        let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
+            userConfigContents: """
+            # background-image = /Users/me/Pictures/wallpaper.png
+            """
+        )
+
+        XCTAssertEqual(contents, "background-opacity = 0\nbackground-blur-radius = 20\n")
+    }
+
     func testPaddingPolicyOverrideContents_injectsDefaultsWhenKeysMissing() {
         let contents = LibghosttyRuntime.paddingPolicyOverrideContents(
             userConfigContents: """

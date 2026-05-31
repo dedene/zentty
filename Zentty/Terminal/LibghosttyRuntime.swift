@@ -489,6 +489,13 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     }
 
     static func transparentBackgroundOverrideContents(userConfigContents: String?) -> String? {
+        // A configured background-image only renders if background-opacity > 0 (the renderer
+        // multiplies the image by the background alpha). Skip forcing transparency so the user's
+        // own background-opacity, or libghostty's opaque default, applies and the image shows.
+        guard !userConfigContainsBackgroundImage(userConfigContents) else {
+            return nil
+        }
+
         var lines = "background-opacity = 0\n"
 
         guard !userConfigContainsBackgroundBlur(userConfigContents) else {
@@ -728,6 +735,18 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             let parts = trimmed.split(separator: "=", maxSplits: 1)
             let key = parts.first?.trimmingCharacters(in: .whitespaces)
             return key == "background-blur" || key == "background-blur-radius"
+        }
+    }
+
+    private static func userConfigContainsBackgroundImage(_ content: String?) -> Bool {
+        guard let content else {
+            return false
+        }
+
+        // configValue returns nil for a missing or empty value (e.g. `background-image =`, which
+        // clears the image in Ghostty), so `?.isEmpty == false` treats those lines as no image.
+        return content.split(whereSeparator: \.isNewline).contains { line in
+            configValue(for: "background-image", in: String(line))?.isEmpty == false
         }
     }
 
