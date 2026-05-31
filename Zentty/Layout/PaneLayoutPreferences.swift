@@ -235,6 +235,10 @@ struct PaneLayoutPreferences: Equatable, Sendable {
         visibleSplitWindowWidth: .px1920
     )
 
+    var allowsFocusFollowsMouse: Bool {
+        rightSplitBehaviorMode != .alwaysAdd
+    }
+
     func preset(for displayClass: DisplayClass) -> PaneLayoutPreset {
         switch displayClass {
         case .laptop:

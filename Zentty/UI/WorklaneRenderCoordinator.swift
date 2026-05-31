@@ -163,14 +163,6 @@ final class WorklaneRenderCoordinator {
         environment?.renderTheme ?? ZenttyTheme.fallback(for: nil)
     }
 
-    private var currentPaneSettings: AppConfig.Panes {
-        configStore?.current.panes ?? .default
-    }
-
-    private var currentPaneLayout: PaneLayoutPreferences {
-        configStore?.current.paneLayout ?? .default
-    }
-
     private var activePaneID: PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
@@ -320,10 +312,11 @@ final class WorklaneRenderCoordinator {
             let effectiveInset = leadingVisibleInsetOverride
                 ?? environment?.renderLeadingInset(sidebarWidth: sidebarWidth)
                 ?? 0
-            let paneSettings = currentPaneSettings
-            let paneLayout = currentPaneLayout
+            let config = configStore?.current ?? .default
+            let paneSettings = config.panes
+            let paneLayout = config.paneLayout
             let focusFollowsMouseEnabled = paneSettings.focusFollowsMouse
-                && paneLayout.rightSplitBehaviorMode != .alwaysAdd
+                && paneLayout.allowsFocusFollowsMouse
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
             let teamAnchor = worklaneStore.teamAnchorByWorklaneID[worklane.id]

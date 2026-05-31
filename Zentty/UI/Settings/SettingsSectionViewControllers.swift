@@ -285,11 +285,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     var focusFollowsMouseDelayForTesting: AppConfig.Panes.FocusFollowsMouseDelay {
-        let index = min(
-            max(0, focusFollowsMouseDelayControl.selectedSegment),
-            AppConfig.Panes.FocusFollowsMouseDelay.allCases.count - 1
-        )
-        return AppConfig.Panes.FocusFollowsMouseDelay.allCases[index]
+        focusFollowsMouseDelay(forSelectedSegment: focusFollowsMouseDelayControl.selectedSegment)
     }
 
     var focusFollowsMouseDelayControlForTesting: NSSegmentedControl {
@@ -549,7 +545,9 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         title: String,
         subtitle: String,
         toggle: NSSwitch,
-        action: Selector
+        action: Selector,
+        accessory: NSView? = nil,
+        leftStackSpacing: CGFloat = 2
     ) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -557,7 +555,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         let leftStack = NSStackView()
         leftStack.orientation = .vertical
         leftStack.alignment = .leading
-        leftStack.spacing = 2
+        leftStack.spacing = leftStackSpacing
         leftStack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(leftStack)
 
@@ -574,6 +572,10 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         subtitleLabel.textColor = .secondaryLabelColor
         leftStack.addArrangedSubview(subtitleLabel)
         subtitleLabel.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
+
+        if let accessory {
+            leftStack.addArrangedSubview(accessory)
+        }
 
         toggle.target = self
         toggle.action = action
@@ -646,36 +648,11 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     private func makeFocusFollowsMouseRow() -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let leftStack = NSStackView()
-        leftStack.orientation = .vertical
-        leftStack.alignment = .leading
-        leftStack.spacing = 6
-        leftStack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(leftStack)
-
-        let titleLabel = makeLabel(
-            text: "Focus follows mouse",
-            font: .systemFont(ofSize: 13, weight: .semibold)
-        )
-        leftStack.addArrangedSubview(titleLabel)
-
-        let subtitleLabel = makeLabel(
-            text: "Move keyboard focus to a pane when the pointer enters it.",
-            font: .systemFont(ofSize: 12, weight: .regular)
-        )
-        subtitleLabel.textColor = .secondaryLabelColor
-        leftStack.addArrangedSubview(subtitleLabel)
-        subtitleLabel.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
-
         let delayRow = NSStackView()
         delayRow.orientation = .horizontal
         delayRow.alignment = .centerY
         delayRow.spacing = 8
         delayRow.translatesAutoresizingMaskIntoConstraints = false
-        leftStack.addArrangedSubview(delayRow)
 
         let delayLabel = NSTextField(labelWithString: "Delay:")
         delayLabel.font = .systemFont(ofSize: 11, weight: .medium)
@@ -687,26 +664,16 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         focusFollowsMouseDelayControl.action = #selector(handleFocusFollowsMouseDelayChanged(_:))
         focusFollowsMouseDelayControl.translatesAutoresizingMaskIntoConstraints = false
         delayRow.addArrangedSubview(focusFollowsMouseDelayControl)
+        focusFollowsMouseDelayControl.widthAnchor.constraint(equalToConstant: 160).isActive = true
 
-        focusFollowsMouseSwitch.target = self
-        focusFollowsMouseSwitch.action = #selector(handleFocusFollowsMouseChanged(_:))
-        focusFollowsMouseSwitch.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(focusFollowsMouseSwitch)
-
-        NSLayoutConstraint.activate([
-            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-
-            focusFollowsMouseSwitch.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
-            focusFollowsMouseSwitch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            focusFollowsMouseSwitch.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            leftStack.trailingAnchor.constraint(lessThanOrEqualTo: focusFollowsMouseSwitch.leadingAnchor, constant: -16),
-            focusFollowsMouseDelayControl.widthAnchor.constraint(equalToConstant: 160),
-        ])
-
-        return container
+        return makeSwitchRow(
+            title: "Focus follows mouse",
+            subtitle: "Move keyboard focus to a pane when the pointer enters it.",
+            toggle: focusFollowsMouseSwitch,
+            action: #selector(handleFocusFollowsMouseChanged(_:)),
+            accessory: delayRow,
+            leftStackSpacing: 6
+        )
     }
 
     private func makeInactiveOpacityRow() -> NSView {
@@ -805,9 +772,17 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     private func updateFocusFollowsMouseAvailability() {
-        let isAvailable = paneLayout.rightSplitBehaviorMode != .alwaysAdd
+        let isAvailable = paneLayout.allowsFocusFollowsMouse
         focusFollowsMouseSwitch.isEnabled = isAvailable
         focusFollowsMouseDelayControl.isEnabled = isAvailable && panes.focusFollowsMouse
+    }
+
+    private func focusFollowsMouseDelay(forSelectedSegment selectedSegment: Int) -> AppConfig.Panes.FocusFollowsMouseDelay {
+        let index = min(
+            max(0, selectedSegment),
+            AppConfig.Panes.FocusFollowsMouseDelay.allCases.count - 1
+        )
+        return AppConfig.Panes.FocusFollowsMouseDelay.allCases[index]
     }
 
     private func title(for mode: PaneSplitBehaviorMode) -> String {
@@ -891,11 +866,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
 
     @objc
     private func handleFocusFollowsMouseDelayChanged(_ sender: NSSegmentedControl) {
-        let index = min(
-            max(0, sender.selectedSegment),
-            AppConfig.Panes.FocusFollowsMouseDelay.allCases.count - 1
-        )
-        let delay = AppConfig.Panes.FocusFollowsMouseDelay.allCases[index]
+        let delay = focusFollowsMouseDelay(forSelectedSegment: sender.selectedSegment)
         var updatedPanes = panes
         updatedPanes.focusFollowsMouseDelay = delay
         apply(panes: updatedPanes)

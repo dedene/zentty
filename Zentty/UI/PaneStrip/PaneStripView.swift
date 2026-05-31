@@ -535,7 +535,7 @@ final class PaneStripView: NSView {
         }
 
         let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.performHoverFocusIfStillValid(for: paneID)
             }
         }
@@ -553,7 +553,7 @@ final class PaneStripView: NSView {
     }
 
     private func performHoverFocusIfStillValid(for paneID: PaneID) {
-        guard pendingHoverFocusPaneID == paneID || currentFocusFollowsMouseDelay == .immediate else {
+        guard pendingHoverFocusPaneID == paneID else {
             return
         }
         cancelPendingHoverFocus(for: paneID)
