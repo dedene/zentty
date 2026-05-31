@@ -107,6 +107,42 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
     }
 
+    func test_store_reads_worklane_placement_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [worklanes]
+        new_worklane_placement = "end"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.worklanes.newWorklanePlacement, .end)
+    }
+
+    func test_missing_worklanes_section_uses_after_current_without_rewriting_existing_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let source = """
+        [panes]
+        show_labels = false
+        """
+        try source.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(store.current.worklanes.newWorklanePlacement, .afterCurrent)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), source)
+    }
+
     func test_store_prefers_existing_config_file_over_user_defaults_migration() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """
@@ -141,6 +177,24 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.paneLayout.ultrawidePreset, .compact)
         XCTAssertEqual(store.current.openWith.primaryTargetID, "cursor")
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["cursor", "finder"])
+    }
+
+    func test_store_persists_worklane_placement_in_toml() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.worklanes.newWorklanePlacement = .top
+        }
+
+        let persisted = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(persisted.contains("[worklanes]"))
+        XCTAssertTrue(persisted.contains("new_worklane_placement = \"top\""))
     }
 
     func test_store_preserves_invalid_existing_config_file_without_overwriting_it() throws {

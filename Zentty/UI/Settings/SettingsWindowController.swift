@@ -26,7 +26,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .devServers:
             "Dev Servers"
         case .paneLayout:
-            "Panes"
+            "Worklanes & Panes"
         case .updatesPrivacy:
             "Updates & Privacy"
         case .agents:
@@ -72,7 +72,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .devServers:
             "Dev server detection and browsers"
         case .paneLayout:
-            "Labels, icons, opacity, and split behavior"
+            "Worklane placement, labels, icons, opacity, and split behavior"
         case .updatesPrivacy:
             "Update channel and crash reporting"
         case .agents:
@@ -97,7 +97,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .devServers:
             ["server", "localhost", "browser", "port", "detect", "ignored", "hidden"]
         case .paneLayout:
-            ["pane", "split", "layout", "opacity", "label", "icon", "scroll"]
+            ["worklane", "workspace", "pane", "split", "layout", "opacity", "label", "icon", "scroll"]
         case .updatesPrivacy:
             ["update", "channel", "beta", "stable", "crash", "error", "report", "privacy", "sentry"]
         case .agents:
@@ -738,7 +738,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
             menuBar: config.menuBar
         )
         shortcutsViewController.apply(shortcuts: config.shortcuts)
-        paneLayoutViewController.apply(panes: config.panes, paneLayout: config.paneLayout)
+        paneLayoutViewController.apply(worklanes: config.worklanes, panes: config.panes, paneLayout: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
         serverBrowserSettingsViewController.apply(serverDetection: config.serverDetection)
     }

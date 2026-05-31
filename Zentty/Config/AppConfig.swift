@@ -1,6 +1,34 @@
 import CoreGraphics
 import Foundation
 
+enum NewWorklanePlacement: String, CaseIterable, Equatable, Sendable {
+    case top
+    case afterCurrent = "after_current"
+    case end
+
+    var displayName: String {
+        switch self {
+        case .top:
+            "Top"
+        case .afterCurrent:
+            "After current"
+        case .end:
+            "End"
+        }
+    }
+
+    var settingsDescription: String {
+        switch self {
+        case .top:
+            "Add new worklanes to the top of the list."
+        case .afterCurrent:
+            "Add new worklanes after the current worklane."
+        case .end:
+            "Append new worklanes to the bottom of the list."
+        }
+    }
+}
+
 enum AppUpdateChannel: String, CaseIterable, Equatable, Sendable {
     case stable
     case beta
@@ -164,6 +192,12 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Clipboard(alwaysCleanCopies: false)
     }
 
+    struct Worklanes: Equatable, Sendable {
+        var newWorklanePlacement: NewWorklanePlacement
+
+        static let `default` = Worklanes(newWorklanePlacement: .afterCurrent)
+    }
+
     struct AgentTeams: Equatable, Sendable {
         var enabled: Bool
 
@@ -215,6 +249,7 @@ struct AppConfig: Equatable, Sendable {
     var notifications: Notifications
     var confirmations: Confirmations
     var clipboard: Clipboard
+    var worklanes: Worklanes
     var appearance: Appearance
     var restore: Restore
     var agentTeams: AgentTeams
@@ -237,6 +272,7 @@ struct AppConfig: Equatable, Sendable {
         notifications: .default,
         confirmations: .default,
         clipboard: .default,
+        worklanes: .default,
         appearance: .default,
         restore: .default,
         agentTeams: .default,
@@ -265,6 +301,7 @@ struct AppConfig: Equatable, Sendable {
             notifications: .default,
             confirmations: .default,
             clipboard: .default,
+            worklanes: .default,
             appearance: .default,
             restore: .default,
             agentTeams: .default,

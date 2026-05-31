@@ -98,6 +98,17 @@ final class SettingsSidebarSearchFilterTests: AppKitTestCase {
             groups: SettingsSidebarLayout.groups
         )
         XCTAssertEqual(sections(menuBarRows), [.agents])
+
+        let worklaneRows = SettingsSidebarViewController.filterRows(
+            query: "worklane",
+            groups: SettingsSidebarLayout.groups
+        )
+        XCTAssertEqual(sections(worklaneRows), [.paneLayout])
+    }
+
+    func test_pane_layout_section_is_labeled_worklanes_and_panes() {
+        XCTAssertEqual(SettingsSection.paneLayout.title, "Worklanes & Panes")
+        XCTAssertEqual(SettingsSection.paneLayout.subtitle, "Worklane placement, labels, icons, opacity, and split behavior")
     }
 
     func test_filter_drops_group_headers_with_no_matches() {

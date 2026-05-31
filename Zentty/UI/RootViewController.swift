@@ -296,6 +296,9 @@ final class RootViewController: NSViewController {
             layoutContext: initialLayoutContext,
             activeWorklaneID: initialWorkspaceState?.activeWorklaneID,
             gitContextResolver: gitContextResolver,
+            newWorklanePlacementProvider: { [weak configStore] in
+                configStore?.current.worklanes.newWorklanePlacement ?? .afterCurrent
+            },
             agentTeamsEnabledProvider: { [weak configStore] in
                 configStore?.current.agentTeams.enabled ?? false
             },

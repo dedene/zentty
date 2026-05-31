@@ -629,6 +629,54 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
     }
 
+    func test_create_worklane_inserts_at_top_when_preference_is_top() {
+        let nextIDs = TestIDSequence(["new", "pane"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("B"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .top }
+        )
+
+        _ = store.createWorklane()
+
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("wl_new"),
+            WorklaneID("A"),
+            WorklaneID("B"),
+            WorklaneID("C"),
+        ])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
+    }
+
+    func test_create_worklane_inserts_at_end_when_preference_is_end() {
+        let nextIDs = TestIDSequence(["new", "pane"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("B"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .end }
+        )
+
+        _ = store.createWorklane()
+
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("A"),
+            WorklaneID("B"),
+            WorklaneID("C"),
+            WorklaneID("wl_new"),
+        ])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
+    }
+
     func test_split_out_pane_to_new_window_extracts_pane_state_without_closing_source_worklane() throws {
         let sourceWindowID = WindowID("wd_source")
         let destinationWindowID = WindowID("wd_destination")
@@ -3576,6 +3624,107 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(movedColumn.panes.map(\.id), [PaneID("left")])
         XCTAssertEqual(movedColumn.width, layoutContext.singlePaneWidth, accuracy: 0.001)
         XCTAssertNotEqual(movedColumn.width, halfWidth, accuracy: 0.001)
+    }
+
+    func test_transferPaneToNewWorklane_uses_preferred_placement_when_no_explicit_index() {
+        let nextIDs = TestIDSequence(["new"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("A"),
+                    title: "A",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("A1"), title: "A1"),
+                            PaneState(id: PaneID("A2"), title: "A2"),
+                        ],
+                        focusedPaneID: PaneID("A1")
+                    )
+                ),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("A"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .end }
+        )
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("A1"),
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("A"),
+            WorklaneID("B"),
+            WorklaneID("C"),
+            WorklaneID("wl_new"),
+        ])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
+    }
+
+    func test_transferPaneToNewWorklane_explicit_index_overrides_preferred_placement() {
+        let nextIDs = TestIDSequence(["new"])
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("A"),
+                    title: "A",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("A1"), title: "A1"),
+                            PaneState(id: PaneID("A2"), title: "A2"),
+                        ],
+                        focusedPaneID: PaneID("A1")
+                    )
+                ),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("A"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .end }
+        )
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("A1"),
+            atIndex: 1,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("A"),
+            WorklaneID("wl_new"),
+            WorklaneID("B"),
+            WorklaneID("C"),
+        ])
+    }
+
+    func test_duplicatePaneToNewWorklane_uses_preferred_placement_when_no_explicit_index() {
+        let nextIDs = TestIDSequence(["new"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("B"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .top }
+        )
+
+        store.duplicatePaneToNewWorklane(
+            paneID: PaneID("pane-B"),
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("wl_new"),
+            WorklaneID("A"),
+            WorklaneID("B"),
+            WorklaneID("C"),
+        ])
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
     }
 
     func test_transfer_last_pane_to_worklane_with_identical_pane_keeps_both_panes() throws {

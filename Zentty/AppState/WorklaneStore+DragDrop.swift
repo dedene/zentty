@@ -286,7 +286,7 @@ extension WorklaneStore {
     ) {
         transferPaneToNewWorklane(
             paneID: paneID,
-            atIndex: worklanes.count,
+            atIndex: insertionIndexForNewWorklane(anchorWorklaneID: activeWorklaneID),
             singleColumnWidth: singleColumnWidth
         )
     }
@@ -678,7 +678,7 @@ extension WorklaneStore {
     ) {
         duplicatePaneToNewWorklane(
             paneID: paneID,
-            atIndex: worklanes.count,
+            atIndex: insertionIndexForNewWorklane(anchorWorklaneID: activeWorklaneID),
             singleColumnWidth: singleColumnWidth
         )
     }
