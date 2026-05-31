@@ -370,6 +370,11 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
         controller.loadViewIfNeeded()
 
         XCTAssertFalse(controller.smoothScrollingForTesting)
+        XCTAssertEqual(controller.selectedNewWorklanePlacementForTesting, .afterCurrent)
+        XCTAssertEqual(
+            controller.newWorklanePlacementSubtitleForTesting,
+            "Add new worklanes after the current worklane."
+        )
 
         controller.apply(panes: AppConfig.Panes(
             showLabels: true,
@@ -379,6 +384,36 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
         ))
 
         XCTAssertTrue(controller.smoothScrollingForTesting)
+    }
+
+    func test_new_worklane_placement_popup_reflects_applied_preferences() throws {
+        let controller = PaneLayoutSettingsSectionViewController(configStore: makeConfigStore())
+        controller.loadViewIfNeeded()
+
+        controller.apply(worklanes: AppConfig.Worklanes(newWorklanePlacement: .end))
+
+        XCTAssertEqual(controller.selectedNewWorklanePlacementForTesting, .end)
+        XCTAssertEqual(
+            controller.newWorklanePlacementSubtitleForTesting,
+            "Append new worklanes to the bottom of the list."
+        )
+    }
+
+    func test_new_worklane_placement_popup_persists_config_change() throws {
+        let store = makeConfigStore()
+        let controller = PaneLayoutSettingsSectionViewController(configStore: store)
+        controller.loadViewIfNeeded()
+
+        let popup = controller.newWorklanePlacementPopupForTesting
+        popup.selectItem(withTitle: "Top")
+        _ = popup.target?.perform(popup.action, with: popup)
+
+        XCTAssertEqual(store.current.worklanes.newWorklanePlacement, .top)
+        XCTAssertEqual(controller.selectedNewWorklanePlacementForTesting, .top)
+        XCTAssertEqual(
+            controller.newWorklanePlacementSubtitleForTesting,
+            "Add new worklanes to the top of the list."
+        )
     }
 
     func test_smooth_scrolling_toggle_persists_config_change() throws {

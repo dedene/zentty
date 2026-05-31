@@ -390,6 +390,7 @@ final class WorklaneStore {
     let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
     let codexQuestionResolver: CodexQuestionResolver
+    private let newWorklanePlacementProvider: @MainActor () -> NewWorklanePlacement
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
     private let serverDetectionProvider: @MainActor () -> AppConfig.ServerDetection
     /// In-memory mirror of `TmuxCompatStore.anchors` for this app session.
@@ -463,6 +464,7 @@ final class WorklaneStore {
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         serverRegistry: ServerRegistry = ServerRegistry(),
         terminalDiagnostics: TerminalDiagnostics = .shared,
+        newWorklanePlacementProvider: @escaping @MainActor () -> NewWorklanePlacement = { .afterCurrent },
         agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false },
         serverDetectionProvider: @escaping @MainActor () -> AppConfig.ServerDetection = { .default }
     ) {
@@ -476,6 +478,7 @@ final class WorklaneStore {
         self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.codexQuestionResolver = codexQuestionResolver
+        self.newWorklanePlacementProvider = newWorklanePlacementProvider
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.serverDetectionProvider = serverDetectionProvider
         self.runtimeIdentity = runtimeIdentity
@@ -1763,6 +1766,20 @@ final class WorklaneStore {
         selectWorklane(id: worklanes[previousIndex].id)
     }
 
+    func insertionIndexForNewWorklane(anchorWorklaneID: WorklaneID? = nil) -> Int {
+        switch newWorklanePlacementProvider() {
+        case .top:
+            return 0
+        case .afterCurrent:
+            let resolvedAnchorID = anchorWorklaneID ?? activeWorklaneID
+            return worklanes
+                .firstIndex(where: { $0.id == resolvedAnchorID })
+                .map { worklanes.index(after: $0) } ?? worklanes.endIndex
+        case .end:
+            return worklanes.endIndex
+        }
+    }
+
     @discardableResult
     func createWorklane() -> WorklaneID {
         let previousPaneRef = currentPaneReference
@@ -1782,9 +1799,7 @@ final class WorklaneStore {
             runtimeIdentity: runtimeIdentity,
             agentTeamsEnabled: agentTeamsEnabledProvider()
         )
-        let insertionIndex = worklanes
-            .firstIndex(where: { $0.id == activeWorklaneID })
-            .map { worklanes.index(after: $0) } ?? worklanes.endIndex
+        let insertionIndex = insertionIndexForNewWorklane(anchorWorklaneID: activeWorklaneID)
         worklanes.insert(worklane, at: insertionIndex)
         activeWorklaneID = id
         recordFocusTransition(from: previousPaneRef)

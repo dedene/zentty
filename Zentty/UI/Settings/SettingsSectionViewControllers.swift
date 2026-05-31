@@ -177,8 +177,11 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
 @MainActor
 final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionViewController {
     private let configStore: AppConfigStore
+    private var worklanes: AppConfig.Worklanes
     private var panes: AppConfig.Panes
     private var paneLayout: PaneLayoutPreferences
+    private let newWorklanePlacementPopup = NSPopUpButton()
+    private let newWorklanePlacementSubtitleLabel = NSTextField(labelWithString: "")
     private let showLabelsSwitch = NSSwitch()
     private let showProjectIconsSwitch = NSSwitch()
     private let smoothScrollingSwitch = NSSwitch()
@@ -196,6 +199,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
+        self.worklanes = configStore.current.worklanes
         self.panes = configStore.current.panes
         self.paneLayout = configStore.current.paneLayout
         super.init(nibName: nil, bundle: nil)
@@ -222,6 +226,10 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         stackView.addArrangedSubview(subtitleLabel)
         subtitleLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        let worklanesCard = makeWorklanesCard()
+        stackView.addArrangedSubview(worklanesCard)
+        worklanesCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
         let splitBehaviorCard = makeSplitBehaviorCard()
         stackView.addArrangedSubview(splitBehaviorCard)
         splitBehaviorCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
@@ -240,6 +248,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
             stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
 
+        apply(worklanes: worklanes)
         apply(panes: panes)
         apply(paneLayout: paneLayout)
     }
@@ -272,6 +281,25 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         paneLayout.visibleSplitWindowWidth
     }
 
+    var selectedNewWorklanePlacementForTesting: NewWorklanePlacement {
+        worklanes.newWorklanePlacement
+    }
+
+    var newWorklanePlacementSubtitleForTesting: String {
+        newWorklanePlacementSubtitleLabel.stringValue
+    }
+
+    var newWorklanePlacementPopupForTesting: NSPopUpButton {
+        newWorklanePlacementPopup
+    }
+
+    func apply(worklanes: AppConfig.Worklanes) {
+        self.worklanes = worklanes
+        guard isViewLoaded else { return }
+        newWorklanePlacementPopup.selectItem(withTitle: worklanes.newWorklanePlacement.displayName)
+        updateNewWorklanePlacementSubtitle(worklanes.newWorklanePlacement)
+    }
+
     func apply(panes: AppConfig.Panes) {
         self.panes = panes
         guard isViewLoaded else { return }
@@ -284,7 +312,8 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         isApplyingPanes = false
     }
 
-    func apply(panes: AppConfig.Panes, paneLayout: PaneLayoutPreferences) {
+    func apply(worklanes: AppConfig.Worklanes, panes: AppConfig.Panes, paneLayout: PaneLayoutPreferences) {
+        apply(worklanes: worklanes)
         apply(panes: panes)
         apply(paneLayout: paneLayout)
     }
@@ -303,6 +332,35 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         visibleSplitWindowWidthSlider.isEnabled = paneLayout.rightSplitBehaviorMode == .adaptive
         updateVisibleSplitWindowWidthLabelColors(isAdaptive: paneLayout.rightSplitBehaviorMode == .adaptive)
         isApplyingPaneLayout = false
+    }
+
+    private func makeWorklanesCard() -> NSView {
+        let card = SettingsCardView()
+        let contentStack = NSStackView()
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 0
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(contentStack)
+
+        let row = makePopupRow(
+            title: "New worklane placement",
+            subtitleLabel: newWorklanePlacementSubtitleLabel,
+            popup: newWorklanePlacementPopup,
+            action: #selector(handleNewWorklanePlacementChanged(_:))
+        )
+        contentStack.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: card.topAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+        ])
+
+        configureNewWorklanePlacementPopup()
+        return card
     }
 
     private func makeSplitBehaviorCard() -> NSView {
@@ -500,6 +558,56 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         return container
     }
 
+    private func makePopupRow(
+        title: String,
+        subtitleLabel: NSTextField,
+        popup: NSPopUpButton,
+        action: Selector
+    ) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(leftStack)
+
+        let titleLabel = makeLabel(
+            text: title,
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.lineBreakMode = .byWordWrapping
+        subtitleLabel.maximumNumberOfLines = 0
+        leftStack.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
+
+        popup.target = self
+        popup.action = action
+        popup.controlSize = .regular
+        popup.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(popup)
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+
+            popup.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
+            popup.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            popup.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            leftStack.trailingAnchor.constraint(lessThanOrEqualTo: popup.leadingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
     private func makeInactiveOpacityRow() -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -570,6 +678,17 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         visibleSplitWindowWidthSlider.action = #selector(handleVisibleSplitWindowWidthChanged(_:))
     }
 
+    private func configureNewWorklanePlacementPopup() {
+        newWorklanePlacementPopup.removeAllItems()
+        newWorklanePlacementPopup.addItems(withTitles: NewWorklanePlacement.allCases.map(\.displayName))
+        newWorklanePlacementPopup.selectItem(withTitle: worklanes.newWorklanePlacement.displayName)
+        updateNewWorklanePlacementSubtitle(worklanes.newWorklanePlacement)
+    }
+
+    private func updateNewWorklanePlacementSubtitle(_ placement: NewWorklanePlacement) {
+        newWorklanePlacementSubtitleLabel.stringValue = placement.settingsDescription
+    }
+
     private func updateInactiveOpacityLabel(_ opacity: CGFloat) {
         inactiveOpacityValueLabel.stringValue = "\(Int(round(opacity * 100)))%"
     }
@@ -612,6 +731,20 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0
         return label
+    }
+
+    @objc
+    private func handleNewWorklanePlacementChanged(_ sender: NSPopUpButton) {
+        guard let placement = NewWorklanePlacement.allCases.first(where: {
+            $0.displayName == sender.titleOfSelectedItem
+        }) else {
+            return
+        }
+        worklanes.newWorklanePlacement = placement
+        updateNewWorklanePlacementSubtitle(placement)
+        try? configStore.update {
+            $0.worklanes.newWorklanePlacement = placement
+        }
     }
 
     @objc

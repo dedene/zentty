@@ -23,6 +23,7 @@ enum AppConfigTOML {
         case notifications
         case confirmations
         case clipboard
+        case worklanes
         case updates
         case restore
         case agentTeams
@@ -159,6 +160,10 @@ enum AppConfigTOML {
         lines.append("always_clean_copies = \(config.clipboard.alwaysCleanCopies)")
 
         lines.append("")
+        lines.append("[worklanes]")
+        lines.append("new_worklane_placement = \(encode(string: config.worklanes.newWorklanePlacement.rawValue))")
+
+        lines.append("")
         lines.append("[restore]")
         lines.append("restore_workspace_on_launch = \(config.restore.restoreWorkspaceOnLaunch)")
 
@@ -264,6 +269,10 @@ enum AppConfigTOML {
                 section = .clipboard
                 continue
             }
+            if line == "[worklanes]" {
+                section = .worklanes
+                continue
+            }
             if line == "[updates]" {
                 section = .updates
                 continue
@@ -358,6 +367,10 @@ enum AppConfigTOML {
                 }
             case .clipboard:
                 guard decodeClipboardAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .worklanes:
+                guard decodeWorklanesAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .updates:
@@ -788,6 +801,24 @@ enum AppConfigTOML {
         case "always_clean_copies":
             guard let value = decodeBool(assignment.value) else { return false }
             config.clipboard.alwaysCleanCopies = value
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeWorklanesAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "new_worklane_placement":
+            guard let raw = decodeString(assignment.value),
+                  let placement = NewWorklanePlacement(rawValue: raw) else {
+                return false
+            }
+            config.worklanes.newWorklanePlacement = placement
         default:
             return true
         }
