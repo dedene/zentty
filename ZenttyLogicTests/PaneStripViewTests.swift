@@ -115,6 +115,135 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_focus_follows_mouse_immediate_selects_hovered_pane_in_key_window() throws {
+        let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            state,
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
+    }
+
+    @MainActor
+    func test_focus_follows_mouse_ignores_hover_when_window_is_not_key() {
+        let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = false
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            state,
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
+    func test_focus_follows_mouse_short_delay_waits_and_cancels_on_exit() throws {
+        let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        var delayedFocusExpectation: XCTestExpectation?
+        paneStripView.onPaneSelected = {
+            selectedPaneIDs.append($0)
+            delayedFocusExpectation?.fulfill()
+        }
+
+        paneStripView.render(
+            state,
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .short
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+        XCTAssertEqual(paneStripView.pendingHoverFocusPaneIDForTesting, PaneID("editor"))
+
+        paneStripView.simulatePaneHoverExitedForTesting(PaneID("editor"))
+
+        XCTAssertNil(paneStripView.pendingHoverFocusPaneIDForTesting)
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+
+        delayedFocusExpectation = expectation(description: "short delay focuses hovered pane")
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+        wait(for: [try XCTUnwrap(delayedFocusExpectation)], timeout: 0.5)
+
+        XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
+    }
+
+    @MainActor
+    func test_focus_follows_mouse_suppresses_hover_during_pane_drag() throws {
+        let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.dragOverlayView = paneStripView
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            state,
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("shell") })
+        )
+        paneStripView.beginPaneDragForTesting(
+            paneID: PaneID("shell"),
+            cursorInStrip: CGPoint(x: shellPane.frame.midX, y: shellPane.frame.midY)
+        )
+
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
     func test_stacked_column_renders_first_pane_above_later_panes() throws {
         let paneStripView = makePaneStripView()
         let state = PaneStripState(

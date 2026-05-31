@@ -167,6 +167,10 @@ final class WorklaneRenderCoordinator {
         configStore?.current.panes ?? .default
     }
 
+    private var currentPaneLayout: PaneLayoutPreferences {
+        configStore?.current.paneLayout ?? .default
+    }
+
     private var activePaneID: PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
@@ -317,6 +321,9 @@ final class WorklaneRenderCoordinator {
                 ?? environment?.renderLeadingInset(sidebarWidth: sidebarWidth)
                 ?? 0
             let paneSettings = currentPaneSettings
+            let paneLayout = currentPaneLayout
+            let focusFollowsMouseEnabled = paneSettings.focusFollowsMouse
+                && paneLayout.rightSplitBehaviorMode != .alwaysAdd
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
             let teamAnchor = worklaneStore.teamAnchorByWorklaneID[worklane.id]
@@ -334,6 +341,8 @@ final class WorklaneRenderCoordinator {
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
                 smoothScrollingEnabled: paneSettings.smoothScrollingEnabled,
+                focusFollowsMouseEnabled: focusFollowsMouseEnabled,
+                focusFollowsMouseDelay: paneSettings.focusFollowsMouseDelay,
                 worklaneColor: worklane.color,
                 theme: currentTheme,
                 leadingVisibleInset: effectiveInset,

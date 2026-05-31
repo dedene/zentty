@@ -185,6 +185,13 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private let showLabelsSwitch = NSSwitch()
     private let showProjectIconsSwitch = NSSwitch()
     private let smoothScrollingSwitch = NSSwitch()
+    private let focusFollowsMouseSwitch = NSSwitch()
+    private let focusFollowsMouseDelayControl = NSSegmentedControl(
+        labels: AppConfig.Panes.FocusFollowsMouseDelay.allCases.map(\.title),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private let inactiveOpacitySlider = NSSlider()
     private let inactiveOpacityValueLabel = NSTextField(labelWithString: "")
     private let visibleSplitWindowWidthSlider = NSSlider()
@@ -269,6 +276,26 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         smoothScrollingSwitch
     }
 
+    var focusFollowsMouseForTesting: Bool {
+        focusFollowsMouseSwitch.state == .on
+    }
+
+    var focusFollowsMouseSwitchForTesting: NSSwitch {
+        focusFollowsMouseSwitch
+    }
+
+    var focusFollowsMouseDelayForTesting: AppConfig.Panes.FocusFollowsMouseDelay {
+        let index = min(
+            max(0, focusFollowsMouseDelayControl.selectedSegment),
+            AppConfig.Panes.FocusFollowsMouseDelay.allCases.count - 1
+        )
+        return AppConfig.Panes.FocusFollowsMouseDelay.allCases[index]
+    }
+
+    var focusFollowsMouseDelayControlForTesting: NSSegmentedControl {
+        focusFollowsMouseDelayControl
+    }
+
     var inactivePaneOpacityPercentageForTesting: Int {
         Int(round(inactiveOpacitySlider.doubleValue * 100))
     }
@@ -307,8 +334,13 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         showLabelsSwitch.state = panes.showLabels ? .on : .off
         showProjectIconsSwitch.state = panes.showProjectIcons ? .on : .off
         smoothScrollingSwitch.state = panes.smoothScrollingEnabled ? .on : .off
+        focusFollowsMouseSwitch.state = panes.focusFollowsMouse ? .on : .off
+        if let selectedIndex = AppConfig.Panes.FocusFollowsMouseDelay.allCases.firstIndex(of: panes.focusFollowsMouseDelay) {
+            focusFollowsMouseDelayControl.selectedSegment = selectedIndex
+        }
         inactiveOpacitySlider.doubleValue = Double(panes.inactiveOpacity)
         updateInactiveOpacityLabel(panes.inactiveOpacity)
+        updateFocusFollowsMouseAvailability()
         isApplyingPanes = false
     }
 
@@ -331,6 +363,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         updateVisibleSplitWindowWidthLabel(paneLayout.visibleSplitWindowWidth)
         visibleSplitWindowWidthSlider.isEnabled = paneLayout.rightSplitBehaviorMode == .adaptive
         updateVisibleSplitWindowWidthLabelColors(isAdaptive: paneLayout.rightSplitBehaviorMode == .adaptive)
+        updateFocusFollowsMouseAvailability()
         isApplyingPaneLayout = false
     }
 
@@ -489,6 +522,10 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         contentStack.addArrangedSubview(smoothScrollingRow)
         smoothScrollingRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
+        let focusFollowsMouseRow = makeFocusFollowsMouseRow()
+        contentStack.addArrangedSubview(focusFollowsMouseRow)
+        focusFollowsMouseRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
@@ -608,6 +645,70 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         return container
     }
 
+    private func makeFocusFollowsMouseRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 6
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(leftStack)
+
+        let titleLabel = makeLabel(
+            text: "Focus follows mouse",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = makeLabel(
+            text: "Move keyboard focus to a pane when the pointer enters it.",
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        leftStack.addArrangedSubview(subtitleLabel)
+        subtitleLabel.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
+
+        let delayRow = NSStackView()
+        delayRow.orientation = .horizontal
+        delayRow.alignment = .centerY
+        delayRow.spacing = 8
+        delayRow.translatesAutoresizingMaskIntoConstraints = false
+        leftStack.addArrangedSubview(delayRow)
+
+        let delayLabel = NSTextField(labelWithString: "Delay:")
+        delayLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        delayLabel.textColor = .secondaryLabelColor
+        delayRow.addArrangedSubview(delayLabel)
+
+        focusFollowsMouseDelayControl.segmentStyle = .rounded
+        focusFollowsMouseDelayControl.target = self
+        focusFollowsMouseDelayControl.action = #selector(handleFocusFollowsMouseDelayChanged(_:))
+        focusFollowsMouseDelayControl.translatesAutoresizingMaskIntoConstraints = false
+        delayRow.addArrangedSubview(focusFollowsMouseDelayControl)
+
+        focusFollowsMouseSwitch.target = self
+        focusFollowsMouseSwitch.action = #selector(handleFocusFollowsMouseChanged(_:))
+        focusFollowsMouseSwitch.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(focusFollowsMouseSwitch)
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+
+            focusFollowsMouseSwitch.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
+            focusFollowsMouseSwitch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            focusFollowsMouseSwitch.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            leftStack.trailingAnchor.constraint(lessThanOrEqualTo: focusFollowsMouseSwitch.leadingAnchor, constant: -16),
+            focusFollowsMouseDelayControl.widthAnchor.constraint(equalToConstant: 160),
+        ])
+
+        return container
+    }
+
     private func makeInactiveOpacityRow() -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -703,6 +804,12 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         visibleSplitWindowWidthValueLabel.textColor = isAdaptive ? .labelColor : .secondaryLabelColor
     }
 
+    private func updateFocusFollowsMouseAvailability() {
+        let isAvailable = paneLayout.rightSplitBehaviorMode != .alwaysAdd
+        focusFollowsMouseSwitch.isEnabled = isAvailable
+        focusFollowsMouseDelayControl.isEnabled = isAvailable && panes.focusFollowsMouse
+    }
+
     private func title(for mode: PaneSplitBehaviorMode) -> String {
         switch mode {
         case .adaptive:
@@ -768,6 +875,33 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard !isApplyingPanes else { return }
         try? configStore.update {
             $0.panes.smoothScrollingEnabled = sender.state == .on
+        }
+    }
+
+    @objc
+    private func handleFocusFollowsMouseChanged(_ sender: NSSwitch) {
+        var updatedPanes = panes
+        updatedPanes.focusFollowsMouse = sender.state == .on
+        apply(panes: updatedPanes)
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.focusFollowsMouse = updatedPanes.focusFollowsMouse
+        }
+    }
+
+    @objc
+    private func handleFocusFollowsMouseDelayChanged(_ sender: NSSegmentedControl) {
+        let index = min(
+            max(0, sender.selectedSegment),
+            AppConfig.Panes.FocusFollowsMouseDelay.allCases.count - 1
+        )
+        let delay = AppConfig.Panes.FocusFollowsMouseDelay.allCases[index]
+        var updatedPanes = panes
+        updatedPanes.focusFollowsMouseDelay = delay
+        apply(panes: updatedPanes)
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.focusFollowsMouseDelay = delay
         }
     }
 

@@ -336,11 +336,14 @@ final class PaneContainerView: NSView {
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
     private var terminalResizePreview: TerminalResizePreview?
+    private var hoverTrackingArea: NSTrackingArea?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
+    var onHoverEntered: (() -> Void)?
+    var onHoverExited: (() -> Void)?
     var onCloseRequested: (() -> Void)?
     var onBorderContextClicked: ((PaneID) -> Void)? {
         didSet {
@@ -688,6 +691,32 @@ final class PaneContainerView: NSView {
         onSelected?()
         focusTerminal()
         super.mouseDown(with: event)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHoverEntered?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHoverExited?()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

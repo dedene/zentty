@@ -52,6 +52,8 @@ enum AppConfigTOML {
         lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
         lines.append("show_project_icons = \(config.panes.showProjectIcons)")
         lines.append("smooth_scroll_enabled = \(config.panes.smoothScrollingEnabled)")
+        lines.append("focus_follows_mouse = \(config.panes.focusFollowsMouse)")
+        lines.append("focus_follows_mouse_delay = \(encode(string: config.panes.focusFollowsMouseDelay.rawValue))")
         lines.append("")
 
         if config.appearance != .default {
@@ -617,6 +619,17 @@ enum AppConfigTOML {
                 return false
             }
             config.panes.smoothScrollingEnabled = value
+        case "focus_follows_mouse":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.panes.focusFollowsMouse = value
+        case "focus_follows_mouse_delay":
+            guard let raw = decodeString(assignment.value),
+                  let delay = AppConfig.Panes.FocusFollowsMouseDelay(rawValue: raw) else {
+                return false
+            }
+            config.panes.focusFollowsMouseDelay = delay
         default:
             return true
         }

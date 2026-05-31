@@ -114,6 +114,8 @@ final class SettingsWindowControllerTests: XCTestCase {
             config.panes.showLabels = false
             config.panes.showProjectIcons = false
             config.panes.inactiveOpacity = 0.85
+            config.panes.focusFollowsMouse = true
+            config.panes.focusFollowsMouseDelay = .immediate
             config.paneLayout.rightSplitBehaviorMode = .alwaysSplit
             config.paneLayout.visibleSplitWindowWidth = .px1920
         }
@@ -138,8 +140,80 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertFalse(panesController.showsPaneLabelsForTesting)
         XCTAssertFalse(panesController.showsProjectIconsForTesting)
         XCTAssertEqual(panesController.inactivePaneOpacityPercentageForTesting, 85)
+        XCTAssertTrue(panesController.focusFollowsMouseForTesting)
+        XCTAssertEqual(panesController.focusFollowsMouseDelayForTesting, .immediate)
+        XCTAssertTrue(panesController.focusFollowsMouseSwitchForTesting.isEnabled)
+        XCTAssertTrue(panesController.focusFollowsMouseDelayControlForTesting.isEnabled)
         XCTAssertEqual(panesController.selectedRightSplitBehaviorModeForTesting, .alwaysSplit)
         XCTAssertEqual(panesController.visibleSplitWindowWidthForTesting, .px1920)
+    }
+
+    func test_panes_section_keeps_focus_follows_mouse_visible_but_disabled_for_always_add() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.panes.focusFollowsMouse = true
+            config.panes.focusFollowsMouseDelay = .short
+            config.paneLayout.rightSplitBehaviorMode = .alwaysAdd
+        }
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+
+        XCTAssertNotNil(panesController.view.firstDescendantLabel(stringValue: "Focus follows mouse"))
+        XCTAssertTrue(panesController.focusFollowsMouseForTesting)
+        XCTAssertFalse(panesController.focusFollowsMouseSwitchForTesting.isEnabled)
+        XCTAssertFalse(panesController.focusFollowsMouseDelayControlForTesting.isEnabled)
+    }
+
+    func test_panes_section_focus_follows_mouse_controls_update_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+        let focusSwitch = panesController.focusFollowsMouseSwitchForTesting
+        let delayControl = panesController.focusFollowsMouseDelayControlForTesting
+
+        focusSwitch.state = .on
+        XCTAssertTrue(
+            NSApp.sendAction(try XCTUnwrap(focusSwitch.action), to: focusSwitch.target, from: focusSwitch)
+        )
+        delayControl.selectedSegment = try XCTUnwrap(
+            AppConfig.Panes.FocusFollowsMouseDelay.allCases.firstIndex(of: .immediate)
+        )
+        XCTAssertTrue(
+            NSApp.sendAction(try XCTUnwrap(delayControl.action), to: delayControl.target, from: delayControl)
+        )
+
+        XCTAssertTrue(store.current.panes.focusFollowsMouse)
+        XCTAssertEqual(store.current.panes.focusFollowsMouseDelay, .immediate)
     }
 
     func test_panes_section_describes_adaptive_split_threshold_slider_in_points() throws {

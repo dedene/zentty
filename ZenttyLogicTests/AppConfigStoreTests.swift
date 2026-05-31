@@ -76,6 +76,8 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("inactive_opacity = 0.7"))
         XCTAssertTrue(persisted.contains("show_project_icons = true"))
         XCTAssertTrue(persisted.contains("smooth_scroll_enabled = false"))
+        XCTAssertTrue(persisted.contains("focus_follows_mouse = false"))
+        XCTAssertTrue(persisted.contains("focus_follows_mouse_delay = \"short\""))
         XCTAssertTrue(persisted.contains("[open_with]"))
         XCTAssertTrue(persisted.contains("enabled_target_ids = [\"finder\", \"vscode\", \"cursor\", \"xcode\"]"))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
@@ -87,12 +89,14 @@ final class AppConfigStoreTests: XCTestCase {
     func test_store_reads_pane_settings_from_config_file_and_clamps_inactive_opacity() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """
-        [panes]
-        show_labels = false
-        inactive_opacity = 0.2
-        show_project_icons = false
-        smooth_scroll_enabled = true
-        """.write(to: fileURL, atomically: true, encoding: .utf8)
+            [panes]
+            show_labels = false
+            inactive_opacity = 0.2
+            show_project_icons = false
+            smooth_scroll_enabled = true
+            focus_follows_mouse = true
+            focus_follows_mouse_delay = "immediate"
+            """.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let store = AppConfigStore(
             fileURL: fileURL,
@@ -105,6 +109,8 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.panes.inactiveOpacity, 0.6, accuracy: 0.001)
         XCTAssertFalse(store.current.panes.showProjectIcons)
         XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
+        XCTAssertTrue(store.current.panes.focusFollowsMouse)
+        XCTAssertEqual(store.current.panes.focusFollowsMouseDelay, .immediate)
     }
 
     func test_store_reads_worklane_placement_from_config_file() throws {
@@ -271,6 +277,8 @@ final class AppConfigStoreTests: XCTestCase {
             config.sidebar.visibility = .pinnedOpen
             config.paneLayout.largeDisplayPreset = .roomy
             config.panes.smoothScrollingEnabled = true
+            config.panes.focusFollowsMouse = true
+            config.panes.focusFollowsMouseDelay = .immediate
             config.openWith.primaryTargetID = "cursor"
             config.openWith.enabledTargetIDs = ["cursor", "finder"]
             config.errorReporting.enabled = false
@@ -288,6 +296,8 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(persisted.contains("width = 344"))
         XCTAssertTrue(persisted.contains("large_display = \"roomy\""))
         XCTAssertTrue(persisted.contains("smooth_scroll_enabled = true"))
+        XCTAssertTrue(persisted.contains("focus_follows_mouse = true"))
+        XCTAssertTrue(persisted.contains("focus_follows_mouse_delay = \"immediate\""))
         XCTAssertTrue(persisted.contains("primary_target_id = \"cursor\""))
         XCTAssertTrue(persisted.contains("[error_reporting]"))
         XCTAssertTrue(persisted.contains("enabled = false"))

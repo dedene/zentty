@@ -105,10 +105,35 @@ struct AppConfig: Equatable, Sendable {
     }
 
     struct Panes: Equatable, Sendable {
+        enum FocusFollowsMouseDelay: String, CaseIterable, Equatable, Sendable {
+            case immediate
+            case short
+
+            var title: String {
+                switch self {
+                case .immediate:
+                    "Immediate"
+                case .short:
+                    "Short"
+                }
+            }
+
+            var interval: TimeInterval {
+                switch self {
+                case .immediate:
+                    0
+                case .short:
+                    0.1
+                }
+            }
+        }
+
         var showLabels: Bool
         var inactiveOpacity: CGFloat
         var showProjectIcons: Bool
         var smoothScrollingEnabled: Bool
+        var focusFollowsMouse: Bool
+        var focusFollowsMouseDelay: FocusFollowsMouseDelay
 
         static let minimumInactiveOpacity: CGFloat = 0.6
         static let maximumInactiveOpacity: CGFloat = 1.0
@@ -117,19 +142,25 @@ struct AppConfig: Equatable, Sendable {
             showLabels: Bool,
             inactiveOpacity: CGFloat,
             showProjectIcons: Bool,
-            smoothScrollingEnabled: Bool = false
+            smoothScrollingEnabled: Bool = false,
+            focusFollowsMouse: Bool = false,
+            focusFollowsMouseDelay: FocusFollowsMouseDelay = .short
         ) {
             self.showLabels = showLabels
             self.inactiveOpacity = inactiveOpacity
             self.showProjectIcons = showProjectIcons
             self.smoothScrollingEnabled = smoothScrollingEnabled
+            self.focusFollowsMouse = focusFollowsMouse
+            self.focusFollowsMouseDelay = focusFollowsMouseDelay
         }
 
         static let `default` = Panes(
             showLabels: true,
             inactiveOpacity: 0.7,
             showProjectIcons: true,
-            smoothScrollingEnabled: false
+            smoothScrollingEnabled: false,
+            focusFollowsMouse: false,
+            focusFollowsMouseDelay: .short
         )
     }
 
@@ -492,7 +523,9 @@ extension AppConfig.Panes {
                 AppConfig.Panes.maximumInactiveOpacity
             ),
             showProjectIcons: showProjectIcons,
-            smoothScrollingEnabled: smoothScrollingEnabled
+            smoothScrollingEnabled: smoothScrollingEnabled,
+            focusFollowsMouse: focusFollowsMouse,
+            focusFollowsMouseDelay: focusFollowsMouseDelay
         )
     }
 }

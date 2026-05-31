@@ -91,6 +91,13 @@ final class PaneStripView: NSView {
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
+    private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
+    private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
+    private var pendingHoverFocusWorkItem: DispatchWorkItem?
+    private var pendingHoverFocusPaneID: PaneID?
+    #if DEBUG
+        private var hoverFocusWindowIsKeyOverrideForTesting: Bool?
+    #endif
     private var currentWorklaneColor: WorklaneColor?
     private var currentPresentation: StripPresentation?
     private var shortcutManager = ShortcutManager(shortcuts: .default)
@@ -245,6 +252,9 @@ final class PaneStripView: NSView {
         dragCoordinator.onDragActiveChanged = { [weak self] active in
             guard let self else { return }
             self.isDragActive = active
+            if active {
+                self.cancelPendingHoverFocus()
+            }
             if !active, !self.isDetachingFromWindow {
                 if let state = self.currentState {
                     self.renderCurrentState(state, animated: false)
@@ -341,6 +351,8 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
+        focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
+        focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
@@ -355,6 +367,11 @@ final class PaneStripView: NSView {
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
         currentSmoothScrollingEnabled = smoothScrollingEnabled
+        currentFocusFollowsMouseEnabled = focusFollowsMouseEnabled
+        currentFocusFollowsMouseDelay = focusFollowsMouseDelay
+        if !focusFollowsMouseEnabled {
+            cancelPendingHoverFocus()
+        }
         currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
@@ -388,6 +405,8 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
+        focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
+        focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat,
         animated: Bool,
@@ -402,6 +421,11 @@ final class PaneStripView: NSView {
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
         currentSmoothScrollingEnabled = smoothScrollingEnabled
+        currentFocusFollowsMouseEnabled = focusFollowsMouseEnabled
+        currentFocusFollowsMouseDelay = focusFollowsMouseDelay
+        if !focusFollowsMouseEnabled {
+            cancelPendingHoverFocus()
+        }
         currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
@@ -497,6 +521,81 @@ final class PaneStripView: NSView {
         return super.hitTest(point)
     }
 
+    private func scheduleHoverFocus(for paneID: PaneID) {
+        cancelPendingHoverFocus()
+        guard shouldAllowHoverFocus(for: paneID) else {
+            return
+        }
+
+        pendingHoverFocusPaneID = paneID
+        let delay = currentFocusFollowsMouseDelay.interval
+        guard delay > 0 else {
+            performHoverFocusIfStillValid(for: paneID)
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.performHoverFocusIfStillValid(for: paneID)
+            }
+        }
+        pendingHoverFocusWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func cancelPendingHoverFocus(for paneID: PaneID? = nil) {
+        guard paneID == nil || pendingHoverFocusPaneID == paneID else {
+            return
+        }
+        pendingHoverFocusWorkItem?.cancel()
+        pendingHoverFocusWorkItem = nil
+        pendingHoverFocusPaneID = nil
+    }
+
+    private func performHoverFocusIfStillValid(for paneID: PaneID) {
+        guard pendingHoverFocusPaneID == paneID || currentFocusFollowsMouseDelay == .immediate else {
+            return
+        }
+        cancelPendingHoverFocus(for: paneID)
+        guard shouldAllowHoverFocus(for: paneID),
+              currentState?.focusedPaneID != paneID,
+              let paneView = paneViews[paneID]
+        else {
+            return
+        }
+
+        onPaneSelected?(paneID)
+        paneView.focusTerminal()
+    }
+
+    private func shouldAllowHoverFocus(for paneID: PaneID) -> Bool {
+        guard currentFocusFollowsMouseEnabled,
+              isWindowKeyForHoverFocus,
+              paneViews[paneID] != nil,
+              currentState?.focusedPaneID != paneID else {
+            return false
+        }
+
+        guard !isDragActive,
+              dividerDragSession == nil,
+              activeDivider == nil,
+              !paneViews.values.contains(where: \.isSearchHUDVisible),
+              NSEvent.pressedMouseButtons == 0 else {
+            return false
+        }
+
+        return true
+    }
+
+    private var isWindowKeyForHoverFocus: Bool {
+        #if DEBUG
+            if let hoverFocusWindowIsKeyOverrideForTesting {
+                return hoverFocusWindowIsKeyOverrideForTesting
+            }
+        #endif
+        return window?.isKeyWindow == true
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
 
@@ -517,6 +616,25 @@ final class PaneStripView: NSView {
     var renderInvocationCount: Int {
         renderGuard.renderCount
     }
+
+    #if DEBUG
+        var hoverFocusWindowIsKeyForTesting: Bool? {
+            get { hoverFocusWindowIsKeyOverrideForTesting }
+            set { hoverFocusWindowIsKeyOverrideForTesting = newValue }
+        }
+
+        var pendingHoverFocusPaneIDForTesting: PaneID? {
+            pendingHoverFocusPaneID
+        }
+
+        func simulatePaneHoverEnteredForTesting(_ paneID: PaneID) {
+            scheduleHoverFocus(for: paneID)
+        }
+
+        func simulatePaneHoverExitedForTesting(_ paneID: PaneID) {
+            cancelPendingHoverFocus(for: paneID)
+        }
+    #endif
 
     func centerFocusedInteriorPaneOnNextRender() {
         pendingTargetOffsetOverride = .usePresentationTargetOffset
@@ -994,6 +1112,12 @@ final class PaneStripView: NSView {
                     }
                     self?.onPaneSelected?(pane.id)
                 }
+                paneView.onHoverEntered = { [weak self] in
+                    self?.scheduleHoverFocus(for: pane.id)
+                }
+                paneView.onHoverExited = { [weak self] in
+                    self?.cancelPendingHoverFocus(for: pane.id)
+                }
                 paneView.onCloseRequested = { [weak self] in
                     self?.onPaneCloseRequested?(pane.id)
                 }
@@ -1282,6 +1406,7 @@ final class PaneStripView: NSView {
     }
 
     private func cleanupTransientStateForWindowDetachment() {
+        cancelPendingHoverFocus()
         focusGeneration &+= 1
         pendingProgrammaticFocusPaneID = nil
         lastFocusedPaneID = nil
@@ -2107,6 +2232,7 @@ final class PaneStripView: NSView {
     // MARK: - Divider Drag
 
     private func beginDividerDrag() {
+        cancelPendingHoverFocus()
         dividerDragSuspendedPaneIDs = Set(currentState?.panes.map(\.id) ?? [])
         applyViewportSyncSuspension(to: [])
         installDividerDragEscapeMonitorIfNeeded()
