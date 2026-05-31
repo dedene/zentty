@@ -489,6 +489,13 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     }
 
     static func transparentBackgroundOverrideContents(userConfigContents: String?) -> String? {
+        // A configured background-image only renders if background-opacity > 0 (the renderer
+        // multiplies the image by the background alpha). Skip forcing transparency so the user's
+        // own background-opacity, or libghostty's opaque default, applies and the image shows.
+        guard !userConfigContainsBackgroundImage(userConfigContents) else {
+            return nil
+        }
+
         var lines = "background-opacity = 0\n"
 
         guard !userConfigContainsBackgroundBlur(userConfigContents) else {
@@ -598,13 +605,32 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         return latest
     }
 
+    private static func lastConfigValue(for key: String, in content: String?) -> String? {
+        guard let content else {
+            return nil
+        }
+
+        var latest: String?
+        for rawLine in content.split(whereSeparator: \.isNewline) {
+            guard let value = configValue(for: key, in: String(rawLine)) else {
+                continue
+            }
+
+            latest = value
+        }
+
+        return latest
+    }
+
     private static func configValue(for expectedKey: String, in rawLine: String) -> String? {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
             return nil
         }
 
-        let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+        let parts = line
+            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            .map(String.init)
         guard parts.count == 2 else {
             return nil
         }
@@ -729,6 +755,16 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             let key = parts.first?.trimmingCharacters(in: .whitespaces)
             return key == "background-blur" || key == "background-blur-radius"
         }
+    }
+
+    private static func userConfigContainsBackgroundImage(_ content: String?) -> Bool {
+        guard let content else {
+            return false
+        }
+
+        // A final empty value (e.g. `background-image =`) clears the image in Ghostty, so only
+        // skip Zentty's transparency override when the effective value is non-empty.
+        return lastConfigValue(for: "background-image", in: content)?.isEmpty == false
     }
 
     static func makeRuntimeConfig(userdata: UnsafeMutableRawPointer?) -> ghostty_runtime_config_s {
