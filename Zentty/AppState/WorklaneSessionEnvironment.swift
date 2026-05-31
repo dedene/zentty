@@ -9,7 +9,14 @@ enum TerminalColorEnvironment {
     /// Resolves the COLORTERM value to inherit, falling back to `trueColor`
     /// when the inherited value is missing or blank.
     static func colorTerm(inheritedFrom environment: [String: String]) -> String {
-        environment["COLORTERM"]?.nilIfBlank ?? trueColor
+        nonBlank(environment["COLORTERM"]) ?? trueColor
+    }
+
+    static func nonBlank(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
     }
 }
 

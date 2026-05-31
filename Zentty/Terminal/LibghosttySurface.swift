@@ -757,7 +757,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
         var normalized = environment
-        if normalized["COLORTERM"]?.nilIfBlank != nil {
+        if TerminalColorEnvironment.nonBlank(normalized["COLORTERM"]) != nil {
             return normalized
         }
 

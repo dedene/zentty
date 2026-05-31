@@ -535,7 +535,7 @@ final class PaneStripView: NSView {
         }
 
         let workItem = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.performHoverFocusIfStillValid(for: paneID)
             }
         }

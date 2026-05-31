@@ -1659,7 +1659,7 @@ private enum KimiConfigSource {
     case inline(String)
 }
 
-extension String {
+private extension String {
     var nilIfBlank: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }

@@ -994,13 +994,13 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             }
 
             switch event.keyCode {
-            case 53:
+            case UInt16(kVK_Escape):
                 self.issueByCommandID[recordingCommandID] = nil
                 self.recordingCommandID = nil
                 self.clearRecordingPreview()
                 self.refreshVisibleState()
                 return nil
-            case 51, 117:
+            case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
                 // Bare Delete/Forward-Delete clears the binding; with modifiers it records
                 // (e.g. ⌘Delete). Commit directly via the keyCode so Forward-Delete's
                 // `.function` flag does not get rejected by `KeyboardShortcut(event:)`.

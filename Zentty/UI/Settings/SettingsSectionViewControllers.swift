@@ -331,9 +331,9 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         showProjectIconsSwitch.state = panes.showProjectIcons ? .on : .off
         smoothScrollingSwitch.state = panes.smoothScrollingEnabled ? .on : .off
         focusFollowsMouseSwitch.state = panes.focusFollowsMouse ? .on : .off
-        if let selectedIndex = AppConfig.Panes.FocusFollowsMouseDelay.allCases.firstIndex(of: panes.focusFollowsMouseDelay) {
-            focusFollowsMouseDelayControl.selectedSegment = selectedIndex
-        }
+        let selectedDelaySegment = AppConfig.Panes.FocusFollowsMouseDelay.allCases.firstIndex(of: panes.focusFollowsMouseDelay)
+        assert(selectedDelaySegment != nil, "Focus-follows-mouse delay must have a matching segment")
+        focusFollowsMouseDelayControl.selectedSegment = selectedDelaySegment ?? 0
         inactiveOpacitySlider.doubleValue = Double(panes.inactiveOpacity)
         updateInactiveOpacityLabel(panes.inactiveOpacity)
         updateFocusFollowsMouseAvailability()
