@@ -605,13 +605,32 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         return latest
     }
 
+    private static func lastConfigValue(for key: String, in content: String?) -> String? {
+        guard let content else {
+            return nil
+        }
+
+        var latest: String?
+        for rawLine in content.split(whereSeparator: \.isNewline) {
+            guard let value = configValue(for: key, in: String(rawLine)) else {
+                continue
+            }
+
+            latest = value
+        }
+
+        return latest
+    }
+
     private static func configValue(for expectedKey: String, in rawLine: String) -> String? {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else {
             return nil
         }
 
-        let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+        let parts = line
+            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            .map(String.init)
         guard parts.count == 2 else {
             return nil
         }
@@ -743,11 +762,9 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return false
         }
 
-        // configValue returns nil for a missing or empty value (e.g. `background-image =`, which
-        // clears the image in Ghostty), so `?.isEmpty == false` treats those lines as no image.
-        return content.split(whereSeparator: \.isNewline).contains { line in
-            configValue(for: "background-image", in: String(line))?.isEmpty == false
-        }
+        // A final empty value (e.g. `background-image =`) clears the image in Ghostty, so only
+        // skip Zentty's transparency override when the effective value is non-empty.
+        return lastConfigValue(for: "background-image", in: content)?.isEmpty == false
     }
 
     static func makeRuntimeConfig(userdata: UnsafeMutableRawPointer?) -> ghostty_runtime_config_s {

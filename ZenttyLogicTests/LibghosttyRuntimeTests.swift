@@ -251,6 +251,17 @@ final class LibghosttyRuntimeTests: XCTestCase {
         XCTAssertEqual(contents, "background-opacity = 0\nbackground-blur-radius = 20\n")
     }
 
+    func testTransparentBackgroundOverrideContents_forcesTransparencyWhenBackgroundImageIsLaterCleared() {
+        let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
+            userConfigContents: """
+            background-image = /Users/me/Pictures/wallpaper.png
+            background-image =
+            """
+        )
+
+        XCTAssertEqual(contents, "background-opacity = 0\nbackground-blur-radius = 20\n")
+    }
+
     func testTransparentBackgroundOverrideContents_forcesTransparencyWhenBackgroundImageIsCommentedOut() {
         let contents = LibghosttyRuntime.transparentBackgroundOverrideContents(
             userConfigContents: """
