@@ -246,14 +246,23 @@ def --env _zentty_pre_execution_for_command [full: string] {
     _zentty_print_tty $"\e]2;($title)\a"
 }
 
+def _zentty_reset_keyboard_protocol [] {
+    # Reset kitty keyboard protocol if a program enabled it and exited
+    # without disabling it (e.g., Ctrl+C killing an agent). Pop up to 99
+    # entries to clear multi-level stacks (e.g., Ink/React TUI layers).
+    # Extra pops beyond the stack depth are harmless no-ops.
+    _zentty_print_tty $"\e[<99u"
+}
+
 def --env _zentty_pre_prompt [] {
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
-    _zentty_print_tty $"\e[<99u"
+    _zentty_reset_keyboard_protocol
     _zentty_report_pane_root_pid
     _zentty_report_shell_activity "prompt"
     _zentty_emit_pane_context
     _zentty_reset_title_to_cwd
+    _zentty_reset_keyboard_protocol
 }
 
 # --- Hook registration (nu native) ---

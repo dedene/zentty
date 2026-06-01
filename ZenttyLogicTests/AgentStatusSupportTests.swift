@@ -629,6 +629,27 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_repository_shell_integrations_bracket_prompt_with_keyboard_protocol_resets() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellIntegrationDirectory = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
+
+        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash",
+                         "fish/vendor_conf.d/zentty-shell-integration.fish",
+                         "nushell/vendor/autoload/zentty.nu"] {
+            let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
+            let script = try String(contentsOf: scriptURL, encoding: .utf8)
+            let resetEscapeCount = script.components(separatedBy: "<99u").count - 1
+            let resetHelperReferenceCount = script.components(separatedBy: "_zentty_reset_keyboard_protocol").count - 1
+
+            XCTAssertGreaterThanOrEqual(resetEscapeCount, 1, filename)
+            XCTAssertGreaterThanOrEqual(resetHelperReferenceCount, 3, filename)
+        }
+    }
+
     func test_nu_shell_integration_loads_without_cant_convert_under_real_zentty_env() throws {
         guard ShellIntegrationTestShell.nu.isAvailable else {
             throw XCTSkip("nu not available on this host")
