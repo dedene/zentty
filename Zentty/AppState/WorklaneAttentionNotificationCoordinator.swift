@@ -231,7 +231,7 @@ final class WorklaneAttentionNotificationCoordinator {
                     windowID: windowID.rawValue,
                     worklaneID: worklane.id.rawValue,
                     paneID: attention.paneID.rawValue,
-                    soundName: systemNotificationSoundName(for: attention.state),
+                    soundName: systemNotificationSoundName(),
                     shouldRequestUserAttention: attention.state == .needsInput && !windowIsKey
                 )
             }
@@ -707,13 +707,8 @@ final class WorklaneAttentionNotificationCoordinator {
         }
     }
 
-    private func systemNotificationSoundName(for state: WorklaneAttentionState) -> String {
-        switch state {
-        case .needsInput:
-            return configStore?.current.notifications.soundName ?? ""
-        case .ready, .unresolvedStop, .running:
-            return ""
-        }
+    private func systemNotificationSoundName() -> String {
+        return configStore?.current.notifications.soundName ?? ""
     }
 }
 

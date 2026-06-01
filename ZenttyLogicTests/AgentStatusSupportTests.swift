@@ -7127,9 +7127,18 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(payloads.isEmpty)
     }
 
-    func test_notification_coordinator_fires_for_unresolved_stop_when_pane_is_not_actively_viewed() {
+    func test_notification_coordinator_fires_for_unresolved_stop_when_pane_is_not_actively_viewed() throws {
         let recorder = WorklaneAttentionNotificationRecorder()
-        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let configURL = AppConfigStore.temporaryFileURL(prefix: "agent-notification-stopped-sound-tests")
+        let configStore = AppConfigStore(fileURL: configURL)
+        try configStore.update { config in
+            config.notifications.soundName = "Glass"
+        }
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            configStore: configStore
+        )
         let paneID = PaneID("worklane-main-shell")
         let worklaneID = WorklaneID("worklane-main")
 
@@ -7167,15 +7176,24 @@ final class AgentStatusSupportTests: XCTestCase {
                     subtitle: nil,
                     body: "Agent stopped early.",
                     windowID: "window-main",
-                    soundName: ""
+                    soundName: "Glass"
                 )
             ]
         )
     }
 
-    func test_notification_coordinator_fires_for_ready_when_pane_is_not_actively_viewed() {
+    func test_notification_coordinator_fires_for_ready_when_pane_is_not_actively_viewed() throws {
         let recorder = WorklaneAttentionNotificationRecorder()
-        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
+        let configURL = AppConfigStore.temporaryFileURL(prefix: "agent-notification-ready-sound-tests")
+        let configStore = AppConfigStore(fileURL: configURL)
+        try configStore.update { config in
+            config.notifications.soundName = "Glass"
+        }
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            configStore: configStore
+        )
         let paneID = PaneID("worklane-main-shell")
         let worklaneID = WorklaneID("worklane-main")
         let windowID = WindowID("window-main")
@@ -7196,7 +7214,7 @@ final class AgentStatusSupportTests: XCTestCase {
                     subtitle: nil,
                     body: "Implement push notifications",
                     windowID: "window-main",
-                    soundName: ""
+                    soundName: "Glass"
                 )
             ]
         )
@@ -7330,7 +7348,7 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(store.notifications[0].isResolved)
     }
 
-    func test_notification_coordinator_uses_sound_only_for_needs_input() throws {
+    func test_notification_coordinator_uses_configured_sound_for_needs_input() throws {
         let recorder = WorklaneAttentionNotificationRecorder()
         let configURL = AppConfigStore.temporaryFileURL(prefix: "agent-notification-sound-tests")
         let configStore = AppConfigStore(fileURL: configURL)
