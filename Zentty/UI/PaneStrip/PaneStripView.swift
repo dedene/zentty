@@ -153,6 +153,7 @@ final class PaneStripView: NSView {
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
     private var pendingHoverFocusWorkItem: DispatchWorkItem?
     private var pendingHoverFocusPaneID: PaneID?
+    private var pendingHoverFocusMouseLocation: NSPoint?
     private var focusArbitrator = PaneFocusArbitrator()
     private var pendingFocusRequestPaneID: PaneID?
     #if DEBUG
@@ -593,13 +594,14 @@ final class PaneStripView: NSView {
         return super.hitTest(point)
     }
 
-    private func scheduleHoverFocus(for paneID: PaneID) {
+    private func scheduleHoverFocus(for paneID: PaneID, mouseLocation: NSPoint?) {
         cancelPendingHoverFocus()
-        guard shouldAllowHoverFocus(for: paneID) else {
+        guard shouldAllowHoverFocus(for: paneID, mouseLocation: mouseLocation) else {
             return
         }
 
         pendingHoverFocusPaneID = paneID
+        pendingHoverFocusMouseLocation = mouseLocation
         let delay = currentFocusFollowsMouseDelay.interval
         guard delay > 0 else {
             performHoverFocusIfStillValid(for: paneID)
@@ -619,14 +621,14 @@ final class PaneStripView: NSView {
         _ = focusArbitrator.clearHoverSuppressionIfPointerLocationChanged(
             to: mouseLocation
         )
-        scheduleHoverFocus(for: paneID)
+        scheduleHoverFocus(for: paneID, mouseLocation: mouseLocation)
     }
 
     private func handleHoverMoved(over paneID: PaneID, mouseLocation: NSPoint?) {
         guard focusArbitrator.clearHoverSuppressionIfPointerLocationChanged(to: mouseLocation) else {
             return
         }
-        scheduleHoverFocus(for: paneID)
+        scheduleHoverFocus(for: paneID, mouseLocation: mouseLocation)
     }
 
     private func handleHoverExited(from paneID: PaneID) {
@@ -640,14 +642,16 @@ final class PaneStripView: NSView {
         pendingHoverFocusWorkItem?.cancel()
         pendingHoverFocusWorkItem = nil
         pendingHoverFocusPaneID = nil
+        pendingHoverFocusMouseLocation = nil
     }
 
     private func performHoverFocusIfStillValid(for paneID: PaneID) {
         guard pendingHoverFocusPaneID == paneID else {
             return
         }
+        let mouseLocation = pendingHoverFocusMouseLocation
         cancelPendingHoverFocus(for: paneID)
-        guard shouldAllowHoverFocus(for: paneID),
+        guard shouldAllowHoverFocus(for: paneID, mouseLocation: mouseLocation),
               currentState?.focusedPaneID != paneID,
               let paneView = paneViews[paneID]
         else {
@@ -658,7 +662,7 @@ final class PaneStripView: NSView {
         paneView.focusTerminal()
     }
 
-    private func shouldAllowHoverFocus(for paneID: PaneID) -> Bool {
+    private func shouldAllowHoverFocus(for paneID: PaneID, mouseLocation: NSPoint?) -> Bool {
         guard currentFocusFollowsMouseEnabled,
               isWindowKeyForHoverFocus,
               paneViews[paneID] != nil,
@@ -678,7 +682,43 @@ final class PaneStripView: NSView {
             return false
         }
 
+        guard !isHoverFocusMouseLocationCoveredBySidebar(mouseLocation) else {
+            return false
+        }
+
         return true
+    }
+
+    private func isHoverFocusMouseLocationCoveredBySidebar(_ mouseLocation: NSPoint?) -> Bool {
+        guard let mouseLocation else {
+            return false
+        }
+
+        let locationInSelf = locationInSelfForHoverFocus(mouseLocation)
+        guard bounds.contains(locationInSelf) else {
+            return false
+        }
+
+        if resolvedLeadingVisibleInset > 0, locationInSelf.x < resolvedLeadingVisibleInset {
+            return true
+        }
+
+        guard let sidebarBounds = sidebarBoundsProvider?(),
+              !sidebarBounds.isEmpty,
+              sidebarBounds.contains(locationInSelf)
+        else {
+            return false
+        }
+
+        return true
+    }
+
+    private func locationInSelfForHoverFocus(_ mouseLocation: NSPoint) -> NSPoint {
+        guard window != nil else {
+            return mouseLocation
+        }
+
+        return convert(mouseLocation, from: nil)
     }
 
     private func requestFocus(

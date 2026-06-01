@@ -248,6 +248,58 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_focus_follows_mouse_does_not_reclaim_sidebar_selected_pane_from_covered_canvas_hover() {
+        let paneStripView = makePaneStripView(width: 980)
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = NSPoint(x: 120, y: 200)
+        paneStripView.sidebarBoundsProvider = {
+            CGRect(x: 0, y: 0, width: 290, height: 680)
+        }
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate,
+            leadingVisibleInset: sidebarInset
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("logs"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
+    func test_focus_follows_mouse_still_selects_hovered_pane_outside_sidebar_inset() {
+        let paneStripView = makePaneStripView(width: 980)
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = NSPoint(x: 420, y: 200)
+        paneStripView.sidebarBoundsProvider = {
+            CGRect(x: 0, y: 0, width: 290, height: 680)
+        }
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate,
+            leadingVisibleInset: sidebarInset
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("logs"))
+
+        XCTAssertEqual(selectedPaneIDs, [PaneID("logs")])
+    }
+
+    @MainActor
     func test_stacked_column_renders_first_pane_above_later_panes() throws {
         let paneStripView = makePaneStripView()
         let state = PaneStripState(
