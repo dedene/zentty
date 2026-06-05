@@ -2,6 +2,8 @@ import Foundation
 
 struct WorklaneChromeSummary: Equatable, Sendable {
     var attention: WorklaneAttentionSummary?
+    /// Custom worklane name, shown left of the proxy icon when set.
+    var worklaneTitle: String?
     var focusedLabel: String?
     var remoteContextLabel: String?
     var cwdPath: String?
@@ -12,6 +14,7 @@ struct WorklaneChromeSummary: Equatable, Sendable {
 
     init(
         attention: WorklaneAttentionSummary?,
+        worklaneTitle: String? = nil,
         focusedLabel: String?,
         remoteContextLabel: String? = nil,
         cwdPath: String? = nil,
@@ -21,6 +24,7 @@ struct WorklaneChromeSummary: Equatable, Sendable {
         reviewChips: [WorklaneReviewChip]
     ) {
         self.attention = attention
+        self.worklaneTitle = worklaneTitle
         self.focusedLabel = focusedLabel
         self.remoteContextLabel = remoteContextLabel
         self.cwdPath = cwdPath

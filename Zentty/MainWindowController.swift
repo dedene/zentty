@@ -319,6 +319,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.closeWindowBypassingConfirmation()
         }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
+            self?.refreshWindowTitle()
             self?.onWorkspaceStateDidChange?()
         }
         window.suppressionTargetAtPoint = { [weak rootViewController] point, eventType in
@@ -1062,10 +1063,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.paneListEntries(for: worklaneID)
     }
 
+    /// Mirrors the active worklane's custom name into the (visually hidden)
+    /// NSWindow title so the Window menu, Mission Control, and App Exposé
+    /// label windows usefully. Chrome stays unaffected: titleVisibility
+    /// remains hidden.
+    private func refreshWindowTitle() {
+        let title = rootViewController.activeWorklaneTitle ?? "Zentty"
+        if window.title != title {
+            window.title = title
+        }
+    }
+
     func taskManagerPaneSources() -> [TaskManagerPaneSource] {
+        // Deliberately independent of window.title, which now carries the
+        // active worklane's name and would otherwise leak into task-manager
+        // window labels.
         rootViewController.taskManagerPaneSources(
             windowID: windowID,
-            windowTitle: window.title.isEmpty ? "Window \(windowOrder + 1)" : window.title
+            windowTitle: "Window \(windowOrder + 1)"
         )
     }
 

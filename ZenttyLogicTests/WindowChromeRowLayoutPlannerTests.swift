@@ -66,6 +66,48 @@ final class WindowChromeRowLayoutPlannerTests: XCTestCase {
         assertAssignedWidths(plan.items.map(\.assignedWidth), equal: [95, 100, 30])
     }
 
+    func test_planner_compresses_focused_label_before_worklane_title() {
+        let plan = WindowChromeRowLayoutPlanner.plan(
+            availableWidth: 250,
+            items: [
+                .init(kind: .worklaneTitle, preferredWidth: 120, minimumWidth: 0),
+                .init(kind: .focusedLabel, preferredWidth: 200, minimumWidth: 0),
+                .init(kind: .branch, preferredWidth: 80, minimumWidth: 80),
+            ]
+        )
+
+        XCTAssertGreaterThan(plan.overflowBeforeCompression, 0)
+        XCTAssertTrue(plan.didCompressItems)
+        assertAssignedWidths(plan.items.map(\.assignedWidth), equal: [120, 30, 80])
+    }
+
+    func test_planner_compresses_worklane_title_before_branch_and_pr() {
+        let plan = WindowChromeRowLayoutPlanner.plan(
+            availableWidth: 215,
+            items: [
+                .init(kind: .worklaneTitle, preferredWidth: 120, minimumWidth: 0),
+                .init(kind: .branch, preferredWidth: 80, minimumWidth: 80),
+                .init(kind: .pullRequest, preferredWidth: 55, minimumWidth: 55),
+            ]
+        )
+
+        XCTAssertGreaterThan(plan.overflowBeforeCompression, 0)
+        XCTAssertTrue(plan.didCompressItems)
+        assertAssignedWidths(plan.items.map(\.assignedWidth), equal: [60, 80, 55])
+    }
+
+    func test_planner_spaces_worklane_title_tight_to_proxy_icon() {
+        let plan = WindowChromeRowLayoutPlanner.plan(
+            availableWidth: 600,
+            items: [
+                .init(kind: .worklaneTitle, preferredWidth: 100, minimumWidth: 0),
+                .init(kind: .proxyIcon, preferredWidth: 14, minimumWidth: 14),
+            ]
+        )
+
+        XCTAssertEqual(plan.finalTotalWidth, 122, accuracy: 0.5)
+    }
+
     private func assertAssignedWidths(_ actual: [CGFloat], equal expected: [CGFloat], file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(actual.count, expected.count, file: file, line: line)
         for (actualWidth, expectedWidth) in zip(actual, expected) {

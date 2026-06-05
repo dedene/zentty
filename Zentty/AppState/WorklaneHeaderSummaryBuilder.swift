@@ -9,6 +9,7 @@ enum WorklaneHeaderSummaryBuilder {
 
         return WorklaneChromeSummary(
             attention: WorklaneAttentionSummaryBuilder.summary(for: worklane),
+            worklaneTitle: worklane.title,
             focusedLabel: focusedLabel,
             remoteContextLabel: remoteContextLabel,
             cwdPath: visibleLocalCwdPath(from: presentation),

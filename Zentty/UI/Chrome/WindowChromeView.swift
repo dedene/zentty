@@ -79,6 +79,12 @@ final class WindowChromeView: NSView {
 #if DEBUG
     private(set) var lastRowLayoutWasAnimatedForTesting = false
 #endif
+    private let worklaneTitleLabel = WindowChromeView.makeLabel(
+        text: "",
+        color: .secondaryLabelColor,
+        font: .systemFont(ofSize: 11, weight: .semibold),
+        lineBreakMode: .byTruncatingTail
+    )
     private let focusedLabel = WindowChromeView.makeLabel(
         text: "",
         color: .secondaryLabelColor,
@@ -284,7 +290,7 @@ final class WindowChromeView: NSView {
         openWithContainerView.addSubview(openWithDividerView)
         openWithContainerView.addSubview(openWithPrimaryButton)
         openWithContainerView.addSubview(openWithMenuButton)
-        [attentionChipView, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton].forEach {
+        [attentionChipView, worklaneTitleLabel, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton].forEach {
             rowContainerView.addSubview($0)
         }
 
@@ -317,6 +323,10 @@ final class WindowChromeView: NSView {
 
         attentionChipView.render(attention: summary.attention)
 
+        let worklaneTitleText = summary.worklaneTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        worklaneTitleLabel.stringValue = worklaneTitleText
+        worklaneTitleLabel.isHidden = worklaneTitleText.isEmpty
+
         let focusedText = summary.focusedLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         focusedLabel.stringValue = focusedText
         focusedLabel.isHidden = focusedText.isEmpty
@@ -347,6 +357,7 @@ final class WindowChromeView: NSView {
         currentTheme = theme
         attentionChipView.apply(theme: theme, animated: animated)
 
+        worklaneTitleLabel.textColor = theme.secondaryText
         focusedLabel.textColor = theme.secondaryText
         remoteContextLabel.textColor = theme.tertiaryText
         renderFocusedProxyIcon()
@@ -925,6 +936,8 @@ final class WindowChromeView: NSView {
             return .attention
         case let imageView as WindowChromeProxyIconView where imageView === focusedProxyIconView:
             return .proxyIcon
+        case let label as NSTextField where label === worklaneTitleLabel:
+            return .worklaneTitle
         case let label as NSTextField where label === focusedLabel:
             return .focusedLabel
         case let label as NSTextField where label === remoteContextLabel:
@@ -950,7 +963,7 @@ final class WindowChromeView: NSView {
             return min(preferredWidth, Self.readableBranchWidth)
         case .pullRequest:
             return preferredWidth
-        case .attention, .focusedLabel, .remoteContext, .reviewChip:
+        case .attention, .worklaneTitle, .focusedLabel, .remoteContext, .reviewChip:
             return 0
         }
     }
@@ -1086,7 +1099,7 @@ final class WindowChromeView: NSView {
     }
 
     private func visibleLeadingViews() -> [NSView] {
-        [attentionChipView, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton]
+        [attentionChipView, worklaneTitleLabel, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton]
             .filter { !$0.isHidden }
     }
 
