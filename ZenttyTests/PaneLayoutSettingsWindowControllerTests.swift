@@ -70,11 +70,11 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.sectionTitles,
             [
                 "General", "Appearance", "Shortcuts", "Notifications", "Updates & Privacy",
-                "Panes", "Open With", "Dev Servers", "Agents",
+                "Worklanes & Panes", "Open With", "Dev Servers", "Agents",
             ]
         )
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
-        XCTAssertEqual(controller.window?.title, "Panes")
+        XCTAssertEqual(controller.window?.title, "Worklanes & Panes")
 
         let paneLayoutController = try XCTUnwrap(
             contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
