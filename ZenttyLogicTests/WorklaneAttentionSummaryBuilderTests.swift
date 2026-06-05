@@ -27,7 +27,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -85,7 +85,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -137,7 +137,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -186,7 +186,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -233,7 +233,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -287,7 +287,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -345,7 +345,7 @@ final class WorklaneAttentionSummaryBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: readyPaneID, title: "ready"),

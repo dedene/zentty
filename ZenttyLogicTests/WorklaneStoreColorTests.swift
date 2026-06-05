@@ -10,7 +10,7 @@ final class WorklaneStoreColorTests: XCTestCase {
         store.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("wl_a"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneA, title: "shell")],
                     focusedPaneID: paneA

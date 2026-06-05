@@ -138,7 +138,7 @@ final class WorklaneStoreServerTests: XCTestCase {
         store.replaceWorklanes([
             WorklaneState(
                 id: worklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [
                         PaneState(id: paneA, title: "server"),

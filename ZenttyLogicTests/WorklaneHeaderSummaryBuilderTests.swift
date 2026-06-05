@@ -177,7 +177,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let worktreePath = "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/\(branch)"
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -209,7 +209,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let repoPath = "\(NSHomeDirectory())/Development/Personal/zentty"
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -241,7 +241,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let paneID = PaneID("pane-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -379,7 +379,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let gitPaneID = PaneID("pane-git")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -673,7 +673,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
     ) -> WorklaneState {
         WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: paneTitle)],
                 focusedPaneID: paneID

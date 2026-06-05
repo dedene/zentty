@@ -266,7 +266,7 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         })
         return WorklaneState(
             id: WorklaneID("w1"),
-            title: "",
+            title: nil,
             paneStripState: PaneStripState(columns: columns),
             nextPaneNumber: 1,
             auxiliaryStateByPaneID: auxiliary,

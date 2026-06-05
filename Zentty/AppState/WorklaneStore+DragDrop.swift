@@ -306,7 +306,7 @@ extension WorklaneStore {
         let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: "",
+            title: nil,
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )
@@ -691,7 +691,7 @@ extension WorklaneStore {
         let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: "",
+            title: nil,
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )

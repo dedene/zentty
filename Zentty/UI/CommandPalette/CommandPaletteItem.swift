@@ -240,7 +240,7 @@ enum CommandPaletteItemBuilder {
                 let context = worklane.paneContext(for: pane.id)
                 let presentation = context?.presentation ?? PanePresentationState()
                 let title = paneTitle(pane: pane, presentation: presentation)
-                let worklaneTitle = WorklaneState.meaningfulTitle(from: worklane.title) ?? "Main"
+                let worklaneTitle = worklane.title ?? "Main"
                 let branch = WorklaneContextFormatter.trimmed(presentation.branchDisplayText ?? presentation.branch)
                 let location = paneLocation(presentation: presentation, auxiliaryState: context?.auxiliaryState)
                 let status = WorklaneContextFormatter.trimmed(presentation.statusText)

@@ -130,7 +130,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Claude")
@@ -200,7 +200,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Codex")
@@ -266,7 +266,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Codex")
@@ -347,7 +347,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Codex")
@@ -583,7 +583,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell", "pane 1"])
 
         store.selectWorklane(id: mainID)
-        XCTAssertEqual(store.activeWorklane?.title, "")
+        XCTAssertNil(store.activeWorklane?.title)
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
 
         store.selectWorklane(id: worklane2ID)
@@ -596,8 +596,8 @@ final class PaneStripStoreTests: XCTestCase {
         store.createWorklane()
 
         XCTAssertEqual(store.worklanes.count, 2)
-        XCTAssertEqual(store.worklanes.map(\.title), ["", ""])
-        XCTAssertEqual(store.activeWorklane?.title, "")
+        XCTAssertEqual(store.worklanes.map(\.title), [nil, nil])
+        XCTAssertNil(store.activeWorklane?.title)
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.surfaceContext,
@@ -1171,7 +1171,7 @@ final class PaneStripStoreTests: XCTestCase {
 
         store.createWorklane()
 
-        XCTAssertEqual(store.activeWorklane?.title, "")
+        XCTAssertNil(store.activeWorklane?.title)
         XCTAssertEqual(
             store.activeWorklane?.paneStripState.focusedPane?.sessionRequest.workingDirectory,
             "/tmp/local-project"
@@ -1343,7 +1343,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("shell"), title: "shell", width: 1200)
@@ -1377,7 +1377,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("shell"), title: "shell", width: 1600)
@@ -1411,7 +1411,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("shell"), title: "shell", width: 1600)
@@ -1445,7 +1445,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("shell"), title: "shell", width: 1600)
@@ -1479,7 +1479,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("shell"), title: "shell", width: 1200)
@@ -1736,7 +1736,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -1770,7 +1770,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -1822,7 +1822,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -1872,7 +1872,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -1920,7 +1920,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -1971,7 +1971,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2021,7 +2021,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2069,7 +2069,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2119,7 +2119,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2170,7 +2170,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2210,7 +2210,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2285,7 +2285,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(
@@ -2336,7 +2336,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(
@@ -2391,7 +2391,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2436,7 +2436,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2494,7 +2494,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2552,7 +2552,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("left"), title: "left", width: 520),
@@ -2590,7 +2590,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2635,7 +2635,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("left"), title: "left", width: 910),
@@ -2674,7 +2674,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: PaneID("master"), title: "master", width: 1194)],
                         focusedPaneID: PaneID("master")
@@ -2717,7 +2717,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2776,7 +2776,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2824,7 +2824,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("left"), title: "left", width: 910),
@@ -2856,7 +2856,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("left"), title: "left", width: 520),
@@ -2892,7 +2892,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2936,7 +2936,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -2979,7 +2979,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("left"), title: "left", width: 600),
@@ -3022,7 +3022,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -3068,7 +3068,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -3102,7 +3102,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -3325,7 +3325,7 @@ final class PaneStripStoreTests: XCTestCase {
         store.selectWorklane(id: worklane2ID)
         store.send(.closeFocusedPane)
 
-        XCTAssertEqual(store.worklanes.map(\.title), [""])
+        XCTAssertEqual(store.worklanes.map(\.title), [nil])
         XCTAssertEqual(store.activeWorklaneID, mainID)
     }
 
@@ -3335,7 +3335,7 @@ final class PaneStripStoreTests: XCTestCase {
         let result = store.closeFocusedPane()
 
         XCTAssertEqual(result, .closeWindow)
-        XCTAssertEqual(store.worklanes.map(\.title), [""])
+        XCTAssertEqual(store.worklanes.map(\.title), [nil])
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }
 
@@ -3346,7 +3346,7 @@ final class PaneStripStoreTests: XCTestCase {
         let result = store.closePane(id: paneID)
 
         XCTAssertEqual(result, .closeWindow)
-        XCTAssertEqual(store.worklanes.map(\.title), [""])
+        XCTAssertEqual(store.worklanes.map(\.title), [nil])
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.title), ["shell"])
     }
 
@@ -3464,7 +3464,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -3837,7 +3837,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -3896,7 +3896,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -3953,7 +3953,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -4085,7 +4085,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -4427,7 +4427,7 @@ final class PaneStripStoreTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-main")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -4488,7 +4488,7 @@ final class PaneStripStoreTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-main")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -4537,7 +4537,7 @@ final class PaneStripStoreTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-main")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -4578,7 +4578,7 @@ final class PaneStripStoreTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-main")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -4619,7 +4619,7 @@ final class PaneStripStoreTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -10479,7 +10479,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: PaneID("source"), title: "source", width: 1200)],
                         focusedPaneID: PaneID("source")
@@ -10530,7 +10530,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: PaneID("source"), title: "source", width: 900)],
                         focusedPaneID: PaneID("source")
@@ -10564,7 +10564,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(
@@ -10600,7 +10600,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(
@@ -10645,7 +10645,7 @@ final class PaneStripStoreTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [
                             PaneState(id: PaneID("source"), title: "source", width: 900),

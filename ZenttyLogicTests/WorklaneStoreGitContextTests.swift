@@ -35,7 +35,7 @@ final class WorklaneStoreGitContextTests: XCTestCase {
         store.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -401,7 +401,7 @@ final class WorklaneStoreGitContextTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: paneID, title: "shell")],
                         focusedPaneID: paneID
@@ -552,7 +552,7 @@ final class WorklaneStoreGitContextTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: paneID, title: "shell")],
                         focusedPaneID: paneID

@@ -111,7 +111,7 @@ enum DiscoveryIPCHandler {
                     id: worklane.id.rawValue,
                     windowID: controller.windowID.rawValue,
                     order: order + 1,
-                    title: worklane.meaningfulTitle,
+                    title: worklane.title,
                     isFocused: workspaceState.activeWorklaneID == worklane.id,
                     paneCount: worklane.paneStripState.panes.count,
                     columnCount: worklane.paneStripState.columns.count,

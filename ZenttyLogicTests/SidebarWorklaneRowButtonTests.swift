@@ -1030,7 +1030,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1069,7 +1069,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID

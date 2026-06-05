@@ -143,7 +143,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let resolver = WorklaneReviewStateResolver(runner: runner)
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("pane-claude"), title: "claude")],
                 focusedPaneID: PaneID("pane-claude")
@@ -196,7 +196,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let paneID = PaneID("pane-claude")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "claude")],
                 focusedPaneID: paneID
@@ -257,7 +257,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let paneID = PaneID("pane-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -317,7 +317,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let resolver = WorklaneReviewStateResolver(runner: runner)
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("pane-claude"), title: "claude")],
                 focusedPaneID: PaneID("pane-claude")
@@ -492,7 +492,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let paneID = PaneID("pane-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -556,7 +556,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         let paneID = PaneID("pane-claude")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "claude")],
                 focusedPaneID: paneID
@@ -578,7 +578,7 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         )
         let branchChangedWorklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "claude")],
                 focusedPaneID: paneID

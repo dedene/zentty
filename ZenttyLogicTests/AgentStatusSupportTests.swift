@@ -5425,7 +5425,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let needsInputWorklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -5458,7 +5458,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let clearedWorklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -7207,7 +7207,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -8934,7 +8934,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         return WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -8984,7 +8984,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         return WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -9040,7 +9040,7 @@ final class AgentStatusSupportTests: XCTestCase {
 
         return WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: panes,
                 focusedPaneID: focusedPaneID

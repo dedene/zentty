@@ -87,7 +87,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let command = "pnpm start:staging\nnpm run smoke"
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -222,7 +222,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         controller.loadViewIfNeeded()
         let worklane1 = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("pane-1"), title: "shell")],
                 focusedPaneID: PaneID("pane-1")
@@ -230,7 +230,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         )
         let worklane2 = WorklaneState(
             id: WorklaneID("worklane-2"),
-            title: "WS 2",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("pane-2"), title: "shell")],
                 focusedPaneID: PaneID("pane-2")
@@ -260,7 +260,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let paneID = PaneID("pane-1")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -292,7 +292,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let paneID = PaneID("pane-1")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -327,7 +327,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
         let initialWorklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID1, title: "shell")],
                 focusedPaneID: paneID1
@@ -335,7 +335,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         )
         let updatedWorklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID1, title: "shell"),
@@ -379,7 +379,7 @@ private func makeTaskRunnerWorklane(
 ) -> WorklaneState {
     WorklaneState(
         id: WorklaneID("worklane-main"),
-        title: "MAIN",
+        title: nil,
         paneStripState: PaneStripState(
             panes: [PaneState(id: paneID, title: "shell")],
             focusedPaneID: paneID

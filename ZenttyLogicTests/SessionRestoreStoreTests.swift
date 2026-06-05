@@ -194,7 +194,7 @@ final class SessionRestoreStoreTests: XCTestCase {
 
         var worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [
                     PaneColumnState(
@@ -272,7 +272,7 @@ final class SessionRestoreStoreTests: XCTestCase {
                     worklanes: [
                         WorkspaceRecipe.Worklane(
                             id: "main",
-                            title: "MAIN",
+                            title: nil,
                             nextPaneNumber: 2,
                             focusedColumnID: "column-main",
                             columns: [
@@ -358,7 +358,7 @@ final class SessionRestoreStoreTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [
                     PaneColumnState(
@@ -408,14 +408,65 @@ final class SessionRestoreStoreTests: XCTestCase {
     }
 
     func test_meaningfulness_classifier_rejects_trivial_default_workspace() {
-        let recipe = WorkspaceRecipe(
+        let recipe = makeDefaultWorkspaceRecipe(title: nil, schemaVersion: nil)
+
+        XCTAssertFalse(
+            WorkspaceRecipeMeaningfulness.isMeaningful(
+                recipe,
+                defaultWorkingDirectory: "/Users/peter"
+            )
+        )
+    }
+
+    func test_meaningfulness_classifier_treats_titles_schema_aware() {
+        // Legacy recipes carry auto-generated "MAIN"/"WS N" junk — not meaningful.
+        let legacyJunk = makeDefaultWorkspaceRecipe(title: "MAIN", schemaVersion: nil)
+        XCTAssertFalse(
+            WorkspaceRecipeMeaningfulness.isMeaningful(
+                legacyJunk,
+                defaultWorkingDirectory: "/Users/peter"
+            )
+        )
+
+        // Versioned recipes store titles verbatim — any title means the user
+        // named the lane, so the snapshot must be kept.
+        let versionedExotic = makeDefaultWorkspaceRecipe(
+            title: "MAIN",
+            schemaVersion: WorkspaceRecipe.currentSchemaVersion
+        )
+        XCTAssertTrue(
+            WorkspaceRecipeMeaningfulness.isMeaningful(
+                versionedExotic,
+                defaultWorkingDirectory: "/Users/peter"
+            )
+        )
+
+        // An untitled versioned default workspace is still disposable.
+        let versionedDefault = makeDefaultWorkspaceRecipe(
+            title: nil,
+            schemaVersion: WorkspaceRecipe.currentSchemaVersion
+        )
+        XCTAssertFalse(
+            WorkspaceRecipeMeaningfulness.isMeaningful(
+                versionedDefault,
+                defaultWorkingDirectory: "/Users/peter"
+            )
+        )
+    }
+
+    private func makeDefaultWorkspaceRecipe(
+        title: String?,
+        schemaVersion: Int?
+    ) -> WorkspaceRecipe {
+        WorkspaceRecipe(
+            schemaVersion: schemaVersion,
             windows: [
                 WorkspaceRecipe.Window(
                     id: "window-main",
                     worklanes: [
                         WorkspaceRecipe.Worklane(
                             id: "main",
-                            title: "MAIN",
+                            title: title,
                             nextPaneNumber: 2,
                             focusedColumnID: "column-main",
                             columns: [
@@ -439,13 +490,6 @@ final class SessionRestoreStoreTests: XCTestCase {
                     activeWorklaneID: "main"
                 )
             ]
-        )
-
-        XCTAssertFalse(
-            WorkspaceRecipeMeaningfulness.isMeaningful(
-                recipe,
-                defaultWorkingDirectory: "/Users/peter"
-            )
         )
     }
 }

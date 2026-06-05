@@ -3125,14 +3125,14 @@ final class RootViewController: NSViewController {
     }
 
     func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
-        worklaneStore.worklanes.flatMap { worklane in
+        worklaneStore.worklanes.enumerated().flatMap { worklaneIndex, worklane in
             worklane.paneStripState.panes.map { pane in
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 return TaskManagerPaneSource(
                     windowID: windowID,
                     windowTitle: windowTitle,
                     worklaneID: worklane.id,
-                    worklaneTitle: worklane.title,
+                    worklaneTitle: worklane.title ?? "Worklane \(worklaneIndex + 1)",
                     paneID: pane.id,
                     paneTitle: auxiliaryState?.presentation.visibleIdentityText ?? pane.title,
                     statusText: taskManagerStatusText(for: auxiliaryState),
@@ -3186,7 +3186,7 @@ final class RootViewController: NSViewController {
         return nil
     }
 
-    var worklaneTitles: [String] {
+    var worklaneTitles: [String?] {
         worklaneStore.worklanes.map(\.title)
     }
 

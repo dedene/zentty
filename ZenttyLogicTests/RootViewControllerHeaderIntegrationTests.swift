@@ -20,7 +20,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "claude")],
                     focusedPaneID: paneID
@@ -83,7 +83,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [
                         PaneState(id: shellPaneID, title: "shell"),
@@ -184,7 +184,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "claude")],
                     focusedPaneID: paneID
@@ -255,7 +255,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -305,7 +305,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -363,7 +363,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -406,7 +406,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -471,7 +471,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -524,7 +524,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -550,7 +550,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -880,7 +880,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         let editorPaneID = PaneID("editor")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: logsPaneID, title: "logs", width: 420),
@@ -963,7 +963,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "editor")],
                     focusedPaneID: paneID

@@ -574,7 +574,7 @@ enum TmuxCompatIPCHandler {
                     "window_id": "@\(worklane.id.rawValue)",
                     "window_uuid": worklane.id.rawValue,
                     "window_index": String(worklaneIndex),
-                    "window_name": worklane.title.isEmpty ? "worklane-\(worklaneIndex)" : worklane.title,
+                    "window_name": worklane.title ?? "worklane-\(worklaneIndex)",
                 ])
             }
         return AgentIPCResponseResult(stdout: lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n"))

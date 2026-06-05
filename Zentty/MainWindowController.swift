@@ -1181,7 +1181,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         onWindowAppearanceDidChange?(appearance, currentWindowTheme)
     }
 
-    var worklaneTitles: [String] {
+    var worklaneTitles: [String?] {
         rootViewController.worklaneTitles
     }
 

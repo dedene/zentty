@@ -529,7 +529,7 @@ final class AppDelegateTests: XCTestCase {
         blockingController.rootViewControllerForTesting.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -719,7 +719,7 @@ final class AppDelegateTests: XCTestCase {
         let paneID = PaneID("main-shell")
         let duplicatedWorklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID

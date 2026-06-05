@@ -127,17 +127,7 @@ enum MenuBarPaneSnapshotBuilder {
     }
 
     private static func displayTitle(for worklane: WorklaneState, displayOrder: Int) -> String {
-        if let title = worklane.meaningfulTitle {
-            return title
-        }
-        if worklane.title.caseInsensitiveCompare("MAIN") == .orderedSame {
-            return "Main"
-        }
-        let trimmed = worklane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            return trimmed
-        }
-        return "Worklane \(displayOrder)"
+        worklane.title ?? "Worklane \(displayOrder)"
     }
 
     private static func statusLabel(

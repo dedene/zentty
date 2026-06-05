@@ -33,7 +33,10 @@ struct WorklaneID: Hashable, Equatable, Sendable {
 
 struct WorklaneState: Equatable, Sendable {
     let id: WorklaneID
-    var title: String
+    /// Optional user-visible name. Invariant: either nil or a non-empty
+    /// trimmed string — never empty, never padded. Enforced at init and at
+    /// every write boundary (`setTitle`, recipe import, template import).
+    var title: String?
     var paneStripState: PaneStripState
     var nextPaneNumber: Int
     var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState]
@@ -42,7 +45,7 @@ struct WorklaneState: Equatable, Sendable {
 
     init(
         id: WorklaneID,
-        title: String,
+        title: String?,
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
         auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:],
@@ -50,7 +53,7 @@ struct WorklaneState: Equatable, Sendable {
         bookmarkOriginID: UUID? = nil
     ) {
         self.id = id
-        self.title = title
+        self.title = WorklaneContextFormatter.trimmed(title)
         self.paneStripState = paneStripState
         self.nextPaneNumber = nextPaneNumber
         self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
@@ -197,6 +200,10 @@ struct WorklaneAuxiliaryInvalidation: OptionSet, Equatable, Sendable {
 }
 
 extension WorklaneState {
+    /// LEGACY-IMPORT-ONLY. Early Zentty force-titled every worklane
+    /// ("MAIN", "WS 1", …); this sanitizer strips that junk when importing
+    /// unversioned workspace recipes. Do NOT use it on runtime display
+    /// paths — titles are optional now and display verbatim.
     static func meaningfulTitle(from rawTitle: String?) -> String? {
         guard let title = rawTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else {
@@ -212,10 +219,6 @@ extension WorklaneState {
         }
 
         return title
-    }
-
-    var meaningfulTitle: String? {
-        Self.meaningfulTitle(from: title)
     }
 
     var focusedPaneContext: WorklanePaneContext? {
@@ -1789,7 +1792,7 @@ final class WorklaneStore {
 
         let worklane = Self.makeDefaultWorklane(
             id: id,
-            title: "",
+            title: nil,
             windowID: windowID,
             layoutContext: layoutContext,
             workingDirectory: workingDirectory,
@@ -1829,7 +1832,7 @@ final class WorklaneStore {
         let worklaneID = runtimeIdentity.makeWorklaneID()
         let worklane = Self.makeDefaultWorklane(
             id: worklaneID,
-            title: "",
+            title: nil,
             windowID: destinationWindowID,
             layoutContext: layoutContext,
             workingDirectory: workingDirectory,
@@ -2219,7 +2222,7 @@ final class WorklaneStore {
         [
             makeDefaultWorklane(
                 id: runtimeIdentity.makeWorklaneID(),
-                title: "",
+                title: nil,
                 windowID: windowID,
                 layoutContext: layoutContext,
                 workingDirectory: Self.defaultWorkingDirectory(),
@@ -2233,7 +2236,7 @@ final class WorklaneStore {
 
     private static func makeDefaultWorklane(
         id: WorklaneID,
-        title: String,
+        title: String?,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
         workingDirectory: String,
