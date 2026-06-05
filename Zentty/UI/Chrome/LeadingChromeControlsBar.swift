@@ -14,7 +14,7 @@ final class LeadingChromeControlsBar: NSView {
         SidebarToggleButton.buttonSize
         + toggleToLayoutSpacing + PaneLayoutMenuButton.buttonSize
         + layoutToNavigationSpacing + PaneNavigationButtons.totalWidth
-        + navigationToInboxSpacing + NotificationInboxButton.buttonSize
+        + navigationToInboxSpacing + NotificationInboxButton.buttonWidth
 
     static let height: CGFloat = SidebarToggleButton.buttonSize
 
@@ -60,7 +60,7 @@ final class LeadingChromeControlsBar: NSView {
             ),
             inbox.trailingAnchor.constraint(equalTo: trailingAnchor),
             inbox.centerYAnchor.constraint(equalTo: centerYAnchor),
-            inbox.widthAnchor.constraint(equalToConstant: NotificationInboxButton.buttonSize),
+            inbox.widthAnchor.constraint(equalToConstant: NotificationInboxButton.buttonWidth),
             inbox.heightAnchor.constraint(equalToConstant: NotificationInboxButton.buttonSize),
         ])
     }

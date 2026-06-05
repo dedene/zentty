@@ -4,14 +4,18 @@ import CoreText
 @MainActor
 final class NotificationInboxButton: NSButton {
     static let buttonSize: CGFloat = 28
-    private static let iconSize: CGFloat = 14
-    private static let badgeSize: CGFloat = 12
-    private static let badgeFontSize: CGFloat = 8
+    static let buttonWidth: CGFloat = 44
+    private static let iconPointSize: CGFloat = 14
+    private static let iconFallbackSize = NSSize(width: 21, height: 14)
+    private static let iconToBadgeSpacing: CGFloat = 4
+    private static let badgeSize: CGFloat = 14
+    private static let badgeFontSize: CGFloat = 9
 
     var onClick: (() -> Void)?
 
-    private let badgeLayer = CALayer()
-    private let badgeCountLayer = BadgeCountLayer()
+    private let trayIconView = PassthroughImageView()
+    private let badgeLayer = CutoutCountBadgeLayer()
+    private var trayIconSize = NotificationInboxButton.iconFallbackSize
     private var currentCount: Int = 0
     private var isHovered = false
     private var isPopoverPresented = false
@@ -40,50 +44,42 @@ final class NotificationInboxButton: NSButton {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
 
-        let config = NSImage.SymbolConfiguration(pointSize: Self.iconSize, weight: .medium)
-        if let trayImage = NSImage(
+        let config = NSImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
+        if let image = NSImage(
             systemSymbolName: "tray.fill",
             accessibilityDescription: "Inbox"
         )?.withSymbolConfiguration(config) {
-            trayImage.isTemplate = true
-            image = trayImage
+            image.isTemplate = true
+            trayIconSize = image.size
+            trayIconView.image = image
         }
-        imagePosition = .imageOnly
-        imageScaling = .scaleProportionallyDown
+        imagePosition = .noImage
         setAccessibilityLabel("Inbox")
         toolTip = "Notification Inbox"
 
-        target = self
-        action = #selector(handleClick)
+        trayIconView.imageScaling = .scaleProportionallyDown
+        addSubview(trayIconView)
 
-        setupBadge()
-    }
-
-    private func setupBadge() {
-        let size = Self.badgeSize
-        // Position top-right, slightly outside the button bounds.
-        badgeLayer.frame = CGRect(
-            x: Self.buttonSize - size + 1,
-            y: Self.buttonSize - size + 1,
-            width: size,
-            height: size
-        )
-        badgeLayer.cornerRadius = size / 2
+        badgeLayer.frame = CGRect(x: 0, y: 0, width: Self.badgeSize, height: Self.badgeSize)
+        badgeLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        badgeLayer.fontSize = Self.badgeFontSize
         badgeLayer.isHidden = true
         badgeLayer.zPosition = 10
-
-        badgeCountLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
-        badgeCountLayer.fontSize = Self.badgeFontSize
-
-        badgeLayer.addSublayer(badgeCountLayer)
         layer?.addSublayer(badgeLayer)
+
+        target = self
+        action = #selector(handleClick)
+    }
+
+    override func layout() {
+        super.layout()
+        updateContentFrames()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        badgeCountLayer.contentsScale = scale
-        badgeCountLayer.setNeedsDisplay()
+        badgeLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        badgeLayer.setNeedsDisplay()
     }
 
     // MARK: - Hover Tracking
@@ -121,7 +117,10 @@ final class NotificationInboxButton: NSButton {
         guard let theme = currentTheme else { return }
         let isEmphasized = isHovered || isHighlighted || isPopoverPresented
         let enabledAlpha: CGFloat = isEmphasized ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
-        contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
+        let tint = theme.primaryText.withAlphaComponent(enabledAlpha)
+        contentTintColor = tint
+        trayIconView.contentTintColor = tint
+        badgeLayer.fillColor = tint
         performThemeAnimation(animated: true) {
             self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
                 theme: theme, isHovered: isEmphasized
@@ -139,8 +138,7 @@ final class NotificationInboxButton: NSButton {
 
     func update(count: Int, theme: ZenttyTheme) {
         currentCount = count
-        badgeLayer.isHidden = count == 0
-        badgeCountLayer.text = count <= 99 ? "\(count)" : "99+"
+        updateBadgeText()
         alphaValue = count == 0 && !isPopoverPresented ? 0.4 : 1.0
 
         configure(theme: theme, animated: false)
@@ -150,8 +148,12 @@ final class NotificationInboxButton: NSButton {
         currentTheme = theme
         let isEmphasized = isHovered || isHighlighted || isPopoverPresented
         let enabledAlpha: CGFloat = isEmphasized ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
-        contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
-        badgeCountLayer.textColor = theme.notificationBadgeText
+        let tint = theme.primaryText.withAlphaComponent(enabledAlpha)
+        contentTintColor = tint
+        trayIconView.contentTintColor = tint
+        badgeLayer.fillColor = tint
+        updateBadgeText()
+        updateContentFrames()
         alphaValue = currentCount == 0 && !isPopoverPresented ? 0.4 : 1.0
 
         performThemeAnimation(animated: animated) {
@@ -164,8 +166,52 @@ final class NotificationInboxButton: NSButton {
             self.layer?.shadowOpacity = 0.10
             self.layer?.shadowRadius = 5
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
-            self.badgeLayer.backgroundColor = theme.notificationBadgeBackground.cgColor
         }
+    }
+
+    private func updateBadgeText() {
+        let countText: String
+        if currentCount <= 0 {
+            countText = ""
+        } else if currentCount <= 99 {
+            countText = "\(currentCount)"
+        } else {
+            countText = "99+"
+        }
+
+        badgeLayer.text = countText
+        badgeLayer.isHidden = countText.isEmpty
+    }
+
+    private func updateContentFrames() {
+        let showsBadge = currentCount > 0
+        let badgeWidth = showsBadge ? badgeWidth(for: currentCount) : 0
+        let badgeSpacing = showsBadge ? Self.iconToBadgeSpacing : 0
+        let contentWidth = trayIconSize.width + badgeSpacing + badgeWidth
+        let contentHeight = showsBadge ? max(trayIconSize.height, Self.badgeSize) : trayIconSize.height
+        let originX = floor((bounds.width - contentWidth) / 2)
+        let originY = floor((bounds.height - contentHeight) / 2)
+
+        trayIconView.frame = CGRect(
+            x: originX,
+            y: originY + floor((contentHeight - trayIconSize.height) / 2),
+            width: trayIconSize.width,
+            height: trayIconSize.height
+        )
+
+        badgeLayer.frame = CGRect(
+            x: trayIconView.frame.maxX + badgeSpacing,
+            y: originY + floor((contentHeight - Self.badgeSize) / 2),
+            width: badgeWidth,
+            height: Self.badgeSize
+        )
+    }
+
+    private func badgeWidth(for count: Int) -> CGFloat {
+        if count <= 9 {
+            return Self.badgeSize
+        }
+        return count <= 99 ? 18 : 22
     }
 
     func setPopoverPresented(_ presented: Bool, animated: Bool = true) {
@@ -178,12 +224,66 @@ final class NotificationInboxButton: NSButton {
     var isPopoverPresentedForTesting: Bool {
         isPopoverPresented
     }
+
+#if DEBUG
+    var visualSnapshotForTesting: NotificationInboxButtonVisualSnapshot {
+        NotificationInboxButtonVisualSnapshot(
+            iconFrame: trayIconView.frame,
+            badgeFrame: badgeLayer.frame,
+            badgeText: badgeLayer.text,
+            badgeFillColor: badgeLayer.fillColor,
+            usesCutoutBadgeText: badgeLayer.usesCutoutText,
+            hasLegacyNotificationBadgeBackground: hasVisibleNotificationBadgeBackgroundForTesting(theme: currentTheme)
+        )
+    }
+
+    private func hasVisibleNotificationBadgeBackgroundForTesting(theme: ZenttyTheme?) -> Bool {
+        guard let theme else { return false }
+        guard let sublayers = layer?.sublayers else { return false }
+        let badgeColor = theme.notificationBadgeBackground.usingColorSpace(.sRGB)?.cgColor
+            ?? theme.notificationBadgeBackground.cgColor
+        return sublayers.contains { layer in
+            guard !layer.isHidden, let backgroundColor = layer.backgroundColor else {
+                return false
+            }
+            return backgroundColor.matchesForTesting(badgeColor)
+        }
+    }
+#endif
 }
 
-/// Draws a short numeric badge string centered on the layer's cap-height
-/// midline rather than on the font's full ascender/descender bounds, so the
-/// digits sit visually centered inside a circular badge regardless of font.
-private final class BadgeCountLayer: CALayer {
+#if DEBUG
+struct NotificationInboxButtonVisualSnapshot {
+    let iconFrame: CGRect
+    let badgeFrame: CGRect
+    let badgeText: String
+    let badgeFillColor: NSColor
+    let usesCutoutBadgeText: Bool
+    let hasLegacyNotificationBadgeBackground: Bool
+}
+
+private extension CGColor {
+    func matchesForTesting(_ other: CGColor) -> Bool {
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let lhs = converted(to: colorSpace, intent: .defaultIntent, options: nil),
+              let rhs = other.converted(to: colorSpace, intent: .defaultIntent, options: nil),
+              let lhsComponents = lhs.components,
+              let rhsComponents = rhs.components,
+              lhsComponents.count == rhsComponents.count else {
+            return false
+        }
+        return zip(lhsComponents, rhsComponents).allSatisfy { abs($0 - $1) < 0.001 }
+    }
+}
+#endif
+
+private final class PassthroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+private final class CutoutCountBadgeLayer: CALayer {
     var text: String = "" {
         didSet {
             guard text != oldValue else { return }
@@ -191,18 +291,20 @@ private final class BadgeCountLayer: CALayer {
         }
     }
 
-    var fontSize: CGFloat = 8 {
+    var fontSize: CGFloat = 9 {
         didSet {
             guard fontSize != oldValue else { return }
             setNeedsDisplay()
         }
     }
 
-    var textColor: NSColor = .white {
+    var fillColor: NSColor = .labelColor {
         didSet {
             setNeedsDisplay()
         }
     }
+
+    let usesCutoutText = true
 
     override init() {
         super.init()
@@ -212,10 +314,10 @@ private final class BadgeCountLayer: CALayer {
     override init(layer: Any) {
         super.init(layer: layer)
         commonInit()
-        if let other = layer as? BadgeCountLayer {
+        if let other = layer as? CutoutCountBadgeLayer {
             text = other.text
             fontSize = other.fontSize
-            textColor = other.textColor
+            fillColor = other.fillColor
         }
     }
 
@@ -227,36 +329,34 @@ private final class BadgeCountLayer: CALayer {
     private func commonInit() {
         isOpaque = false
         needsDisplayOnBoundsChange = true
-        actions = ["contents": NSNull()]
+        actions = [
+            "contents": NSNull(),
+            "backgroundColor": NSNull(),
+            "bounds": NSNull(),
+            "position": NSNull(),
+        ]
     }
 
     override func draw(in ctx: CGContext) {
         guard !text.isEmpty else { return }
 
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
-        // CoreText reads color from the CoreText foreground attribute, not the
-        // AppKit `.foregroundColor` key — and not always from the context's
-        // fill color when the attributed string has none. Bake the colour in
-        // explicitly, in sRGB, so it always renders.
-        let resolvedColor = (textColor.usingColorSpace(.sRGB) ?? textColor).cgColor
+        let badgeRect = bounds.insetBy(dx: 0.25, dy: 0.25)
+        ctx.setFillColor((fillColor.usingColorSpace(.sRGB) ?? fillColor).cgColor)
+        ctx.fillEllipse(in: badgeRect)
+
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
         let attributed = NSAttributedString(
             string: text,
-            attributes: [
-                .font: font,
-                kCTForegroundColorAttributeName as NSAttributedString.Key: resolvedColor,
-            ]
+            attributes: [.font: font]
         )
         let line = CTLineCreateWithAttributedString(attributed)
-        let typographicWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-
-        // CALayer's CGContext is top-down (y grows downward). Pre-flip the
-        // text matrix so glyph paths (defined y-up in font space) render
-        // right-side-up, then place the baseline measured from the top such
-        // that the cap-height block sits centered in the badge.
-        let x = (bounds.width - typographicWidth) / 2
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let x = (bounds.width - width) / 2
         let baselineFromTop = (bounds.height + font.capHeight) / 2
 
         ctx.saveGState()
+        ctx.setBlendMode(.clear)
+        ctx.setFillColor(NSColor.black.cgColor)
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         ctx.textPosition = CGPoint(x: x, y: baselineFromTop)
         CTLineDraw(line, ctx)

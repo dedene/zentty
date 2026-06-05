@@ -24,6 +24,49 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(navigation.forwardToolTipForTesting, "Navigate Forward")
     }
 
+    func test_notification_inbox_count_renders_as_themed_cutout_badge_beside_icon() {
+        let button = NotificationInboxButton(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: NotificationInboxButton.buttonWidth,
+                height: NotificationInboxButton.buttonSize
+            )
+        )
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        button.update(count: 2, theme: theme)
+
+        let snapshot = button.visualSnapshotForTesting
+        XCTAssertEqual(button.attributedTitle.string, "")
+        XCTAssertGreaterThanOrEqual(snapshot.iconFrame.width, 20)
+        XCTAssertEqual(snapshot.iconFrame.height, 14)
+        XCTAssertEqual(snapshot.badgeText, "2")
+        XCTAssertEqual(snapshot.badgeFrame.size, NSSize(width: 14, height: 14))
+        XCTAssertEqual(snapshot.badgeFillColor, button.contentTintColor)
+        XCTAssertTrue(snapshot.usesCutoutBadgeText)
+        XCTAssertGreaterThan(snapshot.badgeFrame.minX, snapshot.iconFrame.maxX)
+        XCTAssertFalse(snapshot.hasLegacyNotificationBadgeBackground)
+    }
+
+    func test_notification_inbox_centers_tray_icon_when_count_is_zero() {
+        let button = NotificationInboxButton(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: NotificationInboxButton.buttonWidth,
+                height: NotificationInboxButton.buttonSize
+            )
+        )
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        button.update(count: 0, theme: theme)
+
+        let snapshot = button.visualSnapshotForTesting
+        XCTAssertEqual(snapshot.badgeText, "")
+        XCTAssertEqual(snapshot.iconFrame.midX, button.bounds.midX, accuracy: 0.5)
+    }
+
     func test_search_hud_tooltips_use_configured_find_shortcuts() {
         let shortcutManager = ShortcutManager(shortcuts: .default)
         let localHUD = PaneSearchHUDView()
