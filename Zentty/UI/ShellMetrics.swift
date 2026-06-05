@@ -166,6 +166,11 @@ enum ShellMetrics {
     static let sidebarRowVerticalPadding: CGFloat = sidebarRowTopInset + sidebarRowBottomInset
     static let sidebarRowInterlineSpacing: CGFloat = 3
     static let sidebarTitleLineHeight: CGFloat = SidebarRowTypography.topLabelLineHeight
+    /// Hairline separator drawn below a worklane's custom title header.
+    static let sidebarTopLabelSeparatorSpacing: CGFloat = 5
+    static let sidebarTopLabelSeparatorHeight: CGFloat = 1
+    /// Breathing room above the title label and below its separator.
+    static let sidebarTopLabelVerticalPadding: CGFloat = 3
     static let sidebarPrimaryLineHeight: CGFloat = SidebarRowTypography.primaryLineHeight
     static let sidebarStatusLineHeight: CGFloat = SidebarRowTypography.statusLineHeight
     static let sidebarDetailLineHeight: CGFloat = SidebarRowTypography.detailLineHeight
@@ -213,9 +218,13 @@ enum ShellMetrics {
         includesOverflow: Bool
     ) -> CGFloat {
         let clampedDetailLineCount = max(0, detailLineCount)
+        let topLabelRowHeight = sidebarTitleLineHeight
+            + sidebarTopLabelSeparatorSpacing
+            + sidebarTopLabelSeparatorHeight
+            + sidebarTopLabelVerticalPadding * 2
         let visibleLineHeights: [CGFloat] =
             [
-                includesTopLabel ? sidebarTitleLineHeight : nil,
+                includesTopLabel ? topLabelRowHeight : nil,
                 sidebarPrimaryLineHeight,
                 includesStatus ? sidebarStatusLineHeight : nil,
             ]

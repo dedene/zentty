@@ -11,7 +11,7 @@ enum BookmarkNameSuggester {
     }
 
     private static func suggestBookmarkName(for worklane: WorklaneState) -> String {
-        if let title = WorklaneState.meaningfulTitle(from: worklane.title), !title.isEmpty {
+        if let title = WorklaneContextFormatter.trimmed(worklane.title) {
             return title
         }
 

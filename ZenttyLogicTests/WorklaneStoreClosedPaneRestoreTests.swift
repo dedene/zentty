@@ -178,7 +178,7 @@ final class WorklaneStoreClosedPaneRestoreTests: XCTestCase {
         // Custom worklane with three columns of distinct widths.
         let mainWorklane = WorklaneState(
             id: WorklaneID("wl_main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [
                     PaneColumnState(
@@ -251,7 +251,7 @@ final class WorklaneStoreClosedPaneRestoreTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("wl_main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [column],
                 focusedColumnID: PaneColumnID("col_main")
@@ -336,7 +336,7 @@ final class WorklaneStoreClosedPaneRestoreTests: XCTestCase {
     private func makeMultiPaneStore(extraWorklane: Bool = false) -> WorklaneStore {
         let mainWorklane = WorklaneState(
             id: WorklaneID("wl_main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [
                     PaneColumnState(

@@ -17,6 +17,8 @@ final class SidebarWorklaneRowButton: NSButton {
     let worklaneID: WorklaneID?
 
     private let topLabel = SidebarStaticLabel()
+    private let topLabelSeparator = NSView()
+    private let topLabelHeaderView = NSView()
     private let primaryTextContainer = SidebarPrimaryTextContainerView()
     private let primaryBaseLabel = SidebarStaticLabel()
     private let primaryLabel = SidebarShimmerTextView()
@@ -57,6 +59,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var isPaneRowHovered = false
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
+    private var topLabelLeadingConstraint: NSLayoutConstraint?
     private var textStackTopConstraint: NSLayoutConstraint?
     private var textStackBottomConstraint: NSLayoutConstraint?
     private var primaryTextHeightConstraint: NSLayoutConstraint?
@@ -71,6 +74,7 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var onPaneSelected: ((PaneID) -> Void)?
     var onCloseWorklaneRequested: (() -> Void)?
+    var onRenameWorklaneRequested: (() -> Void)?
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
@@ -161,6 +165,7 @@ final class SidebarWorklaneRowButton: NSButton {
             font: ShellMetrics.sidebarTitleFont(),
             lineBreakMode: .byTruncatingTail
         )
+        configureTopLabelHeader()
         configureLabel(
             primaryBaseLabel,
             font: ShellMetrics.sidebarPrimaryFont(),
@@ -298,6 +303,7 @@ final class SidebarWorklaneRowButton: NSButton {
 
     private func syncMenuControllerCallbacks() {
         menuController.onCloseWorklaneRequested = onCloseWorklaneRequested
+        menuController.onRenameWorklaneRequested = onRenameWorklaneRequested
         menuController.onWorklaneColorChanged = onWorklaneColorChanged
         menuController.onWorklaneMoveRequested = onWorklaneMoveRequested
         menuController.onBookmarkAction = onBookmarkAction
@@ -546,6 +552,12 @@ final class SidebarWorklaneRowButton: NSButton {
         applyTextStackVerticalInsets(renderPlan)
 
         topLabel.stringValue = summary.topLabel ?? ""
+        // Align the title with pane-row text (indented inside the pane
+        // button); paneless lanes render primary text un-indented, so the
+        // title follows suit there.
+        topLabelLeadingConstraint?.constant = summary.paneRows.isEmpty
+            ? 0
+            : ShellMetrics.sidebarPaneButtonHorizontalInset
         overflowLabel.stringValue = summary.overflowText ?? ""
         contextPrefixLabel.stringValue = summary.contextPrefixText ?? ""
         if summary.paneRows.isEmpty {
@@ -694,6 +706,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 onCloseWorklaneRequested: { [weak self] in
                     self?.onCloseWorklaneRequested?()
                 },
+                onRenameWorklaneRequested: { [weak self] in
+                    self?.onRenameWorklaneRequested?()
+                },
                 onClosePaneRequested: { [weak self] paneID in
                     self?.onClosePaneRequested?(paneID)
                 },
@@ -769,6 +784,7 @@ final class SidebarWorklaneRowButton: NSButton {
             activeTextColor: activeTextColor,
             theme: currentTheme
         )
+        topLabelSeparator.layer?.backgroundColor = currentTheme.sidebarBorder.cgColor
         overflowLabel.textColor = SidebarWorklaneRowStyleResolver.overflowTextColor(
             isActive: summary.isActive,
             activeTextColor: activeTextColor,
@@ -1017,9 +1033,47 @@ final class SidebarWorklaneRowButton: NSButton {
 
     // MARK: - Layout Composition
 
+    /// Composes the title header: label with a hairline separator below,
+    /// rendered as one row so the layout's titleRowHeight stays in lockstep.
+    /// The label's leading inset is adjusted at configure time so the title
+    /// lines up with pane-row text (which is indented inside its button).
+    private func configureTopLabelHeader() {
+        topLabelHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        topLabelSeparator.translatesAutoresizingMaskIntoConstraints = false
+        topLabelSeparator.wantsLayer = true
+        topLabelHeaderView.addSubview(topLabel)
+        topLabelHeaderView.addSubview(topLabelSeparator)
+        let topLabelLeading = topLabel.leadingAnchor.constraint(
+            equalTo: topLabelHeaderView.leadingAnchor,
+            constant: ShellMetrics.sidebarPaneButtonHorizontalInset
+        )
+        topLabelLeadingConstraint = topLabelLeading
+        NSLayoutConstraint.activate([
+            topLabel.topAnchor.constraint(
+                equalTo: topLabelHeaderView.topAnchor,
+                constant: ShellMetrics.sidebarTopLabelVerticalPadding
+            ),
+            topLabelLeading,
+            topLabel.trailingAnchor.constraint(equalTo: topLabelHeaderView.trailingAnchor),
+            topLabelSeparator.topAnchor.constraint(
+                equalTo: topLabel.bottomAnchor,
+                constant: ShellMetrics.sidebarTopLabelSeparatorSpacing
+            ),
+            topLabelSeparator.leadingAnchor.constraint(equalTo: topLabelHeaderView.leadingAnchor),
+            topLabelSeparator.trailingAnchor.constraint(equalTo: topLabelHeaderView.trailingAnchor),
+            topLabelSeparator.heightAnchor.constraint(
+                equalToConstant: ShellMetrics.sidebarTopLabelSeparatorHeight
+            ),
+            topLabelSeparator.bottomAnchor.constraint(
+                equalTo: topLabelHeaderView.bottomAnchor,
+                constant: -ShellMetrics.sidebarTopLabelVerticalPadding
+            ),
+        ])
+    }
+
     private func contentLabels() -> SidebarWorklaneRowContentRenderer.Labels {
         SidebarWorklaneRowContentRenderer.Labels(
-            topLabel: topLabel,
+            topLabel: topLabelHeaderView,
             primaryTextContainer: primaryTextContainer,
             contextPrefixLabel: contextPrefixLabel,
             statusContentStack: statusContentStack,

@@ -177,7 +177,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let worktreePath = "\(NSHomeDirectory())/Development/Zenjoy/Nimbu/Rails/worktrees/\(branch)"
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -209,7 +209,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let repoPath = "\(NSHomeDirectory())/Development/Personal/zentty"
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -241,7 +241,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let paneID = PaneID("pane-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -379,7 +379,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         let gitPaneID = PaneID("pane-git")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -663,17 +663,38 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
         XCTAssertNil(summary.branch)
     }
 
+    func test_summary_carries_custom_worklane_title_verbatim() {
+        let paneID = PaneID("pane-shell")
+        let metadata = TerminalMetadata(
+            title: "zsh",
+            currentWorkingDirectory: "/tmp/project",
+            processName: "zsh",
+            gitBranch: nil
+        )
+
+        let titled = WorklaneHeaderSummaryBuilder.summary(
+            for: makeWorklane(paneID: paneID, metadata: metadata, worklaneTitle: "Nimbu support")
+        )
+        XCTAssertEqual(titled.worklaneTitle, "Nimbu support")
+
+        let untitled = WorklaneHeaderSummaryBuilder.summary(
+            for: makeWorklane(paneID: paneID, metadata: metadata)
+        )
+        XCTAssertNil(untitled.worklaneTitle)
+    }
+
     private func makeWorklane(
         paneID: PaneID,
         paneTitle: String = "shell",
         metadata: TerminalMetadata,
         agentStatus: PaneAgentStatus? = nil,
         reviewState: WorklaneReviewState? = nil,
-        shellContext: PaneShellContext? = nil
+        shellContext: PaneShellContext? = nil,
+        worklaneTitle: String? = nil
     ) -> WorklaneState {
         WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: worklaneTitle,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: paneTitle)],
                 focusedPaneID: paneID

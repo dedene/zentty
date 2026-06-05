@@ -32,7 +32,7 @@ final class WorklaneStoreShellExitTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         columns: [
                             PaneColumnState(
@@ -126,7 +126,7 @@ final class WorklaneStoreShellExitTests: XCTestCase {
         let result = store.closePaneFromShellExit(id: paneID)
 
         XCTAssertEqual(result, .closed)
-        XCTAssertEqual(store.worklanes.map(\.title), [""])
+        XCTAssertEqual(store.worklanes.map(\.title), [nil])
         XCTAssertEqual(store.activeWorklaneID, mainID)
     }
 
@@ -135,7 +135,7 @@ final class WorklaneStoreShellExitTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: PaneID("main-shell"), title: "shell")],
                         focusedPaneID: PaneID("main-shell")
@@ -191,7 +191,7 @@ final class WorklaneStoreShellExitTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: paneID, title: "shell")],
                         focusedPaneID: paneID

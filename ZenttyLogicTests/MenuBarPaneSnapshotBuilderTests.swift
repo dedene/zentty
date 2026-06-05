@@ -13,7 +13,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: plainPaneID, title: "shell"),
@@ -53,7 +53,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         let shellPaneID = PaneID("pn-shell")
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -97,7 +97,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         let paneID = PaneID("pn-resumed-codex")
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "Working | hermes-agent-integration")],
                 focusedPaneID: paneID
@@ -130,7 +130,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         let paneID = PaneID("pn-claude-interrupted")
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "Claude Code")],
                 focusedPaneID: paneID
@@ -169,7 +169,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         let paneID = PaneID("pn-agent")
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -203,7 +203,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         let paneID = PaneID("pn-agent-completed-progress")
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -242,7 +242,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         let progress = try XCTUnwrap(PaneAgentTaskProgress(doneCount: 2, totalCount: 5))
         let worklane = WorklaneState(
             id: WorklaneID("wl-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID

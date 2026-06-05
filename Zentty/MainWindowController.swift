@@ -319,8 +319,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.closeWindowBypassingConfirmation()
         }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
+            self?.refreshWindowTitle()
             self?.onWorkspaceStateDidChange?()
         }
+        // Restored workspaces set their state before this closure exists, so
+        // sync once here or a titled active lane keeps the launch placeholder
+        // until the first state change.
+        refreshWindowTitle()
         window.suppressionTargetAtPoint = { [weak rootViewController] point, eventType in
             rootViewController?.windowDragSuppressionTarget(at: point, eventType: eventType)
         }
@@ -478,6 +483,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @objc
     func newWorklane(_ sender: Any?) {
         handle(.newWorklane)
+    }
+
+    @objc
+    func renameCurrentWorklane(_ sender: Any?) {
+        handle(.renameCurrentWorklane)
     }
 
     @objc
@@ -1057,10 +1067,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.paneListEntries(for: worklaneID)
     }
 
+    /// Mirrors the active worklane's custom name into the (visually hidden)
+    /// NSWindow title so the Window menu, Mission Control, and App Exposé
+    /// label windows usefully. Chrome stays unaffected: titleVisibility
+    /// remains hidden.
+    private func refreshWindowTitle() {
+        let title = rootViewController.activeWorklaneTitle ?? "Zentty"
+        if window.title != title {
+            window.title = title
+        }
+    }
+
     func taskManagerPaneSources() -> [TaskManagerPaneSource] {
+        // Deliberately independent of window.title, which now carries the
+        // active worklane's name and would otherwise leak into task-manager
+        // window labels.
         rootViewController.taskManagerPaneSources(
             windowID: windowID,
-            windowTitle: window.title.isEmpty ? "Window \(windowOrder + 1)" : window.title
+            windowTitle: "Window \(windowOrder + 1)"
         )
     }
 
@@ -1117,6 +1141,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @discardableResult
     func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
         rootViewController.setWorklaneColor(color, on: id)
+    }
+
+    @discardableResult
+    func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
+        rootViewController.setWorklaneTitle(title, on: id)
     }
 
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
@@ -1181,7 +1210,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         onWindowAppearanceDidChange?(appearance, currentWindowTheme)
     }
 
-    var worklaneTitles: [String] {
+    var worklaneTitles: [String?] {
         rootViewController.worklaneTitles
     }
 

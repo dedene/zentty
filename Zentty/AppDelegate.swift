@@ -723,6 +723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return SessionRestoreEnvelope(
             reason: reason,
             workspace: WorkspaceRecipe(
+                schemaVersion: WorkspaceRecipe.currentSchemaVersion,
                 windows: controllers.map(\.workspaceRecipeWindow),
                 activeWindowID: activeWindowID
             ),
@@ -806,6 +807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let importedState = WorkspaceRecipeImporter.makeWorklanes(
                 from: recipeWindow,
+                recipeSchemaVersion: workspace.schemaVersion,
                 restoreDraftWindow: envelope.restoreDraftWindow(forWindowID: recipeWindow.id),
                 windowID: WindowID(recipeWindow.id),
                 layoutContext: layoutContext,

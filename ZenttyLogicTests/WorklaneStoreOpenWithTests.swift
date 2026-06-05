@@ -152,7 +152,7 @@ final class WorklaneStoreOpenWithTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(

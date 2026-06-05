@@ -195,7 +195,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     private func makeSidebarSummary(
         worklaneID: WorklaneID,
-        title: String,
+        title: String?,
         badgeText: String,
         primaryText: String,
         statusText: String? = nil,
@@ -349,7 +349,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "editor")],
                     focusedPaneID: paneID
@@ -672,7 +672,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     columns: [
                         PaneColumnState(
@@ -1330,7 +1330,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "project • main",
@@ -1356,7 +1356,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1379,7 +1379,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1552,7 +1552,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1590,7 +1590,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1651,7 +1651,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1688,7 +1688,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1852,7 +1852,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-compact"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -1900,7 +1900,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-context"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "main • ~/src/zentty",
@@ -1932,7 +1932,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-artifact"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "Claude Code",
                     contextText: "",
@@ -1955,7 +1955,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             summaries: [
                 makeSidebarSummary(
                     worklaneID: WorklaneID("worklane-compact"),
-                    title: "MAIN",
+                    title: nil,
                     badgeText: "M",
                     primaryText: "shell",
                     contextText: "",
@@ -2853,7 +2853,7 @@ private extension RootViewCompositionTests {
         controller.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "claude")],
                     focusedPaneID: paneID

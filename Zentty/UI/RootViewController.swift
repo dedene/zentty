@@ -952,6 +952,9 @@ final class RootViewController: NSViewController {
                 self.closeWorklane(id: worklaneID)
             }
         }
+        sidebarView.onRenameWorklaneRequested = { [weak self] worklaneID in
+            self?.beginRenameWorklane(id: worklaneID)
+        }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
@@ -1349,6 +1352,8 @@ final class RootViewController: NSViewController {
             handleToggleSidebar()
         case .newWorklane:
             worklaneStore.createWorklane()
+        case .renameCurrentWorklane:
+            beginRenameActiveWorklane()
         case .nextWorklane:
             peekController.handleTab(forward: true)
         case .previousWorklane:
@@ -2763,6 +2768,11 @@ final class RootViewController: NSViewController {
         worklaneStore.setColor(color, on: id)
     }
 
+    @discardableResult
+    func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
+        worklaneStore.setTitle(title, on: id)
+    }
+
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
         appCanvasView.settlePaneStripPresentationNow()
         worklaneStore.resizeFocusedColumnToFraction(
@@ -3125,14 +3135,14 @@ final class RootViewController: NSViewController {
     }
 
     func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
-        worklaneStore.worklanes.flatMap { worklane in
+        worklaneStore.worklanes.enumerated().flatMap { worklaneIndex, worklane in
             worklane.paneStripState.panes.map { pane in
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 return TaskManagerPaneSource(
                     windowID: windowID,
                     windowTitle: windowTitle,
                     worklaneID: worklane.id,
-                    worklaneTitle: worklane.title,
+                    worklaneTitle: worklane.title ?? "Worklane \(worklaneIndex + 1)",
                     paneID: pane.id,
                     paneTitle: auxiliaryState?.presentation.visibleIdentityText ?? pane.title,
                     statusText: taskManagerStatusText(for: auxiliaryState),
@@ -3186,7 +3196,7 @@ final class RootViewController: NSViewController {
         return nil
     }
 
-    var worklaneTitles: [String] {
+    var worklaneTitles: [String?] {
         worklaneStore.worklanes.map(\.title)
     }
 
@@ -3838,6 +3848,32 @@ private extension RootViewController {
         }
         guard confirmed else { return }
         bookmarkStore.delete(id: template.id)
+    }
+
+    private func beginRenameActiveWorklane() {
+        beginRenameWorklane(id: worklaneStore.activeWorklaneID)
+    }
+
+    func beginRenameWorklane(id worklaneID: WorklaneID) {
+        guard let window = view.window,
+              let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Rename Worklane"
+        alert.informativeText = "Leave empty to remove the name."
+        alert.alertStyle = .informational
+        let textField = NSTextField(string: worklane.title ?? "")
+        textField.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = textField
+        alert.window.initialFirstResponder = textField
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.worklaneStore.setTitle(textField.stringValue, on: worklaneID)
+        }
+        textField.selectText(nil)
     }
 
     private func beginRenameBookmarkTemplate(_ template: WorkspaceTemplate) {

@@ -82,7 +82,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let worklanes = [
             WorklaneState(
                 id: mainWorklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     columns: [
                         PaneColumnState(
@@ -341,7 +341,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let worklaneID = WorklaneID("main")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -406,7 +406,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -460,7 +460,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -514,7 +514,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -563,7 +563,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -768,7 +768,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -917,7 +917,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-main")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "Ready | zentty")],
                 focusedPaneID: paneID
@@ -1142,7 +1142,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-agent")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Claude")
@@ -1189,7 +1189,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-agent")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Claude")
@@ -1248,7 +1248,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-hermes")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Hermes")
@@ -1299,7 +1299,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-hermes")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Hermes")
@@ -1356,7 +1356,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-hermes")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Hermes")
@@ -1446,7 +1446,7 @@ final class WorkspaceRecipeTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Hermes")
@@ -1495,7 +1495,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-pi")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Pi")
@@ -1554,7 +1554,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-pi")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Pi")
@@ -1593,7 +1593,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         let paneID = PaneID("pane-gemini")
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Gemini")
@@ -1660,7 +1660,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Claude")
@@ -1728,7 +1728,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -1790,7 +1790,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(
@@ -1908,7 +1908,7 @@ final class WorkspaceRecipeTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID, title: "Codex")
@@ -1952,6 +1952,102 @@ final class WorkspaceRecipeTests: XCTestCase {
                     trackedPID: 4242
                 )
             ]
+        )
+    }
+
+    func test_fresh_recipe_carries_current_schema_version_and_legacy_decodes_nil() throws {
+        let fresh = WorkspaceRecipe(windows: [])
+        XCTAssertEqual(fresh.schemaVersion, WorkspaceRecipe.currentSchemaVersion)
+
+        let roundTripped = try JSONDecoder().decode(
+            WorkspaceRecipe.self,
+            from: JSONEncoder().encode(fresh)
+        )
+        XCTAssertEqual(roundTripped.schemaVersion, WorkspaceRecipe.currentSchemaVersion)
+
+        let legacyData = try XCTUnwrap(
+            """
+            {
+              "windows": [],
+              "activeWindowID": null
+            }
+            """.data(using: .utf8)
+        )
+        let legacy = try JSONDecoder().decode(WorkspaceRecipe.self, from: legacyData)
+        XCTAssertNil(legacy.schemaVersion)
+    }
+
+    func test_versioned_import_keeps_exotic_titles_verbatim() {
+        let window = makeTitleFixtureWindow(titles: ["MAIN", "WS 3", "Nimbu support", nil])
+
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            recipeSchemaVersion: WorkspaceRecipe.currentSchemaVersion,
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        XCTAssertEqual(restored.worklanes.map(\.title), ["MAIN", "WS 3", "Nimbu support", nil])
+    }
+
+    func test_unversioned_import_sanitizes_legacy_generated_titles() {
+        let window = makeTitleFixtureWindow(titles: ["MAIN", "WS 3", "   ", "Nimbu support"])
+
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        XCTAssertEqual(restored.worklanes.map(\.title), [nil, nil, nil, "Nimbu support"])
+    }
+
+    func test_export_writes_worklane_title_verbatim() {
+        let titles: [String?] = ["MAIN", "Nimbu support", nil]
+        let worklanes = titles.enumerated().map { index, title in
+            WorklaneState(
+                id: WorklaneID("worklane-\(index)"),
+                title: title,
+                paneStripState: PaneStripState(columns: [], focusedColumnID: nil)
+            )
+        }
+
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: worklanes,
+            activeWorklaneID: worklanes.first?.id
+        )
+
+        XCTAssertEqual(window.worklanes.map(\.title), ["MAIN", "Nimbu support", nil])
+    }
+
+    func test_worklane_state_normalizes_title_at_init() {
+        let strip = PaneStripState(columns: [], focusedColumnID: nil)
+
+        XCTAssertEqual(
+            WorklaneState(id: WorklaneID("a"), title: "  padded  ", paneStripState: strip).title,
+            "padded"
+        )
+        XCTAssertNil(WorklaneState(id: WorklaneID("b"), title: "   ", paneStripState: strip).title)
+        XCTAssertNil(WorklaneState(id: WorklaneID("c"), title: "", paneStripState: strip).title)
+        XCTAssertNil(WorklaneState(id: WorklaneID("d"), title: nil, paneStripState: strip).title)
+    }
+
+    private func makeTitleFixtureWindow(titles: [String?]) -> WorkspaceRecipe.Window {
+        WorkspaceRecipe.Window(
+            id: "window-main",
+            worklanes: titles.enumerated().map { index, title in
+                WorkspaceRecipe.Worklane(
+                    id: "worklane-\(index)",
+                    title: title,
+                    nextPaneNumber: 1,
+                    focusedColumnID: nil,
+                    columns: []
+                )
+            },
+            activeWorklaneID: "worklane-0"
         )
     }
 }

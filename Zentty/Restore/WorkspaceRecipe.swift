@@ -7,13 +7,23 @@ struct WindowWorkspaceState: Equatable, Sendable {
 }
 
 struct WorkspaceRecipe: Codable, Equatable, Sendable {
+    /// Schema version 2 marks recipes whose worklane titles are stored
+    /// verbatim. Unversioned (nil) recipes predate optional titles and carry
+    /// auto-generated "MAIN"/"WS N" junk that gets sanitized once at import.
+    /// Synthesized Decodable ignores the property default for optionals, so
+    /// legacy JSON without the key decodes as nil.
+    static let currentSchemaVersion = 2
+
+    var schemaVersion: Int?
     var windows: [Window]
     var activeWindowID: String?
 
     init(
+        schemaVersion: Int? = WorkspaceRecipe.currentSchemaVersion,
         windows: [Window],
         activeWindowID: String? = nil
     ) {
+        self.schemaVersion = schemaVersion
         self.windows = windows
         self.activeWindowID = activeWindowID
     }
@@ -115,7 +125,7 @@ enum WorkspaceRecipeExporter {
     private static func makeWorklane(_ worklane: WorklaneState) -> WorkspaceRecipe.Worklane {
         WorkspaceRecipe.Worklane(
             id: worklane.id.rawValue,
-            title: worklane.meaningfulTitle,
+            title: worklane.title,
             nextPaneNumber: worklane.nextPaneNumber,
             focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
             columns: worklane.paneStripState.columns.map { makeColumn($0, worklane: worklane) },
@@ -352,6 +362,7 @@ enum WorkspaceRecipeExporter {
 enum WorkspaceRecipeImporter {
     static func makeWorklanes(
         from window: WorkspaceRecipe.Window,
+        recipeSchemaVersion: Int? = nil,
         restoreDraftWindow: SessionRestoreDraftWindow? = nil,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
@@ -362,6 +373,7 @@ enum WorkspaceRecipeImporter {
             makeWorklane(
                 $0,
                 window: window,
+                recipeSchemaVersion: recipeSchemaVersion,
                 restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 layoutContext: layoutContext,
@@ -383,6 +395,7 @@ enum WorkspaceRecipeImporter {
     private static func makeWorklane(
         _ recipe: WorkspaceRecipe.Worklane,
         window: WorkspaceRecipe.Window,
+        recipeSchemaVersion: Int?,
         restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
@@ -405,9 +418,15 @@ enum WorkspaceRecipeImporter {
             )
         }
 
+        // Versioned recipes store titles verbatim; unversioned ones predate
+        // optional titles and need the legacy "MAIN"/"WS N" junk stripped.
+        let title = recipeSchemaVersion == nil
+            ? WorklaneState.meaningfulTitle(from: recipe.title)
+            : recipe.title
+
         return WorklaneState(
             id: worklaneID,
-            title: WorklaneState.meaningfulTitle(from: recipe.title) ?? "",
+            title: title,
             paneStripState: PaneStripState(
                 columns: columns,
                 focusedColumnID: recipe.focusedColumnID.map(PaneColumnID.init),
@@ -665,7 +684,13 @@ enum WorkspaceRecipeMeaningfulness {
             return true
         }
 
-        if WorklaneState.meaningfulTitle(from: worklane.title) != nil {
+        // Versioned recipes store titles verbatim, so any non-empty title is
+        // meaningful. Legacy recipes need the "MAIN"/"WS N" junk filtered or
+        // an old default workspace would never be considered disposable.
+        let meaningfulTitle = recipe.schemaVersion == nil
+            ? WorklaneState.meaningfulTitle(from: worklane.title)
+            : WorklaneContextFormatter.trimmed(worklane.title)
+        if meaningfulTitle != nil {
             return true
         }
 

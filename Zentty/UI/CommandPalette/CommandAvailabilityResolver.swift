@@ -148,6 +148,8 @@ enum CommandAvailabilityResolver {
             return context.focusedColumnPaneCount >= 2
         case .worklaneMoveUp, .worklaneMoveDown:
             return context.worklaneCount > 1
+        case .renameCurrentWorklane:
+            return context.worklaneCount >= 1
         case .nextWorklane, .previousWorklane:
             // The Worklane Peek handles the single-worklane case (hold opens
             // peek for in-lane pane picking), so keep these available

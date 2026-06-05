@@ -9,7 +9,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneB = PaneID("worklane-main-web")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneA, title: "api"),
@@ -61,7 +61,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -91,7 +91,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -116,7 +116,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -143,7 +143,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -192,7 +192,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -231,7 +231,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let auxiliaryState = PaneAuxiliaryState(presentation: presentation)
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -279,7 +279,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -299,7 +299,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -328,7 +328,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -355,7 +355,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -385,7 +385,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -419,7 +419,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -454,7 +454,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         var worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -500,7 +500,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let notesPaneID = PaneID("worklane-main-notes")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: focusedPaneID, title: "pane 1"),
@@ -529,7 +529,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -555,7 +555,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let secondPaneID = PaneID("worklane-main-pane-2")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: firstPaneID, title: "rails"),
@@ -589,7 +589,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let focusedPaneID = PaneID("worklane-main-pane-2")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: firstPaneID, title: "server"),
@@ -626,7 +626,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let thirdPaneID = PaneID("worklane-main-pane-3")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: firstPaneID, title: "server"),
@@ -668,7 +668,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-pane-1")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "pane 1")],
                 focusedPaneID: paneID
@@ -686,7 +686,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let agentPaneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -758,7 +758,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -823,7 +823,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "codex")],
                 focusedPaneID: paneID
@@ -868,7 +868,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "codex")],
                 focusedPaneID: paneID
@@ -910,7 +910,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -951,7 +951,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -965,6 +965,34 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.interactionKind, .auth)
         XCTAssertEqual(paneRow.interactionLabel, "Needs sign-in")
         XCTAssertEqual(paneRow.interactionSymbolName, "key.fill")
+    }
+
+    func test_builder_badge_uses_title_initials_and_falls_back_to_display_order() {
+        let paneID = PaneID("worklane-badge-shell")
+        let strip = PaneStripState(
+            panes: [PaneState(id: paneID, title: "shell")],
+            focusedPaneID: paneID
+        )
+
+        let titled = WorklaneSidebarSummaryBuilder.summary(
+            for: WorklaneState(
+                id: WorklaneID("worklane-titled"),
+                title: "Nimbu support",
+                paneStripState: strip
+            ),
+            isActive: false
+        )
+        XCTAssertEqual(titled.badgeText, "NS")
+
+        let untitled = WorklaneSidebarSummaryBuilder.summary(
+            for: WorklaneState(
+                id: WorklaneID("worklane-untitled"),
+                title: nil,
+                paneStripState: strip
+            ),
+            isActive: false
+        )
+        XCTAssertEqual(untitled.badgeText, "1")
     }
 
     func test_builder_keeps_meaningful_custom_worklane_title_as_quiet_top_label() {
@@ -997,7 +1025,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-sidebar-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-sidebar"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -1019,7 +1047,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.detailLines, [])
     }
 
-    func test_builder_omits_custom_worklane_title_when_it_repeats_primary_identity() {
+    func test_builder_keeps_custom_worklane_title_even_when_it_repeats_primary_identity() {
         let paneID = PaneID("worklane-sidebar-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-sidebar"),
@@ -1041,7 +1069,9 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let summary = WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: false)
 
-        XCTAssertNil(summary.topLabel)
+        // Titles display verbatim — a name matching the path leaf is still
+        // the user's explicit choice and must not be hidden.
+        XCTAssertEqual(summary.topLabel, "sidebar")
         XCTAssertEqual(summary.primaryText, "fix-pane-border-text-visibility · …/sidebar")
     }
 
@@ -1049,7 +1079,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -1090,7 +1120,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let notesPaneID = PaneID("worklane-main-pane-2")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -1135,7 +1165,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let notesPaneID = PaneID("worklane-main-pane-2")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -1184,7 +1214,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let fourthPaneID = PaneID("worklane-main-pane-3")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: firstPaneID, title: "shell"),
@@ -1237,7 +1267,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let secondaryPaneID = PaneID("worklane-main-pane-2")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: primaryPaneID, title: "pane 1"),
@@ -1278,7 +1308,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let worklanes = [
             WorklaneState(
                 id: apiWorklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: PaneID("worklane-api-shell"), title: "shell")],
                     focusedPaneID: PaneID("worklane-api-shell")
@@ -1294,7 +1324,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             ),
             WorklaneState(
                 id: srcApiWorklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: PaneID("worklane-src-api-shell"), title: "shell")],
                     focusedPaneID: PaneID("worklane-src-api-shell")
@@ -1333,7 +1363,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let worklanes = [
             WorklaneState(
                 id: firstWorklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: PaneID("worklane-one-shell"), title: "shell")],
                     focusedPaneID: PaneID("worklane-one-shell")
@@ -1349,7 +1379,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
             ),
             WorklaneState(
                 id: secondWorklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: PaneID("worklane-two-shell"), title: "shell")],
                     focusedPaneID: PaneID("worklane-two-shell")
@@ -1388,7 +1418,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let worklaneID = WorklaneID("worklane-solo")
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: PaneID("worklane-solo-shell"), title: "shell")],
                 focusedPaneID: PaneID("worklane-solo-shell")
@@ -1420,7 +1450,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let worklanes = [
             WorklaneState(
                 id: previewWorklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [
                         PaneState(id: shellPaneID, title: "shell"),
@@ -1488,7 +1518,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let backgroundPaneID = PaneID("worklane-main-background")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -1528,7 +1558,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1556,7 +1586,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1587,7 +1617,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1614,7 +1644,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let worklanes = [
             WorklaneState(
                 id: worklaneID,
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "agent")],
                     focusedPaneID: paneID
@@ -1648,7 +1678,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1684,7 +1714,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent-running")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-running"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1724,7 +1754,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent-compacting")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-agent-compacting"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1764,7 +1794,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-codex-running")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-codex-running"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1803,7 +1833,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-claude-running")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-claude-running"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1863,7 +1893,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-codex-title-only"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1884,7 +1914,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1952,7 +1982,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1971,7 +2001,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent-starting")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-starting"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -2032,7 +2062,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -2076,7 +2106,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -2098,7 +2128,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let paneID = PaneID("worklane-main-agent-path")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-path"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -2137,7 +2167,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let buildPaneID = PaneID("worklane-main-build")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -2180,7 +2210,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let agentPaneID = PaneID("worklane-main-agent")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),
@@ -2228,7 +2258,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         let agentPaneID = PaneID("worklane-main-agent-path")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main-path-multi"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: shellPaneID, title: "shell"),

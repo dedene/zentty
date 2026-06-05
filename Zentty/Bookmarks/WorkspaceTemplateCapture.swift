@@ -42,7 +42,7 @@ enum WorkspaceTemplateCapture {
         return WorkspaceTemplate(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             kind: kind,
-            title: WorklaneState.meaningfulTitle(from: worklane.title),
+            title: WorklaneContextFormatter.trimmed(worklane.title),
             color: worklane.color?.rawValue,
             projectRoot: projectRoot,
             nextPaneNumber: worklane.nextPaneNumber,

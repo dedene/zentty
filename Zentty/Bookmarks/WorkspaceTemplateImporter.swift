@@ -82,9 +82,12 @@ enum WorkspaceTemplateImporter {
             )
         }
 
+        // Templates need no legacy sanitization: app-created templates were
+        // captured through the old title filter (already clean), and
+        // hand-edited dotfile titles are deliberate — keep them verbatim.
         let worklane = WorklaneState(
             id: worklaneID,
-            title: template.title ?? "",
+            title: template.title,
             paneStripState: PaneStripState(
                 columns: columns,
                 focusedColumnID: template.focusedColumnID.flatMap { columnIDByTemplateID[$0] },

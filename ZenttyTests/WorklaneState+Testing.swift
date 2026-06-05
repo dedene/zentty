@@ -5,7 +5,7 @@ extension WorklaneState {
     /// Production code uses `auxiliaryStateByPaneID` directly.
     init(
         id: WorklaneID,
-        title: String,
+        title: String?,
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],

@@ -1,6 +1,56 @@
 import AppKit
 import Foundation
 
+/// Parses `worklane-rename` IPC arguments. `title == nil` means clear.
+/// Returns nil when neither `--clear` nor a `--title` value is present.
+/// Tokens are consumed left to right so flag-looking strings in value
+/// position stay values: `--title --clear` names the lane "--clear".
+enum WorklaneRenameIPCParser {
+    struct Parsed: Equatable {
+        var title: String?
+        var worklaneIDOverride: String?
+    }
+
+    static func parse(_ arguments: [String]) -> Parsed? {
+        var title: String?
+        var sawTitle = false
+        var sawClear = false
+        var worklaneIDOverride: String?
+
+        var index = 0
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--clear":
+                sawClear = true
+                index += 1
+            case "--title":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                title = arguments[index + 1]
+                sawTitle = true
+                index += 2
+            case "--id":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                worklaneIDOverride = arguments[index + 1]
+                index += 2
+            default:
+                index += 1
+            }
+        }
+
+        if sawClear {
+            return Parsed(title: nil, worklaneIDOverride: worklaneIDOverride)
+        }
+        guard sawTitle else {
+            return nil
+        }
+        return Parsed(title: title, worklaneIDOverride: worklaneIDOverride)
+    }
+}
+
 enum PaneIPCSubcommand: String {
     case split
     case grid
@@ -11,7 +61,19 @@ enum PaneIPCSubcommand: String {
     case layout
     case notify
     case worklaneColor = "worklane-color"
+    case worklaneRename = "worklane-rename"
     case theme
+}
+
+enum WorklaneCommandIPCError: LocalizedError {
+    case worklaneNotFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .worklaneNotFound(let id):
+            "No worklane with id '\(id)' in any window."
+        }
+    }
 }
 
 enum PaneThemeIPCError: LocalizedError {
@@ -298,7 +360,8 @@ enum PaneIPCHandler {
             throw PaneRoutingError.paneNotFound
         }
 
-        if subcommand != .list && subcommand != .worklaneColor && subcommand != .notify && subcommand != .theme {
+        if subcommand != .list && subcommand != .worklaneColor && subcommand != .worklaneRename
+            && subcommand != .notify && subcommand != .theme {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -325,7 +388,19 @@ enum PaneIPCHandler {
         case .notify:
             return try handleNotify(arguments: request.arguments, target: target, appDelegate: appDelegate)
         case .worklaneColor:
-            return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
+            return try handleWorklaneColor(
+                arguments: request.arguments,
+                target: target,
+                windowController: windowController,
+                appDelegate: appDelegate
+            )
+        case .worklaneRename:
+            return try handleWorklaneRename(
+                arguments: request.arguments,
+                target: target,
+                windowController: windowController,
+                appDelegate: appDelegate
+            )
         case .theme:
             return try handleTheme(arguments: request.arguments, windowController: windowController)
         }
@@ -455,8 +530,9 @@ enum PaneIPCHandler {
     private static func handleWorklaneColor(
         arguments: [String],
         target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
+        windowController: MainWindowController,
+        appDelegate: AppDelegate
+    ) throws -> AgentIPCResponseResult {
         guard let colorIndex = arguments.firstIndex(of: "--color"),
               colorIndex + 1 < arguments.count else {
             return AgentIPCResponseResult()
@@ -472,16 +548,69 @@ enum PaneIPCHandler {
             return AgentIPCResponseResult()
         }
 
-        let worklaneID: WorklaneID
-        if let overrideIndex = arguments.firstIndex(of: "--id"),
-           overrideIndex + 1 < arguments.count {
-            worklaneID = WorklaneID(arguments[overrideIndex + 1])
-        } else {
-            worklaneID = target.worklaneID
+        let resolved = try resolveWorklaneCommandTarget(
+            overrideID: overrideWorklaneID(in: arguments),
+            target: target,
+            callerWindowController: windowController,
+            appDelegate: appDelegate
+        )
+        _ = resolved.windowController.setWorklaneColor(resolvedColor, on: resolved.worklaneID)
+        return AgentIPCResponseResult()
+    }
+
+    @MainActor
+    private static func handleWorklaneRename(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController,
+        appDelegate: AppDelegate
+    ) throws -> AgentIPCResponseResult {
+        guard let parsed = WorklaneRenameIPCParser.parse(arguments) else {
+            return AgentIPCResponseResult()
         }
 
-        _ = windowController.setWorklaneColor(resolvedColor, on: worklaneID)
+        let resolved = try resolveWorklaneCommandTarget(
+            overrideID: parsed.worklaneIDOverride,
+            target: target,
+            callerWindowController: windowController,
+            appDelegate: appDelegate
+        )
+        _ = resolved.windowController.setWorklaneTitle(parsed.title, on: resolved.worklaneID)
         return AgentIPCResponseResult()
+    }
+
+    private static func overrideWorklaneID(in arguments: [String]) -> String? {
+        guard let overrideIndex = arguments.firstIndex(of: "--id"),
+              overrideIndex + 1 < arguments.count else {
+            return nil
+        }
+        return arguments[overrideIndex + 1]
+    }
+
+    /// Resolves the worklane a lane-scoped command targets. An explicit
+    /// `--id` may name a worklane in any window — `zentty worklane list`
+    /// spans all of them — so look beyond the caller's window and fail
+    /// loudly when the ID doesn't exist anywhere instead of reporting
+    /// success without doing anything.
+    @MainActor
+    private static func resolveWorklaneCommandTarget(
+        overrideID: String?,
+        target: AgentIPCTarget,
+        callerWindowController: MainWindowController,
+        appDelegate: AppDelegate
+    ) throws -> (windowController: MainWindowController, worklaneID: WorklaneID) {
+        guard let overrideID else {
+            return (callerWindowController, target.worklaneID)
+        }
+
+        let worklaneID = WorklaneID(overrideID)
+        if callerWindowController.containsWorklane(worklaneID) {
+            return (callerWindowController, worklaneID)
+        }
+        guard let owner = appDelegate.windowController(containingWorklane: worklaneID) else {
+            throw WorklaneCommandIPCError.worklaneNotFound(overrideID)
+        }
+        return (owner, worklaneID)
     }
 
     // MARK: - Split

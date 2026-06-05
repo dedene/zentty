@@ -216,13 +216,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         row.setWorklaneMoveAvailability(.init(canMoveUp: false, canMoveDown: false))
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
-            ["Close Worklane", "Worklane Color", "Bookmark Worklane…", "Save as Preset…"]
+            ["Rename Worklane…", "Close Worklane", "Worklane Color", "Bookmark Worklane…", "Save as Preset…"]
         )
 
         row.setWorklaneMoveAvailability(.init(canMoveUp: false, canMoveDown: true))
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Down",
                 "Worklane Color",
@@ -235,6 +236,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Up",
                 "Move Worklane Down",
@@ -248,6 +250,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Up",
                 "Worklane Color",
@@ -261,9 +264,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         let event = try makeContextMenuEvent()
         let row = makeRow()
         var closeCount = 0
+        var renameCount = 0
         var moves: [(WorklaneID, SidebarWorklaneMoveDirection)] = []
         row.onCloseWorklaneRequested = {
             closeCount += 1
+        }
+        row.onRenameWorklaneRequested = {
+            renameCount += 1
         }
         row.onWorklaneMoveRequested = { worklaneID, direction in
             moves.append((worklaneID, direction))
@@ -276,20 +283,24 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         let menu = try XCTUnwrap(row.menu(for: event))
+        let renameWorklane = try XCTUnwrap(menu.item(withTitle: "Rename Worklane…"))
         let closeWorklane = try XCTUnwrap(menu.item(withTitle: "Close Worklane"))
         let moveUp = try XCTUnwrap(menu.item(withTitle: "Move Worklane Up"))
         let moveDown = try XCTUnwrap(menu.item(withTitle: "Move Worklane Down"))
         let color = try XCTUnwrap(menu.item(withTitle: "Worklane Color"))
 
+        XCTAssertNotNil(renameWorklane.image)
         XCTAssertNotNil(closeWorklane.image)
         XCTAssertNotNil(moveUp.image)
         XCTAssertNotNil(moveDown.image)
         XCTAssertNotNil(color.image)
 
+        NSApp.sendAction(try XCTUnwrap(renameWorklane.action), to: renameWorklane.target, from: renameWorklane)
         NSApp.sendAction(try XCTUnwrap(closeWorklane.action), to: closeWorklane.target, from: closeWorklane)
         NSApp.sendAction(try XCTUnwrap(moveUp.action), to: moveUp.target, from: moveUp)
         NSApp.sendAction(try XCTUnwrap(moveDown.action), to: moveDown.target, from: moveDown)
 
+        XCTAssertEqual(renameCount, 1)
         XCTAssertEqual(closeCount, 1)
         XCTAssertEqual(moves.map(\.0), [WorklaneID("worklane-main"), WorklaneID("worklane-main")])
         XCTAssertEqual(moves.map(\.1), [.up, .down])
@@ -312,6 +323,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(menu),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Up",
                 "Move Worklane Down",
@@ -396,6 +408,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(menu),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Close Pane",
                 "Worklane Color",
@@ -1030,7 +1043,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID
@@ -1069,7 +1082,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "agent")],
                 focusedPaneID: paneID

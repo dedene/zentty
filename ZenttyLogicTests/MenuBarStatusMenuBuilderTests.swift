@@ -387,7 +387,7 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
             worklanes: [
                 WorklaneState(
                     id: worklaneID,
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [PaneState(id: paneID, title: "Claude Code")],
                         focusedPaneID: paneID

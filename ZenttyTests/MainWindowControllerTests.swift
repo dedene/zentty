@@ -313,7 +313,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.rootViewControllerForTesting.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -426,7 +426,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.rootViewControllerForTesting.replaceWorklanes([
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneID, title: "shell")],
                     focusedPaneID: paneID
@@ -900,8 +900,8 @@ final class MainWindowControllerTests: XCTestCase {
 
         controller.newWorklane(nil)
 
-        XCTAssertEqual(controller.worklaneTitles, ["", ""])
-        XCTAssertEqual(controller.activeWorklaneTitle, "")
+        XCTAssertEqual(controller.worklaneTitles, [nil, nil])
+        XCTAssertNil(controller.activeWorklaneTitle)
         XCTAssertEqual(controller.activePaneTitles, ["shell"])
     }
 
@@ -918,7 +918,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.newWorklane(nil)
         waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorklaneTitle, "")
+        XCTAssertNil(controller.activeWorklaneTitle)
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-a")
@@ -973,7 +973,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.newWorklane(nil)
         waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorklaneTitle, "")
+        XCTAssertNil(controller.activeWorklaneTitle)
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-right")
@@ -1800,7 +1800,7 @@ final class MainWindowControllerTests: XCTestCase {
 
         let worklane1 = WorklaneState(
             id: worklaneID1,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID1, title: "shell")],
                 focusedPaneID: paneID1
@@ -1808,7 +1808,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
         let worklane2 = WorklaneState(
             id: worklaneID2,
-            title: "WS 2",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID2, title: "shell")],
                 focusedPaneID: paneID2
@@ -1852,7 +1852,7 @@ final class MainWindowControllerTests: XCTestCase {
 
         let worklane1 = WorklaneState(
             id: worklaneID1,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID1, title: "shell")],
                 focusedPaneID: paneID1
@@ -1860,7 +1860,7 @@ final class MainWindowControllerTests: XCTestCase {
         )
         let worklane2 = WorklaneState(
             id: worklaneID2,
-            title: "WS 2",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID2, title: "shell")],
                 focusedPaneID: paneID2
@@ -1904,7 +1904,7 @@ final class MainWindowControllerTests: XCTestCase {
 
         let worklane = WorklaneState(
             id: worklaneID,
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: paneID1, title: "shell"),
@@ -1969,7 +1969,7 @@ final class MainWindowControllerTests: XCTestCase {
         let paneID = PaneID("pane-1")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [PaneState(id: paneID, title: "shell")],
                 focusedPaneID: paneID
@@ -1993,7 +1993,7 @@ final class MainWindowControllerTests: XCTestCase {
         let controller = makeController()
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [
                     PaneState(id: PaneID("pane-1"), title: "left"),
@@ -2018,7 +2018,7 @@ final class MainWindowControllerTests: XCTestCase {
         let controller = makeController()
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [
                     PaneColumnState(
@@ -2066,7 +2066,7 @@ final class MainWindowControllerTests: XCTestCase {
         let controller = makeController()
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 columns: [
                     PaneColumnState(

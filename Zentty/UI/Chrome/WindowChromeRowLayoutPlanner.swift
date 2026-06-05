@@ -3,6 +3,7 @@ import CoreGraphics
 enum WindowChromeRowLayoutPlanner {
     enum Kind {
         case attention
+        case worklaneTitle
         case proxyIcon
         case focusedLabel
         case remoteContext
@@ -40,6 +41,7 @@ enum WindowChromeRowLayoutPlanner {
         .focusedLabel,
         .remoteContext,
         .proxyIcon,
+        .worklaneTitle,
         .branch,
         .pullRequest,
     ]
@@ -82,7 +84,7 @@ enum WindowChromeRowLayoutPlanner {
                 &plannedItems,
                 availableWidth: availableWidth,
                 floorResolver: { $0.minimumWidth },
-                compressionOrder: [.attention, .focusedLabel, .remoteContext, .proxyIcon, .pullRequest, .branch]
+                compressionOrder: [.attention, .focusedLabel, .remoteContext, .proxyIcon, .worklaneTitle, .pullRequest, .branch]
             )
         }
 
@@ -180,6 +182,8 @@ enum WindowChromeRowLayoutPlanner {
         switch (previousKind, nextKind) {
         case (.proxyIcon, .focusedLabel), (.focusedLabel, .proxyIcon):
             return 4
+        case (.worklaneTitle, .proxyIcon), (.proxyIcon, .worklaneTitle):
+            return 8
         case (.reviewChip, .reviewChip):
             return 8
         case (.reviewChip, _), (_, .reviewChip):

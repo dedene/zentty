@@ -40,6 +40,9 @@ struct WorklaneRowLayoutMetrics: Equatable {
     let paneBottomInset: CGFloat
     let interlineSpacing: CGFloat
     let titleLineHeight: CGFloat
+    let titleSeparatorSpacing: CGFloat
+    let titleSeparatorHeight: CGFloat
+    let titleVerticalPadding: CGFloat
     let primaryLineHeight: CGFloat
     let statusLineHeight: CGFloat
     let detailLineHeight: CGFloat
@@ -53,6 +56,9 @@ struct WorklaneRowLayoutMetrics: Equatable {
         paneBottomInset: ShellMetrics.sidebarPaneRowVerticalInset,
         interlineSpacing: ShellMetrics.sidebarRowInterlineSpacing,
         titleLineHeight: ShellMetrics.sidebarTitleLineHeight,
+        titleSeparatorSpacing: ShellMetrics.sidebarTopLabelSeparatorSpacing,
+        titleSeparatorHeight: ShellMetrics.sidebarTopLabelSeparatorHeight,
+        titleVerticalPadding: ShellMetrics.sidebarTopLabelVerticalPadding,
         primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeight,
         statusLineHeight: ShellMetrics.sidebarStatusLineHeight,
         detailLineHeight: ShellMetrics.sidebarDetailLineHeight,
@@ -85,6 +91,16 @@ struct WorklaneRowLayoutMetrics: Equatable {
         detailLineHeight
     }
 
+    /// Height of the title header row: label plus the hairline separator
+    /// drawn beneath it (the header view owns both), padded top and bottom.
+    var titleRowHeight: CGFloat {
+        titleVerticalPadding
+            + titleLineHeight
+            + titleSeparatorSpacing
+            + titleSeparatorHeight
+            + titleVerticalPadding
+    }
+
     func rowHeight(
         includesTopLabel: Bool,
         includesStatus: Bool,
@@ -93,7 +109,7 @@ struct WorklaneRowLayoutMetrics: Equatable {
     ) -> CGFloat {
         let clampedDetailLineCount = max(0, detailLineCount)
         let visibleLineHeights: [CGFloat] = [
-            includesTopLabel ? titleLineHeight : nil,
+            includesTopLabel ? titleRowHeight : nil,
             primaryLineHeight,
             includesStatus ? statusLineHeight : nil,
         ]
@@ -131,7 +147,7 @@ struct WorklaneRowLayoutMetrics: Equatable {
     private func lineHeight(for row: WorklaneRowTextRow) -> CGFloat {
         switch row {
         case .topLabel:
-            return titleLineHeight
+            return titleRowHeight
         case .primary:
             return primaryLineHeight
         case .contextPrefix:

@@ -14,7 +14,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let worklanes = [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [mainShell],
                     focusedPaneID: mainShell.id
@@ -22,7 +22,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             ),
             WorklaneState(
                 id: WorklaneID("worklane-2"),
-                title: "WS 2",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [webShell],
                     focusedPaneID: webShell.id
@@ -75,7 +75,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let worklanes = [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [mainShell, mainEditor],
                     focusedPaneID: mainEditor.id
@@ -83,7 +83,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             ),
             WorklaneState(
                 id: WorklaneID("worklane-2"),
-                title: "WS 2",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [hiddenShell],
                     focusedPaneID: hiddenShell.id
@@ -134,7 +134,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let worklanes = [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [mainShell],
                     focusedPaneID: mainShell.id
@@ -142,7 +142,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             ),
             WorklaneState(
                 id: WorklaneID("worklane-2"),
-                title: "WS 2",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [peekShell],
                     focusedPaneID: peekShell.id
@@ -196,12 +196,12 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let initialWorklanes = [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(panes: [mainShell], focusedPaneID: mainShell.id)
             ),
             WorklaneState(
                 id: WorklaneID("worklane-2"),
-                title: "WS 2",
+                title: nil,
                 paneStripState: PaneStripState(panes: [peekShell], focusedPaneID: peekShell.id)
             ),
         ]
@@ -229,7 +229,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let nextWorklanes = initialWorklanes + [
             WorklaneState(
                 id: WorklaneID("worklane-3"),
-                title: "WS 3",
+                title: nil,
                 paneStripState: PaneStripState(panes: [nextShell], focusedPaneID: nextShell.id)
             ),
         ]
@@ -274,7 +274,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         registry.synchronize(with: [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [shell, editor],
                     focusedPaneID: editor.id
@@ -286,7 +286,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         registry.synchronize(with: [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [shell],
                     focusedPaneID: shell.id
@@ -380,7 +380,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         registry.synchronize(with: [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [shell, split],
                     focusedPaneID: split.id
@@ -392,7 +392,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             worklanes: [
                 WorklaneState(
                     id: WorklaneID("worklane-main"),
-                    title: "MAIN",
+                    title: nil,
                     paneStripState: PaneStripState(
                         panes: [shell, split],
                         focusedPaneID: split.id
@@ -431,7 +431,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let worklanes = [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [shell],
                     focusedPaneID: shell.id
@@ -439,7 +439,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             ),
             WorklaneState(
                 id: WorklaneID("worklane-2"),
-                title: "WS 2",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [newWorklaneShell],
                     focusedPaneID: newWorklaneShell.id
@@ -474,7 +474,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         registry.synchronize(with: [
             WorklaneState(
                 id: WorklaneID("worklane-main"),
-                title: "MAIN",
+                title: nil,
                 paneStripState: PaneStripState(
                     panes: [shell, editor],
                     focusedPaneID: editor.id
@@ -506,7 +506,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
 
         let worklane = WorklaneState(
             id: WorklaneID("worklane-main"),
-            title: "MAIN",
+            title: nil,
             paneStripState: PaneStripState(
                 panes: [shell],
                 focusedPaneID: shell.id
