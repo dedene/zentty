@@ -38,10 +38,24 @@ final class WorklaneRenameIPCParserTests: XCTestCase {
     }
 
     func test_parse_allows_titles_that_look_like_flags() {
-        // A worklane can legitimately be named "reset" or "--clear-ish";
-        // only the literal --clear flag clears.
-        let parsed = WorklaneRenameIPCParser.parse(["--title", "reset"])
+        // A worklane can legitimately be named "reset" or even "--clear";
+        // tokens are consumed left to right, so flag-looking strings in
+        // value position stay values.
+        XCTAssertEqual(
+            WorklaneRenameIPCParser.parse(["--title", "reset"]),
+            .init(title: "reset", worklaneIDOverride: nil)
+        )
+        XCTAssertEqual(
+            WorklaneRenameIPCParser.parse(["--title", "--clear"]),
+            .init(title: "--clear", worklaneIDOverride: nil)
+        )
+        XCTAssertEqual(
+            WorklaneRenameIPCParser.parse(["--id", "--title", "--title", "Docs"]),
+            .init(title: "Docs", worklaneIDOverride: "--title")
+        )
+    }
 
-        XCTAssertEqual(parsed, .init(title: "reset", worklaneIDOverride: nil))
+    func test_parse_rejects_dangling_flags() {
+        XCTAssertNil(WorklaneRenameIPCParser.parse(["--title", "Docs", "--id"]))
     }
 }

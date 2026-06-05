@@ -3,6 +3,8 @@ import Foundation
 
 /// Parses `worklane-rename` IPC arguments. `title == nil` means clear.
 /// Returns nil when neither `--clear` nor a `--title` value is present.
+/// Tokens are consumed left to right so flag-looking strings in value
+/// position stay values: `--title --clear` names the lane "--clear".
 enum WorklaneRenameIPCParser {
     struct Parsed: Equatable {
         var title: String?
@@ -10,22 +12,41 @@ enum WorklaneRenameIPCParser {
     }
 
     static func parse(_ arguments: [String]) -> Parsed? {
-        let title: String?
-        if arguments.contains("--clear") {
-            title = nil
-        } else if let titleIndex = arguments.firstIndex(of: "--title"),
-                  titleIndex + 1 < arguments.count {
-            title = arguments[titleIndex + 1]
-        } else {
+        var title: String?
+        var sawTitle = false
+        var sawClear = false
+        var worklaneIDOverride: String?
+
+        var index = 0
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--clear":
+                sawClear = true
+                index += 1
+            case "--title":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                title = arguments[index + 1]
+                sawTitle = true
+                index += 2
+            case "--id":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                worklaneIDOverride = arguments[index + 1]
+                index += 2
+            default:
+                index += 1
+            }
+        }
+
+        if sawClear {
+            return Parsed(title: nil, worklaneIDOverride: worklaneIDOverride)
+        }
+        guard sawTitle else {
             return nil
         }
-
-        var worklaneIDOverride: String?
-        if let overrideIndex = arguments.firstIndex(of: "--id"),
-           overrideIndex + 1 < arguments.count {
-            worklaneIDOverride = arguments[overrideIndex + 1]
-        }
-
         return Parsed(title: title, worklaneIDOverride: worklaneIDOverride)
     }
 }
