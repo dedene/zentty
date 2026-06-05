@@ -59,6 +59,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private var isPaneRowHovered = false
     private var trackingArea: NSTrackingArea?
     private var heightConstraint: NSLayoutConstraint?
+    private var topLabelLeadingConstraint: NSLayoutConstraint?
     private var textStackTopConstraint: NSLayoutConstraint?
     private var textStackBottomConstraint: NSLayoutConstraint?
     private var primaryTextHeightConstraint: NSLayoutConstraint?
@@ -551,6 +552,12 @@ final class SidebarWorklaneRowButton: NSButton {
         applyTextStackVerticalInsets(renderPlan)
 
         topLabel.stringValue = summary.topLabel ?? ""
+        // Align the title with pane-row text (indented inside the pane
+        // button); paneless lanes render primary text un-indented, so the
+        // title follows suit there.
+        topLabelLeadingConstraint?.constant = summary.paneRows.isEmpty
+            ? 0
+            : ShellMetrics.sidebarPaneButtonHorizontalInset
         overflowLabel.stringValue = summary.overflowText ?? ""
         contextPrefixLabel.stringValue = summary.contextPrefixText ?? ""
         if summary.paneRows.isEmpty {
@@ -1028,15 +1035,22 @@ final class SidebarWorklaneRowButton: NSButton {
 
     /// Composes the title header: label with a hairline separator below,
     /// rendered as one row so the layout's titleRowHeight stays in lockstep.
+    /// The label's leading inset is adjusted at configure time so the title
+    /// lines up with pane-row text (which is indented inside its button).
     private func configureTopLabelHeader() {
         topLabelHeaderView.translatesAutoresizingMaskIntoConstraints = false
         topLabelSeparator.translatesAutoresizingMaskIntoConstraints = false
         topLabelSeparator.wantsLayer = true
         topLabelHeaderView.addSubview(topLabel)
         topLabelHeaderView.addSubview(topLabelSeparator)
+        let topLabelLeading = topLabel.leadingAnchor.constraint(
+            equalTo: topLabelHeaderView.leadingAnchor,
+            constant: ShellMetrics.sidebarPaneButtonHorizontalInset
+        )
+        topLabelLeadingConstraint = topLabelLeading
         NSLayoutConstraint.activate([
             topLabel.topAnchor.constraint(equalTo: topLabelHeaderView.topAnchor),
-            topLabel.leadingAnchor.constraint(equalTo: topLabelHeaderView.leadingAnchor),
+            topLabelLeading,
             topLabel.trailingAnchor.constraint(equalTo: topLabelHeaderView.trailingAnchor),
             topLabelSeparator.topAnchor.constraint(
                 equalTo: topLabel.bottomAnchor,
