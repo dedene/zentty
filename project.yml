@@ -119,6 +119,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
         GlitchTipDSN: $(GLITCHTIP_DSN)
+        NSMicrophoneUsageDescription: A program running within Zentty would like to use your microphone.
         SUAutomaticallyUpdate: false
         SUEnableAutomaticChecks: true
         SUFeedURL: $(SPARKLE_FEED_URL)

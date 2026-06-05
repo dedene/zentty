@@ -61,6 +61,22 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         XCTAssertTrue(projectYAML.contains("rsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\""))
     }
 
+    func test_app_privacy_configuration_declares_microphone_access_for_terminal_voice_input() throws {
+        let repoRoot = repoRootURL()
+        let entitlements = try propertyListDictionary(
+            at: repoRoot.appendingPathComponent("Zentty/Zentty.entitlements")
+        )
+        let infoPlist = try propertyListDictionary(
+            at: repoRoot.appendingPathComponent("Zentty/Info.plist")
+        )
+
+        XCTAssertEqual(entitlements["com.apple.security.device.audio-input"] as? Bool, true)
+        XCTAssertEqual(
+            infoPlist["NSMicrophoneUsageDescription"] as? String,
+            "A program running within Zentty would like to use your microphone."
+        )
+    }
+
     func test_bundled_zero_config_defaults_inline_zentty_default_theme_palette_and_visual_defaults() throws {
         let defaultsURL = repoRootURL().appendingPathComponent("ZenttyResources/ghostty/zentty-defaults.ghostty")
         let defaults = try String(contentsOf: defaultsURL, encoding: .utf8)
@@ -109,5 +125,15 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func propertyListDictionary(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        let propertyList = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        )
+        return try XCTUnwrap(propertyList as? [String: Any])
     }
 }
