@@ -1,6 +1,35 @@
 import AppKit
 import Foundation
 
+/// Parses `worklane-rename` IPC arguments. `title == nil` means clear.
+/// Returns nil when neither `--clear` nor a `--title` value is present.
+enum WorklaneRenameIPCParser {
+    struct Parsed: Equatable {
+        var title: String?
+        var worklaneIDOverride: String?
+    }
+
+    static func parse(_ arguments: [String]) -> Parsed? {
+        let title: String?
+        if arguments.contains("--clear") {
+            title = nil
+        } else if let titleIndex = arguments.firstIndex(of: "--title"),
+                  titleIndex + 1 < arguments.count {
+            title = arguments[titleIndex + 1]
+        } else {
+            return nil
+        }
+
+        var worklaneIDOverride: String?
+        if let overrideIndex = arguments.firstIndex(of: "--id"),
+           overrideIndex + 1 < arguments.count {
+            worklaneIDOverride = arguments[overrideIndex + 1]
+        }
+
+        return Parsed(title: title, worklaneIDOverride: worklaneIDOverride)
+    }
+}
+
 enum PaneIPCSubcommand: String {
     case split
     case grid
@@ -11,6 +40,7 @@ enum PaneIPCSubcommand: String {
     case layout
     case notify
     case worklaneColor = "worklane-color"
+    case worklaneRename = "worklane-rename"
     case theme
 }
 
@@ -298,7 +328,8 @@ enum PaneIPCHandler {
             throw PaneRoutingError.paneNotFound
         }
 
-        if subcommand != .list && subcommand != .worklaneColor && subcommand != .notify && subcommand != .theme {
+        if subcommand != .list && subcommand != .worklaneColor && subcommand != .worklaneRename
+            && subcommand != .notify && subcommand != .theme {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -326,6 +357,8 @@ enum PaneIPCHandler {
             return try handleNotify(arguments: request.arguments, target: target, appDelegate: appDelegate)
         case .worklaneColor:
             return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
+        case .worklaneRename:
+            return handleWorklaneRename(arguments: request.arguments, target: target, windowController: windowController)
         case .theme:
             return try handleTheme(arguments: request.arguments, windowController: windowController)
         }
@@ -481,6 +514,21 @@ enum PaneIPCHandler {
         }
 
         _ = windowController.setWorklaneColor(resolvedColor, on: worklaneID)
+        return AgentIPCResponseResult()
+    }
+
+    @MainActor
+    private static func handleWorklaneRename(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController
+    ) -> AgentIPCResponseResult {
+        guard let parsed = WorklaneRenameIPCParser.parse(arguments) else {
+            return AgentIPCResponseResult()
+        }
+
+        let worklaneID = parsed.worklaneIDOverride.map(WorklaneID.init) ?? target.worklaneID
+        _ = windowController.setWorklaneTitle(parsed.title, on: worklaneID)
         return AgentIPCResponseResult()
     }
 

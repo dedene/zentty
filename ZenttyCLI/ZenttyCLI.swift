@@ -726,6 +726,41 @@ struct WorklaneColorCommand: ParsableCommand {
     }
 }
 
+struct WorklaneRenameCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rename",
+        abstract: "Set or clear the optional title of a worklane.",
+        discussion: "The title shows as a header above the worklane in the sidebar and left of the proxy icon in the titlebar. Use --clear to remove it."
+    )
+
+    @Argument(help: "New worklane title. Omit when using --clear.")
+    var title: String?
+
+    @Option(help: "Target a specific worklane (defaults to the calling pane's worklane).")
+    var id: String?
+
+    @Flag(help: "Clear the worklane title.")
+    var clear: Bool = false
+
+    mutating func run() throws {
+        if clear, title != nil {
+            throw ValidationError("Provide either a title or --clear, not both.")
+        }
+        var arguments: [String]
+        if clear {
+            arguments = ["--clear"]
+        } else if let title {
+            arguments = ["--title", title]
+        } else {
+            throw ValidationError("Missing title. Provide a title or use --clear.")
+        }
+        if let id {
+            arguments.append(contentsOf: ["--id", id])
+        }
+        _ = try PaneIPC.send(subcommand: "worklane-rename", arguments: arguments)
+    }
+}
+
 struct PaneZoomCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "zoom",
