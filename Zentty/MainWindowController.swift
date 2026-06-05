@@ -322,6 +322,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.refreshWindowTitle()
             self?.onWorkspaceStateDidChange?()
         }
+        // Restored workspaces set their state before this closure exists, so
+        // sync once here or a titled active lane keeps the launch placeholder
+        // until the first state change.
+        refreshWindowTitle()
         window.suppressionTargetAtPoint = { [weak rootViewController] point, eventType in
             rootViewController?.windowDragSuppressionTarget(at: point, eventType: eventType)
         }

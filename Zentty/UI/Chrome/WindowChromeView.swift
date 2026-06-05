@@ -1038,6 +1038,10 @@ final class WindowChromeView: NSView {
         switch (previousKind, nextKind) {
         case (.proxyIcon, .focusedLabel), (.focusedLabel, .proxyIcon):
             return 4
+        // Keep in lockstep with WindowChromeRowLayoutPlanner.spacing — the
+        // planner sizes rows with these values and layout places them.
+        case (.worklaneTitle, .proxyIcon), (.proxyIcon, .worklaneTitle):
+            return 8
         case (.reviewChip, .reviewChip):
             return Self.reviewChipSpacing
         case (.reviewChip, _), (_, .reviewChip):
