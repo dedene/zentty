@@ -17,6 +17,8 @@ final class SidebarWorklaneRowButton: NSButton {
     let worklaneID: WorklaneID?
 
     private let topLabel = SidebarStaticLabel()
+    private let topLabelSeparator = NSView()
+    private let topLabelHeaderView = NSView()
     private let primaryTextContainer = SidebarPrimaryTextContainerView()
     private let primaryBaseLabel = SidebarStaticLabel()
     private let primaryLabel = SidebarShimmerTextView()
@@ -162,6 +164,7 @@ final class SidebarWorklaneRowButton: NSButton {
             font: ShellMetrics.sidebarTitleFont(),
             lineBreakMode: .byTruncatingTail
         )
+        configureTopLabelHeader()
         configureLabel(
             primaryBaseLabel,
             font: ShellMetrics.sidebarPrimaryFont(),
@@ -774,6 +777,7 @@ final class SidebarWorklaneRowButton: NSButton {
             activeTextColor: activeTextColor,
             theme: currentTheme
         )
+        topLabelSeparator.layer?.backgroundColor = currentTheme.sidebarBorder.cgColor
         overflowLabel.textColor = SidebarWorklaneRowStyleResolver.overflowTextColor(
             isActive: summary.isActive,
             activeTextColor: activeTextColor,
@@ -1022,9 +1026,34 @@ final class SidebarWorklaneRowButton: NSButton {
 
     // MARK: - Layout Composition
 
+    /// Composes the title header: label with a hairline separator below,
+    /// rendered as one row so the layout's titleRowHeight stays in lockstep.
+    private func configureTopLabelHeader() {
+        topLabelHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        topLabelSeparator.translatesAutoresizingMaskIntoConstraints = false
+        topLabelSeparator.wantsLayer = true
+        topLabelHeaderView.addSubview(topLabel)
+        topLabelHeaderView.addSubview(topLabelSeparator)
+        NSLayoutConstraint.activate([
+            topLabel.topAnchor.constraint(equalTo: topLabelHeaderView.topAnchor),
+            topLabel.leadingAnchor.constraint(equalTo: topLabelHeaderView.leadingAnchor),
+            topLabel.trailingAnchor.constraint(equalTo: topLabelHeaderView.trailingAnchor),
+            topLabelSeparator.topAnchor.constraint(
+                equalTo: topLabel.bottomAnchor,
+                constant: ShellMetrics.sidebarTopLabelSeparatorSpacing
+            ),
+            topLabelSeparator.leadingAnchor.constraint(equalTo: topLabelHeaderView.leadingAnchor),
+            topLabelSeparator.trailingAnchor.constraint(equalTo: topLabelHeaderView.trailingAnchor),
+            topLabelSeparator.heightAnchor.constraint(
+                equalToConstant: ShellMetrics.sidebarTopLabelSeparatorHeight
+            ),
+            topLabelSeparator.bottomAnchor.constraint(equalTo: topLabelHeaderView.bottomAnchor),
+        ])
+    }
+
     private func contentLabels() -> SidebarWorklaneRowContentRenderer.Labels {
         SidebarWorklaneRowContentRenderer.Labels(
-            topLabel: topLabel,
+            topLabel: topLabelHeaderView,
             primaryTextContainer: primaryTextContainer,
             contextPrefixLabel: contextPrefixLabel,
             statusContentStack: statusContentStack,

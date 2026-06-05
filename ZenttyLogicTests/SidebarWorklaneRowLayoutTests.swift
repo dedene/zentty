@@ -209,6 +209,37 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
         )
     }
 
+    func test_layout_title_row_includes_separator_extent() {
+        let titled = SidebarWorklaneRowLayout(summary: makeSummary(
+            topLabel: "Nimbu support",
+            detailLines: [
+                WorklaneSidebarDetailLine(text: "main • git", emphasis: .secondary),
+            ]
+        ))
+        let untitled = SidebarWorklaneRowLayout(summary: makeSummary(
+            detailLines: [
+                WorklaneSidebarDetailLine(text: "main • git", emphasis: .secondary),
+            ]
+        ))
+
+        XCTAssertEqual(titled.visibleTextRows.first, .topLabel)
+        XCTAssertEqual(
+            titled.rowHeight - untitled.rowHeight,
+            ShellMetrics.sidebarTitleLineHeight
+                + ShellMetrics.sidebarTopLabelSeparatorSpacing
+                + ShellMetrics.sidebarTopLabelSeparatorHeight
+                + ShellMetrics.sidebarRowInterlineSpacing,
+            accuracy: 0.001
+        )
+
+        let metrics = WorklaneRowLayoutMetrics.sidebar
+        XCTAssertEqual(
+            metrics.titleRowHeight,
+            metrics.titleLineHeight + metrics.titleSeparatorSpacing + metrics.titleSeparatorHeight,
+            accuracy: 0.001
+        )
+    }
+
     func test_layout_supports_more_than_three_detail_lines_without_overflow_row() {
         let layout = SidebarWorklaneRowLayout(summary: makeSummary(
             detailLines: [
