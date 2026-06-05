@@ -23,6 +23,7 @@ enum ShortcutCategory: String, CaseIterable, Equatable, Sendable {
 enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case toggleSidebar = "sidebar.toggle"
     case newWorklane = "worklane.new"
+    case renameCurrentWorklane = "worklane.rename"
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
     case worklaneMoveUp = "worklane.move_up"
@@ -93,6 +94,7 @@ struct ShortcutBindingOverride: Equatable, Sendable {
 enum AppAction: Equatable, Sendable {
     case toggleSidebar
     case newWorklane
+    case renameCurrentWorklane
     case nextWorklane
     case previousWorklane
     case moveWorklaneUp
@@ -213,6 +215,21 @@ enum AppCommandRegistry {
                 section: .file,
                 title: "New Worklane",
                 selector: #selector(MainWindowController.newWorklane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .renameCurrentWorklane,
+            title: "Rename Worklane\u{2026}",
+            category: .worklanes,
+            // No default: the left-hand preset already claims ⌘⇧R for
+            // splitVertically in configs saved before this command existed,
+            // and a new default would silently drop that explicit binding.
+            defaultShortcut: nil,
+            action: .renameCurrentWorklane,
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Rename Worklane\u{2026}",
+                selector: #selector(MainWindowController.renameCurrentWorklane(_:))
             )
         ),
         AppCommandDefinition(
@@ -858,6 +875,7 @@ enum AppCommandRegistry {
         .file: [
             .command(.newWindow),
             .command(.newWorklane),
+            .command(.renameCurrentWorklane),
             .separator,
             .command(.closeFocusedPane),
             .command(.restoreClosedPane),
@@ -962,6 +980,8 @@ extension AppCommandDefinition {
             "Go forward again after navigating back."
         case .newWorklane:
             "Open a new worklane."
+        case .renameCurrentWorklane:
+            "Give the active worklane a custom name, or clear it."
         case .nextWorklane:
             "Switch to the next worklane."
         case .previousWorklane:

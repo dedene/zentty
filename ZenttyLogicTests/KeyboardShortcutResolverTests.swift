@@ -525,6 +525,54 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertEqual(manager.commandID(for: .init(key: .character("t"), modifiers: [.command])), .newWorklane)
     }
 
+    func test_rename_worklane_command_is_registered_without_default_shortcut() {
+        let definition = AppCommandRegistry.definition(for: .renameCurrentWorklane)
+
+        // Deliberately unbound by default: the left-hand preset claims ⌘⇧R
+        // for splitVertically in configs saved before this command existed,
+        // and a new default would silently drop that explicit binding.
+        XCTAssertNil(definition.defaultShortcut)
+        XCTAssertEqual(definition.action, .renameCurrentWorklane)
+        XCTAssertFalse(definition.detailDescription.isEmpty)
+        XCTAssertEqual(definition.menuItem?.section, .file)
+
+        let fileEntries = AppCommandRegistry.menuEntriesBySection[.file] ?? []
+        XCTAssertTrue(fileEntries.contains { entry in
+            if case .command(.renameCurrentWorklane) = entry { return true }
+            return false
+        })
+
+        XCTAssertNil(ShortcutManager(shortcuts: .default).shortcut(for: .renameCurrentWorklane))
+    }
+
+    func test_rename_worklane_command_is_user_bindable() {
+        let shortcut = KeyboardShortcut(key: .character("r"), modifiers: [.command, .shift])
+        let manager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .renameCurrentWorklane,
+                        shortcut: shortcut
+                    )
+                ]
+            )
+        )
+
+        XCTAssertEqual(manager.shortcut(for: .renameCurrentWorklane), shortcut)
+        XCTAssertEqual(manager.commandID(for: shortcut), .renameCurrentWorklane)
+    }
+
+    func test_rename_worklane_available_whenever_a_worklane_exists() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 1,
+            activePaneCount: 1,
+            totalPaneCount: 1,
+            focusedPaneHasRememberedSearch: false
+        )
+
+        XCTAssertTrue(available.contains(.renameCurrentWorklane))
+    }
+
     func test_bindings_without_command_control_or_option_are_rejected() {
         let shortcuts = AppConfig.Shortcuts(
             bindings: [

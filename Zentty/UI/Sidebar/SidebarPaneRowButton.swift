@@ -74,6 +74,7 @@ struct SidebarWorklaneContextMenuContext {
 struct SidebarWorklaneContextMenuActions {
     var target: AnyObject
     var runRestoredCommandAction: Selector?
+    var renameWorklaneAction: Selector
     var closeWorklaneAction: Selector
     var closePaneAction: Selector?
     var moveUpAction: Selector
@@ -188,6 +189,16 @@ enum SidebarWorklaneContextMenu {
             menu.addItem(item)
             menu.addItem(.separator())
         }
+
+        menu.addItem(
+            SidebarContextMenu.item(
+                title: "Rename Worklane\u{2026}",
+                action: actions.renameWorklaneAction,
+                target: actions.target,
+                symbolName: "pencil",
+                fallbackSymbolName: "square.and.pencil"
+            )
+        )
 
         menu.addItem(
             SidebarContextMenu.item(
@@ -510,6 +521,7 @@ final class SidebarPaneRowButton: NSButton {
     var onPaneClicked: ((PaneID) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
     var onCloseWorklane: (() -> Void)?
+    var onRenameWorklane: (() -> Void)?
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
@@ -755,6 +767,7 @@ final class SidebarPaneRowButton: NSButton {
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
                 runRestoredCommandAction: #selector(handleRunRestoredCommand),
+                renameWorklaneAction: #selector(handleRenameWorklane),
                 closeWorklaneAction: #selector(handleCloseWorklane),
                 closePaneAction: #selector(handleClosePane),
                 moveUpAction: #selector(handleMoveWorklaneUp),
@@ -778,6 +791,10 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleCloseWorklane() {
         onCloseWorklane?()
+    }
+
+    @objc private func handleRenameWorklane() {
+        onRenameWorklane?()
     }
 
     @objc private func handleClosePane() {

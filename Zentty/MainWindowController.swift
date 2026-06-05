@@ -481,6 +481,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func renameCurrentWorklane(_ sender: Any?) {
+        handle(.renameCurrentWorklane)
+    }
+
+    @objc
     func openBookmarksPopover(_ sender: Any?) {
         handle(.openBookmarksPopover)
     }
@@ -1117,6 +1122,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @discardableResult
     func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
         rootViewController.setWorklaneColor(color, on: id)
+    }
+
+    @discardableResult
+    func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
+        rootViewController.setWorklaneTitle(title, on: id)
     }
 
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {

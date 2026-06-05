@@ -5,6 +5,7 @@ final class SidebarPaneRowRenderer {
     struct Callbacks {
         var onPaneSelected: ((PaneID) -> Void)?
         var onCloseWorklaneRequested: (() -> Void)?
+        var onRenameWorklaneRequested: (() -> Void)?
         var onClosePaneRequested: ((PaneID) -> Void)?
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
@@ -113,6 +114,7 @@ final class SidebarPaneRowRenderer {
             button.setAccessibilityLabel(paneRow.primaryText)
             button.onPaneClicked = callbacks.onPaneSelected
             button.onCloseWorklane = callbacks.onCloseWorklaneRequested
+            button.onRenameWorklane = callbacks.onRenameWorklaneRequested
             button.onClosePane = callbacks.onClosePaneRequested
             button.onSplitHorizontal = callbacks.onSplitHorizontalRequested
             button.onSplitVertical = callbacks.onSplitVerticalRequested

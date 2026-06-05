@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class SidebarWorklaneRowMenuController: NSObject {
     var onCloseWorklaneRequested: (() -> Void)?
+    var onRenameWorklaneRequested: (() -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
@@ -37,6 +38,7 @@ final class SidebarWorklaneRowMenuController: NSObject {
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
                 runRestoredCommandAction: nil,
+                renameWorklaneAction: #selector(handleRenameWorklane),
                 closeWorklaneAction: #selector(handleCloseWorklane),
                 closePaneAction: nil,
                 moveUpAction: #selector(handleMoveWorklaneUp),
@@ -60,6 +62,11 @@ final class SidebarWorklaneRowMenuController: NSObject {
     @objc
     private func handleCloseWorklane() {
         onCloseWorklaneRequested?()
+    }
+
+    @objc
+    private func handleRenameWorklane() {
+        onRenameWorklaneRequested?()
     }
 
     @objc

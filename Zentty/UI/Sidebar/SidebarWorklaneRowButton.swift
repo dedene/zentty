@@ -71,6 +71,7 @@ final class SidebarWorklaneRowButton: NSButton {
 
     var onPaneSelected: ((PaneID) -> Void)?
     var onCloseWorklaneRequested: (() -> Void)?
+    var onRenameWorklaneRequested: (() -> Void)?
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
@@ -298,6 +299,7 @@ final class SidebarWorklaneRowButton: NSButton {
 
     private func syncMenuControllerCallbacks() {
         menuController.onCloseWorklaneRequested = onCloseWorklaneRequested
+        menuController.onRenameWorklaneRequested = onRenameWorklaneRequested
         menuController.onWorklaneColorChanged = onWorklaneColorChanged
         menuController.onWorklaneMoveRequested = onWorklaneMoveRequested
         menuController.onBookmarkAction = onBookmarkAction
@@ -693,6 +695,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 },
                 onCloseWorklaneRequested: { [weak self] in
                     self?.onCloseWorklaneRequested?()
+                },
+                onRenameWorklaneRequested: { [weak self] in
+                    self?.onRenameWorklaneRequested?()
                 },
                 onClosePaneRequested: { [weak self] paneID in
                     self?.onClosePaneRequested?(paneID)

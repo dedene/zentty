@@ -757,6 +757,7 @@ final class SidebarViewRenderTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(buttons[0].menu(for: event)),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Down",
                 "Worklane Color",
@@ -767,6 +768,7 @@ final class SidebarViewRenderTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(buttons[1].menu(for: event)),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Up",
                 "Move Worklane Down",
@@ -778,6 +780,7 @@ final class SidebarViewRenderTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(buttons[2].menu(for: event)),
             [
+                "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Up",
                 "Worklane Color",
