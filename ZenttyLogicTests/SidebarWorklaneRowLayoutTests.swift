@@ -228,6 +228,7 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
             ShellMetrics.sidebarTitleLineHeight
                 + ShellMetrics.sidebarTopLabelSeparatorSpacing
                 + ShellMetrics.sidebarTopLabelSeparatorHeight
+                + ShellMetrics.sidebarTopLabelVerticalPadding * 2
                 + ShellMetrics.sidebarRowInterlineSpacing,
             accuracy: 0.001
         )
@@ -235,7 +236,11 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
         let metrics = WorklaneRowLayoutMetrics.sidebar
         XCTAssertEqual(
             metrics.titleRowHeight,
-            metrics.titleLineHeight + metrics.titleSeparatorSpacing + metrics.titleSeparatorHeight,
+            metrics.titleVerticalPadding
+                + metrics.titleLineHeight
+                + metrics.titleSeparatorSpacing
+                + metrics.titleSeparatorHeight
+                + metrics.titleVerticalPadding,
             accuracy: 0.001
         )
     }

@@ -42,6 +42,7 @@ struct WorklaneRowLayoutMetrics: Equatable {
     let titleLineHeight: CGFloat
     let titleSeparatorSpacing: CGFloat
     let titleSeparatorHeight: CGFloat
+    let titleVerticalPadding: CGFloat
     let primaryLineHeight: CGFloat
     let statusLineHeight: CGFloat
     let detailLineHeight: CGFloat
@@ -57,6 +58,7 @@ struct WorklaneRowLayoutMetrics: Equatable {
         titleLineHeight: ShellMetrics.sidebarTitleLineHeight,
         titleSeparatorSpacing: ShellMetrics.sidebarTopLabelSeparatorSpacing,
         titleSeparatorHeight: ShellMetrics.sidebarTopLabelSeparatorHeight,
+        titleVerticalPadding: ShellMetrics.sidebarTopLabelVerticalPadding,
         primaryLineHeight: ShellMetrics.sidebarPrimaryLineHeight,
         statusLineHeight: ShellMetrics.sidebarStatusLineHeight,
         detailLineHeight: ShellMetrics.sidebarDetailLineHeight,
@@ -90,9 +92,13 @@ struct WorklaneRowLayoutMetrics: Equatable {
     }
 
     /// Height of the title header row: label plus the hairline separator
-    /// drawn beneath it (the header view owns both).
+    /// drawn beneath it (the header view owns both), padded top and bottom.
     var titleRowHeight: CGFloat {
-        titleLineHeight + titleSeparatorSpacing + titleSeparatorHeight
+        titleVerticalPadding
+            + titleLineHeight
+            + titleSeparatorSpacing
+            + titleSeparatorHeight
+            + titleVerticalPadding
     }
 
     func rowHeight(

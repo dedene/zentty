@@ -1049,7 +1049,10 @@ final class SidebarWorklaneRowButton: NSButton {
         )
         topLabelLeadingConstraint = topLabelLeading
         NSLayoutConstraint.activate([
-            topLabel.topAnchor.constraint(equalTo: topLabelHeaderView.topAnchor),
+            topLabel.topAnchor.constraint(
+                equalTo: topLabelHeaderView.topAnchor,
+                constant: ShellMetrics.sidebarTopLabelVerticalPadding
+            ),
             topLabelLeading,
             topLabel.trailingAnchor.constraint(equalTo: topLabelHeaderView.trailingAnchor),
             topLabelSeparator.topAnchor.constraint(
@@ -1061,7 +1064,10 @@ final class SidebarWorklaneRowButton: NSButton {
             topLabelSeparator.heightAnchor.constraint(
                 equalToConstant: ShellMetrics.sidebarTopLabelSeparatorHeight
             ),
-            topLabelSeparator.bottomAnchor.constraint(equalTo: topLabelHeaderView.bottomAnchor),
+            topLabelSeparator.bottomAnchor.constraint(
+                equalTo: topLabelHeaderView.bottomAnchor,
+                constant: -ShellMetrics.sidebarTopLabelVerticalPadding
+            ),
         ])
     }
 
