@@ -19,20 +19,20 @@ enum PaneDragSidebarEdgeScrollDriver {
         let height = sidebarMaxY - sidebarMinY
         guard height > edgeZone * 2 else { return 0 }
 
-        // Bottom edge (low Y in bottom-left coords) — scroll down (negative)
+        // Visual bottom edge. `SidebarView.adjustScrollOffset(by:)` treats positive delta as down.
         let bottomZoneEnd = sidebarMinY + edgeZone
         if cursorY < bottomZoneEnd {
             let proximity = max(0, min(1, 1 - (cursorY - sidebarMinY) / edgeZone))
             let eased = proximity * proximity * proximity
-            return -maxSpeed * eased
+            return maxSpeed * eased
         }
 
-        // Top edge (high Y in bottom-left coords) — scroll up (positive)
+        // Visual top edge. `SidebarView.adjustScrollOffset(by:)` treats negative delta as up.
         let topZoneStart = sidebarMaxY - edgeZone
         if cursorY > topZoneStart {
             let proximity = max(0, min(1, (cursorY - topZoneStart) / edgeZone))
             let eased = proximity * proximity * proximity
-            return maxSpeed * eased
+            return -maxSpeed * eased
         }
 
         return 0

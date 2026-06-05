@@ -159,6 +159,7 @@
 		4BB0E4171C495664EF0324FE /* PaneNavigationButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */; };
 		4BDC36B10F3277FC2645D57F /* WorklaneStore+DragDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4C1F56E8C3A787C0F4EAA8 /* WorklaneStore+DragDrop.swift */; };
 		4C10AD98A50D72B27E181FD2 /* BookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CFD112F9402167A1785DB70 /* BookmarkStore.swift */; };
+		4C3C71DA023EC44853BE4A14 /* PaneDragSidebarEdgeScrollDriverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EEE5BDE38114E4E80B6C22A /* PaneDragSidebarEdgeScrollDriverTests.swift */; };
 		4CCDF0D69B99D52B07074B08 /* CopilotTitleNeedsInputReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E9FAF117E638BB9CC15508 /* CopilotTitleNeedsInputReducer.swift */; };
 		4DA7426938463D7F07B7A515 /* WorklaneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CA54C85F2342CD81275B11 /* WorklaneStore.swift */; };
 		4E3C101E4C6C0B72F75ABBBE /* SidebarViewChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F557AF9F9BF4989153692316 /* SidebarViewChrome.swift */; };
@@ -660,6 +661,7 @@
 		3E0AB398A3212751C553DAD6 /* WorklaneRenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneRenderCoordinator.swift; sourceTree = "<group>"; };
 		3E897BEAD66845ACE3042923 /* MenuBarStatusIconRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusIconRenderer.swift; sourceTree = "<group>"; };
 		3ED64DFEF411E6E11CC13775 /* WorklaneAttentionChipViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionChipViewTests.swift; sourceTree = "<group>"; };
+		3EEE5BDE38114E4E80B6C22A /* PaneDragSidebarEdgeScrollDriverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragSidebarEdgeScrollDriverTests.swift; sourceTree = "<group>"; };
 		3F303BD2341FBE6D532C2471 /* SidebarHoverRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHoverRailView.swift; sourceTree = "<group>"; };
 		3F4FEACEEB990E8008700659 /* AppConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigStoreTests.swift; sourceTree = "<group>"; };
 		3FAF5222B4D0E69865759FBD /* PaneDragZoneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragZoneView.swift; sourceTree = "<group>"; };
@@ -1816,6 +1818,7 @@
 				D468A4AAC25D668673CC51CE /* PaneContainerViewWorklaneBorderTests.swift */,
 				7F6BDCBDE4E090275233D9D3 /* PaneDragHitTestingTests.swift */,
 				286127859CC1D0E1D6E24ECE /* PaneDragPreviewSizingTests.swift */,
+				3EEE5BDE38114E4E80B6C22A /* PaneDragSidebarEdgeScrollDriverTests.swift */,
 				2C9396A7E2A2C633DF764779 /* PaneFocusHistoryControllerTests.swift */,
 				00FE6D2FE3D589C3CEF772F6 /* PaneFocusHistoryTests.swift */,
 				DAA052B6DDCA1EE9D9F58BC0 /* PaneLayoutPreferencesTests.swift */,
@@ -2219,6 +2222,7 @@
 				BB1BCADC002057CB2A8211ED /* PaneContainerViewWorklaneBorderTests.swift in Sources */,
 				81AF86AEEA79AD53667ECBE3 /* PaneDragHitTestingTests.swift in Sources */,
 				A7D1705788C04A62E0EC684C /* PaneDragPreviewSizingTests.swift in Sources */,
+				4C3C71DA023EC44853BE4A14 /* PaneDragSidebarEdgeScrollDriverTests.swift in Sources */,
 				8DD672F5CFD913CB866B1142 /* PaneFocusHistoryControllerTests.swift in Sources */,
 				A313F3492C53D5CEF8A025F5 /* PaneFocusHistoryTests.swift in Sources */,
 				4FE322E96C1A232404A28D38 /* PaneLayoutPreferencesTests.swift in Sources */,
