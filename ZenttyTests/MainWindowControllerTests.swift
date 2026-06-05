@@ -918,7 +918,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.newWorklane(nil)
         waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorklaneTitle, "")
+        XCTAssertNil(controller.activeWorklaneTitle)
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-a")
@@ -973,7 +973,7 @@ final class MainWindowControllerTests: XCTestCase {
         controller.newWorklane(nil)
         waitForLayout("worklane settled", delay: 0.05)
 
-        XCTAssertEqual(controller.activeWorklaneTitle, "")
+        XCTAssertNil(controller.activeWorklaneTitle)
         let activePane = try XCTUnwrap(controller.window.contentView?.descendantPaneViews().first)
         let activeAdapter = try XCTUnwrap(adapterStore.adapters[activePane.paneID])
         XCTAssertEqual(activeAdapter.lastRequest?.workingDirectory, "/tmp/project-right")
