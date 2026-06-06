@@ -248,6 +248,17 @@ final class WorklaneAttentionNotificationCoordinator {
         lastSeenStates = nextSeenStates
         lastSeenActiveViews = nextSeenActiveViews
         lastSeenNotificationSignatures = nextSeenNotificationSignatures
+
+        // Reconcile ALL notifications for this window against currently live panes.
+        // The attention sweep above only covers panes that had attention summaries;
+        // this also resolves items for panes without one (e.g. `zentty notify`).
+        var liveKeys = Set<NotificationPaneKey>()
+        for worklane in worklanes {
+            for pane in worklane.paneStripState.panes {
+                liveKeys.insert(NotificationPaneKey(worklaneID: worklane.id, paneID: pane.id))
+            }
+        }
+        notificationStore.resolveStale(windowID: windowID, liveKeys: liveKeys)
     }
 
     private func notifySystemNotification(

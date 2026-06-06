@@ -7411,6 +7411,146 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(store.notifications[0].isResolved)
     }
 
+    func test_notification_coordinator_resolves_inbox_item_when_plain_pane_closes() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let shellPaneID = PaneID("worklane-main-shell")
+        let otherPaneID = PaneID("worklane-main-other")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        // A `zentty notify` inbox item for a pane without any attention summary.
+        store.add(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: shellPaneID,
+            state: .ready,
+            tool: .zentty,
+            interactionKind: nil,
+            interactionSymbolName: "bell.fill",
+            statusText: "Build done",
+            primaryText: "Notification from pane.",
+            isDebounced: false,
+            coalescesByPane: false
+        )
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makePlainPaneWorklane(
+                    worklaneID: worklaneID,
+                    paneIDs: [shellPaneID, otherPaneID],
+                    focusedPaneID: otherPaneID
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        XCTAssertFalse(
+            store.notifications[0].isResolved,
+            "inbox item should stay unresolved while its pane is live"
+        )
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makePlainPaneWorklane(
+                    worklaneID: worklaneID,
+                    paneIDs: [otherPaneID],
+                    focusedPaneID: otherPaneID
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        XCTAssertTrue(
+            store.notifications[0].isResolved,
+            "inbox item should resolve once its pane is closed"
+        )
+        XCTAssertEqual(store.unresolvedCount, 0)
+    }
+
+    func test_notification_coordinator_resolves_attention_and_inbox_items_when_pane_closes() {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        let store = NotificationStore(debounceInterval: 0.01)
+        let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: store)
+        let readyPaneID = PaneID("worklane-main-ready")
+        let otherPaneID = PaneID("worklane-main-other")
+        let worklaneID = WorklaneID("worklane-main")
+        let windowID = WindowID("window-main")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: otherPaneID,
+                    attentions: [
+                        .init(
+                            paneID: otherPaneID,
+                            title: "Keep working",
+                            state: .running,
+                            updatedAt: Date(timeIntervalSince1970: 10)
+                        ),
+                        .init(
+                            paneID: readyPaneID,
+                            title: "Implement notifications",
+                            state: .ready,
+                            updatedAt: Date(timeIntervalSince1970: 50)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        store.add(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: readyPaneID,
+            state: .ready,
+            tool: .zentty,
+            interactionKind: nil,
+            interactionSymbolName: "bell.fill",
+            statusText: "Build done",
+            primaryText: "Notification from pane.",
+            isDebounced: false,
+            coalescesByPane: false
+        )
+
+        XCTAssertEqual(store.unresolvedCount, 2, "attention and inbox items should both be live")
+
+        coordinator.update(
+            windowID: windowID,
+            worklanes: [
+                makeAttentionWorklane(
+                    worklaneID: worklaneID,
+                    focusedPaneID: otherPaneID,
+                    attentions: [
+                        .init(
+                            paneID: otherPaneID,
+                            title: "Keep working",
+                            state: .running,
+                            updatedAt: Date(timeIntervalSince1970: 10)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: true
+        )
+
+        XCTAssertTrue(
+            store.notifications.allSatisfy(\.isResolved),
+            "closing the pane should resolve both its attention and inbox items"
+        )
+        XCTAssertEqual(store.unresolvedCount, 0)
+    }
+
     func test_notification_coordinator_uses_configured_sound_for_needs_input() throws {
         let recorder = WorklaneAttentionNotificationRecorder()
         let configURL = AppConfigStore.temporaryFileURL(prefix: "agent-notification-sound-tests")
@@ -9046,6 +9186,24 @@ final class AgentStatusSupportTests: XCTestCase {
                 focusedPaneID: focusedPaneID
             ),
             auxiliaryStateByPaneID: auxiliaryStateByPaneID
+        )
+    }
+
+    /// Builds a worklane whose panes have no auxiliary state, so none of them
+    /// produce an attention summary (plain shell panes).
+    private func makePlainPaneWorklane(
+        worklaneID: WorklaneID,
+        paneIDs: [PaneID],
+        focusedPaneID: PaneID
+    ) -> WorklaneState {
+        WorklaneState(
+            id: worklaneID,
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: paneIDs.map { PaneState(id: $0, title: "shell") },
+                focusedPaneID: focusedPaneID
+            ),
+            auxiliaryStateByPaneID: [:]
         )
     }
 

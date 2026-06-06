@@ -222,6 +222,11 @@ struct AppNotification: Identifiable, Equatable, Sendable {
 
 // MARK: - NotificationStore
 
+struct NotificationPaneKey: Hashable, Sendable {
+    let worklaneID: WorklaneID
+    let paneID: PaneID
+}
+
 @MainActor
 final class NotificationStore {
 
@@ -318,11 +323,7 @@ final class NotificationStore {
 
     func resolve(windowID: WindowID, worklaneID: WorklaneID, paneID: PaneID) {
         let key = PaneKey(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
-
-        if pendingNotifications[key] != nil {
-            cancelPending(for: key)
-            return
-        }
+        cancelPending(for: key)
 
         let now = Date()
         var changed = false
@@ -347,6 +348,54 @@ final class NotificationStore {
         for i in notifications.indices where !notifications[i].isResolved
             && notifications[i].worklaneID == worklaneID
             && notifications[i].paneID == paneID
+        {
+            notifications[i].isResolved = true
+            notifications[i].resolvedAt = now
+            changed = true
+        }
+        if changed { notifyChange() }
+    }
+
+    /// Resolves every committed unresolved notification for `windowID` and cancels
+    /// its pending (debounced) notifications. Used when the window closes.
+    func resolveAll(windowID: WindowID) {
+        for key in pendingNotifications.keys where key.windowID == windowID {
+            cancelPending(for: key)
+        }
+
+        let now = Date()
+        var changed = false
+        for i in notifications.indices where !notifications[i].isResolved
+            && notifications[i].windowID == windowID
+        {
+            notifications[i].isResolved = true
+            notifications[i].resolvedAt = now
+            changed = true
+        }
+        if changed { notifyChange() }
+    }
+
+    /// Resolves every committed unresolved notification for `windowID` whose
+    /// (worklaneID, paneID) is not in `liveKeys`, and cancels pending (debounced)
+    /// notifications for panes that are no longer live. Used to reconcile
+    /// notifications when panes or worklanes close, or panes move to another window.
+    func resolveStale(windowID: WindowID, liveKeys: Set<NotificationPaneKey>) {
+        for key in pendingNotifications.keys where key.windowID == windowID
+            && !liveKeys.contains(NotificationPaneKey(worklaneID: key.worklaneID, paneID: key.paneID))
+        {
+            cancelPending(for: key)
+        }
+
+        let now = Date()
+        var changed = false
+        for i in notifications.indices where !notifications[i].isResolved
+            && notifications[i].windowID == windowID
+            && !liveKeys.contains(
+                NotificationPaneKey(
+                    worklaneID: notifications[i].worklaneID,
+                    paneID: notifications[i].paneID
+                )
+            )
         {
             notifications[i].isResolved = true
             notifications[i].resolvedAt = now

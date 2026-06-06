@@ -380,6 +380,178 @@ final class NotificationStoreTests: XCTestCase {
         XCTAssertEqual(store.notifications.first?.primaryText, "Window B")
     }
 
+    func test_resolve_window_scoped_resolves_committed_even_with_pending_for_same_pane() async {
+        let store = makeStore()
+
+        // Pending debounced item for the pane key.
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Pending item"
+        )
+        // Committed non-coalescing item (the `zentty notify` shape) for the same key.
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .zentty,
+            interactionKind: nil,
+            interactionSymbolName: "bell.fill",
+            statusText: "Build done",
+            primaryText: "Committed inbox item",
+            isDebounced: false,
+            coalescesByPane: false
+        )
+
+        store.resolve(windowID: windowA, worklaneID: worklaneA, paneID: paneA)
+
+        XCTAssertTrue(
+            store.notifications.first(where: { $0.primaryText == "Committed inbox item" })?.isResolved == true,
+            "resolve should mark the committed item resolved even when a pending item was canceled"
+        )
+
+        let noCommit = XCTestExpectation(description: "canceled pending item should never commit")
+        noCommit.isInverted = true
+        store.onChange = { noCommit.fulfill() }
+        await fulfillment(of: [noCommit], timeout: 0.1)
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.unresolvedCount, 0)
+    }
+
+    func test_resolve_all_marks_window_notifications_resolved_and_keeps_other_windows() async {
+        let store = makeStore()
+        await addAndWaitForCommit(store, paneID: paneA, primaryText: "Window A pane A")
+        await addAndWaitForCommit(store, paneID: paneB, primaryText: "Window A pane B")
+        store.add(
+            windowID: windowB,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Window B",
+            isDebounced: false
+        )
+
+        store.resolveAll(windowID: windowA)
+
+        XCTAssertEqual(store.notifications.count, 3)
+        XCTAssertTrue(store.notifications.filter { $0.windowID == windowA }.allSatisfy(\.isResolved))
+        XCTAssertTrue(store.notifications.first(where: { $0.windowID == windowB })?.isResolved == false)
+        XCTAssertEqual(store.unresolvedCount, 1)
+    }
+
+    func test_resolve_all_cancels_pending_window_notifications_only() async {
+        let store = makeStore()
+
+        let committed = XCTestExpectation(description: "other window notification committed")
+        store.onChange = { committed.fulfill() }
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Window A pending"
+        )
+        store.add(
+            windowID: windowB,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Window B pending"
+        )
+
+        store.resolveAll(windowID: windowA)
+
+        await fulfillment(of: [committed], timeout: 5)
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.windowID, windowB)
+    }
+
+    func test_resolve_stale_resolves_notifications_for_absent_panes_only() async {
+        let store = makeStore()
+        await addAndWaitForCommit(store, paneID: paneA, primaryText: "Live pane")
+        await addAndWaitForCommit(store, paneID: paneB, primaryText: "Closed pane")
+
+        store.resolveStale(
+            windowID: windowA,
+            liveKeys: [NotificationPaneKey(worklaneID: worklaneA, paneID: paneA)]
+        )
+
+        XCTAssertTrue(store.notifications.first(where: { $0.paneID == paneA })?.isResolved == false)
+        XCTAssertTrue(store.notifications.first(where: { $0.paneID == paneB })?.isResolved == true)
+        XCTAssertEqual(store.unresolvedCount, 1)
+    }
+
+    func test_resolve_stale_ignores_other_windows() {
+        let store = makeStore()
+        store.add(
+            windowID: windowB,
+            worklaneID: worklaneA,
+            paneID: paneA,
+            state: .ready,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Agent ready",
+            primaryText: "Window B",
+            isDebounced: false
+        )
+
+        store.resolveStale(windowID: windowA, liveKeys: [])
+
+        XCTAssertTrue(store.notifications.first?.isResolved == false)
+        XCTAssertEqual(store.unresolvedCount, 1)
+    }
+
+    func test_resolve_stale_cancels_pending_for_absent_pane() async {
+        let store = makeStore()
+
+        let noCommit = XCTestExpectation(description: "pending notification for closed pane should not commit")
+        noCommit.isInverted = true
+        store.onChange = { noCommit.fulfill() }
+
+        store.add(
+            windowID: windowA,
+            worklaneID: worklaneA,
+            paneID: paneB,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: .approval,
+            interactionSymbolName: "exclamationmark.triangle",
+            statusText: "Requires approval",
+            primaryText: "Closed pane pending"
+        )
+
+        store.resolveStale(
+            windowID: windowA,
+            liveKeys: [NotificationPaneKey(worklaneID: worklaneA, paneID: paneA)]
+        )
+
+        await fulfillment(of: [noCommit], timeout: 0.1)
+        XCTAssertTrue(store.notifications.isEmpty)
+    }
+
     func test_multiple_observers_receive_change_notifications() {
         let store = makeStore()
         var primaryCount = 0

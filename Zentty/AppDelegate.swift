@@ -574,6 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if lastKeyWindowControllerID == controllerID {
             lastKeyWindowControllerID = nil
         }
+        notificationStore.resolveAll(windowID: controller.windowID)
         applyAuxiliaryWindowTheme()
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
