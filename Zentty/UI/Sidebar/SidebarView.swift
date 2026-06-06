@@ -1041,6 +1041,12 @@ final class SidebarView: NSView {
         paneDropPresenter.hideNewWorklanePlaceholder()
     }
 
+    /// Live frame of the dashed new-worklane placeholder in targetView
+    /// coordinates, or nil when none is showing.
+    func newWorklanePlaceholderFrame(in targetView: NSView) -> CGRect? {
+        paneDropPresenter.newWorklanePlaceholderFrame(in: targetView)
+    }
+
     func showInsertionLine(_ target: SidebarPaneInsertionLineTarget) {
         paneDropPresenter.showInsertionLine(target, buttons: worklaneButtons)
     }

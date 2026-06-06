@@ -54,6 +54,7 @@ final class PaneStripView: NSView {
     var onPaneCrossWorklaneDropRequested: ((PaneID, WorklaneID, Int?, Bool) -> Void)?
     var sidebarWorklaneFrameProvider: (() -> [(WorklaneID, CGRect)])?
     var sidebarPaneBoundaryProvider: (() -> [(WorklaneID, [PaneInsertionBoundary])])?
+    var sidebarNewWorklanePlaceholderFrameProvider: (() -> CGRect?)?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
     var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
@@ -339,6 +340,9 @@ final class PaneStripView: NSView {
         }
         dragCoordinator.sidebarWorklaneFrameProvider = { [weak self] in
             self?.sidebarWorklaneFrameProvider?() ?? []
+        }
+        dragCoordinator.sidebarNewWorklanePlaceholderFrameProvider = { [weak self] in
+            self?.sidebarNewWorklanePlaceholderFrameProvider?()
         }
         dragCoordinator.activeWorklaneIDProvider = { [weak self] in
             self?.activeWorklaneIDProvider?()

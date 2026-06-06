@@ -15,8 +15,20 @@ final class SidebarDropPlaceholderView: NSView {
         shapeLayer.lineWidth = 1.5
         shapeLayer.lineDashPattern = [6, 4]
         shapeLayer.cornerRadius = ShellMetrics.sidebarRowCornerRadius
+        // Centered anchor so the pop-in scales about the middle (a bubble),
+        // not the bottom-left corner.
+        shapeLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
 
         layer?.addSublayer(shapeLayer)
+    }
+
+    /// Suppress implicit frame animation: a freshly inserted placeholder
+    /// would otherwise slide in from frame .zero (the bottom of the list)
+    /// during the animated room-making layout pass. The placeholder pops in
+    /// place; only the neighboring rows slide.
+    override func animation(forKey key: NSAnimatablePropertyKey) -> Any? {
+        if key == "frameOrigin" || key == "frameSize" { return nil }
+        return super.animation(forKey: key)
     }
 
     @available(*, unavailable)
@@ -26,37 +38,54 @@ final class SidebarDropPlaceholderView: NSView {
 
     override func layout() {
         super.layout()
-        shapeLayer.frame = bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shapeLayer.bounds = bounds
+        shapeLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
         shapeLayer.path = CGPath(
             roundedRect: bounds,
             cornerWidth: ShellMetrics.sidebarRowCornerRadius,
             cornerHeight: ShellMetrics.sidebarRowCornerRadius,
             transform: nil
         )
+        CATransaction.commit()
     }
 
-    func animateIn() {
-        alphaValue = 0
-        layer?.transform = CATransform3DMakeScale(0.95, 0.95, 1)
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            context.allowsImplicitAnimation = true
-            self.alphaValue = 1
-        }
+    /// Pop/bubble the dashed area into place in situ. `delay` lets the
+    /// surrounding rows start sliding apart first; backwards fill keeps the
+    /// shape invisible until the pop begins. `fade` is false for gap-to-gap
+    /// hops, where the placeholder is already visible and only needs a light
+    /// scale refresh at its new slot.
+    func popIn(delay: CFTimeInterval, fade: Bool) {
+        alphaValue = 1
+        let beginTime = CACurrentMediaTime() + delay
 
         let spring = CASpringAnimation(keyPath: "transform")
-        spring.fromValue = CATransform3DMakeScale(0.95, 0.95, 1)
+        let fromScale: CGFloat = fade ? 0.85 : 0.92
+        spring.fromValue = CATransform3DMakeScale(fromScale, fromScale, 1)
         spring.toValue = CATransform3DIdentity
+        // Near-critically damped (ζ≈0.9): snaps in fast with no perceptible
+        // overshoot — anything past scale 1.0 would push the full-width shape
+        // beyond the sidebar clip edge and truncate it.
         spring.mass = 1.0
-        spring.stiffness = 300
-        spring.damping = 22
+        spring.stiffness = 550
+        spring.damping = 42
         spring.initialVelocity = 0
         spring.duration = spring.settlingDuration
-        spring.fillMode = .forwards
-        spring.isRemovedOnCompletion = false
-        layer?.add(spring, forKey: "placeholderScaleIn")
+        spring.beginTime = beginTime
+        spring.fillMode = .backwards
+        shapeLayer.add(spring, forKey: "placeholderPopScale")
+
+        if fade {
+            let fadeIn = CABasicAnimation(keyPath: "opacity")
+            fadeIn.fromValue = 0
+            fadeIn.toValue = 1
+            fadeIn.duration = 0.18
+            fadeIn.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            fadeIn.beginTime = beginTime
+            fadeIn.fillMode = .backwards
+            shapeLayer.add(fadeIn, forKey: "placeholderPopFade")
+        }
     }
 
     func animateOut(completion: (() -> Void)? = nil) {
@@ -154,10 +183,10 @@ final class SidebarPaneDropPresenter {
         dropPlaceholderGeneration += 1
 
         let placeholder: SidebarDropPlaceholderView
-        let shouldAnimateIn: Bool
+        let isNewPlaceholder: Bool
         if let existing = dropPlaceholder {
             placeholder = existing
-            shouldAnimateIn = false
+            isNewPlaceholder = false
             placeholder.layer?.removeAnimation(forKey: "placeholderScaleOut")
             placeholder.alphaValue = 1
             if targetStack.arrangedSubviews.contains(existing) {
@@ -167,18 +196,34 @@ final class SidebarPaneDropPresenter {
             placeholder = SidebarDropPlaceholderView()
             placeholder.translatesAutoresizingMaskIntoConstraints = false
             dropPlaceholder = placeholder
-            shouldAnimateIn = true
+            isNewPlaceholder = true
         }
 
         let clampedIndex = max(0, min(insertionIndex, targetStack.arrangedSubviews.count))
         targetStack.insertArrangedSubview(placeholder, at: clampedIndex)
-        if shouldAnimateIn {
+        if isNewPlaceholder {
             NSLayoutConstraint.activate([
                 placeholder.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
                 placeholder.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
                 placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
             ])
-            placeholder.animateIn()
+        }
+        // Slide the surrounding rows apart instead of snapping. Model frames
+        // settle immediately (only the presentation layer animates), so drag
+        // hit-testing sees final geometry throughout. The placeholder itself
+        // suppresses frame animation and pops in place instead.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            targetStack.superview?.layoutSubtreeIfNeeded()
+        }
+        if isNewPlaceholder {
+            // Let the gap visibly open first, then bubble into it.
+            placeholder.popIn(delay: 0.06, fade: true)
+        } else {
+            // Gap-to-gap hop: light scale refresh at the new slot.
+            placeholder.popIn(delay: 0, fade: false)
         }
     }
 
@@ -188,9 +233,23 @@ final class SidebarPaneDropPresenter {
         let generation = dropPlaceholderGeneration
         placeholder.animateOut { [weak self] in
             guard let self, self.dropPlaceholderGeneration == generation else { return }
-            self.targetStack?.removeArrangedSubview(placeholder)
-            placeholder.removeFromSuperview()
+            // Slide the rows back together once the fade-out completes.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.allowsImplicitAnimation = true
+                self.targetStack?.removeArrangedSubview(placeholder)
+                placeholder.removeFromSuperview()
+                self.targetStack?.superview?.layoutSubtreeIfNeeded()
+            }
             self.dropPlaceholder = nil
         }
+    }
+
+    /// Live frame of the placeholder converted to targetView coordinates,
+    /// or nil when no placeholder is showing.
+    func newWorklanePlaceholderFrame(in targetView: NSView) -> CGRect? {
+        guard let placeholder = dropPlaceholder, placeholder.superview != nil else { return nil }
+        return targetView.convert(placeholder.bounds, from: placeholder)
     }
 }
