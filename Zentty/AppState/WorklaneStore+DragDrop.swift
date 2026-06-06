@@ -296,10 +296,19 @@ extension WorklaneStore {
         atIndex insertionIndex: Int,
         singleColumnWidth: CGFloat
     ) {
-        // Prevent transferring the last pane — would leave an empty worklane.
-        // Option+drag (duplicate) is unaffected.
-        guard let source = activeWorklane,
-              source.paneStripState.panes.count > 1 else {
+        guard let source = activeWorklane else { return }
+
+        // Moving a worklane's only pane to a new-worklane slot is just moving
+        // the worklane itself — reorder it to the slot, preserving its
+        // identity (title, state), instead of creating a fresh lane and
+        // leaving an empty source behind. Option+drag (duplicate) is
+        // unaffected.
+        if source.paneStripState.panes.count == 1 {
+            guard source.paneStripState.panes.first?.id == paneID,
+                  let fromIndex = worklanes.firstIndex(where: { $0.id == source.id })
+            else { return }
+            let clamped = max(0, min(insertionIndex, worklanes.count))
+            moveWorklane(id: source.id, toIndex: clamped > fromIndex ? clamped - 1 : clamped)
             return
         }
 

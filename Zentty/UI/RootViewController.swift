@@ -889,6 +889,10 @@ final class RootViewController: NSViewController {
             guard let self else { return [] }
             return self.sidebarView.paneInsertionBoundaries(in: self.appCanvasView)
         }
+        appCanvasView.paneStripView.sidebarNewWorklanePlaceholderFrameProvider = { [weak self] in
+            guard let self else { return nil }
+            return self.sidebarView.newWorklanePlaceholderFrame(in: self.appCanvasView.paneStripView)
+        }
         appCanvasView.paneStripView.onDragApproachingSidebarEdge = { [weak self] approaching in
             guard let self else { return }
             self.sidebarMotionCoordinator.handle(approaching ? .hoverRailEntered : .hoverRailExited)

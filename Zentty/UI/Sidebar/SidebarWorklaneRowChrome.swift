@@ -4,8 +4,8 @@ import QuartzCore
 @MainActor
 final class SidebarWorklaneRowChrome {
     private enum DropTargetHighlightAnimation {
-        static let shadowOpacityKey = "dropTargetShadowOpacity"
-        static let shadowFadeDuration: CFTimeInterval = 0.15
+        static let opacityKey = "dropTargetHighlightOpacity"
+        static let fadeDuration: CFTimeInterval = 0.15
     }
 
     private struct ShadowStyle {
@@ -16,6 +16,10 @@ final class SidebarWorklaneRowChrome {
     }
 
     let tintLayer = CALayer()
+    /// Contained drop-target highlight: accent stroke + wash inside the row
+    /// bounds, matching the dashed new-worklane placeholder's language. A
+    /// shadow glow would bleed past the row edges (shadows draw outside).
+    private let dropHighlightLayer = CALayer()
     private var isDropTargetHighlighted = false
     private var normalShadowStyle = ShadowStyle(
         color: NSColor.black.withAlphaComponent(0.02).cgColor,
@@ -35,12 +39,22 @@ final class SidebarWorklaneRowChrome {
         tintLayer.backgroundColor = NSColor.clear.cgColor
         tintLayer.zPosition = -1
         row.layer?.insertSublayer(tintLayer, at: 0)
+
+        dropHighlightLayer.cornerRadius = ChromeGeometry.rowRadius
+        dropHighlightLayer.cornerCurve = .continuous
+        dropHighlightLayer.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.14).cgColor
+        dropHighlightLayer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.45).cgColor
+        dropHighlightLayer.borderWidth = 1.5
+        dropHighlightLayer.opacity = 0
+        dropHighlightLayer.zPosition = -1
+        row.layer?.insertSublayer(dropHighlightLayer, at: 1)
     }
 
     func updateTintFrame(_ bounds: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         tintLayer.frame = bounds
+        dropHighlightLayer.frame = bounds
         CATransaction.commit()
     }
 
@@ -49,30 +63,28 @@ final class SidebarWorklaneRowChrome {
         layer: CALayer?,
         reducedMotion: Bool
     ) {
-        guard let layer else { return }
+        guard layer != nil else { return }
         guard highlighted != isDropTargetHighlighted else { return }
         isDropTargetHighlighted = highlighted
 
-        let targetShadowStyle = highlighted ? highlightedShadowStyle() : normalShadowStyle
+        let targetOpacity: Float = highlighted ? 1 : 0
 
-        layer.removeAnimation(forKey: DropTargetHighlightAnimation.shadowOpacityKey)
-
-        let currentShadowOpacity = layer.presentation()?.shadowOpacity ?? layer.shadowOpacity
+        dropHighlightLayer.removeAnimation(forKey: DropTargetHighlightAnimation.opacityKey)
+        let currentOpacity = dropHighlightLayer.presentation()?.opacity ?? dropHighlightLayer.opacity
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.transform = CATransform3DIdentity
-        apply(targetShadowStyle, to: layer)
+        dropHighlightLayer.opacity = targetOpacity
         CATransaction.commit()
 
         guard reducedMotion == false else { return }
 
-        let fade = CABasicAnimation(keyPath: "shadowOpacity")
-        fade.fromValue = currentShadowOpacity
-        fade.toValue = targetShadowStyle.opacity
-        fade.duration = DropTargetHighlightAnimation.shadowFadeDuration
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = currentOpacity
+        fade.toValue = targetOpacity
+        fade.duration = DropTargetHighlightAnimation.fadeDuration
         fade.isRemovedOnCompletion = true
-        layer.add(fade, forKey: DropTargetHighlightAnimation.shadowOpacityKey)
+        dropHighlightLayer.add(fade, forKey: DropTargetHighlightAnimation.opacityKey)
     }
 
     func apply(
@@ -117,10 +129,7 @@ final class SidebarWorklaneRowChrome {
             layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
             layer?.borderWidth = summary.isActive ? 0.8 : 1
             if let layer {
-                self.apply(
-                    self.isDropTargetHighlighted ? self.highlightedShadowStyle() : normalShadowStyle,
-                    to: layer
-                )
+                self.apply(normalShadowStyle, to: layer)
             }
             self.tintLayer.backgroundColor = SidebarWorklaneRowStyleResolver.tintColor(
                 worklaneColor: summary.color,
@@ -129,15 +138,6 @@ final class SidebarWorklaneRowChrome {
                 isPaneRowHovered: isPaneRowHovered
             )
         }
-    }
-
-    private func highlightedShadowStyle() -> ShadowStyle {
-        ShadowStyle(
-            color: NSColor.controlAccentColor.cgColor,
-            opacity: 0.7,
-            radius: 8,
-            offset: .zero
-        )
     }
 
     private func apply(_ style: ShadowStyle, to layer: CALayer) {

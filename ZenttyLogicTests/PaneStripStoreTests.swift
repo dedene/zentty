@@ -3700,6 +3700,95 @@ final class PaneStripStoreTests: XCTestCase {
         ])
     }
 
+    func test_transferPaneToNewWorklane_moves_single_pane_worklane_to_index() {
+        let nextIDs = TestIDSequence(["unused"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("A"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .end }
+        )
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("pane-A"),
+            atIndex: 2,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        // Moving A's only pane to the B/C gap moves the worklane itself:
+        // no new lane, identity and pane preserved, active unchanged.
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("B"),
+            WorklaneID("A"),
+            WorklaneID("C"),
+        ])
+        XCTAssertEqual(
+            store.worklanes.first(where: { $0.id == WorklaneID("A") })?
+                .paneStripState.panes.map(\.id),
+            [PaneID("pane-A")]
+        )
+        XCTAssertEqual(store.activeWorklaneID, WorklaneID("A"))
+    }
+
+    func test_transferPaneToNewWorklane_moves_single_pane_worklane_to_end() {
+        let nextIDs = TestIDSequence(["unused"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("A"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .end }
+        )
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("pane-A"),
+            atIndex: 3,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        XCTAssertEqual(store.worklanes.map(\.id), [
+            WorklaneID("B"),
+            WorklaneID("C"),
+            WorklaneID("A"),
+        ])
+    }
+
+    func test_transferPaneToNewWorklane_single_pane_adjacent_gap_is_noop() {
+        let nextIDs = TestIDSequence(["unused"])
+        let store = WorklaneStore(
+            worklanes: [
+                makeSinglePaneWorklane(id: "A"),
+                makeSinglePaneWorklane(id: "B"),
+                makeSinglePaneWorklane(id: "C"),
+            ],
+            activeWorklaneID: WorklaneID("A"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() },
+            newWorklanePlacementProvider: { .end }
+        )
+
+        // The gaps directly above (0) and below (1) the lane map back to its
+        // current position.
+        for index in [0, 1] {
+            store.transferPaneToNewWorklane(
+                paneID: PaneID("pane-A"),
+                atIndex: index,
+                singleColumnWidth: store.layoutContext.singlePaneWidth
+            )
+            XCTAssertEqual(store.worklanes.map(\.id), [
+                WorklaneID("A"),
+                WorklaneID("B"),
+                WorklaneID("C"),
+            ])
+        }
+    }
+
     func test_duplicatePaneToNewWorklane_uses_preferred_placement_when_no_explicit_index() {
         let nextIDs = TestIDSequence(["new"])
         let store = WorklaneStore(

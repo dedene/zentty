@@ -61,14 +61,53 @@ enum SidebarPaneDropHitTesting {
         }
     }
 
+    /// How far above the first row the new-worklane top zone extends.
+    /// Mirrors the 40pt extent of the below-last-row zone.
+    private static let newWorklaneTopZoneExtent: CGFloat = 40
+
     static func target(
         cursorInStrip: CGPoint,
         worklaneFrames: [(WorklaneID, CGRect)],
         activeWorklaneID: WorklaneID?,
         sidebarBottomY: CGFloat,
-        paneBoundaries: [(WorklaneID, [PaneInsertionBoundary])] = []
+        paneBoundaries: [(WorklaneID, [PaneInsertionBoundary])] = [],
+        gapStealBand: CGFloat = 6,
+        gapExitBand: CGFloat = 12,
+        previousNewWorklaneIndex: Int? = nil
     ) -> SidebarPaneDropTarget {
-        // 1. If the cursor is inside a worklane row, only that row's pane
+        let sortedFrames = worklaneFrames.sorted { $0.1.minY > $1.1.minY }
+
+        // 1. Gap zones above and between rows map to new-worklane insertion.
+        //    The bare inter-row gap is too narrow to hit, so each zone steals
+        //    a band from the adjacent row edges. The gap whose placeholder is
+        //    already showing (previousNewWorklaneIndex) uses the wider exit
+        //    band: hiding the placeholder keeps its layout slot briefly and
+        //    then shifts rows under the cursor, so a symmetric band would
+        //    flicker at the gap↔row boundary.
+        if let firstFrame = sortedFrames.first?.1 {
+            func band(forGapAt index: Int) -> CGFloat {
+                previousNewWorklaneIndex == index ? gapExitBand : gapStealBand
+            }
+
+            // Top zone: above the first row.
+            if cursorInStrip.y > firstFrame.maxY - band(forGapAt: 0),
+               cursorInStrip.y <= firstFrame.maxY + newWorklaneTopZoneExtent {
+                return .newWorklane(insertionIndex: 0)
+            }
+
+            // Inter-row gaps: between canonical rows i and i+1 → index i+1.
+            for index in 0..<(sortedFrames.count - 1) {
+                let rowAbove = sortedFrames[index].1
+                let rowBelow = sortedFrames[index + 1].1
+                let gapBand = band(forGapAt: index + 1)
+                if cursorInStrip.y > rowBelow.maxY - gapBand,
+                   cursorInStrip.y < rowAbove.minY + gapBand {
+                    return .newWorklane(insertionIndex: index + 1)
+                }
+            }
+        }
+
+        // 2. If the cursor is inside a worklane row, only that row's pane
         //    boundaries participate. This prevents stale or nearby boundaries
         //    from adjacent rows from leaking into the hover target.
         if let (worklaneID, frame) = worklaneFrames.first(where: { entry in
@@ -95,14 +134,9 @@ enum SidebarPaneDropHitTesting {
             return .existingWorklane(worklaneID)
         }
 
-        // 2. Check the stable new-worklane zone below the list. We intentionally
-        // avoid top and inter-row gaps: those are too small and visually noisy
-        // during pane drags.
-        let sorted = worklaneFrames.sorted { $0.1.minY > $1.1.minY }
-
-        // New-worklane zone below last row
+        // 3. New-worklane zone below the last row.
         let lastRowBottomY: CGFloat
-        if let lastFrame = sorted.last?.1 {
+        if let lastFrame = sortedFrames.last?.1 {
             lastRowBottomY = lastFrame.minY
         } else {
             lastRowBottomY = sidebarBottomY + 1000
@@ -110,7 +144,7 @@ enum SidebarPaneDropHitTesting {
 
         let effectiveSidebarBottom = min(sidebarBottomY, lastRowBottomY - 40)
         if cursorInStrip.y < lastRowBottomY && cursorInStrip.y >= effectiveSidebarBottom {
-            return .newWorklane(insertionIndex: sorted.count)
+            return .newWorklane(insertionIndex: sortedFrames.count)
         }
 
         return .none

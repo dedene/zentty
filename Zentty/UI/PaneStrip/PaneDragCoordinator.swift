@@ -86,6 +86,9 @@ final class PaneDragCoordinator {
     var sidebarPaneBoundaryProvider: (() -> [(WorklaneID, [PaneInsertionBoundary])])?
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
     var sidebarBoundsProvider: (() -> CGRect)?
+    /// Live frame of the dashed new-worklane placeholder in PaneStripView
+    /// coords, or nil when none is showing. Used as the drop animation target.
+    var sidebarNewWorklanePlaceholderFrameProvider: (() -> CGRect?)?
     var worklaneCountProvider: (() -> Int)?
     var sidebarWidthProvider: (() -> CGFloat)?
 
@@ -1342,13 +1345,16 @@ final class PaneDragCoordinator {
             return
         }
 
-        // Target: the new-worklane placeholder area (below last row)
-        let worklaneFrames = sidebarWorklaneFrameProvider?() ?? []
+        // Target: the live placeholder frame when one is showing; otherwise
+        // fall back to the estimated below-last-row area.
         let targetCenter: CGPoint
-        if let lastFrame = worklaneFrames.last?.1 {
+        let containerSuperview = dragContainer?.superview ?? viewportView ?? paneStripView
+        if let placeholderFrame = sidebarNewWorklanePlaceholderFrameProvider?() {
+            let centerInStrip = CGPoint(x: placeholderFrame.midX, y: placeholderFrame.midY)
+            targetCenter = paneStripView.convert(centerInStrip, to: containerSuperview)
+        } else if let lastFrame = sidebarWorklaneFrameProvider?().last?.1 {
             let placeholderCenterY = lastFrame.minY - 30
             let centerInStrip = CGPoint(x: lastFrame.midX, y: placeholderCenterY)
-            let containerSuperview = dragContainer?.superview ?? viewportView ?? paneStripView
             targetCenter = paneStripView.convert(centerInStrip, to: containerSuperview)
         } else if let layerPos = dragLayer?.position {
             targetCenter = layerPos
@@ -1680,7 +1686,10 @@ final class PaneDragCoordinator {
             worklaneFrames: worklaneFrames,
             activeWorklaneID: activeID,
             sidebarBottomY: sidebarBounds.minY,
-            paneBoundaries: paneBoundaries
+            paneBoundaries: paneBoundaries,
+            gapStealBand: ShellMetrics.sidebarNewWorklaneGapStealBand,
+            gapExitBand: ShellMetrics.sidebarNewWorklaneGapExitBand,
+            previousNewWorklaneIndex: newWorklanePlaceholderIndex
         )
 
         // Compute insertion-line target; nil means hide the line.

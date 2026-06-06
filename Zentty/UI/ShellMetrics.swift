@@ -206,6 +206,12 @@ enum ShellMetrics {
     )
     static let paneSubRowHeight: CGFloat = 24
     static let paneSubRowIndent: CGFloat = 16
+    /// Band stolen from each adjacent worklane row edge so the narrow
+    /// inter-row gap becomes a hittable new-worklane drop zone during pane drags.
+    static let sidebarNewWorklaneGapStealBand: CGFloat = 6
+    /// Wider band used while a gap's placeholder is already showing, so the
+    /// target doesn't flicker when the cursor lingers near a row edge.
+    static let sidebarNewWorklaneGapExitBand: CGFloat = 12
 
     static let trafficLightLeadingInset: CGFloat = ChromeGeometry.trafficLightLeadingInset
     static let trafficLightTopInset: CGFloat = ChromeGeometry.trafficLightTopInset
