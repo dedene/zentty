@@ -15,6 +15,11 @@ final class PaneDragZoneView: NSView {
     var onDragEnded: ((CGPoint) -> Void)?
     var onDragCancelled: (() -> Void)?
 
+    /// Fallback context menu for the pane. The terminal can consume right-clicks
+    /// when the inner app enables mouse reporting (e.g. Claude Code); the drag
+    /// zone never forwards events to the terminal, so the menu is always reachable here.
+    var contextMenuProvider: (() -> NSMenu?)?
+
     private var trackingArea: NSTrackingArea?
     private var isPointerInside = false
     private var isDragActive = false
@@ -202,7 +207,15 @@ final class PaneDragZoneView: NSView {
         return bounds.contains(local) ? self : nil
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?() ?? super.menu(for: event)
+    }
+
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
         isPointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
         dragStartPointInWindow = event.locationInWindow
     }

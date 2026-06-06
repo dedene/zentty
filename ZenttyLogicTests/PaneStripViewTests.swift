@@ -487,6 +487,51 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_drag_zone_right_click_returns_context_menu_from_provider() throws {
+        let dragZone = PaneDragZoneView(paneID: PaneID("shell"))
+        dragZone.frame = CGRect(x: 0, y: 0, width: 320, height: PaneDragZoneView.height)
+
+        let providedMenu = NSMenu(title: "Pane")
+        dragZone.contextMenuProvider = { providedMenu }
+
+        var activatedPaneID: PaneID?
+        dragZone.onDragActivated = { receivedPaneID, _ in activatedPaneID = receivedPaneID }
+
+        let rightMouseDown = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .rightMouseDown, at: CGPoint(x: 120, y: 8))
+        )
+
+        XCTAssertIdentical(dragZone.menu(for: rightMouseDown), providedMenu)
+        XCTAssertNil(activatedPaneID)
+        XCTAssertEqual(dragZone.cursorDescriptionForTesting, "openHand")
+    }
+
+    @MainActor
+    func test_drag_zone_context_menu_is_wired_to_pane_menu() throws {
+        let paneStripView = makePaneStripView()
+        let state = PaneStripState(
+            panes: [makePane("shell")],
+            focusedPaneID: PaneID("shell")
+        )
+
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let paneView = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let dragZone = try XCTUnwrap(
+            paneView.subviews.compactMap { $0 as? PaneDragZoneView }.first
+        )
+        let rightMouseDown = try XCTUnwrap(
+            makeDragZoneMouseEvent(type: .rightMouseDown, at: CGPoint(x: 60, y: 8))
+        )
+
+        let menu = try XCTUnwrap(dragZone.menu(for: rightMouseDown))
+        let titles = menu.items.map(\.title)
+        XCTAssertTrue(titles.contains("Paste"))
+        XCTAssertTrue(titles.contains("Close Pane"))
+    }
+
+    @MainActor
     func test_drag_zone_activates_after_drag_threshold_and_mouse_up_ends_drag() throws {
         let paneID = PaneID("shell")
         let dragZone = PaneDragZoneView(paneID: paneID)

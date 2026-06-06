@@ -1354,6 +1354,13 @@ final class PaneContainerView: NSView {
         )
     }
 
+    /// Context menu for the pane drag zone. Same menu as right-clicking inside the
+    /// terminal, minus the system items (there is no system menu for the drag zone).
+    /// Serves as the fallback when the inner app consumes right-clicks via mouse reporting.
+    func makeDragZoneContextMenu() -> NSMenu? {
+        makeContextMenu(merging: nil)
+    }
+
     private func makeContextMenu(merging systemMenu: NSMenu?) -> NSMenu? {
         focusTerminal()
 
