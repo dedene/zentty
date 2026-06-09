@@ -1,5 +1,17 @@
 # AGENTS.md
 
+## Windows port (rust/)
+
+The native Windows port is a Rust workspace in `rust/` (Direct2D/DirectWrite rendering over ConPTY). Its gates, all run from `rust/`:
+
+```
+cargo build --release --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Kill stray `zentty*` processes (e.g. `zentty-win-desktop.exe`, test-harness `zentty_*` exes) before `cargo test` on Windows to avoid LNK1104 file locks. Packaging: `pwsh -File rust/scripts/package-windows.ps1` → `rust/dist/zentty-windows-x64.zip`. Build/run/install steps are in the README's "Windows" section. Everything below this section is about the macOS app.
+
 ## Testing
 
 Two test targets:

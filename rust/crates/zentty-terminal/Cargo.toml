@@ -1,0 +1,9 @@
+[package]
+name = "zentty-terminal"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+regex.workspace = true
+vte.workspace = true

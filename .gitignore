@@ -11,6 +11,7 @@ tmp/
 .claude
 .opencode
 build/
+rust/target/
 .agent-bench-runs/
 .clawpatch/
 .factory
@@ -31,3 +32,4 @@ fastlane/.env
 # App Store Connect API keys
 *.p8
 .sentryclirc
+rust/dist/
