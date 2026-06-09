@@ -1803,6 +1803,38 @@ impl DesktopWindowSession {
         self.focused_pane_id.as_deref()
     }
 
+    /// The active worklane id.
+    pub fn worklane_id(&self) -> &str {
+        &self.worklane_id
+    }
+
+    /// Focus the pane named `pane_id` (mouse click-to-focus). If the pane lives
+    /// in a different worklane than the active one, that worklane is activated
+    /// too (the shared `focus_pane_reference` path sets both). Returns whether
+    /// focus actually changed; an already-focused or unknown id is a no-op.
+    pub fn focus_pane_by_id(&mut self, pane_id: &str) -> bool {
+        if self.focused_pane_id.as_deref() == Some(pane_id) {
+            return false;
+        }
+        matches!(
+            self.focus_pane_id(pane_id, true),
+            AppCommandExecutionResult::Applied
+        )
+    }
+
+    /// Activate the worklane named `worklane_id` (mouse click on a sidebar
+    /// header), focusing its remembered or first pane. Returns whether anything
+    /// changed; clicking the already-active worklane is a no-op.
+    pub fn focus_worklane_by_id(&mut self, worklane_id: &str) -> bool {
+        if self.worklane_id == worklane_id {
+            return false;
+        }
+        matches!(
+            self.focus_worklane(worklane_id),
+            AppCommandExecutionResult::Applied
+        )
+    }
+
     pub fn active_worklane_color(&self) -> Option<&str> {
         self.worklane_colors_by_id
             .get(&self.worklane_id)
@@ -4778,6 +4810,7 @@ impl DesktopWindowSession {
             .iter()
             .filter(|pane| pane.worklane_id == self.worklane_id)
             .map(|pane| crate::render::PaneFrame {
+                pane_id: pane.pane_id.as_str(),
                 layout: crate::render::layout::PaneLayoutInput {
                     column_index: pane.column_index,
                     pane_index: pane.pane_index,
@@ -4813,6 +4846,7 @@ impl DesktopWindowSession {
                     .iter()
                     .filter(|pane| pane.worklane_id == worklane.worklane_id)
                     .map(|pane| crate::render::SidebarPaneRow {
+                        id: pane.pane_id.clone(),
                         title: if pane.title.trim().is_empty() {
                             pane.pane_id.clone()
                         } else {
@@ -4824,6 +4858,7 @@ impl DesktopWindowSession {
                     })
                     .collect();
                 crate::render::SidebarWorklane {
+                    id: worklane.worklane_id.clone(),
                     title: worklane.title.clone(),
                     is_active: worklane.is_active,
                     color: worklane.color.as_deref().and_then(parse_hex_color),
@@ -10506,6 +10541,50 @@ mod native_window {
             }
         }
 
+        /// Click-to-focus: if the click landed on a sidebar row or a non-focused
+        /// pane, switch focus there and return `true` (the caller repaints and
+        /// swallows the click). Returns `false` if nothing was hit, the click
+        /// was on the already-focused pane, or an overlay is open — in which
+        /// case the click falls through to the normal selection path.
+        ///
+        /// Sidebar hits take priority over pane hits (the sidebar is drawn over
+        /// the pane area). Ids are copied to owned `String`s before the session
+        /// borrow because the renderer lookups borrow from `self.renderer`.
+        fn handle_click_to_focus(&mut self, x_pixels: i32, y_pixels: i32) -> bool {
+            if self.last_error.is_some() {
+                return false;
+            }
+            // Only intercept clicks when no overlay (palette / global search) is
+            // open; an open overlay owns all input.
+            if self.session.overlay_render_model().is_some() {
+                return false;
+            }
+            let x = x_pixels as f32;
+            let y = y_pixels as f32;
+            let Some(renderer) = self.renderer.as_ref() else {
+                return false;
+            };
+
+            if let Some((worklane_id, pane_id)) = renderer.sidebar_target_at_point(x, y) {
+                let worklane_id = worklane_id.to_string();
+                let pane_id = pane_id.map(str::to_string);
+                return match pane_id {
+                    Some(pane_id) => self.session.focus_pane_by_id(&pane_id),
+                    None => self.session.focus_worklane_by_id(&worklane_id),
+                };
+            }
+
+            if let Some(pane_id) = renderer.pane_id_at_point(x, y) {
+                if self.session.focused_pane_id() == Some(pane_id) {
+                    return false;
+                }
+                let pane_id = pane_id.to_string();
+                return self.session.focus_pane_by_id(&pane_id);
+            }
+
+            false
+        }
+
         fn begin_mouse_selection(&mut self, x_pixels: i32, y_pixels: i32) -> bool {
             let Some((row, column)) = self.session_render_cell_for_client_point(x_pixels, y_pixels)
             else {
@@ -10702,10 +10781,25 @@ mod native_window {
     ) -> LRESULT {
         match message {
             WM_KEYDOWN => {
-                if let Some(event) = unsafe { key_event_from_win32(wparam) }
+                let mapped_event = unsafe { key_event_from_win32(wparam) };
+                let trace_on = std::env::var_os("ZENTTY_DEBUG_INPUT_LOG").is_some();
+                if let Some(event) = mapped_event
                     && let Some(state) = unsafe { state_mut(hwnd) }
                 {
                     let effect = state.execute_key_event(event);
+                    if trace_on {
+                        // DIAGNOSTIC C: trace the WM_KEYDOWN/GetKeyState boundary
+                        // (one line per event; only the effect discriminant, never
+                        // its payload).
+                        debug_input_trace(&format!(
+                            "keydown vk=0x{:02x} ctrl={} alt={} shift={} mapped=1 effect={}",
+                            wparam.0 as u16,
+                            unsafe { virtual_key_is_down(VK_CONTROL) } as u8,
+                            unsafe { virtual_key_is_down(VK_MENU) } as u8,
+                            unsafe { virtual_key_is_down(VK_SHIFT) } as u8,
+                            effect_name(&effect),
+                        ));
+                    }
                     let effect = unsafe { resolve_confirmation_effect(hwnd, state, effect) };
                     match effect {
                         DesktopCommandEffect::Ignored => {}
@@ -10748,6 +10842,17 @@ mod native_window {
                             return LRESULT(0);
                         }
                     }
+                } else if trace_on {
+                    // No DesktopKeyEvent was produced (key not in the VK map, or
+                    // no window state): record the boundary so a dropped shortcut
+                    // shows up as mapped=0.
+                    debug_input_trace(&format!(
+                        "keydown vk=0x{:02x} ctrl={} alt={} shift={} mapped=0 effect=none",
+                        wparam.0 as u16,
+                        unsafe { virtual_key_is_down(VK_CONTROL) } as u8,
+                        unsafe { virtual_key_is_down(VK_MENU) } as u8,
+                        unsafe { virtual_key_is_down(VK_SHIFT) } as u8,
+                    ));
                 }
                 unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
             }
@@ -10756,6 +10861,15 @@ mod native_window {
                     && let Some(state) = unsafe { state_mut(hwnd) }
                 {
                     let effect = state.write_char(ch);
+                    if std::env::var_os("ZENTTY_DEBUG_INPUT_LOG").is_some() {
+                        // DIAGNOSTIC C: trace the WM_CHAR boundary (codepoint +
+                        // effect discriminant only, never the char's payload).
+                        debug_input_trace(&format!(
+                            "char u=0x{:04x} effect={}",
+                            wparam.0 as u32,
+                            effect_name(&effect),
+                        ));
+                    }
                     let effect = unsafe { resolve_confirmation_effect(hwnd, state, effect) };
                     match effect {
                         DesktopCommandEffect::Ignored => {}
@@ -10914,6 +11028,15 @@ mod native_window {
             WM_LBUTTONDOWN => {
                 if let Some(state) = unsafe { state_mut(hwnd) } {
                     let (x, y) = client_point_from_lparam(lparam);
+                    // Click-to-focus: a click on a sidebar row or a non-focused
+                    // pane switches focus and swallows the click (Windows
+                    // Terminal behavior: the first click only focuses, it does
+                    // not start a selection). Clicks on the already-focused pane
+                    // fall through to the selection path below.
+                    if state.handle_click_to_focus(x, y) {
+                        let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                        return LRESULT(0);
+                    }
                     match state.execute_mouse_event(DesktopMouseEventKind::Press, x, y) {
                         DesktopCommandEffect::Repaint => {
                             let _ = unsafe { SetCapture(hwnd) };
@@ -11111,6 +11234,43 @@ mod native_window {
             state.terminate();
             state
         })
+    }
+
+    /// Diagnostic input trace (DIAGNOSTIC C). Appends `line` + newline to the
+    /// file named by `ZENTTY_DEBUG_INPUT_LOG`. A no-op when the env var is
+    /// unset; all I/O errors are silently ignored so the trace can never affect
+    /// input handling. Never logs effect payloads (they can carry clipboard /
+    /// user text) — only the variant name via [`effect_name`].
+    fn debug_input_trace(line: &str) {
+        let Some(path) = std::env::var_os("ZENTTY_DEBUG_INPUT_LOG") else {
+            return;
+        };
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+
+    /// The variant name of a command effect, for the input trace. Intentionally
+    /// returns only the discriminant — payloads (clipboard text, paths, urls)
+    /// are never included.
+    fn effect_name(effect: &DesktopCommandEffect) -> &'static str {
+        match effect {
+            DesktopCommandEffect::Ignored => "Ignored",
+            DesktopCommandEffect::Repaint => "Repaint",
+            DesktopCommandEffect::CopyText { .. } => "CopyText",
+            DesktopCommandEffect::PasteFromClipboard { .. } => "PasteFromClipboard",
+            DesktopCommandEffect::OpenPathWithTarget { .. } => "OpenPathWithTarget",
+            DesktopCommandEffect::OpenUrl { .. } => "OpenUrl",
+            DesktopCommandEffect::OpenUrlWithBrowser { .. } => "OpenUrlWithBrowser",
+            DesktopCommandEffect::PaneNotification { .. } => "PaneNotification",
+            DesktopCommandEffect::ConfirmClosePane { .. } => "ConfirmClosePane",
+            DesktopCommandEffect::ConfirmCloseWindow { .. } => "ConfirmCloseWindow",
+            DesktopCommandEffect::CloseWindow { .. } => "CloseWindow",
+            DesktopCommandEffect::NewWindow { .. } => "NewWindow",
+            DesktopCommandEffect::MovePaneToNewWindow { .. } => "MovePaneToNewWindow",
+            DesktopCommandEffect::Status { .. } => "Status",
+        }
     }
 
     unsafe fn key_event_from_win32(wparam: WPARAM) -> Option<DesktopKeyEvent> {

@@ -10546,6 +10546,155 @@ fn desktop_window_session_layout_commands_reflow_vertical_panes_in_reading_order
     fs::remove_dir_all(dir).ok();
 }
 
+#[test]
+#[cfg(windows)]
+fn focus_pane_by_id_switches_focus_within_active_worklane() {
+    let dir = test_directory("focus-pane-by-id-same-worklane");
+    let shell = DesktopShellConfig::parse_with_environment(
+        [
+            "--config",
+            dir.join("missing.toml").to_string_lossy().as_ref(),
+        ],
+        DesktopEnvironment::empty(),
+    )
+    .expect("desktop config should parse");
+    let launch = DesktopLaunchPlan {
+        shell,
+        config: AppConfig::default(),
+        source: DesktopLaunchSource::NewWorkspace,
+        app: two_pane_launch_plan(),
+    };
+
+    let mut session = DesktopWindowSession::spawn(launch).expect("desktop session should spawn");
+    assert_eq!(session.focused_pane_id(), Some("pane-right"));
+
+    assert!(
+        session.focus_pane_by_id("pane-left"),
+        "clicking a different pane in the active worklane should change focus"
+    );
+    assert_eq!(session.focused_pane_id(), Some("pane-left"));
+
+    session.terminate().ok();
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+#[cfg(windows)]
+fn focus_pane_by_id_activates_owning_worklane() {
+    let dir = test_directory("focus-pane-by-id-cross-worklane");
+    let shell = DesktopShellConfig::parse_with_environment(
+        [
+            "--config",
+            dir.join("missing.toml").to_string_lossy().as_ref(),
+        ],
+        DesktopEnvironment::empty(),
+    )
+    .expect("desktop config should parse");
+    let mut app = default_app_launch_plan();
+    let mut alpha = app.windows[0].worklanes[0].clone();
+    alpha.worklane_id = "alpha".to_string();
+    alpha.focused_pane_id = Some("pane-alpha".to_string());
+    alpha.panes[0].worklane_id = "alpha".to_string();
+    alpha.panes[0].pane_id = "pane-alpha".to_string();
+    alpha.panes[0].column_id = "column-alpha".to_string();
+    let mut beta = alpha.clone();
+    beta.worklane_id = "beta".to_string();
+    beta.focused_pane_id = Some("pane-beta".to_string());
+    beta.panes[0].worklane_id = "beta".to_string();
+    beta.panes[0].pane_id = "pane-beta".to_string();
+    beta.panes[0].column_id = "column-beta".to_string();
+    app.windows[0].active_worklane_id = Some("alpha".to_string());
+    app.windows[0].worklanes = vec![alpha, beta];
+    let launch = DesktopLaunchPlan {
+        shell,
+        config: AppConfig::default(),
+        source: DesktopLaunchSource::NewWorkspace,
+        app,
+    };
+
+    let mut session = DesktopWindowSession::spawn(launch).expect("desktop session should spawn");
+    assert_eq!(session.focused_pane_id(), Some("pane-alpha"));
+    assert_eq!(session.worklane_id(), "alpha");
+
+    assert!(
+        session.focus_pane_by_id("pane-beta"),
+        "clicking a pane in another worklane should change focus"
+    );
+    assert_eq!(session.focused_pane_id(), Some("pane-beta"));
+    assert_eq!(
+        session.worklane_id(),
+        "beta",
+        "focusing a cross-worklane pane should activate its worklane"
+    );
+
+    session.terminate().ok();
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+#[cfg(windows)]
+fn focus_pane_by_id_already_focused_is_no_op() {
+    let dir = test_directory("focus-pane-by-id-already-focused");
+    let shell = DesktopShellConfig::parse_with_environment(
+        [
+            "--config",
+            dir.join("missing.toml").to_string_lossy().as_ref(),
+        ],
+        DesktopEnvironment::empty(),
+    )
+    .expect("desktop config should parse");
+    let launch = DesktopLaunchPlan {
+        shell,
+        config: AppConfig::default(),
+        source: DesktopLaunchSource::NewWorkspace,
+        app: two_pane_launch_plan(),
+    };
+
+    let mut session = DesktopWindowSession::spawn(launch).expect("desktop session should spawn");
+    assert_eq!(session.focused_pane_id(), Some("pane-right"));
+
+    assert!(
+        !session.focus_pane_by_id("pane-right"),
+        "re-focusing the already-focused pane should be a no-op"
+    );
+    assert_eq!(session.focused_pane_id(), Some("pane-right"));
+
+    session.terminate().ok();
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+#[cfg(windows)]
+fn focus_pane_by_id_unknown_is_safe_no_op() {
+    let dir = test_directory("focus-pane-by-id-unknown");
+    let shell = DesktopShellConfig::parse_with_environment(
+        [
+            "--config",
+            dir.join("missing.toml").to_string_lossy().as_ref(),
+        ],
+        DesktopEnvironment::empty(),
+    )
+    .expect("desktop config should parse");
+    let launch = DesktopLaunchPlan {
+        shell,
+        config: AppConfig::default(),
+        source: DesktopLaunchSource::NewWorkspace,
+        app: two_pane_launch_plan(),
+    };
+
+    let mut session = DesktopWindowSession::spawn(launch).expect("desktop session should spawn");
+    assert_eq!(session.focused_pane_id(), Some("pane-right"));
+
+    assert!(
+        !session.focus_pane_by_id("pane-does-not-exist"),
+        "an unknown pane id should be a safe no-op"
+    );
+    assert_eq!(session.focused_pane_id(), Some("pane-right"));
+
+    session.terminate().ok();
+    fs::remove_dir_all(dir).ok();
+}
+
 fn workspace_envelope(cwd: &std::path::Path) -> SessionRestoreEnvelope {
     SessionRestoreEnvelope {
         reason: SaveReason::LiveSnapshot,

@@ -144,6 +144,7 @@ pub fn pane_content_rect(rect: layout::PaneRect) -> layout::PaneRect {
 /// One pane's render inputs: its layout slot, title, focus, terminal screen,
 /// and active selection.
 pub struct PaneFrame<'a> {
+    pub pane_id: &'a str,
     pub layout: layout::PaneLayoutInput,
     pub title: &'a str,
     pub focused: bool,
@@ -175,8 +176,17 @@ pub fn status_pill_style(kind: PaneStatusKind) -> (&'static str, D2D1_COLOR_F) {
     }
 }
 
+/// A cached hit rect: `(left, top, right, bottom)` in client pixels.
+type HitRect = (f32, f32, f32, f32);
+/// A cached pane hit entry: the pane id and its outer rect.
+type PaneHit = (String, HitRect);
+/// A cached sidebar hit entry: `(worklane_id, pane_id_or_none, rect)`. A `None`
+/// pane id is a worklane header row; `Some` is a pane row.
+type SidebarHit = (String, Option<String>, HitRect);
+
 /// One pane row in the sidebar (owned so the model outlives session borrows).
 pub struct SidebarPaneRow {
+    pub id: String,
     pub title: String,
     pub focused: bool,
     pub status: PaneStatusKind,
@@ -184,6 +194,7 @@ pub struct SidebarPaneRow {
 
 /// One worklane group in the sidebar: a header plus its pane rows.
 pub struct SidebarWorklane {
+    pub id: String,
     pub title: String,
     pub is_active: bool,
     pub color: Option<(u8, u8, u8)>,
@@ -252,6 +263,17 @@ fn range_contains(range: &TerminalTextRange, line: usize, column: usize) -> bool
     }
 }
 
+/// Index of the last rect in `rects` whose `(left, top, right, bottom)` bounds
+/// contain `(x, y)` (inclusive of the left/top edges, exclusive of the
+/// right/bottom edges). Scans in reverse so a later-pushed rect drawn over an
+/// earlier one wins on overlap. `None` when no rect contains the point.
+fn hit_rect_index(x: f32, y: f32, rects: &[(f32, f32, f32, f32)]) -> Option<usize> {
+    rects.iter().enumerate().rev().find_map(|(index, rect)| {
+        let (left, top, right, bottom) = *rect;
+        (x >= left && x < right && y >= top && y < bottom).then_some(index)
+    })
+}
+
 /// Device-dependent pipeline: D3D11 device, DXGI swapchain, D2D device context,
 /// and the bitmap bound to the current back buffer. Rebuilt on device loss.
 struct DeviceResources {
@@ -284,6 +306,15 @@ pub struct Renderer {
     /// `render_window`, so mouse hit-testing maps to the cells actually drawn
     /// (the grid is offset by the sidebar and the pane title bar).
     focused_grid_origin: Option<(f32, f32)>,
+    /// Per-pane outer rects `(pane_id, (left, top, right, bottom))` recorded
+    /// while drawing in the last `render_window`, for click-to-focus
+    /// hit-testing. Cleared at the start of every frame.
+    pane_hit_rects: Vec<PaneHit>,
+    /// Per-sidebar-row rects from the last `render_window`: each entry is
+    /// `(worklane_id, pane_id_or_none, (left, top, right, bottom))`. A `None`
+    /// pane id marks a worklane header row; `Some` marks a pane row. Cleared at
+    /// the start of every frame.
+    sidebar_hit_rects: Vec<SidebarHit>,
     /// `None` until first paint or after a device-loss drop; rebuilt lazily.
     device: Option<DeviceResources>,
 }
@@ -313,6 +344,8 @@ impl Renderer {
             dwrite,
             dpi,
             focused_grid_origin: None,
+            pane_hit_rects: Vec::new(),
+            sidebar_hit_rects: Vec::new(),
             device: None,
         })
     }
@@ -327,6 +360,28 @@ impl Renderer {
     /// error/empty-state paint).
     pub fn focused_grid_origin(&self) -> Option<(f32, f32)> {
         self.focused_grid_origin
+    }
+
+    /// The pane id whose outer rect contains the client pixel `(x, y)`, or
+    /// `None` if the point falls outside every pane. Uses the rects recorded by
+    /// the last `render_window`; later-drawn panes win on overlap.
+    pub fn pane_id_at_point(&self, x: f32, y: f32) -> Option<&str> {
+        let rects: Vec<(f32, f32, f32, f32)> =
+            self.pane_hit_rects.iter().map(|(_, r)| *r).collect();
+        hit_rect_index(x, y, &rects).map(|index| self.pane_hit_rects[index].0.as_str())
+    }
+
+    /// The sidebar target under the client pixel `(x, y)`: `(worklane_id,
+    /// pane_id_or_none)`. A `None` pane id is a worklane header row; `Some` is a
+    /// pane row. `None` if the point is outside every sidebar row. Uses the
+    /// rects recorded by the last `render_window`.
+    pub fn sidebar_target_at_point(&self, x: f32, y: f32) -> Option<(&str, Option<&str>)> {
+        let rects: Vec<(f32, f32, f32, f32)> =
+            self.sidebar_hit_rects.iter().map(|(_, _, r)| *r).collect();
+        hit_rect_index(x, y, &rects).map(|index| {
+            let (worklane_id, pane_id, _) = &self.sidebar_hit_rects[index];
+            (worklane_id.as_str(), pane_id.as_deref())
+        })
     }
 
     /// Rebuild the text formats for a new DPI (from `WM_DPICHANGED`).
@@ -502,6 +557,8 @@ impl Renderer {
     /// Draw a centered empty state: a primary line plus dimmed hint lines.
     pub fn render_empty_state(&mut self, lines: &[&str]) -> Result<()> {
         self.focused_grid_origin = None;
+        self.pane_hit_rects.clear();
+        self.sidebar_hit_rects.clear();
         let (client_w, client_h) = client_pixel_size(self.hwnd);
         let bg = rgb_tuple(self.theme.background);
         let primary = rgb_tuple(self.theme.foreground);
@@ -542,6 +599,8 @@ impl Renderer {
     /// [`render_window`](Self::render_window).
     pub fn render(&mut self, lines: &[String]) -> Result<()> {
         self.focused_grid_origin = None;
+        self.pane_hit_rects.clear();
+        self.sidebar_hit_rects.clear();
         let right = client_pixel_size(self.hwnd).0 as f32;
         let bg = rgb_tuple(self.theme.background);
         let fg = rgb_tuple(self.theme.foreground);
@@ -586,6 +645,8 @@ impl Renderer {
         overlay: Option<Overlay>,
         cursor_on: bool,
     ) -> Result<()> {
+        self.pane_hit_rects.clear();
+        self.sidebar_hit_rects.clear();
         let theme = self.theme.clone();
         let default_bg = rgb_tuple(theme.background);
         let (cell_w, cell_h) = (self.cell_width, self.cell_height);
@@ -621,6 +682,14 @@ impl Renderer {
                 let content = pane_content_rect(*rect);
                 (content.x, content.y)
             });
+        // Record each pane's outer rect for click-to-focus hit-testing (the same
+        // geometry drawn below). Done before the draw closure borrows `self`.
+        for (frame, rect) in frames.iter().zip(rects.iter()) {
+            self.pane_hit_rects.push((
+                frame.pane_id.to_string(),
+                (rect.x, rect.y, rect.x + rect.width, rect.y + rect.height),
+            ));
+        }
         let text_format = self.text_format.clone();
         let text_format_bold = self.text_format_bold.clone();
         let text_format_ui = self.text_format_ui.clone();
@@ -629,7 +698,11 @@ impl Renderer {
         // with a single pane it is pure decoration (matches Windows Terminal).
         let show_focus_ring = frames.len() > 1;
 
-        self.with_frame(|ctx, brush| unsafe {
+        // Sidebar row rects are accumulated by `draw_sidebar` inside the draw
+        // closure (which holds a `&mut self` borrow via `with_frame`), then
+        // moved into the renderer cache after the frame.
+        let mut sidebar_hits: Vec<SidebarHit> = Vec::new();
+        let render_result = self.with_frame(|ctx, brush| unsafe {
             ctx.Clear(Some(&default_bg));
             for (frame, rect) in frames.iter().zip(rects.iter()) {
                 draw_pane_chrome(
@@ -665,6 +738,7 @@ impl Renderer {
                     &text_format_ui_bold,
                     cell_w,
                     scale,
+                    &mut sidebar_hits,
                 );
             }
             if let Some(overlay) = overlay.as_ref() {
@@ -679,7 +753,9 @@ impl Renderer {
                 );
             }
             Ok(())
-        })
+        });
+        self.sidebar_hit_rects = sidebar_hits;
+        render_result
     }
 
     /// Drop the device-dependent pipeline so the next paint rebuilds it.
@@ -865,6 +941,7 @@ unsafe fn draw_sidebar(
     text_format_bold: &IDWriteTextFormat,
     cell_w: f32,
     scale: f32,
+    hit_rects: &mut Vec<SidebarHit>,
 ) {
     unsafe {
         let width = model.width * scale;
@@ -915,6 +992,11 @@ unsafe fn draw_sidebar(
                 width - pad,
                 row_h,
             );
+            hit_rects.push((
+                worklane.id.clone(),
+                None,
+                (0.0, y, width, y + row_h),
+            ));
             y += row_h;
 
             // Pane rows.
@@ -944,6 +1026,11 @@ unsafe fn draw_sidebar(
                 draw_status_pill(
                     ctx, brush, text_format, label, color, pill_w, width, y, cell_w, scale,
                 );
+                hit_rects.push((
+                    worklane.id.clone(),
+                    Some(pane.id.clone()),
+                    (0.0, y, width, y + row_h),
+                ));
                 y += row_h;
             }
             y += 6.0 * scale;
@@ -1406,6 +1493,43 @@ fn client_pixel_size(hwnd: HWND) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_rect_index_finds_point_inside() {
+        let rects = [(0.0, 0.0, 10.0, 10.0), (20.0, 20.0, 40.0, 40.0)];
+        assert_eq!(hit_rect_index(5.0, 5.0, &rects), Some(0));
+        assert_eq!(hit_rect_index(30.0, 30.0, &rects), Some(1));
+    }
+
+    #[test]
+    fn hit_rect_index_includes_left_top_edges_excludes_right_bottom() {
+        let rects = [(0.0, 0.0, 10.0, 10.0)];
+        // Left/top edges are inside.
+        assert_eq!(hit_rect_index(0.0, 0.0, &rects), Some(0));
+        // Right/bottom edges are outside (exclusive).
+        assert_eq!(hit_rect_index(10.0, 5.0, &rects), None);
+        assert_eq!(hit_rect_index(5.0, 10.0, &rects), None);
+    }
+
+    #[test]
+    fn hit_rect_index_returns_none_outside() {
+        let rects = [(0.0, 0.0, 10.0, 10.0), (20.0, 20.0, 40.0, 40.0)];
+        assert_eq!(hit_rect_index(15.0, 15.0, &rects), None);
+        assert_eq!(hit_rect_index(-1.0, -1.0, &rects), None);
+    }
+
+    #[test]
+    fn hit_rect_index_overlapping_rects_last_wins() {
+        // The later-pushed rect is drawn on top, so it should win on overlap.
+        let rects = [(0.0, 0.0, 20.0, 20.0), (10.0, 10.0, 30.0, 30.0)];
+        assert_eq!(hit_rect_index(15.0, 15.0, &rects), Some(1));
+    }
+
+    #[test]
+    fn hit_rect_index_empty_is_none() {
+        let rects: [(f32, f32, f32, f32); 0] = [];
+        assert_eq!(hit_rect_index(0.0, 0.0, &rects), None);
+    }
 
     #[test]
     fn status_pill_style_distinguishes_states() {
