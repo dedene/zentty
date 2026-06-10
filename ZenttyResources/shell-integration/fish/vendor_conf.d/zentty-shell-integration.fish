@@ -262,6 +262,12 @@ function _zentty_reset_keyboard_protocol
     _zentty_print_tty \e'[<99u'
 end
 
+# Unlike zsh/bash, no CSI-u absorb bindings (_zentty_bind_leaked_key_events)
+# are needed here: fish >= 4 decodes kitty keyboard protocol sequences
+# natively, so key events that leak into the input stream after an agent TUI
+# dies are interpreted as keys (release events are dropped) instead of being
+# echoed as literal text like "9;5:3u".
+
 function _zentty_fish_prompt_hook --on-event fish_prompt
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory

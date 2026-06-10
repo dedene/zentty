@@ -225,6 +225,27 @@ _zentty_reset_keyboard_protocol() {
     _zentty_print_tty $'\e[<99u'
 }
 
+_zentty_bind_leaked_key_events() {
+    # Absorb kitty keyboard protocol key events that leak into readline.
+    # When Ctrl+C kills an agent TUI that enabled the protocol with
+    # key-release reporting (e.g. codex), the release of that Ctrl+C — and
+    # any extra presses during the teardown window — are CSI-u encoded in
+    # the pty buffer before the prompt-hook reset can pop the mode, and
+    # readline would echo them as literal text like "9;5:3u". Bind them to
+    # empty macros so they are discarded. Sequences a user already bound
+    # are left alone.
+    [[ $- == *i* ]] || return 0
+    local existing seq
+    existing="$( { builtin bind -p; builtin bind -s; } 2>/dev/null || true)"
+    for seq in '\e[99;5u' '\e[99;5:1u' '\e[99;5:2u' '\e[99;5:3u' \
+               '\e[9;1:3u' '\e[13;1:3u' '\e[27;1:3u'; do
+        case "$existing" in
+            *"\"$seq\""*) continue ;;
+        esac
+        builtin bind "\"$seq\": \"\"" 2>/dev/null || true
+    done
+}
+
 _zentty_bash_prompt_hook() {
     _zentty_bash_in_prompt=1
     _zentty_ensure_wrapper_path
@@ -277,4 +298,5 @@ popd() {
 trap '_zentty_bash_preexec_hook' DEBUG
 PROMPT_COMMAND="_zentty_bash_prompt_hook"
 _zentty_ensure_wrapper_path
+_zentty_bind_leaked_key_events
 _zentty_bash_prompt_hook

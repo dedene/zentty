@@ -204,6 +204,33 @@ _zentty_reset_keyboard_protocol() {
     _zentty_print_tty $'\e[<99u'
 }
 
+_zentty_discard_leaked_key_event() { :; }
+
+_zentty_bind_leaked_key_events() {
+    # Absorb kitty keyboard protocol key events that leak into the line
+    # editor. When Ctrl+C kills an agent TUI that enabled the protocol with
+    # key-release reporting (e.g. codex), the release of that Ctrl+C — and
+    # any extra presses during the teardown window — are CSI-u encoded in
+    # the pty buffer before the precmd reset can pop the mode, and ZLE would
+    # echo them as literal text like "9;5:3u". Map Ctrl+C presses to a real
+    # interrupt and drop repeat/release events. Sequences a user already
+    # bound are left alone.
+    [[ -o interactive ]] || return 0
+    builtin zle -N _zentty_discard_leaked_key_event 2>/dev/null || return 0
+    local seq widget
+    for seq widget in \
+        '\e[99;5u'   send-break \
+        '\e[99;5:1u' send-break \
+        '\e[99;5:2u' _zentty_discard_leaked_key_event \
+        '\e[99;5:3u' _zentty_discard_leaked_key_event \
+        '\e[9;1:3u'  _zentty_discard_leaked_key_event \
+        '\e[13;1:3u' _zentty_discard_leaked_key_event \
+        '\e[27;1:3u' _zentty_discard_leaked_key_event; do
+        [[ "$(builtin bindkey "$seq" 2>/dev/null)" == *undefined-key* ]] || continue
+        builtin bindkey "$seq" "$widget" 2>/dev/null || true
+    done
+}
+
 _zentty_precmd() {
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
@@ -261,4 +288,5 @@ else
 fi
 
 _zentty_ensure_wrapper_path
+_zentty_bind_leaked_key_events
 _zentty_precmd

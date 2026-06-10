@@ -650,6 +650,36 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_repository_shell_integrations_absorb_leaked_csiu_key_events() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellIntegrationDirectory = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
+
+        // zsh and bash bind the kitty CSI-u events that leak after an agent
+        // TUI dies mid-protocol; fish decodes CSI-u natively and reedline
+        // cannot bind raw sequences, so those two document the gap instead.
+        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+            let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
+            let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+            XCTAssertTrue(script.contains("_zentty_bind_leaked_key_events"), filename)
+            for sequence in ["99;5u", "99;5:1u", "99;5:2u", "99;5:3u", "9;1:3u", "13;1:3u", "27;1:3u"] {
+                XCTAssertTrue(script.contains(sequence), "\(filename) should bind \\e[\(sequence)")
+            }
+        }
+
+        for filename in ["fish/vendor_conf.d/zentty-shell-integration.fish",
+                         "nushell/vendor/autoload/zentty.nu"] {
+            let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
+            let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+            XCTAssertTrue(script.contains("_zentty_bind_leaked_key_events"), filename)
+        }
+    }
+
     func test_nu_shell_integration_loads_without_cant_convert_under_real_zentty_env() throws {
         guard ShellIntegrationTestShell.nu.isAvailable else {
             throw XCTSkip("nu not available on this host")

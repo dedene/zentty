@@ -254,6 +254,12 @@ def _zentty_reset_keyboard_protocol [] {
     _zentty_print_tty $"\e[<99u"
 }
 
+# Unlike zsh/bash, there is no CSI-u absorb counterpart here
+# (_zentty_bind_leaked_key_events): reedline keybindings address named keys,
+# not raw escape sequences, so kitty-protocol key events that leak into the
+# input stream after an agent TUI dies cannot be bound away. The bracketed
+# protocol resets above remain the only mitigation for nushell.
+
 def --env _zentty_pre_prompt [] {
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
