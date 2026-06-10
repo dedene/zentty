@@ -1219,12 +1219,16 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
 
         TerminalFrameMeter.shared.setNowForTesting(0)
         TerminalFrameMeter.shared.isEnabled = true
+        let preferredFramesPerSecond = try XCTUnwrap(frameMeterSampler.startCalls.last?.preferredFramesPerSecond)
+        let targetFrameDuration = 1.0 / Double(preferredFramesPerSecond)
+        let criticalFrameDuration = 1.0 / (Double(preferredFramesPerSecond) * 0.25)
+
         frameMeterSampler.triggerFrame()
-        TerminalFrameMeter.shared.setNowForTesting(1.0 / 120.0)
+        TerminalFrameMeter.shared.setNowForTesting(targetFrameDuration)
         frameMeterSampler.triggerFrame()
-        TerminalFrameMeter.shared.setNowForTesting((1.0 / 120.0) + (1.0 / 30.0))
+        TerminalFrameMeter.shared.setNowForTesting(targetFrameDuration + criticalFrameDuration)
         frameMeterSampler.triggerFrame()
-        TerminalFrameMeter.shared.setNowForTesting((1.0 / 120.0) + (1.0 / 30.0) + (1.0 / 30.0))
+        TerminalFrameMeter.shared.setNowForTesting(targetFrameDuration + criticalFrameDuration + criticalFrameDuration)
         frameMeterSampler.triggerFrame()
 
         let snapshot = harness.hostView.debugFrameMeterHUDSnapshotForTesting
