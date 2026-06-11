@@ -1,0 +1,18 @@
+[package]
+name = "zentty-win"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zentty-core = { path = "../zentty-core" }
+zentty-terminal = { path = "../zentty-terminal" }
+zentty-pty = { path = "../zentty-pty" }
+serde_json.workspace = true
+time.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
+[build-dependencies]
+winresource = "0.1"

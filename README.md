@@ -91,6 +91,50 @@ bundle exec fastlane mac generate_project
 
 More detail about the Ghostty bootstrap flow lives in [`docs/ghosttykit-setup.md`](docs/ghosttykit-setup.md).
 
+## Windows
+
+A native Windows port lives in [`rust/`](rust/): a Rust workspace rendering with Direct2D/DirectWrite over ConPTY (no Electron, no web views). It ships the same core ideas — worklanes, panes, sidebar with agent status pills, command palette, global search, themes.
+
+Requirements: Rust (MSVC toolchain) and the Windows 10/11 SDK (for the resource compiler that embeds the app icon).
+
+Build and run from a clean clone:
+
+```powershell
+cd rust
+cargo build --release --workspace
+.\target\release\zentty-win-desktop.exe
+```
+
+Keyboard map (everything else is reachable through the command palette):
+
+| Keys | Action |
+|---|---|
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+D` / `Ctrl+Shift+D` | Split pane side-by-side / stacked |
+| `Ctrl+W` | Close pane (a pane also closes itself when its shell exits) |
+| `Ctrl+←` `→` `↑` `↓` | Move focus between panes |
+| `Ctrl+Shift+F` | Global search |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy selection / paste |
+
+Run the tests:
+
+```powershell
+cd rust
+cargo test --workspace
+```
+
+Package and install (per-user, no admin; creates `rust/dist/zentty-windows-x64.zip`):
+
+```powershell
+pwsh -File rust/scripts/package-windows.ps1
+Expand-Archive rust/dist/zentty-windows-x64.zip -DestinationPath $env:TEMP\zentty-install
+pwsh -File $env:TEMP\zentty-install\install.ps1   # installs to %LOCALAPPDATA%\Zentty + Start-menu shortcut
+```
+
+Uninstall with the packaged `uninstall.ps1`. To build an MSI instead, install the [WiX Toolset](https://wixtoolset.org) (`dotnet tool install --global wix`) and `cargo install cargo-wix`, run `cargo wix init --package zentty-win` once to generate `wix/main.wxs`, then `cargo wix --package zentty-win` from `rust/`; signing is a separate `cargo wix sign` step and requires a code-signing certificate (WiX/NSIS are not required for the zip package above).
+
+Note: the desktop binary is a GUI app (`windows_subsystem = "windows"`), so `--help` output is not visible from a console; launch flags are `--config PATH`, `--workspace RESTORE_JSON`, `--cols N`, `--rows N`, `--title TITLE` (see `DesktopShellConfig` in `rust/crates/zentty-win/src/desktop.rs`); screenshot-tooling toggles are env-var based (`ZENTTY_SHOT_*`).
+
 ## Test
 
 Run the full test suite:
