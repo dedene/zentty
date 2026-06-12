@@ -632,6 +632,7 @@ final class SidebarView: NSView {
         syncWorklaneMoveAvailability()
         worklaneButtons.forEach { $0.setShimmerCoordinator(shimmerCoordinator) }
         syncShimmerVisibility()
+        reconcileHoverWithCurrentPointer()
         shimmerCoordinator.labelStateDidChange()
 
         let newActiveID = summaries.first(where: \.isActive)?.worklaneID
@@ -1122,6 +1123,7 @@ final class SidebarView: NSView {
         _ = notification
         Task { @MainActor [weak self] in
             self?.syncShimmerVisibility()
+            self?.reconcileHoverWithCurrentPointer()
         }
     }
 
@@ -1479,6 +1481,13 @@ private extension SidebarView {
         worklaneButtons.forEach { button in
             let buttonFrame = button.convert(button.bounds, to: listDocumentView)
             button.setShimmerVisibility(visibleRect.intersects(buttonFrame))
+        }
+    }
+
+    func reconcileHoverWithCurrentPointer() {
+        let windowPoint = window?.mouseLocationOutsideOfEventStream
+        worklaneButtons.forEach { button in
+            button.reconcileHover(atWindowPoint: windowPoint, animated: false)
         }
     }
 }

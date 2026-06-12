@@ -331,8 +331,29 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     func paneRowHoverChanged(isHovered: Bool) {
-        isPaneRowHovered = isHovered
-        applyCurrentAppearance(animated: true)
+        setPaneRowHovered(isHovered, animated: true)
+    }
+
+    @discardableResult
+    func reconcileHover(atWindowPoint windowPoint: NSPoint?, animated: Bool = false) -> Bool {
+        let rowHovered = contains(windowPoint: windowPoint)
+        setWorklaneHovered(rowHovered, animated: animated)
+
+        let activePaneCount = currentSummary?.paneRows.count ?? 0
+        var anyPaneRowHovered = false
+        for (index, paneButton) in paneRowButtons.enumerated() {
+            if index < activePaneCount,
+               paneButton.superview != nil,
+               !paneButton.isHidden,
+               paneButton.alphaValue > 0 {
+                anyPaneRowHovered = paneButton.reconcileHover(atWindowPoint: windowPoint) || anyPaneRowHovered
+            } else {
+                paneButton.reconcileHover(atWindowPoint: nil)
+            }
+        }
+        setPaneRowHovered(anyPaneRowHovered, animated: animated)
+
+        return rowHovered || anyPaneRowHovered
     }
 
     func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {
@@ -437,13 +458,11 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        applyCurrentAppearance(animated: true)
+        setWorklaneHovered(true, animated: true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        applyCurrentAppearance(animated: true)
+        setWorklaneHovered(false, animated: true)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -463,6 +482,36 @@ final class SidebarWorklaneRowButton: NSButton {
                 self?.performClick(nil)
             }
         )
+    }
+
+    private func contains(windowPoint: NSPoint?) -> Bool {
+        guard let windowPoint,
+              window != nil,
+              !isHidden,
+              alphaValue > 0
+        else {
+            return false
+        }
+
+        return bounds.contains(convert(windowPoint, from: nil))
+    }
+
+    private func setWorklaneHovered(_ hovered: Bool, animated: Bool) {
+        guard isHovered != hovered else {
+            return
+        }
+
+        isHovered = hovered
+        applyCurrentAppearance(animated: animated)
+    }
+
+    private func setPaneRowHovered(_ hovered: Bool, animated: Bool) {
+        guard isPaneRowHovered != hovered else {
+            return
+        }
+
+        isPaneRowHovered = hovered
+        applyCurrentAppearance(animated: animated)
     }
 
     // MARK: - Public API
@@ -1120,6 +1169,8 @@ final class SidebarWorklaneRowButton: NSButton {
             currentSummary: currentSummary,
             currentStatusSymbolName: currentStatusSymbolName,
             isWorking: isWorking,
+            isHovered: isHovered,
+            isPaneRowHovered: isPaneRowHovered,
             shimmerCoordinator: shimmerCoordinator,
             configureApplyCount: configureApplyCountForTesting,
             textStack: textStack,

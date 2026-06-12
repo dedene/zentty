@@ -718,20 +718,44 @@ final class SidebarPaneRowButton: NSButton {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        updateHoverAppearance()
-        onHoverChanged?(true)
+        setHovered(true, notifyOwner: true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        updateHoverAppearance()
-        onHoverChanged?(false)
+        setHovered(false, notifyOwner: true)
     }
 
     override var isHighlighted: Bool {
         didSet {
             updateHoverAppearance()
+        }
+    }
+
+    @discardableResult
+    func reconcileHover(atWindowPoint windowPoint: NSPoint?) -> Bool {
+        let shouldHover = windowPoint.map { point in
+            guard window != nil, !isHidden, alphaValue > 0 else {
+                return false
+            }
+
+            return bounds.contains(convert(point, from: nil))
+        } ?? false
+        setHovered(shouldHover, notifyOwner: false)
+        return shouldHover
+    }
+
+    private func setHovered(_ hovered: Bool, notifyOwner: Bool) {
+        guard isHovered != hovered else {
+            if notifyOwner {
+                onHoverChanged?(hovered)
+            }
+            return
+        }
+
+        isHovered = hovered
+        updateHoverAppearance()
+        if notifyOwner {
+            onHoverChanged?(hovered)
         }
     }
 
@@ -746,6 +770,12 @@ final class SidebarPaneRowButton: NSButton {
         }
         layer?.backgroundColor = color.cgColor
     }
+
+#if DEBUG
+    var isHoveredForTesting: Bool {
+        isHovered
+    }
+#endif
 
     // MARK: - Context Menu
 

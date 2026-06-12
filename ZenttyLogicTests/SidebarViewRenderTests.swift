@@ -102,6 +102,58 @@ final class SidebarViewRenderTests: AppKitTestCase {
         XCTAssertEqual(closeCount, 1)
     }
 
+    func test_scroll_bounds_change_clears_stale_worklane_hover() throws {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: (0..<12).map { index in
+                makeSummary(worklaneID: "worklane-\(index)", primaryText: "Pane \(index)")
+            },
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebar.layoutSubtreeIfNeeded()
+        let firstButton = try XCTUnwrap(sidebarWorklaneButtons(in: sidebar).first)
+
+        firstButton.performDebugInteractionForTesting(.setHovered(true))
+        XCTAssertTrue(firstButton.debugSnapshotForTesting.isHovered)
+
+        NotificationCenter.default.post(
+            name: NSView.boundsDidChangeNotification,
+            object: sidebar.debugAccessForTesting.listScrollView.contentView
+        )
+        waitForMainQueue()
+
+        XCTAssertFalse(firstButton.debugSnapshotForTesting.isHovered)
+    }
+
+    func test_structural_render_clears_stale_worklane_hover() throws {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+                makeSummary(worklaneID: "C", primaryText: "c"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebar.layoutSubtreeIfNeeded()
+        let reusedButton = try XCTUnwrap(sidebarWorklaneButtons(in: sidebar).first)
+
+        reusedButton.performDebugInteractionForTesting(.setHovered(true))
+        XCTAssertTrue(reusedButton.debugSnapshotForTesting.isHovered)
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "new", primaryText: "new"),
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+                makeSummary(worklaneID: "C", primaryText: "c"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertFalse(reusedButton.debugSnapshotForTesting.isHovered)
+    }
+
     func test_global_search_row_placeholder_explains_sidebar_scope() {
         let sidebar = makeSidebar()
 
@@ -880,6 +932,17 @@ final class SidebarViewRenderTests: AppKitTestCase {
     private func makeSidebar() -> SidebarView {
         let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         return sidebar
+    }
+
+    private func waitForMainQueue(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let settled = expectation(description: "main queue settled")
+        DispatchQueue.main.async {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
     }
 
     private func makeContextMenuEvent() throws -> NSEvent {

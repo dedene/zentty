@@ -2843,6 +2843,51 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(layer.transform.m22, 1, accuracy: 0.001)
     }
 
+    func test_scroll_hover_reconciliation_clears_stale_worklane_hover() {
+        let row = makeRow(width: 280, height: 72)
+        row.configure(
+            with: makeSummary(primaryText: "demo", statusText: "Running"),
+            theme: .fallback(for: nil),
+            animated: false
+        )
+
+        row.performDebugInteractionForTesting(.setHovered(true))
+        XCTAssertTrue(row.debugSnapshotForTesting.isHovered)
+
+        row.reconcileHover(atWindowPoint: nil)
+
+        XCTAssertFalse(row.debugSnapshotForTesting.isHovered)
+    }
+
+    func test_scroll_hover_reconciliation_clears_stale_pane_row_hover() throws {
+        let row = makeRow(width: 320, height: 120)
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: darkTheme(foreground: "#F0F3F6"),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+        let paneButton = try XCTUnwrap(row.debugAccessForTesting.paneRowButtons.first)
+
+        paneButton.mouseEntered(
+            with: try makeMouseEvent(
+                type: .mouseMoved,
+                location: NSPoint(x: paneButton.bounds.midX, y: paneButton.bounds.midY),
+                in: paneButton
+            )
+        )
+        XCTAssertTrue(row.debugSnapshotForTesting.isPaneRowHovered)
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneRowIsHovered ?? false)
+
+        row.reconcileHover(atWindowPoint: nil)
+
+        XCTAssertFalse(row.debugSnapshotForTesting.isPaneRowHovered)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneRowIsHovered ?? true)
+    }
+
     func test_sidebar_insertion_line_is_rounded_and_inset_to_target_worklane() throws {
         let lineContainer = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 220))
         let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 320, height: 220))

@@ -11,6 +11,8 @@ struct SidebarWorklaneRowDebugSnapshot {
     let topLabelColor: NSColor
     let tintLayerBackgroundColor: CGColor?
     let isWorking: Bool
+    let isHovered: Bool
+    let isPaneRowHovered: Bool
     let shimmerIsAnimating: Bool
     let primaryShimmerViewIsHidden: Bool
     let primaryBaseLabelMaximumNumberOfLines: Int
@@ -74,6 +76,7 @@ struct SidebarWorklaneRowDebugSnapshot {
     let firstPaneRowContentMinY: CGFloat?
     let firstPaneRowContentMaxTopInset: CGFloat?
     let firstPaneRowCornerRadius: CGFloat?
+    let firstPaneRowIsHovered: Bool?
     let primaryTextMinX: CGFloat?
     let primaryTextMaxTrailingInset: CGFloat?
     let backgroundColor: NSColor?
@@ -104,6 +107,8 @@ struct SidebarWorklaneRowDebugAccess {
     let currentSummary: WorklaneSidebarSummary?
     let currentStatusSymbolName: String
     let isWorking: Bool
+    let isHovered: Bool
+    let isPaneRowHovered: Bool
     let shimmerCoordinator: SidebarShimmerCoordinator?
     let configureApplyCount: Int
     let textStack: NSStackView
@@ -192,6 +197,8 @@ extension SidebarWorklaneRowButton {
             topLabelColor: access.topLabel.textColor ?? .clear,
             tintLayerBackgroundColor: access.tintLayer.backgroundColor,
             isWorking: access.isWorking,
+            isHovered: access.isHovered,
+            isPaneRowHovered: access.isPaneRowHovered,
             shimmerIsAnimating: access.primaryLabel.shimmerIsAnimating,
             primaryShimmerViewIsHidden: access.primaryLabel.isHidden,
             primaryBaseLabelMaximumNumberOfLines: access.primaryBaseLabel.maximumNumberOfLines,
@@ -273,6 +280,7 @@ extension SidebarWorklaneRowButton {
             firstPaneRowContentMinY: access.paneRowButtons.first?.contentMinYForTesting,
             firstPaneRowContentMaxTopInset: access.paneRowButtons.first?.contentMaxTopInsetForTesting,
             firstPaneRowCornerRadius: access.paneRowButtons.first?.cornerRadiusForTesting,
+            firstPaneRowIsHovered: access.paneRowButtons.first?.isHoveredForTesting,
             primaryTextMinX: primaryTextMinX,
             primaryTextMaxTrailingInset: primaryTextMaxTrailingInset,
             backgroundColor: access.owner.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)),
