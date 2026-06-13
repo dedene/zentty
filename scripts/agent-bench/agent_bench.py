@@ -1368,13 +1368,18 @@ class LaunchPlanner:
         return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": self.profile.name})
 
     def _plan_vibe(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        # Mirror AgentLaunchBootstrap.vibePlan: turn on Vibe's experimental hook
-        # system and pre-send a synthetic session.start (Vibe has no session-start
-        # hook of its own — only before_tool/after_tool/post_agent_turn). The
-        # wrapper substitutes the self-pid placeholder, which is what gives
-        # session_capture a tracked pid via agent.pid. The Zentty-managed hooks in
-        # ~/.vibe/hooks.toml drive the before_tool/after_tool/post_agent_turn
-        # records once VIBE_ENABLE_EXPERIMENTAL_HOOKS is set.
+        # Mirror AgentLaunchBootstrap.vibePlan: tag the tool and pre-send a
+        # synthetic session.start (Vibe has no session-start hook of its own —
+        # only before_tool/after_tool/post_agent_turn). The wrapper substitutes
+        # the self-pid placeholder, which is what gives session_capture a tracked
+        # pid via agent.pid. The Zentty-managed hooks in ~/.vibe/hooks.toml drive
+        # the before_tool/after_tool/post_agent_turn records.
+        #
+        # We deliberately do NOT set VIBE_ENABLE_EXPERIMENTAL_HOOKS here, exactly
+        # like the real vibePlan: the wrapper (AgentToolLauncher.run(plan:)) is
+        # the sole owner of that flag. Leaving it out keeps this bench an honest
+        # guard — if the wrapper stops setting it, Vibe fires no hooks and the
+        # bench fails.
         launch_env = {str(k): str(v) for k, v in environment.items() if str(k).startswith("ZENTTY_")}
         context = compact_json({"launch": {"arguments": arguments, "environment": launch_env}})
         session_start = (
@@ -1385,10 +1390,7 @@ class LaunchPlanner:
         return self._launch_plan(
             executable,
             arguments,
-            {
-                "ZENTTY_AGENT_TOOL": "vibe",
-                "VIBE_ENABLE_EXPERIMENTAL_HOOKS": "true",
-            },
+            {"ZENTTY_AGENT_TOOL": "vibe"},
             prelaunch=[
                 {"subcommand": "agent-event", "arguments": ["--adapter=vibe"], "standardInput": session_start},
             ],
