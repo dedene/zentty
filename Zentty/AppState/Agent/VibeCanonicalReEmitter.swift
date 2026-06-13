@@ -337,19 +337,29 @@ enum VibeCanonicalReEmitter {
     private static func extractTaskProgress(from toolOutput: [String: Any]?) -> (done: Int, total: Int)? {
         guard let toolOutput else { return nil }
 
-        // Try direct progress fields
+        // Mistral Vibe's `todo` tool returns its full list rather than a
+        // done/total pair: {"todos": [{"status": "pending|in_progress|
+        // completed|cancelled", ...}], "total_count": N}. Derive progress as
+        // done = completed todos, total = total_count (falling back to count).
+        if let todos = toolOutput["todos"] as? [[String: Any]] {
+            let total = (toolOutput["total_count"] as? Int) ?? todos.count
+            let done = todos.filter {
+                ($0["status"] as? String)?.lowercased() == "completed"
+            }.count
+            return (done, total)
+        }
+
+        // Generic done/total shapes, kept for forward compatibility.
         if let done = toolOutput["done"] as? Int, let total = toolOutput["total"] as? Int {
             return (done, total)
         }
 
-        // Try nested in a progress object
         if let progress = toolOutput["progress"] as? [String: Any] {
             if let done = progress["done"] as? Int, let total = progress["total"] as? Int {
                 return (done, total)
             }
         }
 
-        // Try in a result object
         if let result = toolOutput["result"] as? [String: Any] {
             if let done = result["done"] as? Int, let total = result["total"] as? Int {
                 return (done, total)

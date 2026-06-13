@@ -281,6 +281,41 @@ final class VibeCanonicalReEmitterTests: XCTestCase {
         }
     }
 
+    func test_afterTool_with_vibe_todo_tool_computes_progress_from_status() throws {
+        // Real Mistral Vibe `todo` output shape: a full todo list plus a
+        // total_count, NOT a done/total pair. Progress is derived from the
+        // status of each item (done == "completed").
+        let hookPayload: [String: Any] = [
+            "hook_event_name": "after_tool",
+            "session_id": "test-session-123",
+            "tool_name": "todo",
+            "tool_status": "success",
+            "tool_output": [
+                "message": "Updated 4 todos",
+                "total_count": 4,
+                "todos": [
+                    ["id": "1", "content": "Review", "status": "completed"],
+                    ["id": "2", "content": "Identify", "status": "completed"],
+                    ["id": "3", "content": "Suggest", "status": "in_progress"],
+                    ["id": "4", "content": "Verify", "status": "pending"],
+                ],
+            ],
+        ]
+
+        let payloads = VibeCanonicalReEmitter.canonicalPayloads(from: hookPayload)
+
+        XCTAssertEqual(payloads.count, 1)
+        guard let payload = payloads.first else { return }
+
+        XCTAssertEqual(payload["event"] as? String, "task.progress")
+        if let progress = payload["progress"] as? [String: Any] {
+            XCTAssertEqual(progress["done"] as? Int, 2, "two completed todos")
+            XCTAssertEqual(progress["total"] as? Int, 4)
+        } else {
+            XCTFail("Expected progress in payload")
+        }
+    }
+
     func test_afterTool_with_regular_tool_returns_running() throws {
         let hookPayload: [String: Any] = [
             "hook_event_name": "after_tool",

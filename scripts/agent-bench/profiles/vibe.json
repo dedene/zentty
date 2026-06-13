@@ -18,6 +18,11 @@
       "-p",
       "Run this exact shell command and nothing else: printf ZENTTY_AGENT_BENCH_TOOLS_OK",
       "--auto-approve"
+    ],
+    "tasks": [
+      "-p",
+      "Use your todo tool to create a todo list with these exact tasks: 1. Review directory, 2. Identify main language, 3. Suggest one improvement. Mark task 1 completed. Then run this exact shell command: printf ZENTTY_AGENT_BENCH_TASKS_OK",
+      "--auto-approve"
     ]
   },
   "expectations": {
@@ -32,6 +37,9 @@
       }
     },
     "tools": {
+      "required_events": ["session.start", "before_tool", "after_tool", "post_agent_turn"]
+    },
+    "tasks": {
       "required_events": ["session.start", "before_tool", "after_tool", "post_agent_turn"]
     }
   },
