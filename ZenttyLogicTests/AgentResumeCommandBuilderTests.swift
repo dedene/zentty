@@ -522,4 +522,49 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
 
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
+
+    func test_builder_returns_vibe_resume_command_for_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-vibe",
+            kind: .agentResume,
+            toolName: "Mistral Vibe",
+            sessionID: "0CB916DB-26AA-40F2-86B5-1BA81B225FD2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "vibe --resume 0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_vibe_resume_command_for_safe_alphanumeric_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-vibe",
+            kind: .agentResume,
+            toolName: "Mistral Vibe",
+            sessionID: "vibe_session_01",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "vibe --resume vibe_session_01"
+        )
+    }
+
+    func test_builder_returns_nil_for_vibe_unsafe_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-vibe",
+            kind: .agentResume,
+            toolName: "Mistral Vibe",
+            sessionID: "sess; rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
 }

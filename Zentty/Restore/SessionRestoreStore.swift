@@ -567,13 +567,11 @@ enum SessionRestoreDraftExporter {
 
     private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
         switch tool {
-        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode, .hermes:
+        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode, .hermes, .vibe:
             return .sessionID
         case .gemini, .pi, .grok, .agy:
             return .workingDirectory
-        case .zentty, .custom, .vibe:
-            // No Vibe resume command is wired in AgentResumeCommandBuilder yet,
-            // so Vibe panes are not restorable; revisit when resume lands.
+        case .zentty, .custom:
             return .unsupported
         }
     }
@@ -792,6 +790,12 @@ enum AgentResumeCommandBuilder {
                 return "env HERMES_HOME=\(shellQuotedArgument(hermesHome)) \(command)"
             }
             return command
+        case .vibe:
+            guard let sessionID = validatedVibeSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            return "vibe --resume \(sessionID)"
         default:
             return nil
         }
@@ -843,6 +847,21 @@ enum AgentResumeCommandBuilder {
     private static func validatedGrokSessionID(from sessionID: String) -> String? {
         // Grok Build sessions are typically UUIDs. We also accept reasonable
         // alphanumeric session identifiers (Grok may use short IDs in some modes).
+        if let uuid = UUID(uuidString: sessionID) {
+            return uuid.uuidString.lowercased()
+        }
+
+        let pattern = "^[A-Za-z0-9][A-Za-z0-9_-]{3,}$"
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
+    private static func validatedVibeSessionID(from sessionID: String) -> String? {
+        // Mistral Vibe session IDs are opaque; accept UUIDs and reasonable
+        // alphanumeric identifiers, rejecting anything shell-unsafe so the id
+        // can be interpolated into `vibe --resume <id>` directly.
         if let uuid = UUID(uuidString: sessionID) {
             return uuid.uuidString.lowercased()
         }
