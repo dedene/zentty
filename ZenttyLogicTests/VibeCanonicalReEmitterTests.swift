@@ -116,53 +116,6 @@ final class VibeCanonicalReEmitterTests: XCTestCase {
         }
     }
 
-    func test_beforeTool_with_permission_tool_returns_needsInput_approval() throws {
-        let hookPayload: [String: Any] = [
-            "hook_event_name": "before_tool",
-            "session_id": "test-session-123",
-            "tool_name": "RequestPermission",
-            "tool_input": [
-                "message": "Can I access your filesystem?"
-            ]
-        ]
-
-        let payloads = VibeCanonicalReEmitter.canonicalPayloads(from: hookPayload)
-
-        XCTAssertEqual(payloads.count, 1)
-        guard let payload = payloads.first else { return }
-
-        XCTAssertEqual(payload["event"] as? String, "agent.needs-input")
-        
-        if let state = payload["state"] as? [String: Any] {
-            XCTAssertEqual(state["text"] as? String, "Can I access your filesystem?")
-            if let interaction = state["interaction"] as? [String: Any] {
-                XCTAssertEqual(interaction["kind"] as? String, "approval")
-            } else {
-                XCTFail("Expected interaction in state")
-            }
-        }
-    }
-
-    func test_beforeTool_with_approval_tool_returns_needsInput_approval() throws {
-        let hookPayload: [String: Any] = [
-            "hook_event_name": "before_tool",
-            "tool_name": "approval",
-            "tool_input": [
-                "prompt": "Approve this action"
-            ]
-        ]
-
-        let payloads = VibeCanonicalReEmitter.canonicalPayloads(from: hookPayload)
-
-        XCTAssertEqual(payloads.count, 1)
-        guard let payload = payloads.first else { return }
-
-        XCTAssertEqual(payload["event"] as? String, "agent.needs-input")
-        if let state = payload["state"] as? [String: Any] {
-            XCTAssertEqual(state["text"] as? String, "Approve this action")
-        }
-    }
-
     func test_beforeTool_with_regular_tool_returns_running() throws {
         let hookPayload: [String: Any] = [
             "hook_event_name": "before_tool",
@@ -223,62 +176,6 @@ final class VibeCanonicalReEmitterTests: XCTestCase {
         guard let payload = payloads.first else { return }
 
         XCTAssertEqual(payload["event"] as? String, "agent.input-resolved")
-    }
-
-    func test_afterTool_with_task_tool_returns_taskProgress() throws {
-        let hookPayload: [String: Any] = [
-            "hook_event_name": "after_tool",
-            "session_id": "test-session-123",
-            "tool_name": "todo",
-            "tool_status": "success",
-            "tool_output": [
-                "done": 3,
-                "total": 5
-            ]
-        ]
-
-        let payloads = VibeCanonicalReEmitter.canonicalPayloads(from: hookPayload)
-
-        XCTAssertEqual(payloads.count, 1)
-        guard let payload = payloads.first else { return }
-
-        XCTAssertEqual(payload["event"] as? String, "task.progress")
-        
-        if let progress = payload["progress"] as? [String: Any] {
-            XCTAssertEqual(progress["done"] as? Int, 3)
-            XCTAssertEqual(progress["total"] as? Int, 5)
-        } else {
-            XCTFail("Expected progress in payload")
-        }
-        
-        if let session = payload["session"] as? [String: Any] {
-            XCTAssertEqual(session["id"] as? String, "test-session-123")
-        }
-    }
-
-    func test_afterTool_with_task_tool_nested_progress() throws {
-        let hookPayload: [String: Any] = [
-            "hook_event_name": "after_tool",
-            "tool_name": "Task",
-            "tool_output": [
-                "progress": [
-                    "done": 2,
-                    "total": 10
-                ]
-            ]
-        ]
-
-        let payloads = VibeCanonicalReEmitter.canonicalPayloads(from: hookPayload)
-
-        XCTAssertEqual(payloads.count, 1)
-        guard let payload = payloads.first else { return }
-
-        XCTAssertEqual(payload["event"] as? String, "task.progress")
-        
-        if let progress = payload["progress"] as? [String: Any] {
-            XCTAssertEqual(progress["done"] as? Int, 2)
-            XCTAssertEqual(progress["total"] as? Int, 10)
-        }
     }
 
     func test_afterTool_with_vibe_todo_tool_computes_progress_from_status() throws {

@@ -81,22 +81,15 @@ enum VibeCanonicalReEmitter {
             return []
         }
 
-        let normalizedToolName = toolName.lowercased()
         let toolInput = hookPayload["tool_input"] as? [String: Any]
 
-        // Check for AskUserQuestion tool
-        if isAskUserQuestionTool(normalizedToolName) {
+        // AskUserQuestion is the only Vibe tool that blocks on the user.
+        if isAskUserQuestionTool(toolName) {
             let questionText = extractQuestionText(from: toolInput) ?? "Vibe needs your input"
             return [needsInputPayload(kind: "question", text: questionText, sessionID: sessionID, cwd: cwd)]
         }
 
-        // Check for permission-related tools
-        if isPermissionTool(normalizedToolName) {
-            let permissionText = extractPermissionText(from: toolInput) ?? "Vibe requests permission"
-            return [needsInputPayload(kind: "approval", text: permissionText, sessionID: sessionID, cwd: cwd)]
-        }
-
-        // For other tools, just indicate running
+        // Any other tool call means the agent is actively working.
         return [runningPayload(sessionID: sessionID, cwd: cwd)]
     }
 
@@ -112,28 +105,20 @@ enum VibeCanonicalReEmitter {
             return []
         }
 
-        let normalizedToolName = toolName.lowercased()
-        let toolStatus = hookPayload["tool_status"] as? String
         let toolOutput = hookPayload["tool_output"] as? [String: Any]
 
-        // Check for AskUserQuestion completion
-        if isAskUserQuestionTool(normalizedToolName) {
-            // User responded to question - transition back to running
-            if toolStatus == "success" {
-                return [inputResolvedPayload(sessionID: sessionID, cwd: cwd)]
-            }
-            // If failed/cancelled, still resolve but with error context
+        // The user answered an AskUserQuestion (success or cancelled alike) —
+        // the agent resumes work.
+        if isAskUserQuestionTool(toolName) {
             return [inputResolvedPayload(sessionID: sessionID, cwd: cwd)]
         }
 
-        // Check for task/todo tools
-        if isTaskTool(normalizedToolName) {
-            if let progress = extractTaskProgress(from: toolOutput) {
-                return [taskProgressPayload(done: progress.done, total: progress.total, sessionID: sessionID)]
-            }
+        // The todo tool carries progress (completed / total).
+        if isTaskTool(toolName), let progress = extractTaskProgress(from: toolOutput) {
+            return [taskProgressPayload(done: progress.done, total: progress.total, sessionID: sessionID)]
         }
 
-        // For other tools, continue running
+        // Any other tool completion means the agent is still working.
         return [runningPayload(sessionID: sessionID, cwd: cwd)]
     }
 
@@ -256,24 +241,16 @@ enum VibeCanonicalReEmitter {
 
     // MARK: - Tool Detection
 
-    /// Returns true if the tool is AskUserQuestion (case-insensitive).
+    /// Returns true if the tool is AskUserQuestion (case-insensitive). Vibe's
+    /// tool name is `ask_user_question`.
     private static func isAskUserQuestionTool(_ toolName: String) -> Bool {
         let normalized = toolName.lowercased()
         return normalized.contains("askuserquestion")
             || normalized.contains("ask_user_question")
-            || normalized == "askuserquestion"
-            || normalized == "ask_user_question"
     }
 
-    /// Returns true if the tool appears to be a permission request.
-    private static func isPermissionTool(_ toolName: String) -> Bool {
-        let normalized = toolName.lowercased()
-        return normalized.contains("permission")
-            || normalized.contains("approve")
-            || normalized.contains("approval")
-    }
-
-    /// Returns true if the tool appears to be a task/todo tool.
+    /// Returns true if the tool reports task progress. Vibe's tool name is
+    /// `todo`.
     private static func isTaskTool(_ toolName: String) -> Bool {
         let normalized = toolName.lowercased()
         return normalized.contains("todo")
@@ -308,64 +285,18 @@ enum VibeCanonicalReEmitter {
         return nil
     }
 
-    /// Extracts permission text from tool input.
-    private static func extractPermissionText(from toolInput: [String: Any]?) -> String? {
-        guard let toolInput else { return nil }
-
-        // Try to extract a meaningful permission message
-        if let message = toolInput["message"] as? String {
-            return message
-        }
-
-        if let prompt = toolInput["prompt"] as? String {
-            return prompt
-        }
-
-        if let text = toolInput["text"] as? String {
-            return text
-        }
-
-        if let description = toolInput["description"] as? String {
-            return description
-        }
-
-        return nil
-    }
-
-    /// Extracts task progress from tool output.
-    /// Returns (done, total) tuple if progress can be determined.
+    /// Extracts task progress from the `todo` tool's output:
+    /// `{"todos": [{"status": "pending|in_progress|completed|cancelled", ...}],
+    /// "total_count": N}`. done = completed todos, total = total_count.
     private static func extractTaskProgress(from toolOutput: [String: Any]?) -> (done: Int, total: Int)? {
-        guard let toolOutput else { return nil }
-
-        // Mistral Vibe's `todo` tool returns its full list rather than a
-        // done/total pair: {"todos": [{"status": "pending|in_progress|
-        // completed|cancelled", ...}], "total_count": N}. Derive progress as
-        // done = completed todos, total = total_count (falling back to count).
-        if let todos = toolOutput["todos"] as? [[String: Any]] {
-            let total = (toolOutput["total_count"] as? Int) ?? todos.count
-            let done = todos.filter {
-                ($0["status"] as? String)?.lowercased() == "completed"
-            }.count
-            return (done, total)
+        guard let toolOutput,
+              let todos = toolOutput["todos"] as? [[String: Any]] else {
+            return nil
         }
-
-        // Generic done/total shapes, kept for forward compatibility.
-        if let done = toolOutput["done"] as? Int, let total = toolOutput["total"] as? Int {
-            return (done, total)
-        }
-
-        if let progress = toolOutput["progress"] as? [String: Any] {
-            if let done = progress["done"] as? Int, let total = progress["total"] as? Int {
-                return (done, total)
-            }
-        }
-
-        if let result = toolOutput["result"] as? [String: Any] {
-            if let done = result["done"] as? Int, let total = result["total"] as? Int {
-                return (done, total)
-            }
-        }
-
-        return nil
+        let total = (toolOutput["total_count"] as? Int) ?? todos.count
+        let done = todos.filter {
+            ($0["status"] as? String)?.lowercased() == "completed"
+        }.count
+        return (done, total)
     }
 }

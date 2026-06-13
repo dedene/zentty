@@ -29,7 +29,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 NO_BUILD=0
-SCENARIOS="smoke,session_capture,tools"
+SCENARIOS="smoke,session_capture,tools,tasks"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-build) NO_BUILD=1; shift ;;
