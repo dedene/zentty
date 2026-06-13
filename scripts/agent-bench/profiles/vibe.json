@@ -1,0 +1,39 @@
+{
+  "name": "vibe",
+  "command": "vibe",
+  "real_binary_names": ["vibe", "mistral-vibe"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "-p",
+      "Run this exact shell command and nothing else: printf ZENTTY_AGENT_BENCH_OK",
+      "--auto-approve"
+    ],
+    "session_capture": [
+      "-p",
+      "Run this exact shell command and nothing else: printf ZENTTY_AGENT_BENCH_OK",
+      "--auto-approve"
+    ],
+    "tools": [
+      "-p",
+      "Run this exact shell command and nothing else: printf ZENTTY_AGENT_BENCH_TOOLS_OK",
+      "--auto-approve"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session.start", "post_agent_turn"]
+    },
+    "session_capture": {
+      "required_events": ["session.start", "post_agent_turn"],
+      "session_identity": {
+        "session_id_pattern": "non-empty",
+        "tracked_pid": true
+      }
+    },
+    "tools": {
+      "required_events": ["session.start", "before_tool", "after_tool", "post_agent_turn"]
+    }
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "MISTRAL_API_KEY", "--setup", "trust this directory"]
+}

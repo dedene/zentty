@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# test-vibe-bench — regression gate for the Mistral Vibe (vibe) integration.
+#
+# Builds Zentty in Debug (or reuses a derived build, see --no-build) and runs
+# the agent-bench harness against every scenario the vibe profile defines.
+# Strict mode rejects auth-skip / binary-skip outcomes so a missing binary or
+# auth blocker fails the gate rather than silently passing.
+#
+# Vibe's hooks are experimental and gated behind VIBE_ENABLE_EXPERIMENTAL_HOOKS;
+# the wrapper sets that flag on every launch (AgentToolLauncher.run(plan:)), so
+# this bench is what guards against that wiring regressing — without it, vibe
+# emits no hooks at all and the integration silently goes dark.
+#
+# Re-run this after:
+#   * any vibe CLI bump (it is the upstream side of the contract)
+#   * changes to VibeHooksInstaller / vibeAdapter / VibeCanonicalReEmitter
+#   * changes to the VIBE_ENABLE_EXPERIMENTAL_HOOKS launch wiring
+#   * changes to scripts/agent-bench/profiles/vibe.json
+#
+# Usage:
+#   scripts/test-vibe-bench                 # full sweep, builds first
+#   scripts/test-vibe-bench --no-build      # skip xcodebuild, reuse last build
+#   scripts/test-vibe-bench --scenarios smoke,tools
+#
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+NO_BUILD=0
+SCENARIOS="smoke,session_capture,tools"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-build) NO_BUILD=1; shift ;;
+    --scenarios) SCENARIOS="$2"; shift 2 ;;
+    --scenarios=*) SCENARIOS="${1#--scenarios=}"; shift ;;
+    -h|--help)
+      sed -n '2,24p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+BENCH_ARGS=(run --agents vibe --scenarios "$SCENARIOS" --strict)
+if [[ $NO_BUILD -eq 1 ]]; then
+  BENCH_ARGS+=(--no-build)
+fi
+
+echo "==> Running agent-bench against scenarios: $SCENARIOS"
+python3 scripts/agent-bench/agent_bench.py "${BENCH_ARGS[@]}"

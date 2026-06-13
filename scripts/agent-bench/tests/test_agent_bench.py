@@ -1457,7 +1457,7 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi"],
+            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi", "vibe"],
         )
         self.assertEqual(sorted(agent_bench.SUPPORTED_AGENTS), sorted(profiles))
         for profile in profiles.values():
