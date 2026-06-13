@@ -49,6 +49,97 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.interactionKind, PaneAgentInteractionKind.none)
     }
 
+    func test_user_submit_promotes_idle_vibe_session_to_running() {
+        // Vibe has no turn-start hook: after a turn ends (post_agent_turn ->
+        // idle) a user submit (Enter) is the only signal that a new turn began.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-vibe"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Mistral Vibe",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "vibe-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-vibe"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Mistral Vibe",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "vibe-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        let promoted = reducerState.promoteExplicitVibeSessionFromUserInput(now: startedAt.addingTimeInterval(2))
+
+        XCTAssertTrue(promoted, "A user submit must promote an idle Vibe session to running")
+        XCTAssertEqual(
+            reducerState.reducedStatus(now: startedAt.addingTimeInterval(2))?.state,
+            .running
+        )
+    }
+
+    func test_user_submit_does_not_promote_non_vibe_session() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-claude"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "claude-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-claude"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                sessionID: "claude-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        XCTAssertFalse(
+            reducerState.promoteExplicitVibeSessionFromUserInput(now: startedAt.addingTimeInterval(2)),
+            "Vibe submit promotion must not touch other agents"
+        )
+    }
+
     func test_running_signal_cancels_pending_stop_candidate() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

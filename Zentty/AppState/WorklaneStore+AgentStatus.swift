@@ -131,6 +131,11 @@ extension WorklaneStore {
                 now: now,
                 in: &worklane
             )
+            promoteVibeAgentStateFromUserInput(
+                paneID: paneID,
+                now: now,
+                in: &worklane
+            )
         case .userEditedInput:
             // Typing alone (a letter, backspace, etc.) is not the same as
             // submitting an answer. For TUI-native agents like pi the user
@@ -1544,6 +1549,37 @@ extension WorklaneStore {
         worklaneStoreLogger.notice(
             "promoteCodexAgentStateFromUserInput priorState=\(priorState.map(String.init(describing:)) ?? "nil", privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
         )
+
+        auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentReducerState.reducedStatus(now: now),
+            existingStatus: auxiliaryState.agentStatus
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+    }
+
+    /// Mistral Vibe has no turn-start hook, so a user submit (Enter) is our
+    /// only "the agent just started a turn" signal. Flip an explicit Vibe
+    /// session running from idle/needs-input/starting; `post_agent_turn`
+    /// returns it to idle at turn end.
+    private func promoteVibeAgentStateFromUserInput(
+        paneID: PaneID,
+        now: Date,
+        in worklane: inout WorklaneState
+    ) {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+              auxiliaryState.agentStatus?.tool == .vibe,
+              auxiliaryState.agentStatus?.source == .explicit
+        else {
+            return
+        }
+
+        auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState,
+            from: auxiliaryState.agentStatus
+        )
+        guard auxiliaryState.agentReducerState.promoteExplicitVibeSessionFromUserInput(now: now) else {
+            return
+        }
 
         auxiliaryState.agentStatus = Self.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),

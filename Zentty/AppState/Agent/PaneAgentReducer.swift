@@ -282,6 +282,43 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
+    /// Mistral Vibe exposes no turn-start / prompt-submit hook, so a user
+    /// submit (Enter, not a newline) is Zentty's only signal that a new turn
+    /// began. Promote the explicit Vibe session to running from idle /
+    /// needs-input / starting. Unlike Codex this does NOT require
+    /// `hasObservedRunning`: a text-only first turn never observes a
+    /// tool-driven running state, yet should still read as running while Vibe
+    /// generates. The `post_agent_turn` hook flips it back to idle at turn end.
+    @discardableResult
+    mutating func promoteExplicitVibeSessionFromUserInput(now: Date = Date()) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .vibe
+                && session.source == .explicit
+                && session.origin != .shell
+                && (
+                    session.state == .idle
+                        || session.state == .needsInput
+                        || session.state == .starting
+                )
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .running
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = nil
+        session.unresolvedStopVisibleUntil = nil
+        session.hasObservedRunning = true
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
+    }
+
     @discardableResult
     mutating func markExplicitCodexSessionIdleFromReadyTitle(now: Date = Date()) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in
