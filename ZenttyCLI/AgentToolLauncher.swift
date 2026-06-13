@@ -564,6 +564,11 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_HERMES_PID"] = "\(getpid())"
         case .vibe:
             environmentPatch.set["ZENTTY_VIBE_PID"] = "\(getpid())"
+            // Vibe gates its hook system behind this flag (or
+            // enable_experimental_hooks in config). Set it on every wrapped
+            // launch so the hooks we install in ~/.vibe/hooks.toml actually
+            // fire — independent of what the app-provided launch plan carried.
+            environmentPatch.set["VIBE_ENABLE_EXPERIMENTAL_HOOKS"] = "true"
         case .opencode, .pi:
             break
         }
