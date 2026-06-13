@@ -239,8 +239,10 @@ enum VibeHooksInstaller {
         FileHandle.standardError.write(Data("""
 
         [Zentty] Installed Mistral Vibe hooks at \(hooksFileURL.path).
-                Hooks fire automatically. Enable experimental hooks in your Vibe config
-                by setting `enable_experimental_hooks = true` in ~/.vibe/config.toml.
+                When Vibe is launched through Zentty, hooks fire automatically —
+                Zentty enables Vibe's experimental hooks for you. To use them
+                outside Zentty, set `enable_experimental_hooks = true` in
+                ~/.vibe/config.toml (or export VIBE_ENABLE_EXPERIMENTAL_HOOKS=true).
                 Run `zentty uninstall vibe-hooks` to remove.
 
         """.utf8))

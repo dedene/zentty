@@ -357,7 +357,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy", "vibe"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -9760,6 +9760,8 @@ final class AgentStatusSupportTests: XCTestCase {
             ("pi", "pi"),
             ("agy", "agy"),
             ("hermes", "hermes"),
+            ("vibe", "vibe"),
+            ("vibe", "mistral-vibe"),
         ]
     }
 

@@ -6,7 +6,7 @@ final class VibeCanonicalReEmitterTests: XCTestCase {
 
     // MARK: - post_agent_turn tests
 
-    func test_postAgentTurn_returns_running_payload() throws {
+    func test_postAgentTurn_returns_idle_payload() throws {
         let hookPayload: [String: Any] = [
             "hook_event_name": "post_agent_turn",
             "session_id": "test-session-123",
@@ -25,8 +25,8 @@ final class VibeCanonicalReEmitterTests: XCTestCase {
         }
 
         XCTAssertEqual(payload["version"] as? Int, 1)
-        XCTAssertEqual(payload["event"] as? String, "agent.running")
-        
+        XCTAssertEqual(payload["event"] as? String, "agent.idle")
+
         if let session = payload["session"] as? [String: Any] {
             XCTAssertEqual(session["id"] as? String, "test-session-123")
         } else {
@@ -50,7 +50,7 @@ final class VibeCanonicalReEmitterTests: XCTestCase {
         XCTAssertEqual(payloads.count, 1)
         guard let payload = payloads.first else { return }
 
-        XCTAssertEqual(payload["event"] as? String, "agent.running")
+        XCTAssertEqual(payload["event"] as? String, "agent.idle")
         XCTAssertNil(payload["session"])
         XCTAssertNil(payload["context"])
     }

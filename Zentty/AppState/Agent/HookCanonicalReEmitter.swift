@@ -23,7 +23,9 @@ enum HookCanonicalReEmitterRegistry {
     static let reEmitters: [String: any HookCanonicalReEmitter.Type] = [
         "grok": GrokCanonicalReEmitter.self,
         "agy": AgyCanonicalReEmitter.self,
-        "vibe": VibeHookCanonicalReEmitter.self,
+        // Vibe deliberately has no CLI fan-out entry: the app-side
+        // `vibeAdapter` (VibeCanonicalReEmitter) is the single source of
+        // canonical Vibe status, so a re-emitter here would double-emit.
     ]
 
     /// Returns the re-emitter registered for the adapter encoded in `arg`

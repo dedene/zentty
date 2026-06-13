@@ -523,6 +523,11 @@ enum AgentLaunchBootstrap {
         // ~/.vibe/hooks.toml on first launch (idempotent). This gives explicit
         // hook-driven status for tool calls, questions, and permissions.
         //
+        // Vibe's hook system is experimental and gated behind
+        // `enable_experimental_hooks` (config) or VIBE_ENABLE_EXPERIMENTAL_HOOKS
+        // (env). We set the env var below so the hooks we install actually fire
+        // without requiring the user to hand-edit ~/.vibe/config.toml.
+        //
         // ZENTTY_VIBE_HOOKS_DISABLED=1 short-circuits at AgentToolLauncher.shouldAttemptBootstrap,
         // so reaching this point already means hooks are enabled.
         if let cliPath = environment["ZENTTY_CLI_BIN"] {
@@ -541,6 +546,9 @@ enum AgentLaunchBootstrap {
             setEnvironment: [
                 "ZENTTY_AGENT_TOOL": "vibe",
                 "ZENTTY_VIBE_PID": "\(getpid())",
+                // Turn on Vibe's experimental hooks for this process so the
+                // hooks we maintain in ~/.vibe/hooks.toml actually fire.
+                "VIBE_ENABLE_EXPERIMENTAL_HOOKS": "true",
             ],
             unsetEnvironment: [],
             preLaunchActions: [

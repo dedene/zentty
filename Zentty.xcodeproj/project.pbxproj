@@ -346,7 +346,6 @@
 		A8735957C7DEFFD7C1530E81 /* WorkspaceTemplateCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70374B78DC61EC0409E65329 /* WorkspaceTemplateCapture.swift */; };
 		A92728F291D5458A677DDD7B /* GlassSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B65FF8B847E8E743D485D4 /* GlassSurfaceView.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
-		A969CE1C5C0BA2ABCCDDD071 /* VibeHookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */; };
 		A9C59E3E7F7283D0FE87F832 /* DockerServerDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 359071C23827A5E0F2CD2B92 /* DockerServerDiscoveryTests.swift */; };
 		A9E304122D0BD26323A6999C /* ServerIPCCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0633B563FD38C6FAF61062 /* ServerIPCCommands.swift */; };
 		A9EFD34E6CE20566793F25AC /* SidebarListRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6DA3C31A354A563A4D7D63 /* SidebarListRenderer.swift */; };
@@ -478,7 +477,6 @@
 		EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */; };
 		EBAB412B1DBC55EC0D896F9F /* SettingsSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6F06FD570B9740CE7008CB /* SettingsSidebarTests.swift */; };
 		EC0DFEE3FDB6728B8FB6E6B6 /* SidebarDropHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */; };
-		ECE40702CFA8BC2D5C0A0BF8 /* VibeHookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */; };
 		ED27476E195CD5905EA8FE99 /* CleanCopyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9147BE310A4C4D3D61638835 /* CleanCopyPipeline.swift */; };
 		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
 		EDDA5E4E1273F0E81FBBE882 /* SettingsNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC29DBB882ABDF747B9DDA76 /* SettingsNavigationHistory.swift */; };
@@ -714,7 +712,6 @@
 		4CA937E13903E6F4629AE7AA /* ThirdPartyLicenseCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThirdPartyLicenseCatalogTests.swift; sourceTree = "<group>"; };
 		4D4F4075E849631130D781E1 /* ZenttyCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyCLI.swift; sourceTree = "<group>"; };
 		4DD9358115A4FC9B526DE30A /* DockerServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerServerDiscovery.swift; sourceTree = "<group>"; };
-		4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeHookCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		4EB1561FD9C602B6D306155C /* TerminalClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboard.swift; sourceTree = "<group>"; };
 		501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneNavigationButtons.swift; sourceTree = "<group>"; };
 		50D5CEB5E915AE3FBE158512 /* LibghosttyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyView.swift; sourceTree = "<group>"; };
@@ -1462,7 +1459,6 @@
 				CCAFE9100510CB50EB0AD11C /* TmuxCompatStore.swift */,
 				4B409385EC57C8C7A65441BD /* TmuxFormatRenderer.swift */,
 				BBC868A8CEBD7DF0E0D47542 /* VibeCanonicalReEmitter.swift */,
-				4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */,
 				49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */,
 				DD7A9EA9CDCE8CB67767DBCC /* Presentation */,
 			);
@@ -2151,7 +2147,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/hermes/hermes\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/agy/agy\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
+			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/hermes/hermes\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/agy/agy\" -o -path \"*/vibe/vibe\" -o -path \"*/vibe/mistral-vibe\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
 		};
 		C7055FCE2E5119172F74E931 /* Verify GhosttyKit */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -2608,7 +2604,6 @@
 				F0FF1DAC11BDA07A28868FE4 /* TrackpadPanGestureDriver.swift in Sources */,
 				7092D2398E62448ACE248486 /* UpdatesPrivacySettingsSectionViewController.swift in Sources */,
 				27194631879427B37A7F8D2A /* VibeCanonicalReEmitter.swift in Sources */,
-				ECE40702CFA8BC2D5C0A0BF8 /* VibeHookCanonicalReEmitter.swift in Sources */,
 				0B6D4E438BAEC225861619A7 /* VibeHooksInstaller.swift in Sources */,
 				A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */,
 				35C0E502B38BD3778920B0BD /* WindowChromeView.swift in Sources */,
@@ -2712,7 +2707,6 @@
 				033F73402D6B37BE6D34C0F6 /* ServerWatchRunner.swift in Sources */,
 				2981D4239A341D2CAE58FDD7 /* TmuxCompatCommand.swift in Sources */,
 				0353FE3D437A0B9370A6261B /* TopologyCLI.swift in Sources */,
-				A969CE1C5C0BA2ABCCDDD071 /* VibeHookCanonicalReEmitter.swift in Sources */,
 				5EC6012DA9430BE8D4B3346C /* VibeHooksInstaller.swift in Sources */,
 				6525C49A76A7DA0C41364EDE /* WorklaneColor.swift in Sources */,
 				C4F35E741F4A20FEA6E0B5C4 /* ZenttyCLI.swift in Sources */,

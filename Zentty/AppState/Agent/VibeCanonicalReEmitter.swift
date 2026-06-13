@@ -55,16 +55,18 @@ enum VibeCanonicalReEmitter {
     // MARK: - Event Handlers
 
     /// Handles `post_agent_turn` hook events.
-    /// Vibe fires this after every assistant turn that ends without pending tool calls.
-    /// We treat this as `agent.running` to indicate the agent is actively working.
+    /// Vibe fires this after every assistant turn that ends without pending tool
+    /// calls — i.e. the agent has finished responding and is now waiting for the
+    /// user. We map it to `agent.idle`, NOT running: it fires at the *end* of a
+    /// turn, so treating it as running would leave the pane stuck "running"
+    /// after the agent stopped. Vibe has no turn-start hook, so "running" at the
+    /// start of a turn is supplied by Zentty's terminal-activity heuristic.
     private static func postAgentTurnPayloads(
         hookPayload: [String: Any],
         sessionID: String?,
         cwd: String?
     ) -> [[String: Any]] {
-        // post_agent_turn fires after the agent finishes a turn; map it to
-        // agent.running since the agent is actively processing.
-        return [runningPayload(sessionID: sessionID, cwd: cwd)]
+        return [idlePayload(sessionID: sessionID, cwd: cwd)]
     }
 
     /// Handles `before_tool` hook events.
@@ -174,6 +176,27 @@ enum VibeCanonicalReEmitter {
         var payload: [String: Any] = [
             "version": 1,
             "event": "agent.running",
+            "agent": ["name": "Mistral Vibe"],
+        ]
+
+        if let sessionID {
+            payload["session"] = ["id": sessionID]
+        }
+
+        if let cwd {
+            payload["context"] = ["workingDirectory": cwd]
+        }
+
+        return payload
+    }
+
+    private static func idlePayload(
+        sessionID: String?,
+        cwd: String?
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "version": 1,
+            "event": "agent.idle",
             "agent": ["name": "Mistral Vibe"],
         ]
 
