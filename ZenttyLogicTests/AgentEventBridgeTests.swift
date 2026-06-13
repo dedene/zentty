@@ -215,6 +215,57 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[0].agentWorkingDirectory, "/tmp/ws")
     }
 
+    func test_vibe_adapter_forwards_canonical_session_start() throws {
+        // The launch bootstrap pre-sends a canonical session.start envelope via
+        // --adapter=vibe (Vibe has no session-start hook of its own). It carries
+        // version/event, not hook_event_name, so the adapter must forward it
+        // through the shared pipeline rather than reject it — otherwise no Vibe
+        // session is ever created and the pane shows nothing.
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = """
+        {"version":1,"event":"session.start","agent":{"name":"Mistral Vibe","pid":4242},"context":{"launch":{"arguments":["-p","hi"]}}}
+        """
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=vibe"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertTrue(
+            postedPayloads.contains { $0.state == .starting },
+            "session.start must produce a .starting payload that creates the Vibe session"
+        )
+        XCTAssertTrue(
+            postedPayloads.contains { $0.toolName == "Mistral Vibe" },
+            "session.start must be attributed to Mistral Vibe"
+        )
+    }
+
+    func test_vibe_adapter_still_translates_raw_hook_payloads() throws {
+        // Raw Vibe hooks (post_agent_turn) still map through the re-emitter to
+        // idle, confirming the canonical passthrough didn't break hook handling.
+        var postedPayloads: [AgentStatusPayload] = []
+        let json = """
+        {"hook_event_name":"post_agent_turn","session_id":"vibe-1","cwd":"/tmp/ws"}
+        """
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=vibe"],
+            environment: defaultEnvironment,
+            inputData: Data(json.utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { XCTFail("unexpected error: \($0)") }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS)
+        XCTAssertTrue(
+            postedPayloads.contains { $0.state == .idle },
+            "post_agent_turn must map to idle"
+        )
+    }
+
     func test_cursor_adapter_before_submit_prompt_maps_to_running() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = #"{"hook_event_name":"beforeSubmitPrompt","conversation_id":"c-run"}"#
