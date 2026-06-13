@@ -65,6 +65,8 @@ targets:
       - path: Zentty/AppState/Agent/AgyHooksInstaller.swift
       - path: Zentty/AppState/Agent/AgyCanonicalReEmitter.swift
       - path: Zentty/AppState/Agent/HermesHooksInstaller.swift
+      - path: Zentty/AppState/Agent/VibeHookCanonicalReEmitter.swift
+      - path: Zentty/AppState/Agent/VibeHooksInstaller.swift
       - path: Zentty/AppState/Agent/JSONCRelaxedParse.swift
       - path: Zentty/Servers/ServerIPCCommands.swift
       - path: Zentty/Servers/ServerOutputURLDetector.swift

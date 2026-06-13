@@ -571,7 +571,9 @@ enum SessionRestoreDraftExporter {
             return .sessionID
         case .gemini, .pi, .grok, .agy:
             return .workingDirectory
-        case .zentty, .custom:
+        case .zentty, .custom, .vibe:
+            // No Vibe resume command is wired in AgentResumeCommandBuilder yet,
+            // so Vibe panes are not restorable; revisit when resume lands.
             return .unsupported
         }
     }

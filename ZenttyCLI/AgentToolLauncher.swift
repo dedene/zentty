@@ -210,6 +210,18 @@ struct AgentToolLauncher {
                 return "hermes early-exit flag: \(flag)"
             }
             return nil
+        case .vibe:
+            if environment["ZENTTY_VIBE_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_VIBE_HOOKS_DISABLED=1"
+            }
+            // Vibe supports --help, --version, etc. passthrough for now
+            if let subcommand = arguments.first, Self.vibePassthroughSubcommands.contains(subcommand) {
+                return "vibe passthrough subcommand: \(subcommand)"
+            }
+            if let flag = arguments.first(where: { Self.vibeEarlyExitFlags.contains($0) }) {
+                return "vibe early-exit flag: \(flag)"
+            }
+            return nil
         case .codex, .gemini, .opencode:
             return nil
         }
@@ -262,6 +274,15 @@ struct AgentToolLauncher {
     private static func isHermesPassthroughSubcommand(_ argument: String) -> Bool {
         !argument.hasPrefix("-") && argument != "chat"
     }
+
+    static let vibePassthroughSubcommands: Set<String> = [
+        "--help", "-h", "--version", "-v", "login", "logout", "setup",
+        "install", "uninstall", "update",
+    ]
+
+    static let vibeEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-v",
+    ]
 
     private static func optionName(_ argument: String) -> String {
         argument.hasPrefix("--")
@@ -421,6 +442,8 @@ struct AgentToolLauncher {
             return "Antigravity"
         case .hermes:
             return "Hermes Agent"
+        case .vibe:
+            return "Mistral Vibe"
         }
     }
 
@@ -447,6 +470,7 @@ struct AgentToolLauncher {
             "ZENTTY_GROK_HOOKS_DISABLED",
             "ZENTTY_AGY_HOOKS_DISABLED",
             "ZENTTY_HERMES_HOOKS_DISABLED",
+            "ZENTTY_VIBE_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -504,7 +528,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes, .vibe:
             return EnvironmentPatch()
         }
     }
@@ -538,6 +562,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_AGY_PID"] = "\(getpid())"
         case .hermes:
             environmentPatch.set["ZENTTY_HERMES_PID"] = "\(getpid())"
+        case .vibe:
+            environmentPatch.set["ZENTTY_VIBE_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -596,6 +622,7 @@ struct AgentToolLauncher {
             "ZENTTY_GROK_PID",
             "ZENTTY_AGY_PID",
             "ZENTTY_HERMES_PID",
+            "ZENTTY_VIBE_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

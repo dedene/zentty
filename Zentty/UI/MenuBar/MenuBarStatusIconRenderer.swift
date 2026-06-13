@@ -437,6 +437,8 @@ enum MenuBarStatusIconRenderer {
             return "AgentIconGemini"
         case .hermes:
             return nil
+        case .vibe:
+            return nil
         case .custom:
             return nil
         }

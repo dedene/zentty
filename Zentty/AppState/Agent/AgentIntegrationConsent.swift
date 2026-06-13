@@ -76,7 +76,7 @@ extension AgentBootstrapTool {
     /// per-pane overlay and leaves the user's config untouched.
     var integrationClass: AgentIntegrationClass {
         switch self {
-        case .amp, .cursor, .droid, .grok, .agy, .hermes:
+        case .amp, .cursor, .droid, .grok, .agy, .hermes, .vibe:
             return .persistent
         case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
             return .ephemeral
@@ -106,6 +106,7 @@ extension AgentBootstrapTool {
         case .grok: return .grok
         case .agy: return .agy
         case .hermes: return .hermes
+        case .vibe: return .vibe
         }
     }
 
@@ -126,6 +127,7 @@ extension AgentBootstrapTool {
         case .grok: return GrokHooksInstaller.defaultUserHooksURL()
         case .agy: return AgyHooksInstaller.defaultUserHooksFileURL()
         case .hermes: return HermesHooksInstaller.defaultConfigURL()
+        case .vibe: return VibeHooksInstaller.defaultUserHooksFileURL()
         case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
             return nil
         }
@@ -142,7 +144,7 @@ extension AgentBootstrapTool {
 /// both drive this; persistence and UI live elsewhere.
 enum AgentIntegrationConsent {
     /// Persistent (config-modifying) agents, in Settings display order.
-    static let persistentTools: [AgentBootstrapTool] = [.amp, .cursor, .droid, .grok, .agy, .hermes]
+    static let persistentTools: [AgentBootstrapTool] = [.amp, .cursor, .droid, .grok, .agy, .hermes, .vibe]
     /// Ephemeral (built-in) agents, in Settings display order.
     static let ephemeralTools: [AgentBootstrapTool] = [.claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi]
     /// All known agents, persistent group first.
@@ -230,6 +232,11 @@ enum AgentIntegrationHooks {
             return Handlers(
                 isInstalled: { HermesHooksInstaller.isInstalled() },
                 uninstall: { try HermesHooksInstaller.uninstall() }
+            )
+        case .vibe:
+            return Handlers(
+                isInstalled: { VibeHooksInstaller.isInstalled() },
+                uninstall: { try VibeHooksInstaller.uninstall() }
             )
         case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
             return nil

@@ -29,6 +29,7 @@
 		08FB378A1223B113182A0BC6 /* LibghosttySelectionAutoscrollControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA5DD7A1968777DF9C77029D /* LibghosttySelectionAutoscrollControllerTests.swift */; };
 		0A837AADC493258185309302 /* AppUpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA9DF527B186CAC92FE63473 /* AppUpdateController.swift */; };
 		0AAC15DA2853AA84E4CCF668 /* WorklaneStoreReorderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599A5796CE02C9D0701F88B7 /* WorklaneStoreReorderingTests.swift */; };
+		0B6D4E438BAEC225861619A7 /* VibeHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */; };
 		0BA5C3C6B04726C27411977B /* ServerMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1300B764962E64484AAB4256 /* ServerMenuModelTests.swift */; };
 		0C4C732372135F289434B09D /* ServerMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF2D707AEBD4A19B9E62EE /* ServerMenuModel.swift */; };
 		0C598E3C54E30B5CC4466E2D /* AppConfigAgentIntegrationsTOMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 288F2452125BCCDB961229C9 /* AppConfigAgentIntegrationsTOMLTests.swift */; };
@@ -90,6 +91,7 @@
 		267DEF07DD871705091F0BC8 /* SidebarMotionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3810175E866C6CB11A8C87 /* SidebarMotionCoordinatorTests.swift */; };
 		269DD148F3D616460B3E5DE2 /* ScrollSwitchGestureHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905DD9FD69FFEA7991390EA4 /* ScrollSwitchGestureHandler.swift */; };
 		26D68604F3403C3BC9299DEC /* SidebarVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A34A831CA0E3FE65355578 /* SidebarVisibilityControllerTests.swift */; };
+		27194631879427B37A7F8D2A /* VibeCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC868A8CEBD7DF0E0D47542 /* VibeCanonicalReEmitter.swift */; };
 		2835550C9EC2274B56BB12EC /* GrokCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65EC1382544ECD4896FE2CBD /* GrokCanonicalReEmitter.swift */; };
 		289C40A10A38EF86B1D459E2 /* ServerOutputURLDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15503D22D3AC116573AA128 /* ServerOutputURLDetectorTests.swift */; };
 		28A580E86AE3F5FA21B503CE /* MenuBarPaneSnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE365ED4E3CCFFABE034B748 /* MenuBarPaneSnapshotBuilderTests.swift */; };
@@ -155,6 +157,7 @@
 		48390CEFB72081A23FE98E4F /* SidebarWorklaneRowDebugging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91986D1792E0A3DD28D3A244 /* SidebarWorklaneRowDebugging.swift */; };
 		48AAE3252CEE1E6E73CE2046 /* SparkleAppUpdateControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96218BAE51D065EB4C3DF588 /* SparkleAppUpdateControllerTests.swift */; };
 		493E2A5FDF88B1B75E958F29 /* ServerListenerScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C4B3E5FFC590B5695ACC9C /* ServerListenerScannerTests.swift */; };
+		4A014221A3B9A8CFCCBA0DCF /* VibeHooksInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A549AF1327C02BFFB274EB /* VibeHooksInstallerTests.swift */; };
 		4A3471E1B0600EF1412C3932 /* SparkleAppUpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9C47104BD130C28676BA079 /* SparkleAppUpdateController.swift */; };
 		4BB0E4171C495664EF0324FE /* PaneNavigationButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */; };
 		4BDC36B10F3277FC2645D57F /* WorklaneStore+DragDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4C1F56E8C3A787C0F4EAA8 /* WorklaneStore+DragDrop.swift */; };
@@ -187,6 +190,7 @@
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
+		5EC6012DA9430BE8D4B3346C /* VibeHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */; };
 		5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */; };
 		60F13E1D9931F1321C002362 /* ServerRelevance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66E9360C107E9A7D3F05652 /* ServerRelevance.swift */; };
 		617C88C4ED936D565FD635F7 /* WorklaneReviewStateResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FE17A010577717370EFBCB /* WorklaneReviewStateResolver.swift */; };
@@ -283,6 +287,7 @@
 		8CCD7F2003BBC289D9B637F5 /* WorklaneColorMenuItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677818B56188202E6289EC96 /* WorklaneColorMenuItemView.swift */; };
 		8D16DCB2D9A5CBFD25CBC5D1 /* LibghosttySurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */; };
 		8D4C37D86BAA9B1B23DF164B /* PaneRestorationBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94D4DAD87041D3F7D24F41F /* PaneRestorationBuilder.swift */; };
+		8D81AEDC621630BE073CFDEB /* VibeCanonicalReEmitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779BFDD1489072D7AC5AB131 /* VibeCanonicalReEmitterTests.swift */; };
 		8DD672F5CFD913CB866B1142 /* PaneFocusHistoryControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9396A7E2A2C633DF764779 /* PaneFocusHistoryControllerTests.swift */; };
 		8E0796EA041134058F72C2D1 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4006842B9BBF4DF8426EE5F3 /* AppTheme.swift */; };
 		8E2852FEAFC265DC3EC050BF /* AgentInteractionClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290AC219C812A96036CA9061 /* AgentInteractionClassifier.swift */; };
@@ -341,6 +346,7 @@
 		A8735957C7DEFFD7C1530E81 /* WorkspaceTemplateCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70374B78DC61EC0409E65329 /* WorkspaceTemplateCapture.swift */; };
 		A92728F291D5458A677DDD7B /* GlassSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B65FF8B847E8E743D485D4 /* GlassSurfaceView.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
+		A969CE1C5C0BA2ABCCDDD071 /* VibeHookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */; };
 		A9C59E3E7F7283D0FE87F832 /* DockerServerDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 359071C23827A5E0F2CD2B92 /* DockerServerDiscoveryTests.swift */; };
 		A9E304122D0BD26323A6999C /* ServerIPCCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0633B563FD38C6FAF61062 /* ServerIPCCommands.swift */; };
 		A9EFD34E6CE20566793F25AC /* SidebarListRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6DA3C31A354A563A4D7D63 /* SidebarListRenderer.swift */; };
@@ -472,6 +478,7 @@
 		EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */; };
 		EBAB412B1DBC55EC0D896F9F /* SettingsSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6F06FD570B9740CE7008CB /* SettingsSidebarTests.swift */; };
 		EC0DFEE3FDB6728B8FB6E6B6 /* SidebarDropHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */; };
+		ECE40702CFA8BC2D5C0A0BF8 /* VibeHookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */; };
 		ED27476E195CD5905EA8FE99 /* CleanCopyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9147BE310A4C4D3D61638835 /* CleanCopyPipeline.swift */; };
 		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
 		EDDA5E4E1273F0E81FBBE882 /* SettingsNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC29DBB882ABDF747B9DDA76 /* SettingsNavigationHistory.swift */; };
@@ -694,6 +701,7 @@
 		48846247312C42A929369E20 /* AppKitTestCase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppKitTestCase.swift; sourceTree = "<group>"; };
 		48BB45FB1B15B96A8C195343 /* PaneSearchHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneSearchHUDView.swift; sourceTree = "<group>"; };
 		48F435FA119C97C5F497FBD9 /* PaneLayoutSettingsWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutSettingsWindowControllerTests.swift; sourceTree = "<group>"; };
+		49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeHooksInstaller.swift; sourceTree = "<group>"; };
 		4A6979D10B68F312A3007DEC /* AmpResumeArgumentSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpResumeArgumentSanitizer.swift; sourceTree = "<group>"; };
 		4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
 		4ABED86877FD29F83E4196E0 /* TmuxCompatCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatCommand.swift; sourceTree = "<group>"; };
@@ -706,6 +714,7 @@
 		4CA937E13903E6F4629AE7AA /* ThirdPartyLicenseCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThirdPartyLicenseCatalogTests.swift; sourceTree = "<group>"; };
 		4D4F4075E849631130D781E1 /* ZenttyCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyCLI.swift; sourceTree = "<group>"; };
 		4DD9358115A4FC9B526DE30A /* DockerServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerServerDiscovery.swift; sourceTree = "<group>"; };
+		4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeHookCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		4EB1561FD9C602B6D306155C /* TerminalClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboard.swift; sourceTree = "<group>"; };
 		501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneNavigationButtons.swift; sourceTree = "<group>"; };
 		50D5CEB5E915AE3FBE158512 /* LibghosttyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyView.swift; sourceTree = "<group>"; };
@@ -727,6 +736,7 @@
 		56CAB9BAA5616D1651BAE8BC /* ServerBrowserSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBrowserSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		5712CB2F8BC16BB3B666A085 /* DragReorderHapticFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragReorderHapticFeedback.swift; sourceTree = "<group>"; };
 		572BB2FACCFA8A236D880F28 /* OpenWithCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWithCatalogTests.swift; sourceTree = "<group>"; };
+		57A549AF1327C02BFFB274EB /* VibeHooksInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeHooksInstallerTests.swift; sourceTree = "<group>"; };
 		57BC50CDB5D0B82695D9A2D4 /* SidebarWorklaneRowLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowLayoutTests.swift; sourceTree = "<group>"; };
 		57CF2D04183C614FB5439EB3 /* LibghosttyViewDragDropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyViewDragDropTests.swift; sourceTree = "<group>"; };
 		57E665DBFE88E93E1133FFEF /* WindowChromeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeView.swift; sourceTree = "<group>"; };
@@ -775,6 +785,7 @@
 		76857E75C1FF0BD95C889941 /* PaneRuntimeRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneRuntimeRegistryTests.swift; sourceTree = "<group>"; };
 		771FEDEE47A531015097EFC7 /* WorkspaceRecipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecipeTests.swift; sourceTree = "<group>"; };
 		7790121822A61AC4121DF708 /* AgentToolLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolLauncher.swift; sourceTree = "<group>"; };
+		779BFDD1489072D7AC5AB131 /* VibeCanonicalReEmitterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeCanonicalReEmitterTests.swift; sourceTree = "<group>"; };
 		77C34091F1CB5D75D73EF939 /* NotificationChromeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationChromeCoordinatorTests.swift; sourceTree = "<group>"; };
 		77EBA78773A292B4B9858DD5 /* MenuBarAgentIconInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAgentIconInspector.swift; sourceTree = "<group>"; };
 		78278FD169410081D05304FB /* FlippedSidebarDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlippedSidebarDocumentView.swift; sourceTree = "<group>"; };
@@ -909,6 +920,7 @@
 		B910DF7E780597C84A68B0A3 /* HostedTestDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostedTestDisplayTests.swift; sourceTree = "<group>"; };
 		BA9DF527B186CAC92FE63473 /* AppUpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateController.swift; sourceTree = "<group>"; };
 		BB190F0BEA7609493A5A1AB3 /* SettingsSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarViewController.swift; sourceTree = "<group>"; };
+		BBC868A8CEBD7DF0E0D47542 /* VibeCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeCanonicalReEmitter.swift; sourceTree = "<group>"; };
 		BC0EFB8B00D5CA9A67589A3A /* FuzzyMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcher.swift; sourceTree = "<group>"; };
 		BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteItemBuilderTests.swift; sourceTree = "<group>"; };
 		BD6DA3C31A354A563A4D7D63 /* SidebarListRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarListRenderer.swift; sourceTree = "<group>"; };
@@ -1449,6 +1461,9 @@
 				ACD2AD71B143BD29FDAA48FF /* TmuxCompatIPCHandler.swift */,
 				CCAFE9100510CB50EB0AD11C /* TmuxCompatStore.swift */,
 				4B409385EC57C8C7A65441BD /* TmuxFormatRenderer.swift */,
+				BBC868A8CEBD7DF0E0D47542 /* VibeCanonicalReEmitter.swift */,
+				4E0F975B5A8664D2AD19CAC8 /* VibeHookCanonicalReEmitter.swift */,
+				49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */,
 				DD7A9EA9CDCE8CB67767DBCC /* Presentation */,
 			);
 			path = Agent;
@@ -1885,6 +1900,8 @@
 				DB7A0155A7517D3459081223 /* TmuxCompatStoreTests.swift */,
 				8E8595DD2E83A66FAD57B960 /* TmuxFormatRendererTests.swift */,
 				82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */,
+				779BFDD1489072D7AC5AB131 /* VibeCanonicalReEmitterTests.swift */,
+				57A549AF1327C02BFFB274EB /* VibeHooksInstallerTests.swift */,
 				86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */,
 				EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */,
 				3ED64DFEF411E6E11CC13775 /* WorklaneAttentionChipViewTests.swift */,
@@ -2291,6 +2308,8 @@
 				4722CFBE781F555F67DA809A /* TmuxCompatStoreTests.swift in Sources */,
 				D089F5366F16515499AD92E4 /* TmuxFormatRendererTests.swift in Sources */,
 				EA6847AAD0A938767899B578 /* VendoredGhosttyResourcesTests.swift in Sources */,
+				8D81AEDC621630BE073CFDEB /* VibeCanonicalReEmitterTests.swift in Sources */,
+				4A014221A3B9A8CFCCBA0DCF /* VibeHooksInstallerTests.swift in Sources */,
 				738453B16B8499ADFB4722CB /* WindowChromeRowLayoutPlannerTests.swift in Sources */,
 				16E1DE875672D6743DF1B86D /* WindowChromeViewTests.swift in Sources */,
 				1C120CFB688768EE2ED2BD92 /* WorklaneAttentionChipViewTests.swift in Sources */,
@@ -2588,6 +2607,9 @@
 				D161E7BDB5AF34AED3D1DEA7 /* TmuxFormatRenderer.swift in Sources */,
 				F0FF1DAC11BDA07A28868FE4 /* TrackpadPanGestureDriver.swift in Sources */,
 				7092D2398E62448ACE248486 /* UpdatesPrivacySettingsSectionViewController.swift in Sources */,
+				27194631879427B37A7F8D2A /* VibeCanonicalReEmitter.swift in Sources */,
+				ECE40702CFA8BC2D5C0A0BF8 /* VibeHookCanonicalReEmitter.swift in Sources */,
+				0B6D4E438BAEC225861619A7 /* VibeHooksInstaller.swift in Sources */,
 				A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */,
 				35C0E502B38BD3778920B0BD /* WindowChromeView.swift in Sources */,
 				D0C44C284C252D950CB890FA /* WorklaneAttentionChipView.swift in Sources */,
@@ -2690,6 +2712,8 @@
 				033F73402D6B37BE6D34C0F6 /* ServerWatchRunner.swift in Sources */,
 				2981D4239A341D2CAE58FDD7 /* TmuxCompatCommand.swift in Sources */,
 				0353FE3D437A0B9370A6261B /* TopologyCLI.swift in Sources */,
+				A969CE1C5C0BA2ABCCDDD071 /* VibeHookCanonicalReEmitter.swift in Sources */,
+				5EC6012DA9430BE8D4B3346C /* VibeHooksInstaller.swift in Sources */,
 				6525C49A76A7DA0C41364EDE /* WorklaneColor.swift in Sources */,
 				C4F35E741F4A20FEA6E0B5C4 /* ZenttyCLI.swift in Sources */,
 			);

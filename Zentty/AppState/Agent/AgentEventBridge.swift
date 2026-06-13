@@ -80,6 +80,8 @@ enum AgentEventBridge {
             case "hermes":
                 let eventName = positionalArgs.first
                 payloads = try hermesAdapter(data: inputData, defaultEventName: eventName, environment: environment)
+            case "vibe":
+                payloads = try vibeAdapter(data: inputData, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
@@ -93,7 +95,7 @@ enum AgentEventBridge {
             return EXIT_SUCCESS
         } catch {
             agentEventBridgeLogger.error("run adapter=\(adapterLabel, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
-            if adapter == "claude" || adapter == "grok" || adapter == "agy" || adapter == "hermes" {
+            if adapter == "claude" || adapter == "grok" || adapter == "agy" || adapter == "hermes" || adapter == "vibe" {
                 return EXIT_SUCCESS
             }
             writeError(error)

@@ -160,6 +160,15 @@ enum AgentLaunchBootstrap {
                 environment: environment,
                 fileManager: fileManager
             )
+        case .vibe:
+            return vibePlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                fileManager: fileManager
+            )
         }
     }
 
@@ -495,6 +504,50 @@ enum AgentLaunchBootstrap {
                     subcommand: "agent-event",
                     arguments: ["--adapter=hermes"],
                     standardInput: agentRunningJSON
+                )
+            ]
+        )
+    }
+
+    private static func vibePlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        // Mistral Vibe (vibe) is a persistent agent - we install hooks into ~/.vibe/hooks.toml
+        //
+        // We automatically ensure Zentty status hooks are installed in the user's
+        // ~/.vibe/hooks.toml on first launch (idempotent). This gives explicit
+        // hook-driven status for tool calls, questions, and permissions.
+        //
+        // ZENTTY_VIBE_HOOKS_DISABLED=1 short-circuits at AgentToolLauncher.shouldAttemptBootstrap,
+        // so reaching this point already means hooks are enabled.
+        if let cliPath = environment["ZENTTY_CLI_BIN"] {
+            try? VibeHooksInstaller.ensureInstalledForCurrentUser(cliPath: cliPath, fileManager: fileManager)
+        }
+
+        let argumentsJSON = (try? compactJSONString(arguments)) ?? "[]"
+        let launchEnvironmentJSON = (try? compactJSONString(environment.filter { $0.key.hasPrefix("ZENTTY_") })) ?? "{}"
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Mistral Vibe","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"context":{"launch":{"arguments":\(argumentsJSON),"environment":\(launchEnvironmentJSON)}}}
+        """
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "vibe",
+                "ZENTTY_VIBE_PID": "\(getpid())",
+            ],
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: ["--adapter=vibe"],
+                    standardInput: sessionStartJSON
                 )
             ]
         )

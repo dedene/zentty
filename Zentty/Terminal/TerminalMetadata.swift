@@ -1636,6 +1636,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "agy"
         case .hermes:
             return "hermes"
+        case .vibe:
+            return "vibe"
         case .custom(let name):
             return "custom:\(name)"
         case nil:

@@ -48,6 +48,7 @@ private enum IntegrationTarget: String, CaseIterable {
     case grokHooks = "grok-hooks"
     case agyHooks = "agy-hooks"
     case hermesHooks = "hermes-hooks"
+    case vibeHooks = "vibe-hooks"
 
     static func resolve(_ raw: String) throws -> IntegrationTarget {
         guard let target = IntegrationTarget(rawValue: raw) else {
@@ -141,6 +142,10 @@ struct InstallCommand: ParsableCommand {
             try HermesHooksInstaller.install(configURL: configURL, allowlistURL: allowlistURL, cliPath: cliPath)
             let eventList = HermesHooksInstaller.events.map(\.name).joined(separator: ", ")
             print("Installed Zentty Hermes Agent hooks at \(configURL.path) (events: \(eventList)).")
+        case .vibeHooks:
+            let cliPath = resolveInvokingCLIPath()
+            try VibeHooksInstaller.install(cliPath: cliPath)
+            print("Installed Zentty Mistral Vibe hooks at \(VibeHooksInstaller.defaultUserHooksFileURL().path).")
         }
     }
 }
@@ -188,6 +193,9 @@ struct UninstallCommand: ParsableCommand {
             let allowlistURL = HermesHooksInstaller.defaultAllowlistURL()
             try HermesHooksInstaller.uninstall(configURL: configURL, allowlistURL: allowlistURL)
             print("Removed Zentty Hermes Agent hook entries from \(configURL.path).")
+        case .vibeHooks:
+            try VibeHooksInstaller.uninstall()
+            print("Removed Zentty Mistral Vibe hook entries from \(VibeHooksInstaller.defaultUserHooksFileURL().path).")
         }
     }
 }
@@ -1404,6 +1412,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_KIMI_PID",
         "ZENTTY_AGY_PID",
         "ZENTTY_HERMES_PID",
+        "ZENTTY_VIBE_PID",
     ]
 
     @Argument(help: "Supported values: agent-event, agent-signal, agent-status")

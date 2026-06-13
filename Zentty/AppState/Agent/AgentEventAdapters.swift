@@ -2567,3 +2567,38 @@ extension AgentEventBridge {
         return []
     }
 }
+
+// MARK: - Vibe Adapter
+
+extension AgentEventBridge {
+    static func vibeAdapter(
+        data: Data,
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+        
+        guard jsonObject["hook_event_name"] is String else {
+            throw AgentStatusPayloadError.invalidHookPayload
+        }
+
+        // Only emit status when the agent runs inside a known Zentty pane;
+        // outside that context there is nothing to attribute events to.
+        guard currentTargetIfAvailable(from: environment) != nil else {
+            return []
+        }
+
+        // Translate the raw Vibe hook payload into canonical Agent Status
+        // Protocol envelopes, then run each through the shared makePayloads
+        // pipeline — the same path the CLI fan-out uses for canonical re-emits.
+        // No fallback is needed: every handled event yields at least one
+        // canonical envelope, and unknown events are intentionally dropped.
+        let canonicalPayloads = VibeCanonicalReEmitter.canonicalPayloads(from: jsonObject)
+        var payloads: [AgentStatusPayload] = []
+        for canonicalPayload in canonicalPayloads {
+            let input = try parseInput(try JSONSerialization.data(withJSONObject: canonicalPayload))
+            payloads.append(contentsOf: try makePayloads(from: input, environment: environment))
+        }
+        return payloads
+    }
+
+}

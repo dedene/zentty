@@ -23,6 +23,7 @@ enum HookCanonicalReEmitterRegistry {
     static let reEmitters: [String: any HookCanonicalReEmitter.Type] = [
         "grok": GrokCanonicalReEmitter.self,
         "agy": AgyCanonicalReEmitter.self,
+        "vibe": VibeHookCanonicalReEmitter.self,
     ]
 
     /// Returns the re-emitter registered for the adapter encoded in `arg`
