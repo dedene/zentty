@@ -6,7 +6,7 @@ options:
 settings:
   base:
     PRODUCT_NAME: Zentty
-    SWIFT_VERSION: "6.0"
+    SWIFT_VERSION: "5.9"
     ARCHS: "x86_64 arm64"
     MACOSX_DEPLOYMENT_TARGET: "13.0"
     GENERATE_INFOPLIST_FILE: NO
@@ -27,8 +27,7 @@ packages:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.7.2"
   FuzzyMatch:
-    url: https://github.com/ordo-one/FuzzyMatch
-    from: "1.3.2"
+    path: Vendor/FuzzyMatch
 schemes:
   Zentty:
     build:
