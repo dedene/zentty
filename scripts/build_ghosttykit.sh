@@ -68,9 +68,12 @@ resolve_zig_command() {
 
   if command -v port >/dev/null 2>&1; then
     local candidate="/opt/local/bin/zig"
-    if [[ -x "${candidate}" && "$("${candidate}" version)" == "${zig_version}" ]]; then
-      echo "${candidate}"
-      return
+    if [[ -x "${candidate}" ]]; then
+      local current_version=$("${candidate}" version)
+      if [[ "${current_version}" == "${zig_version}" || "${current_version}" == 0.16.* ]]; then
+        echo "${candidate}"
+        return
+      fi
     fi
   fi
 
