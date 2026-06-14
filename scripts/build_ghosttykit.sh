@@ -36,7 +36,10 @@ require_command() {
 
 require_command git "Install Xcode command line tools."
 require_command rsync "Install rsync."
-require_command brew "Install Homebrew."
+if ! command -v brew >/dev/null 2>&1 && ! command -v port >/dev/null 2>&1; then
+  echo "Missing package manager: brew or port. Install Homebrew or MacPorts." >&2
+  exit 1
+fi
 require_command xcode-select "Install full Xcode."
 require_command xcrun "Install full Xcode."
 
@@ -55,7 +58,7 @@ resolve_zig_command() {
   local major_minor="${zig_version%.*}"
   local formula="zig@${major_minor}"
   local formula_prefix
-  if formula_prefix="$(brew --prefix "${formula}" 2>/dev/null)"; then
+  if command -v brew >/dev/null 2>&1 && formula_prefix="$(brew --prefix "${formula}" 2>/dev/null)"; then
     local candidate="${formula_prefix}/bin/zig"
     if [[ -x "${candidate}" && "$("${candidate}" version)" == "${zig_version}" ]]; then
       echo "${candidate}"
@@ -63,8 +66,16 @@ resolve_zig_command() {
     fi
   fi
 
+  if command -v port >/dev/null 2>&1; then
+    local candidate="/opt/local/bin/zig"
+    if [[ -x "${candidate}" && "$("${candidate}" version)" == "${zig_version}" ]]; then
+      echo "${candidate}"
+      return
+    fi
+  fi
+
   echo "Missing required Zig version ${zig_version}." >&2
-  echo "Install it with: brew install ${formula}" >&2
+  echo "Install it with: brew install ${formula} OR sudo port install zig" >&2
   exit 1
 }
 
@@ -77,8 +88,17 @@ if [[ "${XCODE_PATH}" != */Xcode*.app/Contents/Developer ]]; then
   exit 1
 fi
 
-if ! brew list gettext >/dev/null 2>&1; then
-  echo "Missing required Homebrew package: gettext. Install with: brew install gettext" >&2
+has_gettext=0
+if command -v brew >/dev/null 2>&1 && brew list gettext >/dev/null 2>&1; then
+  has_gettext=1
+elif command -v port >/dev/null 2>&1 && port installed gettext | grep -q "active"; then
+  has_gettext=1
+elif command -v msgfmt >/dev/null 2>&1; then
+  has_gettext=1
+fi
+
+if [[ "$has_gettext" -eq 0 ]]; then
+  echo "Missing required package: gettext. Install with: brew install gettext OR sudo port install gettext" >&2
   exit 1
 fi
 
