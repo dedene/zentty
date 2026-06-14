@@ -76,7 +76,7 @@ struct CommandPaletteView: View {
         .onAppear {
             onHeightChange(preferredPanelHeight)
         }
-        .onChange(of: preferredPanelHeight) { _, newValue in
+        .onChange(of: preferredPanelHeight) { newValue in
             onHeightChange(newValue)
         }
         .onKeyPress(.escape) {
@@ -146,13 +146,13 @@ struct CommandPaletteView: View {
                                     scope: viewModel.resolvedResults.scope
                                 )
                             )
-                            .onChange(of: viewModel.selectedIndex) {
+                            .onChange(of: viewModel.selectedIndex) { _ in
                                 guard viewModel.resolvedResults.requiresScrolling,
                                       let item = results[safe: viewModel.selectedIndex]
                                 else { return }
                                 proxy.scrollTo(item.item.id, anchor: .center)
                             }
-                            .onChange(of: viewModel.resolvedResults) {
+                            .onChange(of: viewModel.resolvedResults) { _ in
                                 guard viewModel.resolvedResults.requiresScrolling,
                                       let item = viewModel.resolvedResults.items[safe: viewModel.selectedIndex]
                                 else { return }
