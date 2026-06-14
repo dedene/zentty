@@ -55,6 +55,12 @@ resolve_zig_command() {
     return
   fi
 
+  local cache_candidate="${HOME}/Library/Caches/zentty/zig-0.15.2/zig-x86_64-macos-0.15.2/zig"
+  if [[ -x "${cache_candidate}" && "$("${cache_candidate}" version)" == "${zig_version}" ]]; then
+    echo "${cache_candidate}"
+    return
+  fi
+
   local major_minor="${zig_version%.*}"
   local formula="zig@${major_minor}"
   local formula_prefix
@@ -121,9 +127,11 @@ else
   fi
 fi
 
-# Ghostty updates the moving `tip` tag, so cached clones need forced tag refreshes.
 git -C "${SOURCE_DIR}" fetch --tags --prune --force origin
-git -C "${SOURCE_DIR}" checkout --detach "${revision}"
+git -C "${SOURCE_DIR}" checkout --force --detach "${revision}"
+
+# Patch macOS 14 only API for macOS 13 build
+sed -i '' 's/c.kCVPixelFormatType_30RGB_r210/0x72323130/g' "${SOURCE_DIR}/pkg/macos/video/pixel_format.zig" || true
 
 (
   cd "${SOURCE_DIR}"
