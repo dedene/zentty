@@ -12,6 +12,7 @@ tmp/
 .opencode
 build/
 .agent-bench-runs/
+.sessions/
 .clawpatch/
 .factory
 .antigravitycli/
