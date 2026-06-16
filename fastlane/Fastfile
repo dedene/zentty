@@ -724,15 +724,24 @@ def r2_public_base_url
   base_url.empty? ? "https://releases.zentty.org" : base_url
 end
 
+def wrangler_r2_remote_flag_supported?
+  return @wrangler_r2_remote_flag_supported unless @wrangler_r2_remote_flag_supported.nil?
+
+  stdout, stderr, status = run_command("wrangler", "r2", "object", "put", "--help")
+  help_output = "#{stdout}\n#{stderr}"
+  @wrangler_r2_remote_flag_supported = status.success? && help_output.match?(/(?:\A|\s)--remote(?:\s|\z)/)
+end
+
 def wrangler_put_file!(local_path:, object_key:, content_type:, cache_control:)
-  sh(
+  command = [
     "wrangler", "r2", "object", "put",
     "#{r2_bucket_name}/#{object_key}",
     "--file", local_path,
     "--content-type", content_type,
-    "--cache-control", cache_control,
-    "--remote"
-  )
+    "--cache-control", cache_control
+  ]
+  command << "--remote" if wrangler_r2_remote_flag_supported?
+  sh(*command)
 end
 
 def upload_github_release_assets!(tag_name:, asset_paths:)
