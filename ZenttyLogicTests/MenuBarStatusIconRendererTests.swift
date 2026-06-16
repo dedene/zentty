@@ -128,10 +128,12 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
     }
 
     func test_agent_icon_template_image_is_row_icon_sized() {
-        let rowImage = MenuBarStatusIconRenderer.agentIconTemplateImage(for: .claudeCode)
-        XCTAssertEqual(rowImage?.size.width, MenuBarStatusIconRenderer.agentIconSide)
-        XCTAssertEqual(rowImage?.isTemplate, true)
-        XCTAssertLessThan(MenuBarStatusIconRenderer.agentIconSide, MenuBarStatusIconRenderer.statusItemCanvasSide + 10)
+        for tool in [AgentTool.claudeCode, .hermes, .vibe] {
+            let rowImage = MenuBarStatusIconRenderer.agentIconTemplateImage(for: tool)
+            XCTAssertEqual(rowImage?.size.width, MenuBarStatusIconRenderer.agentIconSide)
+            XCTAssertEqual(rowImage?.isTemplate, true)
+            XCTAssertLessThan(MenuBarStatusIconRenderer.agentIconSide, MenuBarStatusIconRenderer.statusItemCanvasSide + 10)
+        }
     }
 
     func test_builtin_agent_icons_resolve_to_bundled_assets() {
@@ -148,6 +150,8 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
             .openCode,
             .pi,
             .grok,
+            .hermes,
+            .vibe,
         ]
 
         for tool in builtInTools {
@@ -238,6 +242,8 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
             "AgentIconOpenCode",
             "AgentIconPi",
             "AgentIconGrok",
+            "AgentIconHermes",
+            "AgentIconMistral",
         ]
 
         for assetName in requiredAssetNames {

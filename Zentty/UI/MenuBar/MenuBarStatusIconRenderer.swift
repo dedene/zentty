@@ -436,9 +436,9 @@ enum MenuBarStatusIconRenderer {
             // Antigravity reuses the Gemini mark (Antigravity is Google's agent).
             return "AgentIconGemini"
         case .hermes:
-            return nil
+            return "AgentIconHermes"
         case .vibe:
-            return nil
+            return "AgentIconMistral"
         case .smallHarness:
             return nil
         case .custom:
