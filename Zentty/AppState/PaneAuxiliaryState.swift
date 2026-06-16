@@ -906,6 +906,8 @@ enum PanePresentationNormalizer {
             return ["hermes", "hermes agent"].contains(normalized)
         case .vibe:
             return ["vibe", "mistral vibe", "mistral-vibe"].contains(normalized)
+        case .smallHarness:
+            return ["small-harness", "small harness", "smallharness"].contains(normalized)
         case .custom(let name):
             return normalized == name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }

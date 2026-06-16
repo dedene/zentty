@@ -18,6 +18,7 @@ SPEC.loader.exec_module(agent_bench)
 class RedactionTests(unittest.TestCase):
     def test_redacts_secret_values_and_keeps_routing_context(self):
         env = {
+            "ZENTTY_INSTANCE_SOCKET": "/tmp/zentty.sock",
             "ZENTTY_PANE_ID": "pane-1",
             "ZENTTY_WORKLANE_ID": "worklane-1",
             "ZENTTY_HERMES_PID": "4242",
@@ -28,6 +29,7 @@ class RedactionTests(unittest.TestCase):
 
         redacted = agent_bench.redacted_environment(env)
 
+        self.assertEqual(redacted["ZENTTY_INSTANCE_SOCKET"], "/tmp/zentty.sock")
         self.assertEqual(redacted["ZENTTY_PANE_ID"], "pane-1")
         self.assertEqual(redacted["ZENTTY_WORKLANE_ID"], "worklane-1")
         self.assertEqual(redacted["ZENTTY_HERMES_PID"], "4242")
@@ -321,6 +323,34 @@ class ExpectationTests(unittest.TestCase):
                     "tracked_pid_source": "ZENTTY_CODEX_PID",
                 }
             ],
+        )
+
+    def test_validation_accepts_small_harness_pid_from_underscore_environment_key(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["SessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="uuid",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="small-harness",
+                scenario="session_capture",
+                event_name="SessionStart",
+                standard_input='{"hook_event_name":"SessionStart","session_id":"0943211c-e3cf-4327-9334-cdacb3f4ec29"}',
+                environment={"ZENTTY_SMALL_HARNESS_PID": "5925"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("small-harness", scenario, observed)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(
+            result.session_identity_observations[0]["tracked_pid_source"],
+            "ZENTTY_SMALL_HARNESS_PID",
         )
 
     def test_validation_accepts_nested_session_identity_from_payload(self):
@@ -1457,7 +1487,23 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi", "vibe"],
+            [
+                "agy",
+                "amp",
+                "claude",
+                "codex",
+                "copilot",
+                "cursor",
+                "droid",
+                "gemini",
+                "grok",
+                "hermes",
+                "kimi",
+                "opencode",
+                "pi",
+                "small-harness",
+                "vibe",
+            ],
         )
         self.assertEqual(sorted(agent_bench.SUPPORTED_AGENTS), sorted(profiles))
         for profile in profiles.values():
@@ -1679,6 +1725,24 @@ class ProfileTests(unittest.TestCase):
             profile.expectations["restore_launch_with_id"].required_bootstrap_arguments,
             [["--conversation", "zentty-bench-conversation-fixture"]],
         )
+
+    def test_small_harness_profile_uses_managed_one_shot_hooks_and_continue_restore(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["small-harness"]
+
+        self.assertEqual(profile.command, "small-harness")
+        self.assertEqual(profile.real_binary_names, ["small-harness"])
+        self.assertIn("--print", profile.launch_args_by_scenario["smoke"])
+        self.assertIn("--allow-tools", profile.launch_args_by_scenario["auto_approval"])
+        self.assertNotIn("--allow-tools", profile.launch_args_by_scenario["approval"])
+        self.assertEqual(
+            profile.expectations["smoke"].required_events,
+            ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"],
+        )
+        self.assertEqual(
+            profile.expectations["restore_launch"].required_bootstrap_arguments,
+            [["--continue"]],
+        )
+        self.assertIn("model '", profile.skip_patterns)
 
     def test_agy_plan_installs_overlay_hooks_and_preserves_user_config(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
@@ -2165,6 +2229,65 @@ class LaunchPlannerTests(unittest.TestCase):
             )
 
             self.assertNotIn("CODEX_HOME", plan["unsetEnvironment"])
+
+    def test_small_harness_plan_writes_managed_hooks_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            profile = agent_bench.AgentProfile(
+                name="small-harness",
+                command="small-harness",
+                real_binary_names=["small-harness"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["SessionStart"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["--print", "hello"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/small-harness",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "ZENTTY_INSTANCE_SOCKET": "/tmp/zentty socket",
+                        "ZENTTY_WINDOW_ID": "window-main",
+                        "ZENTTY_WORKLANE_ID": "worklane-main",
+                        "ZENTTY_PANE_ID": "pane-main",
+                        "ZENTTY_PANE_TOKEN": "pane token",
+                        "ZENTTY_INSTANCE_ID": "instance-main",
+                    },
+                }
+            )
+
+            hooks_path = pathlib.Path(plan["setEnvironment"]["SMALL_HARNESS_MANAGED_HOOKS_FILE"])
+            hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(plan["arguments"], ["--print", "hello"])
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "small-harness")
+            self.assertIn("SMALL_HARNESS_MANAGED_HOOKS_JSON", plan["unsetEnvironment"])
+            self.assertEqual(hooks["source"], "zentty")
+            self.assertIn("PlanUpdated", hooks["hooks"])
+            self.assertIn("SubagentStart", hooks["hooks"])
+            self.assertIn("SubagentStop", hooks["hooks"])
+            command = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            self.assertIn("--adapter=small-harness", command)
+            self.assertNotIn("/tmp/zentty socket", command)
+            self.assertNotIn("pane token", command)
+            self.assertEqual(
+                hooks["hooks"]["SessionStart"][0]["hooks"][0]["envVars"],
+                [
+                    "ZENTTY_INSTANCE_SOCKET",
+                    "ZENTTY_WINDOW_ID",
+                    "ZENTTY_WORKLANE_ID",
+                    "ZENTTY_PANE_ID",
+                    "ZENTTY_PANE_TOKEN",
+                    "ZENTTY_INSTANCE_ID",
+                    "ZENTTY_SMALL_HARNESS_PID",
+                ],
+            )
 
     def test_cursor_plan_writes_overlay_hooks_without_mutating_real_hooks_file(self):
         with tempfile.TemporaryDirectory() as tmp:

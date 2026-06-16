@@ -104,6 +104,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolveKnown(named: "Hermes Agent"), .hermes)
     }
 
+    func test_agent_tool_recognizes_small_harness_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "small-harness"), .smallHarness)
+        XCTAssertEqual(AgentTool.resolve(named: "Small Harness"), .smallHarness)
+        XCTAssertEqual(AgentTool.resolve(named: "smallharness"), .smallHarness)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "small-harness"), .smallHarness)
+        XCTAssertNil(AgentTool.resolveKnown(named: "smalltalk harness"))
+    }
+
     func test_agent_tool_recognizer_infers_codex_from_explicit_attention_title() {
         XCTAssertEqual(
             AgentToolRecognizer.recognize(metadata: TerminalMetadata(
@@ -273,6 +281,25 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(source.contains("\"-z\"") == false)
     }
 
+    func test_small_harness_passthrough_policy_keeps_one_shot_modes_bootstrapped() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("ZENTTY_SMALL_HARNESS_HOOKS_DISABLED"))
+        XCTAssertTrue(source.contains("smallHarnessPassthroughSubcommands"))
+        XCTAssertTrue(source.contains("\"completions\""))
+        XCTAssertTrue(source.contains("\"--help\""))
+        XCTAssertTrue(source.contains("\"--version\""))
+        XCTAssertFalse(source.contains("\"--print\""))
+        XCTAssertFalse(source.contains("\"--eval\""))
+        XCTAssertFalse(source.contains("\"--continue\""))
+    }
+
     func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
         // AgentToolLauncher lives in the ZenttyCLI target which tests don't
         // import, so read the source file directly to protect the bootstrap
@@ -357,7 +384,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy", "vibe"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy", "vibe", "small-harness"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -1574,6 +1601,22 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertFalse(script.contains("python3"))
     }
 
+    func test_repository_small_harness_wrapper_delegates_to_launch_cli() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = repositoryRoot
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("small-harness", isDirectory: true)
+            .appendingPathComponent("small-harness", isDirectory: false)
+
+        let wrapper = try String(contentsOf: wrapperURL, encoding: .utf8)
+
+        XCTAssertTrue(wrapper.contains("ZENTTY_AGENT_TOOL=\"small-harness\""))
+        XCTAssertTrue(wrapper.contains("zentty-agent-wrapper"))
+    }
+
     func test_repository_amp_wrapper_delegates_to_launch_cli() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1941,6 +1984,16 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(project.contains("-o -path \"*/kimi/kimi\""))
         XCTAssertTrue(project.contains("-o -path \"*/kimi/kimi-cli\""))
         XCTAssertTrue(project.contains("-o -path \"*/shared/zentty-agent-wrapper\""))
+    }
+
+    func test_copy_agent_resources_build_script_marks_small_harness_wrapper_executable() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectURL = repositoryRoot.appendingPathComponent("project.yml", isDirectory: false)
+        let project = try String(contentsOf: projectURL, encoding: .utf8)
+
+        XCTAssertTrue(project.contains("-o -path \"*/small-harness/small-harness\""))
     }
 
     func test_agent_ipc_bridge_converts_agent_signal_message_to_payload() throws {
@@ -2436,6 +2489,116 @@ final class AgentStatusSupportTests: XCTestCase {
 
         XCTAssertTrue(plan.arguments.contains(#"notify=["/tmp/custom-notify"]"#))
         XCTAssertFalse(plan.arguments.contains(#"notify=["/tmp/zentty","codex-notify"]"#))
+    }
+
+    func test_agent_launch_bootstrap_builds_small_harness_managed_hooks_file() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-small-harness-runtime")
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--print", "hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/small-harness",
+                "ZENTTY_CLI_BIN": "/tmp/zentty cli",
+                "ZENTTY_INSTANCE_SOCKET": "/tmp/zentty socket",
+                "ZENTTY_WINDOW_ID": "window-main",
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+                "ZENTTY_PANE_TOKEN": "pane token",
+                "ZENTTY_INSTANCE_ID": "instance-main",
+                "SMALL_HARNESS_MANAGED_HOOKS_JSON": #"{"hooks":{"SessionStart":[]}}"#,
+            ],
+            expectsResponse: true,
+            tool: .smallHarness
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/small-harness")
+        XCTAssertEqual(plan.arguments, ["--print", "hello"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "small-harness")
+        XCTAssertNil(plan.setEnvironment["SMALL_HARNESS_MANAGED_HOOKS_JSON"])
+        XCTAssertEqual(plan.unsetEnvironment, ["SMALL_HARNESS_MANAGED_HOOKS_JSON"])
+
+        let hooksPath = try XCTUnwrap(plan.setEnvironment["SMALL_HARNESS_MANAGED_HOOKS_FILE"])
+        let hooksData = try Data(contentsOf: URL(fileURLWithPath: hooksPath))
+        let hooksObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: hooksData) as? [String: Any])
+        XCTAssertEqual(hooksObject["source"] as? String, "zentty")
+        let hooks = try XCTUnwrap(hooksObject["hooks"] as? [String: Any])
+        for eventName in [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PermissionRequest",
+            "PostToolUse",
+            "PreCompact",
+            "PostCompact",
+            "PlanUpdated",
+            "SubagentStart",
+            "SubagentStop",
+            "Stop",
+            "SessionEnd",
+        ] {
+            let entries = try XCTUnwrap(hooks[eventName] as? [[String: Any]], "\(eventName) missing")
+            let handler = try XCTUnwrap((entries.first?["hooks"] as? [[String: Any]])?.first)
+            XCTAssertEqual(handler["type"] as? String, "command")
+            let command = try XCTUnwrap(handler["command"] as? String)
+            XCTAssertTrue(command.contains("--adapter=small-harness"))
+            XCTAssertFalse(command.contains("/tmp/zentty socket"))
+            XCTAssertFalse(command.contains("pane token"))
+            XCTAssertEqual(
+                handler["envVars"] as? [String],
+                [
+                    "ZENTTY_INSTANCE_SOCKET",
+                    "ZENTTY_WINDOW_ID",
+                    "ZENTTY_WORKLANE_ID",
+                    "ZENTTY_PANE_ID",
+                    "ZENTTY_PANE_TOKEN",
+                    "ZENTTY_INSTANCE_ID",
+                    "ZENTTY_SMALL_HARNESS_PID",
+                ]
+            )
+            XCTAssertEqual(handler["timeoutSec"] as? Int, eventName == "SessionEnd" ? 1 : 10)
+        }
+    }
+
+    func test_agent_launch_bootstrap_small_harness_direct_plan_unsets_inherited_managed_hooks() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-small-harness-direct-runtime")
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--version"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/small-harness",
+                "SMALL_HARNESS_MANAGED_HOOKS_FILE": "/tmp/old-hooks.json",
+                "SMALL_HARNESS_MANAGED_HOOKS_JSON": #"{"hooks":{"SessionStart":[]}}"#,
+            ],
+            expectsResponse: true,
+            tool: .smallHarness
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/small-harness")
+        XCTAssertEqual(plan.arguments, ["--version"])
+        XCTAssertEqual(plan.setEnvironment, [:])
+        XCTAssertEqual(Set(plan.unsetEnvironment), ["SMALL_HARNESS_MANAGED_HOOKS_FILE", "SMALL_HARNESS_MANAGED_HOOKS_JSON"])
     }
 
     func test_agent_launch_bootstrap_builds_copilot_overlay_and_strips_config_dir_override() throws {
@@ -9762,6 +9925,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("hermes", "hermes"),
             ("vibe", "vibe"),
             ("vibe", "mistral-vibe"),
+            ("small-harness", "small-harness"),
         ]
     }
 

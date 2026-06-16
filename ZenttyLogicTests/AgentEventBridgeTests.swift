@@ -1168,6 +1168,116 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].lifecycleEvent, .turnComplete)
     }
 
+    // MARK: - Small Harness Adapter
+
+    func test_small_harness_adapter_session_start_with_pid() throws {
+        let json = #"{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/tmp", "transcript_path": "/tmp/small-harness.jsonl"}"#
+        let env = smallHarnessEnvironment(pid: "42")
+        let payloads = try AgentEventBridge.smallHarnessAdapter(data: Data(json.utf8), defaultEventName: nil, environment: env, taskStore: try makeSmallHarnessTaskStore())
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .pid)
+        XCTAssertEqual(payloads[0].pid, 42)
+        XCTAssertEqual(payloads[0].pidEvent, .attach)
+        XCTAssertEqual(payloads[1].state, .starting)
+        XCTAssertEqual(payloads[1].toolName, "Small Harness")
+        XCTAssertEqual(payloads[1].agentWorkingDirectory, "/tmp")
+        XCTAssertEqual(payloads[1].agentTranscriptPath, "/tmp/small-harness.jsonl")
+    }
+
+    func test_small_harness_permission_request_maps_to_approval() throws {
+        let json = #"{"hook_event_name":"PermissionRequest","session_id":"s1","tool_name":"shell"}"#
+        let payloads = try AgentEventBridge.smallHarnessAdapter(data: Data(json.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: try makeSmallHarnessTaskStore())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
+        XCTAssertEqual(payloads[0].toolName, "Small Harness")
+        XCTAssertEqual(payloads[0].text, "Small Harness needs your approval")
+    }
+
+    func test_small_harness_pre_tool_use_for_request_user_input_uses_question_text() throws {
+        let json = """
+        {
+          "hook_event_name": "PreToolUse",
+          "session_id": "s1",
+          "tool_name": "request_user_input",
+          "tool_input": {
+            "questions": [{
+              "question": "Which path should Small Harness take?",
+              "options": [{"label": "Fast"}, {"label": "Careful"}]
+            }]
+          }
+        }
+        """
+
+        let payloads = try AgentEventBridge.smallHarnessAdapter(data: Data(json.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: try makeSmallHarnessTaskStore())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .decision)
+        XCTAssertEqual(payloads[0].text, "Which path should Small Harness take?\n[Fast] [Careful]")
+    }
+
+    func test_small_harness_plan_updated_reports_exact_progress() throws {
+        let json = """
+        {
+          "hook_event_name": "PlanUpdated",
+          "session_id": "s1",
+          "progress": {"done": 2, "total": 5},
+          "active_step": "Run checks"
+        }
+        """
+
+        let payloads = try AgentEventBridge.smallHarnessAdapter(data: Data(json.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: try makeSmallHarnessTaskStore())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertNil(payloads[0].text)
+        XCTAssertEqual(payloads[0].taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 5))
+    }
+
+    func test_small_harness_subagent_events_update_progress() throws {
+        let store = try makeSmallHarnessTaskStore()
+        let startJSON = #"{"hook_event_name":"SubagentStart","session_id":"s1","cwd":"/tmp/project"}"#
+        let stopJSON = #"{"hook_event_name":"SubagentStop","session_id":"s1","cwd":"/tmp/project"}"#
+
+        let startPayloads = try AgentEventBridge.smallHarnessAdapter(data: Data(startJSON.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: store)
+        let stopPayloads = try AgentEventBridge.smallHarnessAdapter(data: Data(stopJSON.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: store)
+
+        XCTAssertEqual(try XCTUnwrap(startPayloads.first).taskProgress, PaneAgentTaskProgress(doneCount: 0, totalCount: 1))
+        XCTAssertEqual(try XCTUnwrap(stopPayloads.first).taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 1))
+        XCTAssertEqual(try XCTUnwrap(stopPayloads.first).agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_small_harness_stop_keeps_progress_and_marks_turn_complete() throws {
+        let store = try makeSmallHarnessTaskStore()
+        _ = try store.updateProgress(sessionID: "s1", doneCount: 2, totalCount: 3)
+        let json = #"{"hook_event_name":"Stop","session_id":"s1"}"#
+
+        let payloads = try AgentEventBridge.smallHarnessAdapter(data: Data(json.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: store)
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .idle)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .turnComplete)
+        XCTAssertEqual(payloads[0].taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 3))
+    }
+
+    func test_small_harness_session_end_clears_task_progress_and_pid() throws {
+        let store = try makeSmallHarnessTaskStore()
+        _ = try store.updateProgress(sessionID: "s1", doneCount: 2, totalCount: 3)
+        let json = #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#
+
+        let payloads = try AgentEventBridge.smallHarnessAdapter(data: Data(json.utf8), defaultEventName: nil, environment: smallHarnessEnvironment(), taskStore: store)
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertNil(payloads[0].state)
+        XCTAssertEqual(payloads[0].toolName, "Small Harness")
+        XCTAssertEqual(payloads[1].signalKind, .pid)
+        XCTAssertEqual(payloads[1].pidEvent, .clear)
+        XCTAssertNil(try store.taskProgress(sessionID: "s1"))
+    }
+
     // MARK: - Kimi Adapter
 
     func test_kimi_adapter_session_start_with_pid() throws {
@@ -1980,6 +2090,12 @@ final class AgentEventBridgeTests: XCTestCase {
         return env
     }
 
+    private func smallHarnessEnvironment(pid: String? = nil) -> [String: String] {
+        var env = defaultEnvironment
+        if let pid { env["ZENTTY_SMALL_HARNESS_PID"] = pid }
+        return env
+    }
+
     private func kimiEnvironment(pid: String? = nil) -> [String: String] {
         var env = defaultEnvironment
         if let pid { env["ZENTTY_KIMI_PID"] = pid }
@@ -2022,6 +2138,14 @@ final class AgentEventBridgeTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
         return DroidTaskStore(stateURL: directoryURL.appendingPathComponent("droid-task-sessions.json"))
+    }
+
+    private func makeSmallHarnessTaskStore() throws -> DroidTaskStore {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+        return DroidTaskStore(stateURL: directoryURL.appendingPathComponent("small-harness-task-sessions.json"))
     }
 
     private func makeCursorTaskStore() throws -> CursorTaskStore {

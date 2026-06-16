@@ -52,6 +52,7 @@ final class AgentIntegrationConsentTests: XCTestCase {
         XCTAssertEqual(AgentBootstrapTool.claude.defaultIntegrationState, .on)
         XCTAssertEqual(AgentBootstrapTool.kimi.defaultIntegrationState, .on)
         XCTAssertEqual(AgentBootstrapTool.copilot.defaultIntegrationState, .on)
+        XCTAssertEqual(AgentBootstrapTool.smallHarness.defaultIntegrationState, .on)
     }
 
     // MARK: - Effective state
@@ -92,6 +93,7 @@ final class AgentIntegrationConsentTests: XCTestCase {
     func test_gate_ephemeral_default_proceeds_never_needs_consent() {
         XCTAssertEqual(AgentIntegrationConsent.gate(for: .claude, storedState: nil, isRestore: false), .proceed)
         XCTAssertEqual(AgentIntegrationConsent.gate(for: .codex, storedState: nil, isRestore: true), .proceed)
+        XCTAssertEqual(AgentIntegrationConsent.gate(for: .smallHarness, storedState: nil, isRestore: true), .proceed)
     }
 
     func test_gate_ephemeral_off_is_off() {
@@ -126,6 +128,7 @@ final class AgentIntegrationConsentTests: XCTestCase {
         XCTAssertEqual(AgentBootstrapTool.claude.integrationDisplayName, "Claude Code")
         XCTAssertEqual(AgentBootstrapTool.agy.integrationDisplayName, "Antigravity")
         XCTAssertEqual(AgentBootstrapTool.opencode.integrationDisplayName, "OpenCode")
+        XCTAssertEqual(AgentBootstrapTool.smallHarness.integrationDisplayName, "Small Harness")
     }
 
     // MARK: - integrationGate restore-pending consumption

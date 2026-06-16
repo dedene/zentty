@@ -78,7 +78,7 @@ extension AgentBootstrapTool {
         switch self {
         case .amp, .cursor, .droid, .grok, .agy, .hermes, .vibe:
             return .persistent
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
+        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .smallHarness:
             return .ephemeral
         }
     }
@@ -107,6 +107,7 @@ extension AgentBootstrapTool {
         case .agy: return .agy
         case .hermes: return .hermes
         case .vibe: return .vibe
+        case .smallHarness: return .smallHarness
         }
     }
 
@@ -128,7 +129,7 @@ extension AgentBootstrapTool {
         case .agy: return AgyHooksInstaller.defaultUserHooksFileURL()
         case .hermes: return HermesHooksInstaller.defaultConfigURL()
         case .vibe: return VibeHooksInstaller.defaultUserHooksFileURL()
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
+        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .smallHarness:
             return nil
         }
     }
@@ -146,7 +147,7 @@ enum AgentIntegrationConsent {
     /// Persistent (config-modifying) agents, in Settings display order.
     static let persistentTools: [AgentBootstrapTool] = [.amp, .cursor, .droid, .grok, .agy, .hermes, .vibe]
     /// Ephemeral (built-in) agents, in Settings display order.
-    static let ephemeralTools: [AgentBootstrapTool] = [.claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi]
+    static let ephemeralTools: [AgentBootstrapTool] = [.claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .smallHarness]
     /// All known agents, persistent group first.
     static let allTools: [AgentBootstrapTool] = persistentTools + ephemeralTools
 
@@ -238,7 +239,7 @@ enum AgentIntegrationHooks {
                 isInstalled: { VibeHooksInstaller.isInstalled() },
                 uninstall: { try VibeHooksInstaller.uninstall() }
             )
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi:
+        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .smallHarness:
             return nil
         }
     }
