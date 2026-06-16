@@ -27,13 +27,14 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi", "vibe")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi", "small-harness", "vibe")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
 AMP_PLUGIN_FILE_NAME = "zentty-amp-zentty.ts"
 AMP_PLUGIN_OWNERSHIP_MARKER = "zentty-amp-plugin-v1"
 ROUTING_ENV_KEYS = {
+    "ZENTTY_INSTANCE_SOCKET",
     "ZENTTY_WINDOW_ID",
     "ZENTTY_WORKLANE_ID",
     "ZENTTY_PANE_ID",
@@ -52,15 +53,27 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_KIMI_PID",
     "ZENTTY_GROK_PID",
     "ZENTTY_AGY_PID",
+    "ZENTTY_SMALL_HARNESS_PID",
     "CODEX_HOME",
     "COPILOT_HOME",
     "KIMI_HOME",
     "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
+    "SMALL_HARNESS_MANAGED_HOOKS_FILE",
+    "SMALL_HARNESS_MANAGED_HOOKS_JSON",
     "OPENCODE_CONFIG",
     "OPENCODE_CONFIG_DIR",
     "ZENTTY_OPENCODE_BASE_CONFIG_DIR",
     "HOME",
 }
+SMALL_HARNESS_HOOK_ENV_VARS = [
+    "ZENTTY_INSTANCE_SOCKET",
+    "ZENTTY_WINDOW_ID",
+    "ZENTTY_WORKLANE_ID",
+    "ZENTTY_PANE_ID",
+    "ZENTTY_PANE_TOKEN",
+    "ZENTTY_INSTANCE_ID",
+    "ZENTTY_SMALL_HARNESS_PID",
+]
 SECRET_ENV_PATTERNS = re.compile(r"(TOKEN|SECRET|PASSWORD|API_KEY|AUTH|KEY|CREDENTIAL|COOKIE)", re.I)
 SENSITIVE_PAYLOAD_KEY_PATTERNS = re.compile(
     r"(TOKEN|SECRET|PASSWORD|API_KEY|AUTH|KEY|CREDENTIAL|COOKIE|EMAIL|USER_ID|USERID|ACCOUNT|TENANT|ORG_ID|ORGANIZATION_ID)",
@@ -394,7 +407,7 @@ def extract_session_id(agent: str, payload: dict[str, Any]) -> tuple[str | None,
 
 
 def extract_tracked_pid(agent: str, payload: dict[str, Any], environment: dict[str, str]) -> tuple[int | None, str | None]:
-    expected_key = f"ZENTTY_{agent.upper()}_PID"
+    expected_key = agent_pid_env_key(agent)
     pid = parse_positive_int(environment.get(expected_key))
     if pid is not None:
         return (pid, expected_key)
@@ -404,6 +417,10 @@ def extract_tracked_pid(agent: str, payload: dict[str, Any], environment: dict[s
         if pid is not None:
             return (pid, "agent.pid")
     return (None, None)
+
+
+def agent_pid_env_key(agent: str) -> str:
+    return f"ZENTTY_{agent.upper().replace('-', '_')}_PID"
 
 
 def parse_positive_int(value: Any) -> int | None:
@@ -1361,7 +1378,8 @@ class LaunchPlanner:
         # the completion predicate).
         if self.scenario.startswith("restore_launch"):
             return self._launch_plan("/usr/bin/true", [], {"ZENTTY_AGENT_TOOL": self.profile.name})
-        method = getattr(self, f"_plan_{self.profile.name}", self._direct_plan)
+        method_name = f"_plan_{self.profile.name.replace('-', '_')}"
+        method = getattr(self, method_name, self._direct_plan)
         return method(executable, arguments, environment, cli_path)
 
     def _direct_plan(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
@@ -1510,6 +1528,37 @@ class LaunchPlanner:
         ] + arguments
         unset = ["CODEX_HOME"] if is_zentty_launch_cache_path(str(environment.get("CODEX_HOME") or "")) else []
         return self._launch_plan(executable, planned, {"ZENTTY_AGENT_TOOL": "codex"}, unset=unset)
+
+    def _plan_small_harness(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        hook_file = self._overlay_dir("small-harness") / "managed-hooks.json"
+        command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=small-harness || printf \'{{}}\\n\''
+        hooks = {
+            event: [{"hooks": [{"type": "command", "command": command, "envVars": SMALL_HARNESS_HOOK_ENV_VARS, "timeoutSec": timeout}]}]
+            for event, timeout in (
+                ("SessionStart", 10),
+                ("UserPromptSubmit", 10),
+                ("PreToolUse", 10),
+                ("PermissionRequest", 10),
+                ("PostToolUse", 10),
+                ("PreCompact", 10),
+                ("PostCompact", 10),
+                ("PlanUpdated", 10),
+                ("SubagentStart", 10),
+                ("SubagentStop", 10),
+                ("Stop", 10),
+                ("SessionEnd", 1),
+            )
+        }
+        write_json(hook_file, {"source": "zentty", "hooks": hooks})
+        return self._launch_plan(
+            executable,
+            arguments,
+            {
+                "ZENTTY_AGENT_TOOL": "small-harness",
+                "SMALL_HARNESS_MANAGED_HOOKS_FILE": str(hook_file),
+            },
+            unset=["SMALL_HARNESS_MANAGED_HOOKS_JSON"],
+        )
 
     def _plan_copilot(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         overlay = self._overlay_dir("copilot") / "home"

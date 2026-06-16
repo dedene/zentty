@@ -394,6 +394,35 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
 
+    func test_builder_returns_small_harness_continue_when_working_directory_exists() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-small-harness",
+            kind: .agentResume,
+            toolName: "Small Harness",
+            sessionID: "s1",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "small-harness --continue"
+        )
+    }
+
+    func test_builder_returns_nil_for_small_harness_when_working_directory_is_missing() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-small-harness",
+            kind: .agentResume,
+            toolName: "Small Harness",
+            sessionID: "s1",
+            workingDirectory: nil,
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_agy_resume_command_for_alphanumeric_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-agy",

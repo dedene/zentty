@@ -47,6 +47,30 @@ final class DroidTaskStore {
         self.init(stateURL: stateURL, fileManager: fileManager)
     }
 
+    static func smallHarness(
+        processInfo: ProcessInfo = .processInfo,
+        fileManager: FileManager = .default
+    ) -> DroidTaskStore {
+        let env = processInfo.environment
+        if let overridePath = env["ZENTTY_SMALL_HARNESS_TASK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            return DroidTaskStore(
+                stateURL: URL(fileURLWithPath: NSString(string: overridePath).expandingTildeInPath),
+                fileManager: fileManager
+            )
+        }
+
+        let stateURL: URL
+        if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            stateURL = appSupportDirectory
+                .appendingPathComponent("Zentty", isDirectory: true)
+                .appendingPathComponent("small-harness-task-sessions.json", isDirectory: false)
+        } else {
+            stateURL = fileManager.temporaryDirectory.appendingPathComponent("zentty-small-harness-task-sessions.json")
+        }
+        return DroidTaskStore(stateURL: stateURL, fileManager: fileManager)
+    }
+
     /// Record a new sub-droid task being created. Returns the updated progress.
     func taskCreated(sessionID: String) throws -> PaneAgentTaskProgress? {
         try withLockedState { state in

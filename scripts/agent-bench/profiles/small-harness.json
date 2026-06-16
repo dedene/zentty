@@ -1,0 +1,64 @@
+{
+  "name": "small-harness",
+  "command": "small-harness",
+  "real_binary_names": ["small-harness"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--allow-tools",
+      "--print",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "session_capture": [
+      "--allow-tools",
+      "--print",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "approval": [
+      "--print",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "auto_approval": [
+      "--allow-tools",
+      "--print",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_AUTO_APPROVAL_OK"
+    ],
+    "restore_launch": [
+      "--continue"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+    },
+    "session_capture": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": true
+      }
+    },
+    "approval": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop"]
+    },
+    "auto_approval": {
+      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"],
+      "forbidden_events": ["PermissionRequest"],
+      "forbidden_terminal_phases": ["needs-input"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--continue"]]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Allow|approval|permission|Action Required",
+        "text": "y\n",
+        "label": "approve-command"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "model '", "model not found"]
+}

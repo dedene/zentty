@@ -62,6 +62,9 @@ enum AgentEventBridge {
             case "codex":
                 let eventName = positionalArgs.first
                 payloads = try codexAdapter(data: inputData, defaultEventName: eventName, environment: environment)
+            case "small-harness":
+                let eventName = positionalArgs.first
+                payloads = try smallHarnessAdapter(data: inputData, defaultEventName: eventName, environment: environment)
             case "codex-notify":
                 payloads = try codexNotifyAdapter(data: inputData, environment: environment)
             case "droid":

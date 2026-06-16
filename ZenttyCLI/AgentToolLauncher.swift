@@ -222,6 +222,17 @@ struct AgentToolLauncher {
                 return "vibe early-exit flag: \(flag)"
             }
             return nil
+        case .smallHarness:
+            if environment["ZENTTY_SMALL_HARNESS_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_SMALL_HARNESS_HOOKS_DISABLED=1"
+            }
+            if let subcommand = arguments.first, Self.smallHarnessPassthroughSubcommands.contains(subcommand) {
+                return "small-harness passthrough subcommand: \(subcommand)"
+            }
+            if let flag = arguments.first(where: { Self.smallHarnessEarlyExitFlags.contains(Self.optionName($0)) }) {
+                return "small-harness early-exit flag: \(flag)"
+            }
+            return nil
         case .codex, .gemini, .opencode:
             return nil
         }
@@ -282,6 +293,14 @@ struct AgentToolLauncher {
 
     static let vibeEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-v",
+    ]
+
+    static let smallHarnessPassthroughSubcommands: Set<String> = [
+        "completions",
+    ]
+
+    static let smallHarnessEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-V",
     ]
 
     private static func optionName(_ argument: String) -> String {
@@ -444,6 +463,8 @@ struct AgentToolLauncher {
             return "Hermes Agent"
         case .vibe:
             return "Mistral Vibe"
+        case .smallHarness:
+            return "Small Harness"
         }
     }
 
@@ -471,6 +492,7 @@ struct AgentToolLauncher {
             "ZENTTY_AGY_HOOKS_DISABLED",
             "ZENTTY_HERMES_HOOKS_DISABLED",
             "ZENTTY_VIBE_HOOKS_DISABLED",
+            "ZENTTY_SMALL_HARNESS_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
@@ -528,6 +550,8 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
+        case .smallHarness:
+            return EnvironmentPatch(set: [:], unset: ["SMALL_HARNESS_MANAGED_HOOKS_FILE", "SMALL_HARNESS_MANAGED_HOOKS_JSON"])
         case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes, .vibe:
             return EnvironmentPatch()
         }
@@ -569,6 +593,8 @@ struct AgentToolLauncher {
             // launch so the hooks we install in ~/.vibe/hooks.toml actually
             // fire — independent of what the app-provided launch plan carried.
             environmentPatch.set["VIBE_ENABLE_EXPERIMENTAL_HOOKS"] = "true"
+        case .smallHarness:
+            environmentPatch.set["ZENTTY_SMALL_HARNESS_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -628,6 +654,7 @@ struct AgentToolLauncher {
             "ZENTTY_AGY_PID",
             "ZENTTY_HERMES_PID",
             "ZENTTY_VIBE_PID",
+            "ZENTTY_SMALL_HARNESS_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

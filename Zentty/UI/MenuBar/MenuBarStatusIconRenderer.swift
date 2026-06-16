@@ -439,6 +439,8 @@ enum MenuBarStatusIconRenderer {
             return nil
         case .vibe:
             return nil
+        case .smallHarness:
+            return nil
         case .custom:
             return nil
         }

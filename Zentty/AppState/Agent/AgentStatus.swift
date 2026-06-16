@@ -16,6 +16,7 @@ enum AgentTool: Equatable, Sendable {
     case agy
     case hermes
     case vibe
+    case smallHarness
     case custom(String)
 
     var displayName: String {
@@ -50,6 +51,8 @@ enum AgentTool: Equatable, Sendable {
             return "Hermes Agent"
         case .vibe:
             return "Mistral Vibe"
+        case .smallHarness:
+            return "Small Harness"
         case .custom(let name):
             return name
         }
@@ -134,6 +137,7 @@ enum AgentTool: Equatable, Sendable {
         // "Mistral Vibe" normalizes to "mistral vibe" (leading token "mistral");
         // the bare binary surfaces as "vibe". Match both leading tokens.
         ToolNameMatcher(tool: .vibe, isHookDrivenOnly: false, match: .leadingToken(["vibe", "mistral"])),
+        ToolNameMatcher(tool: .smallHarness, isHookDrivenOnly: false, match: .containsAny(["small-harness", "small harness", "smallharness"])),
     ]
 
     private static func matchesPi(_ normalized: String) -> Bool {

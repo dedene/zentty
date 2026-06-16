@@ -45,7 +45,7 @@ enum AgentLaunchBootstrap {
             return directPlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
-                unsetEnvironment: tool == .claude ? ["CLAUDECODE"] : []
+                unsetEnvironment: directUnsetEnvironment(for: tool)
             )
         }
 
@@ -66,6 +66,15 @@ enum AgentLaunchBootstrap {
             )
         case .codex:
             return try codexPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                fileManager: fileManager
+            )
+        case .smallHarness:
+            return try smallHarnessPlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
                 environment: environment,
@@ -723,6 +732,48 @@ enum AgentLaunchBootstrap {
             arguments: plannedArguments,
             setEnvironment: setEnvironment,
             unsetEnvironment: unsetEnvironment,
+            preLaunchActions: []
+        )
+    }
+
+    private static func smallHarnessPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        fileManager: FileManager
+    ) throws -> AgentLaunchPlan {
+        guard let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank else {
+            return directPlan(
+                executablePath: executablePath,
+                arguments: arguments,
+                unsetEnvironment: smallHarnessManagedHookEnvironmentKeys
+            )
+        }
+
+        let toolDirectoryURL = try prepareToolDirectory(
+            tool: .smallHarness,
+            target: target,
+            runtimeDirectoryURL: runtimeDirectoryURL,
+            fileManager: fileManager
+        )
+        let hooksURL = toolDirectoryURL.appendingPathComponent("managed-hooks.json", isDirectory: false)
+        let hooksObject = smallHarnessManagedHooksObject(cliPath: cliPath)
+        let data = try JSONSerialization.data(
+            withJSONObject: hooksObject,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: hooksURL, options: .atomic)
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "small-harness",
+                "SMALL_HARNESS_MANAGED_HOOKS_FILE": hooksURL.path,
+            ],
+            unsetEnvironment: ["SMALL_HARNESS_MANAGED_HOOKS_JSON"],
             preLaunchActions: []
         )
     }
@@ -1429,6 +1480,22 @@ enum AgentLaunchBootstrap {
         )
     }
 
+    private static let smallHarnessManagedHookEnvironmentKeys = [
+        "SMALL_HARNESS_MANAGED_HOOKS_FILE",
+        "SMALL_HARNESS_MANAGED_HOOKS_JSON",
+    ]
+
+    private static func directUnsetEnvironment(for tool: AgentBootstrapTool) -> [String] {
+        switch tool {
+        case .claude:
+            return ["CLAUDECODE"]
+        case .smallHarness:
+            return smallHarnessManagedHookEnvironmentKeys
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes, .vibe:
+            return []
+        }
+    }
+
     private static func claudeSessionStartHookEntries(command: String, timeout: Int) -> [[String: Any]] {
         ["startup", "resume", "clear", "compact"].map { matcher in
             [
@@ -1468,6 +1535,60 @@ enum AgentLaunchBootstrap {
 
     private static func codexHookCommand(cliPath: String, event: String) -> String {
         "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=codex \(event) || echo '{}'"
+    }
+
+    private static func smallHarnessManagedHooksObject(cliPath: String) -> [String: Any] {
+        [
+            "source": "zentty",
+            "hooks": Dictionary(
+                uniqueKeysWithValues: smallHarnessHookSpecs.map { spec in
+                    (
+                        spec.eventName,
+                        [[
+                            "hooks": [[
+                                "type": "command",
+                                "command": smallHarnessHookCommand(cliPath: cliPath),
+                                "envVars": smallHarnessHookEnvVars,
+                                "timeoutSec": spec.timeout,
+                            ]],
+                        ]]
+                    )
+                }
+            ),
+        ]
+    }
+
+    private static var smallHarnessHookSpecs: [(eventName: String, timeout: Int)] {
+        [
+            ("SessionStart", 10),
+            ("UserPromptSubmit", 10),
+            ("PreToolUse", 10),
+            ("PermissionRequest", 10),
+            ("PostToolUse", 10),
+            ("PreCompact", 10),
+            ("PostCompact", 10),
+            ("PlanUpdated", 10),
+            ("SubagentStart", 10),
+            ("SubagentStop", 10),
+            ("Stop", 10),
+            ("SessionEnd", 1),
+        ]
+    }
+
+    private static var smallHarnessHookEnvVars: [String] {
+        [
+            "ZENTTY_INSTANCE_SOCKET",
+            "ZENTTY_WINDOW_ID",
+            "ZENTTY_WORKLANE_ID",
+            "ZENTTY_PANE_ID",
+            "ZENTTY_PANE_TOKEN",
+            "ZENTTY_INSTANCE_ID",
+            "ZENTTY_SMALL_HARNESS_PID",
+        ]
+    }
+
+    private static func smallHarnessHookCommand(cliPath: String) -> String {
+        "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=small-harness || printf '{}\\n'"
     }
 
     private static func copilotHookCommand(cliPath: String, event: String) -> String {
