@@ -134,8 +134,16 @@ final class LibghosttySurfaceActionCoalescer {
 
 @MainActor
 final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading {
-    nonisolated(unsafe) var surface: ghostty_surface_t?
-    nonisolated(unsafe) private let actionCoalescer = LibghosttySurfaceActionCoalescer()
+    nonisolated var surface: ghostty_surface_t? {
+        get { _surface.value }
+        set { _surface.value = newValue }
+    }
+    private let _surface = NonisolatedUnsafe<ghostty_surface_t?>(nil)
+    nonisolated private var actionCoalescer: LibghosttySurfaceActionCoalescer {
+        get { _actionCoalescer.value }
+        set { _actionCoalescer.value = newValue }
+    }
+    private let _actionCoalescer = NonisolatedUnsafe(LibghosttySurfaceActionCoalescer())
     nonisolated let paneID: PaneID
     nonisolated let diagnostics: TerminalDiagnostics
     private var metadata = TerminalMetadata()

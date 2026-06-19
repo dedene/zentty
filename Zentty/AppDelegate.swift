@@ -42,7 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(
         shouldOpenMainWindow: Bool = true,
-        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
+        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = MainActorShim.assumeIsolated { { PaneRuntimeRegistry() } },
+
         configStore: AppConfigStore = AppConfigStore(),
         appUpdateController: AppUpdateControlling? = nil,
         sessionRestoreStore: SessionRestoreStore? = nil,
@@ -68,7 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     convenience init(
         shouldOpenMainWindow: Bool = true,
-        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = { PaneRuntimeRegistry() },
+        runtimeRegistryFactory: @escaping () -> PaneRuntimeRegistry = MainActorShim.assumeIsolated { { PaneRuntimeRegistry() } },
+
         configStore: AppConfigStore = AppConfigStore(),
         appUpdateController: AppUpdateControlling? = nil,
         sessionRestoreStore: SessionRestoreStore? = nil,
@@ -101,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         CleanCopyPipeline.isAutoCleanEnabled = configStore.current.clipboard.alwaysCleanCopies
         configObserverID = configStore.addObserver { [weak self] config in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)

@@ -460,12 +460,14 @@ final class WorklaneStore {
         readyStatusDebounceInterval: TimeInterval = 0.25,
         nonRepositoryRetryInterval: TimeInterval = 5,
         currentDateProvider: @escaping @MainActor () -> Date = Date.init,
-        readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
+        readyStatusScheduler: @escaping ReadyStatusScheduler = MainActorShim.assumeIsolated { WorklaneStore.defaultReadyStatusScheduler },
+
         codexQuestionResolver: @escaping CodexQuestionResolver = { request in
             CodexTranscriptQuestionExtractor.question(fromTranscriptPath: request.transcriptPath)
         },
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
-        serverRegistry: ServerRegistry = ServerRegistry(),
+        serverRegistry: ServerRegistry = MainActorShim.assumeIsolated { ServerRegistry() },
+
         terminalDiagnostics: TerminalDiagnostics = .shared,
         newWorklanePlacementProvider: @escaping @MainActor () -> NewWorklanePlacement = { .afterCurrent },
         agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false },

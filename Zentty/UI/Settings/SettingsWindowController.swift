@@ -241,15 +241,20 @@ final class SettingsWindowController: NSWindowController {
 
     init(
         configStore: AppConfigStore,
-        openWithService: OpenWithServing = OpenWithService(),
-        serverOpening: ServerOpening = ServerOpenService(),
+        openWithService: OpenWithServing = MainActorShim.assumeIsolated { OpenWithService() },
+
+        serverOpening: ServerOpening = MainActorShim.assumeIsolated { ServerOpenService() },
+
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
         errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider = {
             ErrorReportingBundleConfiguration.load(from: .main)
         },
-        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = ErrorReportingRestartConfirmation.present,
-        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
-        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = AgentTeamsEnableWarning.present,
+        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = MainActorShim.assumeIsolated { ErrorReportingRestartConfirmation.present },
+
+        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = MainActorShim.assumeIsolated { ErrorReportingApplicationRestart.restart },
+
+        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = MainActorShim.assumeIsolated { AgentTeamsEnableWarning.present },
+
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess,
         initialSection: SettingsSection = .general
     ) {
@@ -636,12 +641,12 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
     /// The split view backing the sidebar/detail layout, exposed so the host
     /// window can anchor an `NSTrackingSeparatorToolbarItem` to its divider.
     var navigationSplitView: NSSplitView {
-        loadViewIfNeeded()
+        _ = view
         return splitView
     }
 
     func handleAppearanceChange() {
-        loadViewIfNeeded()
+        _ = view
         view.layoutSubtreeIfNeeded()
         (currentSectionViewController as? SettingsAppearanceUpdating)?.handleAppearanceChange()
         sidebarViewController.handleAppearanceChange()
@@ -652,7 +657,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
     }
 
     func select(section: SettingsSection, animated _: Bool) {
-        loadViewIfNeeded()
+        _ = view
         navigate(to: section, recordHistory: true)
     }
 
@@ -711,7 +716,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
     }
 
     private func applySelection(_ section: SettingsSection) {
-        loadViewIfNeeded()
+        _ = view
         onPrepareSectionForPresentationForTesting?(section, selectedSection)
 
         let contentViewController = sectionViewController(for: section)

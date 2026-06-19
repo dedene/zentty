@@ -27,7 +27,8 @@ packages:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.7.2"
   FuzzyMatch:
-    path: Vendor/FuzzyMatch
+    url: https://github.com/ordo-one/FuzzyMatch
+    from: "1.3.2"
 schemes:
   Zentty:
     build:

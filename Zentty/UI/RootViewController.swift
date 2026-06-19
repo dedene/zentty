@@ -250,31 +250,31 @@ final class RootViewController: NSViewController {
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         configStore: AppConfigStore,
-        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        openWithService: OpenWithServing = OpenWithService(),
-        serverOpenService: ServerOpening = ServerOpenService(),
-        serverListenerScanner: ServerListenerScanner = ServerListenerScanner(),
-        dockerServerDiscovery: DockerServerDiscovery = DockerServerDiscovery(),
-        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
-        notificationStore: NotificationStore = NotificationStore(),
-        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
-        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
+        appUpdateStateStore: AppUpdateStateStore? = nil,
+        openWithService: OpenWithServing? = nil,
+        serverOpenService: ServerOpening? = nil,
+        serverListenerScanner: ServerListenerScanner? = nil,
+        dockerServerDiscovery: DockerServerDiscovery? = nil,
+        runtimeRegistry: PaneRuntimeRegistry? = nil,
+        notificationStore: NotificationStore? = nil,
+        reviewStateResolver: WorklaneReviewStateResolver? = nil,
+        gitContextResolver: (any PaneGitContextResolving)? = nil,
         initialLayoutContext: PaneLayoutContext = .fallback,
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) {
         self.windowID = windowID
-        self.runtimeRegistry = runtimeRegistry
+        self.runtimeRegistry = runtimeRegistry ?? PaneRuntimeRegistry()
         self.configStore = configStore
-        self.appUpdateStateStore = appUpdateStateStore
-        self.openWithService = openWithService
-        self.serverOpenService = serverOpenService
-        self.serverListenerScanner = serverListenerScanner
-        self.dockerServerDiscovery = dockerServerDiscovery
+        self.appUpdateStateStore = appUpdateStateStore ?? AppUpdateStateStore()
+        self.openWithService = openWithService ?? OpenWithService()
+        self.serverOpenService = serverOpenService ?? ServerOpenService()
+        self.serverListenerScanner = serverListenerScanner ?? ServerListenerScanner()
+        self.dockerServerDiscovery = dockerServerDiscovery ?? DockerServerDiscovery()
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.lastAppliedAppearanceSettings = configStore.current.appearance
         self.currentPaneLayoutContext = initialLayoutContext
-        self.isUpdateAvailable = appUpdateStateStore.current.isUpdateAvailable
+        self.isUpdateAvailable = (appUpdateStateStore ?? AppUpdateStateStore()).current.isUpdateAvailable
         self.sidebarMotionCoordinator = SidebarMotionCoordinator(
             configStore: configStore
         )
@@ -286,7 +286,7 @@ final class RootViewController: NSViewController {
                 })
             )
         )
-        self.notificationCoordinator = NotificationChromeCoordinator(store: notificationStore)
+        self.notificationCoordinator = NotificationChromeCoordinator(store: notificationStore ?? NotificationStore())
         self.paneLayoutMenuCoordinator = PaneLayoutMenuCoordinator(
             shortcutManager: shortcutManager
         )
@@ -295,7 +295,7 @@ final class RootViewController: NSViewController {
             worklanes: initialWorkspaceState?.worklanes ?? [],
             layoutContext: initialLayoutContext,
             activeWorklaneID: initialWorkspaceState?.activeWorklaneID,
-            gitContextResolver: gitContextResolver,
+            gitContextResolver: gitContextResolver ?? WorklaneGitContextResolver(),
             newWorklanePlacementProvider: { [weak configStore] in
                 configStore?.current.worklanes.newWorklanePlacement ?? .afterCurrent
             },
@@ -312,13 +312,13 @@ final class RootViewController: NSViewController {
         self.renderCoordinator = WorklaneRenderCoordinator(
             windowID: windowID,
             worklaneStore: worklaneStore,
-            runtimeRegistry: runtimeRegistry,
-            notificationStore: notificationStore,
+            runtimeRegistry: self.runtimeRegistry,
+            notificationStore: notificationStore ?? NotificationStore(),
             configStore: configStore,
-            reviewStateResolver: reviewStateResolver
+            reviewStateResolver: reviewStateResolver ?? WorklaneReviewStateResolver()
         )
         super.init(nibName: nil, bundle: nil)
-        appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
+        appUpdateObserverID = self.appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
         }
         configObserverID = configStore.addObserver { [weak self] config in
@@ -396,20 +396,19 @@ final class RootViewController: NSViewController {
     convenience init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         configStore: AppConfigStore? = nil,
-        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        openWithService: OpenWithServing = OpenWithService(),
-        serverOpenService: ServerOpening = ServerOpenService(),
-        serverListenerScanner: ServerListenerScanner = ServerListenerScanner(),
-        dockerServerDiscovery: DockerServerDiscovery = DockerServerDiscovery(),
-        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
-        notificationStore: NotificationStore = NotificationStore(),
-        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
-        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
+        appUpdateStateStore: AppUpdateStateStore? = nil,
+        openWithService: OpenWithServing? = nil,
+        serverOpenService: ServerOpening? = nil,
+        serverListenerScanner: ServerListenerScanner? = nil,
+        dockerServerDiscovery: DockerServerDiscovery? = nil,
+        runtimeRegistry: PaneRuntimeRegistry? = nil,
+        notificationStore: NotificationStore? = nil,
+        reviewStateResolver: WorklaneReviewStateResolver? = nil,
+        gitContextResolver: (any PaneGitContextResolving)? = nil,
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
-        initialLayoutContext: PaneLayoutContext = .fallback,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        workspaceDefaults: UserDefaults = .standard
     ) {
         self.init(
             windowID: windowID,
@@ -429,8 +428,8 @@ final class RootViewController: NSViewController {
             notificationStore: notificationStore,
             reviewStateResolver: reviewStateResolver,
             gitContextResolver: gitContextResolver,
-            initialLayoutContext: initialLayoutContext,
-            initialWorkspaceState: initialWorkspaceState
+            initialLayoutContext: .fallback,
+            initialWorkspaceState: nil
         )
     }
 

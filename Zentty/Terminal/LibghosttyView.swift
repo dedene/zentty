@@ -519,7 +519,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView: LibghosttyView,
         paneID: PaneID,
         diagnostics: TerminalDiagnostics,
-        scrollFrameSampler: any TerminalScrollFrameSampling = TerminalScrollFrameSampler(),
+        scrollFrameSampler: any TerminalScrollFrameSampling = MainActorShim.assumeIsolated { TerminalScrollFrameSampler() },
+
         frameMeterSampler: (any TerminalScrollFrameSampling)? = nil
     ) {
         self.paneID = paneID

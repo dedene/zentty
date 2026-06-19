@@ -6,8 +6,15 @@ enum MainActorShim {
             return try MainActor.assumeIsolated(operation)
         } else {
             precondition(Thread.isMainThread)
-            let nonisolatedOp = unsafeBitCast(operation, to: (() throws -> T).self)
-            return try nonisolatedOp()
+            return try withoutActuallyEscaping(operation) { escapingOp in
+                let nonisolatedOp = unsafeBitCast(escapingOp, to: (() throws -> T).self)
+                return try nonisolatedOp()
+            }
         }
     }
+}
+
+final class NonisolatedUnsafe<T>: @unchecked Sendable {
+    var value: T
+    init(_ value: T) { self.value = value }
 }

@@ -5,8 +5,8 @@ extension Notification.Name {
 }
 
 enum CleanCopyPipeline {
-    nonisolated(unsafe) static var isAutoCleanEnabled: Bool = false
-    nonisolated(unsafe) static var suppressCallbackCleaning: Bool = false
+    static var isAutoCleanEnabled: Bool = false
+    static var suppressCallbackCleaning: Bool = false
 
     struct Result: Equatable {
         let text: String
@@ -126,7 +126,7 @@ enum CleanCopyPipeline {
         let lineCount = nonEmptyLines.count
 
         for candidate in candidates {
-            let matchCount = nonEmptyLines.count(where: { $0.hasPrefix(candidate) })
+            let matchCount = nonEmptyLines.filter({ $0.hasPrefix(candidate) }).count
 
             if lineCount <= 3 {
                 // Short selection: strip if first non-empty line matches
@@ -173,10 +173,10 @@ enum CleanCopyPipeline {
         // Agent reflow targets a single message: one leading marker, then continuation lines.
         // Two or more marker-led lines means a real bullet list (• a / • b), a multi-message
         // selection, or stacked ⏺ tool calls — reflowing would fuse them. Bail.
-        let markerLineCount = nonEmpty.count { line in
+        let markerLineCount = nonEmpty.filter { line in
             guard let first = line.trimmingCharacters(in: .whitespaces).first else { return false }
             return agentPromptMarkers.contains(first)
-        }
+        }.count
         guard markerLineCount <= 1 else { return nil }
 
         let candidateLines: [String]
@@ -232,7 +232,7 @@ enum CleanCopyPipeline {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= 10 else { return false }
         let ruleCharacters: Set<Character> = ["─", "━", "—"]
-        let ruleCount = trimmed.count(where: { ruleCharacters.contains($0) })
+        let ruleCount = trimmed.filter({ ruleCharacters.contains($0) }).count
         return ruleCount >= 10 && ruleCount == trimmed.count
     }
 
@@ -359,11 +359,11 @@ enum CleanCopyPipeline {
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard nonEmpty.count >= 2 else { return false }
 
-        let listishCount = nonEmpty.count { line in
+        let listishCount = nonEmpty.filter { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             return trimmed.range(of: #"^[-*•]\s+\S"#, options: .regularExpression) != nil
                 || trimmed.range(of: #"^[0-9]+[.)]\s+\S"#, options: .regularExpression) != nil
-        }
+        }.count
 
         return listishCount >= (nonEmpty.count / 2 + 1)
     }
@@ -377,12 +377,12 @@ enum CleanCopyPipeline {
     }
 
     private static func isLikelyShellTranscript(_ text: String) -> Bool {
-        let promptLineCount = text.split(separator: "\n", omittingEmptySubsequences: false).count { line in
+        let promptLineCount = text.split(separator: "\n", omittingEmptySubsequences: false).filter { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             return trimmed.hasPrefix("$ ")
                 || trimmed.hasPrefix("# ")
                 || trimmed.hasPrefix("% ")
-        }
+        }.count
         return promptLineCount >= 1
     }
 
@@ -425,10 +425,10 @@ enum CleanCopyPipeline {
         for (pattern, _) in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
 
-            let matchCount = nonEmptyLines.count(where: { line in
+            let matchCount = nonEmptyLines.filter({ line in
                 let str = String(line)
                 return regex.firstMatch(in: str, range: NSRange(str.startIndex..., in: str)) != nil
-            })
+            }).count
 
             if lineCount <= 3 {
                 // Short: ALL non-empty lines must match
@@ -496,12 +496,12 @@ enum CleanCopyPipeline {
             let trailingPattern = #" ?\#(boxDrawingCharacterClass)+\s*$"#
             let majorityThreshold = nonEmptyLines.count == 1 ? 1 : nonEmptyLines.count / 2 + 1
 
-            let leadingMatches = nonEmptyLines.count {
+            let leadingMatches = nonEmptyLines.filter {
                 $0.range(of: leadingPattern, options: .regularExpression) != nil
-            }
-            let trailingMatches = nonEmptyLines.count {
+            }.count
+            let trailingMatches = nonEmptyLines.filter {
                 $0.range(of: trailingPattern, options: .regularExpression) != nil
-            }
+            }.count
 
             let stripLeading = leadingMatches >= majorityThreshold
             let stripTrailing = trailingMatches >= majorityThreshold

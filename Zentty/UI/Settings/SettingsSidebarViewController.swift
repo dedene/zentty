@@ -107,7 +107,7 @@ final class SettingsSidebarViewController: NSViewController {
 
     /// Selects the row for `section` without re-notifying the delegate.
     func select(section: SettingsSection) {
-        loadViewIfNeeded()
+        _ = view
         selectedSection = section
         if rows.firstIndex(of: .section(section)) == nil, !searchField.stringValue.isEmpty {
             searchField.stringValue = ""
