@@ -284,7 +284,7 @@ final class WorklanePeekController {
             // Both the default Timer-based scheduler and the test scheduler
             // invoke work on the main thread, so the assume-isolated synchronous
             // hop is safe and avoids the latency of an async Task dispatch.
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 self?.handleHoldTimerFired(armedAt: armedAt)
             }
         }

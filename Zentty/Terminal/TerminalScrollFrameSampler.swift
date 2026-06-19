@@ -92,7 +92,7 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
     }
 
     deinit {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             stop()
         }
     }
@@ -107,7 +107,7 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
                 return
             }
 
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 guard self.isRunning else {
                     return
                 }
