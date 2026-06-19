@@ -33,7 +33,7 @@ enum TmuxCompatIPCHandler {
         var captured: AgentIPCResponseResult = AgentIPCResponseResult()
         var dispatchError: Error?
         DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 do {
                     captured = try Self.dispatch(
                         subcommand: subcommand,

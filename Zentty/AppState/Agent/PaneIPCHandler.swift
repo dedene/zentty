@@ -323,14 +323,14 @@ enum PaneIPCHandler {
         }
 
         if Thread.isMainThread {
-            return try MainActor.assumeIsolated {
+            return try MainActorShim.assumeIsolated {
                 try Self.dispatch(subcommand: subcommand, request: request, target: target)
             }
         }
 
         var result: Result<AgentIPCResponseResult, Error>!
         DispatchQueue.main.sync {
-            result = MainActor.assumeIsolated {
+            result = MainActorShim.assumeIsolated {
                 Result {
                     try Self.dispatch(subcommand: subcommand, request: request, target: target)
                 }

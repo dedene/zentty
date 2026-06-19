@@ -20,11 +20,11 @@ final class NotificationChromeCoordinator {
 
     deinit {
         if let storeObserverID {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 store.removeObserver(storeObserverID)
             }
         }
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             removePopoverObserver()
         }
     }
