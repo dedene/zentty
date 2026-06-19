@@ -437,9 +437,10 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
     private func makeCoordinator(
         store: AppConfigStore,
         decisionProvider: @escaping GhosttySharedConfigDecisionProvider,
-        promptSession: GhosttySharedConfigPromptSession = GhosttySharedConfigPromptSession(),
+        promptSession: GhosttySharedConfigPromptSession? = nil,
         runtimeReload: @escaping @MainActor () -> Void
     ) -> GhosttyAppearanceSettingsCoordinator {
+        let actualPromptSession = promptSession ?? GhosttySharedConfigPromptSession()
         let configEnvironmentProvider = {
             GhosttyConfigEnvironment(
                 homeDirectoryURL: self.homeDirectoryURL,
@@ -453,7 +454,7 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
             configEnvironmentProvider: configEnvironmentProvider,
             runtimeReload: runtimeReload,
             decisionProvider: decisionProvider,
-            promptSession: promptSession
+            promptSession: actualPromptSession
         )
     }
 

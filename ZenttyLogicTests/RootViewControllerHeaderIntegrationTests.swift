@@ -997,21 +997,22 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
     }
 
     private func makeController(
-        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        reviewStateResolver: WorklaneReviewStateResolver? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver()
     ) -> RootViewController {
+        let actualReviewStateResolver = reviewStateResolver ?? WorklaneReviewStateResolver()
         let controller = RootViewController(
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() }),
-            reviewStateResolver: reviewStateResolver,
+            reviewStateResolver: actualReviewStateResolver,
             gitContextResolver: gitContextResolver,
             sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
             sidebarVisibilityDefaults: SidebarVisibilityPreference.userDefaults()
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 controller.prepareForTestingTearDown()
             }
         }

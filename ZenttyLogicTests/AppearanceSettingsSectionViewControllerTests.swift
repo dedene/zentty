@@ -91,18 +91,19 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         themes: [ThemePreview] = [],
         activeThemeName: String? = nil,
         backgroundOpacity: CGFloat? = 0.8,
-        configCoordinator: StubConfigCoordinator = StubConfigCoordinator()
+        configCoordinator: StubConfigCoordinator? = nil
     ) -> (AppearanceSettingsSectionViewController, StubCatalogProvider, StubConfigCoordinator) {
+        let actualConfigCoordinator = configCoordinator ?? StubConfigCoordinator()
         let catalog = StubCatalogProvider()
         catalog.themes = themes
 
         let controller = AppearanceSettingsSectionViewController(
             catalogProvider: catalog,
-            configCoordinator: configCoordinator,
+            configCoordinator: actualConfigCoordinator,
             currentThemeName: { _ in activeThemeName },
             currentBackgroundOpacity: { backgroundOpacity }
         )
-        return (controller, catalog, configCoordinator)
+        return (controller, catalog, actualConfigCoordinator)
     }
 
     private func waitForCondition(
@@ -150,7 +151,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         with controller: NSViewController,
         size: NSSize = NSSize(width: 980, height: 760)
     ) -> NSWindow {
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(origin: .zero, size: size)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -262,7 +263,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
     func testThemeModeSelectionCallsCoordinator() async {
         let coordinator = StubConfigCoordinator()
         let (controller, _, _) = makeController(configCoordinator: coordinator)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         await controller.selectThemeModeForTesting(.followMacOS)
 
@@ -272,7 +273,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
 
     func testThemePickerHasSeparateThemesSection() {
         let (controller, _, _) = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let labels = labelStrings(in: controller.view)
 
@@ -460,7 +461,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
     func testMissingCurrentOpacityFallsBackToNinetyFivePercent() {
         let (controller, _, _) = makeController(backgroundOpacity: nil)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         guard let slider = firstSlider(in: controller.view) else {
             XCTFail("Expected opacity slider")
@@ -478,7 +479,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         )
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertFalse(controller.isCreateSharedConfigButtonHiddenForTesting)
     }
@@ -487,7 +488,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         let coordinator = StubConfigCoordinator()
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         await controller.createSharedConfigForTesting()
 
         XCTAssertEqual(coordinator.createSharedConfigCallCount, 1)
@@ -497,7 +498,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         let coordinator = StubConfigCoordinator()
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         await controller.setOpacityForTesting(0.62)
 
         let opacity = try XCTUnwrap(coordinator.appliedOpacities.first)
@@ -554,7 +555,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         coordinator.syncOpenCodeThemeWithTerminal = true
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertTrue(controller.isOpenCodeThemeSyncEnabledForTesting)
     }
@@ -563,7 +564,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         let coordinator = StubConfigCoordinator()
         let (controller, _, _) = makeController(configCoordinator: coordinator)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.setOpenCodeThemeSyncEnabledForTesting(true)
         await waitForCondition { coordinator.appliedOpenCodeThemeSyncValues == [true] }
 

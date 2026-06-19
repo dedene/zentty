@@ -5,18 +5,20 @@ import XCTest
 @MainActor
 final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
     private func makeController(
-        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        appUpdateStateStore: AppUpdateStateStore? = nil,
+        runtimeRegistry: PaneRuntimeRegistry? = nil
     ) -> RootViewController {
+        let actualAppUpdateStateStore = appUpdateStateStore ?? AppUpdateStateStore()
+        let actualRuntimeRegistry = runtimeRegistry ?? PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
         let controller = RootViewController(
             configStore: AppConfigStore(
                 fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController.UpdateRow")
             ),
-            appUpdateStateStore: appUpdateStateStore,
-            runtimeRegistry: runtimeRegistry
+            appUpdateStateStore: actualAppUpdateStateStore,
+            runtimeRegistry: actualRuntimeRegistry
         )
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 controller.prepareForTestingTearDown()
             }
         }
@@ -25,7 +27,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_hides_update_row_when_no_update_is_available() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
 
@@ -36,7 +38,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
     func test_root_controller_shows_update_row_when_update_becomes_available() throws {
         let appUpdateStateStore = AppUpdateStateStore()
         let controller = makeController(appUpdateStateStore: appUpdateStateStore)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
         appUpdateStateStore.setUpdateAvailable(true)
@@ -49,7 +51,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
     func test_root_controller_routes_update_row_click_to_update_callback() throws {
         let appUpdateStateStore = AppUpdateStateStore()
         let controller = makeController(appUpdateStateStore: appUpdateStateStore)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         var callCount = 0
         controller.onCheckForUpdatesRequested = {
@@ -65,7 +67,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_ignores_update_row_click_when_no_update_is_available() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         var callCount = 0
         controller.onCheckForUpdatesRequested = {
@@ -82,7 +84,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let adapter = RecordingRootTerminalAdapter()
         let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         let controller = makeController(runtimeRegistry: registry)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-main")
         let command = "pnpm start:staging\nnpm run smoke"
         let worklane = WorklaneState(
@@ -116,7 +118,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let adapter = RecordingRootTerminalAdapter()
         let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         let controller = makeController(runtimeRegistry: registry)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-main")
         let worklane = makeTaskRunnerWorklane(
             paneID: paneID,
@@ -135,7 +137,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let adapter = RecordingRootTerminalAdapter()
         let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         let controller = makeController(runtimeRegistry: registry)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-main")
         let worklane = makeTaskRunnerWorklane(
             paneID: paneID,
@@ -156,7 +158,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let adapter = RecordingRootTerminalAdapter()
         let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         let controller = makeController(runtimeRegistry: registry)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-main")
         let worklane = makeTaskRunnerWorklane(
             paneID: paneID,
@@ -175,7 +177,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let adapter = RecordingRootTerminalAdapter()
         let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         let controller = makeController(runtimeRegistry: registry)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-main")
         let worklane = makeTaskRunnerWorklane(
             paneID: paneID,
@@ -195,7 +197,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         let adapter = RecordingRootTerminalAdapter()
         let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         let controller = makeController(runtimeRegistry: registry)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-main")
         let worklane = makeTaskRunnerWorklane(
             paneID: paneID,
@@ -219,7 +221,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_global_search_aggregates_results_across_worklanes() {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let worklane1 = WorklaneState(
             id: WorklaneID("worklane-1"),
             title: nil,
@@ -256,7 +258,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_find_ends_global_search_and_reopens_local_search_on_focused_pane() {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-1")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
@@ -288,7 +290,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_use_selection_for_find_ends_global_search_and_reopens_local_search_on_focused_pane() {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID = PaneID("pane-1")
         let worklane = WorklaneState(
             id: WorklaneID("worklane-1"),
@@ -320,7 +322,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_invalidates_global_search_when_pane_structure_changes() {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let paneID1 = PaneID("pane-1")
         let paneID2 = PaneID("pane-2")
         let worklaneID = WorklaneID("worklane-1")
@@ -360,7 +362,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
     func test_root_controller_escape_from_sidebar_global_search_ends_search() {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.handle(.globalFind)
         controller.updateGlobalSearchQueryForTesting("build")

@@ -36,7 +36,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             agentTeamsEnableWarningPresenter: { _, completion in completion(.cancel) }
         )
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 520, height: 600)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -51,7 +51,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             configStore: store,
             agentTeamsEnableWarningPresenter: { _, completion in completion(.cancel) }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertTrue(controller.isMenuBarStatusSwitchOn)
 
@@ -72,7 +72,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             performUninstall: { _ in throw UninstallError() },
             uninstallFailurePresenter: { _, tool, _ in failureTool = tool }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.simulateIntegrationToggleForTesting(.cursor, on: true)
         XCTAssertEqual(store.current.agentIntegrations.state(for: .cursor), .on)
@@ -96,7 +96,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             performUninstall: { _ in },
             uninstallFailurePresenter: { _, _, _ in didPresentFailure = true }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.simulateIntegrationToggleForTesting(.cursor, on: true)
         controller.simulateIntegrationToggleForTesting(.cursor, on: false)
@@ -113,7 +113,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             consentPresenter: { _, completion in completion(.on) },
             performUninstall: { _ in }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         // Persistent agent defaults to `.ask`: visible amber label, no glyph and no
         // hover tooltip.
@@ -152,7 +152,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             consentPresenter: { _, completion in completion(.on) },
             performUninstall: { _ in }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.simulateIntegrationToggleForTesting(.cursor, on: true)
         XCTAssertEqual(controller.integrationStatusForTesting(.cursor)?.glyphVisible, true)
@@ -179,7 +179,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             consentPresenter: { _, completion in completion(.on) },
             performUninstall: { _ in }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.simulateIntegrationToggleForTesting(.cursor, on: true)
         XCTAssertEqual(controller.integrationStatusForTesting(.cursor)?.glyphVisible, true)
@@ -200,7 +200,7 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
             configStore: makeConfigStore(),
             agentTeamsEnableWarningPresenter: { _, completion in completion(.cancel) }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 520, height: 800)
         controller.view.layoutSubtreeIfNeeded()
 

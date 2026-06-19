@@ -1271,7 +1271,7 @@ private func waitForMainQueue(
 @MainActor
 private func makeScrollHostHarness(
     smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
-    scrollFrameSampler: any TerminalScrollFrameSampling = ScrollFrameSamplerSpy(),
+    scrollFrameSampler: (any TerminalScrollFrameSampling)? = nil,
     frameMeterSampler: (any TerminalScrollFrameSampling)? = nil,
     backingScale: CGFloat = 1,
     cellHeight: CGFloat = 16
@@ -1285,11 +1285,12 @@ private func makeScrollHostHarness(
     let surface = ScrollHostSurfaceSpy()
     surface.cellHeight = cellHeight
     surfaceView.bind(surfaceController: surface)
+    let actualScrollFrameSampler = scrollFrameSampler ?? ScrollFrameSamplerSpy()
     let hostView = LibghosttySurfaceScrollHostView(
         surfaceView: surfaceView,
         paneID: PaneID("test-pane"),
         diagnostics: .shared,
-        scrollFrameSampler: scrollFrameSampler,
+        scrollFrameSampler: actualScrollFrameSampler,
         frameMeterSampler: frameMeterSampler
     )
     hostView.smoothScrollingEnabled = smoothScrollingEnabled

@@ -131,7 +131,7 @@ final class SettingsSidebarSearchFilterTests: AppKitTestCase {
 
     func test_external_selection_clears_filter_when_target_section_is_hidden() {
         let controller = SettingsSidebarViewController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.searchField.stringValue = "sound"
         controller.controlTextDidChange(Notification(
             name: NSControl.textDidChangeNotification,
@@ -239,7 +239,7 @@ final class SettingsSidebarRowViewTests: AppKitTestCase {
     func test_sidebar_table_uses_full_width_style() {
         let controller = SettingsSidebarViewController()
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .fullWidth)
     }

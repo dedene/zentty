@@ -17,7 +17,7 @@ final class PaneStripViewTests: AppKitTestCase {
             runtimeRegistry: stubRegistry()
         )
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 paneStripView.prepareForTestingTearDown()
             }
         }
@@ -1881,7 +1881,7 @@ final class PaneStripViewTests: AppKitTestCase {
             runtimeRegistry: runtimeRegistry
         )
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 paneStripView.prepareForTestingTearDown()
             }
         }

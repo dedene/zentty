@@ -360,8 +360,8 @@ private final class TerminalAdapterSpy: TerminalAdapter {
     private(set) var sentTexts: [String] = []
     var onSendText: ((String) -> Void)?
 
-    init(terminalView: NSView = FirstResponderTerminalView()) {
-        self.terminalView = terminalView
+    init(terminalView: NSView? = nil) {
+        self.terminalView = terminalView ?? FirstResponderTerminalView()
     }
 
     func makeTerminalView() -> NSView {

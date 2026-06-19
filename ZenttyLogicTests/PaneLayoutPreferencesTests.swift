@@ -367,7 +367,7 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
 
     func test_smooth_scrolling_toggle_defaults_off_and_reflects_applied_panes() throws {
         let controller = PaneLayoutSettingsSectionViewController(configStore: makeConfigStore())
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertFalse(controller.smoothScrollingForTesting)
         XCTAssertEqual(controller.selectedNewWorklanePlacementForTesting, .afterCurrent)
@@ -388,7 +388,7 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
 
     func test_new_worklane_placement_popup_reflects_applied_preferences() throws {
         let controller = PaneLayoutSettingsSectionViewController(configStore: makeConfigStore())
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.apply(worklanes: AppConfig.Worklanes(newWorklanePlacement: .end))
 
@@ -402,7 +402,7 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
     func test_new_worklane_placement_popup_persists_config_change() throws {
         let store = makeConfigStore()
         let controller = PaneLayoutSettingsSectionViewController(configStore: store)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let popup = controller.newWorklanePlacementPopupForTesting
         popup.selectItem(withTitle: "Top")
@@ -419,7 +419,7 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
     func test_smooth_scrolling_toggle_persists_config_change() throws {
         let store = makeConfigStore()
         let controller = PaneLayoutSettingsSectionViewController(configStore: store)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let toggle = controller.smoothScrollingSwitchForTesting
         toggle.state = .on

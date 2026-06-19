@@ -451,7 +451,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(settingsViewController.selectedSection, .general)
         XCTAssertEqual(settingsViewController.contentSectionTitle, "General")
@@ -466,7 +466,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(settingsViewController.selectedSection, .general)
         XCTAssertEqual(settingsViewController.contentSectionTitle, "General")
@@ -484,7 +484,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             routedSettingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertTrue(firstSettingsWindow === routedSettingsWindow)
         XCTAssertEqual(settingsViewController.selectedSection, .openWith)
@@ -512,7 +512,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout("appearance settings settled", delay: 0.2)
 
         XCTAssertEqual(settingsViewController.selectedSection, .appearance)
@@ -534,7 +534,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
 
         settingsViewController.select(section: .appearance)
         waitForLayout("appearance settings switched", delay: 0.2)
@@ -585,7 +585,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout("general settings settled", delay: 0.1)
 
         var preparedTransitions: [(target: SettingsSection, selected: SettingsSection)] = []
@@ -1612,7 +1612,7 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        settingsViewController.loadViewIfNeeded()
+        settingsViewController.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(settingsViewController.selectedSection, .openWith)
     }

@@ -53,7 +53,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         // SettingsViewController is itself the window's split-view controller
@@ -376,7 +376,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         XCTAssertEqual(contentController.selectedSection, .shortcuts)
@@ -1433,7 +1433,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         XCTAssertEqual(contentController.selectedSection, .openWith)
@@ -1518,7 +1518,7 @@ final class SettingsWindowControllerTests: XCTestCase {
             ),
             customAppPicker: { nil }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.apply(preferences: store.current.openWith)
         controller.prepareForPresentation()
 
@@ -1578,7 +1578,7 @@ final class SettingsWindowControllerTests: XCTestCase {
             ),
             customAppPicker: { nil }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.apply(preferences: store.current.openWith)
         controller.prepareForPresentation()
 
@@ -1604,7 +1604,7 @@ final class SettingsWindowControllerTests: XCTestCase {
                 )
             }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.performAddCustomAppForTesting()
 
@@ -1640,7 +1640,7 @@ final class SettingsWindowControllerTests: XCTestCase {
                 )
             }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.performAddCustomAppForTesting()
 
@@ -1663,7 +1663,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         XCTAssertEqual(contentController.selectedSection, .notifications)
@@ -1700,7 +1700,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         XCTAssertEqual(contentController.selectedSection, .updatesPrivacy)
@@ -1733,7 +1733,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let notificationsController = try XCTUnwrap(
@@ -1763,7 +1763,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let notificationsController = try XCTUnwrap(
@@ -1794,7 +1794,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let notificationsController = try XCTUnwrap(
@@ -1832,7 +1832,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let notificationsController = try XCTUnwrap(
@@ -1858,7 +1858,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let updatesController = try XCTUnwrap(
@@ -1885,7 +1885,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let updatesController = try XCTUnwrap(
@@ -1914,7 +1914,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let generalController = try XCTUnwrap(
@@ -1957,7 +1957,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let updatesController = try XCTUnwrap(
@@ -1998,7 +1998,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let updatesController = try XCTUnwrap(
@@ -2028,7 +2028,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let updatesController = try XCTUnwrap(
@@ -2074,7 +2074,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        contentController.loadViewIfNeeded()
+        contentController.backwardCompatibleLoadViewIfNeeded()
         waitForLayout()
 
         let updatesController = try XCTUnwrap(
@@ -2124,7 +2124,7 @@ final class SettingsWindowControllerTests: XCTestCase {
             ),
             customAppPicker: { nil }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.apply(preferences: store.current.openWith)
         controller.prepareForPresentation()
@@ -2162,7 +2162,7 @@ final class SettingsWindowControllerTests: XCTestCase {
             ),
             customAppPicker: { nil }
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         controller.apply(preferences: store.current.openWith)
 

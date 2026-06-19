@@ -92,7 +92,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
         carrier.frame = CGRect(x: 0, y: 0, width: 480, height: 288)
         carrier.layoutSubtreeIfNeeded()
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 carrier.detach()
             }
         }
@@ -128,7 +128,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
         carrier.frame = CGRect(x: 0, y: 0, width: 480, height: 288)
         carrier.layoutSubtreeIfNeeded()
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 carrier.detach()
                 TerminalViewportDiagnostics.shared.setEnabled(false)
                 TerminalViewportDiagnostics.shared.clearForTesting()
@@ -189,7 +189,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
         carrier.frame = CGRect(x: 0, y: 0, width: 480, height: 288)
         carrier.layoutSubtreeIfNeeded()
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 TerminalViewportDiagnostics.shared.setEnabled(false)
                 TerminalViewportDiagnostics.shared.clearForTesting()
                 TerminalViewportDiagnostics.shared.onRecord = nil
@@ -240,7 +240,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             )
         }
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 peekView.detach()
             }
         }
@@ -287,7 +287,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             ),
         ]
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 peekView.detach()
             }
         }
@@ -339,7 +339,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             ),
         ]
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 peekView.detach()
             }
         }
@@ -415,7 +415,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             ),
         ]
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 peekView.detach()
             }
         }
@@ -449,7 +449,7 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
         carrier.frame = CGRect(x: 0, y: 0, width: 480, height: 288)
         carrier.layoutSubtreeIfNeeded()
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 carrier.detach()
             }
         }

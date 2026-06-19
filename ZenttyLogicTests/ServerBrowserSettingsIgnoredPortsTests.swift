@@ -87,7 +87,7 @@ final class ServerBrowserSettingsIgnoredPortsTests: AppKitTestCase {
             configStore: store,
             serverOpenService: StubServerOpenService()
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         return controller
     }
 

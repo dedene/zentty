@@ -3,11 +3,15 @@ import XCTest
 
 @MainActor
 final class NotificationPopoverViewModelTests: XCTestCase {
-    func test_hosting_controller_preserves_native_popover_safe_area_regions() {
+    func test_hosting_controller_preserves_native_popover_safe_area_regions() throws {
         let viewModel = NotificationPopoverViewModel(notifications: [])
         let controller = NotificationPopoverHostingController(viewModel: viewModel)
 
-        XCTAssertNotEqual(controller.safeAreaRegions, [])
+        if #available(macOS 13.3, *) {
+            XCTAssertNotEqual(controller.safeAreaRegions, [])
+        } else {
+            throw XCTSkip("safeAreaRegions requires macOS 13.3+")
+        }
     }
 
     func test_metrics_match_bookmarks_popover_rhythm() {

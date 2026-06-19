@@ -78,31 +78,38 @@ final class RootViewCompositionTests: AppKitTestCase {
         return UserDefaults(suiteName: suiteName) ?? .standard
     }
 
+    @MainActor
     private func makeController(
         configStore: AppConfigStore? = nil,
-        openWithService: OpenWithServing = RootViewCompositionOpenWithService(),
-        serverOpenService: ServerOpening = RootViewCompositionServerOpenService(),
+        openWithService: OpenWithServing? = nil,
+        serverOpenService: ServerOpening? = nil,
         sidebarWidthDefaults: UserDefaults? = nil,
         sidebarVisibilityDefaults: UserDefaults? = nil,
         paneLayoutDefaults: UserDefaults? = nil,
-        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
+        appUpdateStateStore: AppUpdateStateStore? = nil,
         initialLayoutContext: PaneLayoutContext = .fallback,
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) -> RootViewController {
-        let controller = RootViewController(
-            configStore: configStore,
-            appUpdateStateStore: appUpdateStateStore,
-            openWithService: openWithService,
-            serverOpenService: serverOpenService,
-            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
+        let actualOpenWithService = openWithService ?? RootViewCompositionOpenWithService()
+        let actualServerOpenService = serverOpenService ?? RootViewCompositionServerOpenService()
+        let actualAppUpdateStateStore = appUpdateStateStore ?? AppUpdateStateStore()
+        let actualConfigStore = configStore ?? AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController"),
             sidebarWidthDefaults: sidebarWidthDefaults ?? makeDefaults(suffix: "sidebarWidth"),
             sidebarVisibilityDefaults: sidebarVisibilityDefaults ?? makeDefaults(suffix: "sidebarVisibility"),
-            paneLayoutDefaults: paneLayoutDefaults ?? makeDefaults(suffix: "paneLayout"),
+            paneLayoutDefaults: paneLayoutDefaults ?? makeDefaults(suffix: "paneLayout")
+        )
+        let controller = RootViewController(
+            configStore: actualConfigStore,
+            appUpdateStateStore: actualAppUpdateStateStore,
+            openWithService: actualOpenWithService,
+            serverOpenService: actualServerOpenService,
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             initialLayoutContext: initialLayoutContext,
             initialWorkspaceState: initialWorkspaceState
         )
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            await MainActor.run {
                 controller.prepareForTestingTearDown()
             }
         }
@@ -139,7 +146,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         _ controller: RootViewController,
         frame: NSRect = NSRect(x: 0, y: 0, width: 1280, height: 840)
     ) -> NSWindow {
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(origin: .zero, size: frame.size)
         let window = NSWindow(
             contentRect: frame,
@@ -222,7 +229,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_layers_full_width_canvas_beneath_sidebar_overlay() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -303,7 +310,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_keeps_window_chrome_as_sibling_overlay_above_canvas() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -322,7 +329,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_fullscreen_layout_flattens_shell_corner_radius() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -388,7 +395,7 @@ final class RootViewCompositionTests: AppKitTestCase {
                 sizing: .balanced
             )
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -469,7 +476,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_global_search_uses_sidebar_row_instead_of_floating_hud() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
         controller.handle(.globalFind)
@@ -494,7 +501,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         let controller = makeController(
             openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let worklane = makeSinglePaneWorklane()
         controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
 
@@ -512,7 +519,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         let worklaneID = WorklaneID("worklane-main")
         let paneID = PaneID("pane-main")
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         let worklane = makeSinglePaneWorklane(worklaneID: worklaneID, paneID: paneID)
         controller.replaceWorklanes([worklane], activeWorklaneID: worklaneID)
         controller.worklaneStore.register(server: DetectedServer(
@@ -540,7 +547,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_layers_sidebar_above_chrome_and_toggle_above_sidebar() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -560,7 +567,7 @@ final class RootViewCompositionTests: AppKitTestCase {
     func test_root_controller_binds_sidebar_update_row_visibility_to_app_update_state() throws {
         let appUpdateStateStore = AppUpdateStateStore()
         let controller = makeController(appUpdateStateStore: appUpdateStateStore)
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -576,7 +583,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_places_arrange_button_between_sidebar_toggle_and_navigation_buttons() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -597,7 +604,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_exposes_arrange_menu_commands_with_split_and_arrange_sections() {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(
             controller.paneLayoutMenuCommandTitlesForTesting(),
@@ -645,8 +652,8 @@ final class RootViewCompositionTests: AppKitTestCase {
         }
         let firstController = makeController(configStore: configStore)
         let secondController = makeController(configStore: configStore)
-        firstController.loadViewIfNeeded()
-        secondController.loadViewIfNeeded()
+        firstController.backwardCompatibleLoadViewIfNeeded()
+        secondController.backwardCompatibleLoadViewIfNeeded()
         firstController.view.frame = NSRect(x: 0, y: 0, width: 2200, height: 840)
         secondController.view.frame = NSRect(x: 0, y: 0, width: 2200, height: 840)
         firstController.view.layoutSubtreeIfNeeded()
@@ -665,7 +672,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_handle_arrange_width_command_updates_active_pane_strip_state() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -750,7 +757,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_ignores_redundant_max_sidebar_width_updates() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -801,7 +808,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         let controller = makeController(
             openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         let worklane = makeSinglePaneWorklane()
         controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
@@ -879,7 +886,7 @@ final class RootViewCompositionTests: AppKitTestCase {
     func test_root_controller_applies_outer_shell_geometry_to_live_root_view() {
         let controller = makeController()
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let cornerRadius = controller.view.layer?.cornerRadius ?? 0
         let borderWidth = controller.view.layer?.borderWidth ?? 0
@@ -1034,7 +1041,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         defaults.set(312, forKey: SidebarWidthPreference.persistenceKey)
         let controller = makeController(sidebarWidthDefaults: defaults)
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(controller.currentSidebarWidth, 312, accuracy: 0.001)
     }
@@ -1042,7 +1049,7 @@ final class RootViewCompositionTests: AppKitTestCase {
     func test_root_controller_uses_new_default_sidebar_width() {
         let controller = makeController()
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(controller.currentSidebarWidth, 280, accuracy: 0.001)
     }
@@ -1059,7 +1066,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         let controller = makeController()
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         XCTAssertEqual(controller.currentSidebarWidth, SidebarWidthPreference.defaultWidth, accuracy: 0.001)
         XCTAssertEqual(controller.sidebarVisibilityMode, .pinnedOpen)
@@ -1068,7 +1075,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_keeps_single_pane_full_width_through_initial_layout_and_resize() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -1099,7 +1106,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in adapter })
         )
         addTeardownBlock {
-            MainActor.assumeIsolated {
+            await MainActor.run {
                 controller.prepareForTestingTearDown()
             }
         }
@@ -1122,7 +1129,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_single_pane_preserves_readable_trailing_inset_and_bottom_spacing() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -1252,7 +1259,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_scales_multi_pane_widths_when_window_resizes() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
         controller.handle(.pane(.splitAfterFocusedPane))
@@ -2053,7 +2060,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             sidebarWidthDefaults: sidebarDefaults,
             sidebarVisibilityDefaults: visibilityDefaults
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2117,7 +2124,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             initialWorkspaceState: restoredState
         )
 
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
 
         let columns = try XCTUnwrap(controller.workspaceState.worklanes.first?.paneStripState.columns)
         XCTAssertEqual(columns.map { $0.width }, [restoredWidth, restoredWidth])
@@ -2130,7 +2137,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
             sidebarVisibilityDefaults: visibilityDefaults
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2157,7 +2164,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
             sidebarVisibilityDefaults: visibilityDefaults
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2172,7 +2179,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_places_sidebar_header_button_after_traffic_lights_when_pinned() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2196,7 +2203,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
             sidebarVisibilityDefaults: visibilityDefaults
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2215,7 +2222,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_root_controller_keeps_sidebar_header_button_on_stable_chrome_row_when_traffic_light_anchor_updates() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2235,7 +2242,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_toggle_sidebar_then_horizontal_keyboard_resize_preserves_single_split_spacing() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2288,7 +2295,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_immediate_horizontal_keyboard_resize_after_sidebar_reopen_preserves_single_split_spacing() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2325,7 +2332,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_focus_shift_to_second_pane_keeps_strip_flush_with_visible_lane() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2360,7 +2367,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_focus_shift_after_max_sidebar_width_keeps_strip_flush_with_visible_lane() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2405,7 +2412,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_focus_shift_pans_only_enough_to_fully_reveal_newly_focused_pane() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2444,7 +2451,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_focus_shift_does_not_scroll_fully_visible_two_pane_strip_after_both_panes_hit_minimum_width() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2508,7 +2515,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_navigate_back_to_first_pane_clears_sidebar_with_three_panes() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2537,7 +2544,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_middle_pane_horizontal_keyboard_resize_recenters_it_in_visible_lane() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2570,7 +2577,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_sidebar_toggle_keeps_focused_middle_pane_anchored_to_visible_lane() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2625,7 +2632,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_sidebar_toggle_preserves_relative_lane_position_for_right_aligned_focus() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2682,7 +2689,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_vertical_keyboard_resize_up_shrinks_top_pane_when_top_pane_is_focused() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2725,7 +2732,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_vertical_keyboard_resize_down_grows_top_pane_when_top_pane_is_focused() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2747,7 +2754,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
     func test_vertical_keyboard_resize_up_keeps_bottom_focused_behavior_intact() throws {
         let controller = makeController()
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
         controller.view.layoutSubtreeIfNeeded()
 
@@ -2846,7 +2853,7 @@ private extension RootViewCompositionTests {
             sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
             sidebarVisibilityDefaults: SidebarVisibilityPreference.userDefaults()
         )
-        controller.loadViewIfNeeded()
+        controller.backwardCompatibleLoadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: width, height: 840)
 
         let paneID = PaneID("pane-claude")

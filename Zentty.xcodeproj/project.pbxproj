@@ -73,7 +73,6 @@
 		1D172501CD9E6A98FAB07B62 /* ServerBrowserSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CAB9BAA5616D1651BAE8BC /* ServerBrowserSettingsSectionViewController.swift */; };
 		1D47A2074AD0A7C5540125B0 /* MenuBarStatusMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A8C749F0AF726434D683DF /* MenuBarStatusMenuBuilderTests.swift */; };
 		1DE4C3C91E5770CB8CE1E3A4 /* SidebarDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B69983960CBA87599B87355C /* SidebarDragCoordinator.swift */; };
-		1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC138BE273ED92291124633 /* main.swift */; };
 		20459CEE51A96AF170ED7492 /* WorklanePeekLaneViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75D88D88BD41402ADB9A63D5 /* WorklanePeekLaneViewTests.swift */; };
 		2163AD9630BB1A6A2413CFA2 /* PaneDragInsertionLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 470B2E9611ABBDDD841438E9 /* PaneDragInsertionLineView.swift */; };
 		21B5B2D8D083E4D952FD9E03 /* TerminalClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB1561FD9C602B6D306155C /* TerminalClipboard.swift */; };
@@ -274,6 +273,7 @@
 		83951F6CBB1AEE312F1A0D68 /* WorklaneStoreMetadataVolatileFastPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCCEFAE8FF676F5051157D3E /* WorklaneStoreMetadataVolatileFastPathTests.swift */; };
 		83BF166AF639CD6444EC9DED /* SidebarWorklaneReorderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A414B0A7FAAB8464A6432C77 /* SidebarWorklaneReorderModel.swift */; };
 		840FDF34FA89D7BA5649AF0C /* PaneAuxiliaryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */; };
+		8422CBBB0B13CC48A6D8E0AE /* GhosttyInputMouseButton+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098B741789081943CDBD519F /* GhosttyInputMouseButton+Hashable.swift */; };
 		852D3A257A4577222F2B329E /* TerminalScrollFrameSamplerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6575E65B3E99957183F02B /* TerminalScrollFrameSamplerTests.swift */; };
 		8553A4E49623C76F26D166F5 /* AgentStatusCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C0293DF0B4BA096A6646CC /* AgentStatusCenter.swift */; };
 		858BC8739A32EF3A0240EF81 /* OpenWithService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373831CBF716D9C9497FE53 /* OpenWithService.swift */; };
@@ -413,6 +413,7 @@
 		CB79F077F87E4A504CBEA9B9 /* RootViewControllerUpdateIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC28F1EA0D7841668F8DA676 /* RootViewControllerUpdateIntegrationTests.swift */; };
 		CBA82B1C9557F98AD04A8672 /* SidebarPaneRowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9407DEA6B0DE6363B46DE0A /* SidebarPaneRowViews.swift */; };
 		CC3E9AE062D12B88458DA88B /* FuzzyMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0EFB8B00D5CA9A67589A3A /* FuzzyMatcher.swift */; };
+		CCFA546EC51067F19BE6DD02 /* ZenttyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C1B826B3541C7ADCB13EB0 /* ZenttyApp.swift */; };
 		CD00F629DE6FF4C470C1879C /* DragReorderHapticFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5712CB2F8BC16BB3B666A085 /* DragReorderHapticFeedback.swift */; };
 		CDA589887C4F0F21EEE4A1DF /* FileManager+SymlinkWrite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CFF36A010130E00ACF80FB /* FileManager+SymlinkWrite.swift */; };
 		CDF1BF1E9C25A9C932CF64CC /* ServerBrowserCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD55E4B84C3278A35AB5B50B /* ServerBrowserCatalogTests.swift */; };
@@ -577,6 +578,7 @@
 		087C2ACC1BD5F24FD8F5A39F /* ServerOutputURLDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerOutputURLDetector.swift; sourceTree = "<group>"; };
 		08CB7FE3B87F05DE3D6B4426 /* ThemeCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalogService.swift; sourceTree = "<group>"; };
 		0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreColorTests.swift; sourceTree = "<group>"; };
+		098B741789081943CDBD519F /* GhosttyInputMouseButton+Hashable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyInputMouseButton+Hashable.swift"; sourceTree = "<group>"; };
 		0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteBackdropView.swift; sourceTree = "<group>"; };
 		0B761568FFEEF65421C52232 /* MenuBarStatusMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusMenuBuilder.swift; sourceTree = "<group>"; };
 		0B77CE7C6471C7FFD211BFDF /* MoveToWorklaneMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveToWorklaneMenuBuilder.swift; sourceTree = "<group>"; };
@@ -768,7 +770,6 @@
 		691FE92E923A9E00EC8B6063 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6960333F9BE4F448FCA1D1A5 /* AgentConsentCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConsentCoordinator.swift; sourceTree = "<group>"; };
 		69E99517E9EAA4D99552859C /* WorkspaceTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplate.swift; sourceTree = "<group>"; };
-		6BC138BE273ED92291124633 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		6C5489AD4C2AF3E168C216B4 /* WorklaneDestinationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneDestinationCatalog.swift; sourceTree = "<group>"; };
 		6D46D74C2BFDAC52C678BDB1 /* TerminalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMetadata.swift; sourceTree = "<group>"; };
 		6E98A96BAD466E5847C42948 /* DroidHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DroidHooksInstaller.swift; sourceTree = "<group>"; };
@@ -802,6 +803,7 @@
 		7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionSummaryBuilder.swift; sourceTree = "<group>"; };
 		7CFD112F9402167A1785DB70 /* BookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStore.swift; sourceTree = "<group>"; };
 		7D19D665B0C99E8725E1E7AC /* ProjectIconResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIconResolverTests.swift; sourceTree = "<group>"; };
+		7D85A32FF838B668D61586CA /* FuzzyMatch */ = {isa = PBXFileReference; lastKnownFileType = folder; name = FuzzyMatch; path = Vendor/FuzzyMatch; sourceTree = SOURCE_ROOT; };
 		7DCA45568C0DF115CFA41141 /* CommandPalettePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalettePanel.swift; sourceTree = "<group>"; };
 		7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapter.swift; sourceTree = "<group>"; };
 		7E2D835F21D93B42A98AB467 /* BookmarkSaveSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkSaveSheetController.swift; sourceTree = "<group>"; };
@@ -938,6 +940,7 @@
 		BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneShellContext.swift; sourceTree = "<group>"; };
 		BFF869D6D306AFE18589C8CF /* WorklaneStoreTeamAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreTeamAnchorTests.swift; sourceTree = "<group>"; };
 		C15A14BDE2EEBB8C5AA0F3DD /* TmuxCompatCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatCLITests.swift; sourceTree = "<group>"; };
+		C1C1B826B3541C7ADCB13EB0 /* ZenttyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyApp.swift; sourceTree = "<group>"; };
 		C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapterTests.swift; sourceTree = "<group>"; };
 		C2DAA76C6247F60AA55ACB5D /* SidebarUpdateRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarUpdateRowTests.swift; sourceTree = "<group>"; };
 		C3094AA8521BDAB3096CF18D /* SettingsNavigationHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigationHistoryTests.swift; sourceTree = "<group>"; };
@@ -1227,10 +1230,10 @@
 				A3CFC2B870895651B043DF45 /* AppDelegate.swift */,
 				4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */,
 				B530C90C0E34C9180D7FA019 /* Info.plist */,
-				6BC138BE273ED92291124633 /* main.swift */,
 				91E46B2946B1B85B846A487F /* MainActorShim.swift */,
 				DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */,
 				A6AC3A2E72C18928AB5ADE0B /* Zentty.entitlements */,
+				C1C1B826B3541C7ADCB13EB0 /* ZenttyApp.swift */,
 				D98A80D9A34F4A7A4682392E /* AppIcon.icon */,
 				1C0506CDB868054B09C5CA8D /* AppState */,
 				32B751E541165B8F999166AF /* Bookmarks */,
@@ -1268,6 +1271,7 @@
 		37CB5D1993A4151C254A16D2 = {
 			isa = PBXGroup;
 			children = (
+				9E9AF610FB25417DB6B2DD76 /* Packages */,
 				B258A9FA98E9B0D07686DC6E /* Updates */,
 				3113646FB0F299F70B834339 /* Zentty */,
 				1DA11E964A031CDE3AC40E9D /* ZenttyCLI */,
@@ -1546,6 +1550,14 @@
 				FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */,
 			);
 			path = Theme;
+			sourceTree = "<group>";
+		};
+		9E9AF610FB25417DB6B2DD76 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				7D85A32FF838B668D61586CA /* FuzzyMatch */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 		B258A9FA98E9B0D07686DC6E /* Updates */ = {
@@ -1827,6 +1839,7 @@
 				81A2C70428D2C375764E7ABC /* GhosttyAppearanceSettingsCoordinatorTests.swift */,
 				721E6055678BA716A5355856 /* GhosttyConfigEnvironmentTests.swift */,
 				88F585980C0838B39C356960 /* GhosttyConfigWriterTests.swift */,
+				098B741789081943CDBD519F /* GhosttyInputMouseButton+Hashable.swift */,
 				D649A4BADA61361091434B5E /* GhosttyThemeLibraryTests.swift */,
 				F32F85F7274DE278E845FF4A /* GhosttyThemeResolverTests.swift */,
 				4483B8E7BA05745883A993C0 /* GlobalSearchCoordinatorTests.swift */,
@@ -2101,7 +2114,6 @@
 			mainGroup = 37CB5D1993A4151C254A16D2;
 			packageReferences = (
 				5651DAECD5465FD6C6AA7DDF /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
-				A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */,
 				878A54334D2B91363EA6D039 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				1CA4AE4566F84BDDF088EC1B /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
@@ -2230,6 +2242,7 @@
 				766437EFD82EA8FDAAF2331F /* GhosttyAppearanceSettingsCoordinatorTests.swift in Sources */,
 				1AAB86CCFCE4E436FE751AA1 /* GhosttyConfigEnvironmentTests.swift in Sources */,
 				220E7BB4EA5B4822878899CB /* GhosttyConfigWriterTests.swift in Sources */,
+				8422CBBB0B13CC48A6D8E0AE /* GhosttyInputMouseButton+Hashable.swift in Sources */,
 				4FC68F55FE9B9ACF9873BD31 /* GhosttyThemeLibraryTests.swift in Sources */,
 				68971AE9A84508C3E111C8E7 /* GhosttyThemeResolverTests.swift in Sources */,
 				2F54A7D7AD63E93CC841317F /* GlobalSearchCoordinatorTests.swift in Sources */,
@@ -2665,8 +2678,8 @@
 				A8735957C7DEFFD7C1530E81 /* WorkspaceTemplateCapture.swift in Sources */,
 				D67B38252147AE7A878864E4 /* WorkspaceTemplateExporter.swift in Sources */,
 				D44B2E46DBB0E3EC6205B148 /* WorkspaceTemplateImporter.swift in Sources */,
+				CCFA546EC51067F19BE6DD02 /* ZenttyApp.swift in Sources */,
 				EDE18C0DA4C79997711F2528 /* ZenttyBreadcrumbs.swift in Sources */,
-				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2894,7 +2907,7 @@
 		3AE4188A3B35FCCB273A783F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyIntegrationTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2905,19 +2918,18 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
-				TEST_HOST = "";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
 			name = Debug;
 		};
 		4B21389852DB717B430B61BD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyLogicTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2928,12 +2940,11 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
-				TEST_HOST = "";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
 			name = Debug;
 		};
@@ -2961,7 +2972,7 @@
 		780A5A031DDFAD3062A46858 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyIntegrationTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2972,7 +2983,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
-				TEST_HOST = "";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
 			name = Release;
 		};
@@ -2997,7 +3008,7 @@
 		90275BC43130F3EAE5285FB4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = ZenttyLogicTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -3008,7 +3019,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
-				TEST_HOST = "";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty";
 			};
 			name = Release;
 		};
@@ -3219,20 +3230,11 @@
 				minimumVersion = 8.37.0;
 			};
 		};
-		A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ordo-one/FuzzyMatch";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.3.2;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		1783CDCC7848CB005D3A519C /* FuzzyMatch */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */;
 			productName = FuzzyMatch;
 		};
 		7B6C0F6F7A5305E09ECE2C65 /* Sentry */ = {

@@ -56,10 +56,11 @@ enum HostedTestDisplay {
 extension NSWindow {
     @discardableResult
     func prepareForHostedTesting(
-        onScreenNamed screenName: String? = HostedTestDisplay.screenNameFromEnvironment
+        onScreenNamed screenName: String? = nil
     ) -> Self {
+        let actualScreenName = screenName ?? HostedTestDisplay.screenNameFromEnvironment
         isReleasedWhenClosed = false
-        guard let screen = HostedTestDisplay.screen(named: screenName) else {
+        guard let screen = HostedTestDisplay.screen(named: actualScreenName) else {
             return self
         }
 

@@ -151,12 +151,13 @@ final class SparkleAppUpdateControllerTests: XCTestCase {
 
     private func makeConfiguredSparkleController(
         named name: String,
-        stateStore: AppUpdateStateStore = AppUpdateStateStore()
+        stateStore: AppUpdateStateStore? = nil
     ) throws -> SparkleAppUpdateController {
-        try XCTUnwrap(
+        let actualStateStore = stateStore ?? AppUpdateStateStore()
+        return try XCTUnwrap(
             makeDefaultAppUpdateController(
                 configStore: makeConfigStore(),
-                stateStore: stateStore,
+                stateStore: actualStateStore,
                 bundle: makeTemporarySparkleBundle(named: name)
             ) as? SparkleAppUpdateController
         )

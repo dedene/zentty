@@ -1925,9 +1925,9 @@ private final class PaneContainerTerminalAdapterSpy: TerminalAdapter, TerminalSe
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity()
     private(set) var bindingActions: [String] = []
 
-    init(startSessionFailures: [Error] = [], terminalView: NSView = NSView()) {
+    init(startSessionFailures: [Error] = [], terminalView: NSView? = nil) {
         self.startSessionFailures = startSessionFailures
-        self.terminalView = terminalView
+        self.terminalView = terminalView ?? NSView()
     }
 
     func makeTerminalView() -> NSView {

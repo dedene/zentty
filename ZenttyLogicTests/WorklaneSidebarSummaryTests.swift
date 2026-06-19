@@ -2095,7 +2095,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
                 updatedAt: Date(timeIntervalSince1970: 42),
                 hasObservedRunning: true,
                 taskProgress: PaneAgentTaskProgress(doneCount: 0, totalCount: 3)
-            ),
+            )
         )
         auxiliaryState.raw.showsReadyStatus = true
         auxiliaryState.presentation = PanePresentationNormalizer.normalize(
