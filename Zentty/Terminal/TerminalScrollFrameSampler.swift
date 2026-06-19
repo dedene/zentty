@@ -59,21 +59,25 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
 
         isRunning = true
         let framesPerSecond = Self.clampedFramesPerSecond(preferredFramesPerSecond)
-        if let link = displayLinkMaker.makeDisplayLink(
-            attachedTo: view,
-            target: self,
-            selector: #selector(displayLinkDidFire(_:))
-        ) {
-            link.preferredFrameRateRange = CAFrameRateRange(
-                minimum: 60,
-                maximum: Float(framesPerSecond),
-                preferred: Float(framesPerSecond)
-            )
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-            pacingMode = .appKitDisplayLink
-            return
+        
+        if #available(macOS 14.0, *) {
+            if let link = displayLinkMaker.makeDisplayLink(
+                attachedTo: view,
+                target: self,
+                selector: #selector(displayLinkDidFire(_:))
+            ) {
+                link.preferredFrameRateRange = CAFrameRateRange(
+                    minimum: 60,
+                    maximum: Float(framesPerSecond),
+                    preferred: Float(framesPerSecond)
+                )
+                link.add(to: .main, forMode: .common)
+                displayLink = link
+                pacingMode = .appKitDisplayLink
+                return
+            }
         }
+
 
         startFallbackTimer(framesPerSecond: framesPerSecond)
     }
@@ -108,10 +112,7 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
             }
 
             MainActorShim.assumeIsolated {
-                guard self.isRunning else {
-                    return
-                }
-
+                guard self.isRunning else { return }
                 self.onFrame?()
             }
         }
@@ -120,6 +121,7 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
         pacingMode = .fallbackTimer
     }
 
+    @available(macOS 14.0, *)
     @objc private func displayLinkDidFire(_ displayLink: CADisplayLink) {
         guard isRunning else {
             return
@@ -136,12 +138,17 @@ private final class AppKitTerminalDisplayLinkMaker: TerminalDisplayLinkMaking {
         target: Any,
         selector: Selector
     ) -> (any TerminalDisplayLinking)? {
-        AppKitTerminalDisplayLink(
-            displayLink: view.displayLink(target: target, selector: selector)
-        )
+        if #available(macOS 14.0, *) {
+            return AppKitTerminalDisplayLink(
+                displayLink: view.displayLink(target: target, selector: selector)
+            )
+        } else {
+            return nil
+        }
     }
 }
 
+@available(macOS 14.0, *)
 @MainActor
 private final class AppKitTerminalDisplayLink: TerminalDisplayLinking {
     var preferredFrameRateRange: CAFrameRateRange {

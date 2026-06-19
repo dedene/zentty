@@ -334,7 +334,7 @@ final class TaskManagerWindowController: NSWindowController, NSOutlineViewDataSo
     private func startTimer() {
         stopTimer()
         timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.refresh()
             }
         }

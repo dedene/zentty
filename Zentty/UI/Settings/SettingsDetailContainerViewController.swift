@@ -45,7 +45,7 @@ final class SettingsDetailContainerViewController: NSViewController {
     /// tab shell used to drive them and avoiding the documented 0×0 blank-pane
     /// bug when a section view has no ancestor constraints.
     func setContent(_ viewController: NSViewController, section: SettingsSection) {
-        loadViewIfNeeded()
+        _ = view
         header.configure(with: section)
 
         guard contentViewController !== viewController else { return }

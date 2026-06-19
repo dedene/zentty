@@ -13,7 +13,8 @@ final class NotificationChromeCoordinator {
 
     var onNavigateToNotification: ((AppNotification) -> Void)?
 
-    init(store: NotificationStore = NotificationStore(), inboxButton: NotificationInboxButton = NotificationInboxButton()) {
+    init(store: NotificationStore = MainActorShim.assumeIsolated { NotificationStore() }, inboxButton: NotificationInboxButton = MainActorShim.assumeIsolated { NotificationInboxButton() }) {
+
         self.store = store
         self.inboxButton = inboxButton
     }
@@ -69,7 +70,11 @@ final class NotificationChromeCoordinator {
     }
 
     var isPopoverFullSizeContentForTesting: Bool {
-        notificationPopover?.hasFullSizeContent == true
+        if #available(macOS 14.0, *) {
+            return notificationPopover?.hasFullSizeContent == true
+        } else {
+            return false
+        }
     }
 
     var popoverAnchorRectForTesting: NSRect? {
@@ -203,9 +208,9 @@ final class NotificationChromeCoordinator {
             object: popover,
             queue: .main
         ) { [weak self, weak popover] _ in
-            guard let popover else { return }
+            guard let popover, let self else { return }
             Task { @MainActor in
-                self?.clearPopoverState(for: popover)
+                self.clearPopoverState(for: popover)
             }
         }
     }

@@ -35,7 +35,8 @@ final class PaneFocusHistoryController {
 
     init(
         debounceInterval: TimeInterval = 0.5,
-        scheduleDebounce: @escaping DebounceScheduler = PaneFocusHistoryController.defaultDebounceScheduler
+        scheduleDebounce: @escaping DebounceScheduler = MainActorShim.assumeIsolated { PaneFocusHistoryController.defaultDebounceScheduler }
+
     ) {
         self.debounceInterval = debounceInterval
         self.scheduleDebounce = scheduleDebounce

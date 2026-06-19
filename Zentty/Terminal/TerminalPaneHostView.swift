@@ -1015,7 +1015,8 @@ final class PaneRuntimeRegistry {
         },
         deferredStartInitialDelay: TimeInterval = 0.1,
         deferredStartInterval: TimeInterval = 0.05,
-        deferredStartScheduler: @escaping DeferredStartScheduler = PaneRuntimeRegistry.defaultDeferredStartScheduler
+        deferredStartScheduler: @escaping DeferredStartScheduler = MainActorShim.assumeIsolated { PaneRuntimeRegistry.defaultDeferredStartScheduler }
+
     ) {
         self.diagnostics = diagnostics
         self.adapterFactory = adapterFactory

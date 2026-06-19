@@ -62,8 +62,8 @@ final class PaneDragCoordinator {
 
     private let hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming
 
-    init(hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming = DragReorderHapticFeedbackPerformer()) {
-        self.hapticFeedbackPerformer = hapticFeedbackPerformer
+    init(hapticFeedbackPerformer: (any DragReorderHapticFeedbackPerforming)? = nil) {
+        self.hapticFeedbackPerformer = hapticFeedbackPerformer ?? DragReorderHapticFeedbackPerformer()
     }
 
     // MARK: - Callbacks
@@ -1657,7 +1657,7 @@ final class PaneDragCoordinator {
         guard let overlay = splitOverlay else { return }
         self.splitOverlay = nil
         overlay.animateOut { [weak overlay] in
-            Task { @MainActor in
+            Task { @MainActor [weak overlay] in
                 overlay?.removeFromSuperview()
             }
         }

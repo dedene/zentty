@@ -32,9 +32,9 @@ enum NotificationSoundManager {
     }
 
     /// Override for tests (e.g. temp dir). Set before use and clear in tearDown.
-    nonisolated(unsafe) static var soundsDirectoryOverride: URL?
-    nonisolated(unsafe) static var libraryDirectoryOverride: URL?
-    nonisolated(unsafe) static var converterOverride: SoundConverter?
+    static var soundsDirectoryOverride: URL?
+    static var libraryDirectoryOverride: URL?
+    static var converterOverride: SoundConverter?
 
     static var soundsDirectory: URL {
         if let override = soundsDirectoryOverride { return override }
