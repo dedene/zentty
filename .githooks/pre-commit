@@ -17,4 +17,5 @@ echo "pre-commit: running build gate..."
 TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild \
   -scheme Zentty \
   -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO \
   build
