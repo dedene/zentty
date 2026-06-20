@@ -878,9 +878,16 @@ final class RootViewCompositionTests: AppKitTestCase {
         let backingPixelInset = ChromeGeometry.backingPixelInset(backingScaleFactor: 2)
         let roundedInset = ChromeGeometry.paneBorderInset(backingScaleFactor: 2)
 
-        XCTAssertGreaterThan(rawInset, 0.5)
         XCTAssertEqual(backingPixelInset, 0.5, accuracy: 0.001)
-        XCTAssertEqual(roundedInset, 1.5, accuracy: 0.001)
+        if #available(macOS 26.0, *) {
+            // outerWindowRadius=26 → paneRadius=14 → meaningful corner-clip geometry
+            XCTAssertGreaterThan(rawInset, 0.5)
+            XCTAssertEqual(roundedInset, 1.5, accuracy: 0.001)
+        } else {
+            // outerWindowRadius=10, shellInset+paneInset=12 > 10 → paneRadius=0 → no corner clip
+            XCTAssertEqual(rawInset, 0.0, accuracy: 0.001)
+            XCTAssertEqual(roundedInset, 0.5, accuracy: 0.001)
+        }
     }
 
     func test_root_controller_applies_outer_shell_geometry_to_live_root_view() {
