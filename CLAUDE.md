@@ -3,7 +3,7 @@
 ## Testing
 
 Two test targets:
-- **ZenttyLogicTests** — no app host, parallel-safe. Pure logic + detached AppKit component tests (~380 tests).
+- **ZenttyLogicTests** — hosted in inert Zentty.app (app runs with `.prohibited` activation policy, no windows), parallel-safe. Pure logic + detached AppKit component tests.
 - **ZenttyTests** — hosted in Zentty.app, serial. Tests that need real windows or app lifecycle (~24 tests).
 
 Run the full all-target gate only when you explicitly need Logic + hosted app + integration in one command. Use the virtual-display harness so AppKit windows are created on the test display:
