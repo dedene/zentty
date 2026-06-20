@@ -43,6 +43,16 @@ Regenerate the Xcode project when needed:
 bundle exec fastlane mac generate_project
 ```
 
+## Git Hooks
+
+To enable the pre-commit compilation check:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook requires GhosttyKit to be built first. Run `./scripts/build_ghosttykit.sh` once before your first commit.
+
 ## Code Signing
 
 `project.yml` commits `DEVELOPMENT_TEAM: 25TVW8MSGJ`, which is Zenjoy's Apple Developer team. The team ID itself is not a secret — it ships inside every signed macOS binary — but only Zenjoy can sign with it. External contributors building locally should override it with their own Apple Developer team:

@@ -1,0 +1,60 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x86_64
+          - runner: macos-latest
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache GhosttyKit
+        id: cache-ghosttykit
+        uses: actions/cache@v4
+        with:
+          path: FrameworksLocal
+          key: ghosttykit-${{ hashFiles('scripts/ghosttykit.lock') }}
+
+      - name: Set up Zig
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: |
+          ZIG_VERSION="0.15.2"
+          ZIG_ARCH="${{ matrix.arch == 'x86_64' && 'x86_64' || 'aarch64' }}"
+          ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-macos-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz"
+          curl -L "${ZIG_URL}" | tar -xJ
+          echo "${PWD}/zig-macos-${ZIG_ARCH}-${ZIG_VERSION}" >> "${GITHUB_PATH}"
+
+      - name: Build GhosttyKit
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: ./scripts/build_ghosttykit.sh
+
+      - name: Build
+        run: |
+          TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild \
+            -scheme Zentty \
+            -destination 'platform=macOS,arch=${{ matrix.arch }}' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Test (ZenttyLogicTests)
+        run: |
+          TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild test \
+            -scheme Zentty \
+            -destination 'platform=macOS,arch=${{ matrix.arch }}' \
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:ZenttyLogicTests

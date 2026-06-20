@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Compilation gate. Does not run tests — too slow for a commit hook.
+# Prerequisite: run ./scripts/build_ghosttykit.sh before your first commit.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ ! -d "${REPO_ROOT}/FrameworksLocal/GhosttyKit.xcframework" ]]; then
+  echo "pre-commit: GhosttyKit.xcframework not found." >&2
+  echo "Run ./scripts/build_ghosttykit.sh first." >&2
+  exit 1
+fi
+
+cd "${REPO_ROOT}"
+echo "pre-commit: running build gate..."
+TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild \
+  -scheme Zentty \
+  -destination 'platform=macOS' \
+  build
