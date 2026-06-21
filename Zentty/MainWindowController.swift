@@ -155,6 +155,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         static let copyURLTitle = "Copy URL"
         static let settingsTitle = "Dev Server Settings…"
         static let manageTitle = "Manage Servers…"
+        static let stopTitle = "Stop server"
         static let hiddenTitle = "Hidden…"
         static func ignorePortTitle(_ port: Int) -> String { "Ignore port \(port)" }
         static func stopIgnoringPortTitle(_ port: Int) -> String { "Stop ignoring port \(port)" }
@@ -1356,6 +1357,19 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             let serverItem = NSMenuItem(title: entry.server.display, action: nil, keyEquivalent: "")
             let serverSubmenu = NSMenu(title: "")
             serverSubmenu.autoenablesItems = false
+
+            if ServerMenuModel.isStoppable(entry.server) {
+                let stopItem = NSMenuItem(
+                    title: ServerMenuContent.stopTitle,
+                    action: #selector(handleStopServer(_:)),
+                    keyEquivalent: ""
+                )
+                stopItem.target = self
+                stopItem.representedObject = entry.server
+                serverSubmenu.addItem(stopItem)
+                serverSubmenu.addItem(.separator())
+            }
+
             let ignoreItem = NSMenuItem(
                 title: ServerMenuContent.ignorePortTitle(port),
                 action: #selector(handleIgnorePort(_:)),
@@ -1408,6 +1422,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         _ = rootViewController.openServer(server)
+    }
+
+    @objc
+    private func handleStopServer(_ sender: NSMenuItem) {
+        guard let server = sender.representedObject as? DetectedServer else {
+            return
+        }
+
+        rootViewController.killServer(server)
     }
 
     @objc

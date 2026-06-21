@@ -123,6 +123,7 @@ final class RootViewController: NSViewController {
     private let serverOpenService: ServerOpening
     private let serverListenerScanner: ServerListenerScanner
     private let dockerServerDiscovery: DockerServerDiscovery
+    private let serverProcessTerminator = ServerProcessTerminator()
     private let taskRunnerDiscoveryService = TaskRunnerDiscoveryService()
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
@@ -3028,6 +3029,28 @@ final class RootViewController: NSViewController {
             browserID: browserID,
             config: configStore.current.serverDetection
         )
+    }
+
+    /// Stops the process backing `server` — a graceful `SIGINT` that escalates to
+    /// a force kill if it lingers — then refreshes detection so the server clears
+    /// from the menu once it exits. Only servers we can prove we own (scanner +
+    /// shell-PID ancestry) reach this path via `ServerMenuModel.stoppable`.
+    func killServer(_ server: DetectedServer) {
+        guard let paneID = server.paneID else {
+            return
+        }
+
+        let shellPID = worklaneStore.worklanes
+            .first { $0.id == server.worklaneID }?
+            .auxiliaryStateByPaneID[paneID]?
+            .raw.paneRootPID
+
+        switch serverProcessTerminator.stop(server, shellPID: shellPID) {
+        case .stopped, .notRunning:
+            schedulePassiveServerDetectionRefresh()
+        case .notOwned, .failed:
+            break
+        }
     }
 
     func rememberServerBrowser(_ stableID: String) {

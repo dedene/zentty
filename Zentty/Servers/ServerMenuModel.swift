@@ -13,7 +13,8 @@ struct ServerMenuModel: Equatable {
 
     /// Visible servers as direct open items, ordered for display.
     let visible: [Entry]
-    /// Visible, non-manual servers with a known port — offered "Ignore port N".
+    /// Visible, non-manual servers with a known port — offered "Ignore port N",
+    /// and "Stop server" for those backed by a process we own (see `isStoppable`).
     let manageable: [Entry]
     /// Servers suppressed by an ignored-port rule — offered "Stop ignoring port N".
     let hidden: [Entry]
@@ -38,5 +39,13 @@ struct ServerMenuModel: Equatable {
 
     static func port(of server: DetectedServer) -> Int? {
         server.url.port ?? server.ports.first
+    }
+
+    /// Whether the process behind `server` is one we can prove we own and may
+    /// therefore stop. Only scanner-detected servers attributed by shell-PID
+    /// ancestry (`.pid` confidence) qualify; Docker and cwd/worklane-attributed
+    /// servers point at processes we don't necessarily control.
+    static func isStoppable(_ server: DetectedServer) -> Bool {
+        server.source == .scanner && server.confidence == .pid
     }
 }

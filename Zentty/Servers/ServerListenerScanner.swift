@@ -83,7 +83,7 @@ struct ServerListenerScanner: Sendable {
                 return false
             }
 
-            return isProcess(socket.pid, descendantOf: shellPID)
+            return processInspector.isProcess(socket.pid, descendantOf: shellPID)
         }) {
             return (pane.paneID, .pid)
         }
@@ -105,30 +105,6 @@ struct ServerListenerScanner: Sendable {
         }
 
         return nil
-    }
-
-    private func isProcess(_ pid: pid_t, descendantOf ancestorPID: pid_t) -> Bool {
-        guard pid > 0, ancestorPID > 0 else {
-            return false
-        }
-        if pid == ancestorPID {
-            return true
-        }
-
-        var visited: Set<pid_t> = [pid]
-        var currentPID = pid
-
-        while let parentPID = processInspector.parentPID(of: currentPID), parentPID > 0 {
-            if parentPID == ancestorPID {
-                return true
-            }
-            guard visited.insert(parentPID).inserted else {
-                return false
-            }
-            currentPID = parentPID
-        }
-
-        return false
     }
 
     private func cwdFallbackMatches(processWorkingDirectory: String, pane: PaneScanContext) -> Bool {

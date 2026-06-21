@@ -8,6 +8,35 @@ protocol ProcessInspecting: Sendable {
     func isProcessAlive(_ pid: pid_t) -> Bool
 }
 
+extension ProcessInspecting {
+    /// Walks the parent chain from `pid` to determine whether it descends from
+    /// `ancestorPID` (inclusive). Guards against cycles so a corrupt parent
+    /// chain can't loop forever.
+    func isProcess(_ pid: pid_t, descendantOf ancestorPID: pid_t) -> Bool {
+        guard pid > 0, ancestorPID > 0 else {
+            return false
+        }
+        if pid == ancestorPID {
+            return true
+        }
+
+        var visited: Set<pid_t> = [pid]
+        var currentPID = pid
+
+        while let parentPID = parentPID(of: currentPID), parentPID > 0 {
+            if parentPID == ancestorPID {
+                return true
+            }
+            guard visited.insert(parentPID).inserted else {
+                return false
+            }
+            currentPID = parentPID
+        }
+
+        return false
+    }
+}
+
 struct ListeningSocket: Equatable, Sendable {
     let pid: pid_t
     let localHost: String

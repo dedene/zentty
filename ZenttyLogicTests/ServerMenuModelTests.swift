@@ -43,6 +43,21 @@ final class ServerMenuModelTests: XCTestCase {
         XCTAssertEqual(model.visible.filter { $0.isPrimary }.count, 1)
     }
 
+    func test_isStoppable_is_true_only_for_scanner_servers_attributed_by_pid() throws {
+        XCTAssertTrue(ServerMenuModel.isStoppable(
+            try server("http://localhost:5173/", source: .scanner, confidence: .pid)
+        ))
+        XCTAssertFalse(ServerMenuModel.isStoppable(
+            try server("http://localhost:3000/", source: .scanner, confidence: .cwd)
+        ))
+        XCTAssertFalse(ServerMenuModel.isStoppable(
+            try server("http://localhost:4000/", source: .docker, confidence: .pid)
+        ))
+        XCTAssertFalse(ServerMenuModel.isStoppable(
+            try server("http://localhost:6006/", source: .manual, confidence: .explicit)
+        ))
+    }
+
     func test_is_empty_with_no_servers() {
         let model = ServerMenuModel(context: context([]))
 
