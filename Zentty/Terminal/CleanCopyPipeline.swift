@@ -28,6 +28,9 @@ enum CleanCopyPipeline {
         if let cleaned = stripBoxDrawingArtifacts(text) {
             text = cleaned
         }
+        if let cleaned = reflowPlainProseSelection(text) {
+            text = cleaned
+        }
         text = dedentCommonPrefix(text)
         return Result(text: text, wasModified: text != input)
     }
@@ -177,7 +180,12 @@ enum CleanCopyPipeline {
             guard let first = line.trimmingCharacters(in: .whitespaces).first else { return false }
             return agentPromptMarkers.contains(first)
         }
-        guard markerLineCount <= 1 else { return nil }
+        if markerLineCount > 1 {
+            if firstCharacter == "•", let cleaned = reflowSeparatedBulletAgentMessages(lines) {
+                return cleaned
+            }
+            return nil
+        }
 
         let candidateLines: [String]
         if let ruleIndex = lines.firstIndex(where: isAgentPromptRuleLine(_:)) {
@@ -214,9 +222,117 @@ enum CleanCopyPipeline {
         return flattened == input ? nil : flattened
     }
 
+    static func reflowPlainProseSelection(_ input: String) -> String? {
+        let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let contentLines = trimOuterBlankLines(lines.map { $0.trimmingCharacters(in: .whitespaces) })
+        let nonEmptyContentLines = contentLines.filter { !$0.isEmpty }
+        guard nonEmptyContentLines.count >= 2,
+              nonEmptyContentLines.count <= maxAgentPromptReflowLines,
+              hasProseWrapCandidate(contentLines)
+        else {
+            return nil
+        }
+
+        let content = contentLines.joined(separator: "\n")
+        guard !isLikelySourceCode(content),
+              !isLikelyStructuredData(content),
+              !isLikelyShellTranscript(content)
+        else {
+            return nil
+        }
+
+        let flattened = flattenWrappedPromptLines(contentLines)
+        return flattened == input ? nil : flattened
+    }
+
+    private static func reflowSeparatedBulletAgentMessages(_ lines: [String]) -> String? {
+        let contentLines = trimOuterBlankLines(lines.map { $0.trimmingCharacters(in: .whitespaces) })
+        guard !contentLines.isEmpty else { return nil }
+
+        var blocks: [[String]] = []
+        var currentBlock: [String] = []
+        var sawBlockSeparator = false
+
+        for line in contentLines {
+            if line.isEmpty {
+                if !currentBlock.isEmpty {
+                    blocks.append(currentBlock)
+                    currentBlock = []
+                    sawBlockSeparator = true
+                }
+                continue
+            }
+            currentBlock.append(line)
+        }
+        if !currentBlock.isEmpty {
+            blocks.append(currentBlock)
+        }
+
+        guard sawBlockSeparator, blocks.count >= 2 else { return nil }
+
+        let reflowedBlocks = blocks.compactMap { block -> String? in
+            guard let firstLine = block.first else { return nil }
+            let markerCount = block.count { line in
+                line.trimmingCharacters(in: .whitespaces).first == "•"
+            }
+            guard markerCount == 1, firstLine.first == "•" else { return nil }
+
+            let paragraphLines = [stripLeadingAgentPromptMarker(from: firstLine)] + block.dropFirst()
+            let content = paragraphLines.joined(separator: "\n")
+            guard !isLikelySourceCode(content),
+                  !isLikelyStructuredData(content),
+                  !isLikelyShellTranscript(content)
+            else {
+                return nil
+            }
+
+            let flattened = flattenWrappedPromptLines(paragraphLines)
+            guard !flattened.isEmpty else { return nil }
+            return "• \(flattened)"
+        }
+
+        guard reflowedBlocks.count == blocks.count else { return nil }
+
+        let flattened = reflowedBlocks.joined(separator: "\n\n")
+        let original = lines.joined(separator: "\n")
+        return flattened == original ? nil : flattened
+    }
+
     private static func stripLeadingAgentPromptMarker(from line: String) -> String {
         let remainder = line.dropFirst().drop(while: \.isWhitespace)
         return String(remainder)
+    }
+
+    private static func hasProseWrapCandidate(_ lines: [String]) -> Bool {
+        var paragraphLines: [String] = []
+
+        func paragraphHasCandidate() -> Bool {
+            guard paragraphLines.count >= 2 else { return false }
+            if paragraphLines.allSatisfy(isListItemLine(_:)) {
+                return false
+            }
+            return paragraphLines.contains(where: isLikelyProseLine(_:))
+        }
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                if paragraphHasCandidate() {
+                    return true
+                }
+                paragraphLines = []
+                continue
+            }
+            paragraphLines.append(trimmed)
+        }
+
+        return paragraphHasCandidate()
+    }
+
+    private static func isLikelyProseLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 25, trimmed.contains(" ") else { return false }
+        return trimmed.range(of: #"[A-Za-z]{2,}"#, options: .regularExpression) != nil
     }
 
     private static func trimOuterBlankLines(_ lines: [String]) -> [String] {
@@ -276,6 +392,35 @@ enum CleanCopyPipeline {
     /// `"Save in /tmp/\n  Then run command"`. Path-wrap is far more common in agent
     /// output than this shape, so the trade-off favours the path-wrap case.
     private static func flattenPromptParagraph(_ lines: [String]) -> String {
+        if lines.contains(where: isListItemLine(_:)) {
+            return flattenListParagraph(lines)
+        }
+
+        return flattenNonListParagraph(lines)
+    }
+
+    private static func flattenListParagraph(_ lines: [String]) -> String {
+        var result: [String] = []
+        var currentItemLines: [String] = []
+
+        func appendCurrentItem() {
+            guard !currentItemLines.isEmpty else { return }
+            result.append(flattenNonListParagraph(currentItemLines))
+            currentItemLines = []
+        }
+
+        for line in lines {
+            if isListItemLine(line) {
+                appendCurrentItem()
+            }
+            currentItemLines.append(line)
+        }
+
+        appendCurrentItem()
+        return result.joined(separator: "\n")
+    }
+
+    private static func flattenNonListParagraph(_ lines: [String]) -> String {
         var result = lines.joined(separator: "\n")
 
         // Hyphen-token boundary: keep wrapped tokens like UUIDs joined without an inserted space.
@@ -359,13 +504,13 @@ enum CleanCopyPipeline {
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard nonEmpty.count >= 2 else { return false }
 
-        let listishCount = nonEmpty.count { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.range(of: #"^[-*•]\s+\S"#, options: .regularExpression) != nil
-                || trimmed.range(of: #"^[0-9]+[.)]\s+\S"#, options: .regularExpression) != nil
-        }
+        return isListItemLine(nonEmpty[0])
+    }
 
-        return listishCount >= (nonEmpty.count / 2 + 1)
+    private static func isListItemLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.range(of: #"^[-*•]\s+\S"#, options: .regularExpression) != nil
+            || trimmed.range(of: #"^[0-9]+[.)]\s+\S"#, options: .regularExpression) != nil
     }
 
     private static func isLikelyStructuredData(_ text: String) -> Bool {

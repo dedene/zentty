@@ -361,6 +361,111 @@ final class CleanCopyPipelineTests: XCTestCase {
         )
     }
 
+    func test_pipeline_reflows_separated_bullet_agent_messages_preserving_markers() {
+        let input = """
+        • The push reached GitHub (main -> main), but sandboxing blocked Git from updating the local origin/main tracking ref afterward. I’m verifying the remote
+         and then refreshing the local tracking ref with escalation so the repo state is sane.
+
+
+        • Remote main is at 7ff742d, so the push itself landed. The local tracking ref is stale because of the lock error; I’m fetching with Git metadata write
+         access to update it.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "• The push reached GitHub (main -> main), but sandboxing blocked Git from updating the local origin/main tracking ref afterward. I’m verifying the remote and then refreshing the local tracking ref with escalation so the repo state is sane."
+                + "\n\n• Remote main is at 7ff742d, so the push itself landed. The local tracking ref is stale because of the lock error; I’m fetching with Git metadata write access to update it."
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_stripAgentPromptSelection_reflows_separated_bullets_without_outer_padding() {
+        let input = """
+
+        • First status wraps
+          onto another line.
+
+        • Second status wraps
+          too.
+
+        """
+
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "• First status wraps onto another line.\n\n• Second status wraps too."
+        )
+    }
+
+    func test_pipeline_reflows_plain_agent_copy_without_marker() {
+        let input = """
+        Clean Copy now handles blank-separated • assistant/status blocks before the existing multi-marker bailout. It preserves the bullet markers, reflows
+        wrapped continuation lines inside each block, normalizes the gap to one blank line, and still bails for source code, structured data, shell transcripts,
+        compact lists, and stacked non-bullet markers. See Zentty/Terminal/CleanCopyPipeline.swift:180.
+
+        Added regression coverage for your screenshot shape plus outer-padding cleanup in ZenttyLogicTests/CleanCopyPipelineTests.swift:364.
+
+        Verification:
+
+        - New tests failed first for the expected reason: original wrapped text / nil.
+        - New tests pass after the fix.
+        - CleanCopyPipelineTests: 106 tests, 0 failures.
+        - git diff --check: clean.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "Clean Copy now handles blank-separated • assistant/status blocks before the existing multi-marker bailout. It preserves the bullet markers, reflows wrapped continuation lines inside each block, normalizes the gap to one blank line, and still bails for source code, structured data, shell transcripts, compact lists, and stacked non-bullet markers. See Zentty/Terminal/CleanCopyPipeline.swift:180."
+                + "\n\nAdded regression coverage for your screenshot shape plus outer-padding cleanup in ZenttyLogicTests/CleanCopyPipelineTests.swift:364."
+                + "\n\nVerification:"
+                + "\n\n- New tests failed first for the expected reason: original wrapped text / nil."
+                + "\n- New tests pass after the fix."
+                + "\n- CleanCopyPipelineTests: 106 tests, 0 failures."
+                + "\n- git diff --check: clean."
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_preserves_list_items_inside_marker_led_agent_copy() {
+        let input = """
+        • Implemented.
+
+        Verification:
+
+        - New tests failed first for the expected reason: original wrapped text / nil.
+        - New tests pass after the fix.
+        - CleanCopyPipelineTests: 106 tests, 0 failures.
+        - git diff --check: clean.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "Implemented."
+                + "\n\nVerification:"
+                + "\n\n- New tests failed first for the expected reason: original wrapped text / nil."
+                + "\n- New tests pass after the fix."
+                + "\n- CleanCopyPipelineTests: 106 tests, 0 failures."
+                + "\n- git diff --check: clean."
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_does_not_reflow_plain_markdown_list() {
+        let input = """
+        Verification:
+
+        - first item
+        - second item
+        - third item
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
     func test_stripAgentPromptSelection_cleans_record_circle_message() {
         // ⏺ (U+23FA) is Claude Code's message/tool-line marker.
         let input = """
