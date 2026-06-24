@@ -427,6 +427,62 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertTrue(result.wasModified)
     }
 
+    func test_pipeline_preserves_compact_command_block_line_breaks() {
+        let input = """
+          git status --short --branch
+          pnpm install --frozen-lockfile
+          pnpm run pack:check
+          node dist/cli.js --help
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            """
+            git status --short --branch
+            pnpm install --frozen-lockfile
+            pnpm run pack:check
+            node dist/cli.js --help
+            """
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_trims_padded_short_rows_without_reflowing_them() {
+        let input = "git status --short --branch        \npnpm install --frozen-lockfile       \nnode dist/cli.js --help              "
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "git status --short --branch\npnpm install --frozen-lockfile\nnode dist/cli.js --help"
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_reflows_wrapped_single_command_with_continuation_lines() {
+        let input = """
+        curl https://example.com/api \\
+          --fail \\
+          --silent
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, "curl https://example.com/api --fail --silent")
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_preserves_env_and_script_command_block_line_breaks() {
+        let input = """
+        RAILS_ENV=test bundle exec rspec spec/models/drops/channel_collection_proxy_spec.rb:311
+        scripts/test-on-virtual-display -only-testing:ZenttyLogicTests/CleanCopyPipelineTests
+        cargo test --all-targets --all-features
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
     func test_pipeline_preserves_list_items_inside_marker_led_agent_copy() {
         let input = """
         • Implemented.

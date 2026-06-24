@@ -18,6 +18,7 @@ enum CleanCopyPipeline {
     static func clean(_ input: String) -> Result {
         var text = input
         text = stripANSIEscapes(text)
+        let lineShapeEvidence = PlainProseLineShapeEvidence(input: text)
         text = trimTrailingWhitespacePerLine(text)
         text = trimTrailingBlankLines(text)
         if let cleaned = stripAgentPromptSelection(text) {
@@ -28,7 +29,7 @@ enum CleanCopyPipeline {
         if let cleaned = stripBoxDrawingArtifacts(text) {
             text = cleaned
         }
-        if let cleaned = reflowPlainProseSelection(text) {
+        if let cleaned = reflowPlainProseSelection(text, lineShapeEvidence: lineShapeEvidence) {
             text = cleaned
         }
         text = dedentCommonPrefix(text)
@@ -222,12 +223,25 @@ enum CleanCopyPipeline {
         return flattened == input ? nil : flattened
     }
 
-    static func reflowPlainProseSelection(_ input: String) -> String? {
+    static func reflowPlainProseSelection(
+        _ input: String
+    ) -> String? {
+        reflowPlainProseSelection(
+            input,
+            lineShapeEvidence: PlainProseLineShapeEvidence(input: input)
+        )
+    }
+
+    private static func reflowPlainProseSelection(
+        _ input: String,
+        lineShapeEvidence: PlainProseLineShapeEvidence
+    ) -> String? {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let contentLines = trimOuterBlankLines(lines.map { $0.trimmingCharacters(in: .whitespaces) })
         let nonEmptyContentLines = contentLines.filter { !$0.isEmpty }
         guard nonEmptyContentLines.count >= 2,
               nonEmptyContentLines.count <= maxAgentPromptReflowLines,
+              !lineShapeEvidence.hasMultiplePaddedShortRows,
               hasProseWrapCandidate(contentLines)
         else {
             return nil
@@ -236,7 +250,8 @@ enum CleanCopyPipeline {
         let content = contentLines.joined(separator: "\n")
         guard !isLikelySourceCode(content),
               !isLikelyStructuredData(content),
-              !isLikelyShellTranscript(content)
+              !isLikelyShellTranscript(content),
+              !isLikelyCompactShellCommandBlock(nonEmptyContentLines)
         else {
             return nil
         }
@@ -311,6 +326,9 @@ enum CleanCopyPipeline {
             if paragraphLines.allSatisfy(isListItemLine(_:)) {
                 return false
             }
+            if paragraphLines.contains(where: isExplicitLineContinuation(_:)) {
+                return true
+            }
             return paragraphLines.contains(where: isLikelyProseLine(_:))
         }
 
@@ -331,8 +349,89 @@ enum CleanCopyPipeline {
 
     private static func isLikelyProseLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.count >= 25, trimmed.contains(" ") else { return false }
+        guard trimmed.count >= 60, trimmed.contains(" ") else { return false }
         return trimmed.range(of: #"[A-Za-z]{2,}"#, options: .regularExpression) != nil
+    }
+
+    private static func isExplicitLineContinuation(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespaces).hasSuffix("\\")
+    }
+
+    private static func isLikelyCompactShellCommandBlock(_ lines: [String]) -> Bool {
+        guard lines.count >= 2 else { return false }
+        guard !lines.contains(where: isLikelyShellContinuationLine(_:)) else { return false }
+        return lines.allSatisfy(isLikelyStandaloneShellCommandLine(_:))
+    }
+
+    private static func isLikelyShellContinuationLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("--")
+            || trimmed.hasPrefix("|")
+            || trimmed.hasPrefix("&&")
+            || trimmed.hasPrefix("||")
+            || trimmed.hasPrefix("\\")
+            || trimmed.hasPrefix("\"")
+            || trimmed.hasPrefix("'")
+    }
+
+    private static func isLikelyStandaloneShellCommandLine(_ line: String) -> Bool {
+        var tokens = line.trimmingCharacters(in: .whitespaces)
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        while let first = tokens.first,
+              first.range(of: #"^[A-Za-z_][A-Za-z0-9_]*=.*"#, options: .regularExpression) != nil {
+            tokens.removeFirst()
+        }
+        while let first = tokens.first, shellCommandPrefixes.contains(first) {
+            tokens.removeFirst()
+        }
+        guard let command = tokens.first else { return false }
+        return knownShellCommands.contains(command)
+            || command.hasPrefix("./")
+            || command.hasPrefix("../")
+            || command.hasPrefix("/")
+            || command.hasPrefix("scripts/")
+    }
+
+    private static let shellCommandPrefixes: Set<String> = [
+        "builtin", "command", "env", "sudo", "time"
+    ]
+
+    private static let knownShellCommands: Set<String> = [
+        "awk", "brew", "bun", "bundle", "cargo", "cat", "cd", "chmod", "cmake",
+        "cp", "curl", "deno", "docker", "docker-compose", "find", "frontcli",
+        "gh", "git", "go", "grep", "jq", "kubectl", "linear", "ls", "make",
+        "mcporter", "mkdir", "mise", "mv", "nimbu", "node", "npm", "npx", "op",
+        "oracle", "pip", "pip3", "pnpm", "pytest", "python", "python3", "rails",
+        "rake", "rg", "rsync", "ruby", "sed", "ssh", "swift", "tar", "terraform",
+        "touch", "trash", "uv", "wget", "xcodebuild", "yarn", "zip"
+    ]
+
+    private static func trailingWhitespaceCount(_ line: String) -> Int {
+        var index = line.endIndex
+        var count = 0
+        while index > line.startIndex {
+            let previous = line.index(before: index)
+            let character = line[previous]
+            guard character == " " || character == "\t" else { break }
+            count += 1
+            index = previous
+        }
+        return count
+    }
+
+    private struct PlainProseLineShapeEvidence {
+        let hasMultiplePaddedShortRows: Bool
+
+        init(input: String) {
+            let rows = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            let paddedShortRows = rows.count { row in
+                let trailingCount = trailingWhitespaceCount(row)
+                let visibleCount = row.count - trailingCount
+                return visibleCount > 0 && visibleCount < 60 && trailingCount >= 4
+            }
+            hasMultiplePaddedShortRows = paddedShortRows >= 2
+        }
     }
 
     private static func trimOuterBlankLines(_ lines: [String]) -> [String] {
