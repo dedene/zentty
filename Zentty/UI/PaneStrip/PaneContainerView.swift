@@ -369,6 +369,12 @@ final class PaneContainerView: NSView {
             terminalHostView.smoothScrollingEnabled = smoothScrollingEnabled
         }
     }
+    var showPaneBorders = AppConfig.Appearance.default.showPaneBorders {
+        didSet {
+            guard oldValue != showPaneBorders else { return }
+            applyVisualState(animated: false)
+        }
+    }
     var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
         didSet {}
     }
@@ -1778,9 +1784,9 @@ final class PaneContainerView: NSView {
                 focusedStroke: focusedStroke,
                 isFocused: isFocused
             )
-            self.insetBorderLayer.strokeColorValue = borderColor
+            self.insetBorderLayer.strokeColorValue = self.showPaneBorders ? borderColor : nil
             self.insetBorderLayer.strokeWidth = self.zoomAwareBorderWidth(isFocused: isFocused)
-            self.focusGlowLayer.glowColorValue = glowColor
+            self.focusGlowLayer.glowColorValue = self.showPaneBorders ? glowColor : nil
             self.layer?.shadowColor = theme.paneShadow.cgColor
             self.layer?.shadowOpacity = shadowOpacity
             self.layer?.shadowRadius = shadowRadius

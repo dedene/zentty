@@ -989,6 +989,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertNil(AppConfig.default.appearance.preferredLightThemeName)
         XCTAssertNil(AppConfig.default.appearance.localBackgroundOpacity)
         XCTAssertTrue(AppConfig.default.appearance.syncOpenCodeThemeWithTerminal)
+        XCTAssertTrue(AppConfig.default.appearance.showPaneBorders)
 
         let persisted = AppConfigTOML.encode(.default)
         XCTAssertFalse(persisted.contains("[appearance]"))
@@ -998,6 +999,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(persisted.contains("preferred_light_theme_name"))
         XCTAssertFalse(persisted.contains("local_background_opacity"))
         XCTAssertFalse(persisted.contains("sync_opencode_theme_with_terminal"))
+        XCTAssertFalse(persisted.contains("show_pane_borders"))
     }
 
     func test_store_persists_explicit_theme_preferences_in_toml() throws {
@@ -1032,6 +1034,24 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.appearance.preferredLightThemeName, "GitHub Light Default")
         XCTAssertEqual(Double(store.current.appearance.localBackgroundOpacity ?? 0), 0.87, accuracy: 0.0001)
         XCTAssertFalse(store.current.appearance.syncOpenCodeThemeWithTerminal)
+    }
+
+    func test_show_pane_borders_round_trips_through_toml_and_defaults_true_when_missing() throws {
+        var config = AppConfig.default
+        config.appearance.showPaneBorders = false
+
+        let encoded = AppConfigTOML.encode(config)
+        XCTAssertTrue(encoded.contains("[appearance]"))
+        XCTAssertTrue(encoded.contains("show_pane_borders = false"))
+
+        let decoded = try XCTUnwrap(AppConfigTOML.decode(encoded))
+        XCTAssertFalse(decoded.appearance.showPaneBorders)
+
+        let missingKeyDecoded = try XCTUnwrap(AppConfigTOML.decode("""
+        [appearance]
+        sync_opencode_theme_with_terminal = false
+        """))
+        XCTAssertTrue(missingKeyDecoded.appearance.showPaneBorders)
     }
 
     func test_store_reads_legacy_local_theme_name_as_always_dark_preference() throws {

@@ -75,6 +75,9 @@ enum AppConfigTOML {
                     "sync_opencode_theme_with_terminal = \(config.appearance.syncOpenCodeThemeWithTerminal)"
                 )
             }
+            if config.appearance.showPaneBorders != AppConfig.Appearance.default.showPaneBorders {
+                lines.append("show_pane_borders = \(config.appearance.showPaneBorders)")
+            }
             lines.append("")
         }
 
@@ -587,6 +590,11 @@ enum AppConfigTOML {
                 return false
             }
             config.appearance.syncOpenCodeThemeWithTerminal = value
+        case "show_pane_borders":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.appearance.showPaneBorders = value
         default:
             return true
         }
