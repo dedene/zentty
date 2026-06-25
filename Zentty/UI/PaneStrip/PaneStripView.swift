@@ -150,6 +150,7 @@ final class PaneStripView: NSView {
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
+    private var currentShowPaneBorders = AppConfig.Appearance.default.showPaneBorders
     private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
     private var pendingHoverFocusWorkItem: DispatchWorkItem?
@@ -418,6 +419,7 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
+        showPaneBorders: Bool = AppConfig.Appearance.default.showPaneBorders,
         focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
         focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
@@ -434,6 +436,7 @@ final class PaneStripView: NSView {
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
         currentSmoothScrollingEnabled = smoothScrollingEnabled
+        currentShowPaneBorders = showPaneBorders
         currentFocusFollowsMouseEnabled = focusFollowsMouseEnabled
         currentFocusFollowsMouseDelay = focusFollowsMouseDelay
         if !focusFollowsMouseEnabled {
@@ -477,6 +480,7 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
+        showPaneBorders: Bool = AppConfig.Appearance.default.showPaneBorders,
         focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
         focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
@@ -493,6 +497,7 @@ final class PaneStripView: NSView {
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
         currentSmoothScrollingEnabled = smoothScrollingEnabled
+        currentShowPaneBorders = showPaneBorders
         currentFocusFollowsMouseEnabled = focusFollowsMouseEnabled
         currentFocusFollowsMouseDelay = focusFollowsMouseDelay
         if !focusFollowsMouseEnabled {
@@ -1220,6 +1225,7 @@ final class PaneStripView: NSView {
             }
 
             paneView.smoothScrollingEnabled = currentSmoothScrollingEnabled
+            paneView.showPaneBorders = currentShowPaneBorders
             let pane = state.panes[index]
             paneView.render(
                 pane: pane,
@@ -1319,6 +1325,7 @@ final class PaneStripView: NSView {
                     viewportDiagnosticsIsZoomedOut: isZoomedOut
                 )
                 paneView.smoothScrollingEnabled = currentSmoothScrollingEnabled
+                paneView.showPaneBorders = currentShowPaneBorders
                 paneView.updateShortcutTooltips(shortcutManager)
                 paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in

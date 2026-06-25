@@ -25,6 +25,7 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             lightThemeName: nil
         )
         var syncOpenCodeThemeWithTerminal = false
+        var showPaneBorders = true
         private(set) var appliedThemes: [String] = []
         private(set) var appliedThemeSlots: [AppearanceThemeSlot] = []
         private(set) var appliedThemeModes: [AppConfig.Appearance.ThemeMode] = []
@@ -63,6 +64,10 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         func applyOpenCodeThemeSync(_ enabled: Bool) async {
             syncOpenCodeThemeWithTerminal = enabled
             appliedOpenCodeThemeSyncValues.append(enabled)
+        }
+
+        func applyShowPaneBorders(_ enabled: Bool) async {
+            showPaneBorders = enabled
         }
 
         func createSharedConfig(presentingWindow _: NSWindow?) async {
