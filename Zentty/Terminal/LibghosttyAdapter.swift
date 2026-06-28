@@ -47,6 +47,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func setFocused(_ isFocused: Bool)
     func setOcclusionVisible(_ isVisible: Bool)
     func refresh()
+    func translatedKeyEvent(for event: NSEvent) -> NSEvent
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase)
     func setSmoothScrollingEnabled(_ enabled: Bool)
@@ -70,6 +71,7 @@ extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
     var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func cancelPromptInput() {}
+    func translatedKeyEvent(for event: NSEvent) -> NSEvent { event }
     func setSmoothScrollingEnabled(_ enabled: Bool) {}
     func scroll(toOffset offset: Double) {
         _ = performBindingAction("scroll_to_row:\(Int(offset.rounded(.down)))")

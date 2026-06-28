@@ -300,6 +300,12 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardSelectionDidChange),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil
+        )
     }
 
     deinit {
@@ -794,6 +800,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return
         }
         ghostty_app_set_focus(app, false)
+    }
+
+    @objc
+    private func keyboardSelectionDidChange() {
+        guard let app else {
+            return
+        }
+        ghostty_app_keyboard_changed(app)
     }
 
     private static func configureLogLevelIfNeeded() {

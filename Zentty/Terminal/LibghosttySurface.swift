@@ -327,6 +327,19 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         ghostty_surface_refresh(surface)
     }
 
+    func translatedKeyEvent(for event: NSEvent) -> NSEvent {
+        guard let surface else {
+            return event
+        }
+
+        let originalMods = Self.modsFromEvent(event)
+        let translatedFlags = Self.translatedModifierFlags(
+            from: event.modifierFlags,
+            ghosttyModifiers: ghostty_surface_key_translation_mods(surface, originalMods)
+        )
+        return Self.translatedEvent(from: event, modifierFlags: translatedFlags)
+    }
+
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
         guard let surface else {
             return false
@@ -785,6 +798,21 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         if flags.contains(.command) {
             rawValue |= GHOSTTY_MODS_SUPER.rawValue
         }
+        if flags.contains(.capsLock) {
+            rawValue |= GHOSTTY_MODS_CAPS.rawValue
+        }
+        if (modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK)) != 0 {
+            rawValue |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue
+        }
+        if (modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK)) != 0 {
+            rawValue |= GHOSTTY_MODS_CTRL_RIGHT.rawValue
+        }
+        if (modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK)) != 0 {
+            rawValue |= GHOSTTY_MODS_ALT_RIGHT.rawValue
+        }
+        if (modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK)) != 0 {
+            rawValue |= GHOSTTY_MODS_SUPER_RIGHT.rawValue
+        }
 
         return ghostty_input_mods_e(rawValue: rawValue)
     }
@@ -818,7 +846,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         from eventModifierFlags: NSEvent.ModifierFlags,
         ghosttyModifiers: ghostty_input_mods_e
     ) -> NSEvent.ModifierFlags {
-        var translatedFlags = eventModifierFlags.intersection(.deviceIndependentFlagsMask)
+        var translatedFlags = eventModifierFlags
 
         for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
             let shouldInclude: Bool
@@ -845,7 +873,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     static func translatedEvent(from event: NSEvent, modifierFlags: NSEvent.ModifierFlags) -> NSEvent {
-        guard modifierFlags != event.modifierFlags.intersection(.deviceIndependentFlagsMask) else {
+        guard modifierFlags != event.modifierFlags else {
             return event
         }
 

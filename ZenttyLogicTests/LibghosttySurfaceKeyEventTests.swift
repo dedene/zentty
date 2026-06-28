@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import GhosttyKit
 import XCTest
 @testable import Zentty
 
@@ -55,6 +56,46 @@ final class LibghosttySurfaceKeyEventTests: XCTestCase {
         XCTAssertEqual(translated.keyCode, UInt16(kVK_Command))
     }
 
+    func test_modsFromFlags_records_right_option_side_bit() {
+        let rightOptionFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))
+        let flags = NSEvent.ModifierFlags.option.union(rightOptionFlag)
+
+        let mods = LibghosttySurface.modsFromFlags(flags)
+
+        XCTAssertNotEqual(mods.rawValue & GHOSTTY_MODS_ALT.rawValue, 0)
+        XCTAssertNotEqual(mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue, 0)
+    }
+
+    func test_translatedModifierFlags_preserves_hidden_right_option_bit_when_removing_option() {
+        let rightOptionFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))
+        let flags = NSEvent.ModifierFlags.option.union(rightOptionFlag)
+
+        let translated = LibghosttySurface.translatedModifierFlags(
+            from: flags,
+            ghosttyModifiers: GHOSTTY_MODS_NONE
+        )
+
+        XCTAssertFalse(translated.contains(.option))
+        XCTAssertNotEqual(translated.rawValue & rightOptionFlag.rawValue, 0)
+    }
+
+    func test_translatedEvent_keeps_hidden_right_option_without_reintroducing_option() throws {
+        let rightOptionFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))
+        let event = try Self.makeKeyEvent(
+            type: .keyDown,
+            characters: "~",
+            charactersIgnoringModifiers: "n",
+            keyCode: UInt16(kVK_ANSI_N),
+            modifierFlags: .option.union(rightOptionFlag)
+        )
+
+        let translated = LibghosttySurface.translatedEvent(from: event, modifierFlags: rightOptionFlag)
+
+        XCTAssertFalse(translated.modifierFlags.contains(.option))
+        XCTAssertNotEqual(translated.modifierFlags.rawValue & rightOptionFlag.rawValue, 0)
+        XCTAssertEqual(translated.characters, "n")
+    }
+
     // MARK: - normalizedSurfaceEnvironment
 
     func test_normalizedSurfaceEnvironment_adds_truecolor_when_missing() {
@@ -100,18 +141,35 @@ final class LibghosttySurfaceKeyEventTests: XCTestCase {
     private static func makeKeyEvent(
         type: NSEvent.EventType,
         characters: String,
+        charactersIgnoringModifiers: String? = nil,
         keyCode: UInt16
+    ) throws -> NSEvent {
+        try Self.makeKeyEvent(
+            type: type,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            keyCode: keyCode,
+            modifierFlags: []
+        )
+    }
+
+    private static func makeKeyEvent(
+        type: NSEvent.EventType,
+        characters: String,
+        charactersIgnoringModifiers: String?,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
     ) throws -> NSEvent {
         try XCTUnwrap(
             NSEvent.keyEvent(
                 with: type,
                 location: .zero,
-                modifierFlags: [],
+                modifierFlags: modifierFlags,
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
                 characters: characters,
-                charactersIgnoringModifiers: characters,
+                charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
                 isARepeat: false,
                 keyCode: keyCode
             )

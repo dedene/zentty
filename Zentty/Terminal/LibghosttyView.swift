@@ -1925,12 +1925,13 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             return
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let translatedEvent = surfaceController.translatedKeyEvent(for: event)
+        let flags = translatedEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shouldEmitUserSubmittedInput = Self.shouldEmitUserSubmittedInput(for: event)
         let shouldEmitUserEditedInput = Self.shouldEmitUserEditedInput(for: event)
         let shouldEmitUserInterrupted = Self.shouldEmitUserInterrupted(for: event)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
-            let controlText = event.charactersIgnoringModifiers ?? event.characters
+            let controlText = translatedEvent.charactersIgnoringModifiers ?? translatedEvent.characters
             let handled = surfaceController.sendKey(
                 event: event,
                 action: event.isARepeat ? .repeatPress : .press,
@@ -1952,8 +1953,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
 
         keyTextAccumulator = ""
-        interpretKeyEvents([event])
-        let keyText = keyTextAccumulator.isEmpty ? fallbackText(for: event) : keyTextAccumulator
+        interpretKeyEvents([translatedEvent])
+        let keyText = keyTextAccumulator.isEmpty ? fallbackText(for: translatedEvent) : keyTextAccumulator
         _ = surfaceController.sendKey(
             event: event,
             action: event.isARepeat ? .repeatPress : .press,
