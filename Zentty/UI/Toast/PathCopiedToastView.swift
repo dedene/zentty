@@ -191,7 +191,7 @@ final class PathCopiedToastView: NSView {
             self.animator().alphaValue = 0
             self.animator().frame = destinationFrame
         }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 self?.removeFromSuperview()
             }
         })

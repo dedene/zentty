@@ -241,17 +241,29 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
     }()
 
-    nonisolated(unsafe) fileprivate var app: ghostty_app_t?
-    nonisolated(unsafe) private var config: ghostty_config_t?
+    nonisolated fileprivate var app: ghostty_app_t? {
+        get { _app.value }
+        set { _app.value = newValue }
+    }
+    private let _app = NonisolatedUnsafe<ghostty_app_t?>(nil)
+    nonisolated private var config: ghostty_config_t? {
+        get { _config.value }
+        set { _config.value = newValue }
+    }
+    private let _config = NonisolatedUnsafe<ghostty_config_t?>(nil)
     nonisolated let diagnostics: TerminalDiagnostics
-    nonisolated(unsafe) var wakeupCoordinator: LibghosttyWakeupCoordinator
+    nonisolated var wakeupCoordinator: LibghosttyWakeupCoordinator {
+        get { _wakeupCoordinator.value! }
+        set { _wakeupCoordinator.value = newValue }
+    }
+    private let _wakeupCoordinator = NonisolatedUnsafe<LibghosttyWakeupCoordinator?>(nil)
     private let configEnvironment: GhosttyConfigEnvironment
 
     private init(configEnvironment: GhosttyConfigEnvironment = GhosttyConfigEnvironment()) throws {
-        self.app = nil
-        self.config = nil
+        self._app.value = nil
+        self._config.value = nil
         self.diagnostics = .shared
-        self.wakeupCoordinator = LibghosttyWakeupCoordinator(diagnostics: self.diagnostics) {}
+        self._wakeupCoordinator.value = LibghosttyWakeupCoordinator(diagnostics: self.diagnostics) {}
         self.configEnvironment = configEnvironment
 
         Self.configureResourcesDirectoryIfNeeded()

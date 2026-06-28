@@ -199,12 +199,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
-        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        runtimeRegistry: PaneRuntimeRegistry = MainActorShim.assumeIsolated { PaneRuntimeRegistry() },
+
         configStore: AppConfigStore? = nil,
-        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        notificationStore: NotificationStore = NotificationStore(),
-        openWithService: OpenWithServing = OpenWithService(),
-        serverOpenService: ServerOpening = ServerOpenService(),
+        appUpdateStateStore: AppUpdateStateStore = MainActorShim.assumeIsolated { AppUpdateStateStore() },
+
+        notificationStore: NotificationStore = MainActorShim.assumeIsolated { NotificationStore() },
+
+        openWithService: OpenWithServing = MainActorShim.assumeIsolated { OpenWithService() },
+
+        serverOpenService: ServerOpening = MainActorShim.assumeIsolated { ServerOpenService() },
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
@@ -236,7 +240,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             initialLayoutContext: initialLayoutContext,
             initialWorkspaceState: initialWorkspaceState
         )
-        rootViewController.loadViewIfNeeded()
+        _ = rootViewController.view
         let window = ProxyAwareWindow(
             contentRect: initialWindowFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

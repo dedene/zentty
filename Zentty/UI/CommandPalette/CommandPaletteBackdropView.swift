@@ -56,7 +56,7 @@ final class CommandPaletteBackdropView: NSView {
             context.timingFunction = CAMediaTimingFunction(name: timingFunction)
             self.animator().alphaValue = targetAlpha
         }, completionHandler: {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 guard generation == self.visibilityGeneration else { return }
                 if visible {
                     self.alphaValue = 1

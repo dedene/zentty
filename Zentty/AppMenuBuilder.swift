@@ -5,7 +5,8 @@ enum AppMenuBuilder {
     static func installIfNeeded(
         on application: NSApplication,
         config: AppConfig = .default,
-        appName: String = resolvedAppName()
+        appName: String = MainActorShim.assumeIsolated { resolvedAppName() }
+
     ) {
         guard hasRequiredMenuItems(in: application.mainMenu, appName: appName) == false else {
             applyConfiguredShortcuts(to: application.mainMenu, config: config)

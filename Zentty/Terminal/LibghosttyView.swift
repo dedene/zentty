@@ -519,7 +519,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView: LibghosttyView,
         paneID: PaneID,
         diagnostics: TerminalDiagnostics,
-        scrollFrameSampler: any TerminalScrollFrameSampling = TerminalScrollFrameSampler(),
+        scrollFrameSampler: any TerminalScrollFrameSampling = MainActorShim.assumeIsolated { TerminalScrollFrameSampler() },
+
         frameMeterSampler: (any TerminalScrollFrameSampling)? = nil
     ) {
         self.paneID = paneID
@@ -620,7 +621,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             surfaceView.onBackingPropertiesDidChange = nil
             surfaceView.onCellSizeDidChange = nil
             scrollFrameSampler.stop()
@@ -1997,7 +1998,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     nonisolated override func doCommand(by selector: Selector) {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             // Terminal navigation/editing commands should be handled by Ghostty via keycode,
             // not converted into printable fallback text by AppKit.
             if Self.terminalCommandSelectors.contains(where: { $0 == selector }) {
@@ -2507,7 +2508,7 @@ extension LibghosttyView: NSTextInputClient {
             text = "\(string)"
         }
 
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             self.markedTextStorage = ""
             self.markedTextSelection = NSRange(location: NSNotFound, length: 0)
             self.selectedTextStorageRange = NSRange(location: NSNotFound, length: 0)
@@ -2535,7 +2536,7 @@ extension LibghosttyView: NSTextInputClient {
             text = "\(string)"
         }
 
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             self.markedTextStorage = text
             self.markedTextSelection = selectedRange
             self.selectedTextStorageRange = replacementRange
@@ -2543,20 +2544,20 @@ extension LibghosttyView: NSTextInputClient {
     }
 
     nonisolated func unmarkText() {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             self.markedTextStorage = ""
             self.markedTextSelection = NSRange(location: NSNotFound, length: 0)
         }
     }
 
     nonisolated func selectedRange() -> NSRange {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             self.selectedTextStorageRange
         }
     }
 
     nonisolated func markedRange() -> NSRange {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             !self.markedTextStorage.isEmpty
                 ? NSRange(location: 0, length: self.markedTextStorage.utf16.count)
                 : NSRange(location: NSNotFound, length: 0)
@@ -2564,7 +2565,7 @@ extension LibghosttyView: NSTextInputClient {
     }
 
     nonisolated func hasMarkedText() -> Bool {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             !self.markedTextStorage.isEmpty
         }
     }
@@ -2579,7 +2580,7 @@ extension LibghosttyView: NSTextInputClient {
     }
 
     nonisolated func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        let rect = MainActor.assumeIsolated {
+        let rect = MainActorShim.assumeIsolated {
             guard let window = self.window else {
                 return NSRect.zero
             }

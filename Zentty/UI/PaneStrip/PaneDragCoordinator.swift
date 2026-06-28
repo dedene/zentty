@@ -62,8 +62,8 @@ final class PaneDragCoordinator {
 
     private let hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming
 
-    init(hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming = DragReorderHapticFeedbackPerformer()) {
-        self.hapticFeedbackPerformer = hapticFeedbackPerformer
+    init(hapticFeedbackPerformer: (any DragReorderHapticFeedbackPerforming)? = nil) {
+        self.hapticFeedbackPerformer = hapticFeedbackPerformer ?? DragReorderHapticFeedbackPerformer()
     }
 
     // MARK: - Callbacks
@@ -921,7 +921,7 @@ final class PaneDragCoordinator {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1323,7 +1323,7 @@ final class PaneDragCoordinator {
         let stripView = paneStripView
 
         animateSidebarDrop(to: targetCenter) {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1368,7 +1368,7 @@ final class PaneDragCoordinator {
         let stripView = paneStripView
 
         animateSidebarDrop(to: targetCenter) {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1383,7 +1383,7 @@ final class PaneDragCoordinator {
 
     private func animateSidebarDrop(to targetCenter: CGPoint, completion: @escaping @Sendable () -> Void) {
         guard let container = dragContainer else {
-            MainActor.assumeIsolated { completion() }
+            MainActorShim.assumeIsolated { completion() }
             return
         }
 
@@ -1403,7 +1403,7 @@ final class PaneDragCoordinator {
             container.animator().frame = targetFrame
             container.animator().alphaValue = 0
         }, completionHandler: {
-            MainActor.assumeIsolated { completion() }
+            MainActorShim.assumeIsolated { completion() }
         })
 
         container.layer?.shadowOpacity = 0
@@ -1497,7 +1497,7 @@ final class PaneDragCoordinator {
         cancelSplitDwell()
         splitDwellPaneID = paneID
         let timer = Timer(timeInterval: Self.splitDwellDuration, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 guard let self else { return }
                 self.splitDwellSatisfied = true
                 if case .active(let activeState) = self.phase {
@@ -1657,7 +1657,7 @@ final class PaneDragCoordinator {
         guard let overlay = splitOverlay else { return }
         self.splitOverlay = nil
         overlay.animateOut { [weak overlay] in
-            Task { @MainActor in
+            Task { @MainActor [weak overlay] in
                 overlay?.removeFromSuperview()
             }
         }
@@ -2148,7 +2148,7 @@ final class PaneDragCoordinator {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 badge.removeFromSuperlayer()
                 self.duplicateBadgeLayer = nil
             }

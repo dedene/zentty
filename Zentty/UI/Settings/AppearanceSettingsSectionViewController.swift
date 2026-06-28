@@ -125,10 +125,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private var selectedPreviewTheme: ThemePreview?
 
     init(
-        catalogProvider: any ThemeCatalogProviding = ThemeCatalogService(),
-        configCoordinator: any AppearanceSettingsConfigCoordinating = GhosttyAppearanceSettingsCoordinator(
+        catalogProvider: any ThemeCatalogProviding = MainActorShim.assumeIsolated { ThemeCatalogService() },
+        configCoordinator: any AppearanceSettingsConfigCoordinating = MainActorShim.assumeIsolated { GhosttyAppearanceSettingsCoordinator(
             configStore: AppConfigStore()
-        ),
+        ) },
         currentThemeName: @escaping (NSAppearance?) -> String? = GhosttyThemeResolver().currentThemeName(for:),
         currentBackgroundOpacity: @escaping () -> CGFloat? = {
             GhosttyThemeResolver().currentBackgroundOpacity()
@@ -658,7 +658,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     func loadThemesForTesting() async {
-        loadViewIfNeeded()
+        _ = view
         await reloadThemes()
     }
 

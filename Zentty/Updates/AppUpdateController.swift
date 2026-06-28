@@ -12,7 +12,7 @@ protocol AppUpdateControlling: AnyObject {
 @MainActor
 func makeDefaultAppUpdateController(
     configStore: AppConfigStore,
-    stateStore: AppUpdateStateStore = AppUpdateStateStore(),
+    stateStore: AppUpdateStateStore = MainActorShim.assumeIsolated { AppUpdateStateStore() },
     bundle: Bundle = .main
 ) -> AppUpdateControlling {
     SparkleAppUpdateController.makeIfConfigured(
@@ -27,7 +27,7 @@ func makeDefaultAppUpdateController(
 final class NoOpAppUpdateController: AppUpdateControlling {
     let updateStateStore: AppUpdateStateStore
 
-    init(stateStore: AppUpdateStateStore = AppUpdateStateStore()) {
+    init(stateStore: AppUpdateStateStore = MainActorShim.assumeIsolated { AppUpdateStateStore() }) {
         self.updateStateStore = stateStore
     }
 

@@ -78,14 +78,15 @@ final class WorklaneRenderCoordinator {
         runtimeRegistry: PaneRuntimeRegistry,
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
-        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
-        reviewPollingScheduler: @escaping ReviewPollingScheduler = WorklaneRenderCoordinator.defaultReviewPollingScheduler,
+        reviewStateResolver: WorklaneReviewStateResolver? = nil,
+        reviewPollingScheduler: @escaping ReviewPollingScheduler = MainActorShim.assumeIsolated { WorklaneRenderCoordinator.defaultReviewPollingScheduler },
+
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.windowID = windowID
         self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
-        self.reviewStateResolver = reviewStateResolver
+        self.reviewStateResolver = reviewStateResolver ?? WorklaneReviewStateResolver()
         self.reviewPollingScheduler = reviewPollingScheduler
         self.terminalDiagnostics = terminalDiagnostics
         self.configStore = configStore
@@ -96,7 +97,7 @@ final class WorklaneRenderCoordinator {
     }
 
     deinit {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             cancelReviewPolling()
             if let worklaneStoreSubscription {
                 worklaneStore.unsubscribe(worklaneStoreSubscription)
