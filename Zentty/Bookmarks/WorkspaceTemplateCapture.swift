@@ -51,20 +51,34 @@ enum WorkspaceTemplateCapture {
         )
     }
 
+    static func bookmarkWorkingDirectory(
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState?
+    ) -> String? {
+        let terminalLocation = PaneTerminalLocationResolver.snapshot(
+            metadata: auxiliary?.metadata,
+            shellContext: auxiliary?.shellContext,
+            requestWorkingDirectory: pane.sessionRequest.inheritFromPaneID == nil
+                ? trimmed(pane.sessionRequest.workingDirectory)
+                : nil
+        )
+        guard terminalLocation.scope != .remote else {
+            return nil
+        }
+        return trimmed(terminalLocation.workingDirectory)
+            ?? trimmed(auxiliary?.presentation.cwd)
+            ?? trimmed(pane.sessionRequest.workingDirectory)
+    }
+
     private static func makePane(
         pane: PaneState,
         auxiliary: PaneAuxiliaryState?,
         kind: WorkspaceTemplate.Kind,
         processTreeProvider: ProcessTreeProvider?
     ) -> WorkspaceTemplate.Pane {
-        let workingDirectory: String? = {
-            guard kind == .bookmark else {
-                return nil
-            }
-            return trimmed(auxiliary?.metadata?.currentWorkingDirectory)
-                ?? trimmed(auxiliary?.presentation.cwd)
-                ?? trimmed(pane.sessionRequest.workingDirectory)
-        }()
+        let workingDirectory: String? = kind == .bookmark
+            ? bookmarkWorkingDirectory(pane: pane, auxiliary: auxiliary)
+            : nil
 
         return WorkspaceTemplate.Pane(
             id: pane.id.rawValue,

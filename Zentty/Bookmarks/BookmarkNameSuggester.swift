@@ -16,10 +16,10 @@ enum BookmarkNameSuggester {
         }
 
         let cwds = worklane.paneStripState.panes.compactMap { pane -> String? in
-            let auxiliary = worklane.auxiliaryStateByPaneID[pane.id]
-            return auxiliary?.metadata?.currentWorkingDirectory
-                ?? auxiliary?.presentation.cwd
-                ?? pane.sessionRequest.workingDirectory
+            WorkspaceTemplateCapture.bookmarkWorkingDirectory(
+                pane: pane,
+                auxiliary: worklane.auxiliaryStateByPaneID[pane.id]
+            )
         }
         if let lca = WorkspaceTemplateCapture.longestCommonAncestor(of: cwds) {
             return URL(fileURLWithPath: lca).lastPathComponent

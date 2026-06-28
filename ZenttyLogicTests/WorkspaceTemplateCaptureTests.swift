@@ -178,6 +178,118 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         XCTAssertEqual(template.allPanes.first?.titleSeed, "My favourite shell")
     }
 
+    func test_capture_bookmark_prefers_live_shell_context_over_stale_metadata() {
+        let launchCWD = "/Users/peter/Development/Personal/X"
+        let liveCWD = "/Users/peter/Development/Personal/zentty"
+
+        let paneID = PaneID("p1")
+        let pane = PaneState(
+            id: paneID,
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: launchCWD)
+        )
+        let shellContext = PaneShellContext(
+            scope: .local,
+            path: liveCWD,
+            home: NSHomeDirectory(),
+            user: "peter",
+            host: nil
+        )
+        let metadata = TerminalMetadata(
+            title: "shell",
+            currentWorkingDirectory: launchCWD,
+            processName: "zsh",
+            gitBranch: nil
+        )
+        var presentation = PanePresentationState()
+        presentation.cwd = liveCWD
+        let auxiliary = PaneAuxiliaryState(
+            raw: PaneRawState(metadata: metadata, shellContext: shellContext),
+            presentation: presentation
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("w1"),
+            title: nil,
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("c0"),
+                        panes: [pane],
+                        width: pane.width,
+                        focusedPaneID: paneID,
+                        lastFocusedPaneID: paneID
+                    ),
+                ]
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [paneID: auxiliary],
+            color: nil
+        )
+
+        let template = WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: .bookmark,
+            name: "Test"
+        )
+
+        XCTAssertEqual(template.allPanes.first?.workingDirectory, liveCWD)
+        XCTAssertEqual(template.projectRoot, liveCWD)
+    }
+
+    func test_suggest_bookmark_name_uses_live_cwd_not_launch_metadata() {
+        let launchCWD = "/Users/peter/Development/Personal/X"
+        let liveCWD = "/Users/peter/Development/Personal/zentty"
+
+        let paneID = PaneID("p1")
+        let pane = PaneState(
+            id: paneID,
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: launchCWD)
+        )
+        let shellContext = PaneShellContext(
+            scope: .local,
+            path: liveCWD,
+            home: NSHomeDirectory(),
+            user: "peter",
+            host: nil
+        )
+        let metadata = TerminalMetadata(
+            title: "shell",
+            currentWorkingDirectory: launchCWD,
+            processName: "zsh",
+            gitBranch: nil
+        )
+        var presentation = PanePresentationState()
+        presentation.cwd = liveCWD
+        let auxiliary = PaneAuxiliaryState(
+            raw: PaneRawState(metadata: metadata, shellContext: shellContext),
+            presentation: presentation
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("w1"),
+            title: nil,
+            paneStripState: PaneStripState(
+                columns: [
+                    PaneColumnState(
+                        id: PaneColumnID("c0"),
+                        panes: [pane],
+                        width: pane.width,
+                        focusedPaneID: paneID,
+                        lastFocusedPaneID: paneID
+                    ),
+                ]
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [paneID: auxiliary],
+            color: nil
+        )
+
+        XCTAssertEqual(
+            BookmarkNameSuggester.suggest(for: worklane, kind: .bookmark),
+            "zentty"
+        )
+    }
+
     func test_capture_persists_only_template_safe_environment_overrides() {
         let pane = paneFixture(
             id: "p1",
