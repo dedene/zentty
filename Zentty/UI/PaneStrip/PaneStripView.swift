@@ -423,6 +423,7 @@ final class PaneStripView: NSView {
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
@@ -461,6 +462,7 @@ final class PaneStripView: NSView {
         renderCurrentState(
             state,
             animated: animated && !paneViews.isEmpty,
+            transitionDirection: transitionDirection,
             animationDuration: duration,
             animationTimingFunction: timingFunction
         )
@@ -868,6 +870,7 @@ final class PaneStripView: NSView {
     private func renderCurrentState(
         _ state: PaneStripState,
         animated: Bool,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         forceViewportLayoutBeforeViewportSync: Bool = false,
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
@@ -941,6 +944,16 @@ final class PaneStripView: NSView {
             && needsTerminalRedrawAfterRender
             && insertionTransition == nil
             && removalTransition == nil
+        
+        if let transitionDirection {
+            let transition = CATransition()
+            transition.type = .push
+            transition.subtype = transitionDirection == .down ? .fromBottom : .fromTop
+            transition.duration = animationDuration
+            transition.timingFunction = animationTimingFunction
+            viewportView.layer?.add(transition, forKey: kCATransition)
+        }
+
         reconcilePaneViews(
             with: state,
             presentation: presentation,

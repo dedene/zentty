@@ -1,6 +1,11 @@
 import AppKit
 import QuartzCore
 
+enum WorklaneTransitionDirection {
+    case up
+    case down
+}
+
 @MainActor
 protocol RenderEnvironmentProviding: AnyObject {
     var renderTheme: ZenttyTheme { get }
@@ -62,6 +67,7 @@ final class WorklaneRenderCoordinator {
     private var needsRuntimeSynchronization = true
     private var worklaneStoreSubscription: WorklaneChangeSubscription?
     private let reviewPollingScheduler: ReviewPollingScheduler
+    private var previousActiveWorklaneID: WorklaneID?
 
     weak var environment: RenderEnvironmentProviding?
 
@@ -206,7 +212,7 @@ final class WorklaneRenderCoordinator {
             updateRuntimeSurfaceActivities()
             bootstrapReviewRefresh(force: true)
         case .activeWorklaneChanged:
-            renderCurrentWorklane(animated: false)
+            renderCurrentWorklane(animated: true)
             updateRuntimeSurfaceActivities()
             bootstrapReviewRefresh(force: true)
         case .auxiliaryStateUpdated(let worklaneID, let paneID, let impacts):
@@ -252,6 +258,19 @@ final class WorklaneRenderCoordinator {
                 return
             }
 
+            let previousID = previousActiveWorklaneID
+            let currentID = worklaneStore.activeWorklaneID
+            previousActiveWorklaneID = currentID
+
+            var transitionDirection: WorklaneTransitionDirection? = nil
+            if animated, let previousID, let currentID, previousID != currentID {
+                let worklanes = worklaneStore.worklanes
+                if let prevIndex = worklanes.firstIndex(where: { $0.id == previousID }),
+                   let currIndex = worklanes.firstIndex(where: { $0.id == currentID }) {
+                    transitionDirection = currIndex > prevIndex ? .down : .up
+                }
+            }
+
             terminalDiagnostics.recordRender(.full, activePaneID: activePaneID)
             worklaneStore.batchUpdate { [self] in
                 if needsRuntimeSynchronization {
@@ -278,7 +297,7 @@ final class WorklaneRenderCoordinator {
                 let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
                 terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
                 renderWindowChrome(headerSummary, in: views)
-                renderCanvasForCurrentWorklane(animated: animated)
+                renderCanvasForCurrentWorklane(animated: animated, transitionDirection: transitionDirection)
                 let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
                 attentionNotificationCoordinator.update(
                     windowID: windowID,
@@ -295,6 +314,7 @@ final class WorklaneRenderCoordinator {
     private func renderCanvasForCurrentWorklane(
         leadingVisibleInsetOverride: CGFloat? = nil,
         animated: Bool = false,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
@@ -340,6 +360,7 @@ final class WorklaneRenderCoordinator {
                 theme: currentTheme,
                 leadingVisibleInset: effectiveInset,
                 animated: animated,
+                transitionDirection: transitionDirection,
                 duration: duration,
                 timingFunction: timingFunction
             )
