@@ -595,7 +595,8 @@ enum AgentLaunchBootstrap {
             )
         }
 
-        let (forwardedArguments, configSource) = parseKimiConfig(arguments: arguments, environment: environment)
+        let isModern = checkIsModernKimiCode(executablePath)
+        let (forwardedArguments, configSource) = parseKimiConfig(executablePath: executablePath, arguments: arguments, environment: environment)
         let overlayDirectoryURL = try prepareToolDirectory(
             tool: .kimi,
             target: target,
@@ -607,15 +608,28 @@ enum AgentLaunchBootstrap {
         let mergedConfig = try KimiHooksInstaller.mergedConfigText(existingConfig: existingConfig, cliPath: cliPath)
         try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
 
-        return AgentLaunchPlan(
-            executablePath: executablePath,
-            arguments: ["--config-file", overlayConfigURL.path] + forwardedArguments,
-            setEnvironment: [
-                "ZENTTY_AGENT_TOOL": "kimi",
-            ],
-            unsetEnvironment: [],
-            preLaunchActions: []
-        )
+        if isModern {
+            return AgentLaunchPlan(
+                executablePath: executablePath,
+                arguments: forwardedArguments,
+                setEnvironment: [
+                    "ZENTTY_AGENT_TOOL": "kimi",
+                    "KIMI_CODE_HOME": overlayDirectoryURL.path
+                ],
+                unsetEnvironment: [],
+                preLaunchActions: []
+            )
+        } else {
+            return AgentLaunchPlan(
+                executablePath: executablePath,
+                arguments: ["--config-file", overlayConfigURL.path] + forwardedArguments,
+                setEnvironment: [
+                    "ZENTTY_AGENT_TOOL": "kimi",
+                ],
+                unsetEnvironment: [],
+                preLaunchActions: []
+            )
+        }
     }
 
     private static func claudePlan(
@@ -1425,15 +1439,54 @@ enum AgentLaunchBootstrap {
         return false
     }
 
+    private static var isModernKimiCache = [String: Bool]()
+    private static let kimiLock = NSLock()
+
+    private static func checkIsModernKimiCode(_ executablePath: String) -> Bool {
+        kimiLock.lock()
+        defer { kimiLock.unlock() }
+
+        if let cached = isModernKimiCache[executablePath] {
+            return cached
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = ["--help"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                let isModern = !output.contains("--config-file")
+                isModernKimiCache[executablePath] = isModern
+                return isModern
+            }
+        } catch {}
+
+        isModernKimiCache[executablePath] = false
+        return false
+    }
+
     private static func parseKimiConfig(
+        executablePath: String,
         arguments: [String],
         environment: [String: String]
     ) -> (forwardedArguments: [String], source: KimiConfigSource) {
         var forwarded = [String]()
         var iterator = arguments.makeIterator()
-        var source: KimiConfigSource = .defaultFile(KimiHooksInstaller.defaultUserConfigURL(
-            home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()
-        ))
+        
+        let defaultConfigURL = checkIsModernKimiCode(executablePath)
+            ? KimiHooksInstaller.modernUserConfigURL(home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory())
+            : KimiHooksInstaller.defaultUserConfigURL(home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory())
+            
+        var source: KimiConfigSource = .defaultFile(defaultConfigURL)
 
         while let argument = iterator.next() {
             switch argument {

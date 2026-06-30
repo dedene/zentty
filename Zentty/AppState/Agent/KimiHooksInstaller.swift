@@ -17,6 +17,14 @@ enum KimiHooksInstaller {
             .appendingPathComponent("config.toml", isDirectory: false)
     }
 
+    static func modernUserConfigURL(
+        home: String = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+    ) -> URL {
+        URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".kimi-code", isDirectory: true)
+            .appendingPathComponent("config.toml", isDirectory: false)
+    }
+
     static func install(
         at configURL: URL,
         cliPath: String,
@@ -76,14 +84,20 @@ enum KimiHooksInstaller {
             return
         }
 
-        let configURL = defaultUserConfigURL(home: home)
-        do {
-            try install(at: configURL, cliPath: cliPath, fileManager: fileManager)
-            kimiInstallerLogger.info("Installed Zentty Kimi hooks in \(configURL.path, privacy: .public)")
-        } catch {
-            kimiInstallerLogger.error(
-                "Failed to install Kimi hooks at \(configURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+        let configURLs = [
+            defaultUserConfigURL(home: home),
+            modernUserConfigURL(home: home)
+        ]
+
+        for configURL in configURLs {
+            do {
+                try install(at: configURL, cliPath: cliPath, fileManager: fileManager)
+                kimiInstallerLogger.info("Installed Zentty Kimi hooks in \(configURL.path, privacy: .public)")
+            } catch {
+                kimiInstallerLogger.error(
+                    "Failed to install Kimi hooks at \(configURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

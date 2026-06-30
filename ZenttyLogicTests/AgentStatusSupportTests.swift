@@ -3268,6 +3268,12 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: configURL.path))
     }
 
+    func test_kimi_hooks_installer_modern_user_config_url() throws {
+        let home = "/Users/test"
+        let url = KimiHooksInstaller.modernUserConfigURL(home: home)
+        XCTAssertEqual(url.path, "/Users/test/.kimi-code/config.toml")
+    }
+
     func test_kimi_hooks_installer_install_if_possible_treats_whitespace_env_as_blank() throws {
         let directory = try makeTemporaryDirectory(named: "kimi-hooks-installer-blank-env")
         let configURL = directory
