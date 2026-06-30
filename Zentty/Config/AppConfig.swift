@@ -57,6 +57,7 @@ struct AppConfig: Equatable, Sendable {
         var preferredLightThemeName: String?
         var localBackgroundOpacity: CGFloat?
         var syncOpenCodeThemeWithTerminal: Bool
+        var showPaneBorders: Bool
 
         static let `default` = Appearance(
             localThemeName: nil,
@@ -64,7 +65,8 @@ struct AppConfig: Equatable, Sendable {
             preferredDarkThemeName: nil,
             preferredLightThemeName: nil,
             localBackgroundOpacity: nil,
-            syncOpenCodeThemeWithTerminal: true
+            syncOpenCodeThemeWithTerminal: true,
+            showPaneBorders: true
         )
     }
 

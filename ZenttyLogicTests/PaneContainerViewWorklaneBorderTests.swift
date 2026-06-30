@@ -37,6 +37,34 @@ final class PaneContainerViewWorklaneBorderTests: AppKitTestCase {
         XCTAssertEqual(paneView.focusGlowFrameForTesting, paneView.bounds)
     }
 
+    func test_show_pane_borders_disabled_clears_border_and_glow() {
+        let paneView = makePaneView(isFocused: true)
+        paneView.showPaneBorders = false
+
+        paneView.render(
+            pane: PaneState(id: PaneID("p"), title: "p"),
+            emphasis: 1,
+            isFocused: true,
+            worklaneColor: .blue
+        )
+
+        XCTAssertNil(paneView.insetBorderColorToken)
+        XCTAssertNil(paneView.focusGlowColorTokenForTesting)
+    }
+
+    func test_show_pane_borders_enabled_keeps_border() {
+        let paneView = makePaneView(isFocused: true)
+
+        paneView.render(
+            pane: PaneState(id: PaneID("p"), title: "p"),
+            emphasis: 1,
+            isFocused: true,
+            worklaneColor: nil
+        )
+
+        XCTAssertEqual(paneView.insetBorderColorToken, token(for: theme.paneBorderFocused))
+    }
+
     func test_unfocused_with_worklane_color_leaves_unfocused_border_and_no_glow() {
         let paneView = makePaneView(isFocused: true)
 
