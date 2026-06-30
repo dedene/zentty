@@ -120,12 +120,12 @@ struct InstallCommand: ParsableCommand {
             try DroidHooksInstaller.suppressHookOutput(at: hooksConfigURL)
             print("Installed Zentty Droid hooks at \(settingsURL.path).")
         case .kimiHooks:
-            let configURL = KimiHooksInstaller.defaultUserConfigURL()
-            try KimiHooksInstaller.install(
-                at: configURL,
-                cliPath: resolveInvokingCLIPath()
-            )
-            print("Installed Zentty Kimi hooks at \(configURL.path).")
+            let cliPath = resolveInvokingCLIPath()
+            let legacyURL = KimiHooksInstaller.defaultUserConfigURL()
+            let modernURL = KimiHooksInstaller.modernUserConfigURL()
+            try KimiHooksInstaller.install(at: legacyURL, cliPath: cliPath)
+            try KimiHooksInstaller.install(at: modernURL, cliPath: cliPath)
+            print("Installed Zentty Kimi hooks at \(legacyURL.path) and \(modernURL.path).")
         case .grokHooks:
             try GrokHooksInstaller.install(cliPath: resolveInvokingCLIPath())
             print("Installed Zentty Grok hooks (JSON + ~/.grok/hooks/) under \(GrokHooksInstaller.defaultUserHooksURL().path).")
@@ -178,9 +178,11 @@ struct UninstallCommand: ParsableCommand {
             try DroidHooksInstaller.uninstall(at: settingsURL)
             print("Removed Zentty Droid hook entries from \(settingsURL.path).")
         case .kimiHooks:
-            let configURL = KimiHooksInstaller.defaultUserConfigURL()
-            try KimiHooksInstaller.uninstall(at: configURL)
-            print("Removed Zentty Kimi hook entries from \(configURL.path).")
+            let legacyURL = KimiHooksInstaller.defaultUserConfigURL()
+            let modernURL = KimiHooksInstaller.modernUserConfigURL()
+            try KimiHooksInstaller.uninstall(at: legacyURL)
+            try KimiHooksInstaller.uninstall(at: modernURL)
+            print("Removed Zentty Kimi hook entries from \(legacyURL.path) and \(modernURL.path).")
         case .grokHooks:
             try GrokHooksInstaller.uninstall()
             print("Removed Zentty Grok hook entries (JSON + directory) from \(GrokHooksInstaller.defaultUserHooksURL().path).")
