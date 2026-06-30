@@ -374,6 +374,7 @@ final class AppCanvasView: NSView {
         theme: ZenttyTheme,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
@@ -406,6 +407,7 @@ final class AppCanvasView: NSView {
                 worklaneColor: worklaneColor,
                 leadingVisibleInset: leadingVisibleInset,
                 animated: animated,
+                transitionDirection: transitionDirection,
                 duration: duration,
                 timingFunction: timingFunction
             )
