@@ -316,6 +316,24 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         ])
     }
 
+    func test_capture_stamps_captured_readable_width() {
+        let worklane = makeWorklane(
+            panes: [
+                paneFixture(id: "p1", cwd: "/Users/peter", processName: nil),
+            ],
+            color: nil
+        )
+
+        let template = WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: .bookmark,
+            name: "Test",
+            capturedReadableWidth: 1234
+        )
+
+        XCTAssertEqual(template.capturedReadableWidth, 1234)
+    }
+
     private struct PaneFixture {
         let pane: PaneState
         let auxiliary: PaneAuxiliaryState

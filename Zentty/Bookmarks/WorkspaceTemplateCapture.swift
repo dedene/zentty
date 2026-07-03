@@ -13,6 +13,7 @@ enum WorkspaceTemplateCapture {
         worklane: WorklaneState,
         kind: WorkspaceTemplate.Kind,
         name: String,
+        capturedReadableWidth: Double? = nil,
         processTreeProvider: ProcessTreeProvider? = nil
     ) -> WorkspaceTemplate {
         let columns = worklane.paneStripState.columns.map { column -> WorkspaceTemplate.Column in
@@ -45,6 +46,7 @@ enum WorkspaceTemplateCapture {
             title: WorklaneContextFormatter.trimmed(worklane.title),
             color: worklane.color?.rawValue,
             projectRoot: projectRoot,
+            capturedReadableWidth: capturedReadableWidth,
             nextPaneNumber: worklane.nextPaneNumber,
             focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
             columns: columns

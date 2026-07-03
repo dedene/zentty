@@ -145,6 +145,164 @@ final class WorkspaceTemplateImporterTests: XCTestCase {
         XCTAssertEqual(result.worklane.bookmarkOriginID, template.id)
     }
 
+    func test_import_normalizes_single_column_width_to_current_single_pane_width() {
+        let context = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1800,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let template = makeTemplate(
+            kind: .bookmark,
+            panes: [makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: nil)]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: context,
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        XCTAssertEqual(result.worklane.paneStripState.columns.first?.width, context.singlePaneWidth)
+    }
+
+    func test_import_scales_multi_column_widths_from_captured_readable_width() {
+        var template = WorkspaceTemplate(
+            name: "Scaled",
+            kind: .bookmark,
+            capturedReadableWidth: 600,
+            focusedColumnID: "left",
+            columns: [
+                WorkspaceTemplate.Column(
+                    id: "left",
+                    width: 200,
+                    focusedPaneID: "p1",
+                    lastFocusedPaneID: "p1",
+                    paneHeights: [1],
+                    panes: [makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: nil)]
+                ),
+                WorkspaceTemplate.Column(
+                    id: "right",
+                    width: 400,
+                    focusedPaneID: "p2",
+                    lastFocusedPaneID: "p2",
+                    paneHeights: [1],
+                    panes: [makePane(id: "p2", workingDirectory: temporaryDirectoryURL.path, command: nil)]
+                ),
+            ]
+        )
+        let context = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1200,
+            leadingVisibleInset: 100,
+            sizing: .balanced
+        )
+        template.capturedReadableWidth = Double(context.readableWidth / 2)
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: context,
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        let widths = result.worklane.paneStripState.columns.map(\.width)
+        XCTAssertEqual(widths[0], 400, accuracy: 0.001)
+        XCTAssertEqual(widths[1], 800, accuracy: 0.001)
+    }
+
+    func test_import_keeps_legacy_multi_column_widths_without_captured_readable_width() {
+        let template = WorkspaceTemplate(
+            name: "Legacy",
+            kind: .bookmark,
+            focusedColumnID: "left",
+            columns: [
+                WorkspaceTemplate.Column(
+                    id: "left",
+                    width: 250,
+                    focusedPaneID: "p1",
+                    lastFocusedPaneID: "p1",
+                    paneHeights: [1],
+                    panes: [makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: nil)]
+                ),
+                WorkspaceTemplate.Column(
+                    id: "right",
+                    width: 350,
+                    focusedPaneID: "p2",
+                    lastFocusedPaneID: "p2",
+                    paneHeights: [1],
+                    panes: [makePane(id: "p2", workingDirectory: temporaryDirectoryURL.path, command: nil)]
+                ),
+            ]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        XCTAssertEqual(result.worklane.paneStripState.columns.map(\.width), [250, 350])
+    }
+
+    func test_decodes_template_payload_without_captured_readable_width() throws {
+        let payload = """
+        {
+          "schemaVersion": 1,
+          "id": "B99AAE70-EF4D-4739-AFB0-7C6FB5857001",
+          "name": "Legacy",
+          "kind": "bookmark",
+          "title": null,
+          "color": null,
+          "projectRoot": null,
+          "nextPaneNumber": 1,
+          "focusedColumnID": "c0",
+          "columns": [
+            {
+              "id": "c0",
+              "width": 600,
+              "focusedPaneID": "p1",
+              "lastFocusedPaneID": "p1",
+              "paneHeights": [1],
+              "panes": [
+                {
+                  "id": "p1",
+                  "titleSeed": null,
+                  "workingDirectory": null,
+                  "command": null,
+                  "environment": {},
+                  "wasUserEdited": false
+                }
+              ]
+            }
+          ],
+          "pinned": false,
+          "createdAt": "2026-01-01T00:00:00Z",
+          "updatedAt": "2026-01-01T00:00:00Z",
+          "lastUsedAt": null
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let template = try decoder.decode(WorkspaceTemplate.self, from: Data(payload.utf8))
+
+        XCTAssertNil(template.capturedReadableWidth)
+    }
+
     func test_import_allocates_fresh_ids_and_remaps_focus_references() {
         let template = WorkspaceTemplate(
             name: "Focused",
