@@ -2895,14 +2895,8 @@ final class WorklaneStore {
         from previousLayoutContext: PaneLayoutContext,
         to nextLayoutContext: PaneLayoutContext
     ) -> CGFloat? {
-        let previousReadableWidth = previousLayoutContext.sizing.readableWidth(
-            for: previousLayoutContext.viewportWidth,
-            leadingVisibleInset: previousLayoutContext.leadingVisibleInset
-        )
-        let nextReadableWidth = nextLayoutContext.sizing.readableWidth(
-            for: nextLayoutContext.viewportWidth,
-            leadingVisibleInset: nextLayoutContext.leadingVisibleInset
-        )
+        let previousReadableWidth = previousLayoutContext.readableWidth
+        let nextReadableWidth = nextLayoutContext.readableWidth
         guard previousReadableWidth > 0, nextReadableWidth > 0 else {
             return nil
         }

@@ -15,6 +15,7 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
     var title: String?
     var color: String?
     var projectRoot: String?
+    var capturedReadableWidth: Double?
     var nextPaneNumber: Int
     var focusedColumnID: String?
     var columns: [Column]
@@ -31,6 +32,7 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
         title: String? = nil,
         color: String? = nil,
         projectRoot: String? = nil,
+        capturedReadableWidth: Double? = nil,
         nextPaneNumber: Int = 1,
         focusedColumnID: String? = nil,
         columns: [Column] = [],
@@ -46,6 +48,7 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
         self.title = title
         self.color = color
         self.projectRoot = projectRoot
+        self.capturedReadableWidth = capturedReadableWidth
         self.nextPaneNumber = nextPaneNumber
         self.focusedColumnID = focusedColumnID
         self.columns = columns

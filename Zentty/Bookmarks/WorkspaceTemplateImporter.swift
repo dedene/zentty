@@ -42,6 +42,10 @@ enum WorkspaceTemplateImporter {
         let paneIDsByColumn = template.columns.map { column -> [PaneID] in
             column.panes.map { _ in runtimeIdentity.makePaneID() }
         }
+        let columnWidths = normalizedColumnWidths(
+            for: template,
+            layoutContext: layoutContext
+        )
         let resolveCommand: (String) -> Bool = commandResolver ?? {
             isCommandOnPath($0, processEnvironment: processEnvironment)
         }
@@ -61,7 +65,7 @@ enum WorkspaceTemplateImporter {
                     paneCountInColumn: paneCount,
                     totalColumns: totalColumns,
                     totalWorklanes: totalWorklanes,
-                    columnWidth: CGFloat(templateColumn.width),
+                    columnWidth: columnWidths[columnIndex],
                     fallbackWorkingDirectory: fallbackWorkingDirectory,
                     windowID: windowID,
                     worklaneID: worklaneID,
@@ -75,7 +79,7 @@ enum WorkspaceTemplateImporter {
             return PaneColumnState(
                 id: columnIDs[columnIndex],
                 panes: panes,
-                width: CGFloat(templateColumn.width),
+                width: columnWidths[columnIndex],
                 paneHeights: templateColumn.paneHeights.map { CGFloat($0) },
                 focusedPaneID: templateColumn.focusedPaneID.flatMap { paneIDByTemplateID[$0] },
                 lastFocusedPaneID: templateColumn.lastFocusedPaneID.flatMap { paneIDByTemplateID[$0] }
@@ -100,6 +104,28 @@ enum WorkspaceTemplateImporter {
         )
 
         return Result(worklane: worklane, fallbacks: fallbacks)
+    }
+
+    static func normalizedColumnWidths(
+        for template: WorkspaceTemplate,
+        layoutContext: PaneLayoutContext
+    ) -> [CGFloat] {
+        guard template.columns.count != 1 else {
+            return [layoutContext.singlePaneWidth]
+        }
+        guard template.columns.count > 1,
+              let capturedReadableWidth = template.capturedReadableWidth,
+              capturedReadableWidth > 0
+        else {
+            return template.columns.map { CGFloat($0.width) }
+        }
+
+        let scaleFactor = layoutContext.readableWidth / CGFloat(capturedReadableWidth)
+        guard abs(scaleFactor - 1) >= 0.001 else {
+            return template.columns.map { CGFloat($0.width) }
+        }
+
+        return template.columns.map { max(1, CGFloat($0.width) * scaleFactor) }
     }
 
     private static func makePane(

@@ -4138,6 +4138,7 @@ private extension RootViewController {
             worklane: worklane,
             kind: kind,
             name: name,
+            capturedReadableWidth: Double(currentPaneLayoutContext.readableWidth),
             processTreeProvider: { rootPID in
                 sampler.sample(rootPID: rootPID)
             }

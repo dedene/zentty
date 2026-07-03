@@ -299,6 +299,13 @@ struct PaneLayoutContext: Equatable, Sendable {
         max(0, viewportWidth - leadingVisibleInset)
     }
 
+    var readableWidth: CGFloat {
+        sizing.readableWidth(
+            for: viewportWidth,
+            leadingVisibleInset: leadingVisibleInset
+        )
+    }
+
     var newPaneWidth: CGFloat {
         preset.defaultPaneWidth(
             for: displayClass,
