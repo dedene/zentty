@@ -1773,7 +1773,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                     sidebarWidth: config.sidebar.width,
                     availableWidth: initialFrame.width
                 ),
-            sizing: PaneLayoutSizing.forSidebarVisibility(config.sidebar.visibility)
+            sizing: PaneLayoutSizing.forSidebarVisibility(
+                config.sidebar.visibility,
+                showPaneBorders: config.panes.showBorders
+            )
         )
     }
 

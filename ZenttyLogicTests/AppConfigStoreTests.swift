@@ -989,7 +989,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertNil(AppConfig.default.appearance.preferredLightThemeName)
         XCTAssertNil(AppConfig.default.appearance.localBackgroundOpacity)
         XCTAssertTrue(AppConfig.default.appearance.syncOpenCodeThemeWithTerminal)
-        XCTAssertTrue(AppConfig.default.appearance.showPaneBorders)
+        XCTAssertTrue(AppConfig.default.panes.showBorders)
 
         let persisted = AppConfigTOML.encode(.default)
         XCTAssertFalse(persisted.contains("[appearance]"))
@@ -999,7 +999,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(persisted.contains("preferred_light_theme_name"))
         XCTAssertFalse(persisted.contains("local_background_opacity"))
         XCTAssertFalse(persisted.contains("sync_opencode_theme_with_terminal"))
-        XCTAssertFalse(persisted.contains("show_pane_borders"))
+        XCTAssertTrue(persisted.contains("show_borders = true"))
     }
 
     func test_store_persists_explicit_theme_preferences_in_toml() throws {
@@ -1038,20 +1038,20 @@ final class AppConfigStoreTests: XCTestCase {
 
     func test_show_pane_borders_round_trips_through_toml_and_defaults_true_when_missing() throws {
         var config = AppConfig.default
-        config.appearance.showPaneBorders = false
+        config.panes.showBorders = false
 
         let encoded = AppConfigTOML.encode(config)
-        XCTAssertTrue(encoded.contains("[appearance]"))
-        XCTAssertTrue(encoded.contains("show_pane_borders = false"))
+        XCTAssertTrue(encoded.contains("[panes]"))
+        XCTAssertTrue(encoded.contains("show_borders = false"))
 
         let decoded = try XCTUnwrap(AppConfigTOML.decode(encoded))
-        XCTAssertFalse(decoded.appearance.showPaneBorders)
+        XCTAssertFalse(decoded.panes.showBorders)
 
         let missingKeyDecoded = try XCTUnwrap(AppConfigTOML.decode("""
-        [appearance]
-        sync_opencode_theme_with_terminal = false
+        [panes]
+        show_labels = false
         """))
-        XCTAssertTrue(missingKeyDecoded.appearance.showPaneBorders)
+        XCTAssertTrue(missingKeyDecoded.panes.showBorders)
     }
 
     func test_store_reads_legacy_local_theme_name_as_always_dark_preference() throws {

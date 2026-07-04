@@ -110,7 +110,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private let opacitySlider = NSSlider()
     private let opacityValueLabel = NSTextField(labelWithString: "")
     private let openCodeThemeSyncSwitch = NSSwitch()
-    private let paneBordersSwitch = NSSwitch()
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let createSharedConfigButton = NSButton(title: "Create Ghostty Config...", target: nil, action: nil)
 
@@ -425,24 +424,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         stackView.addArrangedSubview(openCodeThemeCard)
         openCodeThemeCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
-        let paneBordersCard = SettingsCardView()
-        let paneBordersRow = makeSwitchRow(
-            title: "Show Pane Borders",
-            subtitle: "Draw a border around each pane. Turn off to reclaim screen space; pane titles stay visible.",
-            toggle: paneBordersSwitch,
-            action: #selector(handlePaneBordersChanged(_:))
-        )
-        paneBordersCard.addSubview(paneBordersRow)
-        paneBordersRow.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            paneBordersRow.topAnchor.constraint(equalTo: paneBordersCard.topAnchor),
-            paneBordersRow.leadingAnchor.constraint(equalTo: paneBordersCard.leadingAnchor),
-            paneBordersRow.trailingAnchor.constraint(equalTo: paneBordersCard.trailingAnchor),
-            paneBordersRow.bottomAnchor.constraint(equalTo: paneBordersCard.bottomAnchor),
-        ])
-        stackView.addArrangedSubview(paneBordersCard)
-        paneBordersCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -458,7 +439,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         refreshOpenCodeThemeSyncSwitch()
-        refreshPaneBordersSwitch()
         Task {
             await reloadThemes()
         }
@@ -470,7 +450,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         refreshOpenCodeThemeSyncSwitch()
-        refreshPaneBordersSwitch()
         super.prepareForPresentation()
     }
 
@@ -480,7 +459,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         refreshOpenCodeThemeSyncSwitch()
-        refreshPaneBordersSwitch()
     }
 
     // MARK: - Theme State
@@ -849,10 +827,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         openCodeThemeSyncSwitch.state = configCoordinator.syncOpenCodeThemeWithTerminal ? .on : .off
     }
 
-    private func refreshPaneBordersSwitch() {
-        paneBordersSwitch.state = configCoordinator.showPaneBorders ? .on : .off
-    }
-
     private func updateOpacityLabel(_ opacity: CGFloat) {
         opacityValueLabel.stringValue = "\(Int(round(opacity * 100)))%"
     }
@@ -929,16 +903,6 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
             guard let self else { return }
             await configCoordinator.applyOpenCodeThemeSync(enabled)
             refreshOpenCodeThemeSyncSwitch()
-        }
-    }
-
-    @objc
-    private func handlePaneBordersChanged(_ sender: NSSwitch) {
-        let enabled = sender.state == .on
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await configCoordinator.applyShowPaneBorders(enabled)
-            refreshPaneBordersSwitch()
         }
     }
 

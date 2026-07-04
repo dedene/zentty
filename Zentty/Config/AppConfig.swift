@@ -57,7 +57,6 @@ struct AppConfig: Equatable, Sendable {
         var preferredLightThemeName: String?
         var localBackgroundOpacity: CGFloat?
         var syncOpenCodeThemeWithTerminal: Bool
-        var showPaneBorders: Bool
 
         static let `default` = Appearance(
             localThemeName: nil,
@@ -65,8 +64,7 @@ struct AppConfig: Equatable, Sendable {
             preferredDarkThemeName: nil,
             preferredLightThemeName: nil,
             localBackgroundOpacity: nil,
-            syncOpenCodeThemeWithTerminal: true,
-            showPaneBorders: true
+            syncOpenCodeThemeWithTerminal: true
         )
     }
 
@@ -131,6 +129,7 @@ struct AppConfig: Equatable, Sendable {
         }
 
         var showLabels: Bool
+        var showBorders: Bool
         var inactiveOpacity: CGFloat
         var showProjectIcons: Bool
         var smoothScrollingEnabled: Bool
@@ -142,6 +141,7 @@ struct AppConfig: Equatable, Sendable {
 
         init(
             showLabels: Bool,
+            showBorders: Bool = true,
             inactiveOpacity: CGFloat,
             showProjectIcons: Bool,
             smoothScrollingEnabled: Bool = false,
@@ -149,6 +149,7 @@ struct AppConfig: Equatable, Sendable {
             focusFollowsMouseDelay: FocusFollowsMouseDelay = .short
         ) {
             self.showLabels = showLabels
+            self.showBorders = showBorders
             self.inactiveOpacity = inactiveOpacity
             self.showProjectIcons = showProjectIcons
             self.smoothScrollingEnabled = smoothScrollingEnabled
@@ -158,6 +159,7 @@ struct AppConfig: Equatable, Sendable {
 
         static let `default` = Panes(
             showLabels: true,
+            showBorders: true,
             inactiveOpacity: 0.7,
             showProjectIcons: true,
             smoothScrollingEnabled: false,
@@ -520,6 +522,7 @@ extension AppConfig.Panes {
     func normalized() -> AppConfig.Panes {
         AppConfig.Panes(
             showLabels: showLabels,
+            showBorders: showBorders,
             inactiveOpacity: min(
                 max(inactiveOpacity, AppConfig.Panes.minimumInactiveOpacity),
                 AppConfig.Panes.maximumInactiveOpacity

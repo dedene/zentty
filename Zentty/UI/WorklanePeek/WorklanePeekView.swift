@@ -27,6 +27,7 @@ final class WorklanePeekView: NSView {
         let zoomScale: CGFloat
         let theme: ZenttyTheme
         let runtimeRegistry: PaneRuntimeRegistry
+        let showPaneBorders: Bool
     }
     private var session: SessionContext?
 
@@ -168,7 +169,8 @@ final class WorklanePeekView: NSView {
         canvasSize: CGSize,
         zoomScale: CGFloat,
         runtimeRegistry: PaneRuntimeRegistry,
-        theme: ZenttyTheme
+        theme: ZenttyTheme,
+        showPaneBorders: Bool
     ) {
         teardownNeighborLanes()
         session = SessionContext(
@@ -177,7 +179,8 @@ final class WorklanePeekView: NSView {
             canvasSize: canvasSize,
             zoomScale: zoomScale,
             theme: theme,
-            runtimeRegistry: runtimeRegistry
+            runtimeRegistry: runtimeRegistry,
+            showPaneBorders: showPaneBorders
         )
         centeredIndex = activeIndex
         cameraOffset = 0
@@ -267,7 +270,8 @@ final class WorklanePeekView: NSView {
             worklane: session.worklanes[index],
             theme: session.theme,
             canvasSize: session.canvasSize,
-            zoomScale: session.zoomScale
+            zoomScale: session.zoomScale,
+            showPaneBorders: session.showPaneBorders
         )
         if let fadeInDelay {
             carrier.appear(after: fadeInDelay)

@@ -211,10 +211,17 @@ final class PaneLayoutPreferencesTests: XCTestCase {
         XCTAssertEqual(ultrawideContext.singlePaneWidth, 3150, accuracy: 0.001)
     }
 
-    func test_sidebar_visibility_uses_shared_edge_aligned_layout_sizing_in_all_states() {
-        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.pinnedOpen), .edgeAligned)
-        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hidden), .edgeAligned)
-        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hoverPeek), .edgeAligned)
+    func test_sidebar_visibility_uses_edge_aligned_layout_sizing_when_pane_borders_are_visible() {
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.pinnedOpen, showPaneBorders: true), .edgeAligned)
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hidden, showPaneBorders: true), .edgeAligned)
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hoverPeek, showPaneBorders: true), .edgeAligned)
+    }
+
+    func test_sidebar_visibility_uses_borderless_layout_sizing_when_pane_borders_are_hidden() {
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.pinnedOpen, showPaneBorders: false), .borderless)
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hidden, showPaneBorders: false), .borderless)
+        XCTAssertEqual(PaneLayoutSizing.forSidebarVisibility(.hoverPeek, showPaneBorders: false), .borderless)
+        XCTAssertEqual(PaneLayoutSizing.borderless.interPaneSpacing, 2)
     }
 
     func test_visible_split_window_width_title_uses_logical_points() {
@@ -378,12 +385,29 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
 
         controller.apply(panes: AppConfig.Panes(
             showLabels: true,
+            showBorders: true,
             inactiveOpacity: 0.7,
             showProjectIcons: true,
             smoothScrollingEnabled: true
         ))
 
         XCTAssertTrue(controller.smoothScrollingForTesting)
+    }
+
+    func test_show_pane_borders_toggle_defaults_on_and_reflects_applied_panes() throws {
+        let controller = PaneLayoutSettingsSectionViewController(configStore: makeConfigStore())
+        controller.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.showPaneBordersForTesting)
+
+        controller.apply(panes: AppConfig.Panes(
+            showLabels: true,
+            showBorders: false,
+            inactiveOpacity: 0.7,
+            showProjectIcons: true
+        ))
+
+        XCTAssertFalse(controller.showPaneBordersForTesting)
     }
 
     func test_new_worklane_placement_popup_reflects_applied_preferences() throws {
@@ -426,6 +450,18 @@ final class PaneLayoutSettingsSectionViewControllerTests: AppKitTestCase {
         _ = toggle.target?.perform(toggle.action, with: toggle)
 
         XCTAssertTrue(store.current.panes.smoothScrollingEnabled)
+    }
+
+    func test_show_pane_borders_toggle_persists_config_change() throws {
+        let store = makeConfigStore()
+        let controller = PaneLayoutSettingsSectionViewController(configStore: store)
+        controller.loadViewIfNeeded()
+
+        let toggle = controller.showPaneBordersSwitchForTesting
+        toggle.state = .off
+        _ = toggle.target?.perform(toggle.action, with: toggle)
+
+        XCTAssertFalse(store.current.panes.showBorders)
     }
 
     private func makeConfigStore() -> AppConfigStore {
