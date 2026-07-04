@@ -427,6 +427,20 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertTrue(result.wasModified)
     }
 
+    func test_pipeline_reflows_wrapped_chevron_quote_without_embedded_prompt_marker() {
+        let input = """
+        > “Your plan includes generous resource capacity. Most customers never need to think about it. If your usage grows materially, we’ll warn you before
+          > anything changes.”
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "“Your plan includes generous resource capacity. Most customers never need to think about it. If your usage grows materially, we’ll warn you before anything changes.”"
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
     func test_pipeline_preserves_compact_command_block_line_breaks() {
         let input = """
           git status --short --branch

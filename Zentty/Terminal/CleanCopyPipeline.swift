@@ -117,12 +117,26 @@ enum CleanCopyPipeline {
         guard let prompt = bestPrompt else { return input }
 
         let stripped = lines.map { line -> String in
-            if line.hasPrefix(prompt) {
-                return String(line.dropFirst(prompt.count))
-            }
-            return String(line)
+            stripDetectedPrompt(prompt, from: line)
         }
         return stripped.joined(separator: "\n")
+    }
+
+    private static func stripDetectedPrompt(_ prompt: String, from line: Substring) -> String {
+        if line.hasPrefix(prompt) {
+            return String(line.dropFirst(prompt.count))
+        }
+
+        let firstContentIndex = line.firstIndex { character in
+            character != " " && character != "\t"
+        } ?? line.endIndex
+        guard firstContentIndex != line.startIndex else { return String(line) }
+
+        let remainder = line[firstContentIndex...]
+        if remainder.hasPrefix(prompt) {
+            return String(remainder.dropFirst(prompt.count))
+        }
+        return String(line)
     }
 
     private static func detectPromptPattern(nonEmptyLines: [Substring]) -> String? {
