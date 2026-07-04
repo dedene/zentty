@@ -88,7 +88,7 @@ protocol ErrorReportingClient {
 
 enum ErrorReportingRuntimeState {
     private static let lock = NSLock()
-    private static var currentProcessEnabled = false
+    private nonisolated(unsafe) static var currentProcessEnabled = false
 
     static var isEnabledForCurrentProcess: Bool {
         lock.lock()

@@ -23,9 +23,9 @@ final class UpdatesPrivacySettingsSectionViewController: SettingsScrollableSecti
                 ErrorReportingBundleConfiguration.load(from: .main)
             },
         errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter =
-            MainActorShim.assumeIsolated { ErrorReportingRestartConfirmation.present },
+            ErrorReportingRestartConfirmation.present,
         errorReportingRestartHandler: @escaping ErrorReportingRestartHandler =
-            MainActorShim.assumeIsolated { ErrorReportingApplicationRestart.restart },
+            ErrorReportingApplicationRestart.restart,
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess
     ) {
         self.configStore = configStore

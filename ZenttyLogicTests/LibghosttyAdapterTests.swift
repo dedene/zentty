@@ -447,6 +447,63 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
     }
 
+    func test_key_down_interprets_text_from_ghostty_translated_event() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        let originalEvent = try makeKeyEvent(
+            characters: "~",
+            charactersIgnoringModifiers: "n",
+            keyCode: UInt16(kVK_ANSI_N),
+            modifierFlags: .option
+        )
+        let translatedEvent = try makeKeyEvent(
+            characters: "n",
+            keyCode: UInt16(kVK_ANSI_N)
+        )
+        surfaceController.translatedKeyEventOverride = translatedEvent
+
+        hostView.keyDown(with: originalEvent)
+
+        XCTAssertEqual(surfaceController.translatedKeyEvents.count, 1)
+        XCTAssertTrue(surfaceController.translatedKeyEvents.first === originalEvent)
+        XCTAssertEqual(surfaceController.sentKeyEvents.count, 1)
+        XCTAssertTrue(surfaceController.sentKeyEvents.first === originalEvent)
+        XCTAssertEqual(surfaceController.sentKeyTexts, [Optional("n")])
+    }
+
+    func test_key_down_keeps_local_input_events_based_on_original_modifiers_after_translation() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+        _ = adapter.makeTerminalView()
+        try adapter.startSession(using: TerminalSessionRequest())
+
+        let hostView = try XCTUnwrap(runtime.lastHostView)
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        let originalEvent = try makeKeyEvent(
+            characters: "\r",
+            keyCode: UInt16(kVK_Return),
+            modifierFlags: .option
+        )
+        let translatedEvent = try makeKeyEvent(
+            characters: "\r",
+            keyCode: UInt16(kVK_Return)
+        )
+        surfaceController.translatedKeyEventOverride = translatedEvent
+
+        hostView.keyDown(with: originalEvent)
+
+        XCTAssertFalse(receivedEvents.contains(.userSubmittedInput))
+    }
+
     func test_fn_control_left_arrow_bypasses_terminal_surface_input() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -1046,19 +1103,29 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     private(set) var bindingActions: [String] = []
     private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
     private(set) var sendKeyCallCount = 0
+    private(set) var translatedKeyEvents: [NSEvent] = []
+    private(set) var sentKeyEvents: [NSEvent] = []
+    private(set) var sentKeyTexts: [String?] = []
     private(set) var sentTexts: [String] = []
     private(set) var submitReturnCallCount = 0
     private(set) var cancelPromptInputCallCount = 0
     var selectionPresent = false
     var inheritedConfigContext: ghostty_surface_context_e?
+    var translatedKeyEventOverride: NSEvent?
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) { focusValues.append(isFocused) }
     func setOcclusionVisible(_ isVisible: Bool) {
         occlusionVisibilityValues.append(isVisible)
     }
     func refresh() { refreshCallCount += 1 }
+    func translatedKeyEvent(for event: NSEvent) -> NSEvent {
+        translatedKeyEvents.append(event)
+        return translatedKeyEventOverride ?? event
+    }
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool {
         sendKeyCallCount += 1
+        sentKeyEvents.append(event)
+        sentKeyTexts.append(text)
         return true
     }
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}

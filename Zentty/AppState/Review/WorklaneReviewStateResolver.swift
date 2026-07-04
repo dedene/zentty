@@ -227,24 +227,25 @@ final class WorklaneReviewStateResolver {
                     continue
                 }
 
-                Task { @MainActor [weak self] in
+                Task { [weak self] in
                     guard let self else {
                         return
                     }
 
-                    let fallback = self.cache[key]
                     let resolution = await self.loadPullRequestResolution(
                         path: repoRoot,
                         branch: branch,
-                        fallback: fallback
+                        fallback: self.cache[key]
                     )
-                    self.pendingRepositoryKeys.remove(key)
-                    if resolution.reviewState?.branch != nil {
-                        self.cache[key] = resolution
-                    }
-                    let paneIDs = self.waitingPaneIDsByRepositoryKey.removeValue(forKey: key) ?? []
-                    paneIDs.forEach { paneID in
-                        update(paneID, resolution)
+                    await MainActor.run {
+                        self.pendingRepositoryKeys.remove(key)
+                        if resolution.reviewState?.branch != nil {
+                            self.cache[key] = resolution
+                        }
+                        let paneIDs = self.waitingPaneIDsByRepositoryKey.removeValue(forKey: key) ?? []
+                        paneIDs.forEach { paneID in
+                            update(paneID, resolution)
+                        }
                     }
                 }
             }
@@ -273,11 +274,10 @@ final class WorklaneReviewStateResolver {
             return emptyResolution()
         }
 
-        let fallback = await cache[key]
         let resolution = await loadPullRequestResolution(
             path: path,
             branch: sanitizedBranch,
-            fallback: fallback
+            fallback: cache[key]
         )
         if resolution.reviewState?.branch != nil {
             cache[key] = resolution
@@ -303,11 +303,10 @@ final class WorklaneReviewStateResolver {
                 if let cached = cache[key] {
                     resolution = cached
                 } else {
-                    let fallback = await cache[key]
                     resolution = await loadPullRequestResolution(
                         path: repoRoot,
                         branch: branch,
-                        fallback: fallback
+                        fallback: cache[key]
                     )
                     if resolution.reviewState?.branch != nil {
                         cache[key] = resolution
@@ -336,11 +335,10 @@ final class WorklaneReviewStateResolver {
             return cached
         }
 
-        let fallback = await cache[key]
         let resolution = await loadPullRequestResolution(
             path: repoRoot,
             branch: sanitizedBranch,
-            fallback: fallback
+            fallback: cache[key]
         )
         if resolution.reviewState?.branch != nil {
             cache[key] = resolution
@@ -381,21 +379,22 @@ final class WorklaneReviewStateResolver {
             return
         }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else {
                 return
             }
 
-            let fallback = self.cache[key]
             let resolution = await self.loadPullRequestResolution(
                 path: repoRoot,
                 branch: sanitizedBranch,
-                fallback: fallback
+                fallback: self.cache[key]
             )
-            if resolution.reviewState?.branch != nil {
-                self.cache[key] = resolution
+            await MainActor.run {
+                if resolution.reviewState?.branch != nil {
+                    self.cache[key] = resolution
+                }
+                update(paneID, resolution)
             }
-            update(paneID, resolution)
         }
     }
 

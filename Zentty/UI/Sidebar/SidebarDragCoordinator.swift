@@ -7,8 +7,7 @@ final class SidebarDragCoordinator {
 
     init(
         sidebarView: SidebarView,
-        hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming = MainActorShim.assumeIsolated { DragReorderHapticFeedbackPerformer() }
-
+        hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming = DragReorderHapticFeedbackPerformer()
     ) {
         self.sidebarView = sidebarView
         self.hapticFeedbackPerformer = hapticFeedbackPerformer

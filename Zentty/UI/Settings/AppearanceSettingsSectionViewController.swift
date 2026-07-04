@@ -125,10 +125,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private var selectedPreviewTheme: ThemePreview?
 
     init(
-        catalogProvider: any ThemeCatalogProviding = MainActorShim.assumeIsolated { ThemeCatalogService() },
-        configCoordinator: any AppearanceSettingsConfigCoordinating = MainActorShim.assumeIsolated { GhosttyAppearanceSettingsCoordinator(
+        catalogProvider: any ThemeCatalogProviding = ThemeCatalogService(),
+        configCoordinator: any AppearanceSettingsConfigCoordinating = GhosttyAppearanceSettingsCoordinator(
             configStore: AppConfigStore()
-        ) },
+        ),
         currentThemeName: @escaping (NSAppearance?) -> String? = GhosttyThemeResolver().currentThemeName(for:),
         currentBackgroundOpacity: @escaping () -> CGFloat? = {
             GhosttyThemeResolver().currentBackgroundOpacity()

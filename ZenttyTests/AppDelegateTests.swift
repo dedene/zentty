@@ -306,7 +306,7 @@ final class AppDelegateTests: XCTestCase {
             ]
         )
 
-        let separatorCount = viewMenu.items.filter({ $0.isSeparatorItem }).count
+        let separatorCount = viewMenu.items.count(where: { $0.isSeparatorItem })
         XCTAssertGreaterThanOrEqual(separatorCount, 3, "View menu should have separator groups for visual structure")
     }
 

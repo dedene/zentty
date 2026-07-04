@@ -242,16 +242,7 @@ final class PaneDragZoneView: NSView {
         resetDragState()
     }
 
-    #if swift(>=5.10)
     override func mouseCancelled(with event: NSEvent?) {
-        dragStartPointInWindow = nil
-        guard isDragActive else {
-            return
-        }
-        onDragCancelled?()
-    }
-    #endif
-    func _dummy_mouseCancelled(with event: NSEvent?) {
         dragStartPointInWindow = nil
         guard isDragActive else {
             return

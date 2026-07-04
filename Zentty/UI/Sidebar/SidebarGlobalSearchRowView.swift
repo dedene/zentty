@@ -125,8 +125,8 @@ final class SidebarGlobalSearchRowView: NSView {
     }
 
     var activeQueryTrailingConstraintCountForTesting: Int {
-        [queryFieldToCountConstraint, queryFieldToPreviousConstraint].compactMap { $0 }
-            .filter { $0.isActive }
+        [queryFieldToCountConstraint, queryFieldToPreviousConstraint].compactMap(\.self)
+            .filter(\.isActive)
             .count
     }
 

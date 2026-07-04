@@ -33,4 +33,3 @@ fastlane/.env
 *.p8
 .sentryclirc
 agent.config.json
-tmp/

@@ -79,19 +79,12 @@ struct CommandPaletteView: View {
         .onChange(of: preferredPanelHeight) { newValue in
             onHeightChange(newValue)
         }
-        .background(
-            Group {
-                Button("") { onDismiss() }
-                    .keyboardShortcut(.escape, modifiers: [])
-                Button("") { executeSelected() }
-                    .keyboardShortcut(.return, modifiers: [])
-                Button("") { viewModel.moveSelection(by: -1) }
-                    .keyboardShortcut(.upArrow, modifiers: [])
-                Button("") { viewModel.moveSelection(by: 1) }
-                    .keyboardShortcut(.downArrow, modifiers: [])
-            }
-            .opacity(0)
-            .frame(width: 0, height: 0)
+        .modifier(
+            CommandPaletteKeyboardHandlingModifier(
+                onDismiss: onDismiss,
+                executeSelected: executeSelected,
+                moveSelection: { viewModel.moveSelection(by: $0) }
+            )
         )
     }
 
@@ -99,7 +92,7 @@ struct CommandPaletteView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 16))
-                .foregroundColor(theme.secondaryColor)
+                .foregroundStyle(theme.secondaryColor)
             TextField(
                 "Search commands, panes, and settings\u{2026}",
                 text: $viewModel.searchText,
@@ -107,7 +100,7 @@ struct CommandPaletteView: View {
             )
                 .textFieldStyle(.plain)
                 .font(.system(size: 17))
-                .foregroundColor(theme.primaryColor)
+                .foregroundStyle(theme.primaryColor)
                 .focused($isSearchFocused)
                 .onAppear { isSearchFocused = true }
             if !viewModel.searchText.isEmpty {
@@ -116,7 +109,7 @@ struct CommandPaletteView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
-                        .foregroundColor(theme.secondaryColor)
+                        .foregroundStyle(theme.secondaryColor)
                 }
                 .buttonStyle(.plain)
             }
@@ -184,7 +177,7 @@ struct CommandPaletteView: View {
     private var emptyState: some View {
         Text(viewModel.searchText.isEmpty ? "No recent panes or actions" : "No matching commands, panes, or settings")
             .font(.system(size: 13))
-            .foregroundColor(theme.secondaryColor)
+            .foregroundStyle(theme.secondaryColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 24)
     }
@@ -205,7 +198,7 @@ struct CommandPaletteView: View {
             ForEach(keys, id: \.self) { key in
                 Text(key)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(theme.secondaryColor)
+                    .foregroundStyle(theme.secondaryColor)
                     .frame(minWidth: 28, minHeight: 24)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -214,14 +207,14 @@ struct CommandPaletteView: View {
             }
             Text(label)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(theme.secondaryColor)
+                .foregroundStyle(theme.secondaryColor)
         }
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(theme.secondaryColor)
+            .foregroundStyle(theme.secondaryColor)
             .frame(
                 height: CommandPaletteLayoutMetrics.sectionHeaderHeight
                     - CommandPaletteLayoutMetrics.sectionHeaderBottomSpacing,
@@ -253,11 +246,11 @@ struct CommandPaletteView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(scope.title)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(theme.secondaryColor)
+                .foregroundStyle(theme.secondaryColor)
             if let subtitle = scope.subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.system(size: 11))
-                    .foregroundColor(theme.secondaryColor)
+                    .foregroundStyle(theme.secondaryColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -271,6 +264,50 @@ struct CommandPaletteView: View {
     private func executeSelected() {
         guard let item = viewModel.selectedItem else { return }
         onExecute(item.item.id)
+    }
+}
+
+private struct CommandPaletteKeyboardHandlingModifier: ViewModifier {
+    let onDismiss: () -> Void
+    let executeSelected: () -> Void
+    let moveSelection: (Int) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .onKeyPress(.escape) {
+                    onDismiss()
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    executeSelected()
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    moveSelection(-1)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    moveSelection(1)
+                    return .handled
+                }
+        } else {
+            content.background(
+                Group {
+                    Button("") { onDismiss() }
+                        .keyboardShortcut(.escape, modifiers: [])
+                    Button("") { executeSelected() }
+                        .keyboardShortcut(.return, modifiers: [])
+                    Button("") { moveSelection(-1) }
+                        .keyboardShortcut(.upArrow, modifiers: [])
+                    Button("") { moveSelection(1) }
+                        .keyboardShortcut(.downArrow, modifiers: [])
+                }
+                .opacity(0)
+                .frame(width: 0, height: 0)
+            )
+        }
     }
 }
 

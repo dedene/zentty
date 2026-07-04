@@ -340,12 +340,12 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     init(
         configStore: AppConfigStore,
         agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter =
-            MainActorShim.assumeIsolated { AgentTeamsEnableWarning.present },
+            AgentTeamsEnableWarning.present,
         consentPresenter: @escaping @MainActor (AgentBootstrapTool, @escaping (AgentIntegrationState) -> Void) -> Void =
-            MainActorShim.assumeIsolated { AgentIntegrationConsentPanel.present },
+            AgentIntegrationConsentPanel.present,
         performUninstall: @escaping (AgentBootstrapTool) throws -> Void = AgentIntegrationHooks.uninstall,
         uninstallFailurePresenter: @escaping @MainActor (NSWindow?, AgentBootstrapTool, Error) -> Void =
-            MainActorShim.assumeIsolated { AgentIntegrationUninstallFailureAlert.present }
+            AgentIntegrationUninstallFailureAlert.present
     ) {
         self.configStore = configStore
         self.agentTeamsEnableWarningPresenter = agentTeamsEnableWarningPresenter

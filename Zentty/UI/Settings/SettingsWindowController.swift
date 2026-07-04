@@ -241,20 +241,15 @@ final class SettingsWindowController: NSWindowController {
 
     init(
         configStore: AppConfigStore,
-        openWithService: OpenWithServing = MainActorShim.assumeIsolated { OpenWithService() },
-
-        serverOpening: ServerOpening = MainActorShim.assumeIsolated { ServerOpenService() },
-
+        openWithService: OpenWithServing = OpenWithService(),
+        serverOpening: ServerOpening = ServerOpenService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker,
         errorReportingBundleConfigurationProvider: @escaping ErrorReportingBundleConfigurationProvider = {
             ErrorReportingBundleConfiguration.load(from: .main)
         },
-        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = MainActorShim.assumeIsolated { ErrorReportingRestartConfirmation.present },
-
-        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = MainActorShim.assumeIsolated { ErrorReportingApplicationRestart.restart },
-
-        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = MainActorShim.assumeIsolated { AgentTeamsEnableWarning.present },
-
+        errorReportingConfirmationPresenter: @escaping ErrorReportingConfirmationPresenter = ErrorReportingRestartConfirmation.present,
+        errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
+        agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = AgentTeamsEnableWarning.present,
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess,
         initialSection: SettingsSection = .general
     ) {

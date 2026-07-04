@@ -57,12 +57,9 @@ final class AgentCaffeinationController {
 
     init(
         releaseDebounceInterval: TimeInterval = 10,
-        beginActivity: @escaping BeginActivity = MainActorShim.assumeIsolated { AgentCaffeinationController.defaultBeginActivity as BeginActivity },
-
-        endActivity: @escaping EndActivity = MainActorShim.assumeIsolated { AgentCaffeinationController.defaultEndActivity as EndActivity },
-
-        releaseScheduler: @escaping ReleaseScheduler = MainActorShim.assumeIsolated { AgentCaffeinationController.defaultReleaseScheduler as ReleaseScheduler }
-
+        beginActivity: @escaping BeginActivity = AgentCaffeinationController.defaultBeginActivity,
+        endActivity: @escaping EndActivity = AgentCaffeinationController.defaultEndActivity,
+        releaseScheduler: @escaping ReleaseScheduler = AgentCaffeinationController.defaultReleaseScheduler
     ) {
         self.releaseDebounceInterval = releaseDebounceInterval
         self.beginActivity = beginActivity
@@ -238,7 +235,7 @@ final class NotificationStore {
     private var observers: [UUID: () -> Void] = [:]
 
     var unresolvedCount: Int {
-        notifications.filter({ !$0.isResolved }).count
+        notifications.count(where: { !$0.isResolved })
     }
 
     // MARK: - Pending debounce state

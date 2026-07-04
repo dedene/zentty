@@ -59,7 +59,7 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
 
         isRunning = true
         let framesPerSecond = Self.clampedFramesPerSecond(preferredFramesPerSecond)
-        
+
         if #available(macOS 14.0, *) {
             if let link = displayLinkMaker.makeDisplayLink(
                 attachedTo: view,
@@ -77,7 +77,6 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
                 return
             }
         }
-
 
         startFallbackTimer(framesPerSecond: framesPerSecond)
     }
@@ -112,7 +111,10 @@ final class TerminalScrollFrameSampler: TerminalScrollFrameSampling {
             }
 
             MainActorShim.assumeIsolated {
-                guard self.isRunning else { return }
+                guard self.isRunning else {
+                    return
+                }
+
                 self.onFrame?()
             }
         }

@@ -966,8 +966,7 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
 
     init(
         configStore: AppConfigStore,
-        openWithService: OpenWithServing = MainActorShim.assumeIsolated { OpenWithService() },
-
+        openWithService: OpenWithServing = OpenWithService(),
         customAppPicker: @escaping () -> OpenWithCustomApp? = OpenWithSettingsSectionViewController.defaultCustomAppPicker
     ) {
         self.configStore = configStore

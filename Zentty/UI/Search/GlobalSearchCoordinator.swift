@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 struct GlobalSearchState: Equatable {
     var needle: String
     var selected: Int
@@ -22,6 +23,7 @@ struct GlobalSearchState: Equatable {
     }
 }
 
+@MainActor
 struct GlobalSearchTarget: Equatable, Hashable {
     let worklaneID: WorklaneID
     let paneID: PaneID

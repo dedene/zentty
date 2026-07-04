@@ -13,8 +13,7 @@ final class NotificationChromeCoordinator {
 
     var onNavigateToNotification: ((AppNotification) -> Void)?
 
-    init(store: NotificationStore = MainActorShim.assumeIsolated { NotificationStore() }, inboxButton: NotificationInboxButton = MainActorShim.assumeIsolated { NotificationInboxButton() }) {
-
+    init(store: NotificationStore = NotificationStore(), inboxButton: NotificationInboxButton = NotificationInboxButton()) {
         self.store = store
         self.inboxButton = inboxButton
     }
@@ -208,9 +207,9 @@ final class NotificationChromeCoordinator {
             object: popover,
             queue: .main
         ) { [weak self, weak popover] _ in
-            guard let popover, let self else { return }
+            guard let popover else { return }
             Task { @MainActor in
-                self.clearPopoverState(for: popover)
+                self?.clearPopoverState(for: popover)
             }
         }
     }

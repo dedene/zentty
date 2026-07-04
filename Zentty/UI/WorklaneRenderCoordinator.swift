@@ -78,15 +78,14 @@ final class WorklaneRenderCoordinator {
         runtimeRegistry: PaneRuntimeRegistry,
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
-        reviewStateResolver: WorklaneReviewStateResolver? = nil,
-        reviewPollingScheduler: @escaping ReviewPollingScheduler = MainActorShim.assumeIsolated { WorklaneRenderCoordinator.defaultReviewPollingScheduler },
-
+        reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
+        reviewPollingScheduler: @escaping ReviewPollingScheduler = WorklaneRenderCoordinator.defaultReviewPollingScheduler,
         terminalDiagnostics: TerminalDiagnostics = .shared
     ) {
         self.windowID = windowID
         self.worklaneStore = worklaneStore
         self.runtimeRegistry = runtimeRegistry
-        self.reviewStateResolver = reviewStateResolver ?? WorklaneReviewStateResolver()
+        self.reviewStateResolver = reviewStateResolver
         self.reviewPollingScheduler = reviewPollingScheduler
         self.terminalDiagnostics = terminalDiagnostics
         self.configStore = configStore

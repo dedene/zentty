@@ -126,24 +126,28 @@ final class WorklaneColorMenuItemView: NSView {
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 123: // left arrow
+        switch event.specialKey {
+        case .leftArrow:
             userHasNavigated = true
             moveFocus(deltaColumn: -1, deltaRow: 0)
-        case 124: // right arrow
+        case .rightArrow:
             userHasNavigated = true
             moveFocus(deltaColumn: 1, deltaRow: 0)
-        case 126: // up arrow
+        case .upArrow:
             userHasNavigated = true
             moveFocus(deltaColumn: 0, deltaRow: -1)
-        case 125: // down arrow
+        case .downArrow:
             userHasNavigated = true
             moveFocus(deltaColumn: 0, deltaRow: 1)
-        case 48: // tab and backTab
+        case .tab:
             userHasNavigated = true
             hasFocusedOnReset.toggle()
             refreshFocusIndicator()
-        case 36, 76: // return and enter
+        case .backTab:
+            userHasNavigated = true
+            hasFocusedOnReset.toggle()
+            refreshFocusIndicator()
+        case .carriageReturn, .enter:
             commitFocused()
         default:
             if event.charactersIgnoringModifiers == " " {

@@ -244,8 +244,7 @@ final class PaneStripView: NSView {
 
     init(
         frame frameRect: NSRect = .zero,
-        runtimeRegistry: PaneRuntimeRegistry = MainActorShim.assumeIsolated { PaneRuntimeRegistry() },
-
+        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         backingScaleFactorProvider: @escaping () -> CGFloat = { NSScreen.main?.backingScaleFactor ?? 1 }
     ) {
         self.runtimeRegistry = runtimeRegistry

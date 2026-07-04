@@ -241,29 +241,17 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         }
     }()
 
-    nonisolated fileprivate var app: ghostty_app_t? {
-        get { _app.value }
-        set { _app.value = newValue }
-    }
-    private let _app = NonisolatedUnsafe<ghostty_app_t?>(nil)
-    nonisolated private var config: ghostty_config_t? {
-        get { _config.value }
-        set { _config.value = newValue }
-    }
-    private let _config = NonisolatedUnsafe<ghostty_config_t?>(nil)
+    nonisolated(unsafe) fileprivate var app: ghostty_app_t?
+    nonisolated(unsafe) private var config: ghostty_config_t?
     nonisolated let diagnostics: TerminalDiagnostics
-    nonisolated var wakeupCoordinator: LibghosttyWakeupCoordinator {
-        get { _wakeupCoordinator.value! }
-        set { _wakeupCoordinator.value = newValue }
-    }
-    private let _wakeupCoordinator = NonisolatedUnsafe<LibghosttyWakeupCoordinator?>(nil)
+    nonisolated(unsafe) var wakeupCoordinator: LibghosttyWakeupCoordinator
     private let configEnvironment: GhosttyConfigEnvironment
 
     private init(configEnvironment: GhosttyConfigEnvironment = GhosttyConfigEnvironment()) throws {
-        self._app.value = nil
-        self._config.value = nil
+        self.app = nil
+        self.config = nil
         self.diagnostics = .shared
-        self._wakeupCoordinator.value = LibghosttyWakeupCoordinator(diagnostics: self.diagnostics) {}
+        self.wakeupCoordinator = LibghosttyWakeupCoordinator(diagnostics: self.diagnostics) {}
         self.configEnvironment = configEnvironment
 
         Self.configureResourcesDirectoryIfNeeded()
@@ -310,6 +298,12 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             self,
             selector: #selector(applicationDidResignActive),
             name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardSelectionDidChange),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
             object: nil
         )
     }
@@ -806,6 +800,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return
         }
         ghostty_app_set_focus(app, false)
+    }
+
+    @objc
+    private func keyboardSelectionDidChange() {
+        guard let app else {
+            return
+        }
+        ghostty_app_keyboard_changed(app)
     }
 
     private static func configureLogLevelIfNeeded() {

@@ -113,7 +113,7 @@ final class ServerRegistry {
             return nil
         }
 
-        let ports = Set(records.flatMap(\.ports) + [winner.url.port].compactMap { $0 }).sorted()
+        let ports = Set(records.flatMap(\.ports) + [winner.url.port].compactMap(\.self)).sorted()
 
         return DetectedServer(
             id: serverID(worklaneID: winner.worklaneID, origin: winner.origin),

@@ -9,7 +9,7 @@ final class PaneLayoutMenuCoordinator {
 
     var onAction: ((AppAction) -> Void)?
 
-    init(menuButton: PaneLayoutMenuButton = MainActorShim.assumeIsolated { PaneLayoutMenuButton() }, shortcutManager: ShortcutManager) {
+    init(menuButton: PaneLayoutMenuButton = PaneLayoutMenuButton(), shortcutManager: ShortcutManager) {
         self.menuButton = menuButton
         self.shortcutManager = shortcutManager
     }

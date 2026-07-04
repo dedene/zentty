@@ -125,7 +125,7 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
 }
 
 private final class StubDraggingInfo: NSObject, NSDraggingInfo, @unchecked Sendable {
-    let draggingPasteboard: NSPasteboard
+    nonisolated(unsafe) let draggingPasteboard: NSPasteboard
     nonisolated var draggingDestinationWindow: NSWindow? { nil }
     nonisolated var draggingSequenceNumber: Int { 0 }
     nonisolated var draggingSource: Any? { nil }

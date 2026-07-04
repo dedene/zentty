@@ -199,16 +199,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
-        runtimeRegistry: PaneRuntimeRegistry = MainActorShim.assumeIsolated { PaneRuntimeRegistry() },
-
+        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         configStore: AppConfigStore? = nil,
-        appUpdateStateStore: AppUpdateStateStore = MainActorShim.assumeIsolated { AppUpdateStateStore() },
-
-        notificationStore: NotificationStore = MainActorShim.assumeIsolated { NotificationStore() },
-
-        openWithService: OpenWithServing = MainActorShim.assumeIsolated { OpenWithService() },
-
-        serverOpenService: ServerOpening = MainActorShim.assumeIsolated { ServerOpenService() },
+        appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
+        notificationStore: NotificationStore = NotificationStore(),
+        openWithService: OpenWithServing = OpenWithService(),
+        serverOpenService: ServerOpening = ServerOpenService(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
