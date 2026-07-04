@@ -210,6 +210,7 @@
 		655A01CFDA23B38776180998 /* WorklaneContextFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58967CFFAB97F7D24A62733 /* WorklaneContextFormatterTests.swift */; };
 		6582FD0B7BCB91F3713E13CD /* WorklaneReviewStateResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330B23C2AB3C9333615FF1F1 /* WorklaneReviewStateResolverTests.swift */; };
 		65ADCFA85CAA56E91E14C014 /* PaneDragEdgeScrollDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC113A53E86E67BCA330D9A /* PaneDragEdgeScrollDriver.swift */; };
+		65C0729CCCDB639440DD90EF /* WindowChromeCenteringInterleavingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C222FA689B8B7C8E932BE43D /* WindowChromeCenteringInterleavingTests.swift */; };
 		65C5388D0DFD8FB84B5FCD14 /* AppConfigTOML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C38CE6BD2D5F5D24B1B7FE /* AppConfigTOML.swift */; };
 		661F1B3E5187816B392E2100 /* CommandAvailabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */; };
 		667A04C8CFE0127371DF68C6 /* BookmarksPopoverViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483D9BCEB73BBB83700BF024 /* BookmarksPopoverViewModel.swift */; };
@@ -936,6 +937,7 @@
 		BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneShellContext.swift; sourceTree = "<group>"; };
 		BFF869D6D306AFE18589C8CF /* WorklaneStoreTeamAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreTeamAnchorTests.swift; sourceTree = "<group>"; };
 		C15A14BDE2EEBB8C5AA0F3DD /* TmuxCompatCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatCLITests.swift; sourceTree = "<group>"; };
+		C222FA689B8B7C8E932BE43D /* WindowChromeCenteringInterleavingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeCenteringInterleavingTests.swift; sourceTree = "<group>"; };
 		C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapterTests.swift; sourceTree = "<group>"; };
 		C2DAA76C6247F60AA55ACB5D /* SidebarUpdateRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarUpdateRowTests.swift; sourceTree = "<group>"; };
 		C3094AA8521BDAB3096CF18D /* SettingsNavigationHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigationHistoryTests.swift; sourceTree = "<group>"; };
@@ -1907,6 +1909,7 @@
 				82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */,
 				779BFDD1489072D7AC5AB131 /* VibeCanonicalReEmitterTests.swift */,
 				57A549AF1327C02BFFB274EB /* VibeHooksInstallerTests.swift */,
+				C222FA689B8B7C8E932BE43D /* WindowChromeCenteringInterleavingTests.swift */,
 				86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */,
 				EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */,
 				3ED64DFEF411E6E11CC13775 /* WorklaneAttentionChipViewTests.swift */,
@@ -2316,6 +2319,7 @@
 				EA6847AAD0A938767899B578 /* VendoredGhosttyResourcesTests.swift in Sources */,
 				8D81AEDC621630BE073CFDEB /* VibeCanonicalReEmitterTests.swift in Sources */,
 				4A014221A3B9A8CFCCBA0DCF /* VibeHooksInstallerTests.swift in Sources */,
+				65C0729CCCDB639440DD90EF /* WindowChromeCenteringInterleavingTests.swift in Sources */,
 				738453B16B8499ADFB4722CB /* WindowChromeRowLayoutPlannerTests.swift in Sources */,
 				16E1DE875672D6743DF1B86D /* WindowChromeViewTests.swift in Sources */,
 				1C120CFB688768EE2ED2BD92 /* WorklaneAttentionChipViewTests.swift in Sources */,

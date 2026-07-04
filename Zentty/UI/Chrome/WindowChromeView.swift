@@ -1254,6 +1254,11 @@ final class WindowChromeView: NSView {
     var branchFrameWidth: CGFloat { branchLabel.frame.width }
     var branchIntrinsicWidth: CGFloat { Self.requiredSingleLineWidth(for: branchLabel) }
     var rowFrame: NSRect { rowContainerView.frame }
+    var rowContentFramesForTesting: [NSRect] {
+        rowContainerView.subviews
+            .filter { !$0.isHidden && $0.frame.width > 0.5 }
+            .map(\.frame)
+    }
     var serverControlFrame: NSRect { serverContainerView.frame }
     var serverPrimaryFrame: NSRect { serverPrimaryButton.frame }
     var serverMenuFrame: NSRect { serverMenuButton.frame }

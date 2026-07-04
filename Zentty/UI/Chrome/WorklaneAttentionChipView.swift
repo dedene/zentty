@@ -34,7 +34,19 @@ struct WorklaneAttentionChipPresentation: Equatable {
 @MainActor
 final class WorklaneAttentionChipView: NSView {
     private static let horizontalPadding: CGFloat = 10
+    private static let verticalPadding: CGFloat = 3
     private static let symbolPointSize: CGFloat = 11
+
+    /// The chrome row sizes items from `intrinsicContentSize.height`; without
+    /// this override a plain NSView reports `noIntrinsicMetric` and the chip
+    /// is laid out zero-height — reserving centered width while drawing
+    /// nothing, which pushes the visible title off-center.
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: preferredWidthForCurrentContent,
+            height: ceil(stackView.fittingSize.height) + Self.verticalPadding * 2
+        )
+    }
 
     private let stateIconView = NSImageView()
     private let stateLabel = NSTextField(labelWithString: "")
@@ -144,6 +156,7 @@ final class WorklaneAttentionChipView: NSView {
             stateIconView.image = nil
             stateIconView.isHidden = true
             stackView.setViews([], in: .leading)
+            invalidateIntrinsicContentSize()
             return
         }
 
@@ -168,6 +181,7 @@ final class WorklaneAttentionChipView: NSView {
             [stateIconView, stateLabel, toolLabel, artifactButton].filter { !$0.isHidden },
             in: .leading
         )
+        invalidateIntrinsicContentSize()
 
         applyStatusColors(animated: false)
     }
