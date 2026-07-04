@@ -123,9 +123,20 @@ struct InstallCommand: ParsableCommand {
             let cliPath = resolveInvokingCLIPath()
             let legacyURL = KimiHooksInstaller.defaultUserConfigURL()
             let modernURL = KimiHooksInstaller.modernUserConfigURL()
-            try KimiHooksInstaller.install(at: legacyURL, cliPath: cliPath)
-            try KimiHooksInstaller.install(at: modernURL, cliPath: cliPath)
-            print("Installed Zentty Kimi hooks at \(legacyURL.path) and \(modernURL.path).")
+            var firstError: Error?
+            for configURL in [legacyURL, modernURL] {
+                do {
+                    try KimiHooksInstaller.install(at: configURL, cliPath: cliPath)
+                    print("Installed Zentty Kimi hooks at \(configURL.path).")
+                } catch {
+                    if firstError == nil {
+                        firstError = error
+                    }
+                }
+            }
+            if let firstError {
+                throw firstError
+            }
         case .grokHooks:
             try GrokHooksInstaller.install(cliPath: resolveInvokingCLIPath())
             print("Installed Zentty Grok hooks (JSON + ~/.grok/hooks/) under \(GrokHooksInstaller.defaultUserHooksURL().path).")
@@ -180,9 +191,20 @@ struct UninstallCommand: ParsableCommand {
         case .kimiHooks:
             let legacyURL = KimiHooksInstaller.defaultUserConfigURL()
             let modernURL = KimiHooksInstaller.modernUserConfigURL()
-            try KimiHooksInstaller.uninstall(at: legacyURL)
-            try KimiHooksInstaller.uninstall(at: modernURL)
-            print("Removed Zentty Kimi hook entries from \(legacyURL.path) and \(modernURL.path).")
+            var firstError: Error?
+            for configURL in [legacyURL, modernURL] {
+                do {
+                    try KimiHooksInstaller.uninstall(at: configURL)
+                    print("Removed Zentty Kimi hook entries from \(configURL.path).")
+                } catch {
+                    if firstError == nil {
+                        firstError = error
+                    }
+                }
+            }
+            if let firstError {
+                throw firstError
+            }
         case .grokHooks:
             try GrokHooksInstaller.uninstall()
             print("Removed Zentty Grok hook entries (JSON + directory) from \(GrokHooksInstaller.defaultUserHooksURL().path).")

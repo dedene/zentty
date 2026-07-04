@@ -595,31 +595,41 @@ enum AgentLaunchBootstrap {
             )
         }
 
-        let isModern = checkIsModernKimiCode(executablePath)
-        let (forwardedArguments, configSource) = parseKimiConfig(executablePath: executablePath, arguments: arguments, environment: environment)
+        let isModern = checkIsModernKimiCode(executablePath, environment: environment)
+        let (forwardedArguments, configSource) = parseKimiConfig(
+            isModern: isModern,
+            arguments: arguments,
+            environment: environment
+        )
         let overlayDirectoryURL = try prepareToolDirectory(
             tool: .kimi,
             target: target,
             runtimeDirectoryURL: runtimeDirectoryURL,
             fileManager: fileManager
         )
-        let overlayConfigURL = overlayDirectoryURL.appendingPathComponent("config.toml", isDirectory: false)
         let existingConfig = try kimiConfigContents(from: configSource, fileManager: fileManager)
         let mergedConfig = try KimiHooksInstaller.mergedConfigText(existingConfig: existingConfig, cliPath: cliPath)
-        try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
 
         if isModern {
+            let overlayHomeURL = try prepareKimiCodeOverlay(
+                sourceHomeURL: kimiCodeHomeURL(environment: environment),
+                overlayDirectoryURL: overlayDirectoryURL,
+                mergedConfig: mergedConfig,
+                fileManager: fileManager
+            )
             return AgentLaunchPlan(
                 executablePath: executablePath,
                 arguments: forwardedArguments,
                 setEnvironment: [
                     "ZENTTY_AGENT_TOOL": "kimi",
-                    "KIMI_CODE_HOME": overlayDirectoryURL.path
+                    "KIMI_CODE_HOME": overlayHomeURL.path
                 ],
                 unsetEnvironment: [],
                 preLaunchActions: []
             )
         } else {
+            let overlayConfigURL = overlayDirectoryURL.appendingPathComponent("config.toml", isDirectory: false)
+            try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
             return AgentLaunchPlan(
                 executablePath: executablePath,
                 arguments: ["--config-file", overlayConfigURL.path] + forwardedArguments,
@@ -1022,6 +1032,50 @@ enum AgentLaunchBootstrap {
         }
 
         return overlayHomeURL.path
+    }
+
+    private static func prepareKimiCodeOverlay(
+        sourceHomeURL: URL,
+        overlayDirectoryURL: URL,
+        mergedConfig: String,
+        fileManager: FileManager
+    ) throws -> URL {
+        let overlayHomeURL = overlayDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: overlayHomeURL, withIntermediateDirectories: true)
+        try symlinkDirectoryContentsSkipping(
+            from: sourceHomeURL,
+            to: overlayHomeURL,
+            skippingNames: ["config.toml"],
+            fileManager: fileManager
+        )
+
+        let overlayConfigURL = overlayHomeURL.appendingPathComponent("config.toml", isDirectory: false)
+        try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
+        let migrationSkipURL = overlayHomeURL.appendingPathComponent(".skip-migration-from-kimi-cli", isDirectory: false)
+        let migrationSkipPath = migrationSkipURL.path
+        let migrationSkipExists = fileManager.fileExists(atPath: migrationSkipPath)
+            || (try? fileManager.destinationOfSymbolicLink(atPath: migrationSkipPath)) != nil
+        if !migrationSkipExists {
+            try "".write(to: migrationSkipURL, atomically: true, encoding: .utf8)
+        }
+        return overlayHomeURL
+    }
+
+    private static func kimiCodeHomeURL(environment: [String: String]) -> URL {
+        if let kimiCodeHome = environment["KIMI_CODE_HOME"]?.nilIfBlank {
+            return URL(fileURLWithPath: kimiCodeHome, isDirectory: true)
+        }
+        let home = environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".kimi-code", isDirectory: true)
+    }
+
+    private static func legacyKimiConfigURL(environment: [String: String]) -> URL {
+        if let kimiShareDirectory = environment["KIMI_SHARE_DIR"]?.nilIfBlank {
+            return URL(fileURLWithPath: kimiShareDirectory, isDirectory: true)
+                .appendingPathComponent("config.toml", isDirectory: false)
+        }
+        return KimiHooksInstaller.defaultUserConfigURL(home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory())
     }
 
     private static func prepareGeminiOverlay(
@@ -1439,53 +1493,26 @@ enum AgentLaunchBootstrap {
         return false
     }
 
-    private static var isModernKimiCache = [String: Bool]()
-    private static let kimiLock = NSLock()
+    private static func checkIsModernKimiCode(_ executablePath: String, environment: [String: String]) -> Bool {
+        KimiVariantProbe.probeVariant(executablePath: executablePath, environment: environment) == .modern
+    }
 
-    private static func checkIsModernKimiCode(_ executablePath: String) -> Bool {
-        kimiLock.lock()
-        defer { kimiLock.unlock() }
-
-        if let cached = isModernKimiCache[executablePath] {
-            return cached
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["--help"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                let isModern = !output.contains("--config-file")
-                isModernKimiCache[executablePath] = isModern
-                return isModern
-            }
-        } catch {}
-
-        isModernKimiCache[executablePath] = false
-        return false
+    static func isModernKimiHelpOutput(_ helpText: String) -> Bool {
+        KimiVariantProbe.isModernHelpOutput(helpText)
     }
 
     private static func parseKimiConfig(
-        executablePath: String,
+        isModern: Bool,
         arguments: [String],
         environment: [String: String]
     ) -> (forwardedArguments: [String], source: KimiConfigSource) {
         var forwarded = [String]()
         var iterator = arguments.makeIterator()
         
-        let defaultConfigURL = checkIsModernKimiCode(executablePath)
-            ? KimiHooksInstaller.modernUserConfigURL(home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory())
-            : KimiHooksInstaller.defaultUserConfigURL(home: environment["HOME"]?.nilIfBlank ?? NSHomeDirectory())
-            
+        let defaultConfigURL = isModern
+            ? kimiCodeHomeURL(environment: environment).appendingPathComponent("config.toml", isDirectory: false)
+            : legacyKimiConfigURL(environment: environment)
+
         var source: KimiConfigSource = .defaultFile(defaultConfigURL)
 
         while let argument = iterator.next() {
