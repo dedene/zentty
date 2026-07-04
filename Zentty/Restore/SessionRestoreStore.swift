@@ -730,11 +730,16 @@ enum AgentResumeCommandBuilder {
             }
             return "gemini --resume"
         case .kimi:
-            guard let sessionID = validatedKimiSessionID(from: draft.sessionID) else {
+            guard let invocation = kimiResumeInvocation(from: draft.sessionID) else {
                 logRejectedSessionID(for: draft)
                 return nil
             }
-            return "kimi -r \(sessionID)"
+            switch invocation {
+            case .legacy(let sessionID):
+                return "kimi -r \(sessionID)"
+            case .modern(let sessionID):
+                return "kimi -S \(sessionID)"
+            }
         case .droid:
             guard let sessionID = validatedDroidSessionID(from: draft.sessionID) else {
                 logRejectedSessionID(for: draft)
@@ -879,11 +884,27 @@ enum AgentResumeCommandBuilder {
         return sessionID
     }
 
-    private static func validatedKimiSessionID(from sessionID: String) -> String? {
-        guard let uuid = UUID(uuidString: sessionID) else {
+    private enum KimiResumeInvocation {
+        case legacy(sessionID: String)
+        case modern(sessionID: String)
+    }
+
+    /// Legacy Kimi uses bare UUIDs; modern kimi-code uses `session_<uuid>`.
+    private static func kimiResumeInvocation(from sessionID: String) -> KimiResumeInvocation? {
+        let trimmedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedSessionID.hasPrefix("session_") {
+            let uuidPart = String(trimmedSessionID.dropFirst("session_".count))
+            guard UUID(uuidString: uuidPart) != nil else {
+                return nil
+            }
+            return .modern(sessionID: "session_" + uuidPart.lowercased())
+        }
+
+        guard let uuid = UUID(uuidString: trimmedSessionID) else {
             return nil
         }
-        return uuid.uuidString.lowercased()
+        return .legacy(sessionID: uuid.uuidString.lowercased())
     }
 
     private static func validatedDroidSessionID(from sessionID: String) -> String? {

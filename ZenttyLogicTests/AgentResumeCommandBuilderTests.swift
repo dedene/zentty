@@ -243,6 +243,80 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
         )
     }
 
+    func test_builder_returns_kimi_resume_command_for_uppercase_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "0CB916DB-26AA-40F2-86B5-1BA81B225FD2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "kimi -r 0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_kimi_modern_resume_command_for_session_prefixed_uuid() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "session_0cb916db-26aa-40f2-86b5-1ba81b225fd2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "kimi -S session_0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_kimi_modern_resume_command_for_uppercase_session_prefixed_uuid() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "session_0CB916DB-26AA-40F2-86B5-1BA81B225FD2",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "kimi -S session_0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+        )
+    }
+
+    func test_builder_returns_nil_for_kimi_modern_session_prefixed_invalid_uuid() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "session_not-a-uuid",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_nil_for_kimi_modern_session_prefixed_empty_uuid() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-kimi",
+            kind: .agentResume,
+            toolName: "Kimi",
+            sessionID: "session_",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_nil_for_kimi_non_uuid_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-kimi",
