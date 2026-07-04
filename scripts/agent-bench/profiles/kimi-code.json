@@ -1,26 +1,22 @@
 {
-  "name": "kimi",
+  "name": "kimi-code",
+  "tool": "kimi",
   "command": "kimi",
-  "real_binary_names": ["kimi", "kimi-cli"],
-  "kimi_variant": "legacy",
+  "real_binary_names": ["kimi"],
+  "kimi_variant": "modern",
   "version_args": ["--version"],
   "launch_args_by_scenario": {
     "smoke": [
-      "--print",
-      "--prompt",
+      "-p",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
     "session_capture": [
-      "--print",
-      "--prompt",
+      "-p",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
-    "approval": [
-      "--prompt",
-      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
-    ],
+    "approval": [],
     "restore_launch": [
-      "-r",
+      "-S",
       "237d8c32-2a27-4850-8da8-3a110f13682c"
     ]
   },
@@ -31,7 +27,7 @@
     "session_capture": {
       "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"],
       "session_identity": {
-        "session_id_pattern": "uuid",
+        "session_id_pattern": "kimi-code",
         "tracked_pid": true
       }
     },
@@ -40,17 +36,21 @@
     },
     "restore_launch": {
       "required_events": [],
-      "required_bootstrap_arguments": [["-r", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
+      "required_bootstrap_arguments": [["-S", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
     }
   },
   "input_by_scenario": {
     "approval": [
       {
-        "after": 10,
-        "text": "y\n"
+        "after": 8,
+        "text": "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK\r"
       },
       {
-        "after": 45,
+        "after": 30,
+        "text": "y\r"
+      },
+      {
+        "after": 60,
         "text": "\u0003"
       }
     ]

@@ -6,6 +6,7 @@ import socket
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -97,8 +98,27 @@ class EventInferenceTests(unittest.TestCase):
 
         self.assertEqual(agent, "opencode")
 
+    def test_agent_inference_ignores_removed_bench_scoping_env(self):
+        agent = agent_bench.agent_from_adapter(
+            adapter="kimi",
+            environment={"ZENTTY_AGENT_BENCH_AGENT": "kimi-code"},
+            standard_input=None,
+        )
+
+        self.assertEqual(agent, "kimi")
+
 
 class SyntheticScenarioTests(unittest.TestCase):
+    def test_load_profiles_parses_tool_and_kimi_variant_fields(self):
+        profiles = agent_bench.load_profiles(ROOT / "profiles")
+
+        self.assertEqual(profiles["codex"].tool, "codex")
+        self.assertIsNone(profiles["codex"].kimi_variant)
+        self.assertEqual(profiles["kimi"].tool, "kimi")
+        self.assertEqual(profiles["kimi"].kimi_variant, "legacy")
+        self.assertEqual(profiles["kimi-code"].tool, "kimi")
+        self.assertEqual(profiles["kimi-code"].kimi_variant, "modern")
+
     def test_post_stop_notification_detector_flags_late_notification(self):
         records = [
             agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="SessionStart"),
@@ -186,6 +206,172 @@ class SyntheticScenarioTests(unittest.TestCase):
 
 
 class ExpectationTests(unittest.TestCase):
+    def test_kimi_help_output_with_plain_config_file_flag_is_legacy(self):
+        self.assertFalse(agent_bench.is_modern_kimi_help_output("Usage: kimi --config-file config.toml"))
+
+    def test_kimi_help_output_with_ansi_split_config_file_flag_is_legacy(self):
+        help_text = "Usage: kimi \x1b[1;36m-\x1b[0m\x1b[1;36m-config\x1b[0m\x1b[1;36m-file\x1b[0m config.toml"
+
+        self.assertFalse(agent_bench.is_modern_kimi_help_output(help_text))
+
+    def test_kimi_help_output_without_config_file_flag_is_modern(self):
+        self.assertTrue(agent_bench.is_modern_kimi_help_output("Usage: kimi-code -p, --prompt <prompt>"))
+
+    def test_kimi_code_session_id_pattern_accepts_optional_session_prefix(self):
+        session_id = "0abf9419-c274-464b-aa3e-7946c2153829"
+
+        self.assertTrue(agent_bench.session_id_matches_pattern(session_id, "kimi-code"))
+        self.assertTrue(agent_bench.session_id_matches_pattern(f"session_{session_id}", "kimi-code"))
+        self.assertFalse(agent_bench.session_id_matches_pattern("session_not-a-uuid", "kimi-code"))
+        self.assertFalse(agent_bench.session_id_matches_pattern("not-a-uuid", "kimi-code"))
+        self.assertFalse(agent_bench.session_id_matches_pattern(f"prefix_{session_id}", "kimi-code"))
+
+    def test_kimi_legacy_plan_uses_config_file_and_kimi_share_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            share = root / "share"
+            share.mkdir()
+            (share / "config.toml").write_text('model = "moonshot"\n', encoding="utf-8")
+            planner = agent_bench.LaunchPlanner(
+                profile=agent_bench.AgentProfile(
+                    name="kimi",
+                    tool="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi-cli"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={},
+                    expectations={},
+                    kimi_variant="legacy",
+                ),
+                scenario="smoke",
+                run_dir=root,
+                resources_dir=None,
+            )
+
+            plan = planner._plan_kimi(
+                "/usr/bin/kimi",
+                ["--prompt", "hello"],
+                {"HOME": str(root / "home"), "KIMI_SHARE_DIR": str(share)},
+                "/usr/bin/zentty",
+            )
+
+            self.assertEqual(plan["arguments"][:2], ["--config-file", plan["arguments"][1]])
+            overlay = pathlib.Path(plan["arguments"][1])
+            self.assertEqual(plan["arguments"][2:], ["--prompt", "hello"])
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "kimi")
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_KIMI_VARIANT"], "legacy")
+            self.assertIn('model = "moonshot"', overlay.read_text(encoding="utf-8"))
+
+    def test_kimi_modern_plan_uses_overlay_home_and_symlinks_source_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source_home = root / "source-home"
+            source_home.mkdir()
+            (source_home / "credentials").mkdir()
+            (source_home / "credentials" / "token.json").write_text("{}", encoding="utf-8")
+            (source_home / "sessions").mkdir()
+            (source_home / "tui.toml").write_text("theme = 'dark'\n", encoding="utf-8")
+            (source_home / "config.toml").write_text('model = "kimi"\n', encoding="utf-8")
+            planner = agent_bench.LaunchPlanner(
+                profile=agent_bench.AgentProfile(
+                    name="kimi-code",
+                    tool="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={},
+                    expectations={},
+                    kimi_variant="modern",
+                ),
+                scenario="smoke",
+                run_dir=root,
+                resources_dir=None,
+            )
+
+            plan = planner._plan_kimi(
+                "/usr/bin/kimi",
+                ["-p", "hello"],
+                {"HOME": str(root / "home"), "KIMI_CODE_HOME": str(source_home)},
+                "/usr/bin/zentty",
+            )
+
+            overlay_home = pathlib.Path(plan["setEnvironment"]["KIMI_CODE_HOME"])
+
+            self.assertEqual(plan["arguments"], ["-p", "hello"])
+            self.assertNotIn("--config-file", plan["arguments"])
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "kimi")
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_KIMI_VARIANT"], "modern")
+            self.assertTrue(str(overlay_home).startswith(str(root / "overlays")))
+            self.assertTrue((overlay_home / "credentials").is_symlink())
+            self.assertTrue((overlay_home / "sessions").is_symlink())
+            self.assertTrue((overlay_home / "tui.toml").is_symlink())
+            self.assertFalse((overlay_home / "config.toml").is_symlink())
+            merged = (overlay_home / "config.toml").read_text(encoding="utf-8")
+            self.assertIn('model = "kimi"', merged)
+            self.assertIn("[[hooks]]", merged)
+            self.assertTrue((overlay_home / ".skip-migration-from-kimi-cli").is_file())
+
+    def test_resolve_agent_binary_picks_matching_kimi_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            legacy = first / "kimi"
+            modern = second / "kimi"
+            legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+            modern.write_text("#!/bin/sh\n", encoding="utf-8")
+            legacy.chmod(0o755)
+            modern.chmod(0o755)
+            profile = agent_bench.AgentProfile(
+                name="kimi-code",
+                tool="kimi",
+                command="kimi",
+                real_binary_names=["kimi"],
+                version_args=["--version"],
+                launch_args_by_scenario={},
+                expectations={},
+                kimi_variant="modern",
+            )
+
+            resolved, skip = agent_bench.resolve_agent_binary(
+                profile,
+                os.pathsep.join([str(first), str(second)]),
+                variant_probe=lambda path: "modern" if pathlib.Path(path) == modern else "legacy",
+            )
+
+        self.assertEqual(resolved, str(modern))
+        self.assertIsNone(skip)
+
+    def test_resolve_agent_binary_reports_skip_when_pinned_kimi_variant_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            legacy = bin_dir / "kimi"
+            legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+            legacy.chmod(0o755)
+            profile = agent_bench.AgentProfile(
+                name="kimi-code",
+                tool="kimi",
+                command="kimi",
+                real_binary_names=["kimi"],
+                version_args=["--version"],
+                launch_args_by_scenario={},
+                expectations={},
+                kimi_variant="modern",
+            )
+
+            resolved, skip = agent_bench.resolve_agent_binary(
+                profile,
+                str(bin_dir),
+                variant_probe=lambda _path: "legacy",
+            )
+
+        self.assertIsNone(resolved)
+        self.assertEqual(skip, "no modern kimi binary found")
+
     def test_load_profiles_parses_session_identity_requirements(self):
         profile_dir = ROOT / "profiles"
         profiles = agent_bench.load_profiles(profile_dir)
@@ -324,6 +510,33 @@ class ExpectationTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_validation_uses_profile_tool_for_tool_aliased_pid_environment(self):
+        session_id = "session_0abf9419-c274-464b-aa3e-7946c2153829"
+        scenario = agent_bench.ScenarioExpectation(
+            name="session_capture",
+            required_events=["SessionStart"],
+            session_identity=agent_bench.SessionIdentityExpectation(
+                session_id_pattern="kimi-code",
+                tracked_pid=True,
+            ),
+        )
+        observed = [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="kimi-code",
+                scenario="session_capture",
+                event_name="SessionStart",
+                standard_input=f'{{"hook_event_name":"SessionStart","session_id":"{session_id}"}}',
+                environment={"ZENTTY_KIMI_PID": "5925"},
+            )
+        ]
+
+        result = agent_bench.validate_scenario("kimi-code", scenario, observed, agent_tool="kimi")
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.session_identity_observations[0]["tracked_pid"], 5925)
+        self.assertEqual(result.session_identity_observations[0]["tracked_pid_source"], "ZENTTY_KIMI_PID")
 
     def test_validation_accepts_small_harness_pid_from_underscore_environment_key(self):
         scenario = agent_bench.ScenarioExpectation(
@@ -1480,6 +1693,110 @@ class IPCServerTests(unittest.TestCase):
         self.assertEqual(records[0].environment["OPENAI_API_KEY"], "<redacted>")
         self.assertEqual(records[0].standard_input, '{"event":"x"}')
 
+    def test_capture_server_current_agent_selects_tool_alias_profile_for_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles = {
+                "kimi": agent_bench.AgentProfile(
+                    name="kimi",
+                    tool="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={"smoke": []},
+                    expectations={"smoke": agent_bench.ScenarioExpectation("smoke", [])},
+                    kimi_variant="legacy",
+                ),
+                "kimi-code": agent_bench.AgentProfile(
+                    name="kimi-code",
+                    tool="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={"smoke": []},
+                    expectations={"smoke": agent_bench.ScenarioExpectation("smoke", [])},
+                    kimi_variant="modern",
+                ),
+            }
+            recorder = agent_bench.TraceRecorder(pathlib.Path(tmp))
+            server = agent_bench.CaptureServer(
+                pathlib.Path(tmp) / "bench.sock",
+                recorder=recorder,
+                profiles=profiles,
+                scenario="smoke",
+                run_dir=pathlib.Path(tmp),
+            )
+            server.current_agent = "kimi-code"
+
+            response = server._bootstrap_response(
+                {
+                    "id": "bootstrap",
+                    "kind": "bootstrap",
+                    "arguments": ["-p", "hello"],
+                    "environment": {
+                        "HOME": str(pathlib.Path(tmp) / "home"),
+                        "ZENTTY_CLI_BIN": "/usr/bin/zentty",
+                        "ZENTTY_REAL_BINARY": "/usr/bin/kimi",
+                    },
+                    "expectsResponse": True,
+                    "tool": "kimi",
+                }
+            )
+
+        plan = response["result"]["launchPlan"]
+        records = recorder.records()
+        self.assertTrue(response["ok"])
+        self.assertEqual(plan["arguments"], ["-p", "hello"])
+        self.assertNotIn("--config-file", plan["arguments"])
+        self.assertEqual(plan["setEnvironment"]["ZENTTY_KIMI_VARIANT"], "modern")
+        self.assertEqual(records[0].agent, "kimi-code")
+
+    def test_capture_server_current_agent_reattributes_tool_level_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles = {
+                "kimi": agent_bench.AgentProfile(
+                    name="kimi",
+                    tool="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={"smoke": []},
+                    expectations={"smoke": agent_bench.ScenarioExpectation("smoke", [])},
+                    kimi_variant="legacy",
+                ),
+                "kimi-code": agent_bench.AgentProfile(
+                    name="kimi-code",
+                    tool="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={"smoke": []},
+                    expectations={"smoke": agent_bench.ScenarioExpectation("smoke", [])},
+                    kimi_variant="modern",
+                ),
+            }
+            recorder = agent_bench.TraceRecorder(pathlib.Path(tmp))
+            server = agent_bench.CaptureServer(
+                pathlib.Path(tmp) / "bench.sock",
+                recorder=recorder,
+                profiles=profiles,
+                scenario="smoke",
+            )
+            server.current_agent = "kimi-code"
+
+            server._record_ipc(
+                {
+                    "kind": "ipc",
+                    "arguments": ["--adapter=kimi"],
+                    "standardInput": '{"hook_event_name":"SessionStart"}',
+                    "environment": {},
+                    "subcommand": "agent-event",
+                }
+            )
+
+        records = recorder.records()
+        self.assertEqual(records[0].agent, "kimi-code")
+        self.assertEqual(records[0].event_name, "SessionStart")
+
 
 class ProfileTests(unittest.TestCase):
     def test_loads_profiles_for_all_zentty_supported_agents(self):
@@ -1499,6 +1816,7 @@ class ProfileTests(unittest.TestCase):
                 "grok",
                 "hermes",
                 "kimi",
+                "kimi-code",
                 "opencode",
                 "pi",
                 "small-harness",
@@ -1555,6 +1873,24 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(profile.launch_args_by_scenario["approval"][:2], ["--prompt", "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"])
         self.assertIn("--allow-all-paths", profile.launch_args_by_scenario["approval"])
         self.assertNotIn("--allow-all-tools", profile.launch_args_by_scenario["approval"])
+
+    def test_kimi_code_profile_uses_prompt_mode_and_interactive_approval(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["kimi-code"]
+        smoke_prompt = "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+        approval_prompt = "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+
+        self.assertEqual(profile.launch_args_by_scenario["smoke"], ["-p", smoke_prompt])
+        self.assertEqual(profile.launch_args_by_scenario["session_capture"], ["-p", smoke_prompt])
+        self.assertEqual(profile.launch_args_by_scenario["approval"], [])
+        self.assertEqual(profile.expectations["session_capture"].session_identity.session_id_pattern, "kimi-code")
+        self.assertEqual(
+            profile.input_by_scenario["approval"],
+            [
+                {"after": 8, "text": approval_prompt + "\r"},
+                {"after": 30, "text": "y\r"},
+                {"after": 60, "text": "\u0003"},
+            ],
+        )
 
     def test_claude_approval_profile_drives_permission_tool_hook(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]
@@ -2021,6 +2357,76 @@ class AppPathResolutionTests(unittest.TestCase):
                 runner._cleanup_socket_dir()
                 agent_bench.REPO_ROOT = old_repo_root
                 agent_bench.latest_derived_data_zentty_app = old_latest
+
+
+class BenchRunnerExecutionTests(unittest.TestCase):
+    def test_variant_pinned_kimi_profile_sets_explicit_real_binary_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            app_path = root / "Zentty.app"
+            resources = app_path / "Contents" / "Resources"
+            zentty = resources / "bin" / "shared" / "zentty"
+            zentty.parent.mkdir(parents=True)
+            zentty.write_text("#!/bin/sh\n", encoding="utf-8")
+            zentty.chmod(0o755)
+            wrapper_dir = resources / "bin" / "kimi"
+            wrapper_dir.mkdir(parents=True)
+            wrapper = wrapper_dir / "kimi"
+            wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+            wrapper.chmod(0o755)
+            real_command = root / "real" / "kimi-cli"
+            real_command.parent.mkdir()
+            real_command.write_text("#!/bin/sh\n", encoding="utf-8")
+            real_command.chmod(0o755)
+
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": str(root / "run"),
+                    "app_path": str(app_path),
+                    "no_build": True,
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "kimi",
+                    "scenarios": "smoke",
+                },
+            )()
+            runner = agent_bench.BenchRunner(args)
+            runner._resolved_app_path = app_path
+            runner.profiles = {
+                "kimi": agent_bench.AgentProfile(
+                    name="kimi",
+                    command="kimi",
+                    real_binary_names=["kimi", "kimi-cli"],
+                    version_args=["--version"],
+                    launch_args_by_scenario={"smoke": []},
+                    expectations={"smoke": agent_bench.ScenarioExpectation("smoke", [])},
+                    tool="kimi",
+                    kimi_variant="legacy",
+                )
+            }
+            captured_env = {}
+
+            def fake_run_pty(argv, env, cwd, inputs, timeout, transcript_path, completion_predicate):
+                captured_env.update(env)
+                return agent_bench.PtyResult(0, False, "", completed_by_predicate=True)
+
+            try:
+                with mock.patch.object(agent_bench, "resolve_agent_binary", return_value=(str(real_command), None)), \
+                     mock.patch.object(agent_bench, "run_version", return_value="kimi 0.0"), \
+                     mock.patch.object(agent_bench, "run_pty", side_effect=fake_run_pty):
+                    result = runner._run_agent_scenario(
+                        "kimi",
+                        "smoke",
+                        {"PATH": str(wrapper_dir), "HOME": str(root / "home")},
+                    )
+            finally:
+                runner._cleanup_socket_dir()
+
+        self.assertEqual(result.status, "pass")
+        self.assertEqual(captured_env.get("ZENTTY_KIMI_VARIANT"), "legacy")
+        self.assertEqual(captured_env.get("ZENTTY_REAL_BINARY"), str(real_command))
 
 
 class EnvironmentTests(unittest.TestCase):

@@ -27,7 +27,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi", "small-harness", "vibe")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "kimi-code", "opencode", "pi", "small-harness", "vibe")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -56,6 +56,8 @@ ROUTING_ENV_KEYS = {
     "ZENTTY_SMALL_HARNESS_PID",
     "CODEX_HOME",
     "COPILOT_HOME",
+    "KIMI_CODE_HOME",
+    "KIMI_SHARE_DIR",
     "KIMI_HOME",
     "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
     "SMALL_HARNESS_MANAGED_HOOKS_FILE",
@@ -89,6 +91,8 @@ REFUSAL_PATTERNS = [
     r"\bcan you (?:confirm|clarify|tell me)\b",
 ]
 OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)(?:\x07|\x1b\\)")
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+KIMI_VARIANT_PROBE_CACHE: dict[str, str] = {}
 
 
 @dataclasses.dataclass
@@ -123,6 +127,12 @@ class AgentProfile:
     input_by_scenario: dict[str, list[dict[str, Any]]] = dataclasses.field(default_factory=dict)
     repeat_by_scenario: dict[str, int] = dataclasses.field(default_factory=dict)
     skip_patterns: list[str] = dataclasses.field(default_factory=list)
+    tool: str = ""
+    kimi_variant: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.tool:
+            self.tool = self.name
 
 
 @dataclasses.dataclass
@@ -273,7 +283,12 @@ def _trace_contains_post_stop_notification(records: list[TraceRecord]) -> bool:
     return False
 
 
-def validate_scenario(agent: str, expectation: ScenarioExpectation, records: list[TraceRecord]) -> ScenarioResult:
+def validate_scenario(
+    agent: str,
+    expectation: ScenarioExpectation,
+    records: list[TraceRecord],
+    agent_tool: str | None = None,
+) -> ScenarioResult:
     observed = [record.event_name for record in records if record.agent == agent and record.scenario == expectation.name]
     observed_values = [event for event in observed if event]
     observed_counts = Counter(observed_values)
@@ -304,7 +319,7 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         if required_arguments in observed_bootstrap_arguments:
             continue
         missing.append("bootstrap:" + " ".join(required_arguments))
-    session_missing, session_observations = validate_session_identity(agent, expectation, records)
+    session_missing, session_observations = validate_session_identity(agent, expectation, records, agent_tool=agent_tool)
     missing.extend(session_missing)
     if missing:
         result_kind = "missing-bootstrap" if any(item.startswith("bootstrap:") for item in missing) else "missing-hook"
@@ -340,6 +355,7 @@ def validate_session_identity(
     agent: str,
     expectation: ScenarioExpectation,
     records: list[TraceRecord],
+    agent_tool: str | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     if expectation.session_identity is None:
         return ([], [])
@@ -349,6 +365,7 @@ def validate_session_identity(
         expectation.name,
         records,
         expectation.session_identity.session_id_pattern,
+        agent_tool=agent_tool,
     )
     missing: list[str] = []
     if not any(observation.get("session_id_valid") is True for observation in observations):
@@ -363,6 +380,7 @@ def session_identity_observations_for_records(
     scenario: str,
     records: list[TraceRecord],
     session_id_pattern: str,
+    agent_tool: str | None = None,
 ) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
     for record in records:
@@ -371,7 +389,7 @@ def session_identity_observations_for_records(
 
         payload = parse_json_object(record.standard_input)
         session_id, session_source = extract_session_id(agent, payload)
-        tracked_pid, pid_source = extract_tracked_pid(agent, payload, record.environment or {})
+        tracked_pid, pid_source = extract_tracked_pid(agent, payload, record.environment or {}, agent_tool=agent_tool)
         if session_id is None and tracked_pid is None:
             continue
 
@@ -406,8 +424,13 @@ def extract_session_id(agent: str, payload: dict[str, Any]) -> tuple[str | None,
     return (None, None)
 
 
-def extract_tracked_pid(agent: str, payload: dict[str, Any], environment: dict[str, str]) -> tuple[int | None, str | None]:
-    expected_key = agent_pid_env_key(agent)
+def extract_tracked_pid(
+    agent: str,
+    payload: dict[str, Any],
+    environment: dict[str, str],
+    agent_tool: str | None = None,
+) -> tuple[int | None, str | None]:
+    expected_key = agent_pid_env_key(agent, agent_tool=agent_tool)
     pid = parse_positive_int(environment.get(expected_key))
     if pid is not None:
         return (pid, expected_key)
@@ -419,8 +442,9 @@ def extract_tracked_pid(agent: str, payload: dict[str, Any], environment: dict[s
     return (None, None)
 
 
-def agent_pid_env_key(agent: str) -> str:
-    return f"ZENTTY_{agent.upper().replace('-', '_')}_PID"
+def agent_pid_env_key(agent: str, agent_tool: str | None = None) -> str:
+    pid_agent = agent_tool or agent
+    return f"ZENTTY_{pid_agent.upper().replace('-', '_')}_PID"
 
 
 def parse_positive_int(value: Any) -> int | None:
@@ -440,6 +464,11 @@ def session_id_matches_pattern(session_id: str, pattern: str) -> bool:
     if pattern == "uuid":
         return re.fullmatch(
             r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            session_id,
+        ) is not None
+    if pattern == "kimi-code":
+        return re.fullmatch(
+            r"(?:session_)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
             session_id,
         ) is not None
     if pattern == "codex":
@@ -493,8 +522,9 @@ def classify_completed_result(
     exit_code: int,
     completed_by_predicate: bool,
     strict: bool,
+    agent_tool: str | None = None,
 ) -> ScenarioResult:
-    result = validate_scenario(agent, expectation, records)
+    result = validate_scenario(agent, expectation, records, agent_tool=agent_tool)
     if not result.passed:
         if result.result_kind == "forbidden-hook":
             result.status = "fail"
@@ -604,8 +634,9 @@ def classify_timeout_result(
     skip_patterns: list[str],
     timeout: int,
     strict: bool,
+    agent_tool: str | None = None,
 ) -> ScenarioResult:
-    partial = validate_scenario(agent, expectation, records)
+    partial = validate_scenario(agent, expectation, records, agent_tool=agent_tool)
     if not partial.missing_events:
         forbidden_phases = forbidden_terminal_phases(expectation, terminal_observations)
         if forbidden_phases:
@@ -1193,6 +1224,7 @@ class CaptureServer:
         self._thread: threading.Thread | None = None
         self._active = 0
         self._active_lock = threading.Lock()
+        self.current_agent: str | None = None
 
     def start(self) -> None:
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1293,10 +1325,11 @@ class CaptureServer:
 
     def _bootstrap_response(self, request: dict[str, Any]) -> dict[str, Any]:
         tool = request.get("tool")
-        if not isinstance(tool, str) or tool not in self.profiles:
+        profile = self._profile_for_bootstrap_tool(tool)
+        if profile is None:
             return self._error_response(request, f"Unsupported bootstrap tool: {tool}")
         plan = LaunchPlanner(
-            profile=self.profiles[tool],
+            profile=profile,
             scenario=self.scenario,
             run_dir=self.run_dir,
             resources_dir=self.resources_dir,
@@ -1305,7 +1338,7 @@ class CaptureServer:
         self.recorder.append(
             TraceRecord(
                 kind="bootstrap",
-                agent=tool,
+                agent=self._agent_name_for_profile(profile),
                 scenario=self.scenario,
                 extra={
                     "arguments": [str(argument) for argument in arguments],
@@ -1320,6 +1353,30 @@ class CaptureServer:
             "result": {"launchPlan": plan},
             "error": None,
         }
+
+    def _profile_for_bootstrap_tool(self, tool: Any) -> AgentProfile | None:
+        if not isinstance(tool, str):
+            return None
+        if current_profile := self._current_profile_for_tool(tool):
+            return current_profile
+        profile = self.profiles.get(tool)
+        if profile and profile.tool == tool:
+            return profile
+        matches = [profile for profile in self.profiles.values() if profile.tool == tool]
+        return matches[0] if len(matches) == 1 else None
+
+    def _current_profile_for_tool(self, tool: str | None) -> AgentProfile | None:
+        if not tool or not self.current_agent:
+            return None
+        profile = self.profiles.get(self.current_agent)
+        if profile and profile.tool == tool:
+            return profile
+        return None
+
+    def _agent_name_for_profile(self, profile: AgentProfile) -> str:
+        if self.current_agent and self.profiles.get(self.current_agent) is profile:
+            return self.current_agent
+        return profile.name
 
     def _error_response(self, request: dict[str, Any], message: str) -> dict[str, Any]:
         return {
@@ -1337,6 +1394,8 @@ class CaptureServer:
         environment = request.get("environment") if isinstance(request.get("environment"), dict) else {}
         hook = infer_hook_event(subcommand, [str(arg) for arg in args], stdin_payload if isinstance(stdin_payload, str) else None)
         agent = agent_from_adapter(hook.adapter, environment, stdin_payload if isinstance(stdin_payload, str) else None)
+        if current_profile := self._current_profile_for_tool(agent):
+            agent = current_profile.name
         extra = cursor_trace_extra(agent, stdin_payload if isinstance(stdin_payload, str) else None)
         self.recorder.append(
             TraceRecord(
@@ -1377,13 +1436,16 @@ class LaunchPlanner:
         # process (which can fail synchronously on bogus session ids and race
         # the completion predicate).
         if self.scenario.startswith("restore_launch"):
-            return self._launch_plan("/usr/bin/true", [], {"ZENTTY_AGENT_TOOL": self.profile.name})
-        method_name = f"_plan_{self.profile.name.replace('-', '_')}"
+            env = {"ZENTTY_AGENT_TOOL": self.profile.tool}
+            if self.profile.tool == "kimi" and self.profile.kimi_variant:
+                env["ZENTTY_KIMI_VARIANT"] = self.profile.kimi_variant
+            return self._launch_plan("/usr/bin/true", [], env)
+        method_name = f"_plan_{self.profile.tool.replace('-', '_')}"
         method = getattr(self, method_name, self._direct_plan)
         return method(executable, arguments, environment, cli_path)
 
     def _direct_plan(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": self.profile.name})
+        return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": self.profile.tool})
 
     def _plan_vibe(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         # Mirror AgentLaunchBootstrap.vibePlan: tag the tool and pre-send a
@@ -1625,15 +1687,35 @@ class LaunchPlanner:
         return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": "gemini", "GEMINI_CLI_SYSTEM_SETTINGS_PATH": str(overlay)})
 
     def _plan_kimi(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        overlay = self._overlay_dir("kimi") / "config.toml"
+        variant = self._kimi_variant(executable, environment)
         command = toml_basic_string(f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=kimi')
         entries = "\n".join(f'[[hooks]]\nevent = "{event}"\ncommand = "{command}"\n' for event in ("SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification", "PreToolUse", "PostToolUse"))
-        source = config_source_dir(environment, "KIMI_HOME", ".kimi") / "config.toml"
+        overlay_dir = self._overlay_dir("kimi")
+        source_dir = kimi_config_source_dir(environment, variant)
+        source = source_dir / "config.toml"
         existing = remove_top_level_toml_key(source.read_text(encoding="utf-8"), "hooks") if source.exists() else ""
-        overlay.parent.mkdir(parents=True, exist_ok=True)
         separator = "\n\n" if existing.strip() else ""
-        overlay.write_text(existing.rstrip() + separator + entries, encoding="utf-8")
-        return self._launch_plan(executable, ["--config-file", str(overlay)] + arguments, {"ZENTTY_AGENT_TOOL": "kimi"})
+        merged = existing.rstrip() + separator + entries
+        env = {"ZENTTY_AGENT_TOOL": "kimi", "ZENTTY_KIMI_VARIANT": variant}
+        if variant == "modern":
+            overlay_home = overlay_dir / "home"
+            symlink_directory_contents_skipping(source_dir, overlay_home, {"config.toml"})
+            (overlay_home / "config.toml").write_text(merged, encoding="utf-8")
+            migration_skip = overlay_home / ".skip-migration-from-kimi-cli"
+            if not os.path.lexists(migration_skip):
+                migration_skip.touch()
+            env["KIMI_CODE_HOME"] = str(overlay_home)
+            return self._launch_plan(executable, arguments, env)
+        overlay = overlay_dir / "config.toml"
+        overlay.write_text(merged, encoding="utf-8")
+        return self._launch_plan(executable, ["--config-file", str(overlay)] + arguments, env)
+
+    def _kimi_variant(self, executable: str, environment: dict[str, Any]) -> str:
+        if self.profile.kimi_variant in ("legacy", "modern"):
+            return self.profile.kimi_variant
+        if environment.get("ZENTTY_KIMI_VARIANT") in ("legacy", "modern"):
+            return str(environment["ZENTTY_KIMI_VARIANT"])
+        return probe_kimi_variant(executable) or "legacy"
 
     def _plan_opencode(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
         overlay = self._overlay_dir("opencode") / "config"
@@ -2056,6 +2138,8 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
             input_by_scenario={name: list(values) for name, values in raw.get("input_by_scenario", {}).items()},
             repeat_by_scenario={name: int(count) for name, count in raw.get("repeat_by_scenario", {}).items()},
             skip_patterns=list(raw.get("skip_patterns", [])),
+            tool=str(raw.get("tool") or raw["name"]),
+            kimi_variant=raw.get("kimi_variant") if raw.get("kimi_variant") in ("legacy", "modern") else None,
         )
         profiles[profile.name] = profile
     return profiles
@@ -2104,7 +2188,11 @@ class BenchRunner:
                     scenario_env["ZENTTY_WORKLANE_ID"] = "agent-bench-worklane"
                     scenario_env["ZENTTY_PANE_ID"] = "agent-bench-pane"
                     for agent in agents:
-                        results.append(self._run_agent_scenario(agent, scenario, scenario_env))
+                        server.current_agent = agent
+                        try:
+                            results.append(self._run_agent_scenario(agent, scenario, scenario_env))
+                        finally:
+                            server.current_agent = None
                 finally:
                     server.stop()
             self._write_report(results)
@@ -2183,6 +2271,7 @@ class BenchRunner:
             pass
 
     def _run_agent_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
+        env = dict(env)
         profile = self.profiles[agent]
         if scenario not in profile.expectations:
             return self._finalize_result(
@@ -2198,14 +2287,22 @@ class BenchRunner:
                 [],
                 [],
             )
-        command = None
-        for candidate in [profile.command] + profile.real_binary_names:
-            command = shutil.which(candidate, path=env["PATH"])
-            if command:
-                break
-        if not command:
-            names = ", ".join([profile.command] + profile.real_binary_names)
-            return self._finalize_result(self._skip_or_fail(agent, scenario, f"none of {names} found", "binary-skip"), [], [])
+        if profile.tool == "kimi" and profile.kimi_variant in ("legacy", "modern"):
+            names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
+            wrapper_candidates = all_which_candidates(names, env["PATH"])
+            command = wrapper_candidates[0] if wrapper_candidates else None
+            if not command:
+                return self._finalize_result(self._skip_or_fail(agent, scenario, f"none of {', '.join(names)} found", "binary-skip"), [], [])
+            real_command, real_skip_message = resolve_agent_binary(profile, filtered_inherited_path(env["PATH"]))
+            if not real_command:
+                return self._finalize_result(self._skip_or_fail(agent, scenario, real_skip_message or "kimi binary not found", "binary-skip"), [], [])
+            env["PATH"] = prioritize_path_entry_after_zentty_resources(env["PATH"], str(pathlib.Path(real_command).parent))
+            env["ZENTTY_KIMI_VARIANT"] = profile.kimi_variant
+            env["ZENTTY_REAL_BINARY"] = real_command
+        else:
+            command, skip_message = resolve_agent_binary(profile, env["PATH"])
+            if not command:
+                return self._finalize_result(self._skip_or_fail(agent, scenario, skip_message or "binary not found", "binary-skip"), [], [])
         version = run_version(command, profile.version_args, env)
         self.recorder.append(TraceRecord(kind="version", agent=agent, scenario=scenario, extra={"version": version}))
         argv = [command] + profile.launch_args_by_scenario.get(scenario, [])
@@ -2225,7 +2322,7 @@ class BenchRunner:
                 timeout=self.args.timeout,
                 transcript_path=iteration_transcript_path,
                 completion_predicate=lambda _output, current_observations: (
-                    not validate_scenario(agent, expectation, self.recorder.records()).missing_events
+                    not validate_scenario(agent, expectation, self.recorder.records(), agent_tool=profile.tool).missing_events
                     and not missing_required_terminal_phases(expectation, observations + current_observations)
                     and (
                         not scenario_requires_terminal_needs_input(scenario)
@@ -2256,6 +2353,7 @@ class BenchRunner:
                 skip_patterns=profile.skip_patterns,
                 timeout=self.args.timeout,
                 strict=self.args.strict,
+                agent_tool=profile.tool,
             )
             return self._finalize_result(result, self.recorder.records(), observations)
         result = classify_completed_result(
@@ -2269,6 +2367,7 @@ class BenchRunner:
             exit_code=completed.exit_code,
             completed_by_predicate=completed.completed_by_predicate,
             strict=self.args.strict,
+            agent_tool=profile.tool,
         )
         return self._finalize_result(result, self.recorder.records(), observations)
 
@@ -2336,7 +2435,7 @@ class BenchRunner:
         scenario_records = [
             record for record in records if record.agent == agent and record.scenario == scenario
         ]
-        result = validate_scenario(agent, expectation, scenario_records)
+        result = validate_scenario(agent, expectation, scenario_records, agent_tool=profile.tool)
         if (
             result.passed
             and expectation.post_stop_notification_required
@@ -2703,6 +2802,78 @@ def run_version(command: str, args: list[str], env: dict[str, str]) -> str:
         return f"unavailable: {error}"
 
 
+def resolve_agent_binary(
+    profile: AgentProfile,
+    path_value: str,
+    variant_probe: Any = None,
+) -> tuple[str | None, str | None]:
+    names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
+    candidates = all_which_candidates(names, path_value)
+    if profile.tool == "kimi" and profile.kimi_variant in ("legacy", "modern"):
+        probe = variant_probe or probe_kimi_variant
+        for candidate in candidates:
+            if probe(candidate) == profile.kimi_variant:
+                return candidate, None
+        return None, f"no {profile.kimi_variant} kimi binary found"
+    if candidates:
+        return candidates[0], None
+    return None, f"none of {', '.join(names)} found"
+
+
+def all_which_candidates(names: list[str], path_value: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        first = shutil.which(name, path=path_value)
+        if first and first not in seen:
+            seen.add(first)
+            candidates.append(first)
+        for entry in path_value.split(os.pathsep):
+            if not entry:
+                continue
+            candidate = str(pathlib.Path(entry) / name)
+            if candidate in seen:
+                continue
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                seen.add(candidate)
+                candidates.append(candidate)
+    return candidates
+
+
+def probe_kimi_variant(executable: str) -> str | None:
+    cached = KIMI_VARIANT_PROBE_CACHE.get(executable)
+    if cached:
+        return cached
+    env = os.environ.copy()
+    env["NO_COLOR"] = "1"
+    env["TERM"] = "dumb"
+    try:
+        result = subprocess.run(
+            [executable, "--help"],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            variant = "legacy"
+        else:
+            variant = "modern" if is_modern_kimi_help_output(result.stdout) else "legacy"
+    except Exception:
+        variant = "legacy"
+    KIMI_VARIANT_PROBE_CACHE[executable] = variant
+    return variant
+
+
+def is_modern_kimi_help_output(help_text: str) -> bool:
+    return "--config-file" not in strip_ansi_sequences(help_text)
+
+
+def strip_ansi_sequences(text: str) -> str:
+    return ANSI_ESCAPE_PATTERN.sub("", text)
+
+
 def parse_build_settings(output: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in output.splitlines():
@@ -2726,18 +2897,18 @@ def missing_agent_wrapper_resource(app_path: pathlib.Path, profile: AgentProfile
     if not shared_launcher.exists():
         return f"app is missing shared Zentty launcher: {shared_launcher}"
 
-    wrapper_dir = resources_dir / "bin" / profile.name
+    wrapper_dir = resources_dir / "bin" / profile.tool
     if not wrapper_dir.exists():
-        return f"app is missing {profile.name} wrapper directory: {wrapper_dir}"
+        return f"app is missing {profile.tool} wrapper directory: {wrapper_dir}"
 
     candidate_names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
     candidates = [wrapper_dir / name for name in candidate_names]
     if not any(path.exists() for path in candidates):
         names = ", ".join(path.name for path in candidates)
-        return f"app is missing {profile.name} wrapper executable in {wrapper_dir}: expected one of {names}"
+        return f"app is missing {profile.tool} wrapper executable in {wrapper_dir}: expected one of {names}"
     if not any(os.access(path, os.X_OK) for path in candidates):
         names = ", ".join(path.name for path in candidates)
-        return f"app has non-executable {profile.name} wrapper in {wrapper_dir}: expected one of {names}"
+        return f"app has non-executable {profile.tool} wrapper in {wrapper_dir}: expected one of {names}"
 
     return None
 
@@ -2788,12 +2959,31 @@ def is_zentty_resource_bin_path(entry: str) -> bool:
     return False
 
 
+def prioritize_path_entry_after_zentty_resources(path_value: str, preferred_entry: str) -> str:
+    if not preferred_entry:
+        return path_value
+    entries = [entry for entry in path_value.split(os.pathsep) if entry and entry != preferred_entry]
+    insert_at = 0
+    while insert_at < len(entries) and is_zentty_resource_bin_path(entries[insert_at]):
+        insert_at += 1
+    entries.insert(insert_at, preferred_entry)
+    return os.pathsep.join(entries)
+
+
 def config_source_dir(environment: dict[str, Any], env_key: str, default_name: str) -> pathlib.Path:
     home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home())).expanduser()
     configured = str(environment.get(env_key) or "").strip()
     if configured and not is_zentty_launch_cache_path(configured):
         return pathlib.Path(configured).expanduser()
     return home / default_name
+
+
+def kimi_config_source_dir(environment: dict[str, Any], variant: str) -> pathlib.Path:
+    if variant == "modern":
+        return config_source_dir(environment, "KIMI_CODE_HOME", ".kimi-code")
+    if str(environment.get("KIMI_SHARE_DIR") or "").strip():
+        return config_source_dir(environment, "KIMI_SHARE_DIR", ".kimi")
+    return config_source_dir(environment, "KIMI_HOME", ".kimi")
 
 
 def is_zentty_launch_cache_path(entry: str) -> bool:
