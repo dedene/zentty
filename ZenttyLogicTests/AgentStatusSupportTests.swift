@@ -337,6 +337,37 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_agent_tool_launcher_forwards_kimi_home_and_variant_environment() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        for key in ["KIMI_CODE_HOME", "KIMI_SHARE_DIR", "ZENTTY_KIMI_VARIANT"] {
+            XCTAssertTrue(
+                source.contains("\"\(key)\""),
+                "AgentToolLauncher should forward \(key) for Kimi bootstrap requests"
+            )
+        }
+    }
+
+    func test_agent_tool_launcher_uses_guarded_real_binary_override() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("let realBinaryPath = environment[\"ZENTTY_REAL_BINARY\"]"))
+        XCTAssertTrue(source.contains("wrappedToolNames.contains(realBinaryName)"))
+        XCTAssertTrue(source.contains("FileManager.default.isExecutableFile(atPath: realBinaryPath)"))
+    }
+
     func test_agent_status_helper_returns_nil_when_resource_directories_are_missing() throws {
         let bundle = try makeTemporaryBundle(named: "MissingResources")
 
@@ -3268,6 +3299,164 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: configURL.path))
     }
 
+    func test_kimi_hooks_installer_modern_user_config_url() throws {
+        let home = "/Users/test"
+        let url = KimiHooksInstaller.modernUserConfigURL(home: home)
+        XCTAssertEqual(url.path, "/Users/test/.kimi-code/config.toml")
+    }
+
+    func test_agent_launch_bootstrap_detects_legacy_kimi_help_output_with_plain_config_file_flag() {
+        let help = "Usage: kimi [OPTIONS]\n  --config-file PATH"
+
+        XCTAssertFalse(AgentLaunchBootstrap.isModernKimiHelpOutput(help))
+    }
+
+    func test_agent_launch_bootstrap_detects_legacy_kimi_help_output_with_ansi_split_config_file_flag() {
+        let help = "\u{1B}[1;36m-\u{1B}[0m\u{1B}[1;36m-config\u{1B}[0m\u{1B}[1;36m-file\u{1B}[0m"
+
+        XCTAssertFalse(AgentLaunchBootstrap.isModernKimiHelpOutput(help))
+    }
+
+    func test_agent_launch_bootstrap_detects_modern_kimi_help_output_without_config_file_flag() {
+        let help = "Usage: kimi-code [OPTIONS]\n  --model TEXT"
+
+        XCTAssertTrue(AgentLaunchBootstrap.isModernKimiHelpOutput(help))
+    }
+
+    func test_kimi_variant_probe_detects_legacy_help_output_with_plain_config_file_flag() {
+        let help = "Usage: kimi [OPTIONS]\n  --config-file PATH"
+
+        XCTAssertFalse(KimiVariantProbe.isModernHelpOutput(help))
+    }
+
+    func test_kimi_variant_probe_detects_legacy_help_output_with_ansi_split_config_file_flag() {
+        let help = "\u{1B}[1;36m-\u{1B}[0m\u{1B}[1;36m-config\u{1B}[0m\u{1B}[1;36m-file\u{1B}[0m"
+
+        XCTAssertFalse(KimiVariantProbe.isModernHelpOutput(help))
+    }
+
+    func test_kimi_variant_probe_detects_modern_help_output_without_config_file_flag() {
+        let help = "Usage: kimi-code [OPTIONS]\n  --model TEXT"
+
+        XCTAssertTrue(KimiVariantProbe.isModernHelpOutput(help))
+    }
+
+    func test_kimi_variant_probe_selects_first_candidate_matching_pinned_variant() {
+        let candidates = ["/legacy/kimi", "/modern/kimi"]
+        let probe: (String) -> KimiVariant? = { path in
+            switch path {
+            case "/legacy/kimi":
+                return .legacy
+            case "/modern/kimi":
+                return .modern
+            default:
+                return nil
+            }
+        }
+
+        XCTAssertEqual(
+            KimiVariantProbe.selectBinary(pinned: .modern, candidates: candidates, probe: probe),
+            "/modern/kimi"
+        )
+        XCTAssertEqual(
+            KimiVariantProbe.selectBinary(pinned: .legacy, candidates: candidates, probe: probe),
+            "/legacy/kimi"
+        )
+        XCTAssertNil(
+            KimiVariantProbe.selectBinary(pinned: .modern, candidates: ["/legacy/kimi"], probe: probe)
+        )
+    }
+
+    func test_kimi_variant_probe_resolve_preferred_defaults_to_modern_when_unpinned_with_multiple_candidates() {
+        let probe: (String) -> KimiVariant? = { path in
+            path.contains("modern") ? .modern : .legacy
+        }
+
+        XCTAssertEqual(
+            KimiVariantProbe.resolvePreferred(
+                pin: nil,
+                candidates: ["/legacy/kimi", "/modern/kimi"],
+                probe: probe
+            ),
+            "/modern/kimi"
+        )
+        XCTAssertEqual(
+            KimiVariantProbe.resolvePreferred(
+                pin: nil,
+                candidates: ["/modern/kimi", "/legacy/kimi"],
+                probe: probe
+            ),
+            "/modern/kimi"
+        )
+    }
+
+    func test_kimi_variant_probe_resolve_preferred_returns_nil_when_unpinned_with_no_modern_candidate() {
+        let probe: (String) -> KimiVariant? = { _ in .legacy }
+
+        XCTAssertNil(
+            KimiVariantProbe.resolvePreferred(
+                pin: nil,
+                candidates: ["/first/kimi", "/second/kimi"],
+                probe: probe
+            )
+        )
+    }
+
+    func test_kimi_variant_probe_resolve_preferred_skips_probe_for_unpinned_single_candidate() {
+        var probeCallCount = 0
+        let probe: (String) -> KimiVariant? = { _ in
+            probeCallCount += 1
+            return .modern
+        }
+
+        XCTAssertNil(
+            KimiVariantProbe.resolvePreferred(
+                pin: nil,
+                candidates: ["/only/kimi"],
+                probe: probe
+            )
+        )
+        XCTAssertEqual(probeCallCount, 0)
+    }
+
+    func test_kimi_variant_probe_resolve_preferred_honors_pinned_variant() {
+        let candidates = ["/legacy/kimi", "/modern/kimi"]
+        let probe: (String) -> KimiVariant? = { path in
+            path.contains("modern") ? .modern : .legacy
+        }
+
+        XCTAssertEqual(
+            KimiVariantProbe.resolvePreferred(pin: .modern, candidates: candidates, probe: probe),
+            "/modern/kimi"
+        )
+        XCTAssertEqual(
+            KimiVariantProbe.resolvePreferred(pin: .legacy, candidates: candidates, probe: probe),
+            "/legacy/kimi"
+        )
+        XCTAssertNil(
+            KimiVariantProbe.resolvePreferred(pin: .modern, candidates: ["/legacy/kimi"], probe: probe)
+        )
+    }
+
+    func test_kimi_variant_probe_resolve_preferred_returns_nil_for_empty_candidates() {
+        var probeCallCount = 0
+        let probe: (String) -> KimiVariant? = { _ in
+            probeCallCount += 1
+            return .modern
+        }
+
+        XCTAssertNil(KimiVariantProbe.resolvePreferred(pin: nil, candidates: [], probe: probe))
+        XCTAssertEqual(probeCallCount, 0)
+    }
+
+    func test_kimi_variant_raw_pin_mapping() {
+        XCTAssertEqual(KimiVariant(rawPin: "modern"), .modern)
+        XCTAssertEqual(KimiVariant(rawPin: "legacy"), .legacy)
+        XCTAssertNil(KimiVariant(rawPin: nil))
+        XCTAssertNil(KimiVariant(rawPin: ""))
+        XCTAssertNil(KimiVariant(rawPin: "garbage"))
+    }
+
     func test_kimi_hooks_installer_install_if_possible_treats_whitespace_env_as_blank() throws {
         let directory = try makeTemporaryDirectory(named: "kimi-hooks-installer-blank-env")
         let configURL = directory
@@ -4206,6 +4395,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 "HOME": homeDirectory.path,
                 "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
                 "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "legacy",
             ],
             expectsResponse: true,
             tool: .kimi
@@ -4264,6 +4454,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 "HOME": NSHomeDirectory(),
                 "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
                 "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "legacy",
             ],
             expectsResponse: true,
             tool: .kimi
@@ -4310,6 +4501,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 "HOME": NSHomeDirectory(),
                 "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
                 "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "legacy",
             ],
             expectsResponse: true,
             tool: .kimi
@@ -4353,6 +4545,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 "HOME": NSHomeDirectory(),
                 "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
                 "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "legacy",
             ],
             expectsResponse: true,
             tool: .kimi
@@ -4389,6 +4582,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 "HOME": NSHomeDirectory(),
                 "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
                 "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "legacy",
             ],
             expectsResponse: true,
             tool: .kimi
@@ -4409,6 +4603,188 @@ final class AgentStatusSupportTests: XCTestCase {
             XCTAssertEqual(nsError.domain, NSCocoaErrorDomain)
             XCTAssertEqual(nsError.code, CocoaError.fileNoSuchFile.rawValue)
         }
+    }
+
+    func test_agent_launch_bootstrap_builds_modern_kimi_overlay_preserving_source_home_state() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-modern-kimi-runtime")
+        let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-modern-kimi-home")
+        let kimiCodeHome = homeDirectory.appendingPathComponent(".kimi-code", isDirectory: true)
+        let userConfigURL = kimiCodeHome.appendingPathComponent("config.toml", isDirectory: false)
+        let credentialsURL = kimiCodeHome.appendingPathComponent("credentials", isDirectory: true)
+        let sessionsURL = kimiCodeHome.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: credentialsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sessionsURL, withIntermediateDirectories: true)
+        try "token".write(
+            to: credentialsURL.appendingPathComponent("auth.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "session".write(
+            to: sessionsURL.appendingPathComponent("latest.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let original = """
+        default_model = "kimi-code/kimi-for-coding"
+        hooks = []
+        """
+        try original.write(to: userConfigURL, atomically: true, encoding: .utf8)
+        let fakeKimiURL = try makeFakeKimiBinary(modern: true)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat", "hello"],
+            standardInput: nil,
+            environment: [
+                "HOME": homeDirectory.path,
+                "KIMI_CODE_HOME": kimiCodeHome.path,
+                "ZENTTY_REAL_BINARY": fakeKimiURL.path,
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "modern",
+            ],
+            expectsResponse: true,
+            tool: .kimi
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.arguments, ["chat", "hello"])
+        XCTAssertFalse(plan.arguments.contains("--config-file"))
+        let overlayHomePath = try XCTUnwrap(plan.setEnvironment["KIMI_CODE_HOME"])
+        XCTAssertTrue(overlayHomePath.hasPrefix(runtimeDirectory.path))
+
+        let overlayHomeURL = URL(fileURLWithPath: overlayHomePath, isDirectory: true)
+        let overlayConfig = try String(
+            contentsOf: overlayHomeURL.appendingPathComponent("config.toml", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(overlayConfig.contains(#"default_model = "kimi-code/kimi-for-coding""#))
+        XCTAssertTrue(overlayConfig.contains(#"command = "\"/tmp/zentty\" ipc agent-event --adapter=kimi""#))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: overlayHomeURL
+                    .appendingPathComponent(".skip-migration-from-kimi-cli", isDirectory: false)
+                    .path
+            )
+        )
+
+        let overlayCredentialsURL = overlayHomeURL.appendingPathComponent("credentials", isDirectory: true)
+        let overlaySessionsURL = overlayHomeURL.appendingPathComponent("sessions", isDirectory: true)
+        XCTAssertEqual(
+            URL(fileURLWithPath: try FileManager.default.destinationOfSymbolicLink(atPath: overlayCredentialsURL.path))
+                .resolvingSymlinksInPath()
+                .path,
+            credentialsURL.resolvingSymlinksInPath().path
+        )
+        XCTAssertEqual(
+            URL(fileURLWithPath: try FileManager.default.destinationOfSymbolicLink(atPath: overlaySessionsURL.path))
+                .resolvingSymlinksInPath()
+                .path,
+            sessionsURL.resolvingSymlinksInPath().path
+        )
+
+        let sourceConfig = try String(contentsOf: userConfigURL, encoding: .utf8)
+        XCTAssertEqual(sourceConfig, original)
+    }
+
+    func test_agent_launch_bootstrap_builds_modern_kimi_overlay_from_default_home_config() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-modern-kimi-default-runtime")
+        let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-modern-kimi-default-home")
+        let userConfigURL = homeDirectory
+            .appendingPathComponent(".kimi-code", isDirectory: true)
+            .appendingPathComponent("config.toml", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: userConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"default_model = "kimi-code/kimi-for-coding""#.write(
+            to: userConfigURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let fakeKimiURL = try makeFakeKimiBinary(modern: true)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat"],
+            standardInput: nil,
+            environment: [
+                "HOME": homeDirectory.path,
+                "ZENTTY_REAL_BINARY": fakeKimiURL.path,
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "modern",
+            ],
+            expectsResponse: true,
+            tool: .kimi
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let overlayHomePath = try XCTUnwrap(plan.setEnvironment["KIMI_CODE_HOME"])
+        let overlayConfigURL = URL(fileURLWithPath: overlayHomePath, isDirectory: true)
+            .appendingPathComponent("config.toml", isDirectory: false)
+        let overlayConfig = try String(contentsOf: overlayConfigURL, encoding: .utf8)
+        XCTAssertTrue(overlayConfig.contains(#"default_model = "kimi-code/kimi-for-coding""#))
+        XCTAssertTrue(overlayConfig.contains(#"command = "\"/tmp/zentty\" ipc agent-event --adapter=kimi""#))
+    }
+
+    func test_agent_launch_bootstrap_builds_legacy_kimi_overlay_from_kimi_share_dir() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-share-runtime")
+        let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-share-home")
+        let shareDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-share-source")
+        let userConfigURL = shareDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let original = """
+        default_model = "kimi-share-dir-model"
+        hooks = []
+        """
+        try original.write(to: userConfigURL, atomically: true, encoding: .utf8)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat"],
+            standardInput: nil,
+            environment: [
+                "HOME": homeDirectory.path,
+                "KIMI_SHARE_DIR": shareDirectory.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/kimi",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "legacy",
+            ],
+            expectsResponse: true,
+            tool: .kimi
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.arguments.first, "--config-file")
+        let overlayConfigURL = URL(fileURLWithPath: try XCTUnwrap(plan.arguments.dropFirst().first), isDirectory: false)
+        let overlayConfig = try String(contentsOf: overlayConfigURL, encoding: .utf8)
+        XCTAssertTrue(overlayConfig.contains(#"default_model = "kimi-share-dir-model""#))
+        XCTAssertTrue(overlayConfig.contains(#"command = "\"/tmp/zentty\" ipc agent-event --adapter=kimi""#))
     }
 
     func test_agent_launch_bootstrap_builds_gemini_system_settings_overlay_and_forces_notifications() throws {
@@ -9936,6 +10312,26 @@ final class AgentStatusSupportTests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: url)
         }
+        return url
+    }
+
+    private func makeFakeKimiBinary(modern: Bool) throws -> URL {
+        let directory = try makeTemporaryDirectory(named: modern ? "fake-modern-kimi" : "fake-legacy-kimi")
+        let url = directory.appendingPathComponent("kimi", isDirectory: false)
+        let helpLines = modern
+            ? ["Usage: kimi-code [OPTIONS]", "  --model TEXT"]
+            : ["Usage: kimi [OPTIONS]", "  --config-file PATH"]
+        let quotedHelpLines = helpLines.map { "'\($0)'" }.joined(separator: " ")
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--help" ]; then
+          printf '%s\\n' \(quotedHelpLines)
+          exit 0
+        fi
+        exit 0
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
     }
 

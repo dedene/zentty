@@ -3,6 +3,193 @@ import os
 
 private let kimiInstallerLogger = Logger(subsystem: "be.zenjoy.zentty", category: "KimiHookInstall")
 
+enum KimiVariant: String {
+    case modern
+    case legacy
+
+    init?(rawPin: String?) {
+        guard let rawPin else {
+            return nil
+        }
+        self.init(rawValue: rawPin)
+    }
+}
+
+enum KimiVariantProbe {
+    private static let cache = KimiVariantProbeCache()
+
+    static func strippingANSISequences(from text: String) -> String {
+        var output = String()
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let scalar = text[index].unicodeScalars.first
+            guard scalar?.value == 0x1B else {
+                output.append(text[index])
+                index = text.index(after: index)
+                continue
+            }
+
+            index = text.index(after: index)
+            guard index < text.endIndex else {
+                break
+            }
+
+            if text[index] == "[" {
+                index = text.index(after: index)
+                while index < text.endIndex {
+                    let value = text[index].unicodeScalars.first?.value ?? 0
+                    index = text.index(after: index)
+                    if value >= 0x40 && value <= 0x7E {
+                        break
+                    }
+                }
+            } else {
+                let value = text[index].unicodeScalars.first?.value ?? 0
+                if value >= 0x20 && value <= 0x2F {
+                    index = text.index(after: index)
+                    if index < text.endIndex {
+                        index = text.index(after: index)
+                    }
+                } else {
+                    index = text.index(after: index)
+                }
+            }
+        }
+
+        return output
+    }
+
+    static func isModernHelpOutput(_ helpText: String) -> Bool {
+        !strippingANSISequences(from: helpText).contains("--config-file")
+    }
+
+    static func probeVariant(executablePath: String, environment: [String: String]) -> KimiVariant? {
+        if let cached = cache.value(for: executablePath) {
+            return cached
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = ["--help"]
+        var probeEnvironment = environment
+        probeEnvironment["NO_COLOR"] = "1"
+        probeEnvironment["TERM"] = "dumb"
+        process.environment = probeEnvironment
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        let outputBuffer = KimiProbeOutputBuffer()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            outputBuffer.append(handle.availableData)
+        }
+        defer {
+            pipe.fileHandleForReading.readabilityHandler = nil
+        }
+
+        do {
+            let semaphore = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in
+                semaphore.signal()
+            }
+            try process.run()
+            let timedOut = semaphore.wait(timeout: .now() + .seconds(10)) == .timedOut
+            if timedOut {
+                process.terminate()
+                process.waitUntilExit()
+                kimiInstallerLogger.warning("Kimi variant probe timed out for \(executablePath, privacy: .public)")
+                return nil
+            }
+
+            guard process.terminationStatus == 0 else {
+                kimiInstallerLogger.warning(
+                    "Kimi variant probe exited with status \(process.terminationStatus, privacy: .public) for \(executablePath, privacy: .public)"
+                )
+                return nil
+            }
+
+            pipe.fileHandleForReading.readabilityHandler = nil
+            outputBuffer.append(pipe.fileHandleForReading.readDataToEndOfFile())
+            let data = outputBuffer.contents()
+
+            guard let output = String(data: data, encoding: .utf8) else {
+                kimiInstallerLogger.warning("Kimi variant probe returned undecodable output for \(executablePath, privacy: .public)")
+                return nil
+            }
+
+            let variant: KimiVariant = isModernHelpOutput(output) ? .modern : .legacy
+            cache.store(variant, for: executablePath)
+            return variant
+        } catch {
+            kimiInstallerLogger.warning(
+                "Kimi variant probe failed for \(executablePath, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    static func selectBinary(
+        pinned: KimiVariant,
+        candidates: [String],
+        probe: (String) -> KimiVariant?
+    ) -> String? {
+        candidates.first { probe($0) == pinned }
+    }
+
+    static func resolvePreferred(
+        pin: KimiVariant?,
+        candidates: [String],
+        probe: (String) -> KimiVariant?
+    ) -> String? {
+        guard !candidates.isEmpty else {
+            return nil
+        }
+        if let pin {
+            return selectBinary(pinned: pin, candidates: candidates, probe: probe)
+        }
+        guard candidates.count >= 2 else {
+            return nil
+        }
+        return selectBinary(pinned: .modern, candidates: candidates, probe: probe)
+    }
+
+    private final class KimiVariantProbeCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values = [String: KimiVariant]()
+
+        func value(for key: String) -> KimiVariant? {
+            lock.lock()
+            defer { lock.unlock() }
+            return values[key]
+        }
+
+        func store(_ value: KimiVariant, for key: String) {
+            lock.lock()
+            values[key] = value
+            lock.unlock()
+        }
+    }
+
+    private final class KimiProbeOutputBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            guard !chunk.isEmpty else { return }
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func contents() -> Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return data
+        }
+    }
+}
+
 enum KimiHooksInstaller {
     static let beginMarker = "### BEGIN ZENTTY KIMI HOOKS"
     static let endMarker = "### END ZENTTY KIMI HOOKS"
@@ -14,6 +201,14 @@ enum KimiHooksInstaller {
     ) -> URL {
         URL(fileURLWithPath: home, isDirectory: true)
             .appendingPathComponent(".kimi", isDirectory: true)
+            .appendingPathComponent("config.toml", isDirectory: false)
+    }
+
+    static func modernUserConfigURL(
+        home: String = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+    ) -> URL {
+        URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".kimi-code", isDirectory: true)
             .appendingPathComponent("config.toml", isDirectory: false)
     }
 
@@ -76,14 +271,20 @@ enum KimiHooksInstaller {
             return
         }
 
-        let configURL = defaultUserConfigURL(home: home)
-        do {
-            try install(at: configURL, cliPath: cliPath, fileManager: fileManager)
-            kimiInstallerLogger.info("Installed Zentty Kimi hooks in \(configURL.path, privacy: .public)")
-        } catch {
-            kimiInstallerLogger.error(
-                "Failed to install Kimi hooks at \(configURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+        let configURLs = [
+            defaultUserConfigURL(home: home),
+            modernUserConfigURL(home: home)
+        ]
+
+        for configURL in configURLs {
+            do {
+                try install(at: configURL, cliPath: cliPath, fileManager: fileManager)
+                kimiInstallerLogger.info("Installed Zentty Kimi hooks in \(configURL.path, privacy: .public)")
+            } catch {
+                kimiInstallerLogger.error(
+                    "Failed to install Kimi hooks at \(configURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

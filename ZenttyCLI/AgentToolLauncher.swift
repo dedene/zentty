@@ -311,6 +311,16 @@ struct AgentToolLauncher {
 
     private func findRealBinary() throws -> String {
         let wrappedToolNames = tool.realBinaryNames
+        if let realBinaryPath = environment["ZENTTY_REAL_BINARY"]?.nonEmpty {
+            let realBinaryName = URL(fileURLWithPath: realBinaryPath).lastPathComponent
+            var isDirectory: ObjCBool = false
+            if wrappedToolNames.contains(realBinaryName),
+               FileManager.default.fileExists(atPath: realBinaryPath, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: realBinaryPath) {
+                return realBinaryPath
+            }
+        }
         let wrapperDirectories = environmentPathEntries(forKeys: [
             "ZENTTY_ALL_WRAPPER_BIN_DIRS",
             "ZENTTY_WRAPPER_BIN_DIRS",
@@ -321,6 +331,54 @@ struct AgentToolLauncher {
             .map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
         let excludedDirectories = Set(wrapperDirectories + [cliDirectory].compactMap { $0 })
 
+        if tool == .kimi {
+            let pin = KimiVariant(rawPin: environment["ZENTTY_KIMI_VARIANT"])
+            var candidates = [String]()
+            visitRealBinaryCandidates(
+                wrappedToolNames: wrappedToolNames,
+                excludedDirectories: excludedDirectories,
+                deduplicate: true
+            ) { candidate in
+                candidates.append(candidate)
+                return true
+            }
+
+            if let selected = KimiVariantProbe.resolvePreferred(
+                pin: pin,
+                candidates: candidates,
+                probe: { candidate in
+                    KimiVariantProbe.probeVariant(executablePath: candidate, environment: environment)
+                }
+            ) {
+                trace("findRealBinary kimi-resolved (pin=\(pin?.rawValue ?? "none")) -> \(selected)")
+                return selected
+            }
+        }
+
+        var firstCandidate: String?
+        visitRealBinaryCandidates(
+            wrappedToolNames: wrappedToolNames,
+            excludedDirectories: excludedDirectories,
+            deduplicate: false
+        ) { candidate in
+            firstCandidate = candidate
+            return false
+        }
+        if let firstCandidate {
+            return firstCandidate
+        }
+
+        throw POSIXError(.ENOENT)
+    }
+
+    private func visitRealBinaryCandidates(
+        wrappedToolNames: [String],
+        excludedDirectories: Set<String>,
+        deduplicate: Bool,
+        _ visit: (String) -> Bool
+    ) {
+        var seen = Set<String>()
+
         for entry in environmentPathEntries(forKeys: ["PATH"]) {
             guard !excludedDirectories.contains(entry) else {
                 continue
@@ -329,13 +387,17 @@ struct AgentToolLauncher {
                 let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                     .appendingPathComponent(wrappedToolName, isDirectory: false)
                     .path
-                if FileManager.default.isExecutableFile(atPath: candidate) {
-                    return candidate
+                guard FileManager.default.isExecutableFile(atPath: candidate) else {
+                    continue
+                }
+                if deduplicate, !seen.insert(candidate).inserted {
+                    continue
+                }
+                guard visit(candidate) else {
+                    return
                 }
             }
         }
-
-        throw POSIXError(.ENOENT)
     }
 
     private func resolveMiseShimIfNeeded(_ executablePath: String) -> Result<String, LaunchFailureDiagnostic>? {
@@ -488,6 +550,7 @@ struct AgentToolLauncher {
             "ZENTTY_CURSOR_VERBOSE_HOOKS",
             "ZENTTY_DROID_HOOKS_DISABLED",
             "ZENTTY_KIMI_HOOKS_DISABLED",
+            "ZENTTY_KIMI_VARIANT",
             "ZENTTY_GROK_HOOKS_DISABLED",
             "ZENTTY_AGY_HOOKS_DISABLED",
             "ZENTTY_HERMES_HOOKS_DISABLED",
@@ -498,6 +561,8 @@ struct AgentToolLauncher {
             "CODEX_HOME",
             "COPILOT_HOME",
             "HERMES_HOME",
+            "KIMI_CODE_HOME",
+            "KIMI_SHARE_DIR",
             "XDG_CONFIG_HOME",
             "XDG_STATE_HOME",
             "OPENCODE_CONFIG",
