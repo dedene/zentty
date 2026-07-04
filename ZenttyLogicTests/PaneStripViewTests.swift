@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import XCTest
 @testable import Zentty
 
@@ -1775,6 +1776,179 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.render(worklane2State)
         paneStripView.layoutSubtreeIfNeeded()
 
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
+    }
+
+    @MainActor
+    func test_render_coordinator_applies_vertical_push_direction_on_active_worklane_change() throws {
+        let worklane1 = WorklaneState(
+            id: WorklaneID("worklane-1"),
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: PaneID("main-shell"), title: "shell")],
+                focusedPaneID: PaneID("main-shell")
+            )
+        )
+        let worklane2 = WorklaneState(
+            id: WorklaneID("worklane-2"),
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: PaneID("worklane-2-shell"), title: "shell")],
+                focusedPaneID: PaneID("worklane-2-shell")
+            )
+        )
+        let store = WorklaneStore()
+        store.replaceWorklanes([worklane1, worklane2], activeWorklaneID: worklane1.id)
+        let runtimeRegistry = stubRegistry()
+        let appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+        appCanvasView.frame = NSRect(x: 0, y: 0, width: 980, height: 680)
+        appCanvasView.paneStripView.accessibilityReduceMotionForTesting = false
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                appCanvasView.prepareForTestingTearDown()
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: appCanvasView.frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        window.contentView = appCanvasView
+        window.makeKeyAndOrderFrontForAppKitTesting(nil)
+
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore()
+        )
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: appCanvasView
+        ))
+        coordinator.startObserving()
+        coordinator.render()
+        appCanvasView.layoutSubtreeIfNeeded()
+        appCanvasView.paneStripView.viewportLayerForTesting?.removeAnimation(forKey: kCATransition)
+
+        store.selectWorklane(id: worklane2.id)
+
+        let downwardTransition = try XCTUnwrap(
+            appCanvasView.paneStripView.viewportLayerForTesting?.animation(forKey: kCATransition) as? CATransition
+        )
+        XCTAssertEqual(downwardTransition.type, .push)
+        XCTAssertEqual(downwardTransition.subtype, .fromBottom)
+
+        appCanvasView.paneStripView.viewportLayerForTesting?.removeAnimation(forKey: kCATransition)
+        store.selectWorklane(id: worklane1.id)
+
+        let upwardTransition = try XCTUnwrap(
+            appCanvasView.paneStripView.viewportLayerForTesting?.animation(forKey: kCATransition) as? CATransition
+        )
+        XCTAssertEqual(upwardTransition.type, .push)
+        XCTAssertEqual(upwardTransition.subtype, .fromTop)
+    }
+
+    @MainActor
+    func test_worklane_transition_adds_vertical_push_when_visible() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        paneStripView.accessibilityReduceMotionForTesting = false
+        hostInVisibleWindow(paneStripView)
+        let mainState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("main-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("main-shell")
+        )
+        let worklane2State = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("worklane-2-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("worklane-2-shell")
+        )
+
+        paneStripView.render(mainState, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.viewportLayerForTesting?.removeAnimation(forKey: kCATransition)
+
+        paneStripView.render(
+            worklane2State,
+            animated: true,
+            transitionDirection: .down
+        )
+
+        let transition = try XCTUnwrap(
+            paneStripView.viewportLayerForTesting?.animation(forKey: kCATransition) as? CATransition
+        )
+        XCTAssertEqual(transition.type, .push)
+        XCTAssertEqual(transition.subtype, .fromBottom)
+        XCTAssertEqual(
+            transition.duration,
+            PaneStripMotionController.worklaneTransitionDuration,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(transition.timingFunction, PaneStripMotionController.worklaneTransitionTimingFunction)
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
+    }
+
+    @MainActor
+    func test_worklane_transition_skips_when_window_is_not_visible() {
+        let paneStripView = makePaneStripView(width: 980)
+        paneStripView.accessibilityReduceMotionForTesting = false
+        let mainState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("main-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("main-shell")
+        )
+        let worklane2State = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("worklane-2-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("worklane-2-shell")
+        )
+
+        paneStripView.render(mainState, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.viewportLayerForTesting?.removeAnimation(forKey: kCATransition)
+
+        paneStripView.render(worklane2State, animated: true, transitionDirection: .down)
+
+        XCTAssertNil(paneStripView.viewportLayerForTesting?.animation(forKey: kCATransition))
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
+    }
+
+    @MainActor
+    func test_worklane_transition_skips_when_reduce_motion_is_enabled() {
+        let paneStripView = makePaneStripView(width: 980)
+        paneStripView.accessibilityReduceMotionForTesting = true
+        hostInVisibleWindow(paneStripView)
+        let mainState = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("main-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("main-shell")
+        )
+        let worklane2State = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("worklane-2-shell"), title: "shell"),
+            ],
+            focusedPaneID: PaneID("worklane-2-shell")
+        )
+
+        paneStripView.render(mainState, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.viewportLayerForTesting?.removeAnimation(forKey: kCATransition)
+
+        paneStripView.render(worklane2State, animated: true, transitionDirection: .down)
+
+        XCTAssertNil(paneStripView.viewportLayerForTesting?.animation(forKey: kCATransition))
         XCTAssertFalse(paneStripView.lastRenderWasAnimated)
     }
 
@@ -4432,6 +4606,10 @@ private extension NSView {
 
         walk(self)
         return paneViews
+    }
+
+    var viewportLayerForTesting: CALayer? {
+        subviews.first?.layer
     }
 }
 

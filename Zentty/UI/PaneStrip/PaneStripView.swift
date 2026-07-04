@@ -162,6 +162,7 @@ final class PaneStripView: NSView {
         private var hoverFocusWindowIsKeyOverrideForTesting: Bool?
         private var hoverFocusPressedMouseButtonsOverrideForTesting: Int?
         private var hoverFocusMouseLocationOverrideForTesting: NSPoint?
+        private var accessibilityReduceMotionOverrideForTesting: Bool?
     #endif
     private var currentWorklaneColor: WorklaneColor?
     private var currentPresentation: StripPresentation?
@@ -228,6 +229,15 @@ final class PaneStripView: NSView {
     var leadingVisibleInset: CGFloat {
         get { resolvedLeadingVisibleInset }
         set { setLeadingVisibleInset(newValue, animated: false) }
+    }
+
+    private var accessibilityDisplayShouldReduceMotion: Bool {
+        #if DEBUG
+            if let accessibilityReduceMotionOverrideForTesting {
+                return accessibilityReduceMotionOverrideForTesting
+            }
+        #endif
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     override var fittingSize: NSSize {
@@ -425,6 +435,7 @@ final class PaneStripView: NSView {
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
@@ -464,6 +475,7 @@ final class PaneStripView: NSView {
         renderCurrentState(
             state,
             animated: animated && !paneViews.isEmpty,
+            transitionDirection: transitionDirection,
             animationDuration: duration,
             animationTimingFunction: timingFunction
         )
@@ -486,6 +498,7 @@ final class PaneStripView: NSView {
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat,
         animated: Bool,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
@@ -523,6 +536,7 @@ final class PaneStripView: NSView {
         renderCurrentState(
             state,
             animated: animated,
+            transitionDirection: transitionDirection,
             animationDuration: duration,
             animationTimingFunction: timingFunction
         )
@@ -840,6 +854,11 @@ final class PaneStripView: NSView {
             set { hoverFocusMouseLocationOverrideForTesting = newValue }
         }
 
+        var accessibilityReduceMotionForTesting: Bool? {
+            get { accessibilityReduceMotionOverrideForTesting }
+            set { accessibilityReduceMotionOverrideForTesting = newValue }
+        }
+
         var pendingHoverFocusPaneIDForTesting: PaneID? {
             pendingHoverFocusPaneID
         }
@@ -873,6 +892,7 @@ final class PaneStripView: NSView {
     private func renderCurrentState(
         _ state: PaneStripState,
         animated: Bool,
+        transitionDirection: WorklaneTransitionDirection? = nil,
         forceViewportLayoutBeforeViewportSync: Bool = false,
         animationDuration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         animationTimingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
@@ -946,6 +966,27 @@ final class PaneStripView: NSView {
             && needsTerminalRedrawAfterRender
             && insertionTransition == nil
             && removalTransition == nil
+
+        let shouldAnimateWorklaneTransition = animated
+            && transitionDirection != nil
+            && window?.isVisible == true
+            && window?.inLiveResize != true
+            && !inLiveResize
+            && !isResizeSuppressedRender
+            && !isZoomedOut
+            && !accessibilityDisplayShouldReduceMotion
+
+        if shouldAnimateWorklaneTransition, let transitionDirection {
+            let transition = CATransition()
+            transition.type = .push
+            transition.subtype = transitionDirection == .down ? .fromBottom : .fromTop
+            transition.duration = PaneStripMotionController.worklaneTransitionDuration
+            transition.timingFunction = PaneStripMotionController.worklaneTransitionTimingFunction
+            viewportView.layer?.add(transition, forKey: kCATransition)
+        } else if transitionDirection != nil {
+            viewportView.layer?.removeAnimation(forKey: kCATransition)
+        }
+
         reconcilePaneViews(
             with: state,
             presentation: presentation,
