@@ -183,6 +183,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private let newWorklanePlacementPopup = NSPopUpButton()
     private let newWorklanePlacementSubtitleLabel = NSTextField(labelWithString: "")
     private let showLabelsSwitch = NSSwitch()
+    private let showPaneBordersSwitch = NSSwitch()
     private let showProjectIconsSwitch = NSSwitch()
     private let smoothScrollingSwitch = NSSwitch()
     private let focusFollowsMouseSwitch = NSSwitch()
@@ -264,6 +265,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         showLabelsSwitch.state == .on
     }
 
+    var showPaneBordersForTesting: Bool {
+        showPaneBordersSwitch.state == .on
+    }
+
+    var showPaneBordersSwitchForTesting: NSSwitch {
+        showPaneBordersSwitch
+    }
+
     var showsProjectIconsForTesting: Bool {
         showProjectIconsSwitch.state == .on
     }
@@ -328,6 +337,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard isViewLoaded else { return }
         isApplyingPanes = true
         showLabelsSwitch.state = panes.showLabels ? .on : .off
+        showPaneBordersSwitch.state = panes.showBorders ? .on : .off
         showProjectIconsSwitch.state = panes.showProjectIcons ? .on : .off
         smoothScrollingSwitch.state = panes.smoothScrollingEnabled ? .on : .off
         focusFollowsMouseSwitch.state = panes.focusFollowsMouse ? .on : .off
@@ -499,6 +509,15 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         )
         contentStack.addArrangedSubview(labelsRow)
         labelsRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let paneBordersRow = makeSwitchRow(
+            title: "Show pane borders",
+            subtitle: "Show borders around every pane. When off, only the focused pane keeps its border and panes sit closer together.",
+            toggle: showPaneBordersSwitch,
+            action: #selector(handleShowPaneBordersChanged(_:))
+        )
+        contentStack.addArrangedSubview(paneBordersRow)
+        paneBordersRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
         let projectIconsRow = makeSwitchRow(
             title: "Show project icons",
@@ -834,6 +853,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard !isApplyingPanes else { return }
         try? configStore.update {
             $0.panes.showLabels = sender.state == .on
+        }
+    }
+
+    @objc
+    private func handleShowPaneBordersChanged(_ sender: NSSwitch) {
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.showBorders = sender.state == .on
         }
     }
 

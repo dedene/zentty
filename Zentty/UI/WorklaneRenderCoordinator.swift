@@ -334,7 +334,7 @@ final class WorklaneRenderCoordinator {
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
                 smoothScrollingEnabled: paneSettings.smoothScrollingEnabled,
-                showPaneBorders: config.appearance.showPaneBorders,
+                showPaneBorders: paneSettings.showBorders,
                 focusFollowsMouseEnabled: focusFollowsMouseEnabled,
                 focusFollowsMouseDelay: paneSettings.focusFollowsMouseDelay,
                 worklaneColor: worklane.color,

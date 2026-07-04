@@ -37,7 +37,7 @@ final class PaneContainerViewWorklaneBorderTests: AppKitTestCase {
         XCTAssertEqual(paneView.focusGlowFrameForTesting, paneView.bounds)
     }
 
-    func test_show_pane_borders_disabled_clears_border_and_glow() {
+    func test_show_pane_borders_disabled_keeps_focused_border_and_glow() {
         let paneView = makePaneView(isFocused: true)
         paneView.showPaneBorders = false
 
@@ -45,6 +45,23 @@ final class PaneContainerViewWorklaneBorderTests: AppKitTestCase {
             pane: PaneState(id: PaneID("p"), title: "p"),
             emphasis: 1,
             isFocused: true,
+            worklaneColor: .blue
+        )
+
+        let expectedBorder = WorklaneColor.blue.tint(alpha: WorklaneColor.Alpha.focusedBorder)
+        let expectedGlow = WorklaneColor.blue.tint(alpha: WorklaneColor.Alpha.focusedGlow)
+        XCTAssertEqual(paneView.insetBorderColorToken, token(for: expectedBorder))
+        XCTAssertEqual(paneView.focusGlowColorTokenForTesting, token(for: expectedGlow))
+    }
+
+    func test_show_pane_borders_disabled_clears_unfocused_border() {
+        let paneView = makePaneView(isFocused: false)
+        paneView.showPaneBorders = false
+
+        paneView.render(
+            pane: PaneState(id: PaneID("p"), title: "p"),
+            emphasis: 1,
+            isFocused: false,
             worklaneColor: .blue
         )
 
@@ -63,6 +80,24 @@ final class PaneContainerViewWorklaneBorderTests: AppKitTestCase {
         )
 
         XCTAssertEqual(paneView.insetBorderColorToken, token(for: theme.paneBorderFocused))
+    }
+
+    func test_reset_zoom_border_compensation_keeps_border_cleared_when_disabled() {
+        let paneView = makePaneView(isFocused: false)
+        let pane = PaneState(id: PaneID("p"), title: "p")
+
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: false,
+            worklaneColor: nil
+        )
+        paneView.applyZoomBorderCompensation(zoomScale: 0.5)
+        paneView.showPaneBorders = false
+
+        paneView.resetZoomBorderCompensation()
+
+        XCTAssertNil(paneView.insetBorderColorToken)
     }
 
     func test_unfocused_with_worklane_color_leaves_unfocused_border_and_no_glow() {

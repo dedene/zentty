@@ -369,7 +369,7 @@ final class PaneContainerView: NSView {
             terminalHostView.smoothScrollingEnabled = smoothScrollingEnabled
         }
     }
-    var showPaneBorders = AppConfig.Appearance.default.showPaneBorders {
+    var showPaneBorders = AppConfig.Panes.default.showBorders {
         didSet {
             guard oldValue != showPaneBorders else { return }
             applyVisualState(animated: false)
@@ -1232,7 +1232,9 @@ final class PaneContainerView: NSView {
         CATransaction.setDisableActions(true)
         insetBorderLayer.strokeWidth = Layout.borderWidth
         if let saved = savedBorderColor {
-            insetBorderLayer.strokeColorValue = saved
+            if showPaneBorders || currentIsFocused {
+                insetBorderLayer.strokeColorValue = saved
+            }
             savedBorderColor = nil
         }
         CATransaction.commit()
@@ -1784,9 +1786,9 @@ final class PaneContainerView: NSView {
                 focusedStroke: focusedStroke,
                 isFocused: isFocused
             )
-            self.insetBorderLayer.strokeColorValue = self.showPaneBorders ? borderColor : nil
+            self.insetBorderLayer.strokeColorValue = (self.showPaneBorders || isFocused) ? borderColor : nil
             self.insetBorderLayer.strokeWidth = self.zoomAwareBorderWidth(isFocused: isFocused)
-            self.focusGlowLayer.glowColorValue = self.showPaneBorders ? glowColor : nil
+            self.focusGlowLayer.glowColorValue = (self.showPaneBorders || isFocused) ? glowColor : nil
             self.layer?.shadowColor = theme.paneShadow.cgColor
             self.layer?.shadowOpacity = shadowOpacity
             self.layer?.shadowRadius = shadowRadius

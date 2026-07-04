@@ -1464,6 +1464,7 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         view.apply(panes: AppConfig.Panes(
             showLabels: true,
+            showBorders: true,
             inactiveOpacity: 0.7,
             showProjectIcons: false
         ))
@@ -1475,6 +1476,7 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         view.apply(panes: AppConfig.Panes(
             showLabels: true,
+            showBorders: true,
             inactiveOpacity: 0.7,
             showProjectIcons: true
         ))

@@ -3706,7 +3706,10 @@ final class RootViewController: NSViewController {
             displayClass: displayClass,
             viewportWidth: viewportWidth,
             leadingVisibleInset: leadingVisibleInsetOverride ?? appCanvasView.leadingVisibleInset,
-            sizing: PaneLayoutSizing.forSidebarVisibility(sidebarMotionCoordinator.mode)
+            sizing: PaneLayoutSizing.forSidebarVisibility(
+                sidebarMotionCoordinator.mode,
+                showPaneBorders: configStore.current.panes.showBorders
+            )
         )
     }
 
@@ -4235,7 +4238,8 @@ extension RootViewController: WorklanePeekControllerDelegate {
                 canvasSize: appCanvasView.bounds.size,
                 zoomScale: zoomScale,
                 runtimeRegistry: runtimeRegistry,
-                theme: currentTheme
+                theme: currentTheme,
+                showPaneBorders: configStore.current.panes.showBorders
             )
         }
 

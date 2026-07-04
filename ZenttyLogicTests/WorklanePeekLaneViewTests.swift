@@ -23,7 +23,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
         geometryChangeCount = 0
 
@@ -47,7 +48,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
 
         carrier.centerOnPane(PaneID("right"), animated: false)
@@ -72,7 +74,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
 
         let leftFrame = try XCTUnwrap(carrier.paneFrameInCarrier(PaneID("left")))
@@ -107,7 +110,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
 
         let shellFrame = try XCTUnwrap(carrier.paneFrameInCarrier(PaneID("shell")))
@@ -149,7 +153,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
 
         let terminalView = try XCTUnwrap(adapters[PaneID("shell")]?.terminalView)
@@ -205,7 +210,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
         let terminalView = try XCTUnwrap(adapters[paneID]?.terminalView)
         terminalView.clearViewportSyncSuspensionUpdatesForTesting()
@@ -251,7 +257,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             canvasSize: CGSize(width: 1200, height: 720),
             zoomScale: PaneStripView.zoomScale,
             runtimeRegistry: registry,
-            theme: ZenttyTheme.fallback(for: nil)
+            theme: ZenttyTheme.fallback(for: nil),
+            showPaneBorders: true
         )
 
         XCTAssertEqual(
@@ -298,7 +305,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             canvasSize: CGSize(width: 1200, height: 720),
             zoomScale: PaneStripView.zoomScale,
             runtimeRegistry: registry,
-            theme: ZenttyTheme.fallback(for: nil)
+            theme: ZenttyTheme.fallback(for: nil),
+            showPaneBorders: true
         )
 
         peekView.centerOn(worklaneID: WorklaneID("middle"), animated: false)
@@ -350,7 +358,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             canvasSize: CGSize(width: 1200, height: 720),
             zoomScale: PaneStripView.zoomScale,
             runtimeRegistry: registry,
-            theme: ZenttyTheme.fallback(for: nil)
+            theme: ZenttyTheme.fallback(for: nil),
+            showPaneBorders: true
         )
 
         peekView.centerOn(worklaneID: WorklaneID("middle"), animated: false)
@@ -378,7 +387,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             worklane: worklane,
             theme: ZenttyTheme.fallback(for: nil),
             canvasSize: CGSize(width: 1200, height: 720),
-            zoomScale: PaneStripView.zoomScale
+            zoomScale: PaneStripView.zoomScale,
+            showPaneBorders: true
         )
 
         carrier.centerOnPane(PaneID("right"), animated: true)
@@ -426,7 +436,8 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
             canvasSize: CGSize(width: 1200, height: 720),
             zoomScale: PaneStripView.zoomScale,
             runtimeRegistry: registry,
-            theme: ZenttyTheme.fallback(for: nil)
+            theme: ZenttyTheme.fallback(for: nil),
+            showPaneBorders: true
         )
         let carrier = try XCTUnwrap(carrier(in: peekView, containing: PaneID("target")))
         let frameInCarrier = try XCTUnwrap(carrier.paneFrameInCarrier(PaneID("target")))

@@ -127,14 +127,12 @@ protocol AppearanceSettingsConfigCoordinating {
     var sourceState: AppearanceSettingsSourceState { get }
     var themePreferences: AppearanceThemePreferences { get }
     var syncOpenCodeThemeWithTerminal: Bool { get }
-    var showPaneBorders: Bool { get }
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async
     func applyTheme(_ name: String, slot: AppearanceThemeSlot, presentingWindow: NSWindow?) async
     func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode, presentingWindow: NSWindow?) async
     func resetThemePreferences(presentingWindow: NSWindow?) async
     func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow: NSWindow?) async
     func applyOpenCodeThemeSync(_ enabled: Bool) async
-    func applyShowPaneBorders(_ enabled: Bool) async
     func createSharedConfig(presentingWindow: NSWindow?) async
 }
 
@@ -190,10 +188,6 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
 
     var syncOpenCodeThemeWithTerminal: Bool {
         configStore.current.appearance.syncOpenCodeThemeWithTerminal
-    }
-
-    var showPaneBorders: Bool {
-        configStore.current.appearance.showPaneBorders
     }
 
     var themePreferences: AppearanceThemePreferences {
@@ -289,16 +283,6 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
             }
         } catch {
             logger.error("Failed to persist OpenCode theme sync setting: \(error.localizedDescription)")
-        }
-    }
-
-    func applyShowPaneBorders(_ enabled: Bool) async {
-        do {
-            try configStore.update { config in
-                config.appearance.showPaneBorders = enabled
-            }
-        } catch {
-            logger.error("Failed to persist show pane borders setting: \(error.localizedDescription)")
         }
     }
 

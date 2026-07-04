@@ -368,7 +368,7 @@ final class AppCanvasView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
-        showPaneBorders: Bool = AppConfig.Appearance.default.showPaneBorders,
+        showPaneBorders: Bool = AppConfig.Panes.default.showBorders,
         focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
         focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,

@@ -49,6 +49,7 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[panes]")
         lines.append("show_labels = \(config.panes.showLabels)")
+        lines.append("show_borders = \(config.panes.showBorders)")
         lines.append("inactive_opacity = \(format(number: config.panes.inactiveOpacity))")
         lines.append("show_project_icons = \(config.panes.showProjectIcons)")
         lines.append("smooth_scroll_enabled = \(config.panes.smoothScrollingEnabled)")
@@ -74,9 +75,6 @@ enum AppConfigTOML {
                 lines.append(
                     "sync_opencode_theme_with_terminal = \(config.appearance.syncOpenCodeThemeWithTerminal)"
                 )
-            }
-            if config.appearance.showPaneBorders != AppConfig.Appearance.default.showPaneBorders {
-                lines.append("show_pane_borders = \(config.appearance.showPaneBorders)")
             }
             lines.append("")
         }
@@ -590,11 +588,6 @@ enum AppConfigTOML {
                 return false
             }
             config.appearance.syncOpenCodeThemeWithTerminal = value
-        case "show_pane_borders":
-            guard let value = decodeBool(assignment.value) else {
-                return false
-            }
-            config.appearance.showPaneBorders = value
         default:
             return true
         }
@@ -612,6 +605,11 @@ enum AppConfigTOML {
                 return false
             }
             config.panes.showLabels = value
+        case "show_borders":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.panes.showBorders = value
         case "inactive_opacity":
             guard let value = Double(assignment.value) else {
                 return false

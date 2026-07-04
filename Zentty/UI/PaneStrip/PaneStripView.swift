@@ -150,7 +150,7 @@ final class PaneStripView: NSView {
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
-    private var currentShowPaneBorders = AppConfig.Appearance.default.showPaneBorders
+    private var currentShowPaneBorders = AppConfig.Panes.default.showBorders
     private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
     private var pendingHoverFocusWorkItem: DispatchWorkItem?
@@ -419,7 +419,7 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
-        showPaneBorders: Bool = AppConfig.Appearance.default.showPaneBorders,
+        showPaneBorders: Bool = AppConfig.Panes.default.showBorders,
         focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
         focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
@@ -480,7 +480,7 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
-        showPaneBorders: Bool = AppConfig.Appearance.default.showPaneBorders,
+        showPaneBorders: Bool = AppConfig.Panes.default.showBorders,
         focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
         focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,

@@ -74,7 +74,8 @@ final class WorklanePeekLaneView: NSView {
         worklane: WorklaneState,
         theme: ZenttyTheme,
         canvasSize: CGSize,
-        zoomScale: CGFloat
+        zoomScale: CGFloat,
+        showPaneBorders: Bool
     ) {
         worklaneID = worklane.id
         strip.configureViewportDiagnostics(worklaneID: worklane.id, laneRole: .peekNeighbor)
@@ -99,7 +100,7 @@ final class WorklanePeekLaneView: NSView {
             strip.preparePeekNeighborZoomOut(scale: zoomScale)
         }
         strip.apply(theme: theme, animated: false)
-        strip.render(worklane.paneStripState, animated: false)
+        strip.render(worklane.paneStripState, showPaneBorders: showPaneBorders, animated: false)
 
         // Force layout so the strip lays panes out at full canvas dimensions
         // before we ask it to zoom out — otherwise the zoom centering math
