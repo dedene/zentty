@@ -15,7 +15,7 @@ enum ServerIPCHandler {
         var result: Result<AgentIPCResponseResult, Error>!
         DispatchQueue.main.sync {
             result = Result {
-                try MainActor.assumeIsolated {
+                try MainActorShim.assumeIsolated {
                     try Self.dispatch(command: command, target: target)
                 }
             }

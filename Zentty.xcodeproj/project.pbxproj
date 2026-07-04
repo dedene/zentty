@@ -192,6 +192,7 @@
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
 		5EC6012DA9430BE8D4B3346C /* VibeHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */; };
+		5F94EB5F5A6F59AD32F605CD /* MainActorShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E46B2946B1B85B846A487F /* MainActorShim.swift */; };
 		5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */; };
 		60BEB8CBA618C6A4DD0A69C5 /* ProcessSignaling.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB5382921BB166EEA584F3E6 /* ProcessSignaling.swift */; };
 		60F13E1D9931F1321C002362 /* ServerRelevance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66E9360C107E9A7D3F05652 /* ServerRelevance.swift */; };
@@ -801,6 +802,7 @@
 		7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionSummaryBuilder.swift; sourceTree = "<group>"; };
 		7CFD112F9402167A1785DB70 /* BookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStore.swift; sourceTree = "<group>"; };
 		7D19D665B0C99E8725E1E7AC /* ProjectIconResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIconResolverTests.swift; sourceTree = "<group>"; };
+		7D85A32FF838B668D61586CA /* FuzzyMatch */ = {isa = PBXFileReference; lastKnownFileType = folder; name = FuzzyMatch; path = Vendor/FuzzyMatch; sourceTree = SOURCE_ROOT; };
 		7DCA45568C0DF115CFA41141 /* CommandPalettePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalettePanel.swift; sourceTree = "<group>"; };
 		7DDF1EF89E46D6EEECB8A320 /* LibghosttyAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapter.swift; sourceTree = "<group>"; };
 		7E2D835F21D93B42A98AB467 /* BookmarkSaveSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkSaveSheetController.swift; sourceTree = "<group>"; };
@@ -849,6 +851,7 @@
 		916D215502518D8BAF3C3921 /* SidebarWorklaneRowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowLayout.swift; sourceTree = "<group>"; };
 		91986D1792E0A3DD28D3A244 /* SidebarWorklaneRowDebugging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowDebugging.swift; sourceTree = "<group>"; };
 		91D88FB8E9B069D496016C8B /* AgentIntegrationConsentPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationConsentPanel.swift; sourceTree = "<group>"; };
+		91E46B2946B1B85B846A487F /* MainActorShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainActorShim.swift; sourceTree = "<group>"; };
 		932855A80F09B46E2143378A /* WorklaneStoreShellExitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreShellExitTests.swift; sourceTree = "<group>"; };
 		93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgyHooksInstaller.swift; sourceTree = "<group>"; };
 		93E9CA26FCDC9E619509598B /* GenericProgressReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenericProgressReducer.swift; sourceTree = "<group>"; };
@@ -1229,6 +1232,7 @@
 				4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */,
 				B530C90C0E34C9180D7FA019 /* Info.plist */,
 				6BC138BE273ED92291124633 /* main.swift */,
+				91E46B2946B1B85B846A487F /* MainActorShim.swift */,
 				DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */,
 				A6AC3A2E72C18928AB5ADE0B /* Zentty.entitlements */,
 				1C0506CDB868054B09C5CA8D /* AppState */,
@@ -1267,6 +1271,7 @@
 		37CB5D1993A4151C254A16D2 = {
 			isa = PBXGroup;
 			children = (
+				9E9AF610FB25417DB6B2DD76 /* Packages */,
 				B258A9FA98E9B0D07686DC6E /* Updates */,
 				3113646FB0F299F70B834339 /* Zentty */,
 				1DA11E964A031CDE3AC40E9D /* ZenttyCLI */,
@@ -1538,6 +1543,14 @@
 				FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */,
 			);
 			path = Theme;
+			sourceTree = "<group>";
+		};
+		9E9AF610FB25417DB6B2DD76 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				7D85A32FF838B668D61586CA /* FuzzyMatch */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 		B258A9FA98E9B0D07686DC6E /* Updates */ = {
@@ -2091,9 +2104,9 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				5651DAECD5465FD6C6AA7DDF /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
-				A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */,
 				878A54334D2B91363EA6D039 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				1CA4AE4566F84BDDF088EC1B /* XCRemoteSwiftPackageReference "Sparkle" */,
+				22D33C9D88CFE82F64B70138 /* XCLocalSwiftPackageReference "Vendor/FuzzyMatch" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 77D242A536F1FD4B6EE328F9 /* Products */;
@@ -2460,6 +2473,7 @@
 				8D16DCB2D9A5CBFD25CBC5D1 /* LibghosttySurface.swift in Sources */,
 				1139F5A8823B615631F1616C /* LibghosttyView.swift in Sources */,
 				8788243DE8CD13BCFE0D3BE1 /* LicensesWindowController.swift in Sources */,
+				5F94EB5F5A6F59AD32F605CD /* MainActorShim.swift in Sources */,
 				AFA0CB1E830B1464903655D6 /* MainWindowController.swift in Sources */,
 				E092E65843424D641089F829 /* MenuBarAgentIconInspector.swift in Sources */,
 				257E94D0CDB7BC7915DCD926 /* MenuBarFleetState.swift in Sources */,
@@ -2809,7 +2823,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -2870,7 +2884,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = Zentty;
@@ -2893,6 +2907,7 @@
 					"@loader_path/../Frameworks",
 					"@loader_path/../../../Zentty.app/Contents/MacOS",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib",
@@ -2916,6 +2931,7 @@
 					"@loader_path/../Frameworks",
 					"@loader_path/../../../Zentty.app/Contents/MacOS",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"$(BUILT_PRODUCTS_DIR)/Zentty.app/Contents/MacOS/Zentty.debug.dylib",
@@ -2935,7 +2951,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleName = zentty;
-				INFOPLIST_KEY_LSMinimumSystemVersion = 14.0;
+				INFOPLIST_KEY_LSMinimumSystemVersion = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -2959,6 +2975,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
@@ -2977,6 +2994,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyTests;
 				PRODUCT_NAME = ZenttyTests;
 				SDKROOT = macosx;
@@ -2995,6 +3013,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
@@ -3097,6 +3116,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyTests;
 				PRODUCT_NAME = ZenttyTests;
 				SDKROOT = macosx;
@@ -3112,7 +3132,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleName = zentty;
-				INFOPLIST_KEY_LSMinimumSystemVersion = 14.0;
+				INFOPLIST_KEY_LSMinimumSystemVersion = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -3184,6 +3204,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		22D33C9D88CFE82F64B70138 /* XCLocalSwiftPackageReference "Vendor/FuzzyMatch" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/FuzzyMatch;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		1CA4AE4566F84BDDF088EC1B /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -3209,20 +3236,11 @@
 				minimumVersion = 9.9.0;
 			};
 		};
-		A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ordo-one/FuzzyMatch";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.3.2;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		1783CDCC7848CB005D3A519C /* FuzzyMatch */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */;
 			productName = FuzzyMatch;
 		};
 		7B6C0F6F7A5305E09ECE2C65 /* Sentry */ = {

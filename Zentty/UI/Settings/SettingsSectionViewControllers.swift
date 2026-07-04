@@ -97,7 +97,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
     }
 
     func preferredViewportHeight(for width: CGFloat) -> CGFloat {
-        loadViewIfNeeded()
+        _ = view
         updateDocumentLayout(
             viewportWidth: width,
             viewportHeight: 0,
@@ -107,7 +107,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
     }
 
     func prepareForPresentation() {
-        loadViewIfNeeded()
+        _ = view
         updateDocumentLayout(
             viewportWidth: max(view.bounds.width, SettingsViewController.preferredContentWidth),
             viewportHeight: max(view.bounds.height, 1),
@@ -138,7 +138,7 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
     }
 
     func refreshScrollableContentLayout() {
-        loadViewIfNeeded()
+        _ = view
         updateDocumentLayout(
             viewportWidth: max(view.bounds.width, SettingsViewController.preferredContentWidth),
             viewportHeight: max(view.bounds.height, 1),

@@ -658,7 +658,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     func loadThemesForTesting() async {
-        loadViewIfNeeded()
+        _ = view
         await reloadThemes()
     }
 

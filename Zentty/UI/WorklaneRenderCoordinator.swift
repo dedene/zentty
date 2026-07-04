@@ -96,7 +96,7 @@ final class WorklaneRenderCoordinator {
     }
 
     deinit {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             cancelReviewPolling()
             if let worklaneStoreSubscription {
                 worklaneStore.unsubscribe(worklaneStoreSubscription)

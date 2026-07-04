@@ -1043,7 +1043,7 @@ final class AgentIPCServer: @unchecked Sendable {
 
         let target: AgentIPCTarget
         let resolveTarget = {
-            try MainActor.assumeIsolated {
+            try MainActorShim.assumeIsolated {
                 try resolvePaneTarget(
                     selectors: selectors,
                     environment: request.environment

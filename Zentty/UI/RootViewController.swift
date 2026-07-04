@@ -441,7 +441,7 @@ final class RootViewController: NSViewController {
     }
 
     deinit {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             invalidateStaleAgentSweepTimer()
             passiveServerDetectionTask?.cancel()
             agentCaffeinationController.removeSource(id: windowID)

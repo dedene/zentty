@@ -76,25 +76,16 @@ struct CommandPaletteView: View {
         .onAppear {
             onHeightChange(preferredPanelHeight)
         }
-        .onChange(of: preferredPanelHeight) { _, newValue in
+        .onChange(of: preferredPanelHeight) { newValue in
             onHeightChange(newValue)
         }
-        .onKeyPress(.escape) {
-            onDismiss()
-            return .handled
-        }
-        .onKeyPress(.return) {
-            executeSelected()
-            return .handled
-        }
-        .onKeyPress(.upArrow) {
-            viewModel.moveSelection(by: -1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            viewModel.moveSelection(by: 1)
-            return .handled
-        }
+        .modifier(
+            CommandPaletteKeyboardHandlingModifier(
+                onDismiss: onDismiss,
+                executeSelected: executeSelected,
+                moveSelection: { viewModel.moveSelection(by: $0) }
+            )
+        )
     }
 
     private var searchField: some View {
@@ -105,7 +96,7 @@ struct CommandPaletteView: View {
             TextField(
                 "Search commands, panes, and settings\u{2026}",
                 text: $viewModel.searchText,
-                prompt: Text("Search commands, panes, and settings\u{2026}").foregroundStyle(theme.secondaryColor)
+                prompt: Text("Search commands, panes, and settings\u{2026}").foregroundColor(theme.secondaryColor)
             )
                 .textFieldStyle(.plain)
                 .font(.system(size: 17))
@@ -146,13 +137,13 @@ struct CommandPaletteView: View {
                                     scope: viewModel.resolvedResults.scope
                                 )
                             )
-                            .onChange(of: viewModel.selectedIndex) {
+                            .onChange(of: viewModel.selectedIndex) { _ in
                                 guard viewModel.resolvedResults.requiresScrolling,
                                       let item = results[safe: viewModel.selectedIndex]
                                 else { return }
                                 proxy.scrollTo(item.item.id, anchor: .center)
                             }
-                            .onChange(of: viewModel.resolvedResults) {
+                            .onChange(of: viewModel.resolvedResults) { _ in
                                 guard viewModel.resolvedResults.requiresScrolling,
                                       let item = viewModel.resolvedResults.items[safe: viewModel.selectedIndex]
                                 else { return }
@@ -273,6 +264,50 @@ struct CommandPaletteView: View {
     private func executeSelected() {
         guard let item = viewModel.selectedItem else { return }
         onExecute(item.item.id)
+    }
+}
+
+private struct CommandPaletteKeyboardHandlingModifier: ViewModifier {
+    let onDismiss: () -> Void
+    let executeSelected: () -> Void
+    let moveSelection: (Int) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .onKeyPress(.escape) {
+                    onDismiss()
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    executeSelected()
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    moveSelection(-1)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    moveSelection(1)
+                    return .handled
+                }
+        } else {
+            content.background(
+                Group {
+                    Button("") { onDismiss() }
+                        .keyboardShortcut(.escape, modifiers: [])
+                    Button("") { executeSelected() }
+                        .keyboardShortcut(.return, modifiers: [])
+                    Button("") { moveSelection(-1) }
+                        .keyboardShortcut(.upArrow, modifiers: [])
+                    Button("") { moveSelection(1) }
+                        .keyboardShortcut(.downArrow, modifiers: [])
+                }
+                .opacity(0)
+                .frame(width: 0, height: 0)
+            )
+        }
     }
 }
 

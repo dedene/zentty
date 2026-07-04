@@ -20,11 +20,11 @@ final class NotificationChromeCoordinator {
 
     deinit {
         if let storeObserverID {
-            MainActor.assumeIsolated {
+            MainActorShim.assumeIsolated {
                 store.removeObserver(storeObserverID)
             }
         }
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             removePopoverObserver()
         }
     }
@@ -69,7 +69,11 @@ final class NotificationChromeCoordinator {
     }
 
     var isPopoverFullSizeContentForTesting: Bool {
-        notificationPopover?.hasFullSizeContent == true
+        if #available(macOS 14.0, *) {
+            return notificationPopover?.hasFullSizeContent == true
+        } else {
+            return false
+        }
     }
 
     var popoverAnchorRectForTesting: NSRect? {

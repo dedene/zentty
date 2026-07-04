@@ -68,7 +68,7 @@ final class AgentCaffeinationController {
     }
 
     deinit {
-        MainActor.assumeIsolated {
+        MainActorShim.assumeIsolated {
             releaseNow()
         }
     }

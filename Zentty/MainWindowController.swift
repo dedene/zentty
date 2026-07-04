@@ -236,7 +236,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             initialLayoutContext: initialLayoutContext,
             initialWorkspaceState: initialWorkspaceState
         )
-        rootViewController.loadViewIfNeeded()
+        _ = rootViewController.view
         let window = ProxyAwareWindow(
             contentRect: initialWindowFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

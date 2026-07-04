@@ -62,7 +62,7 @@ enum DiscoveryIPCHandler {
 
         var result: Result<AgentIPCResponseResult, Error>!
         let resolve = {
-            result = .success(MainActor.assumeIsolated {
+            result = .success(MainActorShim.assumeIsolated {
                 self.dispatch(subcommand: subcommand, options: options)
             })
         }

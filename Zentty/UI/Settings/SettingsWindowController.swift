@@ -636,12 +636,12 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
     /// The split view backing the sidebar/detail layout, exposed so the host
     /// window can anchor an `NSTrackingSeparatorToolbarItem` to its divider.
     var navigationSplitView: NSSplitView {
-        loadViewIfNeeded()
+        _ = view
         return splitView
     }
 
     func handleAppearanceChange() {
-        loadViewIfNeeded()
+        _ = view
         view.layoutSubtreeIfNeeded()
         (currentSectionViewController as? SettingsAppearanceUpdating)?.handleAppearanceChange()
         sidebarViewController.handleAppearanceChange()
@@ -652,7 +652,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
     }
 
     func select(section: SettingsSection, animated _: Bool) {
-        loadViewIfNeeded()
+        _ = view
         navigate(to: section, recordHistory: true)
     }
 
@@ -711,7 +711,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
     }
 
     private func applySelection(_ section: SettingsSection) {
-        loadViewIfNeeded()
+        _ = view
         onPrepareSectionForPresentationForTesting?(section, selectedSection)
 
         let contentViewController = sectionViewController(for: section)
