@@ -55,12 +55,6 @@ resolve_zig_command() {
     return
   fi
 
-  local cache_candidate="${HOME}/Library/Caches/zentty/zig-0.15.2/zig-x86_64-macos-0.15.2/zig"
-  if [[ -x "${cache_candidate}" && "$("${cache_candidate}" version)" == "${zig_version}" ]]; then
-    echo "${cache_candidate}"
-    return
-  fi
-
   local major_minor="${zig_version%.*}"
   local formula="zig@${major_minor}"
   local formula_prefix
@@ -75,8 +69,9 @@ resolve_zig_command() {
   if command -v port >/dev/null 2>&1; then
     local candidate="/opt/local/bin/zig"
     if [[ -x "${candidate}" ]]; then
-      local current_version=$("${candidate}" version)
-      if [[ "${current_version}" == "${zig_version}" || "${current_version}" == 0.16.* ]]; then
+      local current_version
+      current_version=$("${candidate}" version)
+      if [[ "${current_version}" == "${zig_version}" ]]; then
         echo "${candidate}"
         return
       fi
@@ -127,11 +122,17 @@ else
   fi
 fi
 
+# Ghostty updates the moving `tip` tag, so cached clones need forced tag refreshes.
 git -C "${SOURCE_DIR}" fetch --tags --prune --force origin
 git -C "${SOURCE_DIR}" checkout --force --detach "${revision}"
 
-# Patch macOS 14 only API for macOS 13 build
-sed -i '' 's/c.kCVPixelFormatType_30RGB_r210/0x72323130/g' "${SOURCE_DIR}/pkg/macos/video/pixel_format.zig" || true
+# Ghostty uses kCVPixelFormatType_30RGB_r210 (macOS 14+ CoreVideo constant); patch to the
+# equivalent raw FourCC so GhosttyKit compiles with a macOS 13 minimum target.
+pixel_format_file="${SOURCE_DIR}/pkg/macos/video/pixel_format.zig"
+if grep -q "kCVPixelFormatType_30RGB_r210" "${pixel_format_file}"; then
+  sed -i '' 's/c.kCVPixelFormatType_30RGB_r210/0x72323130/g' "${pixel_format_file}"
+  grep -q "0x72323130" "${pixel_format_file}" || { echo "pixel_format patch failed" >&2; exit 1; }
+fi
 
 (
   cd "${SOURCE_DIR}"
