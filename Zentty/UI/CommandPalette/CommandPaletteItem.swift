@@ -255,6 +255,7 @@ enum CommandPaletteItemBuilder {
                     worklane.title,
                     worklaneTitle,
                     pane.title,
+                    pane.customTitle,
                     presentation.cwd,
                     presentation.repoRoot,
                     presentation.branch,
@@ -275,6 +276,7 @@ enum CommandPaletteItemBuilder {
                     worklane.title,
                     worklaneTitle,
                     pane.title,
+                    pane.customTitle,
                     presentation.cwd,
                     presentation.repoRoot,
                     presentation.branch,
@@ -446,7 +448,8 @@ enum CommandPaletteItemBuilder {
     }
 
     private static func paneTitle(pane: PaneState, presentation: PanePresentationState) -> String {
-        WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
+        WorklaneContextFormatter.trimmed(pane.customTitle)
+            ?? WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
             ?? WorklaneContextFormatter.trimmed(presentation.visibleIdentityText)
             ?? WorklaneContextFormatter.trimmed(presentation.contextText)
             ?? WorklaneContextFormatter.trimmed(pane.title)

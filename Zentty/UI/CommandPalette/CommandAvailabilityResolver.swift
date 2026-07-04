@@ -150,6 +150,8 @@ enum CommandAvailabilityResolver {
             return context.worklaneCount > 1
         case .renameCurrentWorklane:
             return context.worklaneCount >= 1
+        case .renameCurrentPane:
+            return context.activePaneCount >= 1
         case .nextWorklane, .previousWorklane:
             // The Worklane Peek handles the single-worklane case (hold opens
             // peek for in-lane pane picking), so keep these available

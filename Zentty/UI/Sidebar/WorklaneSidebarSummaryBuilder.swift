@@ -36,12 +36,6 @@ enum WorklaneSidebarSummaryBuilder {
         let isCwdDerived: Bool
     }
 
-    private struct PaneSidebarIdentity {
-        let primaryText: String
-        let trailingText: String?
-        let detailText: String?
-    }
-
     private enum PaneIdentityStyle {
         case worklaneSummary
         case paneRow
@@ -252,6 +246,7 @@ enum WorklaneSidebarSummaryBuilder {
             let isFocused = focusedPaneID == paneContext.paneID
             let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
             let paneIdentity = paneIdentity(
+                pane: paneContext.pane,
                 metadata: paneContext.metadata,
                 for: paneContext.presentation,
                 isSinglePane: isSinglePane,
@@ -262,6 +257,7 @@ enum WorklaneSidebarSummaryBuilder {
             return WorklaneSidebarPaneRow(
                 paneID: paneContext.paneID,
                 primaryText: paneIdentity.primaryText,
+                usesCustomTitle: paneIdentity.usesCustomTitle,
                 trailingText: paneIdentity.trailingText,
                 detailText: paneIdentity.detailText,
                 statusText: statusPresentation.statusText,
@@ -456,6 +452,7 @@ enum WorklaneSidebarSummaryBuilder {
     ) -> WorklaneSidebarIdentity? {
         let presentation = paneContext.presentation
         let paneIdentity = paneIdentity(
+            pane: paneContext.pane,
             metadata: paneContext.metadata,
             for: presentation,
             isSinglePane: isSinglePane,
@@ -468,17 +465,48 @@ enum WorklaneSidebarSummaryBuilder {
             paneID: paneContext.paneID,
             primaryText: primaryText,
             cwdPath: presentation.cwd,
-            isCwdDerived: primaryText == compactSidebarContextText(for: presentation)
+            isCwdDerived: !paneIdentity.usesCustomTitle
+                && primaryText == compactSidebarContextText(for: presentation)
         )
     }
 
+    private struct PaneSidebarIdentity {
+        let primaryText: String
+        let trailingText: String?
+        let detailText: String?
+        let usesCustomTitle: Bool
+    }
+
     private static func paneIdentity(
+        pane: PaneState,
         metadata: TerminalMetadata?,
         for presentation: PanePresentationState,
         isSinglePane: Bool,
         style: PaneIdentityStyle,
         fallbackTitle: String?
     ) -> PaneSidebarIdentity {
+        let branch = presentation.branchDisplayText
+        let workingDirectory = compactWorkingDirectory(for: presentation)
+        let lastActivityDetail = lastActivityDetailText(for: presentation)
+
+        if let customTitle = PaneDisplayIdentityResolver.trimmedCustomTitle(for: pane) {
+            if presentation.isRemoteShell {
+                return PaneSidebarIdentity(
+                    primaryText: customTitle,
+                    trailingText: WorklaneContextFormatter.trimmed(presentation.remoteHostLabel),
+                    detailText: WorklaneContextFormatter.trimmed(presentation.remotePathLabel),
+                    usesCustomTitle: true
+                )
+            }
+
+            return PaneSidebarIdentity(
+                primaryText: customTitle,
+                trailingText: branch,
+                detailText: workingDirectory,
+                usesCustomTitle: true
+            )
+        }
+
         if presentation.isRemoteShell {
             return remotePaneIdentity(
                 metadata: metadata,
@@ -491,13 +519,10 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: sshConnectionLabel,
                 trailingText: nil,
-                detailText: nil
+                detailText: nil,
+                usesCustomTitle: false
             )
         }
-
-        let branch = presentation.branchDisplayText
-        let workingDirectory = compactWorkingDirectory(for: presentation)
-        let lastActivityDetail = lastActivityDetailText(for: presentation)
 
         if let recognizedTool = presentation.recognizedTool,
            let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
@@ -508,7 +533,8 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: volatileTitle,
                 trailingText: branch,
-                detailText: workingDirectory
+                detailText: workingDirectory,
+                usesCustomTitle: false
             )
         }
 
@@ -517,14 +543,16 @@ enum WorklaneSidebarSummaryBuilder {
                 return PaneSidebarIdentity(
                     primaryText: rememberedTitle,
                     trailingText: branch,
-                    detailText: workingDirectory
+                    detailText: workingDirectory,
+                    usesCustomTitle: false
                 )
             }
 
             return PaneSidebarIdentity(
                 primaryText: rememberedTitle,
                 trailingText: branch,
-                detailText: workingDirectory
+                detailText: workingDirectory,
+                usesCustomTitle: false
             )
         }
 
@@ -533,14 +561,16 @@ enum WorklaneSidebarSummaryBuilder {
                 return PaneSidebarIdentity(
                     primaryText: workingDirectory,
                     trailingText: branch,
-                    detailText: lastActivityDetail
+                    detailText: lastActivityDetail,
+                    usesCustomTitle: false
                 )
             }
 
             return PaneSidebarIdentity(
                 primaryText: isSinglePane ? "\(branch) · \(workingDirectory)" : "\(branch) • \(workingDirectory)",
                 trailingText: nil,
-                detailText: nil
+                detailText: nil,
+                usesCustomTitle: false
             )
         }
 
@@ -548,7 +578,8 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: branch,
                 trailingText: nil,
-                detailText: style == .paneRow ? lastActivityDetail : nil
+                detailText: style == .paneRow ? lastActivityDetail : nil,
+                usesCustomTitle: false
             )
         }
 
@@ -556,14 +587,16 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: workingDirectory,
                 trailingText: nil,
-                detailText: style == .paneRow ? lastActivityDetail : nil
+                detailText: style == .paneRow ? lastActivityDetail : nil,
+                usesCustomTitle: false
             )
         }
 
         return PaneSidebarIdentity(
             primaryText: WorklaneContextFormatter.normalizeSidebarFallbackTitle(fallbackTitle) ?? "Shell",
             trailingText: nil,
-            detailText: style == .paneRow ? lastActivityDetail : nil
+            detailText: style == .paneRow ? lastActivityDetail : nil,
+            usesCustomTitle: false
         )
     }
 
@@ -592,7 +625,8 @@ enum WorklaneSidebarSummaryBuilder {
             return PaneSidebarIdentity(
                 primaryText: primaryText.isEmpty ? title : primaryText,
                 trailingText: nil,
-                detailText: path
+                detailText: path,
+                usesCustomTitle: false
             )
         }
 
@@ -601,7 +635,8 @@ enum WorklaneSidebarSummaryBuilder {
                 ?? WorklaneContextFormatter.normalizeSidebarFallbackTitle(fallbackTitle)
                 ?? "Shell",
             trailingText: nil,
-            detailText: nil
+            detailText: nil,
+            usesCustomTitle: false
         )
     }
 

@@ -18,6 +18,7 @@ struct WorklaneSidebarServerPort: Equatable {
 struct WorklaneSidebarPaneRow: Equatable {
     let paneID: PaneID
     let primaryText: String
+    let usesCustomTitle: Bool
     let trailingText: String?
     let detailText: String?
     let statusText: String?
@@ -34,6 +35,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     init(
         paneID: PaneID,
         primaryText: String,
+        usesCustomTitle: Bool = false,
         trailingText: String?,
         detailText: String?,
         statusText: String?,
@@ -49,6 +51,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     ) {
         self.paneID = paneID
         self.primaryText = primaryText
+        self.usesCustomTitle = usesCustomTitle
         self.trailingText = trailingText
         self.detailText = detailText
         self.statusText = statusText

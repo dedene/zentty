@@ -75,6 +75,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onPaneSelected: ((PaneID) -> Void)?
     var onCloseWorklaneRequested: (() -> Void)?
     var onRenameWorklaneRequested: (() -> Void)?
+    var onRenamePaneRequested: ((PaneID) -> Void)?
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
@@ -757,6 +758,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 },
                 onRenameWorklaneRequested: { [weak self] in
                     self?.onRenameWorklaneRequested?()
+                },
+                onRenamePaneRequested: { [weak self] paneID in
+                    self?.onRenamePaneRequested?(paneID)
                 },
                 onClosePaneRequested: { [weak self] paneID in
                     self?.onClosePaneRequested?(paneID)

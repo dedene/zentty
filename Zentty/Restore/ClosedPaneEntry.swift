@@ -46,6 +46,8 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
     /// only one in its column at close (no meaningful intra-column weight).
     let originalHeightInColumn: CGFloat?
     let title: String
+    /// User-visible pane name at close time, if any.
+    let customTitle: String?
     let workingDirectory: String?
     let originalNativeCommand: String?
     let originalCommand: String?
@@ -63,6 +65,7 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
         originalColumnWidth: CGFloat,
         originalHeightInColumn: CGFloat?,
         title: String,
+        customTitle: String? = nil,
         workingDirectory: String?,
         originalNativeCommand: String?,
         originalCommand: String?,
@@ -79,6 +82,7 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
         self.originalColumnWidth = originalColumnWidth
         self.originalHeightInColumn = originalHeightInColumn
         self.title = title
+        self.customTitle = WorklaneContextFormatter.trimmed(customTitle)
         self.workingDirectory = workingDirectory
         self.originalNativeCommand = originalNativeCommand
         self.originalCommand = originalCommand

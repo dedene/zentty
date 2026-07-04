@@ -80,18 +80,23 @@ struct PaneMinimumSize: Equatable, Sendable {
 struct PaneState: Equatable, Sendable {
     let id: PaneID
     var title: String
+    /// Optional user-visible pane name. Invariant: either nil or a non-empty
+    /// trimmed string — never empty, never padded.
+    var customTitle: String?
     var sessionRequest: TerminalSessionRequest
     var width: CGFloat
 
     init(
         id: PaneID,
         title: String,
+        customTitle: String? = nil,
         sessionRequest: TerminalSessionRequest = TerminalSessionRequest(),
         width: CGFloat = PaneLayoutPreset.balanced.defaultPaneWidth(
             for: .largeDisplay, viewportWidth: 1280)
     ) {
         self.id = id
         self.title = title
+        self.customTitle = WorklaneContextFormatter.trimmed(customTitle)
         self.sessionRequest = sessionRequest
         self.width = width
     }

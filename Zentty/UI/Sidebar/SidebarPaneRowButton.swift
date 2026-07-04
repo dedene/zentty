@@ -74,6 +74,7 @@ struct SidebarWorklaneContextMenuContext {
 struct SidebarWorklaneContextMenuActions {
     var target: AnyObject
     var runRestoredCommandAction: Selector?
+    var renamePaneAction: Selector?
     var renameWorklaneAction: Selector
     var closeWorklaneAction: Selector
     var closePaneAction: Selector?
@@ -188,6 +189,20 @@ enum SidebarWorklaneContextMenu {
             item.toolTip = restoredCommand
             menu.addItem(item)
             menu.addItem(.separator())
+        }
+
+        if case .paneRow = context.origin,
+           let renamePaneAction = actions.renamePaneAction
+        {
+            menu.addItem(
+                SidebarContextMenu.item(
+                    title: "Rename Pane\u{2026}",
+                    action: renamePaneAction,
+                    target: actions.target,
+                    symbolName: "character.cursor.ibeam",
+                    fallbackSymbolName: "pencil"
+                )
+            )
         }
 
         menu.addItem(
@@ -522,6 +537,7 @@ final class SidebarPaneRowButton: NSButton {
     var onHoverChanged: ((Bool) -> Void)?
     var onCloseWorklane: (() -> Void)?
     var onRenameWorklane: (() -> Void)?
+    var onRenamePane: ((PaneID) -> Void)?
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
@@ -797,6 +813,7 @@ final class SidebarPaneRowButton: NSButton {
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
                 runRestoredCommandAction: #selector(handleRunRestoredCommand),
+                renamePaneAction: #selector(handleRenamePane),
                 renameWorklaneAction: #selector(handleRenameWorklane),
                 closeWorklaneAction: #selector(handleCloseWorklane),
                 closePaneAction: #selector(handleClosePane),
@@ -821,6 +838,10 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleCloseWorklane() {
         onCloseWorklane?()
+    }
+
+    @objc private func handleRenamePane() {
+        onRenamePane?(paneID)
     }
 
     @objc private func handleRenameWorklane() {

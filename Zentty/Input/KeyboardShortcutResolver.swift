@@ -24,6 +24,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case toggleSidebar = "sidebar.toggle"
     case newWorklane = "worklane.new"
     case renameCurrentWorklane = "worklane.rename"
+    case renameCurrentPane = "pane.rename"
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
     case worklaneMoveUp = "worklane.move_up"
@@ -95,6 +96,7 @@ enum AppAction: Equatable, Sendable {
     case toggleSidebar
     case newWorklane
     case renameCurrentWorklane
+    case renameCurrentPane
     case nextWorklane
     case previousWorklane
     case moveWorklaneUp
@@ -230,6 +232,18 @@ enum AppCommandRegistry {
                 section: .file,
                 title: "Rename Worklane\u{2026}",
                 selector: #selector(MainWindowController.renameCurrentWorklane(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .renameCurrentPane,
+            title: "Rename Pane\u{2026}",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .renameCurrentPane,
+            menuItem: AppCommandMenuItem(
+                section: .file,
+                title: "Rename Pane\u{2026}",
+                selector: #selector(MainWindowController.renameCurrentPane(_:))
             )
         ),
         AppCommandDefinition(
@@ -876,6 +890,7 @@ enum AppCommandRegistry {
             .command(.newWindow),
             .command(.newWorklane),
             .command(.renameCurrentWorklane),
+            .command(.renameCurrentPane),
             .separator,
             .command(.closeFocusedPane),
             .command(.restoreClosedPane),
@@ -982,6 +997,8 @@ extension AppCommandDefinition {
             "Open a new worklane."
         case .renameCurrentWorklane:
             "Give the active worklane a custom name, or clear it."
+        case .renameCurrentPane:
+            "Give the focused pane a custom name, or clear it."
         case .nextWorklane:
             "Switch to the next worklane."
         case .previousWorklane:

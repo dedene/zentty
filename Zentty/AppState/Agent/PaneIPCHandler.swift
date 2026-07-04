@@ -5,6 +5,63 @@ import Foundation
 /// Returns nil when neither `--clear` nor a `--title` value is present.
 /// Tokens are consumed left to right so flag-looking strings in value
 /// position stay values: `--title --clear` names the lane "--clear".
+/// Parses `pane-rename` IPC arguments. `title == nil` means clear.
+/// Target pane uses `--rename-pane-id` (not `--pane-id`, which
+/// `ParsedPaneSelectors` consumes for IPC routing).
+enum PaneRenameIPCParser {
+    struct Parsed: Equatable {
+        var title: String?
+        var worklaneIDOverride: String?
+        var paneIDOverride: String?
+    }
+
+    static func parse(_ arguments: [String]) -> Parsed? {
+        var title: String?
+        var sawTitle = false
+        var sawClear = false
+        var worklaneIDOverride: String?
+        var paneIDOverride: String?
+
+        var index = 0
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--clear":
+                sawClear = true
+                index += 1
+            case "--title":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                title = arguments[index + 1]
+                sawTitle = true
+                index += 2
+            case "--id":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                worklaneIDOverride = arguments[index + 1]
+                index += 2
+            case "--rename-pane-id":
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                paneIDOverride = arguments[index + 1]
+                index += 2
+            default:
+                index += 1
+            }
+        }
+
+        if sawClear {
+            return Parsed(title: nil, worklaneIDOverride: worklaneIDOverride, paneIDOverride: paneIDOverride)
+        }
+        guard sawTitle else {
+            return nil
+        }
+        return Parsed(title: title, worklaneIDOverride: worklaneIDOverride, paneIDOverride: paneIDOverride)
+    }
+}
+
 enum WorklaneRenameIPCParser {
     struct Parsed: Equatable {
         var title: String?
@@ -62,6 +119,7 @@ enum PaneIPCSubcommand: String {
     case notify
     case worklaneColor = "worklane-color"
     case worklaneRename = "worklane-rename"
+    case paneRename = "pane-rename"
     case theme
 }
 
@@ -361,7 +419,7 @@ enum PaneIPCHandler {
         }
 
         if subcommand != .list && subcommand != .worklaneColor && subcommand != .worklaneRename
-            && subcommand != .notify && subcommand != .theme {
+            && subcommand != .paneRename && subcommand != .notify && subcommand != .theme {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -396,6 +454,13 @@ enum PaneIPCHandler {
             )
         case .worklaneRename:
             return try handleWorklaneRename(
+                arguments: request.arguments,
+                target: target,
+                windowController: windowController,
+                appDelegate: appDelegate
+            )
+        case .paneRename:
+            return try handlePaneRename(
                 arguments: request.arguments,
                 target: target,
                 windowController: windowController,
@@ -576,6 +641,47 @@ enum PaneIPCHandler {
             appDelegate: appDelegate
         )
         _ = resolved.windowController.setWorklaneTitle(parsed.title, on: resolved.worklaneID)
+        return AgentIPCResponseResult()
+    }
+
+    @MainActor
+    private static func handlePaneRename(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController,
+        appDelegate: AppDelegate
+    ) throws -> AgentIPCResponseResult {
+        guard let parsed = PaneRenameIPCParser.parse(arguments) else {
+            return AgentIPCResponseResult()
+        }
+
+        let resolved = try resolveWorklaneCommandTarget(
+            overrideID: parsed.worklaneIDOverride,
+            target: target,
+            callerWindowController: windowController,
+            appDelegate: appDelegate
+        )
+        let paneID: PaneID
+        if let paneIDOverride = parsed.paneIDOverride {
+            guard let resolvedPaneID = resolved.windowController.resolvePaneID(
+                paneIDOverride,
+                in: resolved.worklaneID
+            ) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            paneID = resolvedPaneID
+        } else if parsed.worklaneIDOverride != nil {
+            guard let focusedPaneID = resolved.windowController.focusedPaneID(in: resolved.worklaneID) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            paneID = focusedPaneID
+        } else {
+            paneID = target.paneID
+        }
+        guard resolved.windowController.containsPane(paneID) else {
+            throw PaneRoutingError.paneNotFound
+        }
+        _ = resolved.windowController.setPaneCustomTitle(parsed.title, on: paneID)
         return AgentIPCResponseResult()
     }
 

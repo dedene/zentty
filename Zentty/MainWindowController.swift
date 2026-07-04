@@ -492,6 +492,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func renameCurrentPane(_ sender: Any?) {
+        handle(.renameCurrentPane)
+    }
+
+    @objc
     func openBookmarksPopover(_ sender: Any?) {
         handle(.openBookmarksPopover)
     }
@@ -1093,6 +1098,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.resolvePaneID(target, in: worklaneID)
     }
 
+    func focusedPaneID(in worklaneID: WorklaneID) -> PaneID? {
+        rootViewController.focusedPaneID(in: worklaneID)
+    }
+
     func focusPane(id: PaneID, in worklaneID: WorklaneID) {
         rootViewController.focusPaneByID(id, in: worklaneID)
     }
@@ -1147,6 +1156,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @discardableResult
     func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
         rootViewController.setWorklaneTitle(title, on: id)
+    }
+
+    @discardableResult
+    func setPaneCustomTitle(_ title: String?, on paneID: PaneID) -> Bool {
+        rootViewController.setPaneCustomTitle(title, on: paneID)
     }
 
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {

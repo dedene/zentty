@@ -197,6 +197,7 @@ final class SidebarView: NSView {
     var onPaneSelected: ((WorklaneID, PaneID) -> Void)?
     var onCloseWorklaneRequested: ((WorklaneID) -> Void)?
     var onRenameWorklaneRequested: ((WorklaneID) -> Void)?
+    var onRenamePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
@@ -672,6 +673,9 @@ final class SidebarView: NSView {
         }
         button.onRenameWorklaneRequested = { [weak self] in
             self?.onRenameWorklaneRequested?(worklaneID)
+        }
+        button.onRenamePaneRequested = { [weak self] paneID in
+            self?.onRenamePaneRequested?(worklaneID, paneID)
         }
         button.onClosePaneRequested = { [weak self] paneID in
             self?.onClosePaneRequested?(worklaneID, paneID)

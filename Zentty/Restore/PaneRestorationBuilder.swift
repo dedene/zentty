@@ -4,6 +4,7 @@ import Foundation
 enum PaneRestorationBuilder {
     struct PaneInputs: Equatable, Sendable {
         var id: PaneID
+        var customTitle: String? = nil
         var titleSeed: String?
         var lastActivityTitle: String?
         var requestedWorkingDirectory: String?
@@ -89,6 +90,7 @@ enum PaneRestorationBuilder {
         let pane = PaneState(
             id: inputs.id,
             title: title,
+            customTitle: trimmed(inputs.customTitle),
             sessionRequest: TerminalSessionRequest(
                 workingDirectory: resolvedDirectory,
                 command: trimmed(inputs.command),
