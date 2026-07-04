@@ -1,7 +1,7 @@
 import AppKit
 import QuartzCore
 
-enum WorklaneTransitionDirection {
+enum WorklaneTransitionDirection: Equatable, Sendable {
     case up
     case down
 }
@@ -263,7 +263,7 @@ final class WorklaneRenderCoordinator {
             previousActiveWorklaneID = currentID
 
             var transitionDirection: WorklaneTransitionDirection? = nil
-            if animated, let previousID, let currentID, previousID != currentID {
+            if animated, let previousID, previousID != currentID {
                 let worklanes = worklaneStore.worklanes
                 if let prevIndex = worklanes.firstIndex(where: { $0.id == previousID }),
                    let currIndex = worklanes.firstIndex(where: { $0.id == currentID }) {

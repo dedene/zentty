@@ -50,8 +50,11 @@ final class PaneStripMotionController {
         static let fallbackSpacing: CGFloat = 16
     }
 
-    static let defaultAnimationDuration: TimeInterval = 0.22
-    static let defaultAnimationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+    static let defaultAnimationDuration: TimeInterval = 0.30
+    static let defaultAnimationTimingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+    static let worklaneTransitionDuration: TimeInterval = 0.32
+    // Fast start, gentle settle, no overshoot.
+    static let worklaneTransitionTimingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
 
     func presentation(
         for state: PaneStripState,

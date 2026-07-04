@@ -392,6 +392,7 @@ final class AppCanvasView: NSView {
                 worklaneColor: worklaneColor,
                 leadingVisibleInset: leadingVisibleInset,
                 animated: animated,
+                transitionDirection: transitionDirection,
                 duration: duration,
                 timingFunction: timingFunction
             )
