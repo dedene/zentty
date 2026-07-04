@@ -64,6 +64,7 @@ extension WorklaneStore {
             originalColumnWidth: column.width,
             originalHeightInColumn: originalHeightInColumn,
             title: pane.title,
+            customTitle: pane.customTitle,
             workingDirectory: workingDirectory,
             originalNativeCommand: pane.sessionRequest.nativeCommand,
             originalCommand: pane.sessionRequest.command,
@@ -110,6 +111,7 @@ extension WorklaneStore {
         let restoredPane = PaneState(
             id: newPaneID,
             title: entry.title,
+            customTitle: entry.customTitle,
             sessionRequest: sessionRequest,
             width: entry.originalColumnWidth
         )
@@ -166,18 +168,19 @@ extension WorklaneStore {
             return ClosedPaneScrollbackArchive.write(scrollback: text, entryID: entry.id)
         }()
 
+        let displayName = entry.customTitle ?? entry.title
         let runCommand: String?
         let toastBody: String
         switch outcome {
         case .agentResume(let command, let tool, _):
             runCommand = command
-            toastBody = "Restored \"\(entry.title)\" — \(tool.displayName) resuming at \(cwdResolution.path)"
+            toastBody = "Restored \"\(displayName)\" — \(tool.displayName) resuming at \(cwdResolution.path)"
         case .replayCommand(let command):
             runCommand = command
-            toastBody = "Restored \"\(entry.title)\" at \(cwdResolution.path)"
+            toastBody = "Restored \"\(displayName)\" at \(cwdResolution.path)"
         case .plainShell:
             runCommand = nil
-            toastBody = "Restored \"\(entry.title)\" at \(cwdResolution.path)"
+            toastBody = "Restored \"\(displayName)\" at \(cwdResolution.path)"
         }
 
         let toastMessage = cwdResolution.originalMissing

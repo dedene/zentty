@@ -960,6 +960,10 @@ final class RootViewController: NSViewController {
         sidebarView.onRenameWorklaneRequested = { [weak self] worklaneID in
             self?.beginRenameWorklane(id: worklaneID)
         }
+        sidebarView.onRenamePaneRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.beginRenamePane(id: paneID)
+        }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
@@ -1359,6 +1363,8 @@ final class RootViewController: NSViewController {
             worklaneStore.createWorklane()
         case .renameCurrentWorklane:
             beginRenameActiveWorklane()
+        case .renameCurrentPane:
+            beginRenameActivePane()
         case .nextWorklane:
             peekController.handleTab(forward: true)
         case .previousWorklane:
@@ -2647,6 +2653,10 @@ final class RootViewController: NSViewController {
         worklaneStore.worklanes.contains { $0.id == worklaneID }
     }
 
+    func focusedPaneID(in worklaneID: WorklaneID) -> PaneID? {
+        worklaneStore.worklanes.first { $0.id == worklaneID }?.paneStripState.focusedPaneID
+    }
+
     func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
         worklaneStore.worklanes.contains { worklane in
             worklane.id == worklaneID
@@ -2776,6 +2786,11 @@ final class RootViewController: NSViewController {
     @discardableResult
     func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
         worklaneStore.setTitle(title, on: id)
+    }
+
+    @discardableResult
+    func setPaneCustomTitle(_ title: String?, on paneID: PaneID) -> Bool {
+        worklaneStore.setPaneCustomTitle(title, on: paneID)
     }
 
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
@@ -3149,7 +3164,7 @@ final class RootViewController: NSViewController {
                         index: index,
                         id: pane.id.rawValue,
                         column: columnIndex + 1,
-                        title: pane.title,
+                        title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
                         workingDirectory: auxiliaryState?.shellContext?.path,
                         isFocused: isFocused,
                         agentTool: auxiliaryState?.agentStatus?.tool.displayName,
@@ -3171,7 +3186,9 @@ final class RootViewController: NSViewController {
                     worklaneID: worklane.id,
                     worklaneTitle: worklane.title ?? "Worklane \(worklaneIndex + 1)",
                     paneID: pane.id,
-                    paneTitle: auxiliaryState?.presentation.visibleIdentityText ?? pane.title,
+                    paneTitle: WorklaneContextFormatter.trimmed(pane.customTitle)
+                        ?? auxiliaryState?.presentation.visibleIdentityText
+                        ?? pane.title,
                     statusText: taskManagerStatusText(for: auxiliaryState),
                     rootPID: auxiliaryState?.raw.paneRootPID,
                     isRemote: auxiliaryState?.shellContext?.scope == .remote,
@@ -3882,6 +3899,37 @@ private extension RootViewController {
 
     private func beginRenameActiveWorklane() {
         beginRenameWorklane(id: worklaneStore.activeWorklaneID)
+    }
+
+    private func beginRenameActivePane() {
+        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+            return
+        }
+        beginRenamePane(id: paneID)
+    }
+
+    func beginRenamePane(id paneID: PaneID) {
+        guard let window = view.window else {
+            return
+        }
+        let pane = worklaneStore.worklanes
+            .flatMap(\.paneStripState.panes)
+            .first(where: { $0.id == paneID })
+        let alert = NSAlert()
+        alert.messageText = "Rename Pane"
+        alert.informativeText = "Leave empty to remove the name."
+        alert.alertStyle = .informational
+        let textField = NSTextField(string: pane?.customTitle ?? "")
+        textField.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = textField
+        alert.window.initialFirstResponder = textField
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.worklaneStore.setPaneCustomTitle(textField.stringValue, on: paneID)
+        }
+        textField.selectText(nil)
     }
 
     func beginRenameWorklane(id worklaneID: WorklaneID) {

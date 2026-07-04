@@ -63,6 +63,30 @@ final class WorklaneStoreClosedPaneRestoreTests: XCTestCase {
         XCTAssertEqual(store.closedPaneStack.count, 0)
     }
 
+    func test_user_close_captures_custom_title_on_stack_entry() throws {
+        let store = makeMultiPaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        _ = store.setPaneCustomTitle("Nimbu API", on: paneID)
+
+        _ = store.closePane(id: paneID)
+
+        XCTAssertEqual(store.closedPaneStack.peek()?.customTitle, "Nimbu API")
+    }
+
+    func test_restored_pane_preserves_custom_title() throws {
+        let store = makeMultiPaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        _ = store.setPaneCustomTitle("Nimbu API", on: paneID)
+
+        _ = store.closePane(id: paneID)
+        let result = try XCTUnwrap(store.restoreClosedPane())
+
+        let restored = try XCTUnwrap(
+            store.activeWorklane?.paneStripState.panes.first(where: { $0.id == result.restoredPaneID })
+        )
+        XCTAssertEqual(restored.customTitle, "Nimbu API")
+    }
+
     func test_restore_inserts_a_pane_back_into_active_worklane() throws {
         let store = makeMultiPaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

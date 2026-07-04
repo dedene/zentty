@@ -640,6 +640,7 @@ struct PaneCommandGroup: ParsableCommand {
             PaneListCommand.self,
             PaneFocusCommand.self,
             PaneCloseCommand.self,
+            PaneRenameCommand.self,
             PaneZoomCommand.self,
             PaneResizeCommand.self,
         ]
@@ -690,6 +691,49 @@ struct PaneFocusCommand: ParsableCommand {
         }
         arguments += selection.selectorArguments()
         _ = try PaneIPC.send(subcommand: "focus", arguments: arguments)
+    }
+}
+
+struct PaneRenameCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rename",
+        abstract: "Set or clear the optional title of a pane.",
+        discussion: "The title replaces cwd-derived labels in the sidebar, titlebar, and pane border. Use --clear to remove it."
+    )
+
+    @Argument(help: "New pane title. Omit when using --clear.")
+    var title: String?
+
+    @Option(help: "Target a specific pane ID (defaults to the calling pane).")
+    var paneID: String?
+
+    @Option(help: "Target a specific worklane (defaults to the calling pane's worklane).")
+    var worklaneID: String?
+
+    @Flag(help: "Clear the pane title.")
+    var clear: Bool = false
+
+    mutating func run() throws {
+        if clear, title != nil {
+            throw ValidationError("Provide either a title or --clear, not both.")
+        }
+        var arguments: [String]
+        if clear {
+            arguments = ["--clear"]
+        } else if let title {
+            arguments = ["--title", title]
+        } else {
+            throw ValidationError("Missing title. Provide a title or use --clear.")
+        }
+        if let paneID {
+            // Use a handler-specific flag so ParsedPaneSelectors does not treat
+            // the rename target as the caller's IPC routing selector.
+            arguments.append(contentsOf: ["--rename-pane-id", paneID])
+        }
+        if let worklaneID {
+            arguments.append(contentsOf: ["--id", worklaneID])
+        }
+        _ = try PaneIPC.send(subcommand: "pane-rename", arguments: arguments)
     }
 }
 

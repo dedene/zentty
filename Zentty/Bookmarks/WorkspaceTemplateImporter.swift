@@ -157,6 +157,7 @@ enum WorkspaceTemplateImporter {
 
         let inputs = PaneRestorationBuilder.PaneInputs(
             id: paneID,
+            customTitle: templatePane.customTitle,
             titleSeed: templatePane.titleSeed,
             lastActivityTitle: nil,
             requestedWorkingDirectory: requested,

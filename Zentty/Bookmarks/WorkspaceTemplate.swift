@@ -69,6 +69,7 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
 
     struct Pane: Codable, Equatable, Sendable {
         var id: String
+        var customTitle: String? = nil
         var titleSeed: String?
         var workingDirectory: String?
         var command: String?
@@ -77,6 +78,7 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
 
         init(
             id: String,
+            customTitle: String? = nil,
             titleSeed: String? = nil,
             workingDirectory: String? = nil,
             command: String? = nil,
@@ -84,6 +86,7 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
             wasUserEdited: Bool = false
         ) {
             self.id = id
+            self.customTitle = customTitle
             self.titleSeed = titleSeed
             self.workingDirectory = workingDirectory
             self.command = command

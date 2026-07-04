@@ -323,6 +323,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(menu),
             [
+                "Rename Pane…",
                 "Rename Worklane…",
                 "Close Worklane",
                 "Move Worklane Up",
@@ -408,6 +409,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(
             menuTitles(menu),
             [
+                "Rename Pane…",
                 "Rename Worklane…",
                 "Close Worklane",
                 "Close Pane",

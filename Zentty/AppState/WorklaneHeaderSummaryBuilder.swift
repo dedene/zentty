@@ -3,7 +3,11 @@ enum WorklaneHeaderSummaryBuilder {
         let focusedPaneContext = worklane.focusedPaneContext
         let presentation = focusedPaneContext?.presentation
         let metadata = focusedPaneContext?.metadata
-        let focusedLabel = visibleFocusedLabel(from: presentation, metadata: metadata)
+        let focusedLabel = visibleFocusedLabel(
+            from: focusedPaneContext?.pane,
+            presentation: presentation,
+            metadata: metadata
+        )
         let remoteContextLabel = visibleRemoteContextLabel(from: presentation)
         let branch = visibleBranch(from: presentation)
 
@@ -21,42 +25,20 @@ enum WorklaneHeaderSummaryBuilder {
     }
 
     private static func visibleFocusedLabel(
-        from presentation: PanePresentationState?,
+        from pane: PaneState?,
+        presentation: PanePresentationState?,
         metadata: TerminalMetadata?
     ) -> String? {
-        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation?.sshConnectionLabel) {
-            return sshConnectionLabel
-        }
-
-        // When the focused codex pane is in a volatile agent status state
-        // (e.g. "Working... (5s) · my-project"), surface the raw codex title
-        // in the chrome so the title bar ticks in realtime alongside the
-        // sidebar row. This mirrors WorklaneSidebarSummaryBuilder.paneIdentity
-        // which also reads metadata?.title directly for codex volatile titles.
-        if let recognizedTool = presentation?.recognizedTool,
-           let volatileTitle = WorklaneContextFormatter.trimmed(metadata?.title),
-           TerminalMetadataChangeClassifier.isRealtimeAgentStatusTitle(
-               volatileTitle,
-               recognizedTool: recognizedTool
+        if let pane, let presentation,
+           let primaryLabel = PaneDisplayIdentityResolver.primaryLabel(
+               pane: pane,
+               presentation: presentation,
+               metadata: metadata
            ) {
-            return volatileTitle
+            return primaryLabel
         }
 
-        guard
-            let presentation,
-            let rememberedTitle = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
-        else {
-            return presentation.flatMap(visibleFallbackLabel(from:))
-        }
-
-        if let decomposedTitle = decomposedRememberedTitle(
-            rememberedTitle,
-            presentation: presentation
-        ) {
-            return decomposedTitle
-        }
-
-        return rememberedTitle
+        return presentation.flatMap(visibleFallbackLabel(from:))
     }
 
     private static func visibleFallbackLabel(from presentation: PanePresentationState) -> String? {
@@ -108,23 +90,4 @@ enum WorklaneHeaderSummaryBuilder {
         return WorklaneContextFormatter.trimmed(presentation.cwd)
     }
 
-    private static func decomposedRememberedTitle(
-        _ rememberedTitle: String,
-        presentation: PanePresentationState
-    ) -> String? {
-        guard
-            let branch = WorklaneContextFormatter.trimmed(presentation.branchDisplayText)
-        else {
-            return nil
-        }
-
-        for separator in [" · ", " • "] {
-            let prefix = branch + separator
-            if rememberedTitle.hasPrefix(prefix) {
-                return WorklaneContextFormatter.trimmed(String(rememberedTitle.dropFirst(prefix.count)))
-            }
-        }
-
-        return nil
-    }
 }

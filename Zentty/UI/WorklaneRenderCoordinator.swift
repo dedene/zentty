@@ -234,6 +234,8 @@ final class WorklaneRenderCoordinator {
     ) {
         guard let views,
               let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
+              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }),
+              PaneDisplayIdentityResolver.hasCustomTitle(for: pane) == false,
               let metadata = worklane.auxiliaryStateByPaneID[paneID]?.metadata,
               let titleText = WorklaneContextFormatter.trimmed(metadata.title)
         else {

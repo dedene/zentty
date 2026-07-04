@@ -84,6 +84,7 @@ enum WorkspaceTemplateCapture {
 
         return WorkspaceTemplate.Pane(
             id: pane.id.rawValue,
+            customTitle: trimmed(pane.customTitle),
             titleSeed: trimmed(auxiliary?.presentation.rememberedTitle) ?? trimmed(pane.title),
             workingDirectory: workingDirectory,
             command: detectedCommand(auxiliary: auxiliary, processTreeProvider: processTreeProvider),

@@ -10,9 +10,10 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
     /// Schema version 2 marks recipes whose worklane titles are stored
     /// verbatim. Unversioned (nil) recipes predate optional titles and carry
     /// auto-generated "MAIN"/"WS N" junk that gets sanitized once at import.
+    /// Schema version 3 adds optional per-pane `customTitle` fields.
     /// Synthesized Decodable ignores the property default for optionals, so
     /// legacy JSON without the key decodes as nil.
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     var schemaVersion: Int?
     var windows: [Window]
@@ -100,6 +101,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
 
     struct Pane: Codable, Equatable, Sendable {
         var id: String
+        var customTitle: String? = nil
         var titleSeed: String?
         var workingDirectory: String?
         var lastActivityTitle: String? = nil
@@ -183,6 +185,7 @@ enum WorkspaceRecipeExporter {
 
         return WorkspaceRecipe.Pane(
             id: pane.id.rawValue,
+            customTitle: WorklaneContextFormatter.trimmed(pane.customTitle),
             titleSeed: titleSeed,
             workingDirectory: workingDirectory,
             lastActivityTitle: lastActivityTitle,
@@ -500,6 +503,7 @@ enum WorkspaceRecipeImporter {
 
         let inputs = PaneRestorationBuilder.PaneInputs(
             id: paneID,
+            customTitle: trimmedTitle(recipe.customTitle),
             titleSeed: titleSeed,
             lastActivityTitle: lastActivityTitle,
             requestedWorkingDirectory: recipe.workingDirectory,
@@ -711,6 +715,10 @@ enum WorkspaceRecipeMeaningfulness {
         }
 
         if normalizedPath(pane.workingDirectory) != normalizedPath(defaultWorkingDirectory) {
+            return true
+        }
+
+        if WorklaneContextFormatter.trimmed(pane.customTitle) != nil {
             return true
         }
 

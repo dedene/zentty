@@ -6,6 +6,7 @@ final class SidebarPaneRowRenderer {
         var onPaneSelected: ((PaneID) -> Void)?
         var onCloseWorklaneRequested: (() -> Void)?
         var onRenameWorklaneRequested: (() -> Void)?
+        var onRenamePaneRequested: ((PaneID) -> Void)?
         var onClosePaneRequested: ((PaneID) -> Void)?
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
@@ -115,6 +116,7 @@ final class SidebarPaneRowRenderer {
             button.onPaneClicked = callbacks.onPaneSelected
             button.onCloseWorklane = callbacks.onCloseWorklaneRequested
             button.onRenameWorklane = callbacks.onRenameWorklaneRequested
+            button.onRenamePane = callbacks.onRenamePaneRequested
             button.onClosePane = callbacks.onClosePaneRequested
             button.onSplitHorizontal = callbacks.onSplitHorizontalRequested
             button.onSplitVertical = callbacks.onSplitVerticalRequested

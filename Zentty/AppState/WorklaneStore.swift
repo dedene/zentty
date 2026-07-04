@@ -255,11 +255,20 @@ extension WorklaneState {
     }
 
     var paneBorderContextDisplayByPaneID: [PaneID: PaneBorderContextDisplayModel] {
-        auxiliaryStateByPaneID.compactMapValues { auxiliaryState in
-            let borderText = WorklaneContextFormatter.trimmed(auxiliaryState.presentation.sshConnectionLabel)
-                ?? auxiliaryState.shellContext?.borderContextDisplayText
-            return borderText.map { PaneBorderContextDisplayModel(text: $0) }
-        }
+        let panesByID = Dictionary(uniqueKeysWithValues: paneStripState.panes.map { ($0.id, $0) })
+        return Dictionary(uniqueKeysWithValues: auxiliaryStateByPaneID.compactMap { paneID, auxiliaryState in
+            if let pane = panesByID[paneID],
+               let borderText = PaneDisplayIdentityResolver.borderLabelText(
+                   pane: pane,
+                   presentation: auxiliaryState.presentation
+               ) {
+                return (paneID, PaneBorderContextDisplayModel(text: borderText))
+            }
+            guard let borderText = auxiliaryState.shellContext?.borderContextDisplayText else {
+                return nil
+            }
+            return (paneID, PaneBorderContextDisplayModel(text: borderText))
+        })
     }
 
     /// Variant of `paneBorderContextDisplayByPaneID` that flags the recorded

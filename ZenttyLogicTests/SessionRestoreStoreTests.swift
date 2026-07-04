@@ -418,6 +418,21 @@ final class SessionRestoreStoreTests: XCTestCase {
         )
     }
 
+    func test_meaningfulness_classifier_treats_custom_pane_title_as_meaningful() {
+        var recipe = makeDefaultWorkspaceRecipe(
+            title: nil,
+            schemaVersion: WorkspaceRecipe.currentSchemaVersion
+        )
+        recipe.windows[0].worklanes[0].columns[0].panes[0].customTitle = "Nimbu API"
+
+        XCTAssertTrue(
+            WorkspaceRecipeMeaningfulness.isMeaningful(
+                recipe,
+                defaultWorkingDirectory: "/Users/peter"
+            )
+        )
+    }
+
     func test_meaningfulness_classifier_treats_titles_schema_aware() {
         // Legacy recipes carry auto-generated "MAIN"/"WS N" junk — not meaningful.
         let legacyJunk = makeDefaultWorkspaceRecipe(title: "MAIN", schemaVersion: nil)
