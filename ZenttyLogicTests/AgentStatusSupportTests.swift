@@ -1010,6 +1010,15 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_repository_shell_integrations_tag_codex_shell_activity() throws {
+        let fakeBinDirectory = try makeTemporaryDirectory(named: "shell-integration-fake-codex-bin")
+        let fakeCodexURL = fakeBinDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCodexURL.path)
+        let path = [
+            fakeBinDirectory.path,
+            ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+        ].joined(separator: ":")
+
         for shell in [ShellIntegrationTestShell.zsh, .bash, .fish] {
             guard shell.isAvailable else { continue }
             let signals = try runShellIntegration(
@@ -1018,7 +1027,8 @@ final class AgentStatusSupportTests: XCTestCase {
                     ? #"_zentty_preexec "codex""#
                     : shell == .fish
                         ? #"_zentty_fish_preexec_hook codex"#
-                        : #"codex 2>/dev/null || true"#
+                        : #"codex 2>/dev/null || true"#,
+                extraEnvironment: ["PATH": path]
             )
 
             XCTAssertTrue(
