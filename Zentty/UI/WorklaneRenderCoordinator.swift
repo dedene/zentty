@@ -36,8 +36,33 @@ private final class TimerWorklaneRenderCoordinatorScheduledHandle: WorklaneRende
 
 @MainActor
 final class WorklaneRenderCoordinator {
-    private enum ReviewPolling {
-        static let interval: TimeInterval = 30
+    // Internal (not private) so the pure interval-selection logic can be unit-tested.
+    enum ReviewPolling {
+        /// Cadence while CI checks are actively running (state changes fast).
+        static let activeInterval: TimeInterval = 15
+        /// Cadence for an open PR with no checks in flight.
+        static let idleInterval: TimeInterval = 60
+        /// Cadence for a branch with no PR yet — watch for a PR opening.
+        static let noPRInterval: TimeInterval = 90
+        /// Cadence once the PR is merged/closed; its state rarely changes.
+        static let terminalInterval: TimeInterval = 300
+
+        /// Adaptive interval for the next poll, derived from the last-known review state.
+        static func interval(for reviewState: WorklaneReviewState?) -> TimeInterval {
+            guard let reviewState else {
+                return idleInterval
+            }
+            guard let state = reviewState.pullRequest?.state else {
+                // Branch with no PR yet.
+                return noPRInterval
+            }
+            switch state {
+            case .merged, .closed:
+                return terminalInterval
+            case .open, .draft:
+                return reviewState.checksState == .running ? activeInterval : idleInterval
+            }
+        }
     }
 
     typealias ReviewPollingScheduler = @MainActor (
@@ -392,18 +417,84 @@ final class WorklaneRenderCoordinator {
             return
         }
 
-        let targetChanged = reviewPollingTarget?.worklaneID != target.worklaneID
-            || reviewPollingTarget?.paneID != target.paneID
-            || reviewPollingTarget?.repoRoot != target.repoRoot
-            || reviewPollingTarget?.branch != target.branch
+        let previous = reviewPollingTarget
+        let worklaneChanged = previous?.worklaneID != target.worklaneID
+        let paneChanged = previous?.paneID != target.paneID
+        let targetChanged = worklaneChanged || paneChanged
+            || previous?.repoRoot != target.repoRoot
+            || previous?.branch != target.branch
 
         reviewPollingTarget = target
-        if reviewPollingHandle == nil || targetChanged {
-            cancelReviewPolling()
-            reviewPollingHandle = reviewPollingScheduler(ReviewPolling.interval) { [weak self] in
-                self?.refreshReviewPollingTarget(forceReload: true)
-            }
+        if targetChanged || reviewPollingHandle == nil {
+            armReviewPoll(after: ReviewPolling.interval(for: currentTargetReviewState()))
         }
+
+        // Focus moved to a *different pane in the same worklane*. The other target-change triggers
+        // already fetch their case — worklane switches bootstrap, branch/agent changes hit
+        // `.reviewRefresh`, and window refocus has its own hook — but this one has none, so the new
+        // pane's badge would sit stale until the adaptive timer fires (up to 300s). Refresh it now,
+        // cache-respecting so rapid pane cycling reuses fresh data instead of a `gh` call per switch.
+        if previous != nil, !worklaneChanged, paneChanged, hasBootstrappedReviewState {
+            refreshReviewState(for: target.worklaneID, paneID: target.paneID, forceReload: false)
+        }
+    }
+
+    /// Force-refreshes the current poll target and re-arms the next poll from the FRESH result,
+    /// so the adaptive cadence reflects the state we just fetched (fast while CI runs, slow when
+    /// terminal). A provisional arm from the last-known state is set first so a dropped completion
+    /// can never stall the loop.
+    private func performAdaptiveReviewPoll() {
+        guard let target = reviewPollingTarget else {
+            return
+        }
+
+        // Keep the loop alive immediately using the last-known cadence; the completion below
+        // replaces this with the fresh cadence once the fetch lands.
+        armReviewPoll(after: ReviewPolling.interval(for: currentTargetReviewState()))
+
+        reviewStateResolver.refreshPane(
+            repoRoot: target.repoRoot,
+            branch: target.branch,
+            paneID: target.paneID,
+            forceReload: true
+        ) { [weak self] paneID, resolution in
+            // `applyReviewResolution` re-arms from the fresh result when this pane is still the
+            // active target, so the cadence tracks the just-fetched CI state. It drops the result if
+            // the pane switched repo/branch mid-flight, so a stale poll can't clobber the new target.
+            self?.applyReviewResolution(
+                paneID: paneID,
+                resolution: resolution,
+                fetchedRepoRoot: target.repoRoot,
+                fetchedBranch: target.branch
+            )
+        }
+    }
+
+    /// Arms the single-shot timer for the next poll. On fire it runs another adaptive poll, which
+    /// re-arms in turn — an adaptive loop without a repeating timer. Cancels any prior handle
+    /// before replacing it so there is always exactly one live poll handle.
+    private func armReviewPoll(after interval: TimeInterval) {
+        reviewPollingHandle?.cancel()
+        reviewPollingHandle = reviewPollingScheduler(interval) { [weak self] in
+            guard let self else {
+                return
+            }
+            // Do not nil the handle here: production timer fires hop through MainActor, and a
+            // re-arm may have replaced the handle in that gap. Nilling would orphan the replacement
+            // without cancelling it; the poll's next arm cancels whichever handle is current.
+            self.performAdaptiveReviewPoll()
+        }
+    }
+
+    private func currentTargetReviewState() -> WorklaneReviewState? {
+        guard
+            let target = reviewPollingTarget,
+            let worklane = worklaneStore.worklanes.first(where: { $0.id == target.worklaneID }),
+            let auxiliaryState = worklane.auxiliaryStateByPaneID[target.paneID]
+        else {
+            return nil
+        }
+        return auxiliaryState.reviewState
     }
 
     private func cancelReviewPolling() {
@@ -411,11 +502,22 @@ final class WorklaneRenderCoordinator {
         reviewPollingHandle = nil
     }
 
+    /// Refresh when this window regains key focus. Only the key window polls, so a background
+    /// window's badge freezes while inactive; refresh it on refocus — cache-respecting, so hopping
+    /// between windows with still-fresh data doesn't fire a `gh` call each time. No-op until the
+    /// first bootstrap has run, so it never doubles the initial load's fetch.
+    func refreshFocusedReviewStateOnWindowFocus() {
+        guard hasBootstrappedReviewState else {
+            return
+        }
+        refreshFocusedReviewState(forceReload: false)
+    }
+
     private static func defaultReviewPollingScheduler(
         interval: TimeInterval,
         operation: @escaping @MainActor () -> Void
     ) -> any WorklaneRenderCoordinatorScheduledHandle {
-        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { _ in
             Task { @MainActor in
                 operation()
             }
@@ -441,21 +543,6 @@ final class WorklaneRenderCoordinator {
             repoRoot: repoRoot,
             branch: branch
         )
-    }
-
-    private func refreshReviewPollingTarget(forceReload: Bool) {
-        guard let target = reviewPollingTarget else {
-            return
-        }
-
-        reviewStateResolver.refreshPane(
-            repoRoot: target.repoRoot,
-            branch: target.branch,
-            paneID: target.paneID,
-            forceReload: forceReload
-        ) { [weak self] paneID, resolution in
-            self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
-        }
     }
 
     private func handleAuxiliaryStateUpdate(
@@ -540,9 +627,39 @@ final class WorklaneRenderCoordinator {
         }
 
         hasBootstrappedReviewState = true
-        reviewStateResolver.refresh(for: worklaneStore.worklanes) { [weak self] paneID, resolution in
-            self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        // Capture each pane's lookup target so an out-of-order result can be rejected if the pane
+        // switched repo/branch before its `gh` lookup returned (same guard the poll/refresh paths use).
+        var fetchedTargets: [PaneID: (repoRoot: String, branch: String)] = [:]
+        for worklane in worklaneStore.worklanes {
+            for (paneID, auxiliaryState) in worklane.auxiliaryStateByPaneID {
+                if let repoRoot = auxiliaryState.presentation.repoRoot,
+                   let branch = auxiliaryState.presentation.lookupBranch {
+                    fetchedTargets[paneID] = (repoRoot, branch)
+                }
+            }
         }
+        reviewStateResolver.refresh(for: worklaneStore.worklanes) { [weak self] paneID, resolution in
+            let fetchedTarget = fetchedTargets[paneID]
+            self?.applyReviewResolution(
+                paneID: paneID,
+                resolution: resolution,
+                fetchedRepoRoot: fetchedTarget?.repoRoot,
+                fetchedBranch: fetchedTarget?.branch
+            )
+        }
+    }
+
+    /// Refreshes the focused pane's PR status. Backs the manual "Refresh PR Status" command and the
+    /// badge's right-click menu (`forceReload: true`, bypassing the TTL cache) as well as the
+    /// window-refocus hook (`forceReload: false`, reusing still-fresh cache).
+    func refreshFocusedReviewState(forceReload: Bool = true) {
+        guard
+            let worklane = worklaneStore.activeWorklane,
+            let paneID = worklane.paneStripState.focusedPaneID
+        else {
+            return
+        }
+        refreshReviewState(for: worklane.id, paneID: paneID, forceReload: forceReload)
     }
 
     private func refreshReviewState(
@@ -565,7 +682,50 @@ final class WorklaneRenderCoordinator {
             paneID: paneID,
             forceReload: forceReload
         ) { [weak self] paneID, resolution in
-            self?.worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+            self?.applyReviewResolution(
+                paneID: paneID,
+                resolution: resolution,
+                fetchedRepoRoot: repoRoot,
+                fetchedBranch: branch
+            )
         }
+    }
+
+    /// Applies a fetched resolution to the store and, when the pane is the active poll target,
+    /// re-aligns the adaptive cadence to the freshly-fetched state. Every review fetch — the poll,
+    /// bootstrap, `.reviewRefresh`, focus-regain, and manual refresh — funnels through here so the
+    /// cadence tracks the latest CI state immediately instead of only after the next poll fires.
+    ///
+    /// `fetchedRepoRoot`/`fetchedBranch` identify the exact target the fetch was issued for. When
+    /// provided, a completion is dropped if the pane has since moved to a different repo/branch, so a
+    /// slow, out-of-order fetch can neither overwrite fresher state nor arm the poll from a stale
+    /// target (e.g. a merged old PR pushing the next poll out to 300s after a branch switch).
+    private func applyReviewResolution(
+        paneID: PaneID,
+        resolution: WorklaneReviewResolution,
+        fetchedRepoRoot: String? = nil,
+        fetchedBranch: String? = nil
+    ) {
+        if let fetchedRepoRoot, let fetchedBranch,
+           !paneMatches(paneID: paneID, repoRoot: fetchedRepoRoot, branch: fetchedBranch) {
+            return
+        }
+        worklaneStore.updateReviewResolution(paneID: paneID, resolution: resolution)
+        if reviewPollingTarget?.paneID == paneID {
+            armReviewPoll(after: ReviewPolling.interval(for: resolution.reviewState))
+        }
+    }
+
+    /// Whether the pane still resolves to the given repo/branch — used to reject out-of-order
+    /// review fetches whose target changed while the request was in flight.
+    private func paneMatches(paneID: PaneID, repoRoot: String, branch: String) -> Bool {
+        for worklane in worklaneStore.worklanes {
+            guard let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
+                continue
+            }
+            return auxiliaryState.presentation.repoRoot == repoRoot
+                && auxiliaryState.presentation.lookupBranch == branch
+        }
+        return false
     }
 }
