@@ -11,6 +11,11 @@ struct CommandAvailabilityContext: Equatable {
     let activeWorklaneHasBranchURL: Bool
     let focusedPaneCanOpenWithPrimary: Bool
     let activeWorklaneHasPrimaryServer: Bool
+    /// Whether the focused pane has a resolvable git branch context (repoRoot + lookupBranch).
+    /// Gates the manual "Refresh PR Status" command — unlike `activeWorklaneHasBranchURL`, this is
+    /// true even before (or when) a remote/PR lookup has populated the branch URL, so a refresh can
+    /// be triggered precisely when the automatic lookup failed or has not run yet.
+    let activeWorklaneHasReviewLookup: Bool
 
     init(
         worklaneCount: Int,
@@ -22,7 +27,8 @@ struct CommandAvailabilityContext: Equatable {
         globalSearchHasRememberedSearch: Bool,
         activeWorklaneHasBranchURL: Bool,
         focusedPaneCanOpenWithPrimary: Bool = false,
-        activeWorklaneHasPrimaryServer: Bool = false
+        activeWorklaneHasPrimaryServer: Bool = false,
+        activeWorklaneHasReviewLookup: Bool = false
     ) {
         self.worklaneCount = worklaneCount
         self.activePaneCount = activePaneCount
@@ -34,6 +40,7 @@ struct CommandAvailabilityContext: Equatable {
         self.activeWorklaneHasBranchURL = activeWorklaneHasBranchURL
         self.focusedPaneCanOpenWithPrimary = focusedPaneCanOpenWithPrimary
         self.activeWorklaneHasPrimaryServer = activeWorklaneHasPrimaryServer
+        self.activeWorklaneHasReviewLookup = activeWorklaneHasReviewLookup
     }
 }
 
@@ -105,6 +112,8 @@ enum CommandAvailabilityResolver {
             return context.activeWorklaneHasPrimaryServer
         case .openBranchOnRemote:
             return context.activeWorklaneHasBranchURL
+        case .refreshPullRequestStatus:
+            return context.activeWorklaneHasReviewLookup
         case .findNext, .findPrevious:
             return context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch
         case .focusPreviousPane, .focusNextPane:

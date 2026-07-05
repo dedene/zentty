@@ -1181,6 +1181,9 @@ final class RootViewController: NSViewController {
         windowChromeView.onServerMenuAction = { [weak self] in
             self?.onServerMenuRequested?()
         }
+        windowChromeView.onRefreshPullRequestStatus = { [weak self] in
+            self?.handle(.refreshPullRequestStatus, syncingFocusWith: nil)
+        }
         updateOpenWithChromeState()
         updateServerChromeState()
         schedulePassiveServerDetectionRefresh()
@@ -1408,6 +1411,8 @@ final class RootViewController: NSViewController {
             onServerPrimaryRequested?()
         case .openBranchOnRemote:
             openBranchOnRemote()
+        case .refreshPullRequestStatus:
+            renderCoordinator.refreshFocusedReviewState()
         case .themeMode(let command):
             applyThemeModeCommand(command)
         case .openSettings:
@@ -2135,8 +2140,16 @@ final class RootViewController: NSViewController {
             globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
             activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL,
             focusedPaneCanOpenWithPrimary: focusedOpenWithContext != nil && primaryOpenWithTarget != nil,
-            activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil
+            activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
+            activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup
         )
+    }
+
+    private var activeWorklaneHasReviewLookup: Bool {
+        guard let presentation = worklaneStore.activeWorklane?.focusedPaneContext?.presentation else {
+            return false
+        }
+        return presentation.repoRoot != nil && presentation.lookupBranch != nil
     }
 
     private var activeWorklaneHasBranchRemoteURL: Bool {
@@ -2295,6 +2308,13 @@ final class RootViewController: NSViewController {
                 Task { @MainActor [weak self] in
                     self?.handleWindowStateDidChange()
                 }
+            }
+        }
+        observerBag.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // Only the key window polls PR status, so this window's badge may have frozen while
+                // inactive — refresh it immediately on refocus.
+                self?.renderCoordinator.refreshFocusedReviewStateOnWindowFocus()
             }
         }
         observerBag.addObserver(forName: NSWindow.didChangeScreenNotification, object: window) { [weak self] _ in

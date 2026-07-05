@@ -485,6 +485,8 @@ enum CommandPaletteItemBuilder {
             "doc.on.doc"
         case .openBranchOnRemote:
             "arrow.up.forward.app"
+        case .refreshPullRequestStatus:
+            "arrow.clockwise"
         case .toggleLightDarkTheme, .useDarkTheme, .useLightTheme, .useAutoTheme:
             "circle.lefthalf.filled"
         default:
