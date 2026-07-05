@@ -1010,6 +1010,15 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_repository_shell_integrations_tag_codex_shell_activity() throws {
+        let fakeBinDirectory = try makeTemporaryDirectory(named: "shell-integration-fake-codex-bin")
+        let fakeCodexURL = fakeBinDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCodexURL.path)
+        let bashPath = [
+            fakeBinDirectory.path,
+            ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+        ].joined(separator: ":")
+
         for shell in [ShellIntegrationTestShell.zsh, .bash, .fish] {
             guard shell.isAvailable else { continue }
             let signals = try runShellIntegration(
@@ -1018,7 +1027,8 @@ final class AgentStatusSupportTests: XCTestCase {
                     ? #"_zentty_preexec "codex""#
                     : shell == .fish
                         ? #"_zentty_fish_preexec_hook codex"#
-                        : #"codex 2>/dev/null || true"#
+                        : #"codex 2>/dev/null || true"#,
+                extraEnvironment: shell == .bash ? ["PATH": bashPath] : [:]
             )
 
             XCTAssertTrue(
@@ -10102,8 +10112,10 @@ final class AgentStatusSupportTests: XCTestCase {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+        try runAndWaitForShellIntegrationProcess(
+            process,
+            command: "interactive autoload typed command smoke for \(shell)"
+        )
 
         let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -10171,8 +10183,7 @@ final class AgentStatusSupportTests: XCTestCase {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+        try runAndWaitForShellIntegrationProcess(process, command: command)
 
         let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
         let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
@@ -10185,6 +10196,43 @@ final class AgentStatusSupportTests: XCTestCase {
             stderr: stderrText,
             logPath: logURL.path
         )
+    }
+
+    private struct ShellIntegrationCommandTimedOut: LocalizedError, CustomStringConvertible {
+        let message: String
+
+        var errorDescription: String? { message }
+        var description: String { message }
+    }
+
+    private func runAndWaitForShellIntegrationProcess(
+        _ process: Process,
+        command: String,
+        timeout: TimeInterval = 30
+    ) throws {
+        let completion = XCTestExpectation(description: "shell integration command completed")
+        let terminationSemaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            completion.fulfill()
+            terminationSemaphore.signal()
+        }
+
+        try process.run()
+        let waitResult = XCTWaiter().wait(for: [completion], timeout: timeout)
+        guard waitResult == .completed else {
+            if process.isRunning {
+                process.terminate()
+            }
+            if terminationSemaphore.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = terminationSemaphore.wait(timeout: .now() + 1)
+            }
+
+            let timeoutSeconds = timeout.rounded() == timeout ? "\(Int(timeout))" : "\(timeout)"
+            let message = "shell integration command timed out after \(timeoutSeconds)s: \(command)"
+            XCTFail(message)
+            throw ShellIntegrationCommandTimedOut(message: message)
+        }
     }
 
     /// Wrapper dirs and the canonical binary filename each must contain so that
