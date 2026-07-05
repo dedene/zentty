@@ -7,6 +7,7 @@ extension Notification.Name {
 enum CleanCopyPipeline {
     nonisolated(unsafe) static var isAutoCleanEnabled: Bool = false
     nonisolated(unsafe) static var suppressCallbackCleaning: Bool = false
+    nonisolated(unsafe) static var options: CleanCopyOptions = .default
 
     struct Result: Equatable {
         let text: String
@@ -15,25 +16,43 @@ enum CleanCopyPipeline {
 
     // MARK: - Public API
 
-    static func clean(_ input: String) -> Result {
+    static func clean(_ input: String, options: CleanCopyOptions = Self.options) -> Result {
+        let original = input
         var text = input
         text = stripANSIEscapes(text)
         let lineShapeEvidence = PlainProseLineShapeEvidence(input: text)
         text = trimTrailingWhitespacePerLine(text)
         text = trimTrailingBlankLines(text)
-        if let cleaned = stripAgentPromptSelection(text) {
+        if options.removeBoxDrawing, let cleaned = stripBoxDrawingArtifacts(text) {
             text = cleaned
         }
-        text = stripPrompts(text)
-        text = stripLineNumberPrefixes(text)
-        if let cleaned = stripBoxDrawingArtifacts(text) {
+        if let cleaned = stripTerminalChromeDecoration(text, options: options) {
             text = cleaned
+        }
+        if let cleaned = stripSmartPromptPrefixes(text) {
+            text = cleaned
+        }
+        text = stripLineNumberPrefixes(text)
+        if let repaired = repairWrappedURL(text) {
+            text = repaired
+        }
+        if let stripped = stripURLTrackingParameters(text, enabled: options.stripURLTrackingParameters) {
+            text = stripped
+        }
+        if options.quotePathsWithSpaces, let quoted = quotePathWithSpaces(text) {
+            text = quoted
+        }
+        if let flattened = transformMultiLineCommandIfNeeded(text, options: options) {
+            text = flattened
         }
         if let cleaned = reflowPlainProseSelection(text, lineShapeEvidence: lineShapeEvidence) {
             text = cleaned
         }
+        if let dedented = dedentParagraphIndent(text) {
+            text = dedented
+        }
         text = dedentCommonPrefix(text)
-        return Result(text: text, wasModified: text != input)
+        return Result(text: text, wasModified: text != original)
     }
 
     static func shouldCleanTerminalCopyAction(
@@ -46,7 +65,7 @@ enum CleanCopyPipeline {
     @discardableResult
     static func cleanPasteboardInPlace(_ pasteboard: NSPasteboard) -> Result? {
         guard let raw = pasteboard.string(forType: .string) else { return nil }
-        let result = clean(raw)
+        let result = clean(raw, options: Self.options)
         if result.wasModified {
             pasteboard.setString(result.text, forType: .string)
         }
@@ -106,67 +125,8 @@ enum CleanCopyPipeline {
         return result
     }
 
-    // MARK: - Pass 4: Prompt Detection
-
-    static func stripPrompts(_ input: String) -> String {
-        let lines = input.split(separator: "\n", omittingEmptySubsequences: false)
-        let nonEmptyLines = lines.filter { !$0.allSatisfy(\.isWhitespace) }
-        guard !nonEmptyLines.isEmpty else { return input }
-
-        let bestPrompt = detectPromptPattern(nonEmptyLines: nonEmptyLines)
-        guard let prompt = bestPrompt else { return input }
-
-        let stripped = lines.map { line -> String in
-            stripDetectedPrompt(prompt, from: line)
-        }
-        return stripped.joined(separator: "\n")
-    }
-
-    private static func stripDetectedPrompt(_ prompt: String, from line: Substring) -> String {
-        if line.hasPrefix(prompt) {
-            return String(line.dropFirst(prompt.count))
-        }
-
-        let firstContentIndex = line.firstIndex { character in
-            character != " " && character != "\t"
-        } ?? line.endIndex
-        guard firstContentIndex != line.startIndex else { return String(line) }
-
-        let remainder = line[firstContentIndex...]
-        if remainder.hasPrefix(prompt) {
-            return String(remainder.dropFirst(prompt.count))
-        }
-        return String(line)
-    }
-
-    private static func detectPromptPattern(nonEmptyLines: [Substring]) -> String? {
-        let candidates = ["$ ", "> ", "# "]
-        let lineCount = nonEmptyLines.count
-
-        for candidate in candidates {
-            let matchCount = nonEmptyLines.count(where: { $0.hasPrefix(candidate) })
-
-            if lineCount <= 3 {
-                // Short selection: strip if first non-empty line matches
-                if nonEmptyLines.first?.hasPrefix(candidate) == true {
-                    return candidate
-                }
-            } else {
-                // Multi-line: strict (true) majority of non-empty lines must match.
-                // n/2+1 with integer division — n=4 needs 3, n=5 needs 3, n=6 needs 4, n=7 needs 4.
-                // Looser than the prior >0.6 threshold for odd n (n=5 used to need 4) — this is
-                // deliberate: it cleans the dominant terminal shape (e.g. 3 commands + 2 output
-                // lines). Accepted trade-off: a 3-of-5 markdown blockquote/comment selection also
-                // loses its `> `/`# ` markers; rare in terminal pastes, so the shell case wins.
-                if matchCount >= lineCount / 2 + 1 {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
     // MARK: - Pass 4b: Agent Prompt Cleanup
+
 
     private static let agentPromptMarkers: Set<Character> = ["›", "❯", "•", "⏺", "●"]
     private static let boxDrawingCharacterClass = "[│┃║╎╏┆┇┊┋╽╿￨｜]"
@@ -253,6 +213,10 @@ enum CleanCopyPipeline {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let contentLines = trimOuterBlankLines(lines.map { $0.trimmingCharacters(in: .whitespaces) })
         let nonEmptyContentLines = contentLines.filter { !$0.isEmpty }
+        if isLikelyCompactShellCommandBlock(nonEmptyContentLines) {
+            return nil
+        }
+
         guard nonEmptyContentLines.count >= 2,
               nonEmptyContentLines.count <= maxAgentPromptReflowLines,
               !lineShapeEvidence.hasMultiplePaddedShortRows,
@@ -261,16 +225,20 @@ enum CleanCopyPipeline {
             return nil
         }
 
-        let content = contentLines.joined(separator: "\n")
-        guard !isLikelySourceCode(content),
-              !isLikelyStructuredData(content),
-              !isLikelyShellTranscript(content),
-              !isLikelyCompactShellCommandBlock(nonEmptyContentLines)
-        else {
-            return nil
+        var normalizedLines = contentLines
+        let blockquoteLineCount = nonEmptyContentLines.count { line in
+            line.range(of: #"^>\s+"#, options: .regularExpression) != nil
+        }
+        if blockquoteLineCount >= nonEmptyContentLines.count / 2 + 1 {
+            normalizedLines = contentLines.map { line in
+                guard let match = line.range(of: #"^>\s+"#, options: .regularExpression) else {
+                    return line
+                }
+                return String(line[match.upperBound...])
+            }
         }
 
-        let flattened = flattenWrappedPromptLines(contentLines)
+        let flattened = flattenWrappedPromptLines(normalizedLines)
         return flattened == input ? nil : flattened
     }
 
@@ -371,7 +339,7 @@ enum CleanCopyPipeline {
         line.trimmingCharacters(in: .whitespaces).hasSuffix("\\")
     }
 
-    private static func isLikelyCompactShellCommandBlock(_ lines: [String]) -> Bool {
+    static func isLikelyCompactShellCommandBlock(_ lines: [String]) -> Bool {
         guard lines.count >= 2 else { return false }
         guard !lines.contains(where: isLikelyShellContinuationLine(_:)) else { return false }
         return lines.allSatisfy(isLikelyStandaloneShellCommandLine(_:))
@@ -388,7 +356,7 @@ enum CleanCopyPipeline {
             || trimmed.hasPrefix("'")
     }
 
-    private static func isLikelyStandaloneShellCommandLine(_ line: String) -> Bool {
+    static func isLikelyStandaloneShellCommandLine(_ line: String) -> Bool {
         var tokens = line.trimmingCharacters(in: .whitespaces)
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
@@ -399,6 +367,15 @@ enum CleanCopyPipeline {
         while let first = tokens.first, shellCommandPrefixes.contains(first) {
             tokens.removeFirst()
         }
+        while tokens.count >= 2 {
+            let pair = "\(tokens[0]) \(tokens[1])"
+            if shellCommandWrappers.contains(pair) {
+                tokens.removeFirst(2)
+                continue
+            }
+            break
+        }
+
         guard let command = tokens.first else { return false }
         return knownShellCommands.contains(command)
             || command.hasPrefix("./")
@@ -411,13 +388,18 @@ enum CleanCopyPipeline {
         "builtin", "command", "env", "sudo", "time"
     ]
 
-    private static let knownShellCommands: Set<String> = [
+    private static let shellCommandWrappers: Set<String> = [
+        "bundle exec", "npm run", "yarn run", "pnpm run", "pnpm exec", "bun run", "bunx", "npx"
+    ]
+
+
+    static let knownShellCommands: Set<String> = [
         "awk", "brew", "bun", "bundle", "cargo", "cat", "cd", "chmod", "cmake",
         "cp", "curl", "deno", "docker", "docker-compose", "find", "frontcli",
         "gh", "git", "go", "grep", "jq", "kubectl", "linear", "ls", "make",
         "mcporter", "mkdir", "mise", "mv", "nimbu", "node", "npm", "npx", "op",
         "oracle", "pip", "pip3", "pnpm", "pytest", "python", "python3", "rails",
-        "rake", "rg", "rsync", "ruby", "sed", "ssh", "swift", "tar", "terraform",
+        "rake", "rg", "rspec", "rsync", "ruby", "sed", "ssh", "swift", "tar", "terraform",
         "touch", "trash", "uv", "wget", "xcodebuild", "yarn", "zip"
     ]
 

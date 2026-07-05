@@ -85,7 +85,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     var searchKeywords: [String] {
         switch self {
         case .general:
-            ["confirm", "quit", "close", "restore", "workspace", "clipboard", "copy"]
+            ["confirm", "quit", "close", "restore", "workspace", "clipboard", "copy", "flatten", "markdown", "url"]
         case .appearance:
             ["theme", "opacity", "color", "font", "terminal", "ghostty", "background"]
         case .shortcuts:

@@ -161,6 +161,14 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[clipboard]")
         lines.append("always_clean_copies = \(config.clipboard.alwaysCleanCopies)")
+        lines.append("flatten_multi_line_commands = \(config.clipboard.flattenMultiLineCommands)")
+        lines.append("command_flatten_aggressiveness = \(encode(string: config.clipboard.commandFlattenAggressiveness.rawValue))")
+        lines.append("preserve_blank_lines_when_flattening = \(config.clipboard.preserveBlankLinesWhenFlattening)")
+        lines.append("remove_box_drawing = \(config.clipboard.removeBoxDrawing)")
+        lines.append("flatten_slash_command_selections = \(config.clipboard.flattenSlashCommandSelections)")
+        lines.append("strip_url_tracking_parameters = \(config.clipboard.stripURLTrackingParameters)")
+        lines.append("quote_paths_with_spaces = \(config.clipboard.quotePathsWithSpaces)")
+        lines.append("show_copy_markdown_command = \(config.clipboard.showCopyMarkdownCommand)")
 
         lines.append("")
         lines.append("[worklanes]")
@@ -820,6 +828,31 @@ enum AppConfigTOML {
         case "always_clean_copies":
             guard let value = decodeBool(assignment.value) else { return false }
             config.clipboard.alwaysCleanCopies = value
+        case "flatten_multi_line_commands":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.flattenMultiLineCommands = value
+        case "command_flatten_aggressiveness":
+            guard let raw = decodeString(assignment.value),
+                  let value = CommandFlattenAggressiveness(rawValue: raw) else { return false }
+            config.clipboard.commandFlattenAggressiveness = value
+        case "preserve_blank_lines_when_flattening":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.preserveBlankLinesWhenFlattening = value
+        case "remove_box_drawing":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.removeBoxDrawing = value
+        case "flatten_slash_command_selections":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.flattenSlashCommandSelections = value
+        case "strip_url_tracking_parameters":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.stripURLTrackingParameters = value
+        case "quote_paths_with_spaces":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.quotePathsWithSpaces = value
+        case "show_copy_markdown_command":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.clipboard.showCopyMarkdownCommand = value
         default:
             return true
         }

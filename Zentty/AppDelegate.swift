@@ -100,10 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
         CleanCopyPipeline.isAutoCleanEnabled = configStore.current.clipboard.alwaysCleanCopies
+        CleanCopyPipeline.options = CleanCopyOptions.from(configStore.current.clipboard)
         configObserverID = configStore.addObserver { [weak self] config in
             Task { @MainActor in
                 guard let self else { return }
                 CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
+                CleanCopyPipeline.options = CleanCopyOptions.from(config.clipboard)
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.applyAuxiliaryWindowTheme()
                 self.applyMenuBarStatusConfig(config)

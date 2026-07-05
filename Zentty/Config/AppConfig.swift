@@ -223,8 +223,26 @@ struct AppConfig: Equatable, Sendable {
 
     struct Clipboard: Equatable, Sendable {
         var alwaysCleanCopies: Bool
+        var flattenMultiLineCommands: Bool
+        var commandFlattenAggressiveness: CommandFlattenAggressiveness
+        var preserveBlankLinesWhenFlattening: Bool
+        var removeBoxDrawing: Bool
+        var flattenSlashCommandSelections: Bool
+        var stripURLTrackingParameters: Bool
+        var quotePathsWithSpaces: Bool
+        var showCopyMarkdownCommand: Bool
 
-        static let `default` = Clipboard(alwaysCleanCopies: false)
+        static let `default` = Clipboard(
+            alwaysCleanCopies: false,
+            flattenMultiLineCommands: true,
+            commandFlattenAggressiveness: .normal,
+            preserveBlankLinesWhenFlattening: false,
+            removeBoxDrawing: true,
+            flattenSlashCommandSelections: true,
+            stripURLTrackingParameters: true,
+            quotePathsWithSpaces: true,
+            showCopyMarkdownCommand: true
+        )
     }
 
     struct Worklanes: Equatable, Sendable {

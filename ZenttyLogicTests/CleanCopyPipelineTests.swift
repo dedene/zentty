@@ -125,7 +125,7 @@ final class CleanCopyPipelineTests: XCTestCase {
 
     func test_stripPrompts_dollar_sign_multiline_majority() {
         let input = "$ ls\n$ cd foo\n$ pwd\noutput\n$ echo hi"
-        let result = CleanCopyPipeline.stripPrompts(input)
+        let result = (CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input)
         XCTAssertEqual(result, "ls\ncd foo\npwd\noutput\necho hi")
     }
 
@@ -134,13 +134,13 @@ final class CleanCopyPipelineTests: XCTestCase {
         // (e.g. "10% done", "5% used"). zsh users who genuinely paste % prompts
         // pay a small tax in exchange for far fewer false strips.
         let input = "% ls\n% cd\n% pwd\n% echo"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
     }
 
     func test_stripPrompts_hash_sign() {
         let input = "# apt update\n# apt install foo\n# systemctl start bar\n# exit"
         XCTAssertEqual(
-            CleanCopyPipeline.stripPrompts(input),
+            (CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input),
             "apt update\napt install foo\nsystemctl start bar\nexit"
         )
     }
@@ -148,38 +148,68 @@ final class CleanCopyPipelineTests: XCTestCase {
     func test_stripPrompts_does_not_strip_below_threshold_multiline() {
         // Only 1 of 5 lines has prompt — below 60%
         let input = "$ ls\nfoo\nbar\nbaz\nqux"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
     }
 
     func test_stripPrompts_short_selection_strips_first_line() {
         let input = "$ ls -la"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), "ls -la")
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), "ls -la")
     }
 
     func test_stripPrompts_short_selection_two_lines() {
         let input = "$ git status\n$ git diff"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), "git status\ngit diff")
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), "git status\ngit diff")
     }
 
     func test_stripPrompts_does_not_strip_dollar_without_space() {
         let input = "$500 is the price"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
+    }
+
+    func test_stripPrompts_does_not_strip_dollar_variable_without_space() {
+        let input = "$HOME is set"
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
+    }
+
+    func test_stripPrompts_does_not_strip_dollar_path_without_space() {
+        let input = "$PATH"
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
+    }
+
+    func test_stripPrompts_does_not_strip_hash_shebang_without_space() {
+        let input = "#!/bin/bash"
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
+    }
+
+    func test_stripPrompts_does_not_strip_hash_define_without_space() {
+        let input = "#define MAX 10"
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
+    }
+
+    func test_stripPrompts_does_not_strip_single_line_markdown_heading() {
+        let input = "# Title"
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
+    }
+
+    func test_stripPrompts_strips_single_line_hash_command() {
+        let input = "# apt update"
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), "apt update")
     }
 
     func test_stripPrompts_identity_for_no_prompts() {
         let input = "just regular\ntext here\nno prompts"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
     }
 
     func test_stripPrompts_chevron_in_markdown_not_stripped_when_minority() {
         // Only 2 of 6 lines have "> " — below threshold
         let input = "Hello\nWorld\nFoo\nBar\n> quote1\n> quote2"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
     }
 
     func test_stripPrompts_preserves_empty_lines() {
         let input = "$ first\n\n$ second\n\n$ third\n\n$ fourth"
-        let result = CleanCopyPipeline.stripPrompts(input)
+        let result = (CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input)
         XCTAssertEqual(result, "first\n\nsecond\n\nthird\n\nfourth")
     }
 
@@ -469,6 +499,17 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertEqual(
             result.text,
             "git status --short --branch\npnpm install --frozen-lockfile\nnode dist/cli.js --help"
+        )
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_trims_padded_short_prose_rows_without_reflowing_them() {
+        let input = "Status: done       \nOwner: peter      \nNext step is review       \nThis is a longer prose line that is intentionally past sixty characters."
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "Status: done\nOwner: peter\nNext step is review\nThis is a longer prose line that is intentionally past sixty characters."
         )
         XCTAssertTrue(result.wasModified)
     }
@@ -825,14 +866,14 @@ final class CleanCopyPipelineTests: XCTestCase {
     func test_stripPrompts_below_strict_majority_does_not_strip() {
         // 3 of 6 lines have "$ " — needs >= n/2+1 = 4 to strip
         let input = "$ ls\n$ cd\n$ pwd\nout1\nout2\nout3"
-        XCTAssertEqual(CleanCopyPipeline.stripPrompts(input), input)
+        XCTAssertEqual((CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input), input)
     }
 
     func test_stripPrompts_at_strict_majority_strips() {
         // 4 of 6 lines have "$ " — meets n/2+1 = 4
         let input = "$ ls\n$ cd\n$ pwd\n$ echo\nout1\nout2"
         XCTAssertEqual(
-            CleanCopyPipeline.stripPrompts(input),
+            (CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input),
             "ls\ncd\npwd\necho\nout1\nout2"
         )
     }
@@ -843,19 +884,17 @@ final class CleanCopyPipelineTests: XCTestCase {
         // this test pins the looser-for-odd-n behavior down.
         let input = "$ ls\n$ cd\n$ pwd\nout1\nout2"
         XCTAssertEqual(
-            CleanCopyPipeline.stripPrompts(input),
+            (CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input),
             "ls\ncd\npwd\nout1\nout2"
         )
     }
 
-    func test_stripPrompts_n5_three_blockquote_lines_strips_accepted_tradeoff() {
-        // Accepted trade-off: 3-of-5 `> ` lines hit the true-majority threshold and
-        // strip, even though this looks like a markdown blockquote. Pins the
-        // deliberate odd-n behavior; see detectPromptPattern.
+    func test_stripPrompts_n5_three_blockquote_lines_not_stripped() {
+        // Smart prompt strip only handles $ and # — blockquote `> ` is preserved.
         let input = "> quoted one\n> quoted two\n> quoted three\nplain four\nplain five"
         XCTAssertEqual(
-            CleanCopyPipeline.stripPrompts(input),
-            "quoted one\nquoted two\nquoted three\nplain four\nplain five"
+            CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input,
+            input
         )
     }
 
