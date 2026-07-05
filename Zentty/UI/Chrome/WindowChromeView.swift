@@ -635,6 +635,15 @@ final class WindowChromeView: NSView {
         pullRequestButton.alphaValue = alpha
         reviewChipViews.forEach { $0.alphaValue = alpha }
 
+        // Re-derive the tooltip so its age line stays on the same clock as the dim — otherwise the
+        // recheck timer fades a badge whose tooltip still reports the age computed at render time.
+        if let pullRequest = currentSummary.pullRequest {
+            pullRequestButton.toolTip = pullRequestToolTip(
+                number: pullRequest.number,
+                isClickable: pullRequest.url != nil
+            )
+        }
+
         reviewStalenessRecheckTimer?.invalidate()
         reviewStalenessRecheckTimer = nil
 
