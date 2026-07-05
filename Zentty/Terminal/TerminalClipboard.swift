@@ -8,12 +8,22 @@ enum TerminalClipboard {
         case filePath(String)
     }
 
+    struct PastedImage {
+        let data: Data
+        let fileExtension: String
+    }
+
+    enum ImageUploadContent {
+        case image(PastedImage)
+        case imageTooLarge
+        case failedToReadImage
+        case noImage
+    }
+
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "be.zenjoy.zentty",
         category: "TerminalClipboard"
     )
-
-    private static let maxClipboardImageSize = 10 * 1024 * 1024 // 10 MB
 
     // MARK: - Public
 
@@ -59,6 +69,33 @@ enum TerminalClipboard {
         return nil
     }
 
+    static func imageUploadContent(from pasteboard: NSPasteboard) -> ImageUploadContent {
+        let fileURLReadOptions: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+        ]
+        if let fileURLs = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: fileURLReadOptions
+        ) as? [URL], !fileURLs.isEmpty {
+            return imageUploadContent(fromFileURLs: fileURLs)
+        }
+
+        guard hasImageData(in: pasteboard) else {
+            return .noImage
+        }
+
+        guard let pastedImage = pastedImageData(from: pasteboard) else {
+            return .noImage
+        }
+
+        guard pastedImage.data.count <= TerminalClipboardImagePolicy.maxImageByteCount else {
+            logger.warning("Clipboard image too large: \(pastedImage.data.count) bytes")
+            return .imageTooLarge
+        }
+
+        return .image(pastedImage)
+    }
+
     // MARK: - Image helpers
 
     private static func hasImageData(in pasteboard: NSPasteboard) -> Bool {
@@ -85,8 +122,8 @@ enum TerminalClipboard {
                   let utType = UTType(type.rawValue),
                   utType.conforms(to: .image),
                   let imageData = pasteboard.data(forType: type),
-                  let fileExtension = utType.preferredFilenameExtension,
-                  !fileExtension.isEmpty else { continue }
+                  imageData.isEmpty == false else { continue }
+            let fileExtension = TerminalClipboardImagePolicy.fileExtension(for: utType)
             return (imageData, fileExtension)
         }
 
@@ -96,24 +133,12 @@ enum TerminalClipboard {
     private static func saveClipboardImagePath(from pasteboard: NSPasteboard) -> String? {
         guard hasImageData(in: pasteboard) else { return nil }
 
-        let imageData: Data
-        let fileExtension: String
-
-        if let direct = directImageData(from: pasteboard) {
-            imageData = direct.data
-            fileExtension = direct.fileExtension
-        } else if let image = NSImage(pasteboard: pasteboard),
-                  let tiffData = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmap.representation(using: .png, properties: [:]) {
-            imageData = pngData
-            fileExtension = "png"
-        } else {
+        guard let pastedImage = pastedImageData(from: pasteboard) else {
             return nil
         }
 
-        guard imageData.count <= maxClipboardImageSize else {
-            logger.warning("Clipboard image too large: \(imageData.count) bytes")
+        guard pastedImage.data.count <= TerminalClipboardImagePolicy.maxImageByteCount else {
+            logger.warning("Clipboard image too large: \(pastedImage.data.count) bytes")
             return nil
         }
 
@@ -121,16 +146,89 @@ enum TerminalClipboard {
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let timestamp = formatter.string(from: Date())
-        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
+        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).\(pastedImage.fileExtension)"
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
         do {
-            try imageData.write(to: fileURL)
+            try pastedImage.data.write(to: fileURL)
         } catch {
             logger.error("Failed to save clipboard image: \(error.localizedDescription)")
             return nil
         }
 
         return ShellEscaping.escapePath(fileURL.path)
+    }
+
+    private static func pastedImageData(from pasteboard: NSPasteboard) -> PastedImage? {
+        if let direct = directImageData(from: pasteboard) {
+            return PastedImage(data: direct.data, fileExtension: direct.fileExtension)
+        }
+
+        if let image = NSImage(pasteboard: pasteboard),
+           let tiffData = image.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiffData),
+           let pngData = bitmap.representation(using: .png, properties: [:]) {
+            return PastedImage(data: pngData, fileExtension: "png")
+        }
+
+        return nil
+    }
+
+    private static func imageUploadContent(fromFileURLs fileURLs: [URL]) -> ImageUploadContent {
+        let imageFileURLs = fileURLs.filter { imageType(forFileURL: $0) != nil }
+        guard let imageFileURL = imageFileURLs.first else {
+            return .noImage
+        }
+
+        if imageFileURLs.count > 1 {
+            logger.info("Uploading first pasted image file and ignoring \(imageFileURLs.count - 1) additional image files")
+        }
+
+        do {
+            if let fileSize = imageFileSize(for: imageFileURL),
+               fileSize > TerminalClipboardImagePolicy.maxImageByteCount {
+                logger.warning("Pasted image file too large: \(fileSize) bytes")
+                return .imageTooLarge
+            }
+
+            let data = try Data(contentsOf: imageFileURL)
+            guard data.count <= TerminalClipboardImagePolicy.maxImageByteCount else {
+                logger.warning("Pasted image file too large: \(data.count) bytes")
+                return .imageTooLarge
+            }
+
+            return .image(
+                PastedImage(
+                    data: data,
+                    fileExtension: TerminalClipboardImagePolicy.fileExtension(
+                        for: imageType(forFileURL: imageFileURL)
+                    )
+                )
+            )
+        } catch {
+            logger.error("Failed to read pasted image file: \(error.localizedDescription)")
+            return .failedToReadImage
+        }
+    }
+
+    private static func imageFileSize(for fileURL: URL) -> Int? {
+        (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
+
+    private static func imageType(forFileURL fileURL: URL) -> UTType? {
+        if let values = try? fileURL.resourceValues(forKeys: [.contentTypeKey]),
+           let contentType = values.contentType,
+           contentType.conforms(to: .image) {
+            return contentType
+        }
+
+        let pathExtension = fileURL.pathExtension
+        guard !pathExtension.isEmpty,
+              let type = UTType(filenameExtension: pathExtension),
+              type.conforms(to: .image) else {
+            return nil
+        }
+
+        return type
     }
 }

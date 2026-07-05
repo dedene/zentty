@@ -217,6 +217,56 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         XCTAssertEqual(panes.last?.sessionRequest.environmentVariables["NODE_ENV"], "production")
     }
 
+    func test_remoteImageUploadTaskIsCancelledWhenPaneIsClosed() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        let paneID = PaneID("pane-upload")
+        let siblingPaneID = PaneID("pane-sibling")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "upload"),
+                    PaneState(id: siblingPaneID, title: "sibling"),
+                ],
+                focusedPaneID: paneID
+            )
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        let task = Task<Void, Never> {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        }
+        controller.insertRemoteImageUploadTaskForTesting(task, for: paneID)
+
+        controller.closePaneByID(paneID)
+
+        XCTAssertTrue(task.isCancelled)
+        XCTAssertFalse(controller.hasRemoteImageUploadTaskForTesting(for: paneID))
+    }
+
+    func test_remoteImageUploadTasksAreCancelledOnControllerTeardown() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        let firstPaneID = PaneID("pane-upload-1")
+        let secondPaneID = PaneID("pane-upload-2")
+        let firstTask = Task<Void, Never> {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        }
+        let secondTask = Task<Void, Never> {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        }
+        controller.insertRemoteImageUploadTaskForTesting(firstTask, for: firstPaneID)
+        controller.insertRemoteImageUploadTaskForTesting(secondTask, for: secondPaneID)
+
+        controller.cancelAllRemoteImageUploads()
+
+        XCTAssertTrue(firstTask.isCancelled)
+        XCTAssertTrue(secondTask.isCancelled)
+        XCTAssertFalse(controller.hasRemoteImageUploadTaskForTesting(for: firstPaneID))
+        XCTAssertFalse(controller.hasRemoteImageUploadTaskForTesting(for: secondPaneID))
+    }
+
     func test_root_controller_global_search_aggregates_results_across_worklanes() {
         let controller = makeController()
         controller.loadViewIfNeeded()

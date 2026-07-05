@@ -348,6 +348,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     deinit {
+        MainActorShim.assumeIsolated {
+            rootViewController.cancelAllRemoteImageUploads()
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -399,6 +402,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)
     }
@@ -1181,6 +1185,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func tearDownRuntime() {
+        rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
     }
 
