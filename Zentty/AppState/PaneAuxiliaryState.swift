@@ -898,6 +898,8 @@ enum PanePresentationNormalizer {
             return ["opencode", "open code"].contains(normalized)
         case .pi:
             return ["pi", "π"].contains(normalized)
+        case .omp:
+            return normalized == "omp"
         case .grok:
             return ["grok", "grok build", "grok-build"].contains(normalized)
         case .agy:

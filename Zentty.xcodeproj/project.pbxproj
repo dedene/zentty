@@ -453,6 +453,7 @@
 		DA4EBB588176E3DEB4B96C6E /* ErrorReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0057216F25AA9654E5BDB87 /* ErrorReporting.swift */; };
 		DB21A0CF0DDA1220BC123F3B /* SidebarWorklaneDragGestureTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1750C0A516E7016E42B94EC2 /* SidebarWorklaneDragGestureTracker.swift */; };
 		DB99D15DBBA9E04854EE979F /* DroidHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E98A96BAD466E5847C42948 /* DroidHooksInstaller.swift */; };
+		DBCAAF164769A450761B89C8 /* PiFamilyLaunchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA24EE3B2294AADC4A0C3E82 /* PiFamilyLaunchPolicy.swift */; };
 		DC139F18052FBD8126678D7F /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB7FF718B0E0C3314C57BFC5 /* TerminalAdapter.swift */; };
 		DC6594609ADC8C26340A0B8A /* SidebarWorklaneRowButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4225E34022CEC2DFB9C70338 /* SidebarWorklaneRowButtonTests.swift */; };
 		DD1FBB3CA62ACE6EFBA1E7AD /* FuzzyMatch in Frameworks */ = {isa = PBXBuildFile; productRef = 1783CDCC7848CB005D3A519C /* FuzzyMatch */; };
@@ -481,6 +482,7 @@
 		E94E1DACAFBCE24E8AA485C5 /* SidebarShimmerColorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7F2B3A458136A7651CA4BA /* SidebarShimmerColorResolver.swift */; };
 		E95C4FC6740D1885397423A2 /* ServerIPCCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0633B563FD38C6FAF61062 /* ServerIPCCommands.swift */; };
 		E9BF42DC69D4CF63845BCBE2 /* SidebarWorklaneRowLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BC50CDB5D0B82695D9A2D4 /* SidebarWorklaneRowLayoutTests.swift */; };
+		EA10CB44073C9B4AA793AB67 /* PiFamilyLaunchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA24EE3B2294AADC4A0C3E82 /* PiFamilyLaunchPolicy.swift */; };
 		EA6847AAD0A938767899B578 /* VendoredGhosttyResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */; };
 		EAC39845FAE3EF9784F2F17C /* DroidTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BCA77C435DCC7E4F338789C /* DroidTaskStore.swift */; };
 		EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */; };
@@ -1041,6 +1043,7 @@
 		E84313842197C75BCA9CE6E8 /* HermesTitleOverrideReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesTitleOverrideReducer.swift; sourceTree = "<group>"; };
 		E89BAAA51D175EA4CC9174AA /* RecentCommandsTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentCommandsTracker.swift; sourceTree = "<group>"; };
 		E8E6AFBC242DD01217E89E74 /* MenuBarStatusKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusKind.swift; sourceTree = "<group>"; };
+		EA24EE3B2294AADC4A0C3E82 /* PiFamilyLaunchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFamilyLaunchPolicy.swift; sourceTree = "<group>"; };
 		EA5DD7A1968777DF9C77029D /* LibghosttySelectionAutoscrollControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySelectionAutoscrollControllerTests.swift; sourceTree = "<group>"; };
 		EB2414DEC30C1A200BC42DD4 /* AgentIntegrationGrandfather.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationGrandfather.swift; sourceTree = "<group>"; };
 		EB3CF0787F91406CE385FEB3 /* PaneDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragCoordinator.swift; sourceTree = "<group>"; };
@@ -1481,6 +1484,7 @@
 				D52DE33FBF1E4C9F22B1E569 /* OpenCodeThemeSync.swift */,
 				EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */,
 				C5A65B5FE282DD307A732E81 /* PaneIPCHandler.swift */,
+				EA24EE3B2294AADC4A0C3E82 /* PiFamilyLaunchPolicy.swift */,
 				B3D36140C30599601062D9BF /* ProcessCWDResolver.swift */,
 				58F3670F6A327C1BE9F37B1B /* ServerIPCHandler.swift */,
 				8EF1C35E3E3441C4C57051CA /* TmuxCompatArguments.swift */,
@@ -2190,7 +2194,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/hermes/hermes\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/agy/agy\" -o -path \"*/vibe/vibe\" -o -path \"*/vibe/mistral-vibe\" -o -path \"*/small-harness/small-harness\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
+			shellScript = "set -euo pipefail\n\nRESOURCES_SRC=\"${PROJECT_DIR}/ZenttyResources\"\nRESOURCES_DST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nmkdir -p \"${RESOURCES_DST}/bin\" \"${RESOURCES_DST}/shell-integration\" \"${RESOURCES_DST}/amp/plugins\" \"${RESOURCES_DST}/opencode/plugins\" \"${RESOURCES_DST}/pi/extensions\" \"${RESOURCES_DST}/omp/extensions\" \"${RESOURCES_DST}/shared/pi-family\" \"${RESOURCES_DST}/ghostty\" \"${RESOURCES_DST}/terminfo\"\nrsync -a --delete \"${RESOURCES_SRC}/bin/\" \"${RESOURCES_DST}/bin/\"\ninstall -m 755 \"${BUILT_PRODUCTS_DIR}/zentty\" \"${RESOURCES_DST}/bin/shared/zentty\"\nfind \"${RESOURCES_DST}/bin\" -type f \\( -path \"*/amp/amp\" -o -path \"*/claude/claude\" -o -path \"*/codex/codex\" -o -path \"*/copilot/copilot\" -o -path \"*/cursor/cursor-agent\" -o -path \"*/droid/droid\" -o -path \"*/gemini/gemini\" -o -path \"*/grok/grok\" -o -path \"*/hermes/hermes\" -o -path \"*/kimi/kimi\" -o -path \"*/kimi/kimi-cli\" -o -path \"*/opencode/opencode\" -o -path \"*/pi/pi\" -o -path \"*/omp/omp\" -o -path \"*/agy/agy\" -o -path \"*/vibe/vibe\" -o -path \"*/vibe/mistral-vibe\" -o -path \"*/small-harness/small-harness\" -o -path \"*/shared/zentty\" -o -path \"*/shared/zentty-agent-wrapper\" -o -path \"*/tmux-shim/tmux\" \\) -exec chmod 755 {} +\nrsync -a --delete \"${RESOURCES_SRC}/shell-integration/\" \"${RESOURCES_DST}/shell-integration/\"\nrsync -a --delete \"${RESOURCES_SRC}/amp/\" \"${RESOURCES_DST}/amp/\"\nrsync -a --delete \"${RESOURCES_SRC}/opencode/\" \"${RESOURCES_DST}/opencode/\"\nrsync -a --delete \"${RESOURCES_SRC}/pi/\" \"${RESOURCES_DST}/pi/\"\nrsync -a --delete \"${RESOURCES_SRC}/omp/\" \"${RESOURCES_DST}/omp/\"\nrsync -a --delete \"${RESOURCES_SRC}/shared/pi-family/\" \"${RESOURCES_DST}/shared/pi-family/\"\nrsync -a --delete \"${RESOURCES_SRC}/ghostty/\" \"${RESOURCES_DST}/ghostty/\"\nrsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\"\n";
 		};
 		C7055FCE2E5119172F74E931 /* Verify GhosttyKit */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -2555,6 +2559,7 @@
 				961ADDCEBB2BBB78B2820F67 /* PaneStripView.swift in Sources */,
 				C989D4E5646E700C8802CBD9 /* PassiveServerDetection.swift in Sources */,
 				AD9CD66217E3E181B808CDB1 /* PathCopiedToastView.swift in Sources */,
+				DBCAAF164769A450761B89C8 /* PiFamilyLaunchPolicy.swift in Sources */,
 				6219CFABA673D1F436C3EBB2 /* PresentationDraft.swift in Sources */,
 				F79914E37499F5FE7297C009 /* PresentationPipeline.swift in Sources */,
 				39721130F49DA6F5A8ACE5DB /* PresentationReducer.swift in Sources */,
@@ -2755,6 +2760,7 @@
 				99451BC2B09FAA072A3B3A88 /* JSONCRelaxedParse.swift in Sources */,
 				6763F2DC7655B039F55D08F4 /* JSONKeyAccess.swift in Sources */,
 				B32F85F567CD87464A187C57 /* KimiHooksInstaller.swift in Sources */,
+				EA10CB44073C9B4AA793AB67 /* PiFamilyLaunchPolicy.swift in Sources */,
 				E95C4FC6740D1885397423A2 /* ServerIPCCommands.swift in Sources */,
 				860CBB896950670C3BD5842A /* ServerOutputURLDetector.swift in Sources */,
 				03B68115EC5C72019F10D82A /* ServerURLNormalizer.swift in Sources */,

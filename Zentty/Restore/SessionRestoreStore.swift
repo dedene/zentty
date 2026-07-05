@@ -569,7 +569,7 @@ enum SessionRestoreDraftExporter {
         switch tool {
         case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode, .hermes, .vibe:
             return .sessionID
-        case .gemini, .pi, .grok, .agy, .smallHarness:
+        case .gemini, .pi, .omp, .grok, .agy, .smallHarness:
             return .workingDirectory
         case .zentty, .custom:
             return .unsupported
@@ -755,6 +755,12 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "pi -c"
+        case .omp:
+            guard hasWorkingDirectory(draft) else {
+                logRejectedWorkingDirectory(for: draft)
+                return nil
+            }
+            return "omp -c"
         case .smallHarness:
             guard hasWorkingDirectory(draft) else {
                 logRejectedWorkingDirectory(for: draft)

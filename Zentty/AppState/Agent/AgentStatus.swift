@@ -12,6 +12,7 @@ enum AgentTool: Equatable, Sendable {
     case kimi
     case openCode
     case pi
+    case omp
     case grok
     case agy
     case hermes
@@ -43,6 +44,8 @@ enum AgentTool: Equatable, Sendable {
             return "OpenCode"
         case .pi:
             return "Pi"
+        case .omp:
+            return "OMP"
         case .grok:
             return "Grok"
         case .agy:
@@ -131,6 +134,7 @@ enum AgentTool: Equatable, Sendable {
         ToolNameMatcher(tool: .kimi, isHookDrivenOnly: false, match: .contains("kimi")),
         ToolNameMatcher(tool: .openCode, isHookDrivenOnly: false, match: .containsAny(["opencode", "open code"])),
         ToolNameMatcher(tool: .pi, isHookDrivenOnly: false, match: .pi),
+        ToolNameMatcher(tool: .omp, isHookDrivenOnly: false, match: .leadingToken(["omp"])),
         ToolNameMatcher(tool: .grok, isHookDrivenOnly: false, match: .leadingToken(["grok", "grok-build"])),
         ToolNameMatcher(tool: .agy, isHookDrivenOnly: false, match: .leadingToken(["agy", "antigravity"])),
         ToolNameMatcher(tool: .hermes, isHookDrivenOnly: false, match: .leadingToken(["hermes"])),

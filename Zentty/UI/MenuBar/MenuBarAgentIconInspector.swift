@@ -22,6 +22,7 @@ enum MenuBarAgentIconInspector {
         .kimi,
         .openCode,
         .pi,
+        .omp,
         .grok,
         .agy,
         .hermes,

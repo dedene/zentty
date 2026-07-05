@@ -27,7 +27,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "kimi-code", "opencode", "pi", "small-harness", "vibe")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "kimi-code", "omp", "opencode", "pi", "small-harness", "vibe")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -1757,7 +1757,20 @@ class LaunchPlanner:
         return self._launch_plan(
             executable,
             planned,
-            {"ZENTTY_AGENT_TOOL": "pi"},
+            {"ZENTTY_AGENT_TOOL": "pi", "ZENTTY_AGENT_CANONICAL_NAME": "Pi"},
+            prelaunch=[{"subcommand": "agent-event", "arguments": [], "standardInput": prelaunch}],
+        )
+
+    def _plan_omp(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        planned = list(arguments)
+        extension = self.resources_dir / "omp" / "extensions" / "zentty-omp-zentty.js" if self.resources_dir else None
+        if extension and extension.exists():
+            planned = ["-e", str(extension)] + planned
+        prelaunch = '{"version":1,"event":"session.start","agent":{"name":"OMP","pid":"__ZENTTY_SELF_PID__"}}'
+        return self._launch_plan(
+            executable,
+            planned,
+            {"ZENTTY_AGENT_TOOL": "omp", "ZENTTY_AGENT_CANONICAL_NAME": "OMP"},
             prelaunch=[{"subcommand": "agent-event", "arguments": [], "standardInput": prelaunch}],
         )
 
