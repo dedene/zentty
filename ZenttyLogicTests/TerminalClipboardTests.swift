@@ -4,25 +4,10 @@ import XCTest
 
 @MainActor
 final class TerminalClipboardTests: XCTestCase {
-    func test_image_upload_content_rejects_oversized_image_file_before_reading() throws {
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Zentty.TerminalClipboardTests.\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-
-        let imageURL = directoryURL.appendingPathComponent("oversized.png")
-        XCTAssertTrue(FileManager.default.createFile(atPath: imageURL.path, contents: Data([0x89, 0x50, 0x4E, 0x47])))
-        let fileHandle = try FileHandle(forWritingTo: imageURL)
-        try fileHandle.truncate(atOffset: UInt64(TerminalClipboardImagePolicy.maxImageByteCount + 1))
-        try fileHandle.close()
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: imageURL.path)
-        addTeardownBlock {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: imageURL.path)
-            try? FileManager.default.removeItem(at: directoryURL)
-        }
-
+    func test_image_upload_content_rejects_oversized_raw_image_data() {
         let pasteboard = makeTestPasteboard()
-        pasteboard.declareTypes([.fileURL], owner: nil)
-        pasteboard.writeObjects([imageURL as NSURL])
+        pasteboard.declareTypes([.png], owner: nil)
+        pasteboard.setData(Data(count: TerminalClipboardImagePolicy.maxImageByteCount + 1), forType: .png)
 
         switch TerminalClipboard.imageUploadContent(from: pasteboard) {
         case .imageTooLarge:
@@ -30,6 +15,16 @@ final class TerminalClipboardTests: XCTestCase {
         case let content:
             XCTFail("Expected imageTooLarge, got \(content)")
         }
+    }
+
+    func test_file_urls_returns_file_urls_for_any_file_type_in_drop_order() {
+        let pasteboard = makeTestPasteboard()
+        let pdfURL = URL(fileURLWithPath: "/tmp/Quarterly Report.pdf")
+        let movieURL = URL(fileURLWithPath: "/tmp/demo.mov")
+        pasteboard.declareTypes([.fileURL], owner: nil)
+        pasteboard.writeObjects([pdfURL as NSURL, movieURL as NSURL])
+
+        XCTAssertEqual(TerminalClipboard.fileURLs(from: pasteboard), [pdfURL, movieURL])
     }
 
     func test_pasted_string_returns_plain_text() {

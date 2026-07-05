@@ -33,6 +33,8 @@ private enum RemoteImagePasteFailure: Equatable {
     case transferFailed
     case unknownDestination
     case imageTooLarge
+    case fileTooLarge
+    case foldersCannotUpload
     case uploadAlreadyInProgress
 
     init(error: RemoteImageUploadError) {
@@ -49,15 +51,19 @@ private enum RemoteImagePasteFailure: Equatable {
     var message: String {
         switch self {
         case .authRequired:
-            return "Couldn't upload image — ssh key auth required"
+            return "Couldn't upload file — ssh key auth required"
         case .hostUnreachable:
-            return "Couldn't upload image — host unreachable"
+            return "Couldn't upload file — host unreachable"
         case .transferFailed:
-            return "Couldn't upload image — transfer failed"
+            return "Couldn't upload file — transfer failed"
         case .unknownDestination:
-            return "Couldn't upload image — unknown ssh destination"
+            return "Couldn't upload file — unknown ssh destination"
         case .imageTooLarge:
             return "Image too large to upload (max 10 MB)"
+        case .fileTooLarge:
+            return "File too large to upload (max 500 MB)"
+        case .foldersCannotUpload:
+            return "Folders can't be uploaded"
         case .uploadAlreadyInProgress:
             return "Upload already in progress"
         }
@@ -262,7 +268,7 @@ final class RootViewController: NSViewController {
     private var isFullScreen = false
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
     private var pathCopiedToastView: PathCopiedToastView?
-    private let remoteImageUploader = RemoteImageUploader()
+    private let remoteImageUploader: RemoteImageUploader
     private let sshProcessProbe = PaneSSHProcessProbe()
     private var remoteImageUploadTasksByPaneID: [PaneID: Task<Void, Never>] = [:]
     private var foregroundSSHProbeTask: Task<Void, Never>?
@@ -349,6 +355,7 @@ final class RootViewController: NSViewController {
         serverListenerScanner: ServerListenerScanner = ServerListenerScanner(),
         dockerServerDiscovery: DockerServerDiscovery = DockerServerDiscovery(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
+        remoteImageUploader: RemoteImageUploader = RemoteImageUploader(),
         notificationStore: NotificationStore = NotificationStore(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
@@ -363,6 +370,7 @@ final class RootViewController: NSViewController {
         self.serverOpenService = serverOpenService
         self.serverListenerScanner = serverListenerScanner
         self.dockerServerDiscovery = dockerServerDiscovery
+        self.remoteImageUploader = remoteImageUploader
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.lastAppliedAppearanceSettings = configStore.current.appearance
@@ -2194,8 +2202,15 @@ final class RootViewController: NSViewController {
     }
 
     private func handleRemoteImagePaste(paneID: PaneID, pasteboard: NSPasteboard) -> Bool {
-        let imageContent = TerminalClipboard.imageUploadContent(from: pasteboard)
-        guard imageContent.remoteImagePasteboardContents.containsImage else {
+        let fileURLs = TerminalClipboard.fileURLs(from: pasteboard)
+        let imageContent: TerminalClipboard.ImageUploadContent = fileURLs.isEmpty
+            ? TerminalClipboard.imageUploadContent(from: pasteboard)
+            : .noImage
+        let pasteboardContents: RemoteImagePasteboardContents = fileURLs.isEmpty
+            ? imageContent.remoteImagePasteboardContents
+            : .fileURL
+
+        guard pasteboardContents.shouldUpload else {
             return false
         }
 
@@ -2205,7 +2220,7 @@ final class RootViewController: NSViewController {
 
         guard RemoteImagePasteDecision.shouldUploadRemotely(
             paneState: paneState,
-            pasteboardContents: imageContent.remoteImagePasteboardContents
+            pasteboardContents: pasteboardContents
         ) else {
             return false
         }
@@ -2218,6 +2233,14 @@ final class RootViewController: NSViewController {
         guard let destination = paneState.destination else {
             showRemoteImagePasteFailure(.unknownDestination, paneID: paneID)
             return true
+        }
+
+        if !fileURLs.isEmpty {
+            return handleRemoteFileURLPaste(
+                paneID: paneID,
+                fileURLs: fileURLs,
+                destination: destination
+            )
         }
 
         let pastedImage: TerminalClipboard.PastedImage
@@ -2234,7 +2257,9 @@ final class RootViewController: NSViewController {
             return false
         }
 
-        let toastHandle = beginRemoteImageUploadToast()
+        let toastHandle = beginRemoteImageUploadToast(
+            message: Self.remoteImageUploadProgressMessage(fraction: 0)
+        )
         let task = Task { [weak self] in
             guard let self else {
                 return
@@ -2273,6 +2298,95 @@ final class RootViewController: NSViewController {
                 toastHandle.fail(message: RemoteImagePasteFailure.transferFailed.message)
             }
 
+        }
+        remoteImageUploadTasksByPaneID[paneID] = task
+        return true
+    }
+
+    private func handleRemoteFileURLPaste(
+        paneID: PaneID,
+        fileURLs: [URL],
+        destination: SSHDestination
+    ) -> Bool {
+        let resolution = RemoteFileUploadRequestResolver.resolve(fileURLs: fileURLs)
+        let uploadRequests: [RemoteFileUploadRequest]
+        switch resolution {
+        case .files(let requests):
+            uploadRequests = requests
+        case .noFiles:
+            return false
+        case .foldersOnly:
+            showRemoteImagePasteFailure(.foldersCannotUpload, paneID: paneID)
+            return true
+        case .fileTooLarge:
+            showRemoteImagePasteFailure(.fileTooLarge, paneID: paneID)
+            return true
+        case .failedToResolve:
+            showRemoteImagePasteFailure(.transferFailed, paneID: paneID)
+            return true
+        }
+
+        guard let firstRequest = uploadRequests.first else {
+            return false
+        }
+
+        let toastHandle = beginRemoteImageUploadToast(
+            message: Self.remoteFileUploadProgressMessage(
+                filename: firstRequest.originalFilename,
+                fileIndex: 1,
+                fileCount: uploadRequests.count,
+                fraction: 0
+            )
+        )
+        let task = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                remoteImageUploadTasksByPaneID[paneID] = nil
+            }
+
+            do {
+                let batch = RemoteFileUploadBatch(uploader: remoteImageUploader)
+                let result = try await batch.uploadFiles(
+                    uploadRequests,
+                    destination: destination,
+                    progress: { progress in
+                        toastHandle.updateProgress(
+                            fraction: progress.fraction,
+                            message: Self.remoteFileUploadProgressMessage(progress)
+                        )
+                    }
+                )
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                guard !result.successfulRemotePaths.isEmpty else {
+                    let failure = result.firstFailure.map(RemoteImagePasteFailure.init(error:)) ?? .transferFailed
+                    toastHandle.fail(message: failure.message)
+                    return
+                }
+
+                if result.failedCount > 0 {
+                    toastHandle.finish(
+                        message: "Uploaded \(result.successfulRemotePaths.count) of \(result.totalCount) files",
+                        icon: "checkmark.circle.fill"
+                    )
+                } else {
+                    toastHandle.finish(
+                        message: result.totalCount == 1 ? "Pasted remote path" : "Pasted remote paths",
+                        icon: "checkmark.circle.fill"
+                    )
+                }
+                runtimeRegistry.runtime(for: paneID)?.adapter.sendText(result.pasteText)
+            } catch is CancellationError {
+                Self.remoteImagePasteLogger.debug("Remote file upload cancelled for pane \(paneID.rawValue)")
+            } catch {
+                Self.remoteImagePasteLogger.error("Remote file upload failed for pane \(paneID.rawValue): \(error.localizedDescription)")
+                toastHandle.fail(message: RemoteImagePasteFailure.transferFailed.message)
+            }
         }
         remoteImageUploadTasksByPaneID[paneID] = task
         return true
@@ -2343,12 +2457,12 @@ final class RootViewController: NSViewController {
         }
     }
 
-    private func beginRemoteImageUploadToast() -> PathCopiedToastView.ProgressHandle {
+    private func beginRemoteImageUploadToast(message: String) -> PathCopiedToastView.ProgressHandle {
         pathCopiedToastView?.removeFromSuperview()
         let toast = PathCopiedToastView()
         pathCopiedToastView = toast
         return toast.beginProgress(
-            message: Self.remoteImageUploadProgressMessage(fraction: 0),
+            message: message,
             in: appCanvasView,
             theme: currentTheme
         )
@@ -2386,6 +2500,29 @@ final class RootViewController: NSViewController {
     private static func remoteImageUploadProgressMessage(fraction: Double) -> String {
         let percent = Int((max(0, min(1, fraction)) * 100).rounded())
         return "Uploading pasted image (\(percent)%)"
+    }
+
+    private static func remoteFileUploadProgressMessage(_ progress: RemoteFileUploadProgress) -> String {
+        remoteFileUploadProgressMessage(
+            filename: progress.filename,
+            fileIndex: progress.fileIndex,
+            fileCount: progress.fileCount,
+            fraction: progress.fraction
+        )
+    }
+
+    private static func remoteFileUploadProgressMessage(
+        filename: String,
+        fileIndex: Int,
+        fileCount: Int,
+        fraction: Double
+    ) -> String {
+        let percent = Int((max(0, min(1, fraction)) * 100).rounded())
+        if fileCount > 1 {
+            return "Uploading \(filename) (\(fileIndex)/\(fileCount), \(percent)%)"
+        }
+
+        return "Uploading \(filename) (\(percent)%)"
     }
 
     private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {

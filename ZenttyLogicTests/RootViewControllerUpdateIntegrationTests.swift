@@ -6,14 +6,16 @@ import XCTest
 final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
     private func makeController(
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
-        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
+        remoteImageUploader: RemoteImageUploader = RemoteImageUploader()
     ) -> RootViewController {
         let controller = RootViewController(
             configStore: AppConfigStore(
                 fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.RootViewController.UpdateRow")
             ),
             appUpdateStateStore: appUpdateStateStore,
-            runtimeRegistry: runtimeRegistry
+            runtimeRegistry: runtimeRegistry,
+            remoteImageUploader: remoteImageUploader
         )
         addTeardownBlock {
             MainActor.assumeIsolated {
@@ -21,6 +23,53 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
             }
         }
         return controller
+    }
+
+    func test_remoteFileURLPasteInRemotePaneStartsUploadTask() async throws {
+        let paneID = PaneID("pane-remote-file-upload")
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        let uploadProcess = BlockingRemoteImageUploadProcess()
+        let remoteImageUploader = RemoteImageUploader(
+            processFactory: SingleRemoteImageUploadProcessFactory(process: uploadProcess),
+            fileRemotePathProvider: { _ in "/tmp/zentty-paste-file-upload-test.pdf" }
+        )
+        let controller = makeController(
+            runtimeRegistry: runtimeRegistry,
+            remoteImageUploader: remoteImageUploader
+        )
+        controller.loadViewIfNeeded()
+        controller.replaceWorklanes(
+            [makeFileUploadWorklane(paneID: paneID, isRemote: true)],
+            activeWorklaneID: WorklaneID("worklane-file-upload")
+        )
+        let runtime = try XCTUnwrap(runtimeRegistry.runtime(for: paneID))
+        let pasteHandler = try XCTUnwrap(runtime.hostView.remoteImagePasteHandler)
+        let pasteboard = try makeFileURLPasteboard()
+
+        XCTAssertTrue(pasteHandler(pasteboard, .drag))
+        XCTAssertTrue(controller.hasRemoteImageUploadTaskForTesting(for: paneID))
+        let uploadStarted = await uploadProcess.waitForWaitUntilExit(timeout: 1)
+        XCTAssertTrue(uploadStarted)
+        XCTAssertEqual(uploadProcess.writtenData, Data("report".utf8))
+
+        controller.cancelAllRemoteImageUploads()
+    }
+
+    func test_remoteFileURLPasteInLocalPaneReturnsFalse() throws {
+        let paneID = PaneID("pane-local-file-paste")
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() })
+        let controller = makeController(runtimeRegistry: runtimeRegistry)
+        controller.loadViewIfNeeded()
+        controller.replaceWorklanes(
+            [makeFileUploadWorklane(paneID: paneID, isRemote: false)],
+            activeWorklaneID: WorklaneID("worklane-file-upload")
+        )
+        let runtime = try XCTUnwrap(runtimeRegistry.runtime(for: paneID))
+        let pasteHandler = try XCTUnwrap(runtime.hostView.remoteImagePasteHandler)
+        let pasteboard = try makeFileURLPasteboard()
+
+        XCTAssertFalse(pasteHandler(pasteboard, .drag))
+        XCTAssertFalse(controller.hasRemoteImageUploadTaskForTesting(for: paneID))
     }
 
     func test_root_controller_hides_update_row_when_no_update_is_available() throws {
@@ -464,6 +513,56 @@ private func makeTaskRunnerAction(
     )
 }
 
+private func makeFileUploadWorklane(paneID: PaneID, isRemote: Bool) -> WorklaneState {
+    let auxiliaryState: PaneAuxiliaryState
+    if isRemote {
+        auxiliaryState = PaneAuxiliaryState(
+            raw: PaneRawState(
+                shellContext: PaneShellContext(
+                    scope: .remote,
+                    path: "/home/deploy",
+                    home: "/home/deploy",
+                    user: "deploy",
+                    host: "example.com"
+                )
+            )
+        )
+    } else {
+        auxiliaryState = PaneAuxiliaryState()
+    }
+
+    return WorklaneState(
+        id: WorklaneID("worklane-file-upload"),
+        title: nil,
+        paneStripState: PaneStripState(
+            panes: [PaneState(id: paneID, title: "shell")],
+            focusedPaneID: paneID
+        ),
+        auxiliaryStateByPaneID: [
+            paneID: auxiliaryState
+        ]
+    )
+}
+
+private extension RootViewControllerUpdateIntegrationTests {
+    func makeFileURLPasteboard() throws -> NSPasteboard {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Zentty.RootViewController.FilePaste.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("Quarterly Report.pdf")
+        try Data("report".utf8).write(to: fileURL)
+
+        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        pasteboard.declareTypes([.fileURL], owner: nil)
+        XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
+        return pasteboard
+    }
+}
+
 private final class RecordingRootTerminalAdapter: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
@@ -496,4 +595,79 @@ private final class RecordingRootTerminalAdapter: TerminalAdapter {
     }
 
     func close() {}
+}
+
+private final class SingleRemoteImageUploadProcessFactory: RemoteImageUploadProcessFactory, @unchecked Sendable {
+    private let process: BlockingRemoteImageUploadProcess
+
+    init(process: BlockingRemoteImageUploadProcess) {
+        self.process = process
+    }
+
+    func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess {
+        process.executableURL = executableURL
+        process.arguments = arguments
+        return process
+    }
+}
+
+private final class BlockingRemoteImageUploadProcess: RemoteImageUploadProcess, @unchecked Sendable {
+    var executableURL: URL?
+    var arguments: [String] = []
+
+    private let lock = NSLock()
+    private var writtenChunks: [Data] = []
+    private var didWaitUntilExit = false
+    private let terminateSemaphore = DispatchSemaphore(value: 0)
+
+    var writtenData: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return writtenChunks.reduce(into: Data()) { result, chunk in
+            result.append(chunk)
+        }
+    }
+
+    func run() throws {}
+
+    func write(_ data: Data) throws {
+        lock.lock()
+        writtenChunks.append(data)
+        lock.unlock()
+    }
+
+    func closeStandardInput() {}
+
+    func waitUntilExit(timeout: TimeInterval) -> RemoteImageUploadProcessResult {
+        lock.lock()
+        didWaitUntilExit = true
+        lock.unlock()
+        _ = terminateSemaphore.wait(timeout: .now() + 5)
+        return RemoteImageUploadProcessResult(
+            exitStatus: 1,
+            stderr: "cancelled",
+            timedOut: false
+        )
+    }
+
+    func terminate() {
+        terminateSemaphore.signal()
+    }
+
+    func waitForWaitUntilExit(timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if hasReachedWaitUntilExit {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return hasReachedWaitUntilExit
+    }
+
+    private var hasReachedWaitUntilExit: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didWaitUntilExit
+    }
 }

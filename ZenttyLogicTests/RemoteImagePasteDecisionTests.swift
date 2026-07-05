@@ -128,20 +128,20 @@ final class RemoteImagePasteDecisionTests: XCTestCase {
         XCTAssertNil(paneState.destination)
     }
 
-    func test_remote_image_file_url_uploads() {
+    func test_remote_file_urls_upload_regardless_of_type() {
         XCTAssertTrue(
             RemoteImagePasteDecision.shouldUploadRemotely(
                 paneState: RemoteImagePastePaneState(isRemotePane: true, destination: SSHDestination(target: "host")),
-                pasteboardContents: .imageFileURL
+                pasteboardContents: .fileURL
             )
         )
     }
 
-    func test_remote_non_image_file_url_does_not_upload() {
+    func test_local_file_urls_do_not_upload() {
         XCTAssertFalse(
             RemoteImagePasteDecision.shouldUploadRemotely(
-                paneState: RemoteImagePastePaneState(isRemotePane: true, destination: SSHDestination(target: "host")),
-                pasteboardContents: .nonImageFileURL
+                paneState: RemoteImagePastePaneState(isRemotePane: false, destination: nil),
+                pasteboardContents: .fileURL
             )
         )
     }

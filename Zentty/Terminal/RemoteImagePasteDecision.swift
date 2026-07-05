@@ -2,15 +2,14 @@ enum RemoteImagePasteboardContents: Equatable, Sendable {
     case empty
     case text
     case imageData
-    case imageFileURL
+    case fileURL
     case imageTooLarge
-    case nonImageFileURL
 
-    var containsImage: Bool {
+    var shouldUpload: Bool {
         switch self {
-        case .imageData, .imageFileURL, .imageTooLarge:
+        case .imageData, .fileURL, .imageTooLarge:
             return true
-        case .empty, .text, .nonImageFileURL:
+        case .empty, .text:
             return false
         }
     }
@@ -56,6 +55,6 @@ enum RemoteImagePasteDecision {
         paneState: RemoteImagePastePaneState,
         pasteboardContents: RemoteImagePasteboardContents
     ) -> Bool {
-        paneState.isRemotePane && pasteboardContents.containsImage
+        paneState.isRemotePane && pasteboardContents.shouldUpload
     }
 }

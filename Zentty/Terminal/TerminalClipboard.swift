@@ -28,13 +28,7 @@ enum TerminalClipboard {
     // MARK: - Public
 
     static func pastedString(from pasteboard: NSPasteboard) -> String? {
-        let fileURLReadOptions: [NSPasteboard.ReadingOptionKey: Any] = [
-            .urlReadingFileURLsOnly: true,
-        ]
-        if let fileURLs = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: fileURLReadOptions
-        ) as? [URL], fileURLs.isEmpty == false {
+        if !fileURLs(from: pasteboard).isEmpty {
             return nil
         }
 
@@ -43,13 +37,8 @@ enum TerminalClipboard {
 
     static func pastedContent(from pasteboard: NSPasteboard) -> PastedContent? {
         // 1. File URLs — escape paths
-        let fileURLReadOptions: [NSPasteboard.ReadingOptionKey: Any] = [
-            .urlReadingFileURLsOnly: true,
-        ]
-        if let fileURLs = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: fileURLReadOptions
-        ) as? [URL], !fileURLs.isEmpty {
+        let fileURLs = fileURLs(from: pasteboard)
+        if !fileURLs.isEmpty {
             let escaped = fileURLs
                 .map { ShellEscaping.escapePath($0.path) }
                 .joined(separator: " ")
@@ -70,14 +59,8 @@ enum TerminalClipboard {
     }
 
     static func imageUploadContent(from pasteboard: NSPasteboard) -> ImageUploadContent {
-        let fileURLReadOptions: [NSPasteboard.ReadingOptionKey: Any] = [
-            .urlReadingFileURLsOnly: true,
-        ]
-        if let fileURLs = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: fileURLReadOptions
-        ) as? [URL], !fileURLs.isEmpty {
-            return imageUploadContent(fromFileURLs: fileURLs)
+        if !fileURLs(from: pasteboard).isEmpty {
+            return .noImage
         }
 
         guard hasImageData(in: pasteboard) else {
@@ -94,6 +77,16 @@ enum TerminalClipboard {
         }
 
         return .image(pastedImage)
+    }
+
+    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        let fileURLReadOptions: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+        ]
+        return pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: fileURLReadOptions
+        ) as? [URL] ?? []
     }
 
     // MARK: - Image helpers
@@ -174,61 +167,4 @@ enum TerminalClipboard {
         return nil
     }
 
-    private static func imageUploadContent(fromFileURLs fileURLs: [URL]) -> ImageUploadContent {
-        let imageFileURLs = fileURLs.filter { imageType(forFileURL: $0) != nil }
-        guard let imageFileURL = imageFileURLs.first else {
-            return .noImage
-        }
-
-        if imageFileURLs.count > 1 {
-            logger.info("Uploading first pasted image file and ignoring \(imageFileURLs.count - 1) additional image files")
-        }
-
-        do {
-            if let fileSize = imageFileSize(for: imageFileURL),
-               fileSize > TerminalClipboardImagePolicy.maxImageByteCount {
-                logger.warning("Pasted image file too large: \(fileSize) bytes")
-                return .imageTooLarge
-            }
-
-            let data = try Data(contentsOf: imageFileURL)
-            guard data.count <= TerminalClipboardImagePolicy.maxImageByteCount else {
-                logger.warning("Pasted image file too large: \(data.count) bytes")
-                return .imageTooLarge
-            }
-
-            return .image(
-                PastedImage(
-                    data: data,
-                    fileExtension: TerminalClipboardImagePolicy.fileExtension(
-                        for: imageType(forFileURL: imageFileURL)
-                    )
-                )
-            )
-        } catch {
-            logger.error("Failed to read pasted image file: \(error.localizedDescription)")
-            return .failedToReadImage
-        }
-    }
-
-    private static func imageFileSize(for fileURL: URL) -> Int? {
-        (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-    }
-
-    private static func imageType(forFileURL fileURL: URL) -> UTType? {
-        if let values = try? fileURL.resourceValues(forKeys: [.contentTypeKey]),
-           let contentType = values.contentType,
-           contentType.conforms(to: .image) {
-            return contentType
-        }
-
-        let pathExtension = fileURL.pathExtension
-        guard !pathExtension.isEmpty,
-              let type = UTType(filenameExtension: pathExtension),
-              type.conforms(to: .image) else {
-            return nil
-        }
-
-        return type
-    }
 }

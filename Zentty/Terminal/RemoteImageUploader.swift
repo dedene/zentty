@@ -44,6 +44,11 @@ protocol RemoteImageUploadProcessFactory: Sendable {
     func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess
 }
 
+private enum UploadSource: Sendable {
+    case data(Data)
+    case file(url: URL, byteCount: Int64)
+}
+
 struct ProcessRemoteImageUploadProcessFactory: RemoteImageUploadProcessFactory {
     func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess {
         ProcessRemoteImageUploadProcess(executableURL: executableURL, arguments: arguments)
@@ -53,6 +58,7 @@ struct ProcessRemoteImageUploadProcessFactory: RemoteImageUploadProcessFactory {
 struct RemoteImageUploader: Sendable {
     private let processFactory: any RemoteImageUploadProcessFactory
     private let remotePathProvider: @Sendable (String) -> String
+    private let fileRemotePathProvider: @Sendable (String) -> String
     private let chunkSize: Int
     private let timeout: TimeInterval
 
@@ -61,11 +67,15 @@ struct RemoteImageUploader: Sendable {
         remotePathProvider: @escaping @Sendable (String) -> String = { fileExtension in
             RemoteImageUploadPath.generate(fileExtension: fileExtension)
         },
+        fileRemotePathProvider: @escaping @Sendable (String) -> String = { originalFilename in
+            RemoteImageUploadPath.path(forOriginalFilename: originalFilename)
+        },
         chunkSize: Int = 64 * 1024,
         timeout: TimeInterval = 60
     ) {
         self.processFactory = processFactory
         self.remotePathProvider = remotePathProvider
+        self.fileRemotePathProvider = fileRemotePathProvider
         self.chunkSize = max(1, chunkSize)
         self.timeout = timeout
     }
@@ -78,6 +88,36 @@ struct RemoteImageUploader: Sendable {
     ) async throws -> String {
         let normalizedExtension = TerminalClipboardImagePolicy.normalizedFileExtension(fileExtension)
         let remotePath = remotePathProvider(normalizedExtension)
+        return try await upload(
+            source: .data(imageData),
+            remotePath: remotePath,
+            destination: destination,
+            progress: progress
+        )
+    }
+
+    func upload(
+        fileURL: URL,
+        originalFilename: String,
+        byteCount: Int64,
+        destination: SSHDestination,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws -> String {
+        let remotePath = fileRemotePathProvider(originalFilename)
+        return try await upload(
+            source: .file(url: fileURL, byteCount: byteCount),
+            remotePath: remotePath,
+            destination: destination,
+            progress: progress
+        )
+    }
+
+    private func upload(
+        source: UploadSource,
+        remotePath: String,
+        destination: SSHDestination,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws -> String {
         guard RemoteImageUploadPath.isSafeRemotePath(remotePath) else {
             throw RemoteImageUploadError.invalidRemotePath
         }
@@ -105,7 +145,7 @@ struct RemoteImageUploader: Sendable {
 
             return try await withTaskCancellationHandler(operation: {
                 try await Self.writeAndValidateUpload(
-                    imageData: imageData,
+                    source: source,
                     process: process,
                     chunkSize: chunkSize,
                     timeout: timeout,
@@ -127,7 +167,7 @@ struct RemoteImageUploader: Sendable {
     }
 
     private static func writeAndValidateUpload(
-        imageData: Data,
+        source: UploadSource,
         process: any RemoteImageUploadProcess,
         chunkSize: Int,
         timeout: TimeInterval,
@@ -140,7 +180,7 @@ struct RemoteImageUploader: Sendable {
             didRunProcess = true
             try Task.checkCancellation()
             try await write(
-                imageData,
+                source,
                 to: process,
                 chunkSize: chunkSize,
                 progress: progress
@@ -201,6 +241,31 @@ struct RemoteImageUploader: Sendable {
     }
 
     private static func write(
+        _ source: UploadSource,
+        to process: any RemoteImageUploadProcess,
+        chunkSize: Int,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws {
+        switch source {
+        case .data(let imageData):
+            try await write(
+                imageData,
+                to: process,
+                chunkSize: chunkSize,
+                progress: progress
+            )
+        case .file(let url, let byteCount):
+            try await writeFile(
+                at: url,
+                byteCount: byteCount,
+                to: process,
+                chunkSize: chunkSize,
+                progress: progress
+            )
+        }
+    }
+
+    private static func write(
         _ imageData: Data,
         to process: any RemoteImageUploadProcess,
         chunkSize: Int,
@@ -208,6 +273,14 @@ struct RemoteImageUploader: Sendable {
     ) async throws {
         var offset = 0
         let totalBytes = imageData.count
+        guard totalBytes > 0 else {
+            await MainActor.run {
+                progress(1)
+            }
+            process.closeStandardInput()
+            return
+        }
+
         while offset < totalBytes {
             try Task.checkCancellation()
             let end = min(offset + chunkSize, totalBytes)
@@ -217,6 +290,45 @@ struct RemoteImageUploader: Sendable {
                 progress(Double(offset) / Double(totalBytes))
             }
         }
+        try Task.checkCancellation()
+        process.closeStandardInput()
+    }
+
+    private static func writeFile(
+        at fileURL: URL,
+        byteCount: Int64,
+        to process: any RemoteImageUploadProcess,
+        chunkSize: Int,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws {
+        let fileHandle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? fileHandle.close()
+        }
+
+        guard byteCount > 0 else {
+            await MainActor.run {
+                progress(1)
+            }
+            process.closeStandardInput()
+            return
+        }
+
+        var writtenByteCount: Int64 = 0
+        while true {
+            try Task.checkCancellation()
+            let chunk = try fileHandle.read(upToCount: chunkSize) ?? Data()
+            if chunk.isEmpty {
+                break
+            }
+
+            try process.write(chunk)
+            writtenByteCount += Int64(chunk.count)
+            await MainActor.run {
+                progress(Double(writtenByteCount) / Double(byteCount))
+            }
+        }
+
         try Task.checkCancellation()
         process.closeStandardInput()
     }
@@ -270,29 +382,6 @@ struct RemoteImageUploader: Sendable {
             process.terminate()
             process.closeStandardInput()
         }
-    }
-}
-
-enum RemoteImageUploadPath {
-    static func generate(
-        fileExtension: String,
-        date: Date = Date(),
-        uuid: UUID = UUID()
-    ) -> String {
-        let timestamp = Int(date.timeIntervalSince1970)
-        let uuidPrefix = uuid.uuidString
-            .replacingOccurrences(of: "-", with: "")
-            .prefix(8)
-            .lowercased()
-        let ext = TerminalClipboardImagePolicy.normalizedFileExtension(fileExtension)
-        return "/tmp/zentty-paste-\(timestamp)-\(uuidPrefix).\(ext)"
-    }
-
-    static func isSafeRemotePath(_ path: String) -> Bool {
-        path.range(
-            of: #"^/tmp/zentty-paste-[A-Za-z0-9._-]+$"#,
-            options: .regularExpression
-        ) != nil
     }
 }
 
