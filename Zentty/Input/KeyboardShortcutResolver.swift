@@ -74,6 +74,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case openWithSelectedApp = "open_with.selected_app"
     case openSelectedServer = "server.open_selected"
     case openBranchOnRemote = "branch.open_remote"
+    case refreshPullRequestStatus = "review.refresh_status"
     case toggleLightDarkTheme = "theme.toggle_light_dark"
     case useDarkTheme = "theme.use_dark"
     case useLightTheme = "theme.use_light"
@@ -119,6 +120,7 @@ enum AppAction: Equatable, Sendable {
     case openWithSelectedApp
     case openSelectedServer
     case openBranchOnRemote
+    case refreshPullRequestStatus
     case themeMode(AppearanceThemeModeCommand)
     case openSettings
     case newWindow
@@ -771,6 +773,14 @@ enum AppCommandRegistry {
             menuItem: nil
         ),
         AppCommandDefinition(
+            id: .refreshPullRequestStatus,
+            title: "Refresh PR Status",
+            category: .general,
+            defaultShortcut: nil,
+            action: .refreshPullRequestStatus,
+            menuItem: nil
+        ),
+        AppCommandDefinition(
             id: .toggleLightDarkTheme,
             title: "Toggle Light/Dark Theme",
             category: .general,
@@ -1097,6 +1107,8 @@ extension AppCommandDefinition {
             "Open the selected detected server in the selected browser."
         case .openBranchOnRemote:
             "Open the current branch on GitHub or your remote host."
+        case .refreshPullRequestStatus:
+            "Refresh the focused pane's pull request status now."
         case .toggleLightDarkTheme:
             "Switch between the selected dark and light terminal themes."
         case .useDarkTheme:
@@ -1122,6 +1134,10 @@ extension AppCommandDefinition {
         switch id {
         case .openBranchOnRemote:
             [title, detailDescription, "remote branch github branch gitlab branch"]
+                .joined(separator: " ")
+                .lowercased()
+        case .refreshPullRequestStatus:
+            [title, detailDescription, "refresh pull request pr status checks review ci reload"]
                 .joined(separator: " ")
                 .lowercased()
         default:

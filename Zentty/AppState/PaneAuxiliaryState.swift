@@ -129,6 +129,10 @@ struct PanePresentationState: Equatable, Sendable {
     var statusText: String?
     var pullRequest: WorklanePullRequestSummary?
     var reviewChips: [WorklaneReviewChip] = []
+    /// When the PR/review data was last fetched. Drives staleness dimming and the age tooltip.
+    var reviewFetchedAt: Date?
+    /// True when the last review refresh failed and the shown data is preserved (stale).
+    var reviewRefreshFailed = false
     var attentionArtifactLink: WorklaneArtifactLink?
     var updatedAt: Date = .distantPast
     var isWorking = false
@@ -453,6 +457,9 @@ enum PanePresentationNormalizer {
             repoRoot: repoRoot,
             lookupBranch: lookupBranch
         )
+        let hasReviewContext = repoRoot != nil && lookupBranch != nil
+        let reviewFetchedAt = hasReviewContext ? raw.reviewState?.reviewFetchedAt : nil
+        let reviewRefreshFailed = hasReviewContext ? (raw.reviewState?.reviewRefreshFailed ?? false) : false
         let terminalFallback =
             WorklaneContextFormatter.displayTerminalIdentity(
                 for: raw.metadata,
@@ -493,6 +500,8 @@ enum PanePresentationNormalizer {
             statusText: statusText,
             pullRequest: pullRequest,
             reviewChips: reviewChips,
+            reviewFetchedAt: reviewFetchedAt,
+            reviewRefreshFailed: reviewRefreshFailed,
             attentionArtifactLink: attentionArtifactLink,
             updatedAt: updatedAt,
             isWorking: runtimePhase == .running,
