@@ -119,6 +119,7 @@ final class WindowChromeView: NSView {
     private var currentPanesConfig: AppConfig.Panes = .default
     private var displayedReviewChips: [WorklaneReviewChip] = []
     private var reviewChipViews: [WindowChromeReviewChipView] = []
+    private var reviewStalenessRecheckTimer: Timer?
     private var branchURL: URL?
     private var pullRequestURL: URL?
     private var hasEstablishedRenderableLayout = false
@@ -127,6 +128,8 @@ final class WindowChromeView: NSView {
     var onOpenWithMenuAction: (() -> Void)?
     var onServerPrimaryAction: (() -> Void)?
     var onServerMenuAction: (() -> Void)?
+    /// Invoked by the PR badge's right-click "Refresh PR Status" item.
+    var onRefreshPullRequestStatus: (() -> Void)?
 
     init(
         frame frameRect: NSRect,
@@ -157,6 +160,14 @@ final class WindowChromeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            reviewStalenessRecheckTimer?.invalidate()
+            reviewStalenessRecheckTimer = nil
+        }
     }
 
     override func layout() {
@@ -205,6 +216,9 @@ final class WindowChromeView: NSView {
         pullRequestButton.focusRingType = .none
         pullRequestButton.onHoverChanged = { [weak self] in
             self?.updatePullRequestAppearance(animated: false)
+        }
+        pullRequestButton.onContextMenu = { [weak self] event in
+            self?.presentPullRequestMenu(with: event)
         }
 
         [serverContainerView, openWithContainerView].forEach {
@@ -350,6 +364,7 @@ final class WindowChromeView: NSView {
         updatePullRequestAppearance(animated: false)
 
         syncVisibleRowContent(forceChipRefresh: true)
+        applyReviewStaleness()
         needsLayout = true
     }
 
@@ -510,13 +525,57 @@ final class WindowChromeView: NSView {
         let isClickable = pullRequest.url != nil
         pullRequestButton.isEnabled = isClickable
         pullRequestButton.isInteractive = isClickable
-        pullRequestButton.toolTip = isClickable ? "Open pull request #\(pullRequest.number) in browser" : nil
+        pullRequestButton.toolTip = pullRequestToolTip(number: pullRequest.number, isClickable: isClickable)
         pullRequestButton.setAccessibilityLabel("Pull request #\(pullRequest.number)")
         pullRequestButton.setAccessibilityHelp(
             isClickable
                 ? "Opens pull request #\(pullRequest.number) in browser"
                 : "Pull request link unavailable"
         )
+    }
+
+    private func presentPullRequestMenu(with event: NSEvent) {
+        guard currentSummary.pullRequest != nil else {
+            return
+        }
+
+        let menu = NSMenu(title: "")
+        let title = CommandTooltipFormatter.title(
+            "Refresh PR Status",
+            commandID: .refreshPullRequestStatus,
+            shortcutManager: shortcutManager
+        )
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(refreshPullRequestStatusFromMenu),
+            keyEquivalent: ""
+        )
+        item.target = self
+        menu.addItem(item)
+
+        let location = NSPoint(x: 0, y: pullRequestButton.bounds.height)
+        menu.popUp(positioning: nil, at: location, in: pullRequestButton)
+    }
+
+    @objc
+    private func refreshPullRequestStatusFromMenu() {
+        onRefreshPullRequestStatus?()
+    }
+
+    /// Tooltip for the PR badge: the interaction hint plus a freshness line, and a failure line
+    /// when the last refresh failed. The failure line is the primary "why is this stale" signal.
+    private func pullRequestToolTip(number: Int, isClickable: Bool) -> String? {
+        var lines: [String] = []
+        if isClickable {
+            lines.append("Open pull request #\(number) in browser")
+        }
+        if let fetchedAt = currentSummary.reviewFetchedAt {
+            lines.append("Updated \(ReviewAgeFormatter.string(since: fetchedAt, now: Date()))")
+        }
+        if currentSummary.reviewRefreshFailed {
+            lines.append("⚠ Last refresh failed")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     private func updatePullRequestAppearance(animated: Bool) {
@@ -532,6 +591,80 @@ final class WindowChromeView: NSView {
             font: .systemFont(ofSize: 12, weight: .semibold),
             animated: animated
         )
+    }
+
+    /// Data older than this (or a failed refresh) fades the badge to signal it may be out of date.
+    private static let reviewStaleThreshold: TimeInterval = 120
+
+    /// Returns the one-shot delay for re-evaluating age-based staleness without waiting for another
+    /// render. Failed, missing, or already-stale data needs no re-check timer.
+    static func reviewStalenessRecheckDelay(
+        fetchedAt: Date?,
+        refreshFailed: Bool,
+        now: Date
+    ) -> TimeInterval? {
+        guard !refreshFailed, let fetchedAt else {
+            return nil
+        }
+
+        let age = now.timeIntervalSince(fetchedAt)
+        guard age <= reviewStaleThreshold else {
+            return nil
+        }
+
+        return (reviewStaleThreshold - age) + 1.0
+    }
+
+    private func isReviewStale(now: Date = Date()) -> Bool {
+        if currentSummary.reviewRefreshFailed {
+            return true
+        }
+        guard let fetchedAt = currentSummary.reviewFetchedAt else {
+            return false
+        }
+        return now.timeIntervalSince(fetchedAt) > Self.reviewStaleThreshold
+    }
+
+    private var reviewStalenessAlpha: CGFloat {
+        isReviewStale() ? 0.5 : 1
+    }
+
+    /// Fades the PR badge and its chips together when the shown data is stale or a refresh failed.
+    private func applyReviewStaleness() {
+        let alpha = reviewStalenessAlpha
+        pullRequestButton.alphaValue = alpha
+        reviewChipViews.forEach { $0.alphaValue = alpha }
+
+        // Re-derive the tooltip so its age line stays on the same clock as the dim — otherwise the
+        // recheck timer fades a badge whose tooltip still reports the age computed at render time.
+        if let pullRequest = currentSummary.pullRequest {
+            pullRequestButton.toolTip = pullRequestToolTip(
+                number: pullRequest.number,
+                isClickable: pullRequest.url != nil
+            )
+        }
+
+        reviewStalenessRecheckTimer?.invalidate()
+        reviewStalenessRecheckTimer = nil
+
+        let isBadgeShowing = !pullRequestButton.isHidden || !reviewChipViews.isEmpty
+        guard isBadgeShowing,
+              let delay = Self.reviewStalenessRecheckDelay(
+                  fetchedAt: currentSummary.reviewFetchedAt,
+                  refreshFailed: currentSummary.reviewRefreshFailed,
+                  now: Date()
+              )
+        else {
+            return
+        }
+
+        let timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyReviewStaleness()
+            }
+        }
+        timer.tolerance = 1
+        reviewStalenessRecheckTimer = timer
     }
 
     private func updateOpenWithAppearance(animated: Bool) {
@@ -688,9 +821,11 @@ final class WindowChromeView: NSView {
     private func updateReviewChipViews(chips: [WorklaneReviewChip]) {
         displayedReviewChips = chips
         reviewChipViews.forEach { $0.removeFromSuperview() }
+        let stalenessAlpha = reviewStalenessAlpha
         reviewChipViews = chips.map { chip in
             let view = WindowChromeReviewChipView(chip: chip)
             view.apply(theme: currentTheme, animated: false)
+            view.alphaValue = stalenessAlpha
             rowContainerView.addSubview(view)
             return view
         }
@@ -2010,6 +2145,7 @@ private final class WindowChromePullRequestButton: NSButton {
     static let horizontalPadding: CGFloat = 10
 
     var onHoverChanged: (() -> Void)?
+    var onContextMenu: ((NSEvent) -> Void)?
     var isInteractive = false {
         didSet {
             guard oldValue != isInteractive else {
@@ -2022,6 +2158,14 @@ private final class WindowChromePullRequestButton: NSButton {
             updateTrackingAreas()
             window?.invalidateCursorRects(for: self)
         }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if let onContextMenu {
+            onContextMenu(event)
+            return
+        }
+        super.rightMouseDown(with: event)
     }
 
     private var trackingAreaValue: NSTrackingArea?

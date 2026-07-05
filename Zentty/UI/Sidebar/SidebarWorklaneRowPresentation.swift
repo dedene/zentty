@@ -9,6 +9,8 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
         let statusTrailingLayout: SidebarPaneStatusTrailingLayout
         let statusLineCount: Int
         let serverPorts: [WorklaneSidebarServerPort]
+        let isRemotePane: Bool
+        let remotePaneLabel: String?
     }
 
     let summary: WorklaneSidebarSummary
@@ -84,7 +86,9 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
                     for: paneRow,
                     availableWidth: availableWidth
                 ),
-                serverPorts: paneRow.serverPorts
+                serverPorts: paneRow.serverPorts,
+                isRemotePane: paneRow.isRemotePane,
+                remotePaneLabel: paneRow.remotePaneLabel
             )
         }
     }

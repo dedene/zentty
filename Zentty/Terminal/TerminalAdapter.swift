@@ -174,6 +174,11 @@ enum TerminalSearchEvent: Equatable, Sendable {
     case selected(Int)
 }
 
+enum RemoteImagePasteSource: Equatable, Sendable {
+    case keyboard
+    case drag
+}
+
 @MainActor
 protocol TerminalAdapter: AnyObject {
     var hasScrollback: Bool { get }
@@ -252,6 +257,11 @@ protocol TerminalMouseInteractionSuppressionControlling: AnyObject {
 @MainActor
 protocol TerminalContextMenuConfiguring: AnyObject {
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)? { get set }
+}
+
+@MainActor
+protocol TerminalRemoteImagePasteConfiguring: AnyObject {
+    var remoteImagePasteHandler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)? { get set }
 }
 
 @MainActor

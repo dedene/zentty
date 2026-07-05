@@ -20,7 +20,9 @@ enum WorklaneHeaderSummaryBuilder {
             branch: branch,
             branchURL: presentation?.branchURL,
             pullRequest: presentation?.pullRequest,
-            reviewChips: presentation?.reviewChips ?? []
+            reviewChips: presentation?.reviewChips ?? [],
+            reviewFetchedAt: presentation?.reviewFetchedAt,
+            reviewRefreshFailed: presentation?.reviewRefreshFailed ?? false
         )
     }
 
