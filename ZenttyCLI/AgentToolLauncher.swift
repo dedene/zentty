@@ -160,25 +160,15 @@ struct AgentToolLauncher {
             }
             return nil
         case .pi:
-            // Pi has management subcommands (install/remove/update/list/…)
-            // and early-exit flags (--help, --version, --list-models, …).
-            // Injecting our bridge extension via -e at position 0 turns the
-            // subcommand into a chat message, so pass these through without
-            // any Zentty rewriting.
-            //
-            // Source of truth: `pi --help`, i.e. pi-mono's
-            // packages/coding-agent/src/cli.ts. Bump the sets below if pi
-            // core adds a new subcommand or early-exit flag. Pi extensions
-            // cannot add shell subcommands, only slash commands / CLI flags
-            // parsed after the extension loads, so only pi-core drift can
-            // invalidate this list.
-            if let subcommand = arguments.first, Self.piPassthroughSubcommands.contains(subcommand) {
-                return "pi passthrough subcommand: \(subcommand)"
+            if environment["ZENTTY_PI_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_PI_HOOKS_DISABLED=1"
             }
-            if let flag = arguments.first(where: { Self.piEarlyExitFlags.contains($0) }) {
-                return "pi early-exit flag: \(flag)"
+            return Self.piFamilyBootstrapSkipReason(tool: .pi, arguments: arguments, label: "pi")
+        case .omp:
+            if environment["ZENTTY_OMP_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_OMP_HOOKS_DISABLED=1"
             }
-            return nil
+            return Self.piFamilyBootstrapSkipReason(tool: .omp, arguments: arguments, label: "omp")
         case .grok:
             if environment["ZENTTY_GROK_HOOKS_DISABLED"] == "1" {
                 return "ZENTTY_GROK_HOOKS_DISABLED=1"
@@ -238,13 +228,23 @@ struct AgentToolLauncher {
         }
     }
 
-    static let piPassthroughSubcommands: Set<String> = [
-        "install", "remove", "uninstall", "update", "list", "config",
-    ]
+    private static func piFamilyBootstrapSkipReason(
+        tool: AgentBootstrapTool,
+        arguments: [String],
+        label: String
+    ) -> String? {
+        if let subcommand = PiFamilyLaunchPolicy.passthroughSubcommand(in: arguments, for: tool) {
+            return "\(label) passthrough subcommand: \(subcommand)"
+        }
+        if let flags = PiFamilyLaunchPolicy.earlyExitFlags(for: tool),
+           let flag = arguments.first(where: { argument in
+               flags.contains { argument == $0 || argument.hasPrefix($0 + "=") }
+           }) {
+            return "\(label) early-exit flag: \(flag)"
+        }
+        return nil
+    }
 
-    static let piEarlyExitFlags: Set<String> = [
-        "--help", "-h", "--version", "-v", "--list-models", "--export",
-    ]
 
     static let ampPassthroughSubcommands: Set<String> = [
         "login", "logout", "mcp", "permission", "permissions", "review",
@@ -517,6 +517,8 @@ struct AgentToolLauncher {
             return "OpenCode"
         case .pi:
             return "Pi"
+        case .omp:
+            return "OMP"
         case .grok:
             return "Grok"
         case .agy:
@@ -550,8 +552,10 @@ struct AgentToolLauncher {
             "ZENTTY_CURSOR_VERBOSE_HOOKS",
             "ZENTTY_DROID_HOOKS_DISABLED",
             "ZENTTY_KIMI_HOOKS_DISABLED",
-            "ZENTTY_KIMI_VARIANT",
+            "ZENTTY_PI_HOOKS_DISABLED",
+            "ZENTTY_OMP_HOOKS_DISABLED",
             "ZENTTY_GROK_HOOKS_DISABLED",
+            "ZENTTY_KIMI_VARIANT",
             "ZENTTY_AGY_HOOKS_DISABLED",
             "ZENTTY_HERMES_HOOKS_DISABLED",
             "ZENTTY_VIBE_HOOKS_DISABLED",
@@ -617,7 +621,7 @@ struct AgentToolLauncher {
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
         case .smallHarness:
             return EnvironmentPatch(set: [:], unset: ["SMALL_HARNESS_MANAGED_HOOKS_FILE", "SMALL_HARNESS_MANAGED_HOOKS_JSON"])
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes, .vibe:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe:
             return EnvironmentPatch()
         }
     }
@@ -660,7 +664,7 @@ struct AgentToolLauncher {
             environmentPatch.set["VIBE_ENABLE_EXPERIMENTAL_HOOKS"] = "true"
         case .smallHarness:
             environmentPatch.set["ZENTTY_SMALL_HARNESS_PID"] = "\(getpid())"
-        case .opencode, .pi:
+        case .opencode, .pi, .omp:
             break
         }
 

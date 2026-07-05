@@ -155,6 +155,16 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolveKnown(named: "⠋ π - myproject"), .pi)
     }
 
+    func test_agent_tool_recognizes_omp_as_leading_token_only() {
+        XCTAssertEqual(AgentTool.resolve(named: "omp"), .omp)
+        XCTAssertEqual(AgentTool.resolve(named: "OMP"), .omp)
+        XCTAssertEqual(AgentTool.resolve(named: "omp - myproject"), .omp)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "OMP"), .omp)
+        XCTAssertEqual(AgentTool.resolve(named: "opencode"), .openCode)
+        XCTAssertEqual(AgentTool.resolve(named: "pi"), .pi)
+    }
+
+
     func test_agent_tool_does_not_confuse_pi_with_unrelated_words() {
         // Must not swallow strings that merely start with the letters "pi".
         XCTAssertEqual(AgentTool.resolve(named: "pip"), .custom("pip"))
@@ -180,36 +190,56 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolve(named: "opencode"), .openCode)
     }
 
-    func test_pi_passthrough_list_matches_pi_mono_subcommands_snapshot() throws {
-        // Snapshot of `pi --help` verified 2026-04-19 against pi-mono's
-        // packages/coding-agent/src/cli.ts. Purpose: make intentional drift
-        // deliberate — if a maintainer adds/removes an item on one side,
-        // this test nudges them to update the other.
-        //
-        // AgentToolLauncher lives in the ZenttyCLI target which tests don't
-        // import, so we read the source file directly (same pattern as
-        // test_pi_wrapper_delegates_via_zentty_launch).
-        let repoRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let launcherPath = repoRoot
-            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
-            .path
-        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
-
-        for subcommand in ["install", "remove", "uninstall", "update", "list", "config"] {
-            XCTAssertTrue(
-                source.contains("\"\(subcommand)\""),
-                "piPassthroughSubcommands should contain \(subcommand)"
-            )
+    func test_pi_passthrough_list_matches_pi_mono_subcommands_snapshot() {
+        for subcommand in PiFamilyLaunchPolicy.piPassthroughSubcommands {
+            XCTAssertFalse(subcommand.isEmpty)
         }
-        for flag in ["--help", "-h", "--version", "-v", "--list-models", "--export"] {
-            XCTAssertTrue(
-                source.contains("\"\(flag)\""),
-                "piEarlyExitFlags should contain \(flag)"
-            )
-        }
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.piPassthroughSubcommands,
+            ["install", "remove", "uninstall", "update", "list", "config"]
+        )
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.piEarlyExitFlags,
+            ["--help", "-h", "--version", "-v", "--list-models", "--export"]
+        )
     }
+
+    func test_omp_passthrough_policy_includes_management_commands_snapshot() {
+        XCTAssertTrue(PiFamilyLaunchPolicy.ompPassthroughSubcommands.contains("install"))
+        XCTAssertTrue(PiFamilyLaunchPolicy.ompPassthroughSubcommands.contains("plugin"))
+        XCTAssertFalse(PiFamilyLaunchPolicy.ompPassthroughSubcommands.contains("remove"))
+        XCTAssertFalse(PiFamilyLaunchPolicy.ompPassthroughSubcommands.contains("uninstall"))
+        XCTAssertFalse(PiFamilyLaunchPolicy.ompPassthroughSubcommands.contains("list"))
+        XCTAssertEqual(PiFamilyLaunchPolicy.ompEarlyExitFlags, PiFamilyLaunchPolicy.piEarlyExitFlags.union(["--alias"]))
+    }
+
+    func test_pi_family_passthrough_subcommand_skips_leading_scope_flags() {
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.passthroughSubcommand(in: ["plugin", "list"], for: .omp),
+            "plugin"
+        )
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.passthroughSubcommand(in: ["--profile", "work", "plugin", "list"], for: .omp),
+            "plugin"
+        )
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.passthroughSubcommand(in: ["--profile=work", "install", "x"], for: .omp),
+            "install"
+        )
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.passthroughSubcommand(in: ["--cwd", "/tmp", "config"], for: .omp),
+            "config"
+        )
+        XCTAssertNil(PiFamilyLaunchPolicy.passthroughSubcommand(in: ["-p", "plugin", "list"], for: .omp))
+        XCTAssertNil(PiFamilyLaunchPolicy.passthroughSubcommand(in: ["--no-session", "install"], for: .omp))
+        XCTAssertNil(PiFamilyLaunchPolicy.passthroughSubcommand(in: ["explain", "the", "plugin"], for: .omp))
+        XCTAssertNil(PiFamilyLaunchPolicy.passthroughSubcommand(in: ["--profile", "work"], for: .omp))
+        XCTAssertEqual(
+            PiFamilyLaunchPolicy.passthroughSubcommand(in: ["install"], for: .pi),
+            "install"
+        )
+    }
+
 
     func test_kimi_passthrough_list_matches_kimi_cli_help_snapshot() throws {
         // Snapshot of `kimi --help` verified 2026-04-20 against the locally
@@ -415,7 +445,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "agy", "vibe", "small-harness"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "omp", "agy", "vibe", "small-harness"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -522,7 +552,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Real binaries Zentty's wrappers expect on PATH. Note cursor resolves to `cursor-agent`,
         // not `cursor` (which is the Cursor IDE launcher).
-        for name in ["amp", "claude", "cursor-agent", "gemini", "kimi", "opencode", "agy"] {
+        for name in ["amp", "claude", "cursor-agent", "gemini", "kimi", "opencode", "omp", "agy"] {
             let fileURL = realBinURL.appendingPathComponent(name, isDirectory: false)
             try "#!/bin/sh\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
@@ -539,6 +569,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("kimi", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
                 binURL.appendingPathComponent("pi", isDirectory: true).path,
+                binURL.appendingPathComponent("omp", isDirectory: true).path,
                 binURL.appendingPathComponent("agy", isDirectory: true).path,
                 sharedURL.path,
                 realBinURL.path,
@@ -556,6 +587,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 binURL.appendingPathComponent("gemini", isDirectory: true).path,
                 binURL.appendingPathComponent("kimi", isDirectory: true).path,
                 binURL.appendingPathComponent("opencode", isDirectory: true).path,
+                binURL.appendingPathComponent("omp", isDirectory: true).path,
                 binURL.appendingPathComponent("agy", isDirectory: true).path,
             ]
         )
@@ -1010,6 +1042,15 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_repository_shell_integrations_tag_codex_shell_activity() throws {
+        let fakeBinDirectory = try makeTemporaryDirectory(named: "shell-integration-fake-codex-bin")
+        let fakeCodexURL = fakeBinDirectory.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCodexURL.path)
+        let path = [
+            fakeBinDirectory.path,
+            ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+        ].joined(separator: ":")
+
         for shell in [ShellIntegrationTestShell.zsh, .bash, .fish] {
             guard shell.isAvailable else { continue }
             let signals = try runShellIntegration(
@@ -1018,7 +1059,8 @@ final class AgentStatusSupportTests: XCTestCase {
                     ? #"_zentty_preexec "codex""#
                     : shell == .fish
                         ? #"_zentty_fish_preexec_hook codex"#
-                        : #"codex 2>/dev/null || true"#
+                        : #"codex 2>/dev/null || true"#,
+                extraEnvironment: ["PATH": path]
             )
 
             XCTAssertTrue(
@@ -10297,6 +10339,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("opencode", "opencode"),
             ("amp", "amp"),
             ("pi", "pi"),
+            ("omp", "omp"),
             ("agy", "agy"),
             ("hermes", "hermes"),
             ("vibe", "vibe"),

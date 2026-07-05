@@ -141,6 +141,15 @@ enum AgentLaunchBootstrap {
             return piPlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
+                environment: environment,
+                bundle: bundle,
+                fileManager: fileManager
+            )
+        case .omp:
+            return ompPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
                 bundle: bundle,
                 fileManager: fileManager
             )
@@ -306,35 +315,81 @@ enum AgentLaunchBootstrap {
     private static func piPlan(
         executablePath: String,
         arguments: [String],
+        environment: [String: String],
         bundle: Bundle,
         fileManager: FileManager
     ) -> AgentLaunchPlan {
-        // Pi itself sets PI_CODING_AGENT=true at startup (src/cli.ts),
-        // so we only need ZENTTY_AGENT_TOOL for Zentty's own recognition.
-        let setEnvironment = ["ZENTTY_AGENT_TOOL": "pi"]
+        piFamilyLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            bundle: bundle,
+            fileManager: fileManager,
+            bootstrapToolValue: "pi",
+            bundleFolder: "pi",
+            extensionEntryFilename: "zentty-pi-zentty.js",
+            canonicalAgentName: "Pi",
+            hooksDisabledEnvironmentKey: "ZENTTY_PI_HOOKS_DISABLED"
+        )
+    }
+
+    private static func ompPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        bundle: Bundle,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        piFamilyLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            bundle: bundle,
+            fileManager: fileManager,
+            bootstrapToolValue: "omp",
+            bundleFolder: "omp",
+            extensionEntryFilename: "zentty-omp-zentty.js",
+            canonicalAgentName: "OMP",
+            hooksDisabledEnvironmentKey: "ZENTTY_OMP_HOOKS_DISABLED"
+        )
+    }
+
+    private static func piFamilyLaunchPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        bundle: Bundle,
+        fileManager: FileManager,
+        bootstrapToolValue: String,
+        bundleFolder: String,
+        extensionEntryFilename: String,
+        canonicalAgentName: String,
+        hooksDisabledEnvironmentKey: String
+    ) -> AgentLaunchPlan {
+        if environment[hooksDisabledEnvironmentKey] == "1" {
+            return directPlan(executablePath: executablePath, arguments: arguments)
+        }
+
+        var setEnvironment = [
+            "ZENTTY_AGENT_TOOL": bootstrapToolValue,
+            "ZENTTY_AGENT_CANONICAL_NAME": canonicalAgentName,
+        ]
 
         var plannedArguments = arguments
         let extensionURL = bundle.resourceURL?
-            .appendingPathComponent("pi", isDirectory: true)
+            .appendingPathComponent(bundleFolder, isDirectory: true)
             .appendingPathComponent("extensions", isDirectory: true)
-            .appendingPathComponent("zentty-pi-zentty.js", isDirectory: false)
+            .appendingPathComponent(extensionEntryFilename, isDirectory: false)
         if let extensionURL, fileManager.isReadableFile(atPath: extensionURL.path) {
-            // Stack the bridge on top of the user's own pi extensions:
-            // with `-e <path>` alone (no `--no-extensions`), pi merges CLI
-            // extensions with globals — see pi-mono
-            // packages/coding-agent/src/core/resource-loader.ts.
             plannedArguments.insert(contentsOf: ["-e", extensionURL.path], at: 0)
         } else {
-            // Silent miss here leaves the sidebar stuck on "Starting" with
-            // no breadcrumb. Warn so bundle misconfigurations are traceable
-            // via `log stream --predicate 'category == "AgentLaunchBootstrap"'`.
             agentLaunchLogger.warning(
-                "Pi bridge extension missing from bundle (path=\(extensionURL?.path ?? "<nil>", privacy: .public)); agent status will not be tracked"
+                "\(canonicalAgentName, privacy: .public) bridge extension missing from bundle (path=\(extensionURL?.path ?? "<nil>", privacy: .public)); agent status will not be tracked"
             )
         }
 
         let sessionStartJSON = """
-        {"version":1,"event":"session.start","agent":{"name":"Pi","pid":\(AgentIPCProtocol.selfPIDPlaceholder)}}
+        {"version":1,"event":"session.start","agent":{"name":"\(canonicalAgentName)","pid":\(AgentIPCProtocol.selfPIDPlaceholder)}}
         """
         return AgentLaunchPlan(
             executablePath: executablePath,
@@ -350,6 +405,7 @@ enum AgentLaunchBootstrap {
             ]
         )
     }
+
 
     private static func grokPlan(
         executablePath: String,
@@ -1571,7 +1627,7 @@ enum AgentLaunchBootstrap {
             return ["CLAUDECODE"]
         case .smallHarness:
             return smallHarnessManagedHookEnvironmentKeys
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes, .vibe:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe:
             return []
         }
     }

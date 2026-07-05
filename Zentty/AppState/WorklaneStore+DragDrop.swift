@@ -1001,6 +1001,7 @@ extension WorklaneStore {
             case .kimi: return "kimi"
             case .openCode: return "opencode"
             case .pi: return "pi"
+            case .omp: return "omp"
             case .grok: return "grok"
             case .agy: return "agy"
             case .hermes: return "hermes"

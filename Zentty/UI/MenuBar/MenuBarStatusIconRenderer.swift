@@ -430,6 +430,8 @@ enum MenuBarStatusIconRenderer {
             return "AgentIconOpenCode"
         case .pi:
             return "AgentIconPi"
+        case .omp:
+            return nil
         case .grok:
             return "AgentIconGrok"
         case .agy:

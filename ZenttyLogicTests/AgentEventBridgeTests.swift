@@ -851,6 +851,40 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolve(named: idle.first?.toolName), .pi)
     }
 
+    func test_omp_running_idle_lifecycle() throws {
+        let running = try AgentEventBridge.makePayloads(
+            from: AgentEventBridge.parseInput(
+                #"{"version":1,"event":"agent.running","agent":{"name":"OMP"}}"#.data(using: .utf8)!
+            ),
+            environment: defaultEnvironment
+        )
+        let idle = try AgentEventBridge.makePayloads(
+            from: AgentEventBridge.parseInput(
+                #"{"version":1,"event":"agent.idle","agent":{"name":"OMP"}}"#.data(using: .utf8)!
+            ),
+            environment: defaultEnvironment
+        )
+
+        XCTAssertEqual(running.first?.state, .running)
+        XCTAssertEqual(idle.first?.state, .idle)
+        XCTAssertEqual(AgentTool.resolve(named: running.first?.toolName), .omp)
+        XCTAssertEqual(AgentTool.resolve(named: idle.first?.toolName), .omp)
+    }
+
+    func test_omp_wrapper_delegates_via_zentty_launch() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperPath = repoRoot
+            .appendingPathComponent("ZenttyResources/bin/omp/omp")
+            .path
+        let script = try String(contentsOfFile: wrapperPath, encoding: .utf8)
+
+        XCTAssertTrue(script.contains("launch omp"))
+        XCTAssertTrue(script.contains("find_real_omp"))
+    }
+
+
     func test_pi_wrapper_delegates_via_zentty_launch() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

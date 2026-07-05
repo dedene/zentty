@@ -330,6 +330,28 @@ Each hook calls:
 - `PreToolUse(AskUserQuestion)` -> `needs-input` with `question`
 - `PostToolUse(AskUserQuestion)` -> `running`
 
+
+## Pi
+
+Wrapped `pi` launches inject an ephemeral coding-agent extension with `-e <bundle>/pi/extensions/zentty-pi-zentty.js`. The extension shares implementation with OMP via `shared/pi-family/zentty-pi-family-zentty.js` and emits canonical JSON through `zentty ipc agent-event`.
+
+Pi management subcommands (`install`, `remove`, `update`, `list`, `config`, …) and early-exit flags (`--help`, `--version`, `--list-models`, …) bypass Zentty bootstrap so the real `pi` binary handles them unchanged. Set `ZENTTY_PI_HOOKS_DISABLED=1` to launch without the bridge.
+
+### Current mapping
+
+- `session_start` -> `session.start`
+- `agent_start` -> `agent.running`
+- `agent_end` -> `agent.idle`
+- `session_shutdown` -> `session.end`
+
+## Oh My Pi (OMP)
+
+OMP uses the same Pi-lineage extension host and ephemeral `-e` injection pattern as Pi. Zentty prepends `-e <bundle>/omp/extensions/zentty-omp-zentty.js`, sets `ZENTTY_AGENT_CANONICAL_NAME=OMP`, and does not modify the user's OMP config. Management commands from `omp --help` (including `plugin`, `install`, `config`, …) passthrough without bootstrap; set `ZENTTY_OMP_HOOKS_DISABLED=1` to skip the bridge.
+
+### Current mapping
+
+Same lifecycle events as Pi (`session.start`, `agent.running`, `agent.idle`, `session.end`). OMP is a distinct tool in the sidebar (`agent.name` **OMP**, title match leading token `omp` only—not Pi's `π` rules).
+
 ## OpenCode
 
 Zentty injects a local OpenCode plugin overlay via the shared agent wrapper. The plugin forwards `session.status`, `session.idle`, permission/question events, and `todo.updated`.

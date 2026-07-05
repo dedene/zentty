@@ -1817,6 +1817,7 @@ class ProfileTests(unittest.TestCase):
                 "hermes",
                 "kimi",
                 "kimi-code",
+                "omp",
                 "opencode",
                 "pi",
                 "small-harness",
