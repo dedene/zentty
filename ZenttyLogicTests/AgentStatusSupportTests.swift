@@ -10144,8 +10144,10 @@ final class AgentStatusSupportTests: XCTestCase {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+        try runAndWaitForShellIntegrationProcess(
+            process,
+            command: "interactive autoload typed command smoke for \(shell)"
+        )
 
         let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -10213,8 +10215,7 @@ final class AgentStatusSupportTests: XCTestCase {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+        try runAndWaitForShellIntegrationProcess(process, command: command)
 
         let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
         let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
@@ -10227,6 +10228,43 @@ final class AgentStatusSupportTests: XCTestCase {
             stderr: stderrText,
             logPath: logURL.path
         )
+    }
+
+    private struct ShellIntegrationCommandTimedOut: LocalizedError, CustomStringConvertible {
+        let message: String
+
+        var errorDescription: String? { message }
+        var description: String { message }
+    }
+
+    private func runAndWaitForShellIntegrationProcess(
+        _ process: Process,
+        command: String,
+        timeout: TimeInterval = 30
+    ) throws {
+        let completion = XCTestExpectation(description: "shell integration command completed")
+        let terminationSemaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            completion.fulfill()
+            terminationSemaphore.signal()
+        }
+
+        try process.run()
+        let waitResult = XCTWaiter().wait(for: [completion], timeout: timeout)
+        guard waitResult == .completed else {
+            if process.isRunning {
+                process.terminate()
+            }
+            if terminationSemaphore.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = terminationSemaphore.wait(timeout: .now() + 1)
+            }
+
+            let timeoutSeconds = timeout.rounded() == timeout ? "\(Int(timeout))" : "\(timeout)"
+            let message = "shell integration command timed out after \(timeoutSeconds)s: \(command)"
+            XCTFail(message)
+            throw ShellIntegrationCommandTimedOut(message: message)
+        }
     }
 
     /// Wrapper dirs and the canonical binary filename each must contain so that

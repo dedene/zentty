@@ -7,7 +7,7 @@ enum AppMenuBuilder {
         config: AppConfig = .default,
         appName: String = resolvedAppName()
     ) {
-        guard hasRequiredMenuItems(in: application.mainMenu, appName: appName) == false else {
+        guard hasRequiredMenuItems(in: application.mainMenu, appName: appName, config: config) == false else {
             applyConfiguredShortcuts(to: application.mainMenu, config: config)
             application.windowsMenu = menu(named: "Window", in: application.mainMenu)
             application.servicesMenu = servicesMenu(in: application.mainMenu)
@@ -79,7 +79,7 @@ enum AppMenuBuilder {
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
         mainMenu.addItem(makeFileMenuItem(shortcutManager: shortcutManager))
-        mainMenu.addItem(makeEditMenuItem(shortcutManager: shortcutManager))
+        mainMenu.addItem(makeEditMenuItem(shortcutManager: shortcutManager, config: config))
         mainMenu.addItem(makeSectionMenuItem(section: .navigation, shortcutManager: shortcutManager))
         mainMenu.addItem(makeViewMenuItem(shortcutManager: shortcutManager))
         mainMenu.addItem(makeWindowMenuItem(shortcutManager: shortcutManager))
@@ -129,7 +129,7 @@ enum AppMenuBuilder {
         }
     }
 
-    private static func makeEditMenuItem(shortcutManager: ShortcutManager) -> NSMenuItem {
+    private static func makeEditMenuItem(shortcutManager: ShortcutManager, config: AppConfig) -> NSMenuItem {
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
 
@@ -140,6 +140,9 @@ enum AppMenuBuilder {
         ))
         editMenu.addItem(makeCommandMenuItem(commandID: .cleanCopy, shortcutManager: shortcutManager))
         editMenu.addItem(makeCommandMenuItem(commandID: .copyRaw, shortcutManager: shortcutManager))
+        if config.clipboard.showCopyMarkdownCommand {
+            editMenu.addItem(makeCommandMenuItem(commandID: .copyMarkdown, shortcutManager: shortcutManager))
+        }
         editMenu.addItem(makeCommandMenuItem(commandID: .copyFocusedPanePath, shortcutManager: shortcutManager))
         editMenu.addItem(makeStandardMenuActionItem(
             title: "Paste",
@@ -293,7 +296,11 @@ enum AppMenuBuilder {
         return item
     }
 
-    private static func hasRequiredMenuItems(in mainMenu: NSMenu?, appName: String) -> Bool {
+    static func hasRequiredMenuItems(
+        in mainMenu: NSMenu?,
+        appName: String,
+        config: AppConfig = .default
+    ) -> Bool {
         guard let appMenu = mainMenu?.items.first?.submenu else {
             return false
         }
@@ -331,14 +338,19 @@ enum AppMenuBuilder {
         let navigationMenu = menu(named: AppMenuSection.navigation.rawValue, in: mainMenu)
         let viewMenu = menu(named: AppMenuSection.view.rawValue, in: mainMenu)
         let windowMenu = menu(named: "Window", in: mainMenu)
-        let requiredEditItems: [(String, Selector)] = [
+        var requiredEditItems: [(String, Selector)] = [
             ("Copy", #selector(NSText.copy(_:))),
             ("Clean Copy", #selector(MainWindowController.cleanCopy(_:))),
             ("Copy Raw", #selector(MainWindowController.copyRaw(_:))),
+        ]
+        if config.clipboard.showCopyMarkdownCommand {
+            requiredEditItems.append(("Copy as Markdown", #selector(MainWindowController.copyMarkdown(_:))))
+        }
+        requiredEditItems.append(contentsOf: [
             ("Copy Path", #selector(MainWindowController.copyFocusedPanePath(_:))),
             ("Paste", #selector(NSText.paste(_:))),
             ("Select All", #selector(NSResponder.selectAll(_:))),
-        ]
+        ])
         let requiredFindEntries: [AppMenuEntry] = [
             .command(.find),
             .command(.globalFind),
@@ -347,8 +359,12 @@ enum AppMenuBuilder {
             .command(.useSelectionForFind),
         ]
         let hasFileItems = hasRequiredStructure(expectedEntries(for: .file), in: fileMenu)
+        let hasCopyMarkdownItem =
+            editMenu?.items.contains(where: { $0.action == #selector(MainWindowController.copyMarkdown(_:)) }) == true
+        let hasExpectedCopyMarkdownVisibility = hasCopyMarkdownItem == config.clipboard.showCopyMarkdownCommand
         let hasEditItems =
             editMenu?.title == AppMenuSection.edit.rawValue &&
+            hasExpectedCopyMarkdownVisibility &&
             hasRequiredItems(requiredEditItems, in: editMenu) &&
             editMenu?.items.count ?? 0 >= requiredEditItems.count + 1 &&
             matches(

@@ -17,6 +17,22 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let quitSwitch = NSSwitch()
     private let restoreWorkspaceSwitch = NSSwitch()
     private let alwaysCleanCopiesSwitch = NSSwitch()
+    private let flattenMultiLineCommandsSwitch = NSSwitch()
+    private let commandFlattenAggressivenessPopup = NSPopUpButton()
+    private let commandFlattenAggressivenessSubtitleLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 0
+        label.textColor = .secondaryLabelColor
+        return label
+    }()
+    private let preserveBlankLinesWhenFlatteningSwitch = NSSwitch()
+    private let removeBoxDrawingSwitch = NSSwitch()
+    private let flattenSlashCommandSelectionsSwitch = NSSwitch()
+    private let stripURLTrackingParametersSwitch = NSSwitch()
+    private let quotePathsWithSpacesSwitch = NSSwitch()
+    private let showCopyMarkdownCommandSwitch = NSSwitch()
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
@@ -124,12 +140,79 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         let cleanCopyRow = makeSwitchRow(
             title: "Always clean copied content",
             subtitle:
-                "Remove extra whitespace, color codes, and shell prompts when you copy from the terminal.",
+                "When you copy from the terminal, run the clean-copy pipeline automatically (whitespace, prompts, URLs, and more).",
             toggle: alwaysCleanCopiesSwitch,
             action: #selector(handleAlwaysCleanCopiesSwitchChanged(_:))
         )
         clipboardStack.addArrangedSubview(cleanCopyRow)
         cleanCopyRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let flattenRow = makeSwitchRow(
+            title: "Flatten multi-line commands",
+            subtitle: "Join wrapped shell commands and continuations into a single line when you clean copy.",
+            toggle: flattenMultiLineCommandsSwitch,
+            action: #selector(handleFlattenMultiLineCommandsSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(flattenRow)
+        flattenRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let aggressivenessRow = makeCommandFlattenAggressivenessRow()
+        clipboardStack.addArrangedSubview(aggressivenessRow)
+        aggressivenessRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let preserveBlanksRow = makeSwitchRow(
+            title: "Preserve blank lines when flattening",
+            subtitle: "Keep intentional blank lines inside a flattened command block.",
+            toggle: preserveBlankLinesWhenFlatteningSwitch,
+            action: #selector(handlePreserveBlankLinesWhenFlatteningSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(preserveBlanksRow)
+        preserveBlanksRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let boxDrawingRow = makeSwitchRow(
+            title: "Remove box-drawing characters",
+            subtitle: "Strip terminal table and box-drawing glyphs during cleaning.",
+            toggle: removeBoxDrawingSwitch,
+            action: #selector(handleRemoveBoxDrawingSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(boxDrawingRow)
+        boxDrawingRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let slashRow = makeSwitchRow(
+            title: "Flatten slash-command selections",
+            subtitle: "Treat agent slash-command decorations like wrapped commands when cleaning.",
+            toggle: flattenSlashCommandSelectionsSwitch,
+            action: #selector(handleFlattenSlashCommandSelectionsSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(slashRow)
+        slashRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let urlRow = makeSwitchRow(
+            title: "Strip URL tracking parameters",
+            subtitle: "Remove common tracking query parameters from URLs in copied text.",
+            toggle: stripURLTrackingParametersSwitch,
+            action: #selector(handleStripURLTrackingParametersSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(urlRow)
+        urlRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let quotePathsRow = makeSwitchRow(
+            title: "Quote paths with spaces",
+            subtitle: "Wrap filesystem paths that contain spaces in quotes when cleaning.",
+            toggle: quotePathsWithSpacesSwitch,
+            action: #selector(handleQuotePathsWithSpacesSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(quotePathsRow)
+        quotePathsRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
+
+        let markdownMenuRow = makeSwitchRow(
+            title: "Show Copy as Markdown command",
+            subtitle: "Include Copy as Markdown in the Edit menu for selection-based Markdown reformatting.",
+            toggle: showCopyMarkdownCommandSwitch,
+            action: #selector(handleShowCopyMarkdownCommandSwitchChanged(_:))
+        )
+        clipboardStack.addArrangedSubview(markdownMenuRow)
+        markdownMenuRow.widthAnchor.constraint(equalTo: clipboardStack.widthAnchor).isActive = true
 
         NSLayoutConstraint.activate([
             clipboardStack.topAnchor.constraint(equalTo: clipboardCard.topAnchor),
@@ -155,7 +238,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
         restoreWorkspaceSwitch.state = currentRestore.restoreWorkspaceOnLaunch ? .on : .off
-        alwaysCleanCopiesSwitch.state = currentClipboard.alwaysCleanCopies ? .on : .off
+        syncClipboardControlsFromConfig(currentClipboard)
+        applyClipboardAndPipelineSideEffects(currentClipboard)
     }
 
     func apply(confirmations: AppConfig.Confirmations) {
@@ -175,7 +259,8 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     func apply(clipboard: AppConfig.Clipboard) {
         currentClipboard = clipboard
         guard isViewLoaded else { return }
-        alwaysCleanCopiesSwitch.state = clipboard.alwaysCleanCopies ? .on : .off
+        syncClipboardControlsFromConfig(clipboard)
+        applyClipboardAndPipelineSideEffects(clipboard)
     }
 
     // MARK: - Actions
@@ -218,9 +303,161 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             config.clipboard.alwaysCleanCopies = sender.state == .on
         }
         currentClipboard = configStore.current.clipboard
-        CleanCopyPipeline.isAutoCleanEnabled = currentClipboard.alwaysCleanCopies
+        applyClipboardAndPipelineSideEffects(currentClipboard)
     }
 
+    @objc
+    private func handleFlattenMultiLineCommandsSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.flattenMultiLineCommands = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handleCommandFlattenAggressivenessChanged(_ sender: NSPopUpButton) {
+        guard let level = sender.selectedItem?.representedObject as? CommandFlattenAggressiveness else {
+            return
+        }
+        try? configStore.update { config in
+            config.clipboard.commandFlattenAggressiveness = level
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handlePreserveBlankLinesWhenFlatteningSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.preserveBlankLinesWhenFlattening = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handleRemoveBoxDrawingSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.removeBoxDrawing = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handleFlattenSlashCommandSelectionsSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.flattenSlashCommandSelections = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handleStripURLTrackingParametersSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.stripURLTrackingParameters = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handleQuotePathsWithSpacesSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.quotePathsWithSpaces = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    @objc
+    private func handleShowCopyMarkdownCommandSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.clipboard.showCopyMarkdownCommand = sender.state == .on
+        }
+        currentClipboard = configStore.current.clipboard
+        applyClipboardAndPipelineSideEffects(currentClipboard)
+    }
+
+    private func syncClipboardControlsFromConfig(_ clipboard: AppConfig.Clipboard) {
+        alwaysCleanCopiesSwitch.state = clipboard.alwaysCleanCopies ? .on : .off
+        flattenMultiLineCommandsSwitch.state = clipboard.flattenMultiLineCommands ? .on : .off
+        preserveBlankLinesWhenFlatteningSwitch.state = clipboard.preserveBlankLinesWhenFlattening ? .on : .off
+        removeBoxDrawingSwitch.state = clipboard.removeBoxDrawing ? .on : .off
+        flattenSlashCommandSelectionsSwitch.state = clipboard.flattenSlashCommandSelections ? .on : .off
+        stripURLTrackingParametersSwitch.state = clipboard.stripURLTrackingParameters ? .on : .off
+        quotePathsWithSpacesSwitch.state = clipboard.quotePathsWithSpaces ? .on : .off
+        showCopyMarkdownCommandSwitch.state = clipboard.showCopyMarkdownCommand ? .on : .off
+        selectCommandFlattenAggressivenessPopupItem(for: clipboard.commandFlattenAggressiveness)
+    }
+
+    private func applyClipboardAndPipelineSideEffects(_ clipboard: AppConfig.Clipboard) {
+        CleanCopyPipeline.isAutoCleanEnabled = clipboard.alwaysCleanCopies
+        CleanCopyPipeline.options = CleanCopyOptions.from(clipboard)
+        AppMenuBuilder.installIfNeeded(on: NSApp, config: configStore.current)
+    }
+
+    private func makeCommandFlattenAggressivenessRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(
+            text: "Command flatten aggressiveness",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        commandFlattenAggressivenessSubtitleLabel.stringValue =
+            currentClipboard.commandFlattenAggressiveness.settingsBlurb
+        leftStack.addArrangedSubview(commandFlattenAggressivenessSubtitleLabel)
+
+        commandFlattenAggressivenessPopup.removeAllItems()
+        for level in CommandFlattenAggressiveness.allCases {
+            commandFlattenAggressivenessPopup.addItem(withTitle: level.settingsTitle)
+            commandFlattenAggressivenessPopup.lastItem?.representedObject = level
+        }
+        commandFlattenAggressivenessPopup.target = self
+        commandFlattenAggressivenessPopup.action = #selector(handleCommandFlattenAggressivenessChanged(_:))
+        commandFlattenAggressivenessPopup.setContentHuggingPriority(.required, for: .horizontal)
+
+        container.addSubview(leftStack)
+        container.addSubview(commandFlattenAggressivenessPopup)
+        commandFlattenAggressivenessPopup.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+
+            commandFlattenAggressivenessPopup.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            commandFlattenAggressivenessPopup.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
+            commandFlattenAggressivenessPopup.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
+    private func selectCommandFlattenAggressivenessPopupItem(for level: CommandFlattenAggressiveness) {
+        for index in 0 ..< commandFlattenAggressivenessPopup.numberOfItems {
+            if commandFlattenAggressivenessPopup.item(at: index)?.representedObject as? CommandFlattenAggressiveness
+                == level
+            {
+                commandFlattenAggressivenessPopup.selectItem(at: index)
+                break
+            }
+        }
+        commandFlattenAggressivenessSubtitleLabel.stringValue = level.settingsBlurb
+    }
     // MARK: - Helpers
 
     private func makeSwitchRow(

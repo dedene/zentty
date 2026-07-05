@@ -84,6 +84,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case closeWindow = "app.close_window"
     case cleanCopy = "clipboard.clean_copy"
     case copyRaw = "clipboard.copy_raw"
+    case copyMarkdown = "clipboard.copy_markdown"
     case reloadConfig = "app.reload_config"
     case openBookmarksPopover = "bookmarks.openPopover"
 }
@@ -110,6 +111,7 @@ enum AppAction: Equatable, Sendable {
     case copyFocusedPanePath
     case cleanCopy
     case copyRaw
+    case copyMarkdown
     case jumpToLatestNotification
     case pane(PaneCommand)
     case moveFocusedPaneToNewWindow
@@ -382,6 +384,18 @@ enum AppCommandRegistry {
                 section: .edit,
                 title: "Copy Raw",
                 selector: #selector(MainWindowController.copyRaw(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .copyMarkdown,
+            title: "Copy as Markdown",
+            category: .general,
+            defaultShortcut: nil,
+            action: .copyMarkdown,
+            menuItem: AppCommandMenuItem(
+                section: .edit,
+                title: "Copy as Markdown",
+                selector: #selector(MainWindowController.copyMarkdown(_:))
             )
         ),
         AppCommandDefinition(
@@ -1030,7 +1044,9 @@ extension AppCommandDefinition {
         case .copyFocusedPanePath:
             "Copy the working directory path from the focused pane."
         case .cleanCopy:
-            "Copy the selected text with extra whitespace, color codes, and shell prompts removed."
+            "Copy the selection with cleaning: flatten wrapped commands, repair URLs, quote paths, and remove prompts when enabled in Settings."
+        case .copyMarkdown:
+            "Copy the selection; reformat likely Markdown (lists and paragraphs) without changing auto-clean behavior."
         case .copyRaw:
             "Copy the selected text exactly as it appears, without any cleanup."
         case .jumpToLatestNotification:

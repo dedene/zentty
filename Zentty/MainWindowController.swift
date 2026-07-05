@@ -727,6 +727,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func copyMarkdown(_ sender: Any?) {
+        handle(.copyMarkdown)
+    }
+
+    @objc
     func find(_ sender: Any?) {
         handle(.find)
     }
@@ -1994,7 +1999,7 @@ extension MainWindowController: NSMenuItemValidation {
         if let action = menuItem.action,
            let commandID = AppCommandRegistry.commandID(forMenuAction: action) {
             switch commandID {
-            case .cleanCopy, .copyRaw:
+            case .cleanCopy, .copyRaw, .copyMarkdown:
                 return rootViewController.focusedTerminalHasSelection
             case .movePaneToNewWindow:
                 return canMovePaneToNewWindow(paneID: representedPaneID(from: menuItem))

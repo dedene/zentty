@@ -1499,6 +1499,8 @@ final class RootViewController: NSViewController {
             performCleanCopy()
         case .copyRaw:
             performCopyRaw()
+        case .copyMarkdown:
+            performCopyMarkdown()
         case .jumpToLatestNotification:
             if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
                 notificationCoordinator.closePanel()
@@ -2195,6 +2197,27 @@ final class RootViewController: NSViewController {
         CleanCopyPipeline.suppressCallbackCleaning = true
         NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
         CleanCopyPipeline.suppressCallbackCleaning = false
+    }
+
+    private func performCopyMarkdown() {
+        CleanCopyPipeline.suppressCallbackCleaning = true
+        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+        CleanCopyPipeline.suppressCallbackCleaning = false
+
+        let pasteboard = NSPasteboard.general
+        guard let raw = pasteboard.string(forType: .string) else {
+            showCopyToast(message: "Copied")
+            return
+        }
+        if MarkdownReformatter.isLikelyMarkdown(raw) {
+            let formatted = MarkdownReformatter.reformat(raw)
+            if formatted != raw {
+                pasteboard.setString(formatted, forType: .string)
+            }
+            showCopyToast(message: "Copied (markdown)")
+        } else {
+            showCopyToast(message: "Copied")
+        }
     }
 
     @objc private func handleCleanCopyDidModifyPasteboard() {
