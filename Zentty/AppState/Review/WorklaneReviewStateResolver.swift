@@ -181,25 +181,61 @@ final class WorklaneReviewStateResolver {
         let url: URL?
         let isDraft: Bool
         let state: String
+        /// GitHub review decision: APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null.
+        let reviewDecision: String?
+        /// Mergeability: MERGEABLE | CONFLICTING | UNKNOWN.
+        let mergeable: String?
+        /// Rolled-up CI check contexts (CheckRun + StatusContext entries).
+        let statusCheckRollup: [StatusCheckRollupEntry]?
     }
 
-    private struct PullRequestCheckPayload: Decodable {
-        let bucket: String?
+    private struct StatusCheckRollupEntry: Decodable {
+        /// StatusContext state: SUCCESS | PENDING | FAILURE | ERROR | EXPECTED.
         let state: String?
-        let name: String?
-        let link: URL?
+        /// CheckRun status: QUEUED | IN_PROGRESS | COMPLETED | WAITING | PENDING | REQUESTED.
+        let status: String?
+        /// CheckRun conclusion when COMPLETED: SUCCESS | FAILURE | NEUTRAL | CANCELLED | TIMED_OUT | ...
+        let conclusion: String?
     }
+
+    /// How long a cached resolution is served before a non-forced read refetches it.
+    /// The active poll force-refreshes far more often; this bounds staleness for panes that
+    /// are not the current poll target (background windows, unfocused worklanes).
+    private static let cacheTimeToLive: TimeInterval = 90
 
     private let runner: any WorklaneReviewCommandRunning
+    private let now: () -> Date
     private var cache: [RepositoryKey: WorklaneReviewResolution] = [:]
     private var repositoryStatusByPath: [String: RepositoryStatus] = [:]
     private var githubRepositoryByKey: [RepositoryKey: GitHubRepositoryResolution] = [:]
     private var remoteHostInfoByRepoRoot: [String: GitRemoteHostInfo?] = [:]
     private var pendingRepositoryKeys: Set<RepositoryKey> = []
-    private var waitingPaneIDsByRepositoryKey: [RepositoryKey: Set<PaneID>] = [:]
+    private var waitersByRepositoryKey: [RepositoryKey: [(paneID: PaneID, update: (PaneID, WorklaneReviewResolution) -> Void)]] = [:]
 
-    init(runner: any WorklaneReviewCommandRunning = DefaultWorklaneReviewCommandRunner()) {
+    init(
+        runner: any WorklaneReviewCommandRunning = DefaultWorklaneReviewCommandRunner(),
+        now: @escaping () -> Date = Date.init
+    ) {
         self.runner = runner
+        self.now = now
+    }
+
+    /// Returns a cached resolution only when it is still within the TTL. Used by the non-forced
+    /// "serve" reads; forced reads (the poll, manual refresh) bypass the cache entirely. Fallback
+    /// reads (`cache[key]` for failure preservation) intentionally ignore the TTL — a stale
+    /// last-known value still beats showing nothing when a refresh fails.
+    private func freshCachedResolution(for key: RepositoryKey) -> WorklaneReviewResolution? {
+        guard let cached = cache[key] else {
+            return nil
+        }
+        guard let fetchedAt = cached.reviewState?.reviewFetchedAt else {
+            // No timestamp (e.g. legacy/seeded entry) — treat as fresh to preserve prior behavior.
+            return cached
+        }
+        guard now().timeIntervalSince(fetchedAt) < Self.cacheTimeToLive else {
+            return nil
+        }
+        return cached
     }
 
     func refresh(
@@ -217,12 +253,12 @@ final class WorklaneReviewStateResolver {
                 }
 
                 let key = RepositoryKey(repoRoot: repoRoot, branch: branch)
-                if let cached = cache[key] {
+                if let cached = freshCachedResolution(for: key) {
                     update(pane.id, cached)
                     continue
                 }
 
-                waitingPaneIDsByRepositoryKey[key, default: []].insert(pane.id)
+                waitersByRepositoryKey[key, default: []].append((pane.id, update))
                 guard pendingRepositoryKeys.insert(key).inserted else {
                     continue
                 }
@@ -237,16 +273,7 @@ final class WorklaneReviewStateResolver {
                         branch: branch,
                         fallback: self.cache[key]
                     )
-                    await MainActor.run {
-                        self.pendingRepositoryKeys.remove(key)
-                        if resolution.reviewState?.branch != nil {
-                            self.cache[key] = resolution
-                        }
-                        let paneIDs = self.waitingPaneIDsByRepositoryKey.removeValue(forKey: key) ?? []
-                        paneIDs.forEach { paneID in
-                            update(paneID, resolution)
-                        }
-                    }
+                    await self.completeFetch(key: key, resolution: resolution)
                 }
             }
         }
@@ -266,7 +293,7 @@ final class WorklaneReviewStateResolver {
         }
 
         let key = RepositoryKey(repoRoot: path, branch: sanitizedBranch)
-        if !forceReload, let cached = cache[key] {
+        if !forceReload, let cached = freshCachedResolution(for: key) {
             return cached
         }
 
@@ -300,7 +327,7 @@ final class WorklaneReviewStateResolver {
 
                 let key = RepositoryKey(repoRoot: repoRoot, branch: branch)
                 let resolution: WorklaneReviewResolution
-                if let cached = cache[key] {
+                if let cached = freshCachedResolution(for: key) {
                     resolution = cached
                 } else {
                     resolution = await loadPullRequestResolution(
@@ -331,7 +358,7 @@ final class WorklaneReviewStateResolver {
         }
 
         let key = RepositoryKey(repoRoot: repoRoot, branch: sanitizedBranch)
-        if !forceReload, let cached = cache[key] {
+        if !forceReload, let cached = freshCachedResolution(for: key) {
             return cached
         }
 
@@ -374,8 +401,15 @@ final class WorklaneReviewStateResolver {
         }
 
         let key = RepositoryKey(repoRoot: repoRoot, branch: sanitizedBranch)
-        if !forceReload, let cached = cache[key] {
+        if !forceReload, let cached = freshCachedResolution(for: key) {
             update(paneID, cached)
+            return
+        }
+
+        waitersByRepositoryKey[key, default: []].append((paneID, update))
+        // A forced refresh that arrives while a fetch is already in flight joins that fetch instead
+        // of spawning a second `gh` process. It still never serves cache; the shared result is live.
+        guard pendingRepositoryKeys.insert(key).inserted else {
             return
         }
 
@@ -389,12 +423,21 @@ final class WorklaneReviewStateResolver {
                 branch: sanitizedBranch,
                 fallback: self.cache[key]
             )
-            await MainActor.run {
-                if resolution.reviewState?.branch != nil {
-                    self.cache[key] = resolution
-                }
-                update(paneID, resolution)
-            }
+            await self.completeFetch(key: key, resolution: resolution)
+        }
+    }
+
+    private func completeFetch(
+        key: RepositoryKey,
+        resolution: WorklaneReviewResolution
+    ) {
+        pendingRepositoryKeys.remove(key)
+        if resolution.reviewState?.branch != nil {
+            cache[key] = resolution
+        }
+        let waiters = waitersByRepositoryKey.removeValue(forKey: key) ?? []
+        waiters.forEach { waiter in
+            waiter.update(waiter.paneID, resolution)
         }
     }
 
@@ -407,17 +450,17 @@ final class WorklaneReviewStateResolver {
         case .noGitHubRepository:
             return branchOnlyResolution(branch: branch, repoRoot: path)
         case .unresolved:
-            if let fallback {
-                return fallback
-            }
-
-            return WorklaneReviewResolution(
-                reviewState: nil,
-                updatePolicy: .preserveExistingOnEmpty
+            return failureResolution(
+                fallback: fallback,
+                branch: branch,
+                reason: "could not resolve GitHub repository"
             )
         case .repository(let repository):
             let pullRequestResult = await runCommand(
-                arguments: ["gh", "pr", "view", branch, "--repo", repository, "--json", "number,url,isDraft,state"],
+                arguments: [
+                    "gh", "pr", "view", branch, "--repo", repository,
+                    "--json", "number,url,isDraft,state,reviewDecision,mergeable,statusCheckRollup",
+                ],
                 currentDirectoryPath: path
             )
 
@@ -426,24 +469,18 @@ final class WorklaneReviewStateResolver {
                     return branchOnlyResolution(branch: branch, repoRoot: path)
                 }
 
-                if let fallback {
-                    return fallback
-                }
-
-                return WorklaneReviewResolution(
-                    reviewState: nil,
-                    updatePolicy: .preserveExistingOnEmpty
+                return failureResolution(
+                    fallback: fallback,
+                    branch: branch,
+                    reason: "gh pr view exited \(pullRequestResult.terminationStatus)"
                 )
             }
 
             guard let pullRequestPayload = decodePullRequest(from: pullRequestResult.stdout) else {
-                if let fallback {
-                    return fallback
-                }
-
-                return WorklaneReviewResolution(
-                    reviewState: nil,
-                    updatePolicy: .preserveExistingOnEmpty
+                return failureResolution(
+                    fallback: fallback,
+                    branch: branch,
+                    reason: "could not decode gh pr view output"
                 )
             }
 
@@ -452,21 +489,45 @@ final class WorklaneReviewStateResolver {
                 url: pullRequestPayload.url,
                 state: pullRequestState(from: pullRequestPayload)
             )
-            let checksResult = await runCommand(
-                arguments: ["gh", "pr", "checks", branch, "--repo", repository, "--json", "bucket,state,name,link"],
-                currentDirectoryPath: path
-            )
-            let reviewChips = reviewChips(for: pullRequest, checksResult: checksResult)
+            let checksState = aggregateChecksState(from: pullRequestPayload.statusCheckRollup)
+            let chips = reviewChips(for: pullRequest, payload: pullRequestPayload, checksState: checksState)
             let branchURL = remoteHostInfoByRepoRoot[path]??.branchURL(branch: branch)
             return WorklaneReviewResolution(
                 reviewState: WorklaneReviewState(
                     branch: branch,
                     branchURL: branchURL,
                     pullRequest: pullRequest,
-                    reviewChips: reviewChips
+                    reviewChips: chips,
+                    reviewFetchedAt: now(),
+                    reviewRefreshFailed: false,
+                    checksState: checksState
                 )
             )
         }
+    }
+
+    /// Result to show when a refresh fails transiently (bad exit, decode failure, unresolved repo).
+    /// Preserves the last-known data but flags it as failed so the UI can dim it and surface
+    /// "last refresh failed". Without any prior data there is nothing to preserve, so we keep the
+    /// existing (possibly empty) state via `.preserveExistingOnEmpty`. Logs a `.warning` — unlike
+    /// the expected "no pull requests found" case, this is an unexpected refresh failure worth
+    /// surfacing over a long session (auth expiry, network, rate limit).
+    private func failureResolution(
+        fallback: WorklaneReviewResolution?,
+        branch: String,
+        reason: String
+    ) -> WorklaneReviewResolution {
+        reviewLogger.warning(
+            "PR status refresh failed branch=\(branch, privacy: .public) reason=\(reason, privacy: .public)"
+        )
+        guard let fallback, var reviewState = fallback.reviewState else {
+            return WorklaneReviewResolution(
+                reviewState: nil,
+                updatePolicy: .preserveExistingOnEmpty
+            )
+        }
+        reviewState.reviewRefreshFailed = true
+        return WorklaneReviewResolution(reviewState: reviewState)
     }
 
     private func preferredBranch(from value: String?) -> String? {
@@ -486,7 +547,10 @@ final class WorklaneReviewStateResolver {
                 branch: branch,
                 branchURL: remoteHostInfoByRepoRoot[repoRoot]??.branchURL(branch: branch),
                 pullRequest: nil,
-                reviewChips: []
+                reviewChips: [],
+                reviewFetchedAt: now(),
+                reviewRefreshFailed: false,
+                checksState: .none
             )
         )
     }
@@ -699,10 +763,6 @@ final class WorklaneReviewStateResolver {
         try? JSONDecoder().decode(PullRequestPayload.self, from: data)
     }
 
-    private func decodeChecks(from data: Data) -> [PullRequestCheckPayload]? {
-        try? JSONDecoder().decode([PullRequestCheckPayload].self, from: data)
-    }
-
     private func pullRequestState(from payload: PullRequestPayload) -> WorklanePullRequestState {
         switch payload.state.uppercased() {
         case "MERGED":
@@ -716,7 +776,8 @@ final class WorklaneReviewStateResolver {
 
     private func reviewChips(
         for pullRequest: WorklanePullRequestSummary,
-        checksResult: WorklaneReviewCommandResult
+        payload: PullRequestPayload,
+        checksState: WorklaneChecksState
     ) -> [WorklaneReviewChip] {
         var chips = stateChips(for: pullRequest.state)
 
@@ -724,35 +785,21 @@ final class WorklaneReviewStateResolver {
             return chips
         }
 
-        guard checksResult.terminationStatus == 0 else {
-            if pullRequest.state == .open {
-                chips.append(WorklaneReviewChip(text: "Ready", style: .success))
-            }
-            return chips
+        // Approval and conflict signals only make sense on an open PR.
+        if pullRequest.state == .open, let approval = approvalChip(for: payload.reviewDecision) {
+            chips.append(approval)
         }
 
-        guard let checks = decodeChecks(from: checksResult.stdout), !checks.isEmpty else {
-            if pullRequest.state == .open {
-                chips.append(WorklaneReviewChip(text: "Ready", style: .success))
-            }
-            return chips
+        chips.append(contentsOf: checksChips(
+            for: pullRequest.state,
+            checksState: checksState,
+            rollup: payload.statusCheckRollup
+        ))
+
+        if pullRequest.state == .open, isConflicting(payload.mergeable) {
+            chips.append(WorklaneReviewChip(text: "Conflicts", style: .danger))
         }
 
-        let failureCount = checks.filter(isFailingCheck).count
-        if failureCount > 0 {
-            chips.append(WorklaneReviewChip(
-                text: failureCount == 1 ? "1 failing" : "\(failureCount) failing",
-                style: .danger
-            ))
-            return chips
-        }
-
-        if checks.contains(where: isPendingCheck) {
-            chips.append(WorklaneReviewChip(text: "Running", style: .warning))
-            return chips
-        }
-
-        chips.append(WorklaneReviewChip(text: "Checks passed", style: .success))
         return chips
     }
 
@@ -769,26 +816,88 @@ final class WorklaneReviewStateResolver {
         }
     }
 
-    private func isFailingCheck(_ check: PullRequestCheckPayload) -> Bool {
-        let bucket = check.bucket?.lowercased()
-        let state = check.state?.lowercased()
-        return bucket == "fail"
-            || bucket == "cancel"
-            || state == "failure"
-            || state == "failed"
-            || state == "cancelled"
-            || state == "timed_out"
+    private func approvalChip(for reviewDecision: String?) -> WorklaneReviewChip? {
+        switch reviewDecision?.uppercased() {
+        case "APPROVED":
+            return WorklaneReviewChip(text: "Approved", style: .success)
+        case "CHANGES_REQUESTED":
+            return WorklaneReviewChip(text: "Changes requested", style: .danger)
+        case "REVIEW_REQUIRED":
+            return WorklaneReviewChip(text: "Review required", style: .warning)
+        default:
+            return nil
+        }
     }
 
-    private func isPendingCheck(_ check: PullRequestCheckPayload) -> Bool {
-        let bucket = check.bucket?.lowercased()
-        let state = check.state?.lowercased()
-        return bucket == "pending"
-            || state == "pending"
-            || state == "queued"
-            || state == "waiting"
-            || state == "requested"
-            || state == "in_progress"
+    private func isConflicting(_ mergeable: String?) -> Bool {
+        mergeable?.uppercased() == "CONFLICTING"
+    }
+
+    private func checksChips(
+        for state: WorklanePullRequestState,
+        checksState: WorklaneChecksState,
+        rollup: [StatusCheckRollupEntry]?
+    ) -> [WorklaneReviewChip] {
+        switch checksState {
+        case .failing:
+            let failureCount = (rollup ?? []).filter(isFailingRollupEntry).count
+            return [WorklaneReviewChip(
+                text: failureCount <= 1 ? "1 failing" : "\(failureCount) failing",
+                style: .danger
+            )]
+        case .running:
+            return [WorklaneReviewChip(text: "Running", style: .warning)]
+        case .passed:
+            return [WorklaneReviewChip(text: "Checks passed", style: .success)]
+        case .none:
+            // No checks reported. An open PR with nothing pending is "Ready"; drafts stay bare.
+            return state == .open ? [WorklaneReviewChip(text: "Ready", style: .success)] : []
+        }
+    }
+
+    /// Collapses a `statusCheckRollup` array into a single aggregate CI state. Failing wins over
+    /// running, which wins over passed; an empty/absent rollup is `.none`.
+    private func aggregateChecksState(from rollup: [StatusCheckRollupEntry]?) -> WorklaneChecksState {
+        guard let rollup, !rollup.isEmpty else {
+            return .none
+        }
+        if rollup.contains(where: isFailingRollupEntry) {
+            return .failing
+        }
+        if rollup.contains(where: isPendingRollupEntry) {
+            return .running
+        }
+        return .passed
+    }
+
+    private func isFailingRollupEntry(_ entry: StatusCheckRollupEntry) -> Bool {
+        switch entry.conclusion?.uppercased() {
+        // STALE is a terminal, non-green conclusion (the run is outdated and won't recover on its
+        // own), so surface it as failing rather than letting the rollup fall through to "passed".
+        case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
+            return true
+        default:
+            break
+        }
+        switch entry.state?.uppercased() {
+        case "FAILURE", "ERROR":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isPendingRollupEntry(_ entry: StatusCheckRollupEntry) -> Bool {
+        if let status = entry.status?.uppercased() {
+            // CheckRun: anything not yet COMPLETED is still in flight.
+            return status != "COMPLETED"
+        }
+        switch entry.state?.uppercased() {
+        case "PENDING", "EXPECTED":
+            return true
+        default:
+            return false
+        }
     }
 
     private func isNoPullRequestResult(_ result: WorklaneReviewCommandResult) -> Bool {

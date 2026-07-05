@@ -627,7 +627,7 @@ def draft_release_notes_with_codex(tag_name:, previous_tag_name:, fallback_text:
   git_log = capture_command!(
     "git", "-C", PROJECT_ROOT, "log",
     "#{previous_tag_name}..#{tag_name}",
-    "--pretty=format:===%h %s===%n%b",
+    "--pretty=format:===%h %s===%nAuthor: %an <%ae>%n%b",
     "--stat"
   )
   return fallback_text if git_log.strip.empty?
@@ -647,10 +647,13 @@ def draft_release_notes_with_codex(tag_name:, previous_tag_name:, fallback_text:
       not how it was implemented.
     - Skip release/version-bump commits and pure-internal refactors that have no
       user impact. Merge duplicates.
+    - If a user-facing change came from an outside contributor, append a short
+      thanks to that bullet, e.g. `- Added pane border controls. Thanks @mvanhorn!`
+      Do not create standalone thanks bullets.
     - End the document with exactly: **Full Changelog**: #{compare_url}
 
     Important — interpreting commits:
-    - Each commit shows its message followed by a file-change stat (paths and line counts).
+    - Each commit shows its message, author, and file-change stat (paths and line counts).
     - When a commit message is vague (e.g. "snapshot", "wip", "chore"), DO NOT skip it.
       Infer the user-facing impact from the file paths and line counts. A vague commit
       touching CommandPalette/, Settings/, NotificationStore, AgentReducer etc. clearly
@@ -659,6 +662,12 @@ def draft_release_notes_with_codex(tag_name:, previous_tag_name:, fallback_text:
     - Tests, .pbxproj, project.yml, fastlane/, and other build/infra paths do NOT count
       as user-facing on their own — only mention them if they're the entire commit's
       purpose (e.g. release tooling itself).
+    - Contributor shoutouts: use the GitHub handle from merge subjects like
+      `Merge pull request #123 from handle/branch`, from `123456+handle@users.noreply.github.com`
+      author emails, or from commit/PR text. Ignore Peter Dedene, dedene, zenjoy,
+      bots, and AI co-authors. If Peter-only follow-up commits refine the same
+      contributed feature in this release, keep the thanks on the final merged bullet.
+      If no GitHub handle is available, do not guess one.
     - When in doubt, lean toward including more detail rather than less. It's better to
       over-list than to drop a feature.
 

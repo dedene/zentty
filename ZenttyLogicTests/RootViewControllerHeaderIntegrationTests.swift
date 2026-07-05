@@ -163,8 +163,7 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
 
     func test_root_controller_populates_header_from_live_review_state_resolver() async throws {
         let runner = ReviewRefreshRunnerSpy(
-            pullRequestViewStdout: #"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN"}"#,
-            pullRequestChecksStdout: #"[{"bucket":"fail","state":"FAILURE","name":"unit-tests"},{"bucket":"fail","state":"FAILURE","name":"e2e-macos"}]"#
+            pullRequestViewStdout: #"{"number":128,"url":"https://example.com/pr/128","isDraft":true,"state":"OPEN","statusCheckRollup":[{"status":"COMPLETED","conclusion":"FAILURE"},{"status":"COMPLETED","conclusion":"FAILURE"}]}"#
         )
         let resolver = WorklaneReviewStateResolver(runner: runner)
         let controller = makeController(
@@ -213,7 +212,6 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertEqual(chrome.reviewChipTexts, [])
 
         try await runner.waitForPullRequestViewCount(1)
-        try await runner.waitForPullRequestChecksCount(1)
         try await waitForReviewState(
             in: controller,
             paneID: paneID,
@@ -234,13 +232,11 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
             reviewChipTexts: ["Draft", "2 failing"]
         )
         let pullRequestViewCalls = await runner.pullRequestViewCalls()
-        let pullRequestChecksCalls = await runner.pullRequestChecksCalls()
         XCTAssertEqual(pullRequestViewCalls.count, 1)
         XCTAssertEqual(Array(pullRequestViewCalls[0].prefix(3)), ["gh", "pr", "view"])
         XCTAssertTrue(pullRequestViewCalls[0].contains("feature/review-band"))
-        XCTAssertEqual(pullRequestChecksCalls.count, 1)
-        XCTAssertEqual(Array(pullRequestChecksCalls[0].prefix(3)), ["gh", "pr", "checks"])
-        XCTAssertTrue(pullRequestChecksCalls[0].contains("feature/review-band"))
+        let didCallPullRequestChecks = await runner.didCallPullRequestChecks
+        XCTAssertFalse(didCallPullRequestChecks)
 
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
         XCTAssertEqual(chrome.reviewChipTexts, ["Draft", "2 failing"])
@@ -875,6 +871,69 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         XCTAssertNil(coordinator.reviewPollingTargetForTesting)
     }
 
+    func test_review_poll_fire_after_rearm_does_not_orphan_newer_handle() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "zsh",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "zsh",
+                gitBranch: "main"
+            )
+        )
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+
+        let runner = ReviewRefreshRunnerSpy()
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: { _ in QuietTerminalAdapter() })
+        let renderEnvironment = StubRenderEnvironment()
+        let reviewPollingScheduler = ReviewPollingSchedulerSpy()
+        let coordinator = WorklaneRenderCoordinator(
+            worklaneStore: store,
+            runtimeRegistry: runtimeRegistry,
+            notificationStore: NotificationStore(),
+            reviewStateResolver: resolver,
+            reviewPollingScheduler: reviewPollingScheduler.schedule
+        )
+        coordinator.environment = renderEnvironment
+        coordinator.bind(to: WorklaneRenderCoordinator.ViewBindings(
+            sidebarView: SidebarView(),
+            windowChromeView: WindowChromeView(),
+            appCanvasView: AppCanvasView(runtimeRegistry: runtimeRegistry)
+        ))
+        coordinator.startObserving()
+        coordinator.render()
+
+        XCTAssertEqual(reviewPollingScheduler.handles.count, 1)
+        XCTAssertFalse(reviewPollingScheduler.handles[0].isCancelled)
+
+        store.updateGitContext(
+            paneID: paneID,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("feature/review-band")
+            )
+        )
+
+        XCTAssertEqual(reviewPollingScheduler.handles.count, 2)
+        XCTAssertTrue(reviewPollingScheduler.handles[0].isCancelled)
+        XCTAssertFalse(reviewPollingScheduler.handles[1].isCancelled)
+
+        reviewPollingScheduler.handles[0].fire()
+
+        XCTAssertEqual(reviewPollingScheduler.handles.filter { !$0.isCancelled }.count, 1)
+    }
+
     func test_render_coordinator_applies_updated_pane_display_settings_from_config_store() throws {
         let logsPaneID = PaneID("logs")
         let editorPaneID = PaneID("editor")
@@ -1140,15 +1199,12 @@ private struct StubPaneGitContextResolver: PaneGitContextResolving {
 
 private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
     private let pullRequestViewStdout: String
-    private let pullRequestChecksStdout: String
     private var calls: [[String]] = []
 
     init(
-        pullRequestViewStdout: String = #"{"number":1588,"url":"https://github.com/zenjoy/zentty/pull/1588","isDraft":false,"state":"OPEN"}"#,
-        pullRequestChecksStdout: String = #"[]"#
+        pullRequestViewStdout: String = #"{"number":1588,"url":"https://github.com/zenjoy/zentty/pull/1588","isDraft":false,"state":"OPEN"}"#
     ) {
         self.pullRequestViewStdout = pullRequestViewStdout
-        self.pullRequestChecksStdout = pullRequestChecksStdout
     }
 
     func run(arguments: [String], currentDirectoryPath _: String) async -> WorklaneReviewCommandResult {
@@ -1170,15 +1226,15 @@ private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
             return result(stdout: pullRequestViewStdout)
         }
 
-        if Array(arguments.prefix(3)) == ["gh", "pr", "checks"] {
-            return result(stdout: pullRequestChecksStdout)
-        }
-
         return WorklaneReviewCommandResult(
             terminationStatus: 1,
             stdout: Data(),
             stderr: Data("unsupported command".utf8)
         )
+    }
+
+    var didCallPullRequestChecks: Bool {
+        calls.contains { Array($0.prefix(3)) == ["gh", "pr", "checks"] }
     }
 
     func waitForPullRequestViewCount(
@@ -1200,39 +1256,12 @@ private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
         )
     }
 
-    func waitForPullRequestChecksCount(
-        _ expectedCount: Int,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async throws {
-        for _ in 0..<50 {
-            if pullRequestChecksCount >= expectedCount {
-                return
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-
-        XCTFail(
-            "Expected at least \(expectedCount) gh pr checks calls, got \(pullRequestChecksCount)",
-            file: file,
-            line: line
-        )
-    }
-
     func pullRequestViewCalls() -> [[String]] {
         calls.filter { Array($0.prefix(3)) == ["gh", "pr", "view"] }
     }
 
-    func pullRequestChecksCalls() -> [[String]] {
-        calls.filter { Array($0.prefix(3)) == ["gh", "pr", "checks"] }
-    }
-
     private var pullRequestViewCount: Int {
         calls.filter { Array($0.prefix(3)) == ["gh", "pr", "view"] }.count
-    }
-
-    private var pullRequestChecksCount: Int {
-        calls.filter { Array($0.prefix(3)) == ["gh", "pr", "checks"] }.count
     }
 
     private func result(stdout: String) -> WorklaneReviewCommandResult {
@@ -1247,10 +1276,21 @@ private actor ReviewRefreshRunnerSpy: WorklaneReviewCommandRunning {
 @MainActor
 private final class ReviewPollingSchedulerSpy {
     final class Handle: WorklaneRenderCoordinatorScheduledHandle {
+        private let operation: @MainActor () -> Void
         private(set) var isCancelled = false
+
+        init(operation: @escaping @MainActor () -> Void) {
+            self.operation = operation
+        }
 
         func cancel() {
             isCancelled = true
+        }
+
+        func fire() {
+            // Models a real Timer that has already fired before cancel(); its deferred main-actor
+            // operation is still queued and can run even though the handle is now cancelled.
+            operation()
         }
     }
 
@@ -1258,9 +1298,9 @@ private final class ReviewPollingSchedulerSpy {
 
     func schedule(
         interval _: TimeInterval,
-        operation _: @escaping @MainActor () -> Void
+        operation: @escaping @MainActor () -> Void
     ) -> any WorklaneRenderCoordinatorScheduledHandle {
-        let handle = Handle()
+        let handle = Handle(operation: operation)
         handles.append(handle)
         return handle
     }

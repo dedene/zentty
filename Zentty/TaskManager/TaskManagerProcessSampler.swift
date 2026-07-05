@@ -196,7 +196,8 @@ struct DarwinProcessProbe: TaskManagerProcessProbing {
     }
 
     private func processName(pid: Int32) -> String {
-        var buffer = [CChar](repeating: 0, count: Int(MAXCOMLEN))
+        // proc_name requires >= 2*MAXCOMLEN or it fails with ENOMEM.
+        var buffer = [CChar](repeating: 0, count: 2 * Int(MAXCOMLEN))
         let result = proc_name(pid, &buffer, UInt32(buffer.count))
         guard result > 0 else {
             return "pid \(pid)"

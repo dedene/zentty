@@ -121,6 +121,7 @@ struct PanePresentationState: Equatable, Sendable {
     var lastActivityTitle: String?
     var sshConnectionLabel: String? = nil
     var isRemoteShell = false
+    var foregroundSSHDestination: SSHDestination? = nil
     var remoteHostLabel: String? = nil
     var remotePathLabel: String? = nil
     var remoteLocationLabel: String? = nil
@@ -129,6 +130,10 @@ struct PanePresentationState: Equatable, Sendable {
     var statusText: String?
     var pullRequest: WorklanePullRequestSummary?
     var reviewChips: [WorklaneReviewChip] = []
+    /// When the PR/review data was last fetched. Drives staleness dimming and the age tooltip.
+    var reviewFetchedAt: Date?
+    /// True when the last review refresh failed and the shown data is preserved (stale).
+    var reviewRefreshFailed = false
     var attentionArtifactLink: WorklaneArtifactLink?
     var updatedAt: Date = .distantPast
     var isWorking = false
@@ -152,6 +157,14 @@ struct PanePresentationState: Equatable, Sendable {
         isRemoteShell == false && WorklaneContextFormatter.trimmed(sshConnectionLabel) != nil
     }
 
+    var hasForegroundSSHProcess: Bool {
+        foregroundSSHDestination != nil
+    }
+
+    var isRemotePane: Bool {
+        isRemoteShell || hasInferredSSHConnection || hasForegroundSSHProcess
+    }
+
     var prLookupKey: String? {
         guard let repoRoot, let lookupBranch else {
             return nil
@@ -170,6 +183,7 @@ struct PaneRawState: Equatable, Sendable {
     var metadata: TerminalMetadata?
     var shellContext: PaneShellContext?
     var paneRootPID: Int32? = nil
+    var foregroundSSHDestination: SSHDestination? = nil
     var agentStatus: PaneAgentStatus?
     var agentReducerState: PaneAgentReducerState = .init()
     var shellActivityState: PaneShellActivityState = .unknown
@@ -194,6 +208,7 @@ struct PaneRawState: Equatable, Sendable {
         metadata: TerminalMetadata? = nil,
         shellContext: PaneShellContext? = nil,
         paneRootPID: Int32? = nil,
+        foregroundSSHDestination: SSHDestination? = nil,
         agentStatus: PaneAgentStatus? = nil,
         agentReducerState: PaneAgentReducerState = .init(),
         shellActivityState: PaneShellActivityState = .unknown,
@@ -216,6 +231,7 @@ struct PaneRawState: Equatable, Sendable {
         self.metadata = metadata
         self.shellContext = shellContext
         self.paneRootPID = paneRootPID
+        self.foregroundSSHDestination = foregroundSSHDestination
         self.agentStatus = agentStatus
         self.agentReducerState = agentReducerState
         self.shellActivityState = shellActivityState
@@ -453,6 +469,9 @@ enum PanePresentationNormalizer {
             repoRoot: repoRoot,
             lookupBranch: lookupBranch
         )
+        let hasReviewContext = repoRoot != nil && lookupBranch != nil
+        let reviewFetchedAt = hasReviewContext ? raw.reviewState?.reviewFetchedAt : nil
+        let reviewRefreshFailed = hasReviewContext ? (raw.reviewState?.reviewRefreshFailed ?? false) : false
         let terminalFallback =
             WorklaneContextFormatter.displayTerminalIdentity(
                 for: raw.metadata,
@@ -485,6 +504,7 @@ enum PanePresentationNormalizer {
             lastActivityTitle: lastActivityTitle,
             sshConnectionLabel: sshConnectionLabel,
             isRemoteShell: raw.shellContext?.scope == .remote,
+            foregroundSSHDestination: raw.foregroundSSHDestination,
             remoteHostLabel: remoteHostLabel,
             remotePathLabel: remotePathLabel,
             remoteLocationLabel: remoteLocationLabel,
@@ -493,6 +513,8 @@ enum PanePresentationNormalizer {
             statusText: statusText,
             pullRequest: pullRequest,
             reviewChips: reviewChips,
+            reviewFetchedAt: reviewFetchedAt,
+            reviewRefreshFailed: reviewRefreshFailed,
             attentionArtifactLink: attentionArtifactLink,
             updatedAt: updatedAt,
             isWorking: runtimePhase == .running,
@@ -898,6 +920,8 @@ enum PanePresentationNormalizer {
             return ["opencode", "open code"].contains(normalized)
         case .pi:
             return ["pi", "π"].contains(normalized)
+        case .omp:
+            return normalized == "omp"
         case .grok:
             return ["grok", "grok build", "grok-build"].contains(normalized)
         case .agy:
@@ -988,6 +1012,8 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     init(
         metadata: TerminalMetadata? = nil,
         shellContext: PaneShellContext? = nil,
+        paneRootPID: Int32? = nil,
+        foregroundSSHDestination: SSHDestination? = nil,
         agentStatus: PaneAgentStatus? = nil,
         agentReducerState: PaneAgentReducerState = .init(),
         terminalProgress: TerminalProgressReport? = nil,
@@ -998,6 +1024,8 @@ struct PaneAuxiliaryState: Equatable, Sendable {
         self.raw = PaneRawState(
             metadata: metadata,
             shellContext: shellContext,
+            paneRootPID: paneRootPID,
+            foregroundSSHDestination: foregroundSSHDestination,
             agentStatus: agentStatus,
             agentReducerState: agentReducerState,
             terminalProgress: terminalProgress,

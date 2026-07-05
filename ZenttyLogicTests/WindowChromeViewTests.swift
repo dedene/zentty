@@ -1483,4 +1483,52 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertTrue(view.currentPanesConfigForTesting.showProjectIcons)
         XCTAssertFalse(view.isFocusedProxyIconHidden)
     }
+
+    func test_review_staleness_recheck_delay_returns_time_until_threshold_with_buffer() throws {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let fetchedAt = now.addingTimeInterval(-30)
+
+        let delay = WindowChromeView.reviewStalenessRecheckDelay(
+            fetchedAt: fetchedAt,
+            refreshFailed: false,
+            now: now
+        )
+
+        XCTAssertEqual(try XCTUnwrap(delay), 91, accuracy: 0.001)
+    }
+
+    func test_review_staleness_recheck_delay_is_nil_after_threshold() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let fetchedAt = now.addingTimeInterval(-121)
+
+        let delay = WindowChromeView.reviewStalenessRecheckDelay(
+            fetchedAt: fetchedAt,
+            refreshFailed: false,
+            now: now
+        )
+
+        XCTAssertNil(delay)
+    }
+
+    func test_review_staleness_recheck_delay_is_nil_when_refresh_failed() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let delay = WindowChromeView.reviewStalenessRecheckDelay(
+            fetchedAt: now,
+            refreshFailed: true,
+            now: now
+        )
+
+        XCTAssertNil(delay)
+    }
+
+    func test_review_staleness_recheck_delay_is_nil_without_fetched_at() {
+        let delay = WindowChromeView.reviewStalenessRecheckDelay(
+            fetchedAt: nil,
+            refreshFailed: false,
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+
+        XCTAssertNil(delay)
+    }
 }

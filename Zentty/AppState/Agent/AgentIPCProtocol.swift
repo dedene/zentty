@@ -39,6 +39,7 @@ enum AgentBootstrapTool: String, Codable, Equatable, CaseIterable {
     case kimi
     case opencode
     case pi
+    case omp
     case grok
     case agy
     case hermes
@@ -52,7 +53,7 @@ enum AgentBootstrapTool: String, Codable, Equatable, CaseIterable {
         switch self {
         case .cursor:
             return ["cursor-agent"]
-        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .grok, .agy, .hermes, .smallHarness:
+        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .omp, .grok, .agy, .hermes, .smallHarness:
             return [rawValue]
         case .kimi:
             return [rawValue, "kimi-cli"]

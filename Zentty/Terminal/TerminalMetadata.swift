@@ -1630,6 +1630,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "opencode"
         case .pi:
             return "pi"
+        case .omp:
+            return "omp"
         case .grok:
             return "grok"
         case .agy:
