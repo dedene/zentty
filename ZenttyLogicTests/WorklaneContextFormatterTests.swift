@@ -217,6 +217,34 @@ final class WorklaneContextFormatterTests: XCTestCase {
         XCTAssertEqual(label, "peter@203.0.113.10")
     }
 
+    func test_ssh_destination_parses_common_command_titles() {
+        struct Case {
+            let title: String
+            let target: String
+            let user: String?
+            let host: String
+            let port: Int?
+        }
+
+        let cases: [Case] = [
+            Case(title: "ssh host.example.test", target: "host.example.test", user: nil, host: "host.example.test", port: nil),
+            Case(title: "ssh peter@host.example.test", target: "peter@host.example.test", user: "peter", host: "host.example.test", port: nil),
+            Case(title: "ssh -p 2222 host.example.test", target: "host.example.test", user: nil, host: "host.example.test", port: 2222),
+            Case(title: "ssh -p2222 host.example.test", target: "host.example.test", user: nil, host: "host.example.test", port: 2222),
+            Case(title: "ssh -l peter host.example.test", target: "peter@host.example.test", user: "peter", host: "host.example.test", port: nil),
+            Case(title: "ssh -i /tmp/key -o ProxyJump=bastion prod", target: "prod", user: nil, host: "prod", port: nil),
+            Case(title: "ssh -- host-alias", target: "host-alias", user: nil, host: "host-alias", port: nil),
+        ]
+
+        for entry in cases {
+            let destination = WorklaneContextFormatter.sshDestination(fromCommandTitle: entry.title)
+            XCTAssertEqual(destination?.target, entry.target, entry.title)
+            XCTAssertEqual(destination?.user, entry.user, entry.title)
+            XCTAssertEqual(destination?.host, entry.host, entry.title)
+            XCTAssertEqual(destination?.port, entry.port, entry.title)
+        }
+    }
+
     private func makeTemporaryRepository(named repositoryName: String) throws -> String {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

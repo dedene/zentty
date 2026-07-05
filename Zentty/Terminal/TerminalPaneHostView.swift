@@ -63,6 +63,14 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
             (terminalView as? any TerminalContextMenuConfiguring)?.contextMenuBuilder = contextMenuBuilder
         }
     }
+    var remoteImagePasteHandler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)? {
+        didSet {
+            if remoteImagePasteHandler != nil, !(terminalView is any TerminalRemoteImagePasteConfiguring) {
+                Self.logger.warning("terminalView must conform to TerminalRemoteImagePasteConfiguring to forward remoteImagePasteHandler")
+            }
+            (terminalView as? any TerminalRemoteImagePasteConfiguring)?.remoteImagePasteHandler = remoteImagePasteHandler
+        }
+    }
 
     init(adapter: any TerminalAdapter) {
         self.adapter = adapter
@@ -74,6 +82,7 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         (terminalView as? any TerminalScrollRouting)?.onScrollWheel = onScrollWheel
         (terminalView as? any TerminalSmoothScrollConfiguring)?.smoothScrollingEnabled = smoothScrollingEnabled
         (terminalView as? any TerminalContextMenuConfiguring)?.contextMenuBuilder = contextMenuBuilder
+        (terminalView as? any TerminalRemoteImagePasteConfiguring)?.remoteImagePasteHandler = remoteImagePasteHandler
         setup()
     }
 
@@ -784,6 +793,12 @@ final class PaneRuntime {
         hostViewValue.updateSearchHUDShortcutTooltips(shortcutManager)
     }
 
+    func setRemoteImagePasteHandler(
+        _ handler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)?
+    ) {
+        hostViewValue.remoteImagePasteHandler = handler
+    }
+
     func addObserver(_ observer: @escaping (PaneRuntimeSnapshot) -> Void) -> UUID {
         let observerID = UUID()
         observers[observerID] = observer
@@ -1007,6 +1022,7 @@ final class PaneRuntimeRegistry {
     var onMetadataDidChange: ((PaneID, TerminalMetadata) -> Void)?
     var onEventDidOccur: ((PaneID, TerminalEvent) -> Void)?
     var onGlobalSearchDidChange: ((PaneID, TerminalSearchEvent) -> Void)?
+    var onRuntimeDidCreate: ((PaneRuntime) -> Void)?
 
     init(
         diagnostics: TerminalDiagnostics = .shared,
@@ -1040,6 +1056,7 @@ final class PaneRuntimeRegistry {
             bindSinks(to: runtime)
             runtime.updateSearchHUDShortcutTooltips(shortcutManager)
             runtimes[pane.id] = runtime
+            onRuntimeDidCreate?(runtime)
             return runtime
         }
     }
@@ -1075,6 +1092,7 @@ final class PaneRuntimeRegistry {
         bindSinks(to: runtime)
         runtime.updateSearchHUDShortcutTooltips(shortcutManager)
         runtimes[paneID] = runtime
+        onRuntimeDidCreate?(runtime)
     }
 
     func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {

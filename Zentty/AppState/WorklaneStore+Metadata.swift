@@ -204,6 +204,34 @@ extension WorklaneStore {
         updateMetadata(paneID: id, metadata: metadata)
     }
 
+    func updateForegroundSSHDestination(
+        paneID: PaneID,
+        destination: SSHDestination?
+    ) {
+        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return
+        }
+
+        var worklane = worklanes[worklaneIndex]
+        let previousWorklane = worklane
+        var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+        guard auxiliaryState.raw.foregroundSSHDestination != destination else {
+            return
+        }
+
+        auxiliaryState.raw.foregroundSSHDestination = destination
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        recomputePresentation(for: paneID, in: &worklane)
+        worklanes[worklaneIndex] = worklane
+
+        let impacts = auxiliaryInvalidation(for: paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+        if !impacts.isEmpty {
+            notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
+        }
+    }
+
     /// Gate for the volatile-title early fast path. Declines the fast path
     /// when the current agent state requires human attention (e.g. approval,
     /// question, auth prompts) so the reducer can re-evaluate via the full

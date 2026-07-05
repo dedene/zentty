@@ -421,7 +421,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -513,6 +513,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)? {
         get { surfaceView.contextMenuBuilder }
         set { surfaceView.contextMenuBuilder = newValue }
+    }
+
+    var remoteImagePasteHandler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)? {
+        get { surfaceView.remoteImagePasteHandler }
+        set { surfaceView.remoteImagePasteHandler = newValue }
     }
 
     init(
@@ -1579,6 +1584,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     var onCellSizeDidChange: (() -> Void)?
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
     var contextMenuPresenter: ((NSMenu, NSEvent, NSView) -> Void)?
+    var remoteImagePasteHandler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)?
     private var terminalCellSizeInPoints: CGSize?
 
     override var acceptsFirstResponder: Bool {
@@ -2156,6 +2162,10 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     @IBAction func paste(_ sender: Any?) {
+        if remoteImagePasteHandler?(NSPasteboard.general, .keyboard) == true {
+            return
+        }
+
         _ = surfaceController?.performBindingAction(TerminalBindingAction.pasteFromClipboard)
     }
 
@@ -2613,6 +2623,9 @@ extension LibghosttyView {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let pasteboard = sender.draggingPasteboard
+        if remoteImagePasteHandler?(pasteboard, .drag) == true {
+            return true
+        }
 
         let content: String?
         if let url = pasteboard.string(forType: .URL) {
