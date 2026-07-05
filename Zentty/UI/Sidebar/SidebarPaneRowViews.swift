@@ -626,6 +626,12 @@ final class SidebarTaskProgressRevealLineView: NSView {
 
 @MainActor
 final class SidebarPanePrimaryRowView: NSView {
+    private static let remoteSymbolName = "cloud.fill"
+    private static let remoteSymbolPointSize: CGFloat = 11
+    private static let remoteIconSide: CGFloat = 13
+    private static let remoteAccessibilityLabel = "Remote session"
+
+    private let remoteIconView = NSImageView()
     private let textContainer = SidebarPrimaryTextContainerView()
     private let baseLabel = SidebarStaticLabel()
     private let shimmerLabel = SidebarShimmerTextView()
@@ -650,6 +656,26 @@ final class SidebarPanePrimaryRowView: NSView {
 
     var renderedTrailingTextColorForTesting: NSColor {
         trailingLabelView.textColor ?? .clear
+    }
+
+    var remoteIconIsVisibleForTesting: Bool {
+        remoteIconView.isHidden == false
+    }
+
+    var remoteIconToolTipForTesting: String? {
+        remoteIconView.toolTip
+    }
+
+    var remoteIconAccessibilityLabelForTesting: String {
+        remoteIconView.accessibilityLabel() ?? ""
+    }
+
+    var remoteIconSymbolNameForTesting: String? {
+        remoteIconView.image == nil ? nil : Self.remoteSymbolName
+    }
+
+    var remoteIconTintColorForTesting: NSColor? {
+        remoteIconView.contentTintColor
     }
 
     override var intrinsicContentSize: NSSize {
@@ -679,6 +705,19 @@ final class SidebarPanePrimaryRowView: NSView {
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.required, for: .vertical)
 
+        remoteIconView.translatesAutoresizingMaskIntoConstraints = false
+        remoteIconView.image = NSImage(
+            systemSymbolName: Self.remoteSymbolName,
+            accessibilityDescription: Self.remoteAccessibilityLabel
+        )?.withSymbolConfiguration(
+            .init(pointSize: Self.remoteSymbolPointSize, weight: .semibold, scale: .medium)
+        )
+        remoteIconView.imageScaling = .scaleProportionallyDown
+        remoteIconView.isHidden = true
+        remoteIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        remoteIconView.setContentHuggingPriority(.required, for: .horizontal)
+        remoteIconView.setAccessibilityRole(.image)
+
         textContainer.translatesAutoresizingMaskIntoConstraints = false
         textContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -707,6 +746,7 @@ final class SidebarPanePrimaryRowView: NSView {
         stack.alignment = .top
         stack.spacing = SidebarPaneRowPresentationMode.inlineSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(remoteIconView)
         stack.addArrangedSubview(textContainer)
         stack.addArrangedSubview(trailingLabelView)
         addSubview(stack)
@@ -715,6 +755,8 @@ final class SidebarPanePrimaryRowView: NSView {
         heightConstraint.priority = .defaultHigh
         self.heightConstraint = heightConstraint
         NSLayoutConstraint.activate([
+            remoteIconView.widthAnchor.constraint(equalToConstant: Self.remoteIconSide),
+            remoteIconView.heightAnchor.constraint(equalToConstant: Self.remoteIconSide),
             baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
             baseLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
             baseLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
@@ -758,6 +800,14 @@ final class SidebarPanePrimaryRowView: NSView {
         applyPresentationMode(lineCount: lineCount)
     }
 
+    func configureRemoteIndicator(isRemote: Bool, label: String?) {
+        remoteIconView.isHidden = isRemote == false
+
+        let accessibilityText = Self.remoteAccessibilityText(label: label)
+        remoteIconView.toolTip = isRemote ? accessibilityText : nil
+        remoteIconView.setAccessibilityLabel(isRemote ? accessibilityText : "")
+    }
+
     func applyColors(
         primaryColor: NSColor,
         trailingColor: NSColor,
@@ -769,6 +819,7 @@ final class SidebarPanePrimaryRowView: NSView {
         self.trailingColor = trailingColor
         baseLabel.textColor = primaryColor
         trailingLabelView.textColor = trailingColor
+        remoteIconView.contentTintColor = trailingColor
         // The pane row primary stays single-line with tail truncation (see
         // `applyPresentationMode`) so the shimmer overlay always has a line
         // to clip against — hiding it on wrap would kill the shimmer on
@@ -819,6 +870,14 @@ final class SidebarPanePrimaryRowView: NSView {
 
     private func updateAdaptiveHeight() {
         // The pane row primary is always single-line — no adaptive height.
+    }
+
+    private static func remoteAccessibilityText(label: String?) -> String {
+        guard let label = WorklaneContextFormatter.trimmed(label) else {
+            return remoteAccessibilityLabel
+        }
+
+        return "\(remoteAccessibilityLabel): \(label)"
     }
 }
 

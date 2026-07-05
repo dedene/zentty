@@ -90,6 +90,10 @@ final class SidebarPaneRowRenderer {
                 presentationMode: panePresentation.presentationMode,
                 lineCount: 1
             )
+            panePrimaryRows[index].configureRemoteIndicator(
+                isRemote: panePresentation.isRemotePane,
+                label: panePresentation.remotePaneLabel
+            )
             panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""

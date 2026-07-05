@@ -295,6 +295,118 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.paneRows.first?.detailText, "~/project")
     }
 
+    func test_builder_marks_remote_pane_from_shell_context() throws {
+        let paneID = PaneID("worklane-main-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.raw = PaneRawState(
+            metadata: TerminalMetadata(title: "zsh", processName: "zsh"),
+            shellContext: PaneShellContext(
+                scope: .remote,
+                path: "/home/peter/project",
+                home: "/home/peter",
+                user: "peter",
+                host: "gilfoyle"
+            )
+        )
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let paneRow = try XCTUnwrap(
+            WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true).paneRows.first
+        )
+
+        XCTAssertTrue(paneRow.isRemotePane)
+        XCTAssertEqual(paneRow.remotePaneLabel, "gilfoyle")
+    }
+
+    func test_builder_marks_remote_pane_from_inferred_ssh_connection() throws {
+        let paneID = PaneID("worklane-main-shell")
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            metadataByPaneID: [
+                paneID: TerminalMetadata(
+                    title: "ssh peter@gilfoyle.example.test",
+                    currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                    processName: "ssh"
+                )
+            ]
+        )
+
+        let paneRow = try XCTUnwrap(
+            WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true).paneRows.first
+        )
+
+        XCTAssertTrue(paneRow.isRemotePane)
+        XCTAssertEqual(paneRow.remotePaneLabel, "peter@gilfoyle.example.test")
+    }
+
+    func test_builder_marks_remote_pane_from_foreground_ssh_process_when_title_resets() throws {
+        let paneID = PaneID("worklane-main-shell")
+        var raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "peter@gilfoyle: ~/app",
+                currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                processName: "zsh"
+            ),
+            foregroundSSHDestination: SSHDestination(
+                target: "peter@gilfoyle.example.test",
+                user: "peter",
+                host: "gilfoyle.example.test"
+            )
+        )
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+        raw.metadata = TerminalMetadata(
+            title: "~/app",
+            currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+            processName: "zsh"
+        )
+        let auxiliaryState = PaneAuxiliaryState(
+            raw: raw,
+            presentation: PanePresentationNormalizer.normalize(
+                paneTitle: "shell",
+                raw: raw,
+                previous: presentation
+            )
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: nil,
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "shell")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [paneID: auxiliaryState]
+        )
+
+        let paneRow = try XCTUnwrap(
+            WorklaneSidebarSummaryBuilder.summary(for: worklane, isActive: true).paneRows.first
+        )
+
+        XCTAssertTrue(paneRow.isRemotePane)
+        XCTAssertEqual(paneRow.remotePaneLabel, "peter@gilfoyle.example.test")
+    }
+
     func test_builder_shows_codex_action_required_title_and_needs_input_badge() {
         let paneID = PaneID("worklane-main-shell")
         let worklane = WorklaneState(

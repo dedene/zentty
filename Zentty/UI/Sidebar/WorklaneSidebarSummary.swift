@@ -30,6 +30,8 @@ struct WorklaneSidebarPaneRow: Equatable {
     let isWorking: Bool
     let taskProgress: PaneAgentTaskProgress?
     let serverPorts: [WorklaneSidebarServerPort]
+    let isRemotePane: Bool
+    let remotePaneLabel: String?
 
     init(
         paneID: PaneID,
@@ -45,7 +47,9 @@ struct WorklaneSidebarPaneRow: Equatable {
         isFocused: Bool,
         isWorking: Bool,
         taskProgress: PaneAgentTaskProgress? = nil,
-        serverPorts: [WorklaneSidebarServerPort] = []
+        serverPorts: [WorklaneSidebarServerPort] = [],
+        isRemotePane: Bool = false,
+        remotePaneLabel: String? = nil
     ) {
         self.paneID = paneID
         self.primaryText = primaryText
@@ -61,6 +65,8 @@ struct WorklaneSidebarPaneRow: Equatable {
         self.isWorking = isWorking
         self.taskProgress = taskProgress
         self.serverPorts = serverPorts
+        self.isRemotePane = isRemotePane
+        self.remotePaneLabel = remotePaneLabel
     }
 }
 

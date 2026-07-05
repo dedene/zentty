@@ -273,9 +273,17 @@ enum WorklaneSidebarSummaryBuilder {
                 isFocused: isFocused,
                 isWorking: statusPresentation.isWorking,
                 taskProgress: statusPresentation.taskProgress,
-                serverPorts: serverPorts(for: paneContext.paneID, serverContext: serverContext)
+                serverPorts: serverPorts(for: paneContext.paneID, serverContext: serverContext),
+                isRemotePane: paneContext.presentation.isRemotePane,
+                remotePaneLabel: remotePaneLabel(for: paneContext.presentation)
             )
         }
+    }
+
+    private static func remotePaneLabel(for presentation: PanePresentationState) -> String? {
+        WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel)
+            ?? WorklaneContextFormatter.trimmed(presentation.foregroundSSHDestination?.target)
+            ?? WorklaneContextFormatter.trimmed(presentation.remoteHostLabel)
     }
 
     private static func serverPorts(
@@ -422,7 +430,8 @@ enum WorklaneSidebarSummaryBuilder {
     private static func paneDetailCandidate(
         for paneContext: WorklanePaneContext
     ) -> PaneDetailCandidate? {
-        guard paneContext.presentation.hasInferredSSHConnection == false else {
+        guard paneContext.presentation.hasInferredSSHConnection == false,
+              paneContext.presentation.hasForegroundSSHProcess == false else {
             return nil
         }
 
@@ -487,7 +496,8 @@ enum WorklaneSidebarSummaryBuilder {
             )
         }
 
-        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel) {
+        if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel)
+            ?? WorklaneContextFormatter.trimmed(presentation.foregroundSSHDestination?.target) {
             return PaneSidebarIdentity(
                 primaryText: sshConnectionLabel,
                 trailingText: nil,
