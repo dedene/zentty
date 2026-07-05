@@ -310,7 +310,6 @@ final class WorklaneRenderCoordinator {
                     terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
                     renderWindowChrome(
                         WorklaneChromeSummary(
-                        attention: nil,
                         focusedLabel: nil,
                         branch: nil,
                         pullRequest: nil,
@@ -605,7 +604,6 @@ final class WorklaneRenderCoordinator {
         guard let worklane = worklaneStore.activeWorklane else {
             renderWindowChrome(
                 WorklaneChromeSummary(
-                attention: nil,
                 focusedLabel: nil,
                 branch: nil,
                 pullRequest: nil,

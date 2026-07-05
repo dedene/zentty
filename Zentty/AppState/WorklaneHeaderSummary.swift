@@ -21,7 +21,6 @@ enum ReviewAgeFormatter {
 }
 
 struct WorklaneChromeSummary: Equatable, Sendable {
-    var attention: WorklaneAttentionSummary?
     /// Custom worklane name, shown left of the proxy icon when set.
     var worklaneTitle: String?
     var focusedLabel: String?
@@ -38,7 +37,6 @@ struct WorklaneChromeSummary: Equatable, Sendable {
     var reviewRefreshFailed: Bool
 
     init(
-        attention: WorklaneAttentionSummary?,
         worklaneTitle: String? = nil,
         focusedLabel: String?,
         remoteContextLabel: String? = nil,
@@ -50,7 +48,6 @@ struct WorklaneChromeSummary: Equatable, Sendable {
         reviewFetchedAt: Date? = nil,
         reviewRefreshFailed: Bool = false
     ) {
-        self.attention = attention
         self.worklaneTitle = worklaneTitle
         self.focusedLabel = focusedLabel
         self.remoteContextLabel = remoteContextLabel

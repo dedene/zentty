@@ -12,7 +12,6 @@ enum WorklaneHeaderSummaryBuilder {
         let branch = visibleBranch(from: presentation)
 
         return WorklaneChromeSummary(
-            attention: WorklaneAttentionSummaryBuilder.summary(for: worklane),
             worklaneTitle: worklane.title,
             focusedLabel: focusedLabel,
             remoteContextLabel: remoteContextLabel,

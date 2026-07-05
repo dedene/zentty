@@ -3,7 +3,7 @@ import XCTest
 @testable import Zentty
 
 final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
-    func test_summary_uses_cached_review_state_and_keeps_worklane_attention() {
+    func test_summary_uses_cached_review_state() {
         let paneID = PaneID("pane-shell")
         let worklane = makeWorklane(
             paneID: paneID,
@@ -36,7 +36,6 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
 
         let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
 
-        XCTAssertEqual(summary.attention?.statusText, "Needs input")
         XCTAssertEqual(summary.focusedLabel, "/tmp/project")
         XCTAssertEqual(summary.branch, "feature/review-band")
         XCTAssertEqual(summary.pullRequest?.number, 128)
@@ -97,9 +96,9 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+        let attention = WorklaneAttentionSummaryBuilder.summary(for: worklane)
 
-        XCTAssertNil(summary.attention?.artifactLink)
+        XCTAssertNil(attention?.artifactLink)
     }
 
     func test_summary_attention_preserves_non_pull_request_agent_artifact() {
@@ -127,10 +126,10 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
+        let attention = WorklaneAttentionSummaryBuilder.summary(for: worklane)
 
-        XCTAssertEqual(summary.attention?.artifactLink?.kind, .session)
-        XCTAssertEqual(summary.attention?.artifactLink?.url, sessionURL)
+        XCTAssertEqual(attention?.artifactLink?.kind, .session)
+        XCTAssertEqual(attention?.artifactLink?.url, sessionURL)
     }
 
     func test_summary_uses_location_context_when_review_state_is_unavailable() {
@@ -288,9 +287,7 @@ final class WorklaneHeaderSummaryBuilderTests: XCTestCase {
             )
         )
 
-        let summary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
-
-        XCTAssertNil(summary.attention)
+        XCTAssertNil(WorklaneAttentionSummaryBuilder.summary(for: worklane))
     }
 
     func test_summary_uses_exact_claude_status_title_as_focused_label_when_running() {

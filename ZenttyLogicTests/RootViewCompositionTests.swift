@@ -1995,56 +1995,6 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertFalse(firstFrame.union(secondFrame).intersects(headerButtonFrame))
     }
 
-    func test_window_chrome_shows_attention_chip_only_for_attention_states() {
-        let windowChromeView = WindowChromeView()
-        let attention = WorklaneAttentionSummary(
-            paneID: PaneID("shell"),
-            tool: .claudeCode,
-            state: .needsInput,
-            primaryText: "Claude Code",
-            statusText: "Needs input",
-            contextText: "project • main",
-            artifactLink: WorklaneArtifactLink(
-                kind: .pullRequest,
-                label: "PR #42",
-                url: URL(string: "https://example.com/pr/42")!,
-                isExplicit: true
-            ),
-            updatedAt: Date(timeIntervalSince1970: 42)
-        )
-
-        windowChromeView.render(summary: WorklaneChromeSummary(
-            attention: attention,
-            focusedLabel: "Claude Code",
-            branch: "main",
-            pullRequest: nil,
-            reviewChips: []
-        ))
-
-        XCTAssertFalse(windowChromeView.isAttentionHidden)
-        XCTAssertEqual(windowChromeView.attentionText, "Needs input")
-        XCTAssertEqual(windowChromeView.attentionArtifactText, "PR #42")
-
-        windowChromeView.render(summary: WorklaneChromeSummary(
-            attention: WorklaneAttentionSummary(
-                paneID: PaneID("shell"),
-                tool: .claudeCode,
-                state: .running,
-                primaryText: "Claude Code",
-                statusText: "Running",
-                contextText: "project • main",
-                artifactLink: nil,
-                updatedAt: Date(timeIntervalSince1970: 43)
-            ),
-            focusedLabel: "Claude Code",
-            branch: "main",
-            pullRequest: nil,
-            reviewChips: []
-        ))
-
-        XCTAssertTrue(windowChromeView.isAttentionHidden)
-    }
-
     func test_root_controller_restores_hidden_sidebar_and_reclaims_leading_inset() throws {
         let sidebarDefaults = SidebarWidthPreference.userDefaults()
         let visibilityDefaults = SidebarVisibilityPreference.userDefaults()

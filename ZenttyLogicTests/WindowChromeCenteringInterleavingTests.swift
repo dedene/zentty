@@ -138,16 +138,13 @@ final class WindowChromeCenteringInterleavingTests: AppKitTestCase {
 
     // MARK: - Phantom-width items
 
-    /// The bad worklane in the field report always carried needs-input
-    /// attention, and the blank band left of the proxy icon measured the
-    /// width of an attention chip. If the chip is planned with width but
-    /// laid out with zero height, it reserves centered space while drawing
-    /// nothing — shoving the visible title toward the right edge.
-    func test_attention_chip_is_drawable_when_it_occupies_planned_row_width() {
+    /// If a row item is planned with width but laid out with zero height,
+    /// it reserves centered space while drawing nothing — shoving the
+    /// visible title toward the right edge.
+    func test_row_items_are_drawable_when_they_occupy_planned_row_width() {
         let view = makeChromeView(width: 1440)
         view.render(summary: makeSummary(
-            title: "✳ Merge main branch and review data warehouse integration",
-            attention: makeNeedsInputAttention()
+            title: "✳ Merge main branch and review data warehouse integration"
         ))
         applyInsets(view, visible: 290, controls: 340)
         view.layoutSubtreeIfNeeded()
@@ -159,7 +156,7 @@ final class WindowChromeCenteringInterleavingTests: AppKitTestCase {
             phantoms.isEmpty,
             "row items occupy width without drawable height (phantom content): \(phantoms)"
         )
-        assertRowCenteredInLane(view, context: "needs-input attention chip", visibleOnly: true)
+        assertRowCenteredInLane(view, context: "crowded summary", visibleOnly: true)
     }
 
     // MARK: - Seeded fuzz over event orderings
@@ -194,17 +191,15 @@ final class WindowChromeCenteringInterleavingTests: AppKitTestCase {
         switch rng.next() % 8 {
         case 0:
             let title = randomTitle(rng: &rng)
-            let hasAttention = rng.next() % 3 == 0
             view.render(summary: makeSummary(
                 title: title,
                 worklaneTitle: rng.next() % 2 == 0 ? "Merge main branch and review data warehouse integration" : nil,
                 remoteContext: rng.next() % 4 == 0 ? "ssh: build-box" : nil,
-                attention: hasAttention ? makeNeedsInputAttention() : nil,
                 includeBranch: rng.next() % 10 < 8,
                 includePullRequest: rng.next() % 2 == 0,
                 chipCount: Int(rng.next() % 3)
             ))
-            log.append("render(title: \(title.count) chars, attention: \(hasAttention))")
+            log.append("render(title: \(title.count) chars)")
         case 1:
             let title = randomTitle(rng: &rng)
             view.setFocusedLabelText(title)
@@ -341,24 +336,10 @@ final class WindowChromeCenteringInterleavingTests: AppKitTestCase {
         view.leadingControlsInset = controls
     }
 
-    private func makeNeedsInputAttention() -> WorklaneAttentionSummary {
-        WorklaneAttentionSummary(
-            paneID: PaneID("pane-agent"),
-            tool: .claudeCode,
-            state: .needsInput,
-            primaryText: "Claude Code Session With An Intentionally Long Focus Label",
-            statusText: "Needs input",
-            contextText: "data-warehouse-export • feature/data-warehouse-export",
-            artifactLink: nil,
-            updatedAt: Date(timeIntervalSince1970: 10)
-        )
-    }
-
     private func makeSummary(
         title: String?,
         worklaneTitle: String? = nil,
         remoteContext: String? = nil,
-        attention: WorklaneAttentionSummary? = nil,
         includeBranch: Bool = true,
         includePullRequest: Bool = true,
         chipCount: Int = 0
@@ -368,7 +349,6 @@ final class WindowChromeCenteringInterleavingTests: AppKitTestCase {
             WorklaneReviewChip(text: "2 failing", style: .danger),
         ]
         return WorklaneChromeSummary(
-            attention: attention,
             worklaneTitle: worklaneTitle,
             focusedLabel: title,
             remoteContextLabel: remoteContext,

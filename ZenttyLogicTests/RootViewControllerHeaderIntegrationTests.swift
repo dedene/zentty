@@ -68,7 +68,6 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         ])
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.attentionText, "Needs input")
         XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
@@ -138,7 +137,6 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
         ])
 
         let chrome = controller.chromeView
-        XCTAssertEqual(chrome.attentionText, "Needs input")
         XCTAssertEqual(chrome.focusedLabelText, "zsh")
         XCTAssertEqual(chrome.branchText, "")
         XCTAssertEqual(chrome.pullRequestText, "")
@@ -146,7 +144,6 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
 
         controller.focusPaneDirectly(claudePaneID)
 
-        XCTAssertEqual(chrome.attentionText, "Needs input")
         XCTAssertEqual(chrome.focusedLabelText, "/tmp/project")
         XCTAssertEqual(chrome.branchText, "feature/review-band")
         XCTAssertEqual(chrome.pullRequestText, "PR #128")
@@ -154,7 +151,6 @@ final class RootViewControllerHeaderIntegrationTests: AppKitTestCase {
 
         controller.focusPaneDirectly(shellPaneID)
 
-        XCTAssertEqual(chrome.attentionText, "Needs input")
         XCTAssertEqual(chrome.focusedLabelText, "zsh")
         XCTAssertEqual(chrome.branchText, "")
         XCTAssertEqual(chrome.pullRequestText, "")

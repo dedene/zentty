@@ -2,7 +2,6 @@ import CoreGraphics
 
 enum WindowChromeRowLayoutPlanner {
     enum Kind {
-        case attention
         case worklaneTitle
         case proxyIcon
         case focusedLabel
@@ -37,7 +36,6 @@ enum WindowChromeRowLayoutPlanner {
 
     private static let zeroCompressionOrder: [Kind] = [
         .reviewChip,
-        .attention,
         .focusedLabel,
         .remoteContext,
         .proxyIcon,
@@ -84,7 +82,7 @@ enum WindowChromeRowLayoutPlanner {
                 &plannedItems,
                 availableWidth: availableWidth,
                 floorResolver: { $0.minimumWidth },
-                compressionOrder: [.attention, .focusedLabel, .remoteContext, .proxyIcon, .worklaneTitle, .pullRequest, .branch]
+                compressionOrder: [.focusedLabel, .remoteContext, .proxyIcon, .worklaneTitle, .pullRequest, .branch]
             )
         }
 

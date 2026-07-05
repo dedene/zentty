@@ -95,7 +95,6 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         view.updateShortcutTooltips(shortcutManager)
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "feature/tooltips",
             branchURL: URL(string: "https://example.com/branch/feature/tooltips"),
@@ -106,7 +105,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(view.branchToolTip, "Open Branch on Remote (⌘⌃R)")
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "feature/tooltips",
             branchURL: nil,
@@ -117,13 +115,12 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(view.branchToolTip, "")
     }
 
-    func test_window_chrome_renders_attention_focused_label_branch_pr_and_review_chips() {
+    func test_window_chrome_renders_focused_label_branch_pr_and_review_chips() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 900, height: WindowChromeView.preferredHeight)
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: makeNeedsInputAttention(),
             focusedLabel: "Claude Code",
             branch: "feature/review-band",
             pullRequest: WorklanePullRequestSummary(
@@ -137,7 +134,6 @@ final class WindowChromeViewTests: AppKitTestCase {
             ]
         ))
 
-        XCTAssertEqual(view.attentionText, "Needs input")
         XCTAssertEqual(view.focusedLabelText, "Claude Code")
         XCTAssertEqual(view.branchText, "feature/review-band")
         XCTAssertEqual(view.pullRequestText, "PR #128")
@@ -150,7 +146,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
             pullRequest: nil,
@@ -168,7 +163,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Working… zentty",
             remoteContextLabel: "gilfoyle ~/project",
             cwdPath: nil,
@@ -188,7 +182,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code Session With An Intentionally Long Focus Label",
             remoteContextLabel: "gilfoyle ~/project",
             cwdPath: nil,
@@ -210,7 +203,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "General coding assistance session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -238,7 +230,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "General coding assistance session",
             cwdPath: nil,
             branch: "main",
@@ -257,7 +248,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "General coding assistance session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -274,7 +264,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/project/subdir",
             branch: "main",
@@ -305,7 +294,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "General coding assistance session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -326,7 +314,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/naïve folder/子目录",
             branch: "main",
@@ -353,7 +340,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -375,7 +361,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -395,7 +380,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -415,7 +399,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/naïve folder/子目录",
             branch: "main",
@@ -440,7 +423,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         addTeardownBlock { suppressionWindow.close() }
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: "/tmp/project",
             branch: "main",
@@ -451,7 +433,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         view.setFocusedProxyIconDragSessionActiveForTesting(true)
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: nil,
             branch: "main",
@@ -464,7 +445,6 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         view.setFocusedProxyIconDragSessionActiveForTesting(false)
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Session",
             cwdPath: nil,
             branch: "main",
@@ -482,7 +462,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "zsh",
             branch: nil,
             pullRequest: nil,
@@ -493,22 +472,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(view.branchText, "")
         XCTAssertEqual(view.pullRequestText, "")
         XCTAssertEqual(view.reviewChipTexts, [])
-    }
-
-    func test_window_chrome_hides_attention_chip_when_summary_has_no_attention() {
-        let view = WindowChromeView(
-            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
-        )
-
-        view.render(summary: WorklaneChromeSummary(
-            attention: nil,
-            focusedLabel: "Claude Code",
-            branch: "feature/review-band",
-            pullRequest: nil,
-            reviewChips: []
-        ))
-
-        XCTAssertTrue(view.isAttentionHidden)
     }
 
     func test_window_chrome_never_surfaces_cwd_text_and_keeps_branch_monospace() {
@@ -524,7 +487,7 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertTrue(view.isBranchMonospaced)
     }
 
-    func test_window_chrome_keeps_attention_branch_pr_and_review_chips_visible_on_narrow_width_while_truncating_focused_label() {
+    func test_window_chrome_keeps_branch_pr_and_review_chips_visible_on_narrow_width_while_truncating_focused_label() {
         let view = WindowChromeView(
             frame: NSRect(x: 0, y: 0, width: 420, height: WindowChromeView.preferredHeight)
         )
@@ -532,7 +495,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         view.render(summary: makeCrowdedSummary())
         view.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(view.isAttentionHidden)
         XCTAssertEqual(view.branchText, "feature/review-band")
         XCTAssertEqual(view.pullRequestText, "PR #128")
         XCTAssertEqual(view.rowLineCount, 1)
@@ -564,7 +526,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
             pullRequest: nil,
@@ -583,7 +544,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -624,7 +584,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: initialTitle,
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -670,7 +629,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: nil,
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -709,7 +667,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: title,
             cwdPath: "/tmp/project",
             branch: "main",
@@ -745,7 +702,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "zentty",
             branch: "main",
             pullRequest: nil,
@@ -767,7 +723,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "zentty",
             branch: "main",
             pullRequest: nil,
@@ -786,7 +741,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "feature/scaleway-transactional-mails",
             pullRequest: WorklanePullRequestSummary(
@@ -813,7 +767,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
             pullRequest: nil,
@@ -843,7 +796,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "feature/scaleway-transactional-mails",
             pullRequest: WorklanePullRequestSummary(
@@ -874,7 +826,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "feature/scaleway-transactional-mails",
             pullRequest: WorklanePullRequestSummary(
@@ -908,7 +859,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
             pullRequest: nil,
@@ -927,7 +877,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
             pullRequest: nil,
@@ -949,7 +898,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "~/Development/Zenjoy/Nimbu/Rails/nimbu",
             branch: "main",
             pullRequest: nil,
@@ -974,7 +922,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -1004,7 +951,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "peter@m1-pro-peter:~/Development/Zenjoy/Nimbu/Rails/worktrees/feature/scaleway-transactional-mails",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -1083,7 +1029,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Ready | zentty",
             branch: "main",
             pullRequest: nil,
@@ -1211,7 +1156,6 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         let pullRequestURL = try XCTUnwrap(URL(string: "https://example.com/pr/1413"))
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -1236,7 +1180,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -1258,7 +1201,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -1282,7 +1224,6 @@ final class WindowChromeViewTests: AppKitTestCase {
             )
             view.apply(theme: theme, animated: false)
             view.render(summary: WorklaneChromeSummary(
-                attention: nil,
                 focusedLabel: "Claude Code",
                 branch: "main",
                 pullRequest: WorklanePullRequestSummary(
@@ -1318,7 +1259,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
 
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Claude Code",
             branch: "main",
             pullRequest: WorklanePullRequestSummary(
@@ -1362,22 +1302,8 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(toast.frame.midX, parentView.bounds.midX, accuracy: 0.5)
     }
 
-    private func makeNeedsInputAttention() -> WorklaneAttentionSummary {
-        WorklaneAttentionSummary(
-            paneID: PaneID("pane-shell"),
-            tool: .claudeCode,
-            state: .needsInput,
-            primaryText: "Claude Code",
-            statusText: "Needs input",
-            contextText: "project • feature/review-band",
-            artifactLink: nil,
-            updatedAt: Date(timeIntervalSince1970: 10)
-        )
-    }
-
     private func makeCrowdedSummary() -> WorklaneChromeSummary {
         WorklaneChromeSummary(
-            attention: makeNeedsInputAttention(),
             focusedLabel: "Claude Code Session With An Intentionally Long Focus Label",
             branch: "feature/review-band",
             pullRequest: WorklanePullRequestSummary(
@@ -1451,7 +1377,6 @@ final class WindowChromeViewTests: AppKitTestCase {
         )
         let cwdPath = "/tmp/no-project-icon-\(UUID().uuidString)"
         view.render(summary: WorklaneChromeSummary(
-            attention: nil,
             focusedLabel: "Project",
             cwdPath: cwdPath,
             branch: nil,

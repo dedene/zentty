@@ -60,7 +60,6 @@ final class WindowChromeView: NSView {
         }
     }
 
-    private let attentionChipView = WorklaneAttentionChipView()
     private let rowContainerView = NSView()
     private let focusedProxyIconView = WindowChromeProxyIconView()
     private let serverContainerView = NSView()
@@ -106,7 +105,6 @@ final class WindowChromeView: NSView {
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var shortcutManager = ShortcutManager(shortcuts: .default)
     private var currentSummary = WorklaneChromeSummary(
-        attention: nil,
         focusedLabel: nil,
         cwdPath: nil,
         branch: nil,
@@ -295,6 +293,13 @@ final class WindowChromeView: NSView {
         serverDividerView.wantsLayer = true
         openWithDividerView.wantsLayer = true
 
+        // The row container must be layer-backed so animator()-driven frame
+        // writes inside a sidebar-transition animation group commit their
+        // model value at group end. Without a layer, the pending animation
+        // only settles once the run loop pumps it, leaving the row parked on
+        // stale lane insets when another layout lands mid-transition.
+        // (Previously guaranteed as a side effect of a layer-backed subview.)
+        rowContainerView.wantsLayer = true
         addSubview(rowContainerView)
         addSubview(serverContainerView)
         addSubview(openWithContainerView)
@@ -304,7 +309,7 @@ final class WindowChromeView: NSView {
         openWithContainerView.addSubview(openWithDividerView)
         openWithContainerView.addSubview(openWithPrimaryButton)
         openWithContainerView.addSubview(openWithMenuButton)
-        [attentionChipView, worklaneTitleLabel, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton].forEach {
+        [worklaneTitleLabel, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton].forEach {
             rowContainerView.addSubview($0)
         }
 
@@ -316,7 +321,7 @@ final class WindowChromeView: NSView {
 
     /// Surgical focused-label update for the volatile agent title fast path.
     /// Writes `text` directly to `focusedLabel` without touching branch, PR,
-    /// attention chip, proxy icon, or forcing a full chrome layout pass.
+    /// proxy icon, or forcing a full chrome layout pass.
     /// The proxy icon is not re-rendered because its state depends on
     /// `currentSummary.cwdPath`, which is unchanged on volatile title ticks.
     func setFocusedLabelText(_ text: String) {
@@ -334,8 +339,6 @@ final class WindowChromeView: NSView {
     func render(summary: WorklaneChromeSummary) {
         currentSummary = summary
         pullRequestURL = summary.pullRequest?.url
-
-        attentionChipView.render(attention: summary.attention)
 
         let worklaneTitleText = summary.worklaneTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         worklaneTitleLabel.stringValue = worklaneTitleText
@@ -370,7 +373,6 @@ final class WindowChromeView: NSView {
 
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        attentionChipView.apply(theme: theme, animated: animated)
 
         worklaneTitleLabel.textColor = theme.secondaryText
         focusedLabel.textColor = theme.secondaryText
@@ -1067,8 +1069,6 @@ final class WindowChromeView: NSView {
 
     private func kind(for view: NSView) -> WindowChromeRowLayoutPlanner.Kind {
         switch view {
-        case let attentionChip as WorklaneAttentionChipView where attentionChip === attentionChipView:
-            return .attention
         case let imageView as WindowChromeProxyIconView where imageView === focusedProxyIconView:
             return .proxyIcon
         case let label as NSTextField where label === worklaneTitleLabel:
@@ -1098,12 +1098,24 @@ final class WindowChromeView: NSView {
             return min(preferredWidth, Self.readableBranchWidth)
         case .pullRequest:
             return preferredWidth
-        case .attention, .worklaneTitle, .focusedLabel, .remoteContext, .reviewChip:
+        case .worklaneTitle, .focusedLabel, .remoteContext, .reviewChip:
             return 0
         }
     }
 
     private func layout(items: [RowItem], availableWidth: CGFloat, rowHeight: CGFloat) {
+        // Row items are positioned in container coordinates and must land on
+        // their final frames immediately, even when this pass runs inside a
+        // caller's `allowsImplicitAnimation` group (sidebar transitions,
+        // volatile title ticks). Only the row container itself animates.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            layoutImmediately(items: items, availableWidth: availableWidth, rowHeight: rowHeight)
+        }
+    }
+
+    private func layoutImmediately(items: [RowItem], availableWidth: CGFloat, rowHeight: CGFloat) {
         visibleLeadingViews().forEach { $0.frame = .zero }
         reviewChipViews.forEach { $0.frame = .zero }
 
@@ -1238,7 +1250,7 @@ final class WindowChromeView: NSView {
     }
 
     private func visibleLeadingViews() -> [NSView] {
-        [attentionChipView, worklaneTitleLabel, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton]
+        [worklaneTitleLabel, focusedProxyIconView, focusedLabel, remoteContextLabel, branchLabel, pullRequestButton]
             .filter { !$0.isHidden }
     }
 
@@ -1253,8 +1265,6 @@ final class WindowChromeView: NSView {
 
     private func intrinsicWidth(for view: NSView) -> CGFloat {
         switch view {
-        case let attentionChip as WorklaneAttentionChipView:
-            return attentionChip.preferredWidthForCurrentContent
         case let label as NSTextField:
             return Self.requiredSingleLineWidth(for: label)
         case let button as NSButton:
@@ -1313,9 +1323,6 @@ final class WindowChromeView: NSView {
     }
 
     var titleText: String { "" }
-    var isAttentionHidden: Bool { attentionChipView.isHidden }
-    var attentionText: String { attentionChipView.stateTextForTesting }
-    var attentionArtifactText: String { attentionChipView.artifactTextForTesting }
     var isFocusedProxyIconHidden: Bool { focusedProxyIconView.isHidden }
     var focusedProxyIconCwdPath: String? { focusedProxyIconView.cwdPath }
     var focusedProxyIconAlphaValue: CGFloat { focusedProxyIconView.alphaValue }
