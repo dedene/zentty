@@ -105,7 +105,7 @@ Zentty bundles helper commands and environment variables for agent-aware workflo
 
 Hook configuration details are documented in [`docs/agent-hooks.md`](docs/agent-hooks.md).
 
-For Kimi specifically: do first-time auth with `kimi login` before using wrapped `kimi` inside Zentty. Zentty passthroughs Kimi's management commands directly to the real Kimi binary so login/logout keep using the default Kimi config. If you want a specific model, prefer `kimi --model <model-id>` or set `default_model` in `~/.kimi/config.toml`.
+For Kimi specifically: do first-time auth with `kimi login` before using wrapped `kimi` inside Zentty. Zentty passthroughs Kimi's management commands directly to the real Kimi binary so login/logout keep using the default Kimi config. If you want a specific model, prefer `kimi --model <model-id>` or set `default_model` in `~/.kimi/config.toml` (or `~/.kimi-code/config.toml` for modern Kimi Code CLI).
 
 ## Contributing
 
