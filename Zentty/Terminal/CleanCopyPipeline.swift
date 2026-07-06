@@ -26,7 +26,11 @@ enum CleanCopyPipeline {
         if options.removeBoxDrawing, let cleaned = stripBoxDrawingArtifacts(text) {
             text = cleaned
         }
-        if let cleaned = stripTerminalChromeDecoration(text, options: options) {
+        if let cleaned = stripTerminalChromeDecoration(
+            text,
+            options: options,
+            lineShapeEvidence: lineShapeEvidence
+        ) {
             text = cleaned
         }
         if let cleaned = stripSmartPromptPrefixes(text) {
@@ -42,7 +46,11 @@ enum CleanCopyPipeline {
         if options.quotePathsWithSpaces, let quoted = quotePathWithSpaces(text) {
             text = quoted
         }
-        if let flattened = transformMultiLineCommandIfNeeded(text, options: options) {
+        if let flattened = transformMultiLineCommandIfNeeded(
+            text,
+            options: options,
+            lineShapeEvidence: lineShapeEvidence
+        ) {
             text = flattened
         }
         if let cleaned = reflowPlainProseSelection(text, lineShapeEvidence: lineShapeEvidence) {
@@ -134,7 +142,10 @@ enum CleanCopyPipeline {
 
     private static let maxAgentPromptReflowLines = 60
 
-    static func stripAgentPromptSelection(_ input: String) -> String? {
+    static func stripAgentPromptSelection(
+        _ input: String,
+        lineShapeEvidence: PlainProseLineShapeEvidence? = nil
+    ) -> String? {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let nonEmpty = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard let firstLine = nonEmpty.first else { return nil }
@@ -176,6 +187,11 @@ enum CleanCopyPipeline {
                 didStripPromptMarker = true
                 return stripLeadingAgentPromptMarker(from: line.trimmingCharacters(in: .whitespaces))
             }
+        }
+
+        if lineShapeEvidence?.hasMultiplePaddedShortRows == true {
+            let markerOnly = candidateLines.joined(separator: "\n")
+            return markerOnly == input ? nil : markerOnly
         }
 
         let contentLines = trimOuterBlankLines(
@@ -416,7 +432,7 @@ enum CleanCopyPipeline {
         return count
     }
 
-    private struct PlainProseLineShapeEvidence {
+    struct PlainProseLineShapeEvidence {
         let hasMultiplePaddedShortRows: Bool
 
         init(input: String) {

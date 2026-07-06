@@ -19,13 +19,35 @@ extension CleanCopyPipeline {
         return merged
     }()
 
-    static func transformMultiLineCommandIfNeeded(_ input: String, options: CleanCopyOptions) -> String? {
+    static func transformMultiLineCommandIfNeeded(
+        _ input: String,
+        options: CleanCopyOptions,
+        lineShapeEvidence: PlainProseLineShapeEvidence? = nil
+    ) -> String? {
         guard options.flattenMultiLineCommands else { return nil }
         guard input.contains("\n") else { return nil }
 
         let lines = input.split(whereSeparator: \.isNewline)
         guard lines.count >= 2 else { return nil }
         if lines.count > 10 { return nil }
+
+        let hasLineContinuation = input.contains("\\\n")
+        let hasLineJoinerAtEOL = input.range(
+            of: #"(?m)(\\|[|&]{1,2}|;)\s*$"#,
+            options: .regularExpression
+        ) != nil
+        let hasIndentedPipeline = input.range(
+            of: #"(?m)^\s*[|&]{1,2}\s+\S"#,
+            options: .regularExpression
+        ) != nil
+        let hasExplicitLineJoin = hasLineContinuation || hasLineJoinerAtEOL || hasIndentedPipeline
+
+        if lineShapeEvidence?.hasMultiplePaddedShortRows == true,
+           !hasExplicitLineJoin
+        {
+            // Padded short rows indicate deliberately line-broken columnar output, not a soft wrap.
+            return nil
+        }
 
         let aggressiveness = options.commandFlattenAggressiveness
         if aggressiveness != .high, lines.count > 4 {
@@ -55,17 +77,6 @@ extension CleanCopyPipeline {
         {
             return nil
         }
-
-        let hasLineContinuation = input.contains("\\\n")
-        let hasLineJoinerAtEOL = input.range(
-            of: #"(?m)(\\|[|&]{1,2}|;)\s*$"#,
-            options: .regularExpression
-        ) != nil
-        let hasIndentedPipeline = input.range(
-            of: #"(?m)^\s*[|&]{1,2}\s+\S"#,
-            options: .regularExpression
-        ) != nil
-        let hasExplicitLineJoin = hasLineContinuation || hasLineJoinerAtEOL || hasIndentedPipeline
 
         if aggressiveness != .high,
            !hasExplicitLineJoin,

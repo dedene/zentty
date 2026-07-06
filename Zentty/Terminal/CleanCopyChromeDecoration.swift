@@ -1,9 +1,13 @@
 import Foundation
 
 extension CleanCopyPipeline {
-    static func stripTerminalChromeDecoration(_ input: String, options: CleanCopyOptions) -> String? {
+    static func stripTerminalChromeDecoration(
+        _ input: String,
+        options: CleanCopyOptions,
+        lineShapeEvidence: PlainProseLineShapeEvidence? = nil
+    ) -> String? {
         var text = input
-        if let cleaned = stripAgentPromptSelection(text) {
+        if let cleaned = stripAgentPromptSelection(text, lineShapeEvidence: lineShapeEvidence) {
             text = cleaned
         }
         if options.flattenSlashCommandSelections, let slash = stripSlashCommandDecoration(text) {
