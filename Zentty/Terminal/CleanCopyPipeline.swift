@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 extension Notification.Name {
     static let cleanCopyDidModifyPasteboard = Notification.Name("CleanCopyDidModifyPasteboard")
@@ -648,6 +649,7 @@ enum CleanCopyPipeline {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false)
         let nonEmptyLines = lines.filter { !$0.allSatisfy(\.isWhitespace) }
         guard !nonEmptyLines.isEmpty else { return input }
+        guard !nonEmptyLines.allSatisfy(isBareIPv6AddressLine(_:)) else { return input }
 
         guard let prefixPattern = detectLineNumberPattern(nonEmptyLines: nonEmptyLines) else {
             return input
@@ -664,6 +666,27 @@ enum CleanCopyPipeline {
             return String(line[matchRange.upperBound...])
         }
         return stripped.joined(separator: "\n")
+    }
+
+    private static func isBareIPv6AddressLine(_ line: Substring) -> Bool {
+        let text = String(line.trimmingCharacters(in: .whitespaces))
+        guard text.contains(":"),
+              !text.contains(where: \.isWhitespace)
+        else {
+            return false
+        }
+
+        let candidate: String
+        if text.hasPrefix("[") && text.hasSuffix("]") {
+            candidate = String(text.dropFirst().dropLast())
+        } else {
+            candidate = text
+        }
+
+        var address = in6_addr()
+        return candidate.withCString { pointer in
+            inet_pton(AF_INET6, pointer, &address) == 1
+        }
     }
 
     private static func detectLineNumberPattern(

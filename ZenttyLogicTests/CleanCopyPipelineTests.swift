@@ -704,6 +704,11 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertEqual(result, "first match\nsecond match\nthird match\nfourth match")
     }
 
+    func test_stripLineNumbers_does_not_strip_ipv6_record() {
+        let input = "2400:52e0:fff0::1"
+        XCTAssertEqual(CleanCopyPipeline.stripLineNumberPrefixes(input), input)
+    }
+
     func test_stripLineNumbers_pipe_format() {
         let input = "1| hello\n2| world\n3| foo\n4| bar"
         let result = CleanCopyPipeline.stripLineNumberPrefixes(input)
@@ -810,6 +815,13 @@ final class CleanCopyPipelineTests: XCTestCase {
 
     func test_pipeline_wasModified_false_for_clean_input() {
         let input = "already clean\nno artifacts"
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
+    func test_pipeline_preserves_ipv6_record() {
+        let input = "2400:52e0:fff0::1"
         let result = CleanCopyPipeline.clean(input)
         XCTAssertEqual(result.text, input)
         XCTAssertFalse(result.wasModified)
