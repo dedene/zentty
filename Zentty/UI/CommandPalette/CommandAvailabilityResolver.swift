@@ -129,6 +129,10 @@ enum CommandAvailabilityResolver {
                 && !(context.worklaneCount == 1 && context.activePaneCount == 1)
         case .focusLeftPane,
              .focusRightPane,
+             .movePaneLeft,
+             .movePaneRight,
+             .movePaneUp,
+             .movePaneDown,
              .resizePaneLeft,
              .resizePaneRight,
              .resizePaneUp,

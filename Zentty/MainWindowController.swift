@@ -677,6 +677,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func movePaneLeft(_ sender: Any?) {
+        handle(.pane(.moveLeft))
+    }
+
+    @objc
+    func movePaneRight(_ sender: Any?) {
+        handle(.pane(.moveRight))
+    }
+
+    @objc
+    func movePaneUp(_ sender: Any?) {
+        handle(.pane(.moveUp))
+    }
+
+    @objc
+    func movePaneDown(_ sender: Any?) {
+        handle(.pane(.moveDown))
+    }
+
+    @objc
     func focusFirstColumn(_ sender: Any?) {
         handle(.pane(.focusFirstColumn))
     }

@@ -27,7 +27,7 @@
 
 ## Features
 
-- **Worklanes, not just tabs.** Borrowed from niri and Hyprland: a horizontally-scrolling strip of columns, each column a vertical stack of panes. Rearrange, resize, and navigate without losing your place.
+- **Worklanes, not just tabs.** Borrowed from niri and Hyprland: a horizontally-scrolling strip of columns, each column a vertical stack of panes. Rearrange (via mouse drag or keyboard shortcuts), resize, and navigate without losing your place.
 - **Keyboard-first, top to bottom.** Every action is a command. Every command is bindable. Rebind anything in settings, or fall back to the command palette when your muscle memory runs out.
 - **Resume your workspace** Zentty restores your worklanes on relaunch and can reopen agent sessions that were closed without finishing.
 - **Command palette** A fuzzy-searchable list of every action in the app, with your recent commands on top.

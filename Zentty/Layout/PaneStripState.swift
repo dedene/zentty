@@ -980,6 +980,98 @@ struct PaneStripState: Equatable, Sendable {
     }
 
     @discardableResult
+    mutating func movePaneLeft() -> Bool {
+        guard let focusedPaneID else { return false }
+        guard let sourceColumnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == focusedPaneID })
+        }) else {
+            return false
+        }
+
+        let currentColumn = columns[sourceColumnIndex]
+
+        if sourceColumnIndex > 0 {
+            let targetColumn = columns[sourceColumnIndex - 1]
+            return movePane(id: focusedPaneID, toColumnID: targetColumn.id, atPaneIndex: 0)
+        } else {
+            if currentColumn.panes.count > 1 {
+                guard let removal = removePane(id: focusedPaneID, singleColumnWidth: nil) else {
+                    return false
+                }
+                insertPaneAsColumn(removal.pane, atColumnIndex: 0, width: removal.pane.width)
+                return true
+            }
+            return false
+        }
+    }
+
+    @discardableResult
+    mutating func movePaneRight() -> Bool {
+        guard let focusedPaneID else { return false }
+        guard let sourceColumnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == focusedPaneID })
+        }) else {
+            return false
+        }
+
+        let currentColumn = columns[sourceColumnIndex]
+
+        if sourceColumnIndex < columns.count - 1 {
+            let targetColumn = columns[sourceColumnIndex + 1]
+            return movePane(id: focusedPaneID, toColumnID: targetColumn.id, atPaneIndex: 0)
+        } else {
+            if currentColumn.panes.count > 1 {
+                guard let removal = removePane(id: focusedPaneID, singleColumnWidth: nil) else {
+                    return false
+                }
+                insertPaneAsColumn(removal.pane, atColumnIndex: columns.count, width: removal.pane.width)
+                return true
+            }
+            return false
+        }
+    }
+
+    @discardableResult
+    mutating func movePaneUp() -> Bool {
+        guard let focusedPaneID else { return false }
+        guard let sourceColumnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == focusedPaneID })
+        }) else {
+            return false
+        }
+
+        let currentColumn = columns[sourceColumnIndex]
+        guard let sourcePaneIndex = currentColumn.panes.firstIndex(where: { $0.id == focusedPaneID }) else {
+            return false
+        }
+
+        if sourcePaneIndex > 0 {
+            return movePane(id: focusedPaneID, toColumnID: currentColumn.id, atPaneIndex: sourcePaneIndex - 1)
+        }
+        return false
+    }
+
+    @discardableResult
+    mutating func movePaneDown() -> Bool {
+        guard let focusedPaneID else { return false }
+        guard let sourceColumnIndex = columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == focusedPaneID })
+        }) else {
+            return false
+        }
+
+        let currentColumn = columns[sourceColumnIndex]
+        guard let sourcePaneIndex = currentColumn.panes.firstIndex(where: { $0.id == focusedPaneID }) else {
+            return false
+        }
+
+        if sourcePaneIndex < currentColumn.panes.count - 1 {
+            return movePane(id: focusedPaneID, toColumnID: currentColumn.id, atPaneIndex: sourcePaneIndex + 1)
+        }
+        return false
+    }
+
+    @discardableResult
     mutating func movePane(
         id: PaneID,
         toColumnID: PaneColumnID,

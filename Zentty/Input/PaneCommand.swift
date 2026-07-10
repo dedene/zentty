@@ -62,4 +62,8 @@ enum PaneCommand: Equatable, Sendable {
     case arrangeVertically(PaneVerticalArrangement)
     case arrangeGoldenRatio(GoldenRatioPreset)
     case resetLayout
+    case moveLeft
+    case moveRight
+    case moveUp
+    case moveDown
 }

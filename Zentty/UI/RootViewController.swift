@@ -1631,6 +1631,9 @@ final class RootViewController: NSViewController {
 
     private func handlePaneCommand(_ command: PaneCommand) {
         switch command {
+        case .moveLeft, .moveRight, .moveUp, .moveDown:
+            appCanvasView.settlePaneStripPresentationNow()
+            worklaneStore.send(command)
         case .resizeLeft:
             appCanvasView.settlePaneStripPresentationNow()
             handleHorizontalKeyboardResize(delta: -keyboardResizeStep(for: .horizontal))
