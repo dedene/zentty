@@ -276,7 +276,11 @@ enum AgentLaunchBootstrap {
             return directPlan(executablePath: executablePath, arguments: arguments)
         }
 
-        CursorHooksInstaller.installIfPossible(environment: environment, fileManager: fileManager)
+        try? AgentHooksInstallerRegistry.installer(for: .cursor)?.ensureInstalledForCurrentUser(
+            cliPath: environment["ZENTTY_CLI_BIN"] ?? "",
+            environment: environment,
+            fileManager: fileManager
+        )
 
         return AgentLaunchPlan(
             executablePath: executablePath,
@@ -299,7 +303,11 @@ enum AgentLaunchBootstrap {
             return directPlan(executablePath: executablePath, arguments: arguments)
         }
 
-        DroidHooksInstaller.installIfPossible(environment: environment, fileManager: fileManager)
+        try? AgentHooksInstallerRegistry.installer(for: .droid)?.ensureInstalledForCurrentUser(
+            cliPath: environment["ZENTTY_CLI_BIN"] ?? "",
+            environment: environment,
+            fileManager: fileManager
+        )
 
         return AgentLaunchPlan(
             executablePath: executablePath,
@@ -427,7 +435,11 @@ enum AgentLaunchBootstrap {
         // so reaching this point already means hooks are enabled. Users who want manual
         // control can still use `zentty install/uninstall grok-hooks`.
         if let cliPath = environment["ZENTTY_CLI_BIN"] {
-            try? GrokHooksInstaller.ensureInstalledForCurrentUser(cliPath: cliPath, fileManager: fileManager)
+            try? AgentHooksInstallerRegistry.installer(for: .grok)?.ensureInstalledForCurrentUser(
+                cliPath: cliPath,
+                environment: environment,
+                fileManager: fileManager
+            )
         }
 
         let setEnvironment: [String: String] = [
@@ -473,8 +485,11 @@ enum AgentLaunchBootstrap {
         // this point in AgentToolLauncher, so reaching here means hooks are
         // wanted.
         if let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank {
-            let home = environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()
-            try? AgyHooksInstaller.ensureInstalledForCurrentUser(cliPath: cliPath, home: home, fileManager: fileManager)
+            try? AgentHooksInstallerRegistry.installer(for: .agy)?.ensureInstalledForCurrentUser(
+                cliPath: cliPath,
+                environment: environment,
+                fileManager: fileManager
+            )
         }
 
         var setEnvironment: [String: String] = [
@@ -531,7 +546,7 @@ enum AgentLaunchBootstrap {
         }
 
         if let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank {
-            try? HermesHooksInstaller.ensureInstalledForCurrentUser(
+            try? AgentHooksInstallerRegistry.installer(for: .hermes)?.ensureInstalledForCurrentUser(
                 cliPath: cliPath,
                 environment: environment,
                 fileManager: fileManager
@@ -597,7 +612,11 @@ enum AgentLaunchBootstrap {
         // ZENTTY_VIBE_HOOKS_DISABLED=1 short-circuits at AgentToolLauncher.shouldAttemptBootstrap,
         // so reaching this point already means hooks are enabled.
         if let cliPath = environment["ZENTTY_CLI_BIN"] {
-            try? VibeHooksInstaller.ensureInstalledForCurrentUser(cliPath: cliPath, fileManager: fileManager)
+            try? AgentHooksInstallerRegistry.installer(for: .vibe)?.ensureInstalledForCurrentUser(
+                cliPath: cliPath,
+                environment: environment,
+                fileManager: fileManager
+            )
         }
 
         let argumentsJSON = (try? compactJSONString(arguments)) ?? "[]"
