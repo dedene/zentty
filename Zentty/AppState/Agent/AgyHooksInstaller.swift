@@ -425,3 +425,32 @@ enum AgyHooksInstallerError: Error, CustomStringConvertible {
         }
     }
 }
+
+// MARK: - HooksInstalling conformance
+
+extension AgyHooksInstaller: HooksInstalling {
+    static func ensureInstalledForCurrentUser(
+        cliPath: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws {
+        _ = try ensureInstalledForCurrentUser(
+            cliPath: cliPath,
+            home: environment["HOME"] ?? NSHomeDirectory(),
+            fileManager: fileManager
+        )
+    }
+
+    static func isInstalledForCurrentUser(environment: [String: String], fileManager: FileManager) -> Bool {
+        isInstalled(hooksFileURL: defaultUserHooksFileURL(home: environment["HOME"] ?? NSHomeDirectory()), fileManager: fileManager)
+    }
+
+    static func uninstallForCurrentUser(environment: [String: String], fileManager: FileManager) throws {
+        let home = environment["HOME"] ?? NSHomeDirectory()
+        try uninstall(hooksFileURL: defaultUserHooksFileURL(home: home), home: home, fileManager: fileManager)
+    }
+
+    static func integrationConfigURL(environment: [String: String]) -> URL? {
+        defaultUserHooksFileURL(home: environment["HOME"] ?? NSHomeDirectory())
+    }
+}

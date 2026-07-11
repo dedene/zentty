@@ -412,3 +412,27 @@ enum GrokHooksInstaller {
         try uninstall(at: defaultUserHooksURL(), fileManager: fileManager)
     }
 }
+
+// MARK: - HooksInstalling conformance
+
+extension GrokHooksInstaller: HooksInstalling {
+    static func ensureInstalledForCurrentUser(
+        cliPath: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws {
+        _ = try ensureInstalledForCurrentUser(cliPath: cliPath, fileManager: fileManager)
+    }
+
+    static func isInstalledForCurrentUser(environment: [String: String], fileManager: FileManager) -> Bool {
+        isInstalled(hooksRoot: defaultUserHooksURL(home: environment["HOME"] ?? NSHomeDirectory()), fileManager: fileManager)
+    }
+
+    static func uninstallForCurrentUser(environment: [String: String], fileManager: FileManager) throws {
+        try uninstall(fileManager: fileManager)
+    }
+
+    static func integrationConfigURL(environment: [String: String]) -> URL? {
+        defaultUserHooksURL(home: environment["HOME"] ?? NSHomeDirectory())
+    }
+}

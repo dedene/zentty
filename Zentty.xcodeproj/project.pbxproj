@@ -210,6 +210,7 @@
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
+		5DCE3CE7975228B9DAED83B5 /* HooksInstalling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */; };
 		5EC6012DA9430BE8D4B3346C /* VibeHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */; };
 		5F94EB5F5A6F59AD32F605CD /* MainActorShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E46B2946B1B85B846A487F /* MainActorShim.swift */; };
 		5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */; };
@@ -378,6 +379,7 @@
 		A76C3E94997088DB27061B7B /* SettingsContentHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A823EFDA23F3B1CC30E29182 /* SettingsContentHeaderView.swift */; };
 		A76D2038F2CA59D8E99BB28D /* WorklaneAttentionSummaryBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B2B4CFEFDD5D5985609F1BA /* WorklaneAttentionSummaryBuilderTests.swift */; };
 		A7D1705788C04A62E0EC684C /* PaneDragPreviewSizingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 286127859CC1D0E1D6E24ECE /* PaneDragPreviewSizingTests.swift */; };
+		A7E403E183B0B264A159FD54 /* HooksInstalling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */; };
 		A8735957C7DEFFD7C1530E81 /* WorkspaceTemplateCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70374B78DC61EC0409E65329 /* WorkspaceTemplateCapture.swift */; };
 		A92728F291D5458A677DDD7B /* GlassSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B65FF8B847E8E743D485D4 /* GlassSurfaceView.swift */; };
 		A9684C3ACA26BE7756C04436 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B93F46C5542A31805301C02 /* RootViewController.swift */; };
@@ -902,6 +904,7 @@
 		83094CAFA3516AF3C37FFCC7 /* ServerProcessTerminatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProcessTerminatorTests.swift; sourceTree = "<group>"; };
 		839652E02878DBF43B046B65 /* SettingsSidebarIconBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarIconBadge.swift; sourceTree = "<group>"; };
 		84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokHooksInstaller.swift; sourceTree = "<group>"; };
+		85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HooksInstalling.swift; sourceTree = "<group>"; };
 		859E02462A30A35800CA0123 /* NotificationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStoreTests.swift; sourceTree = "<group>"; };
 		8626016D68E310751E9D7E91 /* ClosedPaneStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedPaneStack.swift; sourceTree = "<group>"; };
 		86532A76726D9364B28994A8 /* AgentIntegrationConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationConsent.swift; sourceTree = "<group>"; };
@@ -1572,6 +1575,7 @@
 				84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */,
 				E5F5891F160455B55F41BB5F /* HermesHooksInstaller.swift */,
 				9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */,
+				85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */,
 				24AFCE0DB1F7E072081C9D41 /* JSONCRelaxedParse.swift */,
 				D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */,
 				1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */,
@@ -2669,6 +2673,7 @@
 				59082A59F09FC3C1D67F30E1 /* HermesHooksInstaller.swift in Sources */,
 				D236CEBA9406FEFA362E7744 /* HermesTitleOverrideReducer.swift in Sources */,
 				D33E6B305950A8E1822AA404 /* HookCanonicalReEmitter.swift in Sources */,
+				A7E403E183B0B264A159FD54 /* HooksInstalling.swift in Sources */,
 				2BC7421FF9D00CF7851A5E32 /* JSONCRelaxedParse.swift in Sources */,
 				69EE6C583CFC2132C81D9491 /* JSONKeyAccess.swift in Sources */,
 				F33474EA4FEC1975F4FB4754 /* KeyboardShortcut.swift in Sources */,
@@ -2957,6 +2962,7 @@
 				D1609E62F241375A9A62A4CB /* GrokHooksInstaller.swift in Sources */,
 				2CB00C84D0A16237C1D18814 /* HermesHooksInstaller.swift in Sources */,
 				9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */,
+				5DCE3CE7975228B9DAED83B5 /* HooksInstalling.swift in Sources */,
 				99451BC2B09FAA072A3B3A88 /* JSONCRelaxedParse.swift in Sources */,
 				6763F2DC7655B039F55D08F4 /* JSONKeyAccess.swift in Sources */,
 				B32F85F567CD87464A187C57 /* KimiHooksInstaller.swift in Sources */,

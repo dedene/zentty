@@ -160,12 +160,14 @@ enum HermesHooksInstaller {
         }
     }
 
-    @discardableResult
+    // Void return (dropped an unused Bool) so this directly witnesses the
+    // HooksInstalling.ensureInstalledForCurrentUser(cliPath:environment:fileManager:)
+    // requirement, whose signature Hermes already matches exactly.
     static func ensureInstalledForCurrentUser(
         cliPath: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
-    ) throws -> Bool {
+    ) throws {
         try install(
             configURL: defaultConfigURL(environment: environment),
             allowlistURL: defaultAllowlistURL(environment: environment),
@@ -397,5 +399,28 @@ enum HermesHooksInstaller {
     private static func nonBlank(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+// MARK: - HooksInstalling conformance
+
+extension HermesHooksInstaller: HooksInstalling {
+    // ensureInstalledForCurrentUser(cliPath:environment:fileManager:) is
+    // witnessed directly by the primary method above (now Void-returning).
+
+    static func isInstalledForCurrentUser(environment: [String: String], fileManager: FileManager) -> Bool {
+        isInstalled(configURL: defaultConfigURL(environment: environment), fileManager: fileManager)
+    }
+
+    static func uninstallForCurrentUser(environment: [String: String], fileManager: FileManager) throws {
+        try uninstall(
+            configURL: defaultConfigURL(environment: environment),
+            allowlistURL: defaultAllowlistURL(environment: environment),
+            fileManager: fileManager
+        )
+    }
+
+    static func integrationConfigURL(environment: [String: String]) -> URL? {
+        defaultConfigURL(environment: environment)
     }
 }
