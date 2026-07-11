@@ -332,11 +332,7 @@ final class UpdatesPrivacySettingsSectionViewController: SettingsScrollableSecti
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = font
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 0
-        return label
+        SettingsFormBuilder.label(text, font: font)
     }
 
     // MARK: - For Testing
