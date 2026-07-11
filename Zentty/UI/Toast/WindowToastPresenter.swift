@@ -26,11 +26,14 @@ final class WindowToastPresenter {
         guard toastView?.isProgressActive != true else {
             return
         }
+        // Tear down the prior toast even when the host is gone (mid-teardown),
+        // matching the pre-extraction behavior of always removing it first.
+        toastView?.removeFromSuperview()
         guard let host = hostViewProvider() else {
+            toastView = nil
             return
         }
 
-        toastView?.removeFromSuperview()
         let toast = PathCopiedToastView()
         toastView = toast
         let theme = themeProvider()
