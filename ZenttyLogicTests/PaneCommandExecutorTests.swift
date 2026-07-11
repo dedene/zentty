@@ -99,7 +99,7 @@ final class PaneCommandExecutorTests: XCTestCase {
         PaneCommandExecutor(
             worklaneStore: store,
             configStore: configStore ?? makeConfigStore(),
-            runtimeRegistry: PaneRuntimeRegistry(),
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             canvas: canvas,
             hooks: hooks ?? HooksSpy().makeHooks()
         )

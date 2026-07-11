@@ -186,6 +186,9 @@ final class RootViewController: NSViewController {
     private var toasts: WindowToastPresenter!
     private var remotePaste: RemoteImagePasteController!
     private var globalSearchChoreographer: GlobalSearchFocusChoreographer!
+    // `AppActionRouter.environment` is unowned; the router is stored on the VC,
+    // so its lifetime is a subset of the VC's. Lazy and never touched in deinit.
+    private lazy var router = AppActionRouter(environment: self)
     private let paneNavigationButtons = PaneNavigationButtons()
     private let paneLayoutMenuCoordinator: PaneLayoutMenuCoordinator
     private lazy var leadingChromeControlsBar = LeadingChromeControlsBar(
@@ -1409,81 +1412,7 @@ final class RootViewController: NSViewController {
             return
         }
 
-        switch action {
-        case .toggleSidebar:
-            handleToggleSidebar()
-        case .newWorklane:
-            worklaneStore.createWorklane()
-        case .renameCurrentWorklane:
-            beginRenameActiveWorklane()
-        case .renameCurrentPane:
-            beginRenameActivePane()
-        case .nextWorklane:
-            peekController.handleTab(forward: true)
-        case .previousWorklane:
-            peekController.handleTab(forward: false)
-        case .moveWorklaneUp:
-            moveActiveWorklane(by: -1)
-        case .moveWorklaneDown:
-            moveActiveWorklane(by: 1)
-        case .find:
-            showFocusedPaneSearch()
-        case .globalFind:
-            showGlobalSearch()
-        case .useSelectionForFind:
-            useFocusedPaneSelectionForSearch()
-        case .findNext:
-            findNextInFocusedPane()
-        case .findPrevious:
-            findPreviousInFocusedPane()
-        case .copyFocusedPanePath:
-            copyFocusedPanePath()
-        case .cleanCopy:
-            performCleanCopy()
-        case .copyRaw:
-            performCopyRaw()
-        case .copyMarkdown:
-            performCopyMarkdown()
-        case .jumpToLatestNotification:
-            if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
-                notificationCoordinator.closePanel()
-                navigateToNotification(notification)
-            } else {
-                NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
-            }
-        case .pane(let command):
-            paneCommands.handlePaneCommand(command)
-        case .moveFocusedPaneToNewWindow:
-            onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        case .navigateBack:
-            worklaneStore.navigateBack()
-        case .navigateForward:
-            worklaneStore.navigateForward()
-        case .showCommandPalette:
-            showCommandPalette()
-        case .showTaskManager:
-            NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
-        case .openWithSelectedApp:
-            onOpenWithPrimaryRequested?()
-        case .openSelectedServer:
-            onServerPrimaryRequested?()
-        case .openBranchOnRemote:
-            openBranchOnRemote()
-        case .refreshPullRequestStatus:
-            renderCoordinator.refreshFocusedReviewState()
-        case .themeMode(let command):
-            applyThemeModeCommand(command)
-        case .openSettings:
-            onShowSettingsRequested?()
-        case .newWindow:
-            NSApp.sendAction(#selector(AppDelegate.newWindow(_:)), to: nil, from: nil)
-        case .closeWindow:
-            view.window?.close()
-        case .reloadConfig:
-            configStore.reloadFromDisk()
-        case .openBookmarksPopover:
-            toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
-        }
+        router.route(action)
     }
 
     private func showFocusedPaneSearch() {
@@ -3013,6 +2942,151 @@ final class RootViewController: NSViewController {
     private var hasResolvedPaneLayoutBounds: Bool {
         appCanvasView.bounds.width > 0.5
             || view.bounds.width > (ShellMetrics.outerInset * 2) + 0.5
+    }
+}
+
+// MARK: - AppActionRouterEnvironment
+
+extension RootViewController: AppActionRouterEnvironment {
+    func routeToggleSidebar() {
+        handleToggleSidebar()
+    }
+
+    func routeNewWorklane() {
+        worklaneStore.createWorklane()
+    }
+
+    func routeRenameCurrentWorklane() {
+        beginRenameActiveWorklane()
+    }
+
+    func routeRenameCurrentPane() {
+        beginRenameActivePane()
+    }
+
+    func routeNextWorklane() {
+        peekController.handleTab(forward: true)
+    }
+
+    func routePreviousWorklane() {
+        peekController.handleTab(forward: false)
+    }
+
+    func routeMoveWorklaneUp() {
+        moveActiveWorklane(by: -1)
+    }
+
+    func routeMoveWorklaneDown() {
+        moveActiveWorklane(by: 1)
+    }
+
+    func routeFind() {
+        showFocusedPaneSearch()
+    }
+
+    func routeGlobalFind() {
+        showGlobalSearch()
+    }
+
+    func routeUseSelectionForFind() {
+        useFocusedPaneSelectionForSearch()
+    }
+
+    func routeFindNext() {
+        findNextInFocusedPane()
+    }
+
+    func routeFindPrevious() {
+        findPreviousInFocusedPane()
+    }
+
+    func routeCopyFocusedPanePath() {
+        copyFocusedPanePath()
+    }
+
+    func routeCleanCopy() {
+        performCleanCopy()
+    }
+
+    func routeCopyRaw() {
+        performCopyRaw()
+    }
+
+    func routeCopyMarkdown() {
+        performCopyMarkdown()
+    }
+
+    func routeJumpToLatestNotification() {
+        if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
+            notificationCoordinator.closePanel()
+            navigateToNotification(notification)
+        } else {
+            NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
+        }
+    }
+
+    func routePaneCommand(_ command: PaneCommand) {
+        paneCommands.handlePaneCommand(command)
+    }
+
+    func routeMoveFocusedPaneToNewWindow() {
+        onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+    }
+
+    func routeNavigateBack() {
+        worklaneStore.navigateBack()
+    }
+
+    func routeNavigateForward() {
+        worklaneStore.navigateForward()
+    }
+
+    func routeShowCommandPalette() {
+        showCommandPalette()
+    }
+
+    func routeShowTaskManager() {
+        NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
+    }
+
+    func routeOpenWithSelectedApp() {
+        onOpenWithPrimaryRequested?()
+    }
+
+    func routeOpenSelectedServer() {
+        onServerPrimaryRequested?()
+    }
+
+    func routeOpenBranchOnRemote() {
+        openBranchOnRemote()
+    }
+
+    func routeRefreshPullRequestStatus() {
+        renderCoordinator.refreshFocusedReviewState()
+    }
+
+    func routeThemeMode(_ command: AppearanceThemeModeCommand) {
+        applyThemeModeCommand(command)
+    }
+
+    func routeOpenSettings() {
+        onShowSettingsRequested?()
+    }
+
+    func routeNewWindow() {
+        NSApp.sendAction(#selector(AppDelegate.newWindow(_:)), to: nil, from: nil)
+    }
+
+    func routeCloseWindow() {
+        view.window?.close()
+    }
+
+    func routeReloadConfig() {
+        configStore.reloadFromDisk()
+    }
+
+    func routeOpenBookmarksPopover() {
+        toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
     }
 }
 
