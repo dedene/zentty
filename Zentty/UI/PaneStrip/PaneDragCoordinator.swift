@@ -852,18 +852,8 @@ final class PaneDragCoordinator {
             cancelDrag()
         case .commit(let outcome):
             switch outcome {
-            case .reorder(_, let columnIndex, _):
-                completeDrop(columnIndex: columnIndex)
-            case .reorderInColumn(_, let columnID, let paneIndex, _):
-                completeInColumnDrop(
-                    stackGapHit: StackReorderGapHit(columnID: columnID, paneIndex: paneIndex)
-                )
-            case .splitDrop:
-                guard let splitHit = currentSplitHit else {
-                    cancelDrag()
-                    return
-                }
-                completeSplitDrop(splitHit: splitHit)
+            case .reorder, .reorderInColumn, .splitDrop:
+                completeInternalDrop(outcome: outcome)
             case .crossWorklane(_, let worklaneID, let paneIndex, _):
                 completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: paneIndex)
             case .newWorklane(_, let insertionIndex, _):
@@ -1216,7 +1206,11 @@ final class PaneDragCoordinator {
         paneStripView.endDragWithZoomIn()
     }
 
-    private func completeDrop(columnIndex: Int) {
+    /// Settle an in-canvas drop (reorder, in-column reorder, or split) and emit
+    /// `outcome`. The reveal strategy is identical across the three gestures — a
+    /// fade for duplicates, otherwise a settle to the dragged pane's slot — so the
+    /// only per-gesture variation is the outcome itself.
+    private func completeInternalDrop(outcome: PaneDragOutcome) {
         let isDuplicate = isOptionHeld
 
         guard let paneID = phase.activeState?.draggedPaneID else {
@@ -1228,30 +1222,7 @@ final class PaneDragCoordinator {
             paneID: paneID,
             revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
         ) { [weak self] in
-            self?.onDragOutcome?(.reorder(
-                paneID: paneID, columnIndex: columnIndex, isDuplicate: isDuplicate
-            ))
-        }
-    }
-
-    private func completeInColumnDrop(stackGapHit: StackReorderGapHit) {
-        let isDuplicate = isOptionHeld
-
-        guard let paneID = phase.activeState?.draggedPaneID else {
-            cancelDrag()
-            return
-        }
-
-        completeInternalDrop(
-            paneID: paneID,
-            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
-        ) { [weak self] in
-            self?.onDragOutcome?(.reorderInColumn(
-                paneID: paneID,
-                columnID: stackGapHit.columnID,
-                paneIndex: stackGapHit.paneIndex,
-                isDuplicate: isDuplicate
-            ))
+            self?.onDragOutcome?(outcome)
         }
     }
 
@@ -1293,28 +1264,6 @@ final class PaneDragCoordinator {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             container.animator().alphaValue = 0
         }, completionHandler: completion)
-    }
-
-    private func completeSplitDrop(splitHit: SplitZoneHit) {
-        let isDuplicate = isOptionHeld
-
-        guard let paneID = phase.activeState?.draggedPaneID else {
-            cancelDrag()
-            return
-        }
-
-        completeInternalDrop(
-            paneID: paneID,
-            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
-        ) { [weak self] in
-            self?.onDragOutcome?(.splitDrop(
-                paneID: paneID,
-                targetPaneID: splitHit.targetPaneID,
-                axis: splitHit.axis,
-                leading: splitHit.leading,
-                isDuplicate: isDuplicate
-            ))
-        }
     }
 
     // MARK: - Private — Sidebar Drop
