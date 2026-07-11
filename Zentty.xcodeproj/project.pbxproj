@@ -409,6 +409,7 @@
 		B1CBEE7D6E77065CD6C7C157 /* GhosttyConfigWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94E63B3F239632916F0BDE2 /* GhosttyConfigWriter.swift */; };
 		B22ACD7ABE0FB7A703022BC4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C3FED8AC4087BC3A3CFCC755 /* Sparkle */; };
 		B29AA42CAF4F9FB9D9E41AEB /* WorklaneStoreTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A2F8763B5E0AC31AB0EFC22 /* WorklaneStoreTitleTests.swift */; };
+		B2BBDE3B8D864756BB8708DF /* AgentStatusReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B6319AEE176E7AFF088AA8 /* AgentStatusReconciliation.swift */; };
 		B32F85F567CD87464A187C57 /* KimiHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */; };
 		B38B8A60FEC01BE8385B6ED1 /* WorklaneGitContextResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2D282138FCDC94B5D876B4D /* WorklaneGitContextResolverTests.swift */; };
 		B3A83430F4F28833E6D7E633 /* AppSideCanonicalReEmitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9E2045365716D8206DB7F /* AppSideCanonicalReEmitting.swift */; };
@@ -934,6 +935,7 @@
 		8EF1C35E3E3441C4C57051CA /* TmuxCompatArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatArguments.swift; sourceTree = "<group>"; };
 		8F82AEDB8F3C8B3C5F014D8D /* TerminalPaneHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostView.swift; sourceTree = "<group>"; };
 		905DD9FD69FFEA7991390EA4 /* ScrollSwitchGestureHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandler.swift; sourceTree = "<group>"; };
+		90B6319AEE176E7AFF088AA8 /* AgentStatusReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusReconciliation.swift; sourceTree = "<group>"; };
 		90F99D1FE29FEEA09DDD823A /* SidebarPanePrimaryRowViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPanePrimaryRowViewTests.swift; sourceTree = "<group>"; };
 		9108D5844FE620ED92B7B5BC /* CodexTranscriptQuestionExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptQuestionExtractor.swift; sourceTree = "<group>"; };
 		91380A1B682CF707751392D2 /* ServerListenerScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListenerScanner.swift; sourceTree = "<group>"; };
@@ -1597,6 +1599,7 @@
 				49A456B5C222F30C2DB528E0 /* VibeHooksInstaller.swift */,
 				8C77F1EBE688442845A39869 /* EventAdapters */,
 				DD7A9EA9CDCE8CB67767DBCC /* Presentation */,
+				AC1E0A79FB05CCF68ED81C8A /* Status */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -1693,6 +1696,14 @@
 				7D85A32FF838B668D61586CA /* FuzzyMatch */,
 			);
 			name = Packages;
+			sourceTree = "<group>";
+		};
+		AC1E0A79FB05CCF68ED81C8A /* Status */ = {
+			isa = PBXGroup;
+			children = (
+				90B6319AEE176E7AFF088AA8 /* AgentStatusReconciliation.swift */,
+			);
+			path = Status;
 			sourceTree = "<group>";
 		};
 		B258A9FA98E9B0D07686DC6E /* Updates */ = {
@@ -2588,6 +2599,7 @@
 				6BDA3DD6058C31E9C1635868 /* AgentStatusCommand.swift in Sources */,
 				7564C7F11282A9CD3B3D0CC0 /* AgentStatusHelper.swift in Sources */,
 				04F27F3F3AE18FF0B4F78B44 /* AgentStatusPayload.swift in Sources */,
+				B2BBDE3B8D864756BB8708DF /* AgentStatusReconciliation.swift in Sources */,
 				4009C50481B0344CD379E28C /* AgyCanonicalReEmitter.swift in Sources */,
 				AA082E49508FE2C0E08338E6 /* AgyEventAdapter.swift in Sources */,
 				431F20BE5D3B0B049221ADCC /* AgyHooksInstaller.swift in Sources */,

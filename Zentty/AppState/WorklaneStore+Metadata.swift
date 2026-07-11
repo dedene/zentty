@@ -648,7 +648,7 @@ extension WorklaneStore {
                 let now = Date()
                 let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
                 auxiliaryState.agentStatus = newStatus
-                auxiliaryState.agentReducerState = Self.seededReducerState(
+                auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
                     PaneAgentReducerState(),
                     from: newStatus
                 )
@@ -660,7 +660,7 @@ extension WorklaneStore {
             }
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -670,7 +670,7 @@ extension WorklaneStore {
         let didResumeBlocked = auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now)
 
         if didPromoteStarting || didResumeBlocked {
-            auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                 auxiliaryState.agentReducerState.reducedStatus(),
                 existingStatus: auxiliaryState.agentStatus
             )
@@ -747,7 +747,7 @@ extension WorklaneStore {
         // Keep the reducer in sync with the direct write so the periodic
         // sweep doesn't resurrect a stale session from before this
         // transition.
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             PaneAgentReducerState(),
             from: newStatus
         )
@@ -818,7 +818,7 @@ extension WorklaneStore {
             return false
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -829,7 +829,7 @@ extension WorklaneStore {
                 stopSignalLogger.debug("codex.title.idle firstBranch skip=noCurrentRunEvidence pane=\(paneID.rawValue, privacy: .public)")
                 return false
             }
-            let reducedStatus = Self.hydratedStatus(
+            let reducedStatus = AgentStatusReconciliation.hydratedStatus(
                 auxiliaryState.agentReducerState.reducedStatus(),
                 existingStatus: auxiliaryState.agentStatus
             )
@@ -893,7 +893,7 @@ extension WorklaneStore {
         // `clearStaleAgentSessions` sweep (which trusts `reducedStatus()` as
         // the source of truth) doesn't resurrect the previous running
         // session and clobber this direct write.
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             PaneAgentReducerState(),
             from: newStatus
         )
@@ -973,7 +973,7 @@ extension WorklaneStore {
             taskProgress: existingStatus.taskProgress
         )
         auxiliaryState.agentStatus = newStatus
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             PaneAgentReducerState(),
             from: newStatus
         )
@@ -1366,7 +1366,7 @@ extension WorklaneStore {
             return false
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: existingStatus
         )
@@ -1375,7 +1375,7 @@ extension WorklaneStore {
             return false
         }
 
-        auxiliaryState.agentStatus = Self.hydratedStatus(
+        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: existingStatus
         )

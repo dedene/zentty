@@ -159,7 +159,7 @@ extension WorklaneStore {
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
             auxiliaryState.terminalProgress = nil
-            auxiliaryState.agentReducerState = Self.seededReducerState(
+            auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
                 auxiliaryState.agentReducerState,
                 from: auxiliaryState.agentStatus
             )
@@ -178,7 +178,7 @@ extension WorklaneStore {
                 auxiliaryState.raw.codexCurrentRunHasObservedActivity = false
                 auxiliaryState.raw.wantsReadyStatus = false
                 auxiliaryState.raw.showsReadyStatus = false
-                auxiliaryState.agentStatus = Self.hydratedStatus(
+                auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                     auxiliaryState.agentReducerState.reducedStatus(),
                     existingStatus: auxiliaryState.agentStatus,
                     payloadWorkingDirectory: nil
@@ -186,7 +186,7 @@ extension WorklaneStore {
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
                 suppressReadyAfterRecompute = true
             } else if didMarkKimiIdle {
-                auxiliaryState.agentStatus = Self.hydratedStatus(
+                auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                     auxiliaryState.agentReducerState.reducedStatus(),
                     existingStatus: auxiliaryState.agentStatus,
                     payloadWorkingDirectory: nil
@@ -211,12 +211,12 @@ extension WorklaneStore {
             if preFinishStatus?.tool == .openCode,
                preFinishStatus?.state == .idle,
                var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] {
-                auxiliaryState.agentReducerState = Self.seededReducerState(
+                auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
                     auxiliaryState.agentReducerState,
                     from: auxiliaryState.agentStatus
                 )
                 auxiliaryState.agentReducerState.sweep(now: Date(), isProcessAlive: Self.isProcessAlive(pid:))
-                auxiliaryState.agentStatus = Self.hydratedStatus(
+                auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                     auxiliaryState.agentReducerState.reducedStatus(),
                     existingStatus: auxiliaryState.agentStatus
                 )
@@ -249,7 +249,7 @@ extension WorklaneStore {
                existingStatus?.state != .unresolvedStop,
                existingStatus?.source == .explicit {
                 var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
-                auxiliaryState.agentReducerState = Self.seededReducerState(
+                auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
                     auxiliaryState.agentReducerState,
                     from: existingStatus
                 )
@@ -308,7 +308,7 @@ extension WorklaneStore {
                    payload.state == .running || payload.state == .needsInput {
                     auxiliaryState.raw.codexCurrentRunHasObservedActivity = true
                 }
-                auxiliaryState.agentReducerState = Self.seededReducerState(
+                auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
                     auxiliaryState.agentReducerState,
                     from: auxiliaryState.agentStatus
                 )
@@ -382,7 +382,7 @@ extension WorklaneStore {
 
         if payload.clearsStatus {
             var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
-            auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: auxiliaryState.agentStatus)
+            auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(auxiliaryState.agentReducerState, from: auxiliaryState.agentStatus)
             auxiliaryState.agentReducerState.apply(payload)
             auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
             auxiliaryState.raw.wantsReadyStatus = false
@@ -509,7 +509,7 @@ extension WorklaneStore {
             )
             auxiliaryState.raw.codexInterruptSuppressionUntil = nil
         }
-        auxiliaryState.agentReducerState = Self.seededReducerState(auxiliaryState.agentReducerState, from: existingStatus)
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(auxiliaryState.agentReducerState, from: existingStatus)
 
         switch payload.signalKind {
         case .lifecycle:
@@ -551,7 +551,7 @@ extension WorklaneStore {
                     agentLaunchSnapshot: payload.agentLaunchSnapshot
                 )
             )
-            auxiliaryState.agentStatus = Self.hydratedStatus(
+            auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                 auxiliaryState.agentReducerState.reducedStatus(),
                 existingStatus: existingStatus,
                 payloadWorkingDirectory: payload.agentWorkingDirectory
@@ -640,7 +640,7 @@ extension WorklaneStore {
 
                 auxiliaryState.agentStatus = existingStatus
                 auxiliaryState.agentReducerState.apply(payload)
-                auxiliaryState.agentStatus = Self.hydratedStatus(
+                auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                     auxiliaryState.agentReducerState.reducedStatus() ?? existingStatus,
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
@@ -687,7 +687,7 @@ extension WorklaneStore {
                         agentLaunchSnapshot: payload.agentLaunchSnapshot
                     )
                 )
-                var status = Self.hydratedStatus(
+                var status = AgentStatusReconciliation.hydratedStatus(
                     auxiliaryState.agentReducerState.reducedStatus(),
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
@@ -713,7 +713,7 @@ extension WorklaneStore {
                     return
                 }
                 auxiliaryState.agentReducerState.apply(payload)
-                auxiliaryState.agentStatus = Self.hydratedStatus(
+                auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
                     auxiliaryState.agentReducerState.reducedStatus(),
                     existingStatus: existingStatus,
                     payloadWorkingDirectory: payload.agentWorkingDirectory
@@ -1238,7 +1238,7 @@ extension WorklaneStore {
                 if !aux.agentReducerState.sessionsByID.isEmpty {
                     var reducerState = aux.agentReducerState
                     reducerState.sweep(now: now, isProcessAlive: sweepContext.isProcessAlive(pid:))
-                    var reducedStatus = Self.hydratedStatus(
+                    var reducedStatus = AgentStatusReconciliation.hydratedStatus(
                         reducerState.reducedStatus(now: now),
                         existingStatus: aux.agentStatus
                     )
@@ -1291,62 +1291,6 @@ extension WorklaneStore {
                 }
             }
         }
-    }
-
-    static func seededReducerState(
-        _ reducerState: PaneAgentReducerState,
-        from existingStatus: PaneAgentStatus?
-    ) -> PaneAgentReducerState {
-        guard reducerState.sessionsByID.isEmpty, let existingStatus else {
-            return reducerState
-        }
-
-        var seededReducerState = reducerState
-        let sessionID = existingStatus.sessionID ?? "pane-\(existingStatus.tool.displayName.lowercased())"
-        seededReducerState.sessionsByID[sessionID] = PaneAgentSessionState(
-            sessionID: sessionID,
-            parentSessionID: existingStatus.parentSessionID,
-            agentLaunchSnapshot: existingStatus.agentLaunchSnapshot,
-            tool: existingStatus.tool,
-            state: existingStatus.state,
-            text: existingStatus.text,
-            artifactLink: existingStatus.artifactLink,
-            updatedAt: existingStatus.updatedAt,
-            source: existingStatus.source,
-            origin: existingStatus.origin,
-            interactionKind: existingStatus.interactionKind,
-            confidence: existingStatus.confidence,
-            shellActivityState: existingStatus.shellActivityState,
-            trackedPID: existingStatus.trackedPID,
-            hasObservedRunning: existingStatus.hasObservedRunning,
-            taskProgress: existingStatus.taskProgress,
-            completionCandidateDeadline: nil,
-            idleVisibleUntil: existingStatus.state == .idle
-                ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.idleVisibilityWindow)
-                : nil,
-            unresolvedStopVisibleUntil: existingStatus.state == .unresolvedStop
-                ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.unresolvedStopVisibilityWindow)
-                : nil,
-            transientTextVisibleUntil: existingStatus.text == PaneAgentReducerState.compactingStatusText
-                ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.transientRunningTextVisibilityWindow)
-                : nil
-        )
-        return seededReducerState
-    }
-
-    static func hydratedStatus(
-        _ status: PaneAgentStatus?,
-        existingStatus: PaneAgentStatus?,
-        payloadWorkingDirectory: String? = nil
-    ) -> PaneAgentStatus? {
-        guard var status else {
-            return nil
-        }
-
-        status.workingDirectory = WorklaneContextFormatter.trimmed(payloadWorkingDirectory)
-            ?? existingStatus?.workingDirectory
-        status.agentLaunchSnapshot = status.agentLaunchSnapshot ?? existingStatus?.agentLaunchSnapshot
-        return status
     }
 
     private func updateCodexTranscriptContext(
@@ -1480,7 +1424,7 @@ extension WorklaneStore {
             return
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -1504,7 +1448,7 @@ extension WorklaneStore {
             return
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -1534,7 +1478,7 @@ extension WorklaneStore {
         }
 
         let priorState = auxiliaryState.agentStatus?.state
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -1550,7 +1494,7 @@ extension WorklaneStore {
             "promoteCodexAgentStateFromUserInput priorState=\(priorState.map(String.init(describing:)) ?? "nil", privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
         )
 
-        auxiliaryState.agentStatus = Self.hydratedStatus(
+        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: auxiliaryState.agentStatus
         )
@@ -1573,7 +1517,7 @@ extension WorklaneStore {
             return
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -1581,7 +1525,7 @@ extension WorklaneStore {
             return
         }
 
-        auxiliaryState.agentStatus = Self.hydratedStatus(
+        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: auxiliaryState.agentStatus
         )
@@ -1606,7 +1550,7 @@ extension WorklaneStore {
 
         let now = Date()
         let preState = auxiliaryState.agentStatus?.state.rawValue ?? "<nil>"
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: auxiliaryState.agentStatus
         )
@@ -1616,7 +1560,7 @@ extension WorklaneStore {
             return
         }
 
-        auxiliaryState.agentStatus = Self.hydratedStatus(
+        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: auxiliaryState.agentStatus
         )
@@ -1648,7 +1592,7 @@ extension WorklaneStore {
 
         let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
         auxiliaryState.agentStatus = newStatus
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             PaneAgentReducerState(),
             from: newStatus
         )
