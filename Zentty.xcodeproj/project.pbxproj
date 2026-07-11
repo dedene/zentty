@@ -113,6 +113,7 @@
 		2CB00C84D0A16237C1D18814 /* HermesHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F5891F160455B55F41BB5F /* HermesHooksInstaller.swift */; };
 		2D4C882BFD1CD0BE9CF0D321 /* CodexToolStatusResolver+Predicates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED06A38FD1C326AD764C2ED /* CodexToolStatusResolver+Predicates.swift */; };
 		2E7726CCE8D1D2DC6D44DB22 /* ClosedPaneStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8626016D68E310751E9D7E91 /* ClosedPaneStack.swift */; };
+		2F01E9C99B24B4C372B0B90E /* RemoteImagePasteController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5551B42A588FBACB056D7DF /* RemoteImagePasteController.swift */; };
 		2F03F61669A9A0D783BB8009 /* WorklanePeekSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BBFAD0E8B72C30571FCAD0A /* WorklanePeekSelectionState.swift */; };
 		2F54A7D7AD63E93CC841317F /* GlobalSearchCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4483B8E7BA05745883A993C0 /* GlobalSearchCoordinatorTests.swift */; };
 		2F66DA8093CA1E0590D3DD0F /* SidebarTextMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880AC8A873636B3675457AAD /* SidebarTextMetrics.swift */; };
@@ -1076,6 +1077,7 @@
 		C498D4DFE603C6E5A408EAEC /* SidebarWorklaneRowMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowMenuController.swift; sourceTree = "<group>"; };
 		C50002F61829616FFF47B943 /* ZenttyLogicTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C551F8BB4DD16E95F8BDEFA2 /* BookmarksPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksPopoverView.swift; sourceTree = "<group>"; };
+		C5551B42A588FBACB056D7DF /* RemoteImagePasteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImagePasteController.swift; sourceTree = "<group>"; };
 		C59013577D95CD9373F8802A /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutWindowController.swift; sourceTree = "<group>"; };
 		C5A65B5FE282DD307A732E81 /* PaneIPCHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneIPCHandler.swift; sourceTree = "<group>"; };
 		C675B0F7ABA617674B6D9A82 /* OpenCodeThemeSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeThemeSyncTests.swift; sourceTree = "<group>"; };
@@ -1525,6 +1527,14 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		76CAE80E740C8673D6742EAD /* RemotePaste */ = {
+			isa = PBXGroup;
+			children = (
+				C5551B42A588FBACB056D7DF /* RemoteImagePasteController.swift */,
+			);
+			path = RemotePaste;
+			sourceTree = "<group>";
+		};
 		77D242A536F1FD4B6EE328F9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -1955,6 +1965,7 @@
 				660544F9D59B2C62B304456E /* Coordinators */,
 				0A3CC85E4F4F5760B08E8DE8 /* MenuBar */,
 				C2E4B49720CCE21570420D3B /* PaneStrip */,
+				76CAE80E740C8673D6742EAD /* RemotePaste */,
 				637FBA0FF3F56F8F8DDF3B18 /* Search */,
 				C91803792E050C61DDC543B3 /* Settings */,
 				D32CC59A6D1E3B98F23280A0 /* Sidebar */,
@@ -2818,6 +2829,7 @@
 				1216C817399FFC2FF0A5D3AB /* ProjectIconResolver.swift in Sources */,
 				810BC207CB6B0D76DD422520 /* RecentCommandsTracker.swift in Sources */,
 				B78B6869AC1BB4C5B6AA60E4 /* RemoteFileUploadRequest.swift in Sources */,
+				2F01E9C99B24B4C372B0B90E /* RemoteImagePasteController.swift in Sources */,
 				DB94D69E3A46FC2815951DAD /* RemoteImagePasteDecision.swift in Sources */,
 				CC77B8DAAD09EF142F0AAEDD /* RemoteImageUploadPath.swift in Sources */,
 				01439B6BF3F83A663BC90F30 /* RemoteImageUploader.swift in Sources */,
