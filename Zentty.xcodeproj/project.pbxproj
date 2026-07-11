@@ -319,6 +319,7 @@
 		8B1430D7C662CD2D1CC2E080 /* RootViewCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D24F62AFB71CBBAE4BC9B5A1 /* RootViewCompositionTests.swift */; };
 		8B9DF44D979391235B5F37A7 /* SentryErrorReportingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64108D9BDA637BCE7B68E60 /* SentryErrorReportingClient.swift */; };
 		8CCD7F2003BBC289D9B637F5 /* WorklaneColorMenuItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677818B56188202E6289EC96 /* WorklaneColorMenuItemView.swift */; };
+		8CDB26EC39FBAEA26902C670 /* WindowToastPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4891D8F3BFA2D0770F97575 /* WindowToastPresenter.swift */; };
 		8D16DCB2D9A5CBFD25CBC5D1 /* LibghosttySurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */; };
 		8D4C37D86BAA9B1B23DF164B /* PaneRestorationBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94D4DAD87041D3F7D24F41F /* PaneRestorationBuilder.swift */; };
 		8D81AEDC621630BE073CFDEB /* VibeCanonicalReEmitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779BFDD1489072D7AC5AB131 /* VibeCanonicalReEmitterTests.swift */; };
@@ -988,6 +989,7 @@
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A3F1AF8D07B9B05151774B4F /* WorklanePeekKeyMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekKeyMonitorTests.swift; sourceTree = "<group>"; };
 		A414B0A7FAAB8464A6432C77 /* SidebarWorklaneReorderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneReorderModel.swift; sourceTree = "<group>"; };
+		A4891D8F3BFA2D0770F97575 /* WindowToastPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToastPresenter.swift; sourceTree = "<group>"; };
 		A4E30C709665B28CA5A52C11 /* SidebarWorklaneReorderModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneReorderModelTests.swift; sourceTree = "<group>"; };
 		A56D0544A9DC91F1BB3E0B88 /* CleanCopyURLHelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanCopyURLHelpersTests.swift; sourceTree = "<group>"; };
 		A594231C8131296490BB8E76 /* WorklaneSidebarSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummaryBuilder.swift; sourceTree = "<group>"; };
@@ -1416,6 +1418,7 @@
 			isa = PBXGroup;
 			children = (
 				9D4020F350259F84864071D9 /* PathCopiedToastView.swift */,
+				A4891D8F3BFA2D0770F97575 /* WindowToastPresenter.swift */,
 			);
 			path = Toast;
 			sourceTree = "<group>";
@@ -2902,6 +2905,7 @@
 				0B6D4E438BAEC225861619A7 /* VibeHooksInstaller.swift in Sources */,
 				A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */,
 				35C0E502B38BD3778920B0BD /* WindowChromeView.swift in Sources */,
+				8CDB26EC39FBAEA26902C670 /* WindowToastPresenter.swift in Sources */,
 				E2A2053AF99C0387818EE8D8 /* WorklaneAttentionNotificationCoordinator.swift in Sources */,
 				E091B391CA413E9D9C495CB6 /* WorklaneAttentionSummaryBuilder.swift in Sources */,
 				68E3A02B546C3A1943743AB6 /* WorklaneColor.swift in Sources */,

@@ -267,7 +267,10 @@ final class RootViewController: NSViewController {
 #endif
     private var isFullScreen = false
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
-    private var pathCopiedToastView: PathCopiedToastView?
+    // Assigned eagerly in init (not lazy): deinit reaches it via
+    // cancelAllRemoteImageUploads(), and forcing lazy init mid-deinit would form
+    // a [weak self] reference to an object already being deallocated, which traps.
+    private var toasts: WindowToastPresenter!
     private let remoteImageUploader: RemoteImageUploader
     private let sshProcessProbe = PaneSSHProcessProbe()
     private var remoteImageUploadTasksByPaneID: [PaneID: Task<Void, Never>] = [:]
@@ -419,6 +422,10 @@ final class RootViewController: NSViewController {
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)
+        toasts = WindowToastPresenter(
+            hostViewProvider: { [weak self] in self?.appCanvasView },
+            themeProvider: { [weak self] in self?.currentTheme ?? ZenttyTheme.fallback(for: nil) }
+        )
         appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
         }
@@ -2466,8 +2473,7 @@ final class RootViewController: NSViewController {
         let tasks = Array(remoteImageUploadTasksByPaneID.values)
         remoteImageUploadTasksByPaneID.removeAll()
         tasks.forEach { $0.cancel() }
-        pathCopiedToastView?.removeFromSuperview()
-        pathCopiedToastView = nil
+        toasts.dismiss()
     }
 
     private func cancelRemoteImageUploadsForRemovedPanes() {
@@ -2486,26 +2492,18 @@ final class RootViewController: NSViewController {
 
         task.cancel()
         if remoteImageUploadTasksByPaneID.isEmpty {
-            pathCopiedToastView?.removeFromSuperview()
-            pathCopiedToastView = nil
+            toasts.dismiss()
         }
     }
 
     private func beginRemoteImageUploadToast(message: String) -> PathCopiedToastView.ProgressHandle {
-        pathCopiedToastView?.removeFromSuperview()
-        let toast = PathCopiedToastView()
-        pathCopiedToastView = toast
-        return toast.beginProgress(
-            message: message,
-            in: appCanvasView,
-            theme: currentTheme
-        )
+        toasts.beginProgress(message: message)
     }
 
     private func showRemoteImagePasteFailure(_ failure: RemoteImagePasteFailure, paneID: PaneID) {
         Self.remoteImagePasteLogger.error("Remote image paste failed for pane \(paneID.rawValue): \(failure.message)")
-        if failure == .uploadAlreadyInProgress, pathCopiedToastView?.isProgressActive == true {
-            pathCopiedToastView?.temporarilyShowProgressMessage(failure.message, duration: failure.displayDuration)
+        if failure == .uploadAlreadyInProgress, toasts.isProgressActive {
+            toasts.temporarilyShowProgressMessage(failure.message, duration: failure.displayDuration)
             return
         }
 
@@ -2516,19 +2514,7 @@ final class RootViewController: NSViewController {
         message: String,
         duration: TimeInterval? = nil
     ) {
-        guard pathCopiedToastView?.isProgressActive != true else {
-            return
-        }
-
-        pathCopiedToastView?.removeFromSuperview()
-        let toast = PathCopiedToastView()
-        pathCopiedToastView = toast
-        if let duration {
-            let handle = toast.beginProgress(message: message, in: appCanvasView, theme: currentTheme)
-            handle.fail(message: message)
-        } else {
-            toast.show(message: message, in: appCanvasView, theme: currentTheme)
-        }
+        toasts.show(message: message, duration: duration)
     }
 
     private static func remoteImageUploadProgressMessage(fraction: Double) -> String {
@@ -3880,7 +3866,7 @@ final class RootViewController: NSViewController {
         }
 
         var pathCopiedToastViewForTesting: PathCopiedToastView? {
-            pathCopiedToastView
+            toasts.currentToastViewForTesting
         }
 
         func insertRemoteImageUploadTaskForTesting(
