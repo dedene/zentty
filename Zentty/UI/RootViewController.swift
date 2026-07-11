@@ -2928,10 +2928,17 @@ final class RootViewController: NSViewController {
         let previousWorklaneState = worklaneStore.state
         let previousLayoutContext = currentPaneLayoutContext
         let previousFocusedColumnContentMinX = focusedPaneColumnContentMinX()
+        // Suppress the layout-resize notification outright: this method runs its
+        // own coordinated canvas transition below (via the `needsCanvasTransition`
+        // hand-diff of `worklaneStore.state`), so a delivered .layoutResized would
+        // trigger a second, uncoordinated render mid-animation. `batchUpdate` now
+        // flushes captured changes on exit, so silence the source rather than
+        // relying on the change being dropped.
         worklaneStore.batchUpdate { [self] in
             updatePaneLayoutContextIfNeeded(
                 force: true,
-                leadingVisibleInsetOverride: motionTargets.reservedInset
+                leadingVisibleInsetOverride: motionTargets.reservedInset,
+                notifyLayoutResize: false
             )
         }
         let needsCanvasTransition =

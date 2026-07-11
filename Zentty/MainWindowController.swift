@@ -956,16 +956,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 intoWorklane: targetWorklaneID,
                 singleColumnWidth: store.layoutContext.singlePaneWidth
             )
+            // Adopt the runtime inside the batch so it is in place before the
+            // coalesced flush delivers `insertExtractedPane`'s .paneStructure /
+            // .activeWorklaneChanged — subscribers that resynchronize runtimes
+            // on those changes then see the adopted runtime, not a placeholder.
+            if didInsert, let runtime {
+                runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
+            }
         }
-        guard didInsert else {
-            return false
-        }
-        if let runtime {
-            runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
-        }
-        store.notify(.paneStructure(targetWorklaneID))
-        store.notify(.activeWorklaneChanged)
-        return true
+        // `insertExtractedPane` already emits .paneStructure(targetWorklaneID)
+        // and .activeWorklaneChanged; the batch flush delivers exactly those, so
+        // no manual re-emission is needed here anymore.
+        return didInsert
     }
 
     func splitOutPaneForNewWindow(

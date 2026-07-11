@@ -299,7 +299,10 @@ final class WorklaneRenderCoordinator {
             }
 
             terminalDiagnostics.recordRender(.full, activePaneID: activePaneID)
-            worklaneStore.batchUpdate { [self] in
+            // Renders, not mutations: this must drop any synchronous
+            // notification the render tree raises (re-entrancy guard), not
+            // replay it via batchUpdate's coalesce-and-flush semantics.
+            worklaneStore.withNotificationsSuppressed { [self] in
                 if needsRuntimeSynchronization {
                     runtimeRegistry.synchronize(with: worklaneStore.worklanes)
                     needsRuntimeSynchronization = false
