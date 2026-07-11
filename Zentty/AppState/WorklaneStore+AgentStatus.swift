@@ -51,9 +51,6 @@ final class AgentSessionSweepContext {
 }
 
 extension WorklaneStore {
-    private static let codexInputSubmitStabilizationWindow: TimeInterval = 0.35
-    private static let codexInterruptSuppressionWindow: TimeInterval = PaneAgentReducerState.stopGraceWindow + 1
-
     func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
         guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
             worklane.paneStripState.panes.contains(where: { $0.id == paneID })
@@ -171,7 +168,7 @@ extension WorklaneStore {
                 now: now
             )
             if hadCodexStatus || didClearCodex {
-                auxiliaryState.raw.codexInterruptSuppressionUntil = now.addingTimeInterval(Self.codexInterruptSuppressionWindow)
+                auxiliaryState.raw.codexInterruptSuppressionUntil = now.addingTimeInterval(CodexToolStatusResolver.interruptSuppressionWindow)
                 auxiliaryState.raw.lastDesktopNotificationText = nil
                 auxiliaryState.raw.lastDesktopNotificationDate = nil
                 auxiliaryState.raw.codexTranscriptContext = nil
@@ -455,7 +452,7 @@ extension WorklaneStore {
         ) {
             clearReadyStatusIfNeeded(for: payload.paneID, in: &worklane)
         }
-        if shouldClearCodexTitleIdleSuppression(
+        if codexResolver.shouldClearTitleIdleSuppression(
             existingStatus: existingStatus,
             incomingTool: tool,
             payload: payload
@@ -463,11 +460,11 @@ extension WorklaneStore {
             clearCodexTitleIdleSuppression(for: payload.paneID, in: &worklane)
         }
         var auxiliaryState = worklane.auxiliaryStateByPaneID[payload.paneID, default: PaneAuxiliaryState()]
-        updateCodexTranscriptContext(payload: payload, tool: tool, auxiliaryState: &auxiliaryState)
-        if shouldSuppressCodexTurnCompleteForCurrentNeedsInputTitle(
+        codexResolver.updateTranscriptContext(payload: payload, tool: tool, aux: &auxiliaryState)
+        if codexResolver.shouldSuppressTurnCompleteForCurrentNeedsInputTitle(
             payload: payload,
             tool: tool,
-            auxiliaryState: auxiliaryState
+            aux: auxiliaryState
         ) {
             logCodexRestartPayload(
                 stage: "payload.skip.currentNeedsInputTitle",
@@ -480,7 +477,7 @@ extension WorklaneStore {
             )
             return
         }
-        if shouldSuppressCodexPayloadDuringInterrupt(payload: payload, tool: tool, auxiliaryState: auxiliaryState) {
+        if codexResolver.shouldSuppressPayloadDuringInterrupt(payload: payload, tool: tool, aux: auxiliaryState) {
             logCodexRestartPayload(
                 stage: "payload.skip.interruptSuppression",
                 payload: payload,
@@ -503,7 +500,7 @@ extension WorklaneStore {
             }
             return
         }
-        if shouldClearCodexInterruptSuppression(payload: payload, tool: tool) {
+        if codexResolver.shouldClearInterruptSuppression(payload: payload, tool: tool) {
             codexRestartLogger.notice(
                 "payload.clearSuppression pane=\(payload.paneID.rawValue, privacy: .public) state=\(payload.state?.rawValue ?? "<nil>", privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) lifecycle=\(payload.lifecycleEvent?.rawValue ?? "<nil>", privacy: .public)"
             )
@@ -1009,23 +1006,7 @@ extension WorklaneStore {
         guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        codexRestartLogger.notice(
-            "\(reason, privacy: .public) clear pane=\(paneID.rawValue, privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState.agentStatus), privacy: .public) sessions=\(auxiliaryState.agentReducerState.sessionsByID.count, privacy: .public)"
-        )
-        _ = auxiliaryState.agentReducerState.clearCodexSessionsFromUserInterrupt()
-        if auxiliaryState.agentStatus?.tool == .codex {
-            auxiliaryState.agentStatus = nil
-        }
-        auxiliaryState.terminalProgress = nil
-        auxiliaryState.raw.wantsReadyStatus = false
-        auxiliaryState.raw.showsReadyStatus = false
-        auxiliaryState.raw.codexCurrentRunHasObservedActivity = false
-        auxiliaryState.raw.codexTitleIdleSuppressionUntil = nil
-        auxiliaryState.raw.codexInterruptSuppressionUntil = nil
-        auxiliaryState.raw.codexTranscriptContext = nil
-        auxiliaryState.raw.lastDesktopNotificationText = nil
-        auxiliaryState.raw.lastDesktopNotificationDate = nil
+        codexResolver.clearTransientState(&auxiliaryState, paneID: paneID, reason: reason)
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
@@ -1167,28 +1148,6 @@ extension WorklaneStore {
         }
     }
 
-    private func shouldClearCodexTitleIdleSuppression(
-        existingStatus: PaneAgentStatus?,
-        incomingTool: AgentTool?,
-        payload: AgentStatusPayload
-    ) -> Bool {
-        let tool = incomingTool ?? existingStatus?.tool
-        guard tool == .codex else {
-            return false
-        }
-
-        switch payload.signalKind {
-        case .lifecycle:
-            return payload.state != nil
-        case .pid:
-            return payload.pidEvent == .attach
-        case .shellState:
-            return payload.shellActivityState == .commandRunning
-        case .paneRootPID, .paneContext:
-            return false
-        }
-    }
-
     private func clearCodexTitleIdleSuppression(
         for paneID: PaneID,
         in worklane: inout WorklaneState
@@ -1291,39 +1250,6 @@ extension WorklaneStore {
                 }
             }
         }
-    }
-
-    private func updateCodexTranscriptContext(
-        payload: AgentStatusPayload,
-        tool: AgentTool?,
-        auxiliaryState: inout PaneAuxiliaryState
-    ) {
-        guard tool == .codex else {
-            return
-        }
-
-        if let path = WorklaneContextFormatter.trimmed(payload.agentTranscriptPath) {
-            auxiliaryState.raw.codexTranscriptContext = PaneCodexTranscriptContext(
-                sessionID: WorklaneContextFormatter.trimmed(payload.sessionID)
-                    ?? auxiliaryState.raw.codexTranscriptContext?.sessionID,
-                path: path
-            )
-            return
-        }
-
-        if (payload.state == .starting || payload.state == .running),
-           let sessionID = WorklaneContextFormatter.trimmed(payload.sessionID),
-           auxiliaryState.raw.codexTranscriptContext?.sessionID != sessionID {
-            auxiliaryState.raw.codexTranscriptContext = nil
-            return
-        }
-
-        guard let sessionID = WorklaneContextFormatter.trimmed(payload.sessionID),
-              var context = auxiliaryState.raw.codexTranscriptContext else {
-            return
-        }
-        context.sessionID = sessionID
-        auxiliaryState.raw.codexTranscriptContext = context
     }
 
     private func terminalDesktopNotificationPayload(
@@ -1470,35 +1396,18 @@ extension WorklaneStore {
         now: Date,
         in worklane: inout WorklaneState
     ) {
-        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-              auxiliaryState.agentStatus?.tool == .codex,
-              auxiliaryState.agentStatus?.source == .explicit
-        else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        let priorState = auxiliaryState.agentStatus?.state
-        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
-            auxiliaryState.agentReducerState,
-            from: auxiliaryState.agentStatus
-        )
-        guard auxiliaryState.agentReducerState.promoteExplicitCodexSessionFromUserInput(
+        if codexResolver.promoteFromUserInput(
+            &auxiliaryState,
+            paneID: paneID,
             allowNeedsInputResume: allowNeedsInputResume,
             allowIdleResume: allowIdleResume,
             now: now
-        ) else {
-            return
+        ) {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         }
-
-        worklaneStoreLogger.notice(
-            "promoteCodexAgentStateFromUserInput priorState=\(priorState.map(String.init(describing:)) ?? "nil", privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
-        )
-
-        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
-            auxiliaryState.agentReducerState.reducedStatus(now: now),
-            existingStatus: auxiliaryState.agentStatus
-        )
-        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     /// Mistral Vibe has no turn-start hook, so a user submit (Enter) is our
@@ -1536,38 +1445,16 @@ extension WorklaneStore {
         paneID: PaneID,
         in worklane: inout WorklaneState
     ) {
-        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-              !auxiliaryState.raw.codexInterruptSuppressionIsActive(),
-              auxiliaryState.agentStatus?.tool == .codex,
-              auxiliaryState.agentStatus?.source == .explicit,
-              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                  auxiliaryState.metadata?.title,
-                  recognizedTool: .codex
-              ),
-              signature.phase == .running else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        let now = Date()
-        let preState = auxiliaryState.agentStatus?.state.rawValue ?? "<nil>"
-        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
-            auxiliaryState.agentReducerState,
-            from: auxiliaryState.agentStatus
-        )
-        let didPromoteStarting = auxiliaryState.agentReducerState.promoteExplicitStartingSessionToRunning(now: now)
-        let didResumeBlocked = auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now)
-        guard didPromoteStarting || didResumeBlocked else {
-            return
+        if codexResolver.promoteRunningFromCurrentTitle(
+            &auxiliaryState,
+            paneID: paneID,
+            now: Date()
+        ) {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         }
-
-        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
-            auxiliaryState.agentReducerState.reducedStatus(now: now),
-            existingStatus: auxiliaryState.agentStatus
-        )
-        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-        stopSignalLogger.debug(
-            "codex.applyPayload.repromote pane=\(paneID.rawValue, privacy: .public) preState=\(preState, privacy: .public) didPromoteStarting=\(didPromoteStarting, privacy: .public) didResumeBlocked=\(didResumeBlocked, privacy: .public) => running"
-        )
     }
 
     private func promoteCodexRunningIfCurrentTitleAndProgressIndicateRunning(
@@ -1575,31 +1462,16 @@ extension WorklaneStore {
         now: Date,
         in worklane: inout WorklaneState
     ) {
-        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-              auxiliaryState.terminalProgress?.state.indicatesActivity == true,
-              !auxiliaryState.raw.codexInterruptSuppressionIsActive(now: now),
-              let existingStatus = auxiliaryState.agentStatus,
-              existingStatus.tool == .codex,
-              existingStatus.state == .needsInput,
-              existingStatus.interactionKind.requiresHumanAttention,
-              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                  auxiliaryState.metadata?.title,
-                  recognizedTool: .codex
-              ),
-              signature.phase == .running else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
-        auxiliaryState.agentStatus = newStatus
-        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
-            PaneAgentReducerState(),
-            from: newStatus
-        )
-        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-        stopSignalLogger.debug(
-            "codex.progress.running force pane=\(paneID.rawValue, privacy: .public) preState=needsInput => running"
-        )
+        if codexResolver.promoteRunningFromCurrentTitleAndProgress(
+            &auxiliaryState,
+            paneID: paneID,
+            now: now
+        ) {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        }
     }
 
     private func shouldAllowCodexNeedsInputResumeFromUserSubmittedInput(
@@ -1607,13 +1479,10 @@ extension WorklaneStore {
         now: Date,
         in worklane: WorklaneState
     ) -> Bool {
-        guard let status = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
-              status.tool == .codex,
-              status.state == .needsInput || status.interactionKind.requiresHumanAttention else {
-            return true
-        }
-
-        return now.timeIntervalSince(status.updatedAt) >= Self.codexInputSubmitStabilizationWindow
+        codexResolver.needsInputResumeAllowedFromUserSubmit(
+            status: worklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
+            now: now
+        )
     }
 
     private func codexInterruptSuppressionIsActive(
@@ -1622,94 +1491,6 @@ extension WorklaneStore {
         now: Date = Date()
     ) -> Bool {
         worklane.auxiliaryStateByPaneID[paneID]?.raw.codexInterruptSuppressionIsActive(now: now) == true
-    }
-
-    private func shouldSuppressCodexPayloadDuringInterrupt(
-        payload: AgentStatusPayload,
-        tool: AgentTool?,
-        auxiliaryState: PaneAuxiliaryState
-    ) -> Bool {
-        guard tool == .codex,
-              auxiliaryState.raw.codexInterruptSuppressionIsActive() else {
-            return false
-        }
-
-        switch payload.signalKind {
-        case .lifecycle:
-            return payload.state == .idle || payload.clearsStatus
-        case .pid, .paneRootPID, .shellState, .paneContext:
-            return false
-        }
-    }
-
-    private func shouldSuppressCodexTurnCompleteForCurrentNeedsInputTitle(
-        payload: AgentStatusPayload,
-        tool: AgentTool?,
-        auxiliaryState: PaneAuxiliaryState
-    ) -> Bool {
-        guard tool == .codex,
-              payload.lifecycleEvent == .turnComplete else {
-            return false
-        }
-
-        return Self.codexCurrentTitleIndicatesNeedsInput(auxiliaryState)
-    }
-
-    static func codexRunningStatus(from existingStatus: PaneAgentStatus, now: Date) -> PaneAgentStatus {
-        PaneAgentStatus(
-            tool: .codex,
-            state: .running,
-            text: nil,
-            artifactLink: existingStatus.artifactLink,
-            updatedAt: now,
-            source: existingStatus.source,
-            origin: existingStatus.origin,
-            interactionKind: .none,
-            confidence: existingStatus.confidence,
-            shellActivityState: existingStatus.shellActivityState,
-            trackedPID: existingStatus.trackedPID,
-            workingDirectory: existingStatus.workingDirectory,
-            hasObservedRunning: true,
-            sessionID: existingStatus.sessionID,
-            parentSessionID: existingStatus.parentSessionID,
-            taskProgress: existingStatus.taskProgress
-        )
-    }
-
-    static func codexCurrentTitleIndicatesNeedsInput(_ auxiliaryState: PaneAuxiliaryState) -> Bool {
-        guard let title = auxiliaryState.metadata?.title else {
-            return false
-        }
-
-        if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: title) != nil {
-            return true
-        }
-
-        return TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            title,
-            recognizedTool: .codex
-        )?.phase == .needsInput
-    }
-
-    private func shouldClearCodexInterruptSuppression(
-        payload: AgentStatusPayload,
-        tool: AgentTool?
-    ) -> Bool {
-        guard tool == .codex else {
-            return false
-        }
-
-        switch payload.signalKind {
-        case .pid:
-            return payload.pidEvent == .attach
-        case .lifecycle:
-            guard let state = payload.state else {
-                return false
-            }
-            return state == .starting || state == .running || state == .needsInput
-        case .shellState, .paneRootPID, .paneContext:
-            return false
-        }
     }
 
     nonisolated fileprivate static func defaultIsProcessAlive(pid: Int32) -> Bool {
