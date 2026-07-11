@@ -545,6 +545,7 @@
 		EDDA5E4E1273F0E81FBBE882 /* SettingsNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC29DBB882ABDF747B9DDA76 /* SettingsNavigationHistory.swift */; };
 		EDE18C0DA4C79997711F2528 /* ZenttyBreadcrumbs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B83CC56F8834AA75E2315BC /* ZenttyBreadcrumbs.swift */; };
 		EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63590216920018B71F1ACB7A /* AppDelegateTests.swift */; };
+		EE24FB9D4987F1969F41B0D5 /* WorklaneStoreCodexWriteBackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AF5B9241156382C39C53043 /* WorklaneStoreCodexWriteBackTests.swift */; };
 		EE2D32723FAD470779B8D7F9 /* NotificationSoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E706A2076EAD5DD8C5AD0882 /* NotificationSoundManager.swift */; };
 		EE970D14373E2C135E45C480 /* ThemeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73931D75238B5C4F1427B708 /* ThemeCoordinator.swift */; };
 		EEC22296EE34DF6250AD3DAD /* BookmarkNameSuggester.swift in Sources */ = {isa = PBXBuildFile; fileRef = D08C0137453B47FE9FC59D1E /* BookmarkNameSuggester.swift */; };
@@ -643,6 +644,7 @@
 		08CB7FE3B87F05DE3D6B4426 /* ThemeCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalogService.swift; sourceTree = "<group>"; };
 		0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreColorTests.swift; sourceTree = "<group>"; };
 		0AD3FFBDDBB1362295BD5207 /* SettingsFormBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFormBuilder.swift; sourceTree = "<group>"; };
+		0AF5B9241156382C39C53043 /* WorklaneStoreCodexWriteBackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreCodexWriteBackTests.swift; sourceTree = "<group>"; };
 		0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteBackdropView.swift; sourceTree = "<group>"; };
 		0B761568FFEEF65421C52232 /* MenuBarStatusMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusMenuBuilder.swift; sourceTree = "<group>"; };
 		0B77CE7C6471C7FFD211BFDF /* MoveToWorklaneMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveToWorklaneMenuBuilder.swift; sourceTree = "<group>"; };
@@ -2141,6 +2143,7 @@
 				FFA39255E836211E35CAFF5F /* WorklaneState+Testing.swift */,
 				A3284D0E745C4F976D593E2B /* WorklaneStoreBatchUpdateTests.swift */,
 				0B7DFA52E9F279C81A803C23 /* WorklaneStoreClosedPaneRestoreTests.swift */,
+				0AF5B9241156382C39C53043 /* WorklaneStoreCodexWriteBackTests.swift */,
 				0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */,
 				9E981E6DAD0FE2A00554CEEA /* WorklaneStoreCrossWindowTransferTests.swift */,
 				A78A6A6B85882097AFFAE3EE /* WorklaneStoreGitContextTests.swift */,
@@ -2569,6 +2572,7 @@
 				63EE5118B588FB5B28430AAF /* WorklaneState+Testing.swift in Sources */,
 				3AE92E0885178E51B735D878 /* WorklaneStoreBatchUpdateTests.swift in Sources */,
 				37683223FAC33E2284C333DB /* WorklaneStoreClosedPaneRestoreTests.swift in Sources */,
+				EE24FB9D4987F1969F41B0D5 /* WorklaneStoreCodexWriteBackTests.swift in Sources */,
 				E1386EB98808607C67C5A1DF /* WorklaneStoreColorTests.swift in Sources */,
 				166E5E086FD1CCBD36F1FB4C /* WorklaneStoreCrossWindowTransferTests.swift in Sources */,
 				D3B45C25D1794724A766C6DA /* WorklaneStoreGitContextTests.swift in Sources */,
