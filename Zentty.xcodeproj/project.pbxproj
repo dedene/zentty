@@ -507,6 +507,7 @@
 		DC6594609ADC8C26340A0B8A /* SidebarWorklaneRowButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4225E34022CEC2DFB9C70338 /* SidebarWorklaneRowButtonTests.swift */; };
 		DD1FBB3CA62ACE6EFBA1E7AD /* FuzzyMatch in Frameworks */ = {isa = PBXBuildFile; productRef = 1783CDCC7848CB005D3A519C /* FuzzyMatch */; };
 		DE22542885A2BE164FE9090E /* KeyboardShortcutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF1AD0DA5648D1E48300407 /* KeyboardShortcutPreview.swift */; };
+		DF1048E3F1F45A233C595280 /* PaneAgentReducerState+Codex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8552E3232235804F4AB8FB80 /* PaneAgentReducerState+Codex.swift */; };
 		DFC95AFE3D93BC03C215FC0E /* WorkspaceTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E99517E9EAA4D99552859C /* WorkspaceTemplate.swift */; };
 		E091B391CA413E9D9C495CB6 /* WorklaneAttentionSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */; };
 		E092E65843424D641089F829 /* MenuBarAgentIconInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBA78773A292B4B9858DD5 /* MenuBarAgentIconInspector.swift */; };
@@ -906,6 +907,7 @@
 		839652E02878DBF43B046B65 /* SettingsSidebarIconBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarIconBadge.swift; sourceTree = "<group>"; };
 		84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokHooksInstaller.swift; sourceTree = "<group>"; };
 		85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HooksInstalling.swift; sourceTree = "<group>"; };
+		8552E3232235804F4AB8FB80 /* PaneAgentReducerState+Codex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaneAgentReducerState+Codex.swift"; sourceTree = "<group>"; };
 		859E02462A30A35800CA0123 /* NotificationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStoreTests.swift; sourceTree = "<group>"; };
 		8626016D68E310751E9D7E91 /* ClosedPaneStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedPaneStack.swift; sourceTree = "<group>"; };
 		86532A76726D9364B28994A8 /* AgentIntegrationConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationConsent.swift; sourceTree = "<group>"; };
@@ -1585,6 +1587,7 @@
 				14B5D7C3DB0445971F90C314 /* OpenCodeOverlayLayout.swift */,
 				D52DE33FBF1E4C9F22B1E569 /* OpenCodeThemeSync.swift */,
 				EB869749410CBF86B97FA142 /* PaneAgentReducer.swift */,
+				8552E3232235804F4AB8FB80 /* PaneAgentReducerState+Codex.swift */,
 				C5A65B5FE282DD307A732E81 /* PaneIPCHandler.swift */,
 				EA24EE3B2294AADC4A0C3E82 /* PiFamilyLaunchPolicy.swift */,
 				B3D36140C30599601062D9BF /* ProcessCWDResolver.swift */,
@@ -2730,6 +2733,7 @@
 				E6DB3D37929BDB0F6583E0E5 /* OpenWithCatalog.swift in Sources */,
 				858BC8739A32EF3A0240EF81 /* OpenWithService.swift in Sources */,
 				96C8DAEB457704BB7D4DEC7D /* PaneAgentReducer.swift in Sources */,
+				DF1048E3F1F45A233C595280 /* PaneAgentReducerState+Codex.swift in Sources */,
 				840FDF34FA89D7BA5649AF0C /* PaneAuxiliaryState.swift in Sources */,
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */,
