@@ -840,23 +840,37 @@ final class PaneDragCoordinator {
     func endDrag(at cursorInStrip: CGPoint) {
         guard case .active(let activeState) = phase else { return }
 
-        // Sidebar drops take priority
-        if case .sidebarWorklane(let worklaneID) = activeState.currentDropTarget {
-            completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: nil)
-        } else if case .sidebarWorklanePane(let worklaneID, let paneIndex) = activeState.currentDropTarget {
-            completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: paneIndex)
-        } else if case .newWorklane = activeState.currentDropTarget {
-            completeSidebarNewWorklaneDrop(atIndex: nil)
-        } else if case .newWorklaneAtIndex(let index) = activeState.currentDropTarget {
-            completeSidebarNewWorklaneDrop(atIndex: index)
-        } else if let stackGapHit = currentStackGapHit {
-            completeInColumnDrop(stackGapHit: stackGapHit)
-        } else if let splitHit = currentSplitHit {
-            completeSplitDrop(splitHit: splitHit)
-        } else if let idx = currentInsertionIndex {
-            completeDrop(columnIndex: idx)
-        } else {
+        let input = PaneDropResolver.Input(
+            draggedPaneID: activeState.draggedPaneID,
+            dropTarget: activeState.currentDropTarget,
+            stackGapHit: currentStackGapHit,
+            splitHit: currentSplitHit,
+            insertionColumnIndex: currentInsertionIndex,
+            isDuplicate: isOptionHeld
+        )
+
+        switch PaneDropResolver.resolve(input) {
+        case .cancel:
             cancelDrag()
+        case .commit(let outcome):
+            switch outcome {
+            case .reorder(_, let columnIndex, _):
+                completeDrop(columnIndex: columnIndex)
+            case .reorderInColumn(_, let columnID, let paneIndex, _):
+                completeInColumnDrop(
+                    stackGapHit: StackReorderGapHit(columnID: columnID, paneIndex: paneIndex)
+                )
+            case .splitDrop:
+                guard let splitHit = currentSplitHit else {
+                    cancelDrag()
+                    return
+                }
+                completeSplitDrop(splitHit: splitHit)
+            case .crossWorklane(_, let worklaneID, let paneIndex, _):
+                completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: paneIndex)
+            case .newWorklane(_, let insertionIndex, _):
+                completeSidebarNewWorklaneDrop(atIndex: insertionIndex)
+            }
         }
     }
 
