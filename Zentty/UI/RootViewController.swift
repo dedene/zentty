@@ -110,11 +110,6 @@ final class RootViewController: NSViewController {
             x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
-    private enum PaneResize {
-        static let minimumColumns: CGFloat = 5
-        static let minimumRows: CGFloat = 5
-    }
-
     let worklaneStore: WorklaneStore
     private let windowID: WindowID
     private let configStore: AppConfigStore
@@ -144,6 +139,21 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    // Lazy so `appCanvasView` (the canvas geometry) is created first. Never
+    // touched from deinit, so lazy init can't trap on a half-deallocated self.
+    private(set) lazy var paneCommands = PaneCommandExecutor(
+        worklaneStore: worklaneStore,
+        configStore: configStore,
+        runtimeRegistry: runtimeRegistry,
+        canvas: appCanvasView,
+        hooks: PaneCommandExecutor.UIHooks(
+            presentClosePaneConfirmation: { [weak self] reason, onConfirm in
+                self?.showClosePaneConfirmation(reason: reason, onConfirm: onConfirm)
+            },
+            showToast: { [weak self] message in self?.showToast(message: message) },
+            requestWindowClose: { [weak self] in self?.requestContainingWindowClose() }
+        )
+    )
     private let commandPaletteBackdropView = CommandPaletteBackdropView()
     private let peekView = WorklanePeekView()
     private let peekKeyMonitor = WorklanePeekKeyMonitor()
@@ -747,10 +757,10 @@ final class RootViewController: NSViewController {
                 let reason = self.worklaneStore.paneCloseConfirmationReason(paneID)
             {
                 self.showClosePaneConfirmation(reason: reason) {
-                    self.closePane(id: paneID)
+                    self.paneCommands.closePane(id: paneID)
                 }
             } else {
-                self.closePane(id: paneID)
+                self.paneCommands.closePane(id: paneID)
             }
         }
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
@@ -765,7 +775,7 @@ final class RootViewController: NSViewController {
                 delta: delta,
                 availableSize: self.appCanvasView.bounds.size,
                 leadingVisibleInset: self.appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: self.paneMinimumSizesByPaneID()
+                minimumSizeByPaneID: self.paneCommands.paneMinimumSizesByPaneID()
             )
         }
         appCanvasView.paneStripView.onDividerEqualizeRequested = { [weak self] divider in
@@ -992,12 +1002,12 @@ final class RootViewController: NSViewController {
                 self.showClosePaneConfirmation(reason: reason) {
                     self.worklaneStore.selectWorklaneAndFocusPane(
                         worklaneID: worklaneID, paneID: paneID)
-                    self.closePane(id: paneID)
+                    self.paneCommands.closePane(id: paneID)
                 }
             } else {
                 self.worklaneStore.selectWorklaneAndFocusPane(
                     worklaneID: worklaneID, paneID: paneID)
-                self.closePane(id: paneID)
+                self.paneCommands.closePane(id: paneID)
             }
         }
         sidebarView.onSplitHorizontalRequested = { [weak self] worklaneID, paneID in
@@ -1425,7 +1435,7 @@ final class RootViewController: NSViewController {
                 NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
             }
         case .pane(let command):
-            handlePaneCommand(command)
+            paneCommands.handlePaneCommand(command)
         case .moveFocusedPaneToNewWindow:
             onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         case .navigateBack:
@@ -1509,141 +1519,13 @@ final class RootViewController: NSViewController {
         focusedPaneRuntime()?.findPrevious()
     }
 
-    private func handleHorizontalKeyboardResize(delta: CGFloat) {
-        guard let action = worklaneStore.focusedHorizontalKeyboardResizeAction(for: delta) else {
-            return
-        }
-        switch action {
-        case .interior:
-            let shouldCenterMiddlePane =
-                shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
-            if shouldCenterMiddlePane {
-                appCanvasView.centerFocusedInteriorPaneOnNextRender()
-            }
-            let didResize = worklaneStore.resizeFocusedPane(
-                in: .horizontal,
-                delta: delta,
-                availableSize: appCanvasView.bounds.size,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-                animation: .immediate
-            )
-            if shouldCenterMiddlePane, !didResize {
-                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
-            }
-        case .edge(let target):
-            let appliedWidthDelta = worklaneStore.resize(
-                .horizontalEdge(target),
-                delta: delta,
-                availableSize: appCanvasView.bounds.size,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
-            )
-            if target.edge == .left, abs(appliedWidthDelta) > 0.001 {
-                appCanvasView.shiftPaneStripTargetOffsetOnNextRender(by: appliedWidthDelta)
-            }
-        }
-    }
-
-    private func handlePaneCommand(_ command: PaneCommand) {
-        switch command {
-        case .resizeLeft:
-            appCanvasView.settlePaneStripPresentationNow()
-            handleHorizontalKeyboardResize(delta: -keyboardResizeStep(for: .horizontal))
-        case .resizeRight:
-            appCanvasView.settlePaneStripPresentationNow()
-            handleHorizontalKeyboardResize(delta: keyboardResizeStep(for: .horizontal))
-        case .resizeUp:
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.resizeFocusedPane(
-                in: .vertical,
-                delta: resolvedVerticalKeyboardResizeDelta(keyboardResizeStep(for: .vertical)),
-                availableSize: appCanvasView.bounds.size,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-                animation: .immediate
-            )
-        case .resizeDown:
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.resizeFocusedPane(
-                in: .vertical,
-                delta: resolvedVerticalKeyboardResizeDelta(-keyboardResizeStep(for: .vertical)),
-                availableSize: appCanvasView.bounds.size,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-                animation: .immediate
-            )
-        case .arrangeHorizontally(let arrangement):
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.arrangeActiveWorklaneHorizontally(
-                arrangement,
-                availableWidth: appCanvasView.bounds.width,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset
-            )
-        case .arrangeVertically(let arrangement):
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.arrangeActiveWorklaneVertically(arrangement)
-        case .arrangeGoldenRatio(let preset):
-            appCanvasView.settlePaneStripPresentationNow()
-            switch preset {
-            case .focusWide, .focusNarrow:
-                worklaneStore.arrangeActiveWorklaneGoldenWidth(
-                    focusWide: preset == .focusWide,
-                    availableWidth: appCanvasView.bounds.width,
-                    leadingVisibleInset: appCanvasView.leadingVisibleInset
-                )
-            case .focusTall, .focusShort:
-                worklaneStore.arrangeActiveWorklaneGoldenHeight(
-                    focusTall: preset == .focusTall,
-                    availableSize: appCanvasView.bounds.size
-                )
-            }
-        case .resetLayout:
-            worklaneStore.resetActiveWorklaneLayout()
-        case .closeFocusedPane:
-            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
-            if configStore.current.confirmations.confirmBeforeClosingPane,
-                let focusedPaneID,
-                let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID)
-            {
-                showClosePaneConfirmation(reason: reason) { [weak self] in
-                    self?.closeFocusedPane()
-                }
-            } else {
-                closeFocusedPane()
-            }
-        case .restoreClosedPane:
-            performRestoreClosedPane()
-        default:
-            worklaneStore.send(command)
-        }
-    }
-
     private func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
         if event == .surfaceClosed {
-            handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
+            paneCommands.handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
             return
         }
 
         worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
-    }
-
-    private func closePane(id paneID: PaneID) {
-        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
-    }
-
-    private func performRestoreClosedPane() {
-        if let result = worklaneStore.restoreClosedPane() {
-            showRestoreToast(message: result.toastMessage)
-        } else {
-            showRestoreToast(message: "No recently closed pane to restore")
-        }
-    }
-
-    private func showRestoreToast(message: String) {
-        showToast(message: message)
-    }
-
-    private func closeFocusedPane() {
-        handlePaneCloseResult(worklaneStore.closeFocusedPane())
     }
 
     private func closeWorklane(id worklaneID: WorklaneID) {
@@ -1653,15 +1535,6 @@ final class RootViewController: NSViewController {
 
         worklaneStore.selectWorklane(id: worklaneID)
         worklaneStore.closeActiveWorklane()
-    }
-
-    private func handlePaneCloseResult(_ result: WorklaneStore.PaneCloseResult) {
-        switch result {
-        case .closed, .notFound:
-            return
-        case .closeWindow:
-            requestContainingWindowClose()
-        }
     }
 
     private func requestContainingWindowClose() {
@@ -1743,20 +1616,6 @@ final class RootViewController: NSViewController {
                 onConfirm()
             }
         }
-    }
-
-    private func shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize() -> Bool {
-        guard
-            let state = worklaneStore.activeWorklane?.paneStripState,
-            let focusedColumnID = state.focusedColumnID,
-            let focusedColumnIndex = state.columns.firstIndex(where: { $0.id == focusedColumnID })
-        else {
-            return false
-        }
-
-        return state.columns.count > 2
-            && focusedColumnIndex > 0
-            && focusedColumnIndex + 1 < state.columns.count
     }
 
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
@@ -2045,7 +1904,7 @@ final class RootViewController: NSViewController {
             inheritFromPaneID: worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
             environmentVariables: action.environment
         )
-        guard let paneID = splitWithLayout(
+        guard let paneID = paneCommands.splitWithLayout(
             placement: .afterFocused,
             isHorizontal: true,
             layout: .none,
@@ -2155,27 +2014,6 @@ final class RootViewController: NSViewController {
         toasts.show(message: message, duration: duration)
     }
 
-    private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
-        let minimumSizesByPaneID = paneMinimumSizesByPaneID()
-        guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
-            let minimumSize = minimumSizesByPaneID[focusedPaneID]
-        else {
-            switch axis {
-            case .horizontal:
-                return max(1, PaneMinimumSize.fallback.width / PaneResize.minimumColumns)
-            case .vertical:
-                return max(1, PaneMinimumSize.fallback.height / PaneResize.minimumRows)
-            }
-        }
-
-        switch axis {
-        case .horizontal:
-            return max(1, minimumSize.width / PaneResize.minimumColumns)
-        case .vertical:
-            return max(1, minimumSize.height / PaneResize.minimumRows)
-        }
-    }
-
     private func commandAvailabilityContext() -> CommandAvailabilityContext {
         let activeWorklane = worklaneStore.activeWorklane
         let paneStripState = activeWorklane?.paneStripState
@@ -2281,41 +2119,6 @@ final class RootViewController: NSViewController {
             notification: .announcementRequested,
             userInfo: [.announcement: message]
         )
-    }
-
-    private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {
-        guard
-            worklaneStore.activeWorklane?.paneStripState.shouldInvertVerticalKeyboardResizeDelta()
-                == true
-        else {
-            return delta
-        }
-
-        return -delta
-    }
-
-    private func paneMinimumSizesByPaneID() -> [PaneID: PaneMinimumSize] {
-        guard let worklane = worklaneStore.activeWorklane else {
-            return [:]
-        }
-
-        return Dictionary(
-            uniqueKeysWithValues: worklane.paneStripState.panes.map { pane in
-                let runtime = runtimeRegistry.runtime(for: pane)
-                let minimumWidth =
-                    runtime.cellWidth > 0
-                    ? max(
-                        PaneMinimumSize.fallback.width,
-                        runtime.cellWidth * PaneResize.minimumColumns)
-                    : PaneMinimumSize.fallback.width
-                let minimumHeight =
-                    runtime.cellHeight > 0
-                    ? max(
-                        PaneMinimumSize.fallback.height, runtime.cellHeight * PaneResize.minimumRows
-                    )
-                    : PaneMinimumSize.fallback.height
-                return (pane.id, PaneMinimumSize(width: minimumWidth, height: minimumHeight))
-            })
     }
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
@@ -2767,245 +2570,8 @@ final class RootViewController: NSViewController {
         )
     }
 
-    // MARK: - Pane IPC
-
-    func handlePaneIPCCommand(_ command: PaneCommand) {
-        handlePaneCommand(command)
-    }
-
-    @discardableResult
-    func splitWithLayout(
-        placement: PanePlacement,
-        isHorizontal: Bool,
-        layout: SplitLayoutAction,
-        targetPaneID: PaneID? = nil,
-        preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
-    ) -> PaneID? {
-        appCanvasView.settlePaneStripPresentationNow()
-        return worklaneStore.splitWithLayout(
-            placement: placement,
-            isHorizontal: isHorizontal,
-            layout: layout,
-            availableWidth: appCanvasView.bounds.width,
-            leadingVisibleInset: appCanvasView.leadingVisibleInset,
-            availableSize: appCanvasView.bounds.size,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-            targetPaneID: targetPaneID,
-            preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
-        )
-    }
-
-    @discardableResult
-    func applyGrid(
-        sourcePaneID: PaneID,
-        rows: Int,
-        columns: Int,
-        command: String?,
-        includeSource: Bool,
-        focus: GridFocus
-    ) throws -> GridApplicationResult {
-        appCanvasView.settlePaneStripPresentationNow()
-        return try worklaneStore.applyGrid(
-            sourcePaneID: sourcePaneID,
-            rows: rows,
-            columns: columns,
-            command: command,
-            includeSource: includeSource,
-            focus: focus
-        )
-    }
-
-    @discardableResult
-    func createWorklaneForGrid() -> WorklaneID {
-        worklaneStore.createWorklane()
-    }
-
-    func gridWindowWorkspaceState(
-        inheritingFrom sourcePaneID: PaneID,
-        destinationWindowID: WindowID
-    ) -> WindowWorkspaceState? {
-        worklaneStore.gridWindowWorkspaceState(
-            inheritingFrom: sourcePaneID,
-            destinationWindowID: destinationWindowID
-        )
-    }
-
-    func focusPaneByID(_ paneID: PaneID, in worklaneID: WorklaneID) {
-        worklaneStore.selectWorklane(id: worklaneID)
-        worklaneStore.focusPane(id: paneID)
-    }
-
     func closePaneByID(_ paneID: PaneID) {
-        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
-    }
-
-    @discardableResult
-    func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
-        worklaneStore.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
-    }
-
-    @discardableResult
-    func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
-        worklaneStore.setPaneTitle(id: paneID, title: title)
-    }
-
-    @discardableResult
-    func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
-        worklaneStore.setColor(color, on: id)
-    }
-
-    @discardableResult
-    func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
-        worklaneStore.setTitle(title, on: id)
-    }
-
-    @discardableResult
-    func setPaneCustomTitle(_ title: String?, on paneID: PaneID) -> Bool {
-        worklaneStore.setPaneCustomTitle(title, on: paneID)
-    }
-
-    func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
-        appCanvasView.settlePaneStripPresentationNow()
-        worklaneStore.resizeFocusedColumnToFraction(
-            fraction,
-            availableWidth: appCanvasView.bounds.width,
-            leadingVisibleInset: appCanvasView.leadingVisibleInset,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
-        )
-    }
-
-    func resizeColumnContainingPane(id paneID: PaneID, toFraction fraction: CGFloat) {
-        appCanvasView.settlePaneStripPresentationNow()
-        worklaneStore.resizeColumnContainingPane(
-            id: paneID,
-            toFraction: fraction,
-            availableWidth: appCanvasView.bounds.width,
-            leadingVisibleInset: appCanvasView.leadingVisibleInset,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
-        )
-    }
-
-    func columnWidthForPane(id paneID: PaneID, in worklaneID: WorklaneID) -> CGFloat? {
-        worklaneStore.columnWidthForPane(id: paneID, in: worklaneID)
-    }
-
-    func resizeColumnContainingPaneToWidth(id paneID: PaneID, width: CGFloat) {
-        appCanvasView.settlePaneStripPresentationNow()
-        let availableWidth = appCanvasView.bounds.width
-        let leadingVisibleInset = appCanvasView.leadingVisibleInset
-        appCanvasView.centerFocusedInteriorPaneOnNextRender()
-        let didResize = worklaneStore.resizeColumnContainingPanePreservingNeighbors(
-            id: paneID,
-            toWidth: width,
-            availableWidth: availableWidth,
-            leadingVisibleInset: leadingVisibleInset,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
-        )
-        if !didResize {
-            appCanvasView.clearPendingPaneStripTargetOffsetOverride()
-        }
-    }
-
-    func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
-        worklaneStore.resizeFocusedPaneHeightToFraction(fraction)
-    }
-
-    func equalizeFocusedColumnPaneHeights() {
-        worklaneStore.equalizeFocusedColumnPaneHeights()
-    }
-
-    func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
-        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
-            return []
-        }
-
-        var entries: [PaneListEntry] = []
-        var index = 1
-        for (columnIndex, column) in worklane.paneStripState.columns.enumerated() {
-            for pane in column.panes {
-                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
-                let isFocused = worklane.paneStripState.focusedPaneID == pane.id
-                entries.append(
-                    PaneListEntry(
-                        index: index,
-                        id: pane.id.rawValue,
-                        column: columnIndex + 1,
-                        title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
-                        workingDirectory: auxiliaryState?.shellContext?.path,
-                        isFocused: isFocused,
-                        agentTool: auxiliaryState?.agentStatus?.tool.displayName,
-                        agentStatus: auxiliaryState?.agentStatus?.state.rawValue
-                    ))
-                index += 1
-            }
-        }
-        return entries
-    }
-
-    func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
-        worklaneStore.worklanes.enumerated().flatMap { worklaneIndex, worklane in
-            worklane.paneStripState.panes.map { pane in
-                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
-                return TaskManagerPaneSource(
-                    windowID: windowID,
-                    windowTitle: windowTitle,
-                    worklaneID: worklane.id,
-                    worklaneTitle: worklane.title ?? "Worklane \(worklaneIndex + 1)",
-                    paneID: pane.id,
-                    paneTitle: WorklaneContextFormatter.trimmed(pane.customTitle)
-                        ?? auxiliaryState?.presentation.visibleIdentityText
-                        ?? pane.title,
-                    statusText: taskManagerStatusText(for: auxiliaryState),
-                    rootPID: auxiliaryState?.raw.paneRootPID,
-                    isRemote: auxiliaryState?.shellContext?.scope == .remote,
-                    currentWorkingDirectory: PaneTerminalLocationResolver.snapshot(
-                        metadata: auxiliaryState?.metadata,
-                        shellContext: auxiliaryState?.shellContext,
-                        requestWorkingDirectory: pane.sessionRequest.workingDirectory
-                    ).workingDirectory
-                )
-            }
-        }
-    }
-
-    private func taskManagerStatusText(for auxiliaryState: PaneAuxiliaryState?) -> String? {
-        if let agentStatus = auxiliaryState?.agentStatus {
-            return "\(agentStatus.tool.displayName) \(agentStatus.state.rawValue)"
-        }
-
-        switch auxiliaryState?.shellActivityState {
-        case .commandRunning:
-            return "Running"
-        case .promptIdle:
-            return "Idle"
-        case .unknown, nil:
-            return nil
-        }
-    }
-
-    func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
-        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
-            return nil
-        }
-
-        if target.hasPrefix("pn_") {
-            let paneID = PaneID(target)
-            if worklane.paneStripState.panes.contains(where: { $0.id == paneID }) {
-                return paneID
-            }
-            return nil
-        }
-
-        if let displayIndex = Int(target), displayIndex >= 1 {
-            let allPanes = worklane.paneStripState.columns.flatMap(\.panes)
-            if displayIndex <= allPanes.count {
-                return allPanes[displayIndex - 1].id
-            }
-        }
-
-        return nil
+        paneCommands.closePane(id: paneID)
     }
 
     var worklaneTitles: [String?] {

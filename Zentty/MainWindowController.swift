@@ -1005,7 +1005,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     // MARK: - Pane IPC
 
     func handlePaneIPCCommand(_ command: PaneCommand) {
-        rootViewController.handlePaneIPCCommand(command)
+        rootViewController.paneCommands.handlePaneCommand(command)
     }
 
     @discardableResult
@@ -1022,7 +1022,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         preserveFocusPaneID: PaneID? = nil,
         sessionRequest: TerminalSessionRequest? = nil
     ) -> PaneID? {
-        rootViewController.splitWithLayout(
+        rootViewController.paneCommands.splitWithLayout(
             placement: placement,
             isHorizontal: isHorizontal,
             layout: layout,
@@ -1041,7 +1041,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         includeSource: Bool,
         focus: GridFocus
     ) throws -> GridApplicationResult {
-        try rootViewController.applyGrid(
+        try rootViewController.paneCommands.applyGrid(
             sourcePaneID: sourcePaneID,
             rows: rows,
             columns: columns,
@@ -1053,7 +1053,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     @discardableResult
     func createWorklaneForGrid() -> (worklaneID: WorklaneID, paneID: PaneID)? {
-        let worklaneID = rootViewController.createWorklaneForGrid()
+        let worklaneID = rootViewController.paneCommands.createWorklaneForGrid()
         guard let paneID = rootViewController.focusedPaneID() else {
             return nil
         }
@@ -1064,7 +1064,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         inheritingFrom sourcePaneID: PaneID,
         destinationWindowID: WindowID
     ) -> WindowWorkspaceState? {
-        rootViewController.gridWindowWorkspaceState(
+        rootViewController.paneCommands.gridWindowWorkspaceState(
             inheritingFrom: sourcePaneID,
             destinationWindowID: destinationWindowID
         )
@@ -1072,16 +1072,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     @discardableResult
     func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
-        rootViewController.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
+        rootViewController.paneCommands.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
     }
 
     @discardableResult
     func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
-        rootViewController.setPaneTitle(id: paneID, title: title)
+        rootViewController.paneCommands.setPaneTitle(id: paneID, title: title)
     }
 
     func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
-        rootViewController.paneListEntries(for: worklaneID)
+        rootViewController.paneCommands.paneListEntries(for: worklaneID)
     }
 
     /// Mirrors the active worklane's custom name into the (visually hidden)
@@ -1099,14 +1099,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // Deliberately independent of window.title, which now carries the
         // active worklane's name and would otherwise leak into task-manager
         // window labels.
-        rootViewController.taskManagerPaneSources(
+        rootViewController.paneCommands.taskManagerPaneSources(
             windowID: windowID,
             windowTitle: "Window \(windowOrder + 1)"
         )
     }
 
     func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
-        rootViewController.resolvePaneID(target, in: worklaneID)
+        rootViewController.paneCommands.resolvePaneID(target, in: worklaneID)
     }
 
     func focusedPaneID(in worklaneID: WorklaneID) -> PaneID? {
@@ -1114,11 +1114,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func focusPane(id: PaneID, in worklaneID: WorklaneID) {
-        rootViewController.focusPaneByID(id, in: worklaneID)
+        rootViewController.paneCommands.focusPaneByID(id, in: worklaneID)
     }
 
     func closePane(id: PaneID) {
-        rootViewController.closePaneByID(id)
+        rootViewController.paneCommands.closePane(id: id)
     }
 
     /// Used by `TmuxCompatIPCHandler` for `tmux send-keys`. Returns true when
@@ -1161,37 +1161,37 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     @discardableResult
     func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
-        rootViewController.setWorklaneColor(color, on: id)
+        rootViewController.paneCommands.setWorklaneColor(color, on: id)
     }
 
     @discardableResult
     func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
-        rootViewController.setWorklaneTitle(title, on: id)
+        rootViewController.paneCommands.setWorklaneTitle(title, on: id)
     }
 
     @discardableResult
     func setPaneCustomTitle(_ title: String?, on paneID: PaneID) -> Bool {
-        rootViewController.setPaneCustomTitle(title, on: paneID)
+        rootViewController.paneCommands.setPaneCustomTitle(title, on: paneID)
     }
 
     func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
-        rootViewController.resizeFocusedColumnToFraction(fraction)
+        rootViewController.paneCommands.resizeFocusedColumnToFraction(fraction)
     }
 
     func resizeColumnContainingPane(id paneID: PaneID, toFraction fraction: CGFloat) {
-        rootViewController.resizeColumnContainingPane(id: paneID, toFraction: fraction)
+        rootViewController.paneCommands.resizeColumnContainingPane(id: paneID, toFraction: fraction)
     }
 
     func columnWidthForPane(id paneID: PaneID, in worklaneID: WorklaneID) -> CGFloat? {
-        rootViewController.columnWidthForPane(id: paneID, in: worklaneID)
+        rootViewController.paneCommands.columnWidthForPane(id: paneID, in: worklaneID)
     }
 
     func resizeColumnContainingPaneToWidth(id paneID: PaneID, width: CGFloat) {
-        rootViewController.resizeColumnContainingPaneToWidth(id: paneID, width: width)
+        rootViewController.paneCommands.resizeColumnContainingPaneToWidth(id: paneID, width: width)
     }
 
     func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
-        rootViewController.resizeFocusedPaneHeightToFraction(fraction)
+        rootViewController.paneCommands.resizeFocusedPaneHeightToFraction(fraction)
     }
 
     func handleServerIPCCommand(
@@ -1202,7 +1202,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func equalizeFocusedColumnPaneHeights() {
-        rootViewController.equalizeFocusedColumnPaneHeights()
+        rootViewController.paneCommands.equalizeFocusedColumnPaneHeights()
     }
 
     func tearDownRuntime() {

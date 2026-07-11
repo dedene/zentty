@@ -180,6 +180,7 @@
 		493E2A5FDF88B1B75E958F29 /* ServerListenerScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C4B3E5FFC590B5695ACC9C /* ServerListenerScannerTests.swift */; };
 		4A014221A3B9A8CFCCBA0DCF /* VibeHooksInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A549AF1327C02BFFB274EB /* VibeHooksInstallerTests.swift */; };
 		4A3471E1B0600EF1412C3932 /* SparkleAppUpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9C47104BD130C28676BA079 /* SparkleAppUpdateController.swift */; };
+		4B0C3768E3A6A13ACC424E7A /* PaneCommandExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A8FD7688E72C2B2A8099EE /* PaneCommandExecutorTests.swift */; };
 		4BB0E4171C495664EF0324FE /* PaneNavigationButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */; };
 		4BDC36B10F3277FC2645D57F /* WorklaneStore+DragDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4C1F56E8C3A787C0F4EAA8 /* WorklaneStore+DragDrop.swift */; };
 		4C10AD98A50D72B27E181FD2 /* BookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CFD112F9402167A1785DB70 /* BookmarkStore.swift */; };
@@ -452,6 +453,7 @@
 		C48A3F29901F1422CD1FD7BC /* WorklanePeekSelectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D0A8D1F663DD3E708212FD /* WorklanePeekSelectionStateTests.swift */; };
 		C4D51A818FD7098556DE2638 /* CodexToolStatusResolver+Title.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70D781663BFAF38E678D72F /* CodexToolStatusResolver+Title.swift */; };
 		C4F35E741F4A20FEA6E0B5C4 /* ZenttyCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4F4075E849631130D781E1 /* ZenttyCLI.swift */; };
+		C5472B502864FDAF36E08684 /* PaneCommandExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E5374262D4ED03A210B05CA /* PaneCommandExecutor.swift */; };
 		C57C067DB3163F1B09E7E72F /* PresentationReducerContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 058230B7588E412C374895C9 /* PresentationReducerContext.swift */; };
 		C57DE7B45F0BEFFDC8EC7371 /* MenuBarStatusPillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6996377692DF2C92D7428A5 /* MenuBarStatusPillView.swift */; };
 		C5873608D623BCF0F56FADD2 /* HermesEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9BDBFAF4FD6C6BA172731D /* HermesEventAdapter.swift */; };
@@ -849,6 +851,7 @@
 		5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurface.swift; sourceTree = "<group>"; };
 		6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButton.swift; sourceTree = "<group>"; };
 		60B3AD9AA8F799603B573B28 /* ServerWatchRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerWatchRunner.swift; sourceTree = "<group>"; };
+		61A8FD7688E72C2B2A8099EE /* PaneCommandExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommandExecutorTests.swift; sourceTree = "<group>"; };
 		61F7BA09CEEB123D53CB10C4 /* ServerRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerRegistry.swift; sourceTree = "<group>"; };
 		630B5B3D8685C9D8A186AC9B /* WorklaneStoreServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreServerTests.swift; sourceTree = "<group>"; };
 		63590216920018B71F1ACB7A /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
@@ -990,6 +993,7 @@
 		9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundManagerTests.swift; sourceTree = "<group>"; };
 		9DBF3974DC90A1B68DB02135 /* BookmarksPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksPopoverMetrics.swift; sourceTree = "<group>"; };
 		9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
+		9E5374262D4ED03A210B05CA /* PaneCommandExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommandExecutor.swift; sourceTree = "<group>"; };
 		9E981E6DAD0FE2A00554CEEA /* WorklaneStoreCrossWindowTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreCrossWindowTransferTests.swift; sourceTree = "<group>"; };
 		9E9E7AF610F36B91C077C324 /* WorklaneHeaderSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneHeaderSummary.swift; sourceTree = "<group>"; };
 		9EA2D0CE5BE10DFD7CDB4CBC /* PaneDisplayIdentityResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDisplayIdentityResolverTests.swift; sourceTree = "<group>"; };
@@ -1958,6 +1962,7 @@
 			isa = PBXGroup;
 			children = (
 				5712CB2F8BC16BB3B666A085 /* DragReorderHapticFeedback.swift */,
+				9E5374262D4ED03A210B05CA /* PaneCommandExecutor.swift */,
 				7B93F46C5542A31805301C02 /* RootViewController.swift */,
 				16FEAF3CA4E96E1EB18692E8 /* ShellMetrics.swift */,
 				3E0AB398A3212751C553DAD6 /* WorklaneRenderCoordinator.swift */,
@@ -2080,6 +2085,7 @@
 				C675B0F7ABA617674B6D9A82 /* OpenCodeThemeSyncTests.swift */,
 				572BB2FACCFA8A236D880F28 /* OpenWithCatalogTests.swift */,
 				5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */,
+				61A8FD7688E72C2B2A8099EE /* PaneCommandExecutorTests.swift */,
 				37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */,
 				D468A4AAC25D668673CC51CE /* PaneContainerViewWorklaneBorderTests.swift */,
 				9EA2D0CE5BE10DFD7CDB4CBC /* PaneDisplayIdentityResolverTests.swift */,
@@ -2510,6 +2516,7 @@
 				D5977945BCFB04E468408EC3 /* OpenCodeThemeSyncTests.swift in Sources */,
 				F246DE4E17B65DFEA465BF98 /* OpenWithCatalogTests.swift in Sources */,
 				8E847756B23CB6F02E3897BD /* PaneAgentReducerTests.swift in Sources */,
+				4B0C3768E3A6A13ACC424E7A /* PaneCommandExecutorTests.swift in Sources */,
 				9305DFB3157057C5F774497D /* PaneContainerViewTests.swift in Sources */,
 				BB1BCADC002057CB2A8211ED /* PaneContainerViewWorklaneBorderTests.swift in Sources */,
 				CD53494A66CC5B4B0CDF23BA /* PaneDisplayIdentityResolverTests.swift in Sources */,
@@ -2792,6 +2799,7 @@
 				DF1048E3F1F45A233C595280 /* PaneAgentReducerState+Codex.swift in Sources */,
 				840FDF34FA89D7BA5649AF0C /* PaneAuxiliaryState.swift in Sources */,
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
+				C5472B502864FDAF36E08684 /* PaneCommandExecutor.swift in Sources */,
 				3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */,
 				48ECF9EAFA83C8B95CB644E3 /* PaneDisplayIdentityResolver.swift in Sources */,
 				624B1BB94834F08B1F75C877 /* PaneDragCoordinator.swift in Sources */,
