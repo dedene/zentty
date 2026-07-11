@@ -200,3 +200,17 @@ extension AgentEventBridge {
         }
     }
 }
+
+// MARK: - Adapter conformance
+
+enum KimiEventAdapter: AgentEventAdapting {
+    static let adapterName = "kimi"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.kimiAdapter(data: data, environment: environment)
+    }
+}

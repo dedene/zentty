@@ -192,3 +192,21 @@ extension AgentEventBridge {
         return []
     }
 }
+
+// MARK: - Adapter conformance
+
+enum HermesEventAdapter: AgentEventAdapting {
+    static let adapterName = "hermes"
+    static let suppressesErrors = true
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.hermesAdapter(
+            data: data,
+            defaultEventName: positionalArguments.first,
+            environment: environment
+        )
+    }
+}

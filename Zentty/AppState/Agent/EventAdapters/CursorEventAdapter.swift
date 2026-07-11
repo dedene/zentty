@@ -372,3 +372,17 @@ extension AgentEventBridge {
         }
     }
 }
+
+// MARK: - Adapter conformance
+
+enum CursorEventAdapter: AgentEventAdapting {
+    static let adapterName = "cursor"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.cursorAdapter(data: data, environment: environment)
+    }
+}

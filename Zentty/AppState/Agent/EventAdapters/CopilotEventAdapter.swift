@@ -198,3 +198,21 @@ extension AgentEventBridge {
         return JSONKeyAccess.firstString(in: object, keys: ["question", "prompt", "message", "title"])
     }
 }
+
+// MARK: - Adapter conformance
+
+enum CopilotEventAdapter: AgentEventAdapting {
+    static let adapterName = "copilot"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.copilotAdapter(
+            data: data,
+            defaultEventName: positionalArguments.first,
+            environment: environment
+        )
+    }
+}

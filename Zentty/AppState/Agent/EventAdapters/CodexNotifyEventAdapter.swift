@@ -138,3 +138,17 @@ extension AgentEventBridge {
         return false
     }
 }
+
+// MARK: - Adapter conformance
+
+enum CodexNotifyEventAdapter: AgentEventAdapting {
+    static let adapterName = "codex-notify"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.codexNotifyAdapter(data: data, environment: environment)
+    }
+}

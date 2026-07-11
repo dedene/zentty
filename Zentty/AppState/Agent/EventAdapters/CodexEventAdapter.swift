@@ -460,3 +460,39 @@ extension AgentEventBridge {
         return nil
     }
 }
+
+// MARK: - Adapter conformance
+
+enum CodexEventAdapter: AgentEventAdapting {
+    static let adapterName = "codex"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.codexAdapter(
+            data: data,
+            defaultEventName: positionalArguments.first,
+            environment: environment
+        )
+    }
+}
+
+// MARK: - Adapter conformance
+
+enum SmallHarnessEventAdapter: AgentEventAdapting {
+    static let adapterName = "small-harness"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.smallHarnessAdapter(
+            data: data,
+            defaultEventName: positionalArguments.first,
+            environment: environment
+        )
+    }
+}

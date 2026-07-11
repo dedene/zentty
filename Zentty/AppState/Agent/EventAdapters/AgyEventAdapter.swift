@@ -206,3 +206,21 @@ extension AgentEventBridge {
         return (message, kind)
     }
 }
+
+// MARK: - Adapter conformance
+
+enum AgyEventAdapter: AgentEventAdapting {
+    static let adapterName = "agy"
+    static let suppressesErrors = true
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.agyAdapter(
+            data: data,
+            defaultEventName: positionalArguments.first,
+            environment: environment
+        )
+    }
+}

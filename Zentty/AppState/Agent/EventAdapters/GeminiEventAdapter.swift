@@ -125,3 +125,17 @@ extension AgentEventBridge {
         }
     }
 }
+
+// MARK: - Adapter conformance
+
+enum GeminiEventAdapter: AgentEventAdapting {
+    static let adapterName = "gemini"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.geminiAdapter(data: data, environment: environment)
+    }
+}

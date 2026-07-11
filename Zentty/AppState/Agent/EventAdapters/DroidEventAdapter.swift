@@ -285,3 +285,17 @@ extension AgentEventBridge {
         return []
     }
 }
+
+// MARK: - Adapter conformance
+
+enum DroidEventAdapter: AgentEventAdapting {
+    static let adapterName = "droid"
+    static let suppressesErrors = false
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.droidAdapter(data: data, environment: environment)
+    }
+}

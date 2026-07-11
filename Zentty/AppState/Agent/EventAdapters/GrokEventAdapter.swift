@@ -103,3 +103,17 @@ extension AgentEventBridge {
         }
     }
 }
+
+// MARK: - Adapter conformance
+
+enum GrokEventAdapter: AgentEventAdapting {
+    static let adapterName = "grok"
+    static let suppressesErrors = true
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.grokAdapter(data: data, environment: environment)
+    }
+}

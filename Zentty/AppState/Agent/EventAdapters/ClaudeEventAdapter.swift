@@ -386,3 +386,17 @@ extension AgentEventBridge {
         )
     }
 }
+
+// MARK: - Adapter conformance
+
+enum ClaudeEventAdapter: AgentEventAdapting {
+    static let adapterName = "claude"
+    static let suppressesErrors = true
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.claudeAdapter(data: data, environment: environment)
+    }
+}

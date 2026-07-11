@@ -292,6 +292,7 @@
 		8000FFBB2A9BB2606A89CD92 /* PaneLayoutSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF38754F46DCDAAF2D32B847 /* PaneLayoutSizing.swift */; };
 		80151BBA3E6C4EBB099460AB /* TerminalPaneHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F82AEDB8F3C8B3C5F014D8D /* TerminalPaneHostView.swift */; };
 		801ECD25402540B6F022BC3F /* KeyboardShortcutResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A94FD26FCD146425105D3FD /* KeyboardShortcutResolver.swift */; };
+		808D182D265A9B0AB991154C /* AgentEventAdapting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFDA5B89851F5FF285DFCFA /* AgentEventAdapting.swift */; };
 		80C1EA098B400A4A8C8E3D6F /* PathCopiedToastViewProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7F1086D671D36900F2EF2F /* PathCopiedToastViewProgressTests.swift */; };
 		810BC207CB6B0D76DD422520 /* RecentCommandsTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89BAAA51D175EA4CC9174AA /* RecentCommandsTracker.swift */; };
 		81AF86AEEA79AD53667ECBE3 /* PaneDragHitTestingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6BDCBDE4E090275233D9D3 /* PaneDragHitTestingTests.swift */; };
@@ -875,6 +876,7 @@
 		7B93F46C5542A31805301C02 /* RootViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewController.swift; sourceTree = "<group>"; };
 		7B94B2DF866815028261F94B /* WorkspaceTemplateImporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateImporterTests.swift; sourceTree = "<group>"; };
 		7B95C44923CD6F38E7D95D2F /* AgentIntegrationConsentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationConsentTests.swift; sourceTree = "<group>"; };
+		7BFDA5B89851F5FF285DFCFA /* AgentEventAdapting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEventAdapting.swift; sourceTree = "<group>"; };
 		7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneAttentionSummaryBuilder.swift; sourceTree = "<group>"; };
 		7CFD112F9402167A1785DB70 /* BookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStore.swift; sourceTree = "<group>"; };
 		7D19D665B0C99E8725E1E7AC /* ProjectIconResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIconResolverTests.swift; sourceTree = "<group>"; };
@@ -1609,6 +1611,7 @@
 			isa = PBXGroup;
 			children = (
 				5B49052740ADB2D8348CB0D7 /* AgentEventAdapters+Shared.swift */,
+				7BFDA5B89851F5FF285DFCFA /* AgentEventAdapting.swift */,
 				82C2F7AE1B971AED06DCFB20 /* AgyEventAdapter.swift */,
 				5E9037893B162FC1AD87A0DF /* ClaudeEventAdapter.swift */,
 				C18B2FF6F681F4948B49A9FE /* CodexEventAdapter.swift */,
@@ -2564,6 +2567,7 @@
 				522DDD2A865C44F69EA80545 /* AboutWindowController.swift in Sources */,
 				10495E193033CEF259528C11 /* AgentConsentCoordinator.swift in Sources */,
 				333EBC9F1C7E9559D8DA7214 /* AgentEventAdapters+Shared.swift in Sources */,
+				808D182D265A9B0AB991154C /* AgentEventAdapting.swift in Sources */,
 				6D5C3A48387A56D17DE5F06E /* AgentEventBridge.swift in Sources */,
 				52278F4B3EDD364F309993FF /* AgentIPC.swift in Sources */,
 				954386A2A2B7468FA9D1EA45 /* AgentIPCProtocol.swift in Sources */,

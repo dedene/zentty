@@ -44,3 +44,17 @@ extension AgentEventBridge {
     }
 
 }
+
+// MARK: - Adapter conformance
+
+enum VibeEventAdapter: AgentEventAdapting {
+    static let adapterName = "vibe"
+    static let suppressesErrors = true
+    static func makePayloads(
+        data: Data,
+        positionalArguments: [String],
+        environment: [String: String]
+    ) throws -> [AgentStatusPayload] {
+        try AgentEventBridge.vibeAdapter(data: data, environment: environment)
+    }
+}
