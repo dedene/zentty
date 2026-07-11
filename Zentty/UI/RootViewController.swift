@@ -185,9 +185,7 @@ final class RootViewController: NSViewController {
     // a [weak self] reference to an object already being deallocated, which traps.
     private var toasts: WindowToastPresenter!
     private var remotePaste: RemoteImagePasteController!
-    private var globalSearchNavigationFocusPreservationToken: Int?
-    private var globalSearchNavigationFocusPreservationSequence = 0
-    private var globalSearchNavigationFocusReleaseWorkItem: DispatchWorkItem?
+    private var globalSearchChoreographer: GlobalSearchFocusChoreographer!
     private let paneNavigationButtons = PaneNavigationButtons()
     private let paneLayoutMenuCoordinator: PaneLayoutMenuCoordinator
     private lazy var leadingChromeControlsBar = LeadingChromeControlsBar(
@@ -346,6 +344,25 @@ final class RootViewController: NSViewController {
             serverOpenService: serverOpenService,
             serverListenerScanner: serverListenerScanner,
             dockerServerDiscovery: dockerServerDiscovery
+        )
+        globalSearchChoreographer = GlobalSearchFocusChoreographer(
+            hooks: GlobalSearchFocusChoreographer.Hooks(
+                isHUDVisible: { [weak self] in self?.globalSearchCoordinator.state.isHUDVisible ?? false },
+                isFieldFocused: { [weak self] in self?.sidebarView.isGlobalSearchFieldFocused ?? false },
+                focusField: { [weak self] selectAll in self?.focusGlobalSearchField(selectAll: selectAll) },
+                enterFocusMotion: { [weak self] in
+                    guard let self else { return }
+                    self.sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
+                    self.syncSidebarVisibilityControls(animated: true)
+                },
+                exitFocusMotion: { [weak self] in
+                    guard let self else { return }
+                    self.sidebarMotionCoordinator.handle(.globalSearchFocusExited)
+                    self.syncSidebarVisibilityControls(animated: true)
+                },
+                endSearchSession: { [weak self] in self?.globalSearchCoordinator.end() },
+                focusTerminal: { [weak self] in self?.focusedPaneRuntime()?.hostView.focusTerminal() }
+            )
         )
         appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
@@ -741,7 +758,7 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.shouldSuppressProgrammaticTerminalFocus = { [weak self] in
             guard let self else { return false }
 
-            return self.shouldRetainGlobalSearchFocus
+            return self.globalSearchChoreographer.shouldRetainFocus
         }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
@@ -1068,21 +1085,21 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onGlobalSearchNextRequested = { [weak self] in
             guard let self else { return }
-            self.performGlobalSearchNavigationPreservingHUD {
+            self.globalSearchChoreographer.performNavigationPreservingHUD {
                 self.globalSearchCoordinator.findNext()
             }
         }
         sidebarView.onGlobalSearchPreviousRequested = { [weak self] in
             guard let self else { return }
-            self.performGlobalSearchNavigationPreservingHUD {
+            self.globalSearchChoreographer.performNavigationPreservingHUD {
                 self.globalSearchCoordinator.findPrevious()
             }
         }
         sidebarView.onGlobalSearchCloseRequested = { [weak self] in
-            self?.closeGlobalSearchAndFocusTerminal()
+            self?.globalSearchChoreographer.closeAndFocusTerminal()
         }
         sidebarView.onGlobalSearchFocusChanged = { [weak self] focused in
-            self?.handleGlobalSearchFocusChanged(focused)
+            self?.globalSearchChoreographer.handleFocusChanged(focused)
         }
         sidebarView.onOpenBookmarksPopoverRequested = { [weak self] anchorView in
             self?.toggleBookmarksPopover(anchorView: anchorView)
@@ -1499,7 +1516,7 @@ final class RootViewController: NSViewController {
 
     private func findNextInFocusedPane() {
         if globalSearchHasRememberedSearch {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findNext()
             }
             return
@@ -1510,7 +1527,7 @@ final class RootViewController: NSViewController {
 
     private func findPreviousInFocusedPane() {
         if globalSearchHasRememberedSearch {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findPrevious()
             }
             return
@@ -1653,88 +1670,6 @@ final class RootViewController: NSViewController {
 
         sidebarView.focusGlobalSearchField(
             selectAll: selectAll && !globalSearchCoordinator.state.needle.isEmpty)
-    }
-
-    private var shouldRetainGlobalSearchFocus: Bool {
-        globalSearchNavigationFocusPreservationToken != nil
-            || (globalSearchCoordinator.state.isHUDVisible
-                && sidebarView.isGlobalSearchFieldFocused)
-    }
-
-    private func performGlobalSearchNavigationPreservingHUD(_ navigation: () -> Void) {
-        globalSearchNavigationFocusPreservationSequence += 1
-        let token = globalSearchNavigationFocusPreservationSequence
-        globalSearchNavigationFocusPreservationToken = token
-        globalSearchNavigationFocusReleaseWorkItem?.cancel()
-        globalSearchNavigationFocusReleaseWorkItem = nil
-
-        sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-        syncSidebarVisibilityControls(animated: true)
-
-        navigation()
-        scheduleGlobalSearchNavigationRefocus(token: token)
-        scheduleGlobalSearchNavigationFocusRelease(token: token)
-    }
-
-    private func scheduleGlobalSearchNavigationRefocus(token: Int) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard self.globalSearchNavigationFocusPreservationToken == token else { return }
-
-            guard self.globalSearchCoordinator.state.isHUDVisible else {
-                self.globalSearchNavigationFocusPreservationToken = nil
-                return
-            }
-
-            self.sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-            self.syncSidebarVisibilityControls(animated: true)
-            self.focusGlobalSearchField(selectAll: false)
-        }
-    }
-
-    private func scheduleGlobalSearchNavigationFocusRelease(token: Int) {
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.globalSearchNavigationFocusPreservationToken == token else { return }
-
-            self.globalSearchNavigationFocusPreservationToken = nil
-            self.globalSearchNavigationFocusReleaseWorkItem = nil
-        }
-        globalSearchNavigationFocusReleaseWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
-    }
-
-    private func closeGlobalSearchAndFocusTerminal() {
-        globalSearchNavigationFocusPreservationToken = nil
-        globalSearchNavigationFocusReleaseWorkItem?.cancel()
-        globalSearchNavigationFocusReleaseWorkItem = nil
-        globalSearchCoordinator.end()
-        sidebarMotionCoordinator.handle(.globalSearchFocusExited)
-        syncSidebarVisibilityControls(animated: true)
-        focusedPaneRuntime()?.hostView.focusTerminal()
-    }
-
-    private func handleGlobalSearchFocusChanged(_ focused: Bool) {
-        if focused {
-            sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-            syncSidebarVisibilityControls(animated: true)
-            return
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard !self.sidebarView.isGlobalSearchFieldFocused else { return }
-
-            if self.shouldRetainGlobalSearchFocus {
-                self.sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-                self.syncSidebarVisibilityControls(animated: true)
-                self.focusGlobalSearchField(selectAll: false)
-                return
-            }
-
-            self.sidebarMotionCoordinator.handle(.globalSearchFocusExited)
-            self.syncSidebarVisibilityControls(animated: true)
-        }
     }
 
     private func showCommandPalette() {
@@ -2763,7 +2698,7 @@ final class RootViewController: NSViewController {
         }
 
         func simulateGlobalSearchFocusChangedForTesting(_ focused: Bool) {
-            handleGlobalSearchFocusChanged(focused)
+            globalSearchChoreographer.handleFocusChanged(focused)
         }
 
         func focusFocusedTerminalForTesting() {
@@ -2785,19 +2720,19 @@ final class RootViewController: NSViewController {
         }
 
         func performGlobalSearchNextForTesting() {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findNext()
             }
         }
 
         func performGlobalSearchPreviousForTesting() {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findPrevious()
             }
         }
 
         func closeGlobalSearchForTesting() {
-            closeGlobalSearchAndFocusTerminal()
+            globalSearchChoreographer.closeAndFocusTerminal()
         }
 
         func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
