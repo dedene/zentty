@@ -402,6 +402,7 @@ final class WorklaneStore {
     let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
     let codexQuestionResolver: CodexQuestionResolver
+    let codexResolver: CodexToolStatusResolver
     private let newWorklanePlacementProvider: @MainActor () -> NewWorklanePlacement
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
     private let serverDetectionProvider: @MainActor () -> AppConfig.ServerDetection
@@ -505,6 +506,7 @@ final class WorklaneStore {
         self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.codexQuestionResolver = codexQuestionResolver
+        self.codexResolver = CodexToolStatusResolver(now: currentDateProvider)
         self.newWorklanePlacementProvider = newWorklanePlacementProvider
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.serverDetectionProvider = serverDetectionProvider
