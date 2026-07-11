@@ -333,6 +333,51 @@ timeout = 15.0
         XCTAssertEqual(url.path, "/test/home/.vibe/hooks.toml")
     }
 
+    // MARK: - HooksInstalling conformance: HOME resolution (behavior preservation)
+    //
+    // The pre-refactor call site (AgentLaunchBootstrap) called
+    // `ensureInstalledForCurrentUser(cliPath:fileManager:)` without a `home`
+    // argument, so home defaulted to the *app process's* HOME
+    // (`ProcessInfo.processInfo.environment["HOME"]`), never the pane launch
+    // environment. The `HooksInstalling` conformance deliberately preserves
+    // that: it must ignore HOME in the passed `environment` and resolve home
+    // from the process environment instead. This exercises that by pointing
+    // the process's real HOME at a temp dir and passing a divergent HOME in
+    // `environment`, then asserting the install landed under the process HOME
+    // and not under the divergent one.
+
+    func test_HooksInstalling_ensureInstalledForCurrentUser_ignores_passed_environment_HOME() throws {
+        let originalHOME = getenv("HOME").map { String(cString: $0) }
+        setenv("HOME", temporaryHomeURL.path, 1)
+        defer {
+            if let originalHOME {
+                setenv("HOME", originalHOME, 1)
+            } else {
+                unsetenv("HOME")
+            }
+        }
+
+        let divergentHomeURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: divergentHomeURL) }
+
+        try VibeHooksInstaller.ensureInstalledForCurrentUser(
+            cliPath: "/opt/zentty/zentty",
+            environment: ["HOME": divergentHomeURL.path],
+            fileManager: .default
+        )
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: hooksFileURL.path),
+            "Install must land under the process HOME (matching the pre-refactor default-home call site)"
+        )
+
+        let divergentHooksURL = VibeHooksInstaller.defaultUserHooksFileURL(home: divergentHomeURL.path)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: divergentHooksURL.path),
+            "Install must not use the HOME value from the passed environment dictionary"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeTemporaryDirectory() throws -> URL {

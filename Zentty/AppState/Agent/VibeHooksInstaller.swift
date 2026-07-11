@@ -314,9 +314,14 @@ extension VibeHooksInstaller: HooksInstalling {
         environment: [String: String],
         fileManager: FileManager
     ) throws {
+        // Deliberate behavior preservation: the pre-refactor call site
+        // (AgentLaunchBootstrap) called `ensureInstalledForCurrentUser`
+        // without a `home` argument, which defaults to the *app process's*
+        // HOME (`ProcessInfo.processInfo.environment["HOME"]`), not the pane
+        // launch `environment` passed in here. Ignore `environment` for home
+        // resolution to preserve that exactly.
         _ = try ensureInstalledForCurrentUser(
             cliPath: cliPath,
-            home: environment["HOME"] ?? NSHomeDirectory(),
             fileManager: fileManager
         )
     }
