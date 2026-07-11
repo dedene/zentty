@@ -1198,7 +1198,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         _ command: ServerIPCCommand,
         target: AgentIPCTarget
     ) throws -> AgentIPCResponseResult {
-        try rootViewController.handleServerIPCCommand(command, target: target)
+        try rootViewController.serverCommands.handle(command, target: target)
     }
 
     func equalizeFocusedColumnPaneHeights() {
@@ -1284,7 +1284,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        _ = rootViewController.openServer(server)
+        _ = rootViewController.serverCommands.openServer(server)
     }
 
     /// Pops `menu` so its right edge aligns with `anchorRect`'s right edge,
@@ -1447,7 +1447,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        _ = rootViewController.openServer(server)
+        _ = rootViewController.serverCommands.openServer(server)
     }
 
     @objc
@@ -1456,7 +1456,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        rootViewController.killServer(server)
+        rootViewController.serverCommands.killServer(server)
     }
 
     @objc
@@ -1506,8 +1506,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        rootViewController.rememberServerBrowser(browser.stableID)
-        _ = rootViewController.openServer(server, browserID: browser.stableID)
+        rootViewController.serverCommands.rememberServerBrowser(browser.stableID)
+        _ = rootViewController.serverCommands.openServer(server, browserID: browser.stableID)
     }
 
     @objc

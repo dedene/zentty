@@ -124,6 +124,7 @@
 		326A9B40B1266ADE43A7BD7B /* MoveToWorklaneMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B77CE7C6471C7FFD211BFDF /* MoveToWorklaneMenuBuilder.swift */; };
 		32770C02AE69612F87393CD9 /* URLQueryParamRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE03606CCDB80BACDE1EB39E /* URLQueryParamRules.swift */; };
 		333EBC9F1C7E9559D8DA7214 /* AgentEventAdapters+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B49052740ADB2D8348CB0D7 /* AgentEventAdapters+Shared.swift */; };
+		33E6893220A6FB045F2781F2 /* WindowServerCommandServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80B2BBAD918F8D4B06FF6795 /* WindowServerCommandServiceTests.swift */; };
 		34A713B3F6840863015ABB41 /* CleanCopyPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5536743628D5E828DB0AA71 /* CleanCopyPrompts.swift */; };
 		358A6FA22378B781C3DCB43B /* SidebarGlobalSearchRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B07C000F905AC8E20E1648 /* SidebarGlobalSearchRowView.swift */; };
 		35C0E502B38BD3778920B0BD /* WindowChromeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E665DBFE88E93E1133FFEF /* WindowChromeView.swift */; };
@@ -210,6 +211,7 @@
 		5879663760748654C74B3759 /* SidebarViewDebugging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 559F037FFC52BB9F8C9AE5EB /* SidebarViewDebugging.swift */; };
 		59082A59F09FC3C1D67F30E1 /* HermesHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F5891F160455B55F41BB5F /* HermesHooksInstaller.swift */; };
 		59D8562415BA0E40C383D6FD /* TmuxCompatArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF1C35E3E3441C4C57051CA /* TmuxCompatArguments.swift */; };
+		5B20C1C2ADBA85229BA82907 /* WindowServerCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DB1479DBB0D102F1372877 /* WindowServerCommandService.swift */; };
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
@@ -683,6 +685,7 @@
 		1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHooksInstaller.swift; sourceTree = "<group>"; };
 		172E7F852B70FDD655345CF4 /* CodexTitlePromotionReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTitlePromotionReducer.swift; sourceTree = "<group>"; };
 		1750C0A516E7016E42B94EC2 /* SidebarWorklaneDragGestureTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneDragGestureTracker.swift; sourceTree = "<group>"; };
+		18DB1479DBB0D102F1372877 /* WindowServerCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowServerCommandService.swift; sourceTree = "<group>"; };
 		1950AE3041C1DC410E2DCD11 /* SidebarGlobalSearchButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGlobalSearchButton.swift; sourceTree = "<group>"; };
 		1973D41434D3540DC3A5D582 /* SidebarWorklaneRowStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowStyleResolver.swift; sourceTree = "<group>"; };
 		19801FEA1E31AE1665776372 /* OpenWithCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWithCatalog.swift; sourceTree = "<group>"; };
@@ -915,6 +918,7 @@
 		7F97C3054D1F1E57C716DCAB /* WorklaneDestinationCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneDestinationCatalogTests.swift; sourceTree = "<group>"; };
 		7FB9D05A6887CB439CE0E066 /* LibghosttyViewMiddleClickTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyViewMiddleClickTests.swift; sourceTree = "<group>"; };
 		8062E55664628AC4197A39C3 /* HermesTitleStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesTitleStatusTests.swift; sourceTree = "<group>"; };
+		80B2BBAD918F8D4B06FF6795 /* WindowServerCommandServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowServerCommandServiceTests.swift; sourceTree = "<group>"; };
 		80C39B34C7E0AF1C0999DDDB /* WorklaneStorePaneTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStorePaneTitleTests.swift; sourceTree = "<group>"; };
 		810F6A39773D41286D4D344F /* FuzzyMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcherTests.swift; sourceTree = "<group>"; };
 		8132E7564D882D85A155D2B5 /* DiscoveryIPCHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryIPCHandlerTests.swift; sourceTree = "<group>"; };
@@ -1510,6 +1514,7 @@
 				D66E9360C107E9A7D3F05652 /* ServerRelevance.swift */,
 				F1353BE5798B0D53E409EEEB /* ServerURLNormalizer.swift */,
 				60B3AD9AA8F799603B573B28 /* ServerWatchRunner.swift */,
+				18DB1479DBB0D102F1372877 /* WindowServerCommandService.swift */,
 			);
 			path = Servers;
 			sourceTree = "<group>";
@@ -2154,6 +2159,7 @@
 				C222FA689B8B7C8E932BE43D /* WindowChromeCenteringInterleavingTests.swift */,
 				86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */,
 				EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */,
+				80B2BBAD918F8D4B06FF6795 /* WindowServerCommandServiceTests.swift */,
 				3B2B4CFEFDD5D5985609F1BA /* WorklaneAttentionSummaryBuilderTests.swift */,
 				29BE69D7119B24F57979F982 /* WorklaneColorMenuItemViewTests.swift */,
 				97D22B5BDA360AE3F6A96AE3 /* WorklaneColorTests.swift */,
@@ -2583,6 +2589,7 @@
 				65C0729CCCDB639440DD90EF /* WindowChromeCenteringInterleavingTests.swift in Sources */,
 				738453B16B8499ADFB4722CB /* WindowChromeRowLayoutPlannerTests.swift in Sources */,
 				16E1DE875672D6743DF1B86D /* WindowChromeViewTests.swift in Sources */,
+				33E6893220A6FB045F2781F2 /* WindowServerCommandServiceTests.swift in Sources */,
 				A76D2038F2CA59D8E99BB28D /* WorklaneAttentionSummaryBuilderTests.swift in Sources */,
 				F3F3318AA0694EE3F01EAD10 /* WorklaneColorMenuItemViewTests.swift in Sources */,
 				004B14255297EAF8D94B351A /* WorklaneColorTests.swift in Sources */,
@@ -2937,6 +2944,7 @@
 				0B6D4E438BAEC225861619A7 /* VibeHooksInstaller.swift in Sources */,
 				A524DA357EFACE58D38A111D /* WindowChromeRowLayoutPlanner.swift in Sources */,
 				35C0E502B38BD3778920B0BD /* WindowChromeView.swift in Sources */,
+				5B20C1C2ADBA85229BA82907 /* WindowServerCommandService.swift in Sources */,
 				8CDB26EC39FBAEA26902C670 /* WindowToastPresenter.swift in Sources */,
 				E2A2053AF99C0387818EE8D8 /* WorklaneAttentionNotificationCoordinator.swift in Sources */,
 				E091B391CA413E9D9C495CB6 /* WorklaneAttentionSummaryBuilder.swift in Sources */,
