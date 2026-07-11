@@ -808,107 +808,8 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
         }
-        appCanvasView.paneStripView.onPaneReorderRequested = {
-            [weak self] paneID, columnIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneAsColumn(
-                    paneID: paneID,
-                    toColumnIndex: columnIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.reorderPane(
-                    paneID: paneID,
-                    toColumnIndex: columnIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneReorderInColumnRequested = {
-            [weak self] paneID, columnID, paneIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneInColumn(
-                    paneID: paneID,
-                    toColumnID: columnID,
-                    atPaneIndex: paneIndex,
-                    availableHeight: self.appCanvasView.bounds.height,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.reorderPane(
-                    paneID: paneID,
-                    toColumnID: columnID,
-                    atPaneIndex: paneIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneSplitDropRequested = {
-            [weak self] paneID, targetID, axis, leading, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneSplitDrop(
-                    paneID: paneID,
-                    ontoTargetPaneID: targetID,
-                    axis: axis,
-                    leading: leading,
-                    availableHeight: self.appCanvasView.bounds.height,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.splitDropPane(
-                    paneID: paneID,
-                    ontoTargetPaneID: targetID,
-                    axis: axis,
-                    leading: leading,
-                    availableHeight: self.appCanvasView.bounds.height,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = {
-            [weak self] paneID, worklaneID, paneIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    atPaneIndex: paneIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else if let paneIndex {
-                self.worklaneStore.transferPaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    atPaneIndex: paneIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.transferPaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = {
-            [weak self] paneID, insertionIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneToNewWorklane(
-                    paneID: paneID,
-                    atIndex: insertionIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.transferPaneToNewWorklane(
-                    paneID: paneID,
-                    atIndex: insertionIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
+        appCanvasView.paneStripView.onPaneDragOutcome = { [weak self] outcome in
+            self?.applyPaneDragOutcome(outcome)
         }
         appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = {
             [weak self] insertionIndex in
@@ -983,6 +884,109 @@ final class RootViewController: NSViewController {
             self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
         }
         appCanvasView.paneStripView.dragOverlayView = dragOverlayView
+    }
+
+    /// Apply a resolved pane-drag outcome by dispatching to the matching
+    /// `WorklaneStore` mutation. `isDuplicate` selects the duplicate variant.
+    private func applyPaneDragOutcome(_ outcome: PaneDragOutcome) {
+        let singleColumnWidth = worklaneStore.layoutContext.singlePaneWidth
+        switch outcome {
+        case .reorder(let paneID, let columnIndex, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneAsColumn(
+                    paneID: paneID,
+                    toColumnIndex: columnIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.reorderPane(
+                    paneID: paneID,
+                    toColumnIndex: columnIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .reorderInColumn(let paneID, let columnID, let paneIndex, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneInColumn(
+                    paneID: paneID,
+                    toColumnID: columnID,
+                    atPaneIndex: paneIndex,
+                    availableHeight: appCanvasView.bounds.height,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.reorderPane(
+                    paneID: paneID,
+                    toColumnID: columnID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .splitDrop(let paneID, let targetPaneID, let axis, let leading, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneSplitDrop(
+                    paneID: paneID,
+                    ontoTargetPaneID: targetPaneID,
+                    axis: axis,
+                    leading: leading,
+                    availableHeight: appCanvasView.bounds.height,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.splitDropPane(
+                    paneID: paneID,
+                    ontoTargetPaneID: targetPaneID,
+                    axis: axis,
+                    leading: leading,
+                    availableHeight: appCanvasView.bounds.height,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .crossWorklane(let paneID, let worklaneID, let paneIndex, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else if let paneIndex {
+                worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .newWorklane(let paneID, let insertionIndex, let isDuplicate):
+            // `nil` = append: the drag coordinator no longer resolves the row
+            // count, so fall back to the store's worklane count here (identical
+            // to the sidebar row-frame count the coordinator formerly used).
+            let index = insertionIndex ?? worklaneStore.worklanes.count
+            if isDuplicate {
+                worklaneStore.duplicatePaneToNewWorklane(
+                    paneID: paneID,
+                    atIndex: index,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.transferPaneToNewWorklane(
+                    paneID: paneID,
+                    atIndex: index,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+        }
     }
 
     private func setupSidebarCallbacks() {
