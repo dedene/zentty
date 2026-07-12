@@ -287,13 +287,15 @@ This gives Gemini first-class sidebar and notification behavior even when the ho
 
 ## Kimi CLI
 
-Wrapped `kimi` launches use a per-launch overlay config under Zentty's runtime directory. Zentty reads the active Kimi config source, merges in its hook block for that session, and launches Kimi with `--config-file <overlay>`. The user's `~/.kimi/config.toml` is left untouched during normal wrapped launches.
+Wrapped `kimi` launches use a per-launch overlay config under Zentty's runtime directory. Zentty reads the active Kimi config source and merges in its hook block for that session.
+- For the **legacy Kimi CLI**, it launches Kimi with `--config-file <overlay>`. The user's `~/.kimi/config.toml` is left untouched.
+- For the **modern Kimi Code CLI**, because it no longer supports `--config-file`, Zentty creates a temporary home directory overlay, links non-config files, writes the merged config, and isolates the session by pointing the `KIMI_CODE_HOME` environment variable to it. The user's `~/.kimi-code/config.toml` is left untouched.
 
 Kimi's own setup commands are stricter than normal chat turns:
 
-- `kimi login` must run against Kimi's default config location. Zentty now passthroughs `kimi login` and the other Kimi management commands directly to the real Kimi binary so they keep using the default config.
+- `kimi login` must run against Kimi's default config location. Zentty now passthroughs `kimi login` and the other Kimi management commands directly to the real Kimi binary so they keep using the default Kimi config.
 - `/login` and `/model` inside a wrapped `kimi` session are not reliable because Kimi rejects those flows when launched with `--config` or `--config-file`.
-- For model selection in wrapped sessions, prefer `kimi --model <model-id>` or update `~/.kimi/config.toml` directly.
+- For model selection in wrapped sessions, prefer `kimi --model <model-id>` or update the default config directly (`~/.kimi/config.toml` or `~/.kimi-code/config.toml`).
 
 Manual fallback commands:
 
