@@ -1556,7 +1556,8 @@ final class PaneStripStateTests: XCTestCase {
                 makeColumn("left", paneIDs: ["A"]),
                 makeColumn("middle", paneIDs: ["B", "C"], focusedPaneID: PaneID("B")),
                 makeColumn("right", paneIDs: ["D"])
-            ]
+            ],
+            focusedColumnID: PaneColumnID("middle")
         )
 
         // Move B Left -> B should go to the left column and split vertically to the TOP of the column
