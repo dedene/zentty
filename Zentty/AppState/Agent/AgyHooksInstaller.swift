@@ -425,3 +425,46 @@ enum AgyHooksInstallerError: Error, CustomStringConvertible {
         }
     }
 }
+
+private extension String {
+    /// Returns `self` when it has at least one non-whitespace character; `nil`
+    /// otherwise. Mirrors the trimming behaviour the pre-extraction call site
+    /// relied on to filter out env vars set to whitespace-only strings.
+    var nonBlank: String? {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
+    }
+}
+
+// MARK: - HooksInstalling conformance
+
+extension AgyHooksInstaller: HooksInstalling {
+    static func ensureInstalledForCurrentUser(
+        cliPath: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws {
+        // Pre-refactor call site (AgentLaunchBootstrap) used
+        // `environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()` — a present
+        // but blank HOME must fall back to NSHomeDirectory(), otherwise
+        // hooks.json lands under <cwd>/.gemini/config/ and agy hooks silently
+        // never fire.
+        _ = try ensureInstalledForCurrentUser(
+            cliPath: cliPath,
+            home: environment["HOME"]?.nonBlank ?? NSHomeDirectory(),
+            fileManager: fileManager
+        )
+    }
+
+    static func isInstalledForCurrentUser(environment: [String: String], fileManager: FileManager) -> Bool {
+        isInstalled(hooksFileURL: defaultUserHooksFileURL(home: environment["HOME"]?.nonBlank ?? NSHomeDirectory()), fileManager: fileManager)
+    }
+
+    static func uninstallForCurrentUser(environment: [String: String], fileManager: FileManager) throws {
+        let home = environment["HOME"]?.nonBlank ?? NSHomeDirectory()
+        try uninstall(hooksFileURL: defaultUserHooksFileURL(home: home), home: home, fileManager: fileManager)
+    }
+
+    static func integrationConfigURL(environment: [String: String]) -> URL? {
+        defaultUserHooksFileURL(home: environment["HOME"]?.nonBlank ?? NSHomeDirectory())
+    }
+}

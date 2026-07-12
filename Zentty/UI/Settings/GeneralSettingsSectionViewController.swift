@@ -73,11 +73,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         confirmStack.addArrangedSubview(closePaneRow)
         closePaneRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
-        let confirmSeparator1 = NSBox()
-        confirmSeparator1.boxType = .separator
-        confirmSeparator1.translatesAutoresizingMaskIntoConstraints = false
-        confirmStack.addArrangedSubview(confirmSeparator1)
-        confirmSeparator1.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+        SettingsFormBuilder.separator(addedTo: confirmStack)
 
         let closeWindowRow = makeSwitchRow(
             title: "Confirm before closing window",
@@ -88,11 +84,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         confirmStack.addArrangedSubview(closeWindowRow)
         closeWindowRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
-        let confirmSeparator2 = NSBox()
-        confirmSeparator2.boxType = .separator
-        confirmSeparator2.translatesAutoresizingMaskIntoConstraints = false
-        confirmStack.addArrangedSubview(confirmSeparator2)
-        confirmSeparator2.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+        SettingsFormBuilder.separator(addedTo: confirmStack)
 
         let quitRow = makeSwitchRow(
             title: "Confirm before quitting",
@@ -103,11 +95,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         confirmStack.addArrangedSubview(quitRow)
         quitRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
-        let confirmSeparator3 = NSBox()
-        confirmSeparator3.boxType = .separator
-        confirmSeparator3.translatesAutoresizingMaskIntoConstraints = false
-        confirmStack.addArrangedSubview(confirmSeparator3)
-        confirmSeparator3.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+        SettingsFormBuilder.separator(addedTo: confirmStack)
 
         let restoreRow = makeSwitchRow(
             title: "Restore worklanes on next launch",
@@ -466,55 +454,12 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         toggle: NSSwitch,
         action: Selector
     ) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let leftStack = NSStackView()
-        leftStack.orientation = .vertical
-        leftStack.alignment = .leading
-        leftStack.spacing = 2
-        leftStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let titleLabel = makeLabel(
-            text: title,
-            font: .systemFont(ofSize: 13, weight: .semibold)
-        )
-        leftStack.addArrangedSubview(titleLabel)
-
-        let subtitleLabel = makeLabel(
-            text: subtitle,
-            font: .systemFont(ofSize: 12, weight: .regular)
-        )
-        subtitleLabel.textColor = .secondaryLabelColor
-        leftStack.addArrangedSubview(subtitleLabel)
-
-        toggle.target = self
-        toggle.action = action
-
-        container.addSubview(leftStack)
-        container.addSubview(toggle)
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
-            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
-
-            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            toggle.leadingAnchor.constraint(
-                greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 12),
-            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-        ])
-
-        return container
+        SettingsFormBuilder.switchRow(
+            title: title, subtitle: subtitle, toggle: toggle, target: self, action: action)
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = font
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 0
-        return label
+        SettingsFormBuilder.label(text, font: font)
     }
 
     // MARK: - For Testing
@@ -821,62 +766,14 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         toggle: NSSwitch,
         action: Selector
     ) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let leftStack = NSStackView()
-        leftStack.orientation = .vertical
-        leftStack.alignment = .leading
-        leftStack.spacing = 4
-        leftStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let titleLabel = makeLabel(
-            text: title,
-            font: .systemFont(ofSize: 13, weight: .semibold)
-        )
-        leftStack.addArrangedSubview(titleLabel)
-
-        let subtitleLabel = makeLabel(
-            text: subtitle,
-            font: .systemFont(ofSize: 12, weight: .regular)
-        )
-        subtitleLabel.textColor = .secondaryLabelColor
-        leftStack.addArrangedSubview(subtitleLabel)
-
-        toggle.target = self
-        toggle.action = action
-
-        container.addSubview(leftStack)
-        container.addSubview(toggle)
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
-            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
-
-            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            toggle.leadingAnchor.constraint(
-                greaterThanOrEqualTo: leftStack.trailingAnchor,
-                constant: 12
-            ),
-            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-        ])
-
-        return container
+        SettingsFormBuilder.switchRow(
+            title: title, subtitle: subtitle, toggle: toggle, target: self, action: action,
+            leftStackSpacing: 4)
     }
 
     @discardableResult
     private func addSeparator(to stack: NSStackView) -> NSView {
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        // Add to the stack before activating the width constraint: the anchor
-        // pair needs a common ancestor at activation time, otherwise AppKit
-        // throws and aborts assembleContent (leaving the pane blank).
-        stack.addArrangedSubview(separator)
-        separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        return separator
+        SettingsFormBuilder.separator(addedTo: stack)
     }
 
     private func configureExperimentalBadge() {
@@ -976,11 +873,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = font
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 0
-        return label
+        SettingsFormBuilder.label(text, font: font)
     }
 
     // MARK: - Agent integrations

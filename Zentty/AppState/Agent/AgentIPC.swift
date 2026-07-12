@@ -495,19 +495,28 @@ final class AgentIPCServer: @unchecked Sendable {
                 let runtimeDirectoryURL = try makeRuntimeDirectory()
                 let socketURL = runtimeDirectoryURL.appendingPathComponent("zentty.sock", isDirectory: false)
                 let socketPath = socketURL.path
-                let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-                guard fileDescriptor >= 0 else {
-                    throw POSIXError(.init(rawValue: errno) ?? .EIO)
-                }
+
+                // The handle owns the descriptor (and, once armed, the bound
+                // socket-file unlink) for the whole error-prone setup below. Any
+                // `throw` triggers this `defer`, which closes the fd and unlinks
+                // the socket path exactly as the old per-branch cleanup did. On
+                // success we `takeOwnership()` before returning, making the
+                // `close()` a no-op and handing the fd to the source's cancel
+                // handler as the sole remaining owner.
+                let handle = try UnixSocketHandle(domain: AF_UNIX, type: SOCK_STREAM, protocol: 0)
+                defer { handle.close() }
 
                 var address = sockaddr_un()
                 address.sun_family = sa_family_t(AF_UNIX)
                 let utf8Path = socketPath.utf8CString
                 guard utf8Path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
-                    close(fileDescriptor)
                     throw AgentIPCError.invalidMessage
                 }
+                // Remove any stale socket file from a prior run so `bind`
+                // doesn't fail with EADDRINUSE, then arm the handle to unlink
+                // the socket we're about to bind if setup fails past here.
                 unlink(socketPath)
+                handle.unlinkPathOnClose(socketPath)
                 _ = withUnsafeMutablePointer(to: &address.sun_path.0) { pointer in
                     utf8Path.withUnsafeBufferPointer { buffer in
                         memcpy(pointer, buffer.baseAddress, buffer.count)
@@ -517,31 +526,26 @@ final class AgentIPCServer: @unchecked Sendable {
                 let bindResult = withUnsafePointer(to: &address) {
                     $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                         bind(
-                            fileDescriptor,
+                            handle.fileDescriptor,
                             $0,
                             socklen_t(MemoryLayout<sockaddr_un>.size)
                         )
                     }
                 }
                 guard bindResult == 0 else {
-                    let bindError = POSIXError(.init(rawValue: errno) ?? .EIO)
-                    close(fileDescriptor)
-                    unlink(socketPath)
-                    throw bindError
+                    throw POSIXError(.init(rawValue: errno) ?? .EIO)
                 }
 
-                guard listen(fileDescriptor, SOMAXCONN) == 0 else {
-                    let listenError = POSIXError(.init(rawValue: errno) ?? .EIO)
-                    close(fileDescriptor)
-                    unlink(socketPath)
-                    throw listenError
+                guard listen(handle.fileDescriptor, SOMAXCONN) == 0 else {
+                    throw POSIXError(.init(rawValue: errno) ?? .EIO)
                 }
 
-                let flags = fcntl(fileDescriptor, F_GETFL)
-                _ = fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
-                let descriptorFlags = fcntl(fileDescriptor, F_GETFD)
-                _ = fcntl(fileDescriptor, F_SETFD, descriptorFlags | FD_CLOEXEC)
+                let flags = fcntl(handle.fileDescriptor, F_GETFL)
+                _ = fcntl(handle.fileDescriptor, F_SETFL, flags | O_NONBLOCK)
+                let descriptorFlags = fcntl(handle.fileDescriptor, F_GETFD)
+                _ = fcntl(handle.fileDescriptor, F_SETFD, descriptorFlags | FD_CLOEXEC)
 
+                let fileDescriptor = handle.fileDescriptor
                 let readSource = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
                 readSource.setEventHandler { [weak self] in
                     self?.acceptPendingConnections()
@@ -556,6 +560,10 @@ final class AgentIPCServer: @unchecked Sendable {
                     self?.socketFileDescriptor = -1
                 }
                 readSource.resume()
+
+                // Hand the descriptor's lifetime to the cancel handler above;
+                // the setup `defer` no longer touches it.
+                handle.takeOwnership()
 
                 self.runtimeDirectoryURL = runtimeDirectoryURL
                 self.socketPath = socketPath

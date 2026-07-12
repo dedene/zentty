@@ -248,40 +248,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
-    @discardableResult
-    mutating func promoteExplicitCodexSessionFromUserInput(
-        allowNeedsInputResume: Bool = true,
-        allowIdleResume: Bool = true,
-        now: Date = Date()
-    ) -> Bool {
-        let candidateSessions = sessionsByID.values.filter { session in
-            session.tool == .codex
-                && session.source == .explicit
-                && session.origin != .shell
-                && (
-                    (allowNeedsInputResume && session.state == .needsInput)
-                        || session.state == .starting
-                        || (allowIdleResume && session.state == .idle && session.hasObservedRunning)
-                )
-        }
-        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
-              var session = sessionsByID[sessionID]
-        else {
-            return false
-        }
-
-        session.state = .running
-        session.text = nil
-        session.interactionKind = .none
-        session.completionCandidateDeadline = nil
-        session.idleVisibleUntil = nil
-        session.unresolvedStopVisibleUntil = nil
-        session.hasObservedRunning = true
-        session.updatedAt = now
-        sessionsByID[sessionID] = session
-        return true
-    }
-
     /// Mistral Vibe exposes no turn-start / prompt-submit hook, so a user
     /// submit (Enter, not a newline) is Zentty's only signal that a new turn
     /// began. Promote the explicit Vibe session to running from idle /
@@ -320,36 +286,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func markExplicitCodexSessionIdleFromReadyTitle(now: Date = Date()) -> Bool {
-        let candidateSessions = sessionsByID.values.filter { session in
-            session.tool == .codex
-                && session.source == .explicit
-                && (session.origin == .explicitHook || session.origin == .explicitAPI)
-                && session.hasObservedRunning
-                && !session.interactionKind.requiresHumanAttention
-                && (
-                    session.state == .running
-                        || session.state == .starting
-                )
-        }
-        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
-              var session = sessionsByID[sessionID]
-        else {
-            return false
-        }
-
-        session.state = .idle
-        session.text = nil
-        session.interactionKind = .none
-        session.completionCandidateDeadline = nil
-        session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
-        session.unresolvedStopVisibleUntil = nil
-        session.updatedAt = now
-        sessionsByID[sessionID] = session
-        return true
-    }
-
-    @discardableResult
     mutating func markExplicitClaudeCodeSessionIdleFromIdleTitle(now: Date = Date()) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in
             session.tool == .claudeCode
@@ -376,52 +312,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.unresolvedStopVisibleUntil = nil
         session.hasObservedRunning = true
         session.updatedAt = now
-        sessionsByID[sessionID] = session
-        return true
-    }
-
-    @discardableResult
-    mutating func clearCodexSessionsFromUserInterrupt(now: Date = Date()) -> Bool {
-        let sessionIDs = sessionsByID.values
-            .filter { $0.tool == .codex }
-            .sorted(by: Self.preferred(lhs:rhs:))
-            .map(\.sessionID)
-        guard !sessionIDs.isEmpty else {
-            return false
-        }
-
-        for sessionID in sessionIDs {
-            sessionsByID.removeValue(forKey: sessionID)
-        }
-        return true
-    }
-
-    @discardableResult
-    mutating func markExplicitKimiSessionIdleFromUserInterrupt(now: Date = Date()) -> Bool {
-        let candidateSessions = sessionsByID.values.filter { session in
-            session.tool == .kimi
-                && session.source == .explicit
-                && session.origin != .shell
-                && (
-                    session.state == .running
-                        || (session.state == .starting && !session.interactionKind.requiresHumanAttention)
-                )
-        }
-        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
-              var session = sessionsByID[sessionID]
-        else {
-            return false
-        }
-        let previousState = session.state
-
-        session.state = .idle
-        session.text = nil
-        session.interactionKind = .none
-        session.completionCandidateDeadline = nil
-        session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
-        session.unresolvedStopVisibleUntil = nil
-        session.updatedAt = now
-        session.hasObservedRunning = session.hasObservedRunning || previousState == .running
         sessionsByID[sessionID] = session
         return true
     }
@@ -635,18 +525,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
         stopSignalLogger.debug(
             "reducer.lifecycle applied session=\(sessionID, privacy: .public) tool=\(tool.displayName, privacy: .public) prev=\(previousState.rawValue, privacy: .public) => \(session.state.rawValue, privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) interaction=\(session.interactionKind.rawValue, privacy: .public) hasObservedRunning=\(session.hasObservedRunning, privacy: .public)"
         )
-    }
-
-    private mutating func removeStaleCodexNeedsInputSessions(excluding sessionID: String) {
-        for key in Array(sessionsByID.keys) {
-            guard key != sessionID,
-                  let session = sessionsByID[key],
-                  session.tool == .codex,
-                  (session.state == .needsInput || session.interactionKind.requiresHumanAttention) else {
-                continue
-            }
-            sessionsByID.removeValue(forKey: key)
-        }
     }
 
     private mutating func mergeInferredSessions(
@@ -897,22 +775,6 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
-    private static func codexNeedsInputIsWeakTerminalFallback(_ session: PaneAgentSessionState) -> Bool {
-        guard session.tool == .codex,
-              session.state == .needsInput,
-              session.interactionKind == .genericInput,
-              session.confidence == .weak else {
-            return false
-        }
-
-        switch session.origin {
-        case .heuristic, .inferred, .compatibility:
-            return true
-        case .explicitAPI, .explicitHook, .shell:
-            return false
-        }
-    }
-
     private static func visibleText(for session: PaneAgentSessionState, now: Date) -> String? {
         guard let text = session.text else {
             return nil
@@ -949,7 +811,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         isTransientRunningText(text) ? now.addingTimeInterval(transientRunningTextVisibilityWindow) : nil
     }
 
-    private static func preferred(lhs: PaneAgentSessionState, rhs: PaneAgentSessionState) -> Bool {
+    static func preferred(lhs: PaneAgentSessionState, rhs: PaneAgentSessionState) -> Bool {
         if sessionPriority(lhs) != sessionPriority(rhs) {
             return sessionPriority(lhs) > sessionPriority(rhs)
         }

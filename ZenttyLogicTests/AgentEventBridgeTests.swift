@@ -170,6 +170,43 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(loggedErrors.count, 1)
     }
 
+    // Fail-open adapters (suppressesErrors == true) must swallow a thrown
+    // decode error and still exit success without surfacing it via writeError.
+    // Malformed (non-empty) JSON forces the adapter's JSONSerialization to
+    // throw, exercising the suppression path rather than a benign empty return.
+    func test_run_agy_adapter_invalid_payload_fails_open() throws {
+        assertAdapterFailsOpenOnMalformedPayload(adapter: "agy")
+    }
+
+    func test_run_hermes_adapter_invalid_payload_fails_open() throws {
+        assertAdapterFailsOpenOnMalformedPayload(adapter: "hermes")
+    }
+
+    func test_run_vibe_adapter_invalid_payload_fails_open() throws {
+        assertAdapterFailsOpenOnMalformedPayload(adapter: "vibe")
+    }
+
+    private func assertAdapterFailsOpenOnMalformedPayload(
+        adapter: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var postedPayloads: [AgentStatusPayload] = []
+        var loggedErrors: [String] = []
+
+        let result = AgentEventBridge.run(
+            arguments: ["zentty", "agent-event", "--adapter=\(adapter)"],
+            environment: defaultEnvironment,
+            inputData: Data("{ not valid json".utf8),
+            post: { postedPayloads.append($0) },
+            writeError: { loggedErrors.append(String(describing: $0)) }
+        )
+
+        XCTAssertEqual(result, EXIT_SUCCESS, file: file, line: line)
+        XCTAssertTrue(postedPayloads.isEmpty, file: file, line: line)
+        XCTAssertTrue(loggedErrors.isEmpty, file: file, line: line)
+    }
+
     func test_cursor_adapter_session_start_includes_pid_when_env_set() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = """

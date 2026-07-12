@@ -27,83 +27,6 @@ enum FocusedTerminalInterruptBridge {
     }
 }
 
-private enum RemoteImagePasteFailure: Equatable {
-    case authRequired
-    case hostUnreachable
-    case transferFailed
-    case unknownDestination
-    case imageTooLarge
-    case fileTooLarge
-    case foldersCannotUpload
-    case uploadAlreadyInProgress
-
-    init(error: RemoteImageUploadError) {
-        switch error {
-        case .authRequired:
-            self = .authRequired
-        case .hostUnreachable:
-            self = .hostUnreachable
-        case .timeout, .transferFailed, .invalidRemotePath:
-            self = .transferFailed
-        }
-    }
-
-    var message: String {
-        switch self {
-        case .authRequired:
-            return "Couldn't upload file — ssh key auth required"
-        case .hostUnreachable:
-            return "Couldn't upload file — host unreachable"
-        case .transferFailed:
-            return "Couldn't upload file — transfer failed"
-        case .unknownDestination:
-            return "Couldn't upload file — unknown ssh destination"
-        case .imageTooLarge:
-            return "Image too large to upload (max 10 MB)"
-        case .fileTooLarge:
-            return "File too large to upload (max 500 MB)"
-        case .foldersCannotUpload:
-            return "Folders can't be uploaded"
-        case .uploadAlreadyInProgress:
-            return "Upload already in progress"
-        }
-    }
-
-    var displayDuration: TimeInterval {
-        2.5
-    }
-}
-
-private extension TerminalClipboard.ImageUploadContent {
-    var remoteImagePasteboardContents: RemoteImagePasteboardContents {
-        switch self {
-        case .image:
-            return .imageData
-        case .imageTooLarge, .failedToReadImage:
-            return .imageTooLarge
-        case .noImage:
-            return .empty
-        }
-    }
-}
-
-private final class LockedSSHScanResult: @unchecked Sendable {
-    private let lock = NSLock()
-    private var destination: SSHDestination?
-
-    func set(_ destination: SSHDestination?) {
-        lock.lock()
-        self.destination = destination
-        lock.unlock()
-    }
-
-    func get() -> SSHDestination? {
-        lock.lock()
-        defer { lock.unlock() }
-        return destination
-    }
-}
-
 #if DEBUG
 struct SidebarChromeFrameMotionRecord: Equatable {
     let duration: TimeInterval
@@ -143,23 +66,6 @@ extension CAMediaTimingFunction {
 
 @MainActor
 final class RootViewController: NSViewController {
-    private struct ForegroundSSHProbeSource: Sendable {
-        let paneID: PaneID
-        let rootPID: Int32?
-    }
-
-    private struct ForegroundSSHProbeResult: Sendable {
-        let paneID: PaneID
-        let destination: SSHDestination?
-    }
-
-    private static let remoteImagePasteLogger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "be.zenjoy.zentty",
-        category: "RemoteImagePaste"
-    )
-    private static let foregroundSSHProbeIntervalNanoseconds: UInt64 = 2_000_000_000
-    private static let foregroundSSHOnDemandTimeout: TimeInterval = 1
-
     private final class LocalEventMonitor {
         private let token: Any
 
@@ -204,20 +110,12 @@ final class RootViewController: NSViewController {
             x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
 
-    private enum PaneResize {
-        static let minimumColumns: CGFloat = 5
-        static let minimumRows: CGFloat = 5
-    }
-
     let worklaneStore: WorklaneStore
     private let windowID: WindowID
     private let configStore: AppConfigStore
     private let appUpdateStateStore: AppUpdateStateStore
     private let openWithService: OpenWithServing
     private let serverOpenService: ServerOpening
-    private let serverListenerScanner: ServerListenerScanner
-    private let dockerServerDiscovery: DockerServerDiscovery
-    private let serverProcessTerminator = ServerProcessTerminator()
     private let taskRunnerDiscoveryService = TaskRunnerDiscoveryService()
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
@@ -230,7 +128,7 @@ final class RootViewController: NSViewController {
     private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
     private var staleAgentSweepTimer: Timer?
-    private var passiveServerDetectionTask: Task<Void, Never>?
+    private(set) var serverCommands: WindowServerCommandService!
     private var bookmarksPopover: NSPopover?
     private var bookmarksPopoverObserverToken: NSObjectProtocol?
     private lazy var bookmarkStore: BookmarkStore = {
@@ -241,6 +139,21 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    // Lazy so `appCanvasView` (the canvas geometry) is created first. Never
+    // touched from deinit, so lazy init can't trap on a half-deallocated self.
+    private(set) lazy var paneCommands = PaneCommandExecutor(
+        worklaneStore: worklaneStore,
+        configStore: configStore,
+        runtimeRegistry: runtimeRegistry,
+        canvas: appCanvasView,
+        hooks: PaneCommandExecutor.UIHooks(
+            presentClosePaneConfirmation: { [weak self] reason, onConfirm in
+                self?.showClosePaneConfirmation(reason: reason, onConfirm: onConfirm)
+            },
+            showToast: { [weak self] message in self?.showToast(message: message) },
+            requestWindowClose: { [weak self] in self?.requestContainingWindowClose() }
+        )
+    )
     private let commandPaletteBackdropView = CommandPaletteBackdropView()
     private let peekView = WorklanePeekView()
     private let peekKeyMonitor = WorklanePeekKeyMonitor()
@@ -267,14 +180,15 @@ final class RootViewController: NSViewController {
 #endif
     private var isFullScreen = false
     private var trafficLightAnchor = SidebarLayout.defaultTrafficLightAnchor
-    private var pathCopiedToastView: PathCopiedToastView?
-    private let remoteImageUploader: RemoteImageUploader
-    private let sshProcessProbe = PaneSSHProcessProbe()
-    private var remoteImageUploadTasksByPaneID: [PaneID: Task<Void, Never>] = [:]
-    private var foregroundSSHProbeTask: Task<Void, Never>?
-    private var globalSearchNavigationFocusPreservationToken: Int?
-    private var globalSearchNavigationFocusPreservationSequence = 0
-    private var globalSearchNavigationFocusReleaseWorkItem: DispatchWorkItem?
+    // Assigned eagerly in init (not lazy): deinit reaches it via
+    // cancelAllRemoteImageUploads(), and forcing lazy init mid-deinit would form
+    // a [weak self] reference to an object already being deallocated, which traps.
+    private var toasts: WindowToastPresenter!
+    private var remotePaste: RemoteImagePasteController!
+    private var globalSearchChoreographer: GlobalSearchFocusChoreographer!
+    // `AppActionRouter.environment` is unowned; the router is stored on the VC,
+    // so its lifetime is a subset of the VC's. Lazy and never touched in deinit.
+    private lazy var router = AppActionRouter(environment: self)
     private let paneNavigationButtons = PaneNavigationButtons()
     private let paneLayoutMenuCoordinator: PaneLayoutMenuCoordinator
     private lazy var leadingChromeControlsBar = LeadingChromeControlsBar(
@@ -368,9 +282,6 @@ final class RootViewController: NSViewController {
         self.appUpdateStateStore = appUpdateStateStore
         self.openWithService = openWithService
         self.serverOpenService = serverOpenService
-        self.serverListenerScanner = serverListenerScanner
-        self.dockerServerDiscovery = dockerServerDiscovery
-        self.remoteImageUploader = remoteImageUploader
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.lastAppliedAppearanceSettings = configStore.current.appearance
@@ -419,6 +330,43 @@ final class RootViewController: NSViewController {
             reviewStateResolver: reviewStateResolver
         )
         super.init(nibName: nil, bundle: nil)
+        toasts = WindowToastPresenter(
+            hostViewProvider: { [weak self] in self?.appCanvasView },
+            themeProvider: { [weak self] in self?.currentTheme ?? ZenttyTheme.fallback(for: nil) }
+        )
+        remotePaste = RemoteImagePasteController(
+            worklaneStore: worklaneStore,
+            runtimeRegistry: runtimeRegistry,
+            uploader: remoteImageUploader,
+            sshProcessProbe: PaneSSHProcessProbe(),
+            toasts: toasts
+        )
+        serverCommands = WindowServerCommandService(
+            worklaneStore: worklaneStore,
+            configStore: configStore,
+            serverOpenService: serverOpenService,
+            serverListenerScanner: serverListenerScanner,
+            dockerServerDiscovery: dockerServerDiscovery
+        )
+        globalSearchChoreographer = GlobalSearchFocusChoreographer(
+            hooks: GlobalSearchFocusChoreographer.Hooks(
+                isHUDVisible: { [weak self] in self?.globalSearchCoordinator.state.isHUDVisible ?? false },
+                isFieldFocused: { [weak self] in self?.sidebarView.isGlobalSearchFieldFocused ?? false },
+                focusField: { [weak self] selectAll in self?.focusGlobalSearchField(selectAll: selectAll) },
+                enterFocusMotion: { [weak self] in
+                    guard let self else { return }
+                    self.sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
+                    self.syncSidebarVisibilityControls(animated: true)
+                },
+                exitFocusMotion: { [weak self] in
+                    guard let self else { return }
+                    self.sidebarMotionCoordinator.handle(.globalSearchFocusExited)
+                    self.syncSidebarVisibilityControls(animated: true)
+                },
+                endSearchSession: { [weak self] in self?.globalSearchCoordinator.end() },
+                focusTerminal: { [weak self] in self?.focusedPaneRuntime()?.hostView.focusTerminal() }
+            )
+        )
         appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
         }
@@ -544,8 +492,6 @@ final class RootViewController: NSViewController {
         MainActorShim.assumeIsolated {
             cancelAllRemoteImageUploads()
             invalidateStaleAgentSweepTimer()
-            passiveServerDetectionTask?.cancel()
-            foregroundSSHProbeTask?.cancel()
             agentCaffeinationController.removeSource(id: windowID)
             if let appUpdateObserverID {
                 appUpdateStateStore.removeObserver(appUpdateObserverID)
@@ -585,7 +531,7 @@ final class RootViewController: NSViewController {
         refreshShortcutTooltips()
         applyInitialState()
         syncAgentCaffeinationState()
-        startForegroundSSHProbeLoop()
+        remotePaste.startForegroundSSHProbeLoop()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleCleanCopyDidModifyPasteboard),
@@ -735,7 +681,7 @@ final class RootViewController: NSViewController {
 
             switch change {
             case .paneStructure, .worklaneListChanged:
-                self.cancelRemoteImageUploadsForRemovedPanes()
+                self.remotePaste.cancelUploadsForRemovedPanes()
                 if self.isGlobalSearchSessionActive {
                     self.globalSearchCoordinator.end()
                 } else {
@@ -745,25 +691,25 @@ final class RootViewController: NSViewController {
                 self.updateOpenWithChromeState()
                 self.updateServerChromeState()
                 self.updatePaneNavigationButtonState()
-                self.schedulePassiveServerDetectionRefresh()
+                self.serverCommands.schedulePassiveServerDetectionRefresh()
             case .focusChanged, .activeWorklaneChanged:
                 self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
                 self.updateOpenWithChromeState()
                 self.updateServerChromeState()
                 self.updatePaneNavigationButtonState()
-                self.schedulePassiveServerDetectionRefresh()
+                self.serverCommands.schedulePassiveServerDetectionRefresh()
             case .historyChanged:
                 self.updatePaneNavigationButtonState()
             case .auxiliaryStateUpdated(_, _, let impacts):
                 if impacts.contains(.openWith) {
                     self.updateOpenWithChromeState()
-                    self.schedulePassiveServerDetectionRefresh()
+                    self.serverCommands.schedulePassiveServerDetectionRefresh()
                 }
                 if impacts.contains(.serverDetection) {
                     self.updateServerChromeState()
                 }
                 if !impacts.contains(.openWith), !impacts.contains(.serverDetection) {
-                    self.schedulePassiveServerDetectionRefresh()
+                    self.serverCommands.schedulePassiveServerDetectionRefresh()
                 }
             default:
                 break
@@ -815,7 +761,7 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.shouldSuppressProgrammaticTerminalFocus = { [weak self] in
             guard let self else { return false }
 
-            return self.shouldRetainGlobalSearchFocus
+            return self.globalSearchChoreographer.shouldRetainFocus
         }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
@@ -831,10 +777,10 @@ final class RootViewController: NSViewController {
                 let reason = self.worklaneStore.paneCloseConfirmationReason(paneID)
             {
                 self.showClosePaneConfirmation(reason: reason) {
-                    self.closePane(id: paneID)
+                    self.paneCommands.closePane(id: paneID)
                 }
             } else {
-                self.closePane(id: paneID)
+                self.paneCommands.closePane(id: paneID)
             }
         }
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
@@ -849,7 +795,7 @@ final class RootViewController: NSViewController {
                 delta: delta,
                 availableSize: self.appCanvasView.bounds.size,
                 leadingVisibleInset: self.appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: self.paneMinimumSizesByPaneID()
+                minimumSizeByPaneID: self.paneCommands.paneMinimumSizesByPaneID()
             )
         }
         appCanvasView.paneStripView.onDividerEqualizeRequested = { [weak self] divider in
@@ -862,107 +808,8 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
         }
-        appCanvasView.paneStripView.onPaneReorderRequested = {
-            [weak self] paneID, columnIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneAsColumn(
-                    paneID: paneID,
-                    toColumnIndex: columnIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.reorderPane(
-                    paneID: paneID,
-                    toColumnIndex: columnIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneReorderInColumnRequested = {
-            [weak self] paneID, columnID, paneIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneInColumn(
-                    paneID: paneID,
-                    toColumnID: columnID,
-                    atPaneIndex: paneIndex,
-                    availableHeight: self.appCanvasView.bounds.height,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.reorderPane(
-                    paneID: paneID,
-                    toColumnID: columnID,
-                    atPaneIndex: paneIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneSplitDropRequested = {
-            [weak self] paneID, targetID, axis, leading, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneSplitDrop(
-                    paneID: paneID,
-                    ontoTargetPaneID: targetID,
-                    axis: axis,
-                    leading: leading,
-                    availableHeight: self.appCanvasView.bounds.height,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.splitDropPane(
-                    paneID: paneID,
-                    ontoTargetPaneID: targetID,
-                    axis: axis,
-                    leading: leading,
-                    availableHeight: self.appCanvasView.bounds.height,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneCrossWorklaneDropRequested = {
-            [weak self] paneID, worklaneID, paneIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    atPaneIndex: paneIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else if let paneIndex {
-                self.worklaneStore.transferPaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    atPaneIndex: paneIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.transferPaneToWorklane(
-                    paneID: paneID,
-                    targetWorklaneID: worklaneID,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
-        }
-        appCanvasView.paneStripView.onPaneNewWorklaneDropRequested = {
-            [weak self] paneID, insertionIndex, isDuplicate in
-            guard let self else { return }
-            if isDuplicate {
-                self.worklaneStore.duplicatePaneToNewWorklane(
-                    paneID: paneID,
-                    atIndex: insertionIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            } else {
-                self.worklaneStore.transferPaneToNewWorklane(
-                    paneID: paneID,
-                    atIndex: insertionIndex,
-                    singleColumnWidth: self.worklaneStore.layoutContext.singlePaneWidth
-                )
-            }
+        appCanvasView.paneStripView.onPaneDragOutcome = { [weak self] outcome in
+            self?.applyPaneDragOutcome(outcome)
         }
         appCanvasView.paneStripView.onNewWorklanePlaceholderVisibilityChanged = {
             [weak self] insertionIndex in
@@ -1039,6 +886,109 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.dragOverlayView = dragOverlayView
     }
 
+    /// Apply a resolved pane-drag outcome by dispatching to the matching
+    /// `WorklaneStore` mutation. `isDuplicate` selects the duplicate variant.
+    private func applyPaneDragOutcome(_ outcome: PaneDragOutcome) {
+        let singleColumnWidth = worklaneStore.layoutContext.singlePaneWidth
+        switch outcome {
+        case .reorder(let paneID, let columnIndex, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneAsColumn(
+                    paneID: paneID,
+                    toColumnIndex: columnIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.reorderPane(
+                    paneID: paneID,
+                    toColumnIndex: columnIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .reorderInColumn(let paneID, let columnID, let paneIndex, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneInColumn(
+                    paneID: paneID,
+                    toColumnID: columnID,
+                    atPaneIndex: paneIndex,
+                    availableHeight: appCanvasView.bounds.height,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.reorderPane(
+                    paneID: paneID,
+                    toColumnID: columnID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .splitDrop(let paneID, let targetPaneID, let axis, let leading, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneSplitDrop(
+                    paneID: paneID,
+                    ontoTargetPaneID: targetPaneID,
+                    axis: axis,
+                    leading: leading,
+                    availableHeight: appCanvasView.bounds.height,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.splitDropPane(
+                    paneID: paneID,
+                    ontoTargetPaneID: targetPaneID,
+                    axis: axis,
+                    leading: leading,
+                    availableHeight: appCanvasView.bounds.height,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .crossWorklane(let paneID, let worklaneID, let paneIndex, let isDuplicate):
+            if isDuplicate {
+                worklaneStore.duplicatePaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else if let paneIndex {
+                worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    atPaneIndex: paneIndex,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.transferPaneToWorklane(
+                    paneID: paneID,
+                    targetWorklaneID: worklaneID,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+
+        case .newWorklane(let paneID, let insertionIndex, let isDuplicate):
+            // `nil` = append: the drag coordinator no longer resolves the row
+            // count, so fall back to the store's worklane count here (identical
+            // to the sidebar row-frame count the coordinator formerly used).
+            let index = insertionIndex ?? worklaneStore.worklanes.count
+            if isDuplicate {
+                worklaneStore.duplicatePaneToNewWorklane(
+                    paneID: paneID,
+                    atIndex: index,
+                    singleColumnWidth: singleColumnWidth
+                )
+            } else {
+                worklaneStore.transferPaneToNewWorklane(
+                    paneID: paneID,
+                    atIndex: index,
+                    singleColumnWidth: singleColumnWidth
+                )
+            }
+        }
+    }
+
     private func setupSidebarCallbacks() {
         sidebarView.onWorklaneSelected = { [weak self] id in
             self?.worklaneStore.selectWorklane(id: id)
@@ -1076,12 +1026,12 @@ final class RootViewController: NSViewController {
                 self.showClosePaneConfirmation(reason: reason) {
                     self.worklaneStore.selectWorklaneAndFocusPane(
                         worklaneID: worklaneID, paneID: paneID)
-                    self.closePane(id: paneID)
+                    self.paneCommands.closePane(id: paneID)
                 }
             } else {
                 self.worklaneStore.selectWorklaneAndFocusPane(
                     worklaneID: worklaneID, paneID: paneID)
-                self.closePane(id: paneID)
+                self.paneCommands.closePane(id: paneID)
             }
         }
         sidebarView.onSplitHorizontalRequested = { [weak self] worklaneID, paneID in
@@ -1142,21 +1092,21 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onGlobalSearchNextRequested = { [weak self] in
             guard let self else { return }
-            self.performGlobalSearchNavigationPreservingHUD {
+            self.globalSearchChoreographer.performNavigationPreservingHUD {
                 self.globalSearchCoordinator.findNext()
             }
         }
         sidebarView.onGlobalSearchPreviousRequested = { [weak self] in
             guard let self else { return }
-            self.performGlobalSearchNavigationPreservingHUD {
+            self.globalSearchChoreographer.performNavigationPreservingHUD {
                 self.globalSearchCoordinator.findPrevious()
             }
         }
         sidebarView.onGlobalSearchCloseRequested = { [weak self] in
-            self?.closeGlobalSearchAndFocusTerminal()
+            self?.globalSearchChoreographer.closeAndFocusTerminal()
         }
         sidebarView.onGlobalSearchFocusChanged = { [weak self] focused in
-            self?.handleGlobalSearchFocusChanged(focused)
+            self?.globalSearchChoreographer.handleFocusChanged(focused)
         }
         sidebarView.onOpenBookmarksPopoverRequested = { [weak self] anchorView in
             self?.toggleBookmarksPopover(anchorView: anchorView)
@@ -1225,7 +1175,7 @@ final class RootViewController: NSViewController {
             self?.globalSearchCoordinator.handleSearchEvent(for: paneID, event: event)
         }
         runtimeRegistry.onRuntimeDidCreate = { [weak self] runtime in
-            self?.configureRemoteImagePaste(for: runtime)
+            self?.remotePaste.configure(runtime: runtime)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
@@ -1297,7 +1247,7 @@ final class RootViewController: NSViewController {
         }
         updateOpenWithChromeState()
         updateServerChromeState()
-        schedulePassiveServerDetectionRefresh()
+        serverCommands.schedulePassiveServerDetectionRefresh()
     }
 
     override func viewDidLayout() {
@@ -1466,81 +1416,7 @@ final class RootViewController: NSViewController {
             return
         }
 
-        switch action {
-        case .toggleSidebar:
-            handleToggleSidebar()
-        case .newWorklane:
-            worklaneStore.createWorklane()
-        case .renameCurrentWorklane:
-            beginRenameActiveWorklane()
-        case .renameCurrentPane:
-            beginRenameActivePane()
-        case .nextWorklane:
-            peekController.handleTab(forward: true)
-        case .previousWorklane:
-            peekController.handleTab(forward: false)
-        case .moveWorklaneUp:
-            moveActiveWorklane(by: -1)
-        case .moveWorklaneDown:
-            moveActiveWorklane(by: 1)
-        case .find:
-            showFocusedPaneSearch()
-        case .globalFind:
-            showGlobalSearch()
-        case .useSelectionForFind:
-            useFocusedPaneSelectionForSearch()
-        case .findNext:
-            findNextInFocusedPane()
-        case .findPrevious:
-            findPreviousInFocusedPane()
-        case .copyFocusedPanePath:
-            copyFocusedPanePath()
-        case .cleanCopy:
-            performCleanCopy()
-        case .copyRaw:
-            performCopyRaw()
-        case .copyMarkdown:
-            performCopyMarkdown()
-        case .jumpToLatestNotification:
-            if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
-                notificationCoordinator.closePanel()
-                navigateToNotification(notification)
-            } else {
-                NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
-            }
-        case .pane(let command):
-            handlePaneCommand(command)
-        case .moveFocusedPaneToNewWindow:
-            onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        case .navigateBack:
-            worklaneStore.navigateBack()
-        case .navigateForward:
-            worklaneStore.navigateForward()
-        case .showCommandPalette:
-            showCommandPalette()
-        case .showTaskManager:
-            NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
-        case .openWithSelectedApp:
-            onOpenWithPrimaryRequested?()
-        case .openSelectedServer:
-            onServerPrimaryRequested?()
-        case .openBranchOnRemote:
-            openBranchOnRemote()
-        case .refreshPullRequestStatus:
-            renderCoordinator.refreshFocusedReviewState()
-        case .themeMode(let command):
-            applyThemeModeCommand(command)
-        case .openSettings:
-            onShowSettingsRequested?()
-        case .newWindow:
-            NSApp.sendAction(#selector(AppDelegate.newWindow(_:)), to: nil, from: nil)
-        case .closeWindow:
-            view.window?.close()
-        case .reloadConfig:
-            configStore.reloadFromDisk()
-        case .openBookmarksPopover:
-            toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
-        }
+        router.route(action)
     }
 
     private func showFocusedPaneSearch() {
@@ -1573,7 +1449,7 @@ final class RootViewController: NSViewController {
 
     private func findNextInFocusedPane() {
         if globalSearchHasRememberedSearch {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findNext()
             }
             return
@@ -1584,7 +1460,7 @@ final class RootViewController: NSViewController {
 
     private func findPreviousInFocusedPane() {
         if globalSearchHasRememberedSearch {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findPrevious()
             }
             return
@@ -1593,141 +1469,13 @@ final class RootViewController: NSViewController {
         focusedPaneRuntime()?.findPrevious()
     }
 
-    private func handleHorizontalKeyboardResize(delta: CGFloat) {
-        guard let action = worklaneStore.focusedHorizontalKeyboardResizeAction(for: delta) else {
-            return
-        }
-        switch action {
-        case .interior:
-            let shouldCenterMiddlePane =
-                shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize()
-            if shouldCenterMiddlePane {
-                appCanvasView.centerFocusedInteriorPaneOnNextRender()
-            }
-            let didResize = worklaneStore.resizeFocusedPane(
-                in: .horizontal,
-                delta: delta,
-                availableSize: appCanvasView.bounds.size,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-                animation: .immediate
-            )
-            if shouldCenterMiddlePane, !didResize {
-                appCanvasView.clearPendingPaneStripTargetOffsetOverride()
-            }
-        case .edge(let target):
-            let appliedWidthDelta = worklaneStore.resize(
-                .horizontalEdge(target),
-                delta: delta,
-                availableSize: appCanvasView.bounds.size,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID()
-            )
-            if target.edge == .left, abs(appliedWidthDelta) > 0.001 {
-                appCanvasView.shiftPaneStripTargetOffsetOnNextRender(by: appliedWidthDelta)
-            }
-        }
-    }
-
-    private func handlePaneCommand(_ command: PaneCommand) {
-        switch command {
-        case .resizeLeft:
-            appCanvasView.settlePaneStripPresentationNow()
-            handleHorizontalKeyboardResize(delta: -keyboardResizeStep(for: .horizontal))
-        case .resizeRight:
-            appCanvasView.settlePaneStripPresentationNow()
-            handleHorizontalKeyboardResize(delta: keyboardResizeStep(for: .horizontal))
-        case .resizeUp:
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.resizeFocusedPane(
-                in: .vertical,
-                delta: resolvedVerticalKeyboardResizeDelta(keyboardResizeStep(for: .vertical)),
-                availableSize: appCanvasView.bounds.size,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-                animation: .immediate
-            )
-        case .resizeDown:
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.resizeFocusedPane(
-                in: .vertical,
-                delta: resolvedVerticalKeyboardResizeDelta(-keyboardResizeStep(for: .vertical)),
-                availableSize: appCanvasView.bounds.size,
-                minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-                animation: .immediate
-            )
-        case .arrangeHorizontally(let arrangement):
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.arrangeActiveWorklaneHorizontally(
-                arrangement,
-                availableWidth: appCanvasView.bounds.width,
-                leadingVisibleInset: appCanvasView.leadingVisibleInset
-            )
-        case .arrangeVertically(let arrangement):
-            appCanvasView.settlePaneStripPresentationNow()
-            worklaneStore.arrangeActiveWorklaneVertically(arrangement)
-        case .arrangeGoldenRatio(let preset):
-            appCanvasView.settlePaneStripPresentationNow()
-            switch preset {
-            case .focusWide, .focusNarrow:
-                worklaneStore.arrangeActiveWorklaneGoldenWidth(
-                    focusWide: preset == .focusWide,
-                    availableWidth: appCanvasView.bounds.width,
-                    leadingVisibleInset: appCanvasView.leadingVisibleInset
-                )
-            case .focusTall, .focusShort:
-                worklaneStore.arrangeActiveWorklaneGoldenHeight(
-                    focusTall: preset == .focusTall,
-                    availableSize: appCanvasView.bounds.size
-                )
-            }
-        case .resetLayout:
-            worklaneStore.resetActiveWorklaneLayout()
-        case .closeFocusedPane:
-            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
-            if configStore.current.confirmations.confirmBeforeClosingPane,
-                let focusedPaneID,
-                let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID)
-            {
-                showClosePaneConfirmation(reason: reason) { [weak self] in
-                    self?.closeFocusedPane()
-                }
-            } else {
-                closeFocusedPane()
-            }
-        case .restoreClosedPane:
-            performRestoreClosedPane()
-        default:
-            worklaneStore.send(command)
-        }
-    }
-
     private func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
         if event == .surfaceClosed {
-            handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
+            paneCommands.handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
             return
         }
 
         worklaneStore.handleTerminalEvent(paneID: paneID, event: event)
-    }
-
-    private func closePane(id paneID: PaneID) {
-        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
-    }
-
-    private func performRestoreClosedPane() {
-        if let result = worklaneStore.restoreClosedPane() {
-            showRestoreToast(message: result.toastMessage)
-        } else {
-            showRestoreToast(message: "No recently closed pane to restore")
-        }
-    }
-
-    private func showRestoreToast(message: String) {
-        showToast(message: message)
-    }
-
-    private func closeFocusedPane() {
-        handlePaneCloseResult(worklaneStore.closeFocusedPane())
     }
 
     private func closeWorklane(id worklaneID: WorklaneID) {
@@ -1737,15 +1485,6 @@ final class RootViewController: NSViewController {
 
         worklaneStore.selectWorklane(id: worklaneID)
         worklaneStore.closeActiveWorklane()
-    }
-
-    private func handlePaneCloseResult(_ result: WorklaneStore.PaneCloseResult) {
-        switch result {
-        case .closed, .notFound:
-            return
-        case .closeWindow:
-            requestContainingWindowClose()
-        }
     }
 
     private func requestContainingWindowClose() {
@@ -1829,20 +1568,6 @@ final class RootViewController: NSViewController {
         }
     }
 
-    private func shouldCenterFocusedInteriorPaneAfterHorizontalKeyboardResize() -> Bool {
-        guard
-            let state = worklaneStore.activeWorklane?.paneStripState,
-            let focusedColumnID = state.focusedColumnID,
-            let focusedColumnIndex = state.columns.firstIndex(where: { $0.id == focusedColumnID })
-        else {
-            return false
-        }
-
-        return state.columns.count > 2
-            && focusedColumnIndex > 0
-            && focusedColumnIndex + 1 < state.columns.count
-    }
-
     func navigateToPane(worklaneID: WorklaneID, paneID: PaneID) {
         worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
         notificationCoordinator.store.resolve(
@@ -1878,88 +1603,6 @@ final class RootViewController: NSViewController {
 
         sidebarView.focusGlobalSearchField(
             selectAll: selectAll && !globalSearchCoordinator.state.needle.isEmpty)
-    }
-
-    private var shouldRetainGlobalSearchFocus: Bool {
-        globalSearchNavigationFocusPreservationToken != nil
-            || (globalSearchCoordinator.state.isHUDVisible
-                && sidebarView.isGlobalSearchFieldFocused)
-    }
-
-    private func performGlobalSearchNavigationPreservingHUD(_ navigation: () -> Void) {
-        globalSearchNavigationFocusPreservationSequence += 1
-        let token = globalSearchNavigationFocusPreservationSequence
-        globalSearchNavigationFocusPreservationToken = token
-        globalSearchNavigationFocusReleaseWorkItem?.cancel()
-        globalSearchNavigationFocusReleaseWorkItem = nil
-
-        sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-        syncSidebarVisibilityControls(animated: true)
-
-        navigation()
-        scheduleGlobalSearchNavigationRefocus(token: token)
-        scheduleGlobalSearchNavigationFocusRelease(token: token)
-    }
-
-    private func scheduleGlobalSearchNavigationRefocus(token: Int) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard self.globalSearchNavigationFocusPreservationToken == token else { return }
-
-            guard self.globalSearchCoordinator.state.isHUDVisible else {
-                self.globalSearchNavigationFocusPreservationToken = nil
-                return
-            }
-
-            self.sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-            self.syncSidebarVisibilityControls(animated: true)
-            self.focusGlobalSearchField(selectAll: false)
-        }
-    }
-
-    private func scheduleGlobalSearchNavigationFocusRelease(token: Int) {
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.globalSearchNavigationFocusPreservationToken == token else { return }
-
-            self.globalSearchNavigationFocusPreservationToken = nil
-            self.globalSearchNavigationFocusReleaseWorkItem = nil
-        }
-        globalSearchNavigationFocusReleaseWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
-    }
-
-    private func closeGlobalSearchAndFocusTerminal() {
-        globalSearchNavigationFocusPreservationToken = nil
-        globalSearchNavigationFocusReleaseWorkItem?.cancel()
-        globalSearchNavigationFocusReleaseWorkItem = nil
-        globalSearchCoordinator.end()
-        sidebarMotionCoordinator.handle(.globalSearchFocusExited)
-        syncSidebarVisibilityControls(animated: true)
-        focusedPaneRuntime()?.hostView.focusTerminal()
-    }
-
-    private func handleGlobalSearchFocusChanged(_ focused: Bool) {
-        if focused {
-            sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-            syncSidebarVisibilityControls(animated: true)
-            return
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard !self.sidebarView.isGlobalSearchFieldFocused else { return }
-
-            if self.shouldRetainGlobalSearchFocus {
-                self.sidebarMotionCoordinator.handle(.globalSearchFocusEntered)
-                self.syncSidebarVisibilityControls(animated: true)
-                self.focusGlobalSearchField(selectAll: false)
-                return
-            }
-
-            self.sidebarMotionCoordinator.handle(.globalSearchFocusExited)
-            self.syncSidebarVisibilityControls(animated: true)
-        }
     }
 
     private func showCommandPalette() {
@@ -2069,7 +1712,7 @@ final class RootViewController: NSViewController {
             return
         }
 
-        _ = openServer(server)
+        _ = serverCommands.openServer(server)
     }
 
     private func openSidebarServer(worklaneID: WorklaneID, serverID: String) {
@@ -2077,7 +1720,7 @@ final class RootViewController: NSViewController {
             return
         }
 
-        _ = openServer(server)
+        _ = serverCommands.openServer(server)
     }
 
     private func runTaskRunner(_ action: TaskRunnerAction) {
@@ -2129,7 +1772,7 @@ final class RootViewController: NSViewController {
             inheritFromPaneID: worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
             environmentVariables: action.environment
         )
-        guard let paneID = splitWithLayout(
+        guard let paneID = paneCommands.splitWithLayout(
             placement: .afterFocused,
             isHorizontal: true,
             layout: .none,
@@ -2228,356 +1871,15 @@ final class RootViewController: NSViewController {
         showToast(message: message)
     }
 
-    private func configureRemoteImagePaste(for runtime: PaneRuntime) {
-        let paneID = runtime.paneID
-        runtime.setRemoteImagePasteHandler { [weak self] pasteboard, _ in
-            self?.handleRemoteImagePaste(paneID: paneID, pasteboard: pasteboard) ?? false
-        }
-    }
-
-    private func handleRemoteImagePaste(paneID: PaneID, pasteboard: NSPasteboard) -> Bool {
-        let fileURLs = TerminalClipboard.fileURLs(from: pasteboard)
-        let imageContent: TerminalClipboard.ImageUploadContent = fileURLs.isEmpty
-            ? TerminalClipboard.imageUploadContent(from: pasteboard)
-            : .noImage
-        let pasteboardContents: RemoteImagePasteboardContents = fileURLs.isEmpty
-            ? imageContent.remoteImagePasteboardContents
-            : .fileURL
-
-        guard pasteboardContents.shouldUpload else {
-            return false
-        }
-
-        guard let paneState = remoteImagePastePaneState(for: paneID, refreshForegroundSSH: true) else {
-            return false
-        }
-
-        guard RemoteImagePasteDecision.shouldUploadRemotely(
-            paneState: paneState,
-            pasteboardContents: pasteboardContents
-        ) else {
-            return false
-        }
-
-        guard remoteImageUploadTasksByPaneID[paneID] == nil else {
-            showRemoteImagePasteFailure(.uploadAlreadyInProgress, paneID: paneID)
-            return true
-        }
-
-        guard let destination = paneState.destination else {
-            showRemoteImagePasteFailure(.unknownDestination, paneID: paneID)
-            return true
-        }
-
-        if !fileURLs.isEmpty {
-            return handleRemoteFileURLPaste(
-                paneID: paneID,
-                fileURLs: fileURLs,
-                destination: destination
-            )
-        }
-
-        let pastedImage: TerminalClipboard.PastedImage
-        switch imageContent {
-        case .image(let image):
-            pastedImage = image
-        case .imageTooLarge:
-            showRemoteImagePasteFailure(.imageTooLarge, paneID: paneID)
-            return true
-        case .failedToReadImage:
-            showRemoteImagePasteFailure(.transferFailed, paneID: paneID)
-            return true
-        case .noImage:
-            return false
-        }
-
-        let toastHandle = beginRemoteImageUploadToast(
-            message: Self.remoteImageUploadProgressMessage(fraction: 0)
-        )
-        let task = Task { [weak self] in
-            guard let self else {
-                return
-            }
-            defer {
-                remoteImageUploadTasksByPaneID[paneID] = nil
-            }
-
-            do {
-                let remotePath = try await remoteImageUploader.upload(
-                    imageData: pastedImage.data,
-                    fileExtension: pastedImage.fileExtension,
-                    destination: destination,
-                    progress: { fraction in
-                        toastHandle.updateProgress(
-                            fraction: fraction,
-                            message: Self.remoteImageUploadProgressMessage(fraction: fraction)
-                        )
-                    }
-                )
-
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                toastHandle.finish(message: "Pasted remote path", icon: "checkmark.circle.fill")
-                runtimeRegistry.runtime(for: paneID)?.adapter.sendText(ShellEscaping.escapePath(remotePath))
-            } catch let error as RemoteImageUploadError {
-                let failure = RemoteImagePasteFailure(error: error)
-                Self.remoteImagePasteLogger.error("Remote image upload failed for pane \(paneID.rawValue): \(String(describing: error))")
-                toastHandle.fail(message: failure.message)
-            } catch is CancellationError {
-                Self.remoteImagePasteLogger.debug("Remote image upload cancelled for pane \(paneID.rawValue)")
-            } catch {
-                Self.remoteImagePasteLogger.error("Remote image upload failed for pane \(paneID.rawValue): \(error.localizedDescription)")
-                toastHandle.fail(message: RemoteImagePasteFailure.transferFailed.message)
-            }
-
-        }
-        remoteImageUploadTasksByPaneID[paneID] = task
-        return true
-    }
-
-    private func handleRemoteFileURLPaste(
-        paneID: PaneID,
-        fileURLs: [URL],
-        destination: SSHDestination
-    ) -> Bool {
-        let resolution = RemoteFileUploadRequestResolver.resolve(fileURLs: fileURLs)
-        let uploadRequests: [RemoteFileUploadRequest]
-        switch resolution {
-        case .files(let requests):
-            uploadRequests = requests
-        case .noFiles:
-            return false
-        case .foldersOnly:
-            showRemoteImagePasteFailure(.foldersCannotUpload, paneID: paneID)
-            return true
-        case .fileTooLarge:
-            showRemoteImagePasteFailure(.fileTooLarge, paneID: paneID)
-            return true
-        case .failedToResolve:
-            showRemoteImagePasteFailure(.transferFailed, paneID: paneID)
-            return true
-        }
-
-        guard let firstRequest = uploadRequests.first else {
-            return false
-        }
-
-        let toastHandle = beginRemoteImageUploadToast(
-            message: Self.remoteFileUploadProgressMessage(
-                filename: firstRequest.originalFilename,
-                fileIndex: 1,
-                fileCount: uploadRequests.count,
-                fraction: 0
-            )
-        )
-        let task = Task { [weak self] in
-            guard let self else {
-                return
-            }
-            defer {
-                remoteImageUploadTasksByPaneID[paneID] = nil
-            }
-
-            do {
-                let batch = RemoteFileUploadBatch(uploader: remoteImageUploader)
-                let result = try await batch.uploadFiles(
-                    uploadRequests,
-                    destination: destination,
-                    progress: { progress in
-                        toastHandle.updateProgress(
-                            fraction: progress.fraction,
-                            message: Self.remoteFileUploadProgressMessage(progress)
-                        )
-                    }
-                )
-
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                guard !result.successfulRemotePaths.isEmpty else {
-                    let failure = result.firstFailure.map(RemoteImagePasteFailure.init(error:)) ?? .transferFailed
-                    toastHandle.fail(message: failure.message)
-                    return
-                }
-
-                if result.failedCount > 0 {
-                    toastHandle.finish(
-                        message: "Uploaded \(result.successfulRemotePaths.count) of \(result.totalCount) files",
-                        icon: "checkmark.circle.fill"
-                    )
-                } else {
-                    toastHandle.finish(
-                        message: result.totalCount == 1 ? "Pasted remote path" : "Pasted remote paths",
-                        icon: "checkmark.circle.fill"
-                    )
-                }
-                runtimeRegistry.runtime(for: paneID)?.adapter.sendText(result.pasteText)
-            } catch is CancellationError {
-                Self.remoteImagePasteLogger.debug("Remote file upload cancelled for pane \(paneID.rawValue)")
-            } catch {
-                Self.remoteImagePasteLogger.error("Remote file upload failed for pane \(paneID.rawValue): \(error.localizedDescription)")
-                toastHandle.fail(message: RemoteImagePasteFailure.transferFailed.message)
-            }
-        }
-        remoteImageUploadTasksByPaneID[paneID] = task
-        return true
-    }
-
-    private func remoteImagePastePaneState(
-        for paneID: PaneID,
-        refreshForegroundSSH: Bool = false
-    ) -> RemoteImagePastePaneState? {
-        guard let worklane = worklaneStore.worklanes.first(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }),
-            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
-        else {
-            return nil
-        }
-
-        if refreshForegroundSSH {
-            let destination = auxiliaryState.raw.paneRootPID
-                .flatMap { scanForegroundSSHDestinationForPaste(rootPID: $0) }
-            if auxiliaryState.raw.foregroundSSHDestination != destination {
-                worklaneStore.updateForegroundSSHDestination(
-                    paneID: paneID,
-                    destination: destination
-                )
-            }
-            auxiliaryState.raw.foregroundSSHDestination = destination
-            auxiliaryState.presentation.foregroundSSHDestination = destination
-        }
-
-        let presentation = auxiliaryState.presentation
-        return RemoteImagePastePaneState(
-            isRemotePane: presentation.isRemotePane,
-            destination: remoteImageDestination(from: auxiliaryState)
-        )
-    }
-
-    private func remoteImageDestination(from auxiliaryState: PaneAuxiliaryState) -> SSHDestination? {
-        RemoteImagePasteDestination.destination(from: auxiliaryState)
-    }
-
     func cancelAllRemoteImageUploads() {
-        let tasks = Array(remoteImageUploadTasksByPaneID.values)
-        remoteImageUploadTasksByPaneID.removeAll()
-        tasks.forEach { $0.cancel() }
-        pathCopiedToastView?.removeFromSuperview()
-        pathCopiedToastView = nil
-    }
-
-    private func cancelRemoteImageUploadsForRemovedPanes() {
-        let livePaneIDs = Set(worklaneStore.worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map(\.id)
-        })
-        for paneID in Array(remoteImageUploadTasksByPaneID.keys) where !livePaneIDs.contains(paneID) {
-            cancelRemoteImageUpload(for: paneID)
-        }
-    }
-
-    private func cancelRemoteImageUpload(for paneID: PaneID) {
-        guard let task = remoteImageUploadTasksByPaneID.removeValue(forKey: paneID) else {
-            return
-        }
-
-        task.cancel()
-        if remoteImageUploadTasksByPaneID.isEmpty {
-            pathCopiedToastView?.removeFromSuperview()
-            pathCopiedToastView = nil
-        }
-    }
-
-    private func beginRemoteImageUploadToast(message: String) -> PathCopiedToastView.ProgressHandle {
-        pathCopiedToastView?.removeFromSuperview()
-        let toast = PathCopiedToastView()
-        pathCopiedToastView = toast
-        return toast.beginProgress(
-            message: message,
-            in: appCanvasView,
-            theme: currentTheme
-        )
-    }
-
-    private func showRemoteImagePasteFailure(_ failure: RemoteImagePasteFailure, paneID: PaneID) {
-        Self.remoteImagePasteLogger.error("Remote image paste failed for pane \(paneID.rawValue): \(failure.message)")
-        if failure == .uploadAlreadyInProgress, pathCopiedToastView?.isProgressActive == true {
-            pathCopiedToastView?.temporarilyShowProgressMessage(failure.message, duration: failure.displayDuration)
-            return
-        }
-
-        showToast(message: failure.message, duration: failure.displayDuration)
+        remotePaste.cancelAll()
     }
 
     private func showToast(
         message: String,
         duration: TimeInterval? = nil
     ) {
-        guard pathCopiedToastView?.isProgressActive != true else {
-            return
-        }
-
-        pathCopiedToastView?.removeFromSuperview()
-        let toast = PathCopiedToastView()
-        pathCopiedToastView = toast
-        if let duration {
-            let handle = toast.beginProgress(message: message, in: appCanvasView, theme: currentTheme)
-            handle.fail(message: message)
-        } else {
-            toast.show(message: message, in: appCanvasView, theme: currentTheme)
-        }
-    }
-
-    private static func remoteImageUploadProgressMessage(fraction: Double) -> String {
-        let percent = Int((max(0, min(1, fraction)) * 100).rounded())
-        return "Uploading pasted image (\(percent)%)"
-    }
-
-    private static func remoteFileUploadProgressMessage(_ progress: RemoteFileUploadProgress) -> String {
-        remoteFileUploadProgressMessage(
-            filename: progress.filename,
-            fileIndex: progress.fileIndex,
-            fileCount: progress.fileCount,
-            fraction: progress.fraction
-        )
-    }
-
-    private static func remoteFileUploadProgressMessage(
-        filename: String,
-        fileIndex: Int,
-        fileCount: Int,
-        fraction: Double
-    ) -> String {
-        let percent = Int((max(0, min(1, fraction)) * 100).rounded())
-        if fileCount > 1 {
-            return "Uploading \(filename) (\(fileIndex)/\(fileCount), \(percent)%)"
-        }
-
-        return "Uploading \(filename) (\(percent)%)"
-    }
-
-    private func keyboardResizeStep(for axis: PaneResizeAxis) -> CGFloat {
-        let minimumSizesByPaneID = paneMinimumSizesByPaneID()
-        guard let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
-            let minimumSize = minimumSizesByPaneID[focusedPaneID]
-        else {
-            switch axis {
-            case .horizontal:
-                return max(1, PaneMinimumSize.fallback.width / PaneResize.minimumColumns)
-            case .vertical:
-                return max(1, PaneMinimumSize.fallback.height / PaneResize.minimumRows)
-            }
-        }
-
-        switch axis {
-        case .horizontal:
-            return max(1, minimumSize.width / PaneResize.minimumColumns)
-        case .vertical:
-            return max(1, minimumSize.height / PaneResize.minimumRows)
-        }
+        toasts.show(message: message, duration: duration)
     }
 
     private func commandAvailabilityContext() -> CommandAvailabilityContext {
@@ -2685,41 +1987,6 @@ final class RootViewController: NSViewController {
             notification: .announcementRequested,
             userInfo: [.announcement: message]
         )
-    }
-
-    private func resolvedVerticalKeyboardResizeDelta(_ delta: CGFloat) -> CGFloat {
-        guard
-            worklaneStore.activeWorklane?.paneStripState.shouldInvertVerticalKeyboardResizeDelta()
-                == true
-        else {
-            return delta
-        }
-
-        return -delta
-    }
-
-    private func paneMinimumSizesByPaneID() -> [PaneID: PaneMinimumSize] {
-        guard let worklane = worklaneStore.activeWorklane else {
-            return [:]
-        }
-
-        return Dictionary(
-            uniqueKeysWithValues: worklane.paneStripState.panes.map { pane in
-                let runtime = runtimeRegistry.runtime(for: pane)
-                let minimumWidth =
-                    runtime.cellWidth > 0
-                    ? max(
-                        PaneMinimumSize.fallback.width,
-                        runtime.cellWidth * PaneResize.minimumColumns)
-                    : PaneMinimumSize.fallback.width
-                let minimumHeight =
-                    runtime.cellHeight > 0
-                    ? max(
-                        PaneMinimumSize.fallback.height, runtime.cellHeight * PaneResize.minimumRows
-                    )
-                    : PaneMinimumSize.fallback.height
-                return (pane.id, PaneMinimumSize(width: minimumWidth, height: minimumHeight))
-            })
     }
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
@@ -2928,10 +2195,17 @@ final class RootViewController: NSViewController {
         let previousWorklaneState = worklaneStore.state
         let previousLayoutContext = currentPaneLayoutContext
         let previousFocusedColumnContentMinX = focusedPaneColumnContentMinX()
+        // Suppress the layout-resize notification outright: this method runs its
+        // own coordinated canvas transition below (via the `needsCanvasTransition`
+        // hand-diff of `worklaneStore.state`), so a delivered .layoutResized would
+        // trigger a second, uncoordinated render mid-animation. `batchUpdate` now
+        // flushes captured changes on exit, so silence the source rather than
+        // relying on the change being dropped.
         worklaneStore.batchUpdate { [self] in
             updatePaneLayoutContextIfNeeded(
                 force: true,
-                leadingVisibleInsetOverride: motionTargets.reservedInset
+                leadingVisibleInsetOverride: motionTargets.reservedInset,
+                notifyLayoutResize: false
             )
         }
         let needsCanvasTransition =
@@ -3164,617 +2438,8 @@ final class RootViewController: NSViewController {
         )
     }
 
-    // MARK: - Pane IPC
-
-    func handlePaneIPCCommand(_ command: PaneCommand) {
-        handlePaneCommand(command)
-    }
-
-    @discardableResult
-    func splitWithLayout(
-        placement: PanePlacement,
-        isHorizontal: Bool,
-        layout: SplitLayoutAction,
-        targetPaneID: PaneID? = nil,
-        preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
-    ) -> PaneID? {
-        appCanvasView.settlePaneStripPresentationNow()
-        return worklaneStore.splitWithLayout(
-            placement: placement,
-            isHorizontal: isHorizontal,
-            layout: layout,
-            availableWidth: appCanvasView.bounds.width,
-            leadingVisibleInset: appCanvasView.leadingVisibleInset,
-            availableSize: appCanvasView.bounds.size,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID(),
-            targetPaneID: targetPaneID,
-            preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
-        )
-    }
-
-    @discardableResult
-    func applyGrid(
-        sourcePaneID: PaneID,
-        rows: Int,
-        columns: Int,
-        command: String?,
-        includeSource: Bool,
-        focus: GridFocus
-    ) throws -> GridApplicationResult {
-        appCanvasView.settlePaneStripPresentationNow()
-        return try worklaneStore.applyGrid(
-            sourcePaneID: sourcePaneID,
-            rows: rows,
-            columns: columns,
-            command: command,
-            includeSource: includeSource,
-            focus: focus
-        )
-    }
-
-    @discardableResult
-    func createWorklaneForGrid() -> WorklaneID {
-        worklaneStore.createWorklane()
-    }
-
-    func gridWindowWorkspaceState(
-        inheritingFrom sourcePaneID: PaneID,
-        destinationWindowID: WindowID
-    ) -> WindowWorkspaceState? {
-        worklaneStore.gridWindowWorkspaceState(
-            inheritingFrom: sourcePaneID,
-            destinationWindowID: destinationWindowID
-        )
-    }
-
-    func focusPaneByID(_ paneID: PaneID, in worklaneID: WorklaneID) {
-        worklaneStore.selectWorklane(id: worklaneID)
-        worklaneStore.focusPane(id: paneID)
-    }
-
     func closePaneByID(_ paneID: PaneID) {
-        handlePaneCloseResult(worklaneStore.closePane(id: paneID))
-    }
-
-    @discardableResult
-    func launchDeferredPane(id paneID: PaneID, nativeCommand: String) -> Bool {
-        worklaneStore.launchDeferredPane(id: paneID, nativeCommand: nativeCommand)
-    }
-
-    @discardableResult
-    func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
-        worklaneStore.setPaneTitle(id: paneID, title: title)
-    }
-
-    @discardableResult
-    func setWorklaneColor(_ color: WorklaneColor?, on id: WorklaneID) -> Bool {
-        worklaneStore.setColor(color, on: id)
-    }
-
-    @discardableResult
-    func setWorklaneTitle(_ title: String?, on id: WorklaneID) -> Bool {
-        worklaneStore.setTitle(title, on: id)
-    }
-
-    @discardableResult
-    func setPaneCustomTitle(_ title: String?, on paneID: PaneID) -> Bool {
-        worklaneStore.setPaneCustomTitle(title, on: paneID)
-    }
-
-    func resizeFocusedColumnToFraction(_ fraction: CGFloat) {
-        appCanvasView.settlePaneStripPresentationNow()
-        worklaneStore.resizeFocusedColumnToFraction(
-            fraction,
-            availableWidth: appCanvasView.bounds.width,
-            leadingVisibleInset: appCanvasView.leadingVisibleInset,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
-        )
-    }
-
-    func resizeColumnContainingPane(id paneID: PaneID, toFraction fraction: CGFloat) {
-        appCanvasView.settlePaneStripPresentationNow()
-        worklaneStore.resizeColumnContainingPane(
-            id: paneID,
-            toFraction: fraction,
-            availableWidth: appCanvasView.bounds.width,
-            leadingVisibleInset: appCanvasView.leadingVisibleInset,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
-        )
-    }
-
-    func columnWidthForPane(id paneID: PaneID, in worklaneID: WorklaneID) -> CGFloat? {
-        worklaneStore.columnWidthForPane(id: paneID, in: worklaneID)
-    }
-
-    func resizeColumnContainingPaneToWidth(id paneID: PaneID, width: CGFloat) {
-        appCanvasView.settlePaneStripPresentationNow()
-        let availableWidth = appCanvasView.bounds.width
-        let leadingVisibleInset = appCanvasView.leadingVisibleInset
-        appCanvasView.centerFocusedInteriorPaneOnNextRender()
-        let didResize = worklaneStore.resizeColumnContainingPanePreservingNeighbors(
-            id: paneID,
-            toWidth: width,
-            availableWidth: availableWidth,
-            leadingVisibleInset: leadingVisibleInset,
-            minimumSizeByPaneID: paneMinimumSizesByPaneID()
-        )
-        if !didResize {
-            appCanvasView.clearPendingPaneStripTargetOffsetOverride()
-        }
-    }
-
-    func resizeFocusedPaneHeightToFraction(_ fraction: CGFloat) {
-        worklaneStore.resizeFocusedPaneHeightToFraction(fraction)
-    }
-
-    // MARK: - Server IPC
-
-    func handleServerIPCCommand(
-        _ command: ServerIPCCommand,
-        target: AgentIPCTarget
-    ) throws -> AgentIPCResponseResult {
-        switch command {
-        case .set(let rawURL, let pid, _):
-            try registerServer(
-                rawURL: rawURL,
-                pid: pid,
-                source: .manual,
-                target: target
-            )
-            return serverResponse(for: target.worklaneID)
-
-        case .watchSet(let rawURL, let pid, _):
-            try registerServer(
-                rawURL: rawURL,
-                pid: pid,
-                source: .watch,
-                target: target
-            )
-            return serverResponse(for: target.worklaneID)
-
-        case .clear:
-            worklaneStore.clearServers(worklaneID: target.worklaneID, paneID: target.paneID)
-            return serverResponse(for: target.worklaneID)
-
-        case .list:
-            return serverResponse(for: target.worklaneID)
-
-        case .open(let rawURL, let browserID, _):
-            let context = worklaneStore.serverContext(for: target.worklaneID)
-            let server = rawURL.flatMap { worklaneStore.serverRegistry.server(matching: $0, in: target.worklaneID) }
-                ?? context.primaryServer
-            if let server {
-                worklaneStore.rememberPrimaryServer(server)
-                _ = serverOpenService.open(
-                    server: server,
-                    browserID: browserID,
-                    config: configStore.current.serverDetection
-                )
-            }
-            return serverResponse(for: target.worklaneID)
-
-        case .watch:
-            return serverResponse(for: target.worklaneID)
-
-        case .watchClear:
-            worklaneStore.clearServers(worklaneID: target.worklaneID, paneID: target.paneID, source: .watch)
-            return serverResponse(for: target.worklaneID)
-        }
-    }
-
-    private func registerServer(
-        rawURL: String,
-        pid: Int?,
-        source: DetectedServerSource,
-        target: AgentIPCTarget
-    ) throws {
-        let candidate = try ServerURLNormalizer.normalize(rawURL)
-        let server = DetectedServer(
-            id: serverRecordID(
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                source: source,
-                origin: candidate.origin
-            ),
-            origin: candidate.origin,
-            url: candidate.url,
-            display: candidate.display,
-            worklaneID: target.worklaneID,
-            paneID: target.paneID,
-            source: source,
-            ports: [candidate.port],
-            confidence: pid == nil ? .explicit : .pid,
-            updatedAt: Date()
-        )
-        worklaneStore.register(server: server)
-    }
-
-    private func startForegroundSSHProbeLoop() {
-        foregroundSSHProbeTask?.cancel()
-        foregroundSSHProbeTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.sampleForegroundSSHProcesses()
-                try? await Task.sleep(nanoseconds: Self.foregroundSSHProbeIntervalNanoseconds)
-            }
-        }
-    }
-
-    private func sampleForegroundSSHProcesses() async {
-        let sources = foregroundSSHProbeSources()
-        guard !sources.isEmpty else {
-            return
-        }
-
-        let probe = sshProcessProbe
-        let results = await Task.detached(priority: .utility) {
-            sources.map { source in
-                ForegroundSSHProbeResult(
-                    paneID: source.paneID,
-                    destination: source.rootPID.flatMap { probe.scan(rootPID: $0) }
-                )
-            }
-        }.value
-
-        guard !Task.isCancelled else {
-            return
-        }
-
-        for result in results {
-            worklaneStore.updateForegroundSSHDestination(
-                paneID: result.paneID,
-                destination: result.destination
-            )
-        }
-    }
-
-    private func foregroundSSHProbeSources() -> [ForegroundSSHProbeSource] {
-        worklaneStore.worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map { pane in
-                ForegroundSSHProbeSource(
-                    paneID: pane.id,
-                    rootPID: worklane.auxiliaryStateByPaneID[pane.id]?.raw.paneRootPID
-                )
-            }
-        }
-    }
-
-    private func scanForegroundSSHDestinationForPaste(rootPID: Int32) -> SSHDestination? {
-        let probe = sshProcessProbe
-        let result = LockedSSHScanResult()
-        let semaphore = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            result.set(probe.scan(rootPID: rootPID))
-            semaphore.signal()
-        }
-
-        let timeout = DispatchTime.now() + Self.foregroundSSHOnDemandTimeout
-        guard semaphore.wait(timeout: timeout) == .success else {
-            Self.remoteImagePasteLogger.error("Timed out scanning foreground ssh process for rootPID \(rootPID, privacy: .public)")
-            return nil
-        }
-
-        return result.get()
-    }
-
-    private func schedulePassiveServerDetectionRefresh() {
-        passiveServerDetectionTask?.cancel()
-
-        guard configStore.current.serverDetection.passiveDetectionEnabled else {
-            worklaneStore.worklanes.forEach { worklane in
-                worklaneStore.replacePassiveServers(worklaneID: worklane.id, source: .scanner, servers: [])
-                worklaneStore.replacePassiveServers(worklaneID: worklane.id, source: .docker, servers: [])
-            }
-            return
-        }
-
-        let snapshot = PassiveServerDetectionSnapshot(worklanes: worklaneStore.worklanes)
-        clearPassiveServersForWorklanesWithoutContexts(snapshot)
-        guard !snapshot.contexts.isEmpty else {
-            return
-        }
-
-        let scanner = serverListenerScanner
-        let dockerDiscovery = dockerServerDiscovery
-        passiveServerDetectionTask = Task { [weak self, snapshot, scanner, dockerDiscovery] in
-            try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.initialDelayNanoseconds)
-            guard !Task.isCancelled else {
-                return
-            }
-
-            var contexts = snapshot.contexts
-            var dockerCadence = PassiveServerDetectionDockerCadence()
-            var resultTracker = PassiveServerDetectionResultTracker()
-
-            while !Task.isCancelled {
-                let shouldDiscoverDocker = dockerCadence.shouldDiscoverDocker()
-                let scanStartedAt = Date()
-                let results = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery, shouldDiscoverDocker] in
-                    contexts.map { context in
-                        PassiveServerDetectionResult(
-                            worklaneID: context.worklaneID,
-                            scannerServers: scanner.scan(context: context.scanner),
-                            dockerServers: shouldDiscoverDocker ? dockerDiscovery.discover(context: context.docker) : []
-                        )
-                    }
-                }.value
-
-                guard !Task.isCancelled, let self else {
-                    return
-                }
-
-                let scannerServerCount = results.reduce(0) { $0 + $1.scannerServers.count }
-                let dockerServerCount = results.reduce(0) { $0 + $1.dockerServers.count }
-                ZenttyBreadcrumbs.record(
-                    category: "zentty.passive-server.scan",
-                    data: [
-                        "contextCount": contexts.count,
-                        "worklaneCount": Set(contexts.map(\.worklaneID)).count,
-                        "scannerServerCount": scannerServerCount,
-                        "dockerServerCount": dockerServerCount,
-                        "dockerEnabled": shouldDiscoverDocker,
-                        "durationMs": Int(Date().timeIntervalSince(scanStartedAt) * 1000),
-                    ]
-                )
-
-                var appliedScannerCount = 0
-                var appliedDockerCount = 0
-                results.forEach { result in
-                    if resultTracker.shouldApplyScannerResult(
-                        worklaneID: result.worklaneID,
-                        servers: result.scannerServers
-                    ) {
-                        appliedScannerCount += 1
-                        self.worklaneStore.replacePassiveServers(
-                            worklaneID: result.worklaneID,
-                            source: .scanner,
-                            servers: result.scannerServers
-                        )
-                    }
-                    if shouldDiscoverDocker,
-                           resultTracker.shouldApplyDockerResult(
-                               worklaneID: result.worklaneID,
-                               servers: result.dockerServers
-                           ) {
-                        appliedDockerCount += 1
-                        self.worklaneStore.replacePassiveServers(
-                            worklaneID: result.worklaneID,
-                            source: .docker,
-                            servers: result.dockerServers
-                        )
-                    }
-                }
-                if appliedScannerCount > 0 || appliedDockerCount > 0 {
-                    ZenttyBreadcrumbs.record(
-                        category: "zentty.passive-server.apply",
-                        data: [
-                            "scannerChangedCount": appliedScannerCount,
-                            "dockerChangedCount": appliedDockerCount,
-                        ]
-                    )
-                }
-
-                let nextSnapshot = PassiveServerDetectionSnapshot(worklanes: self.worklaneStore.worklanes)
-                self.clearPassiveServersForWorklanesWithoutContexts(nextSnapshot)
-                guard nextSnapshot.shouldContinuePolling, !nextSnapshot.contexts.isEmpty else {
-                    return
-                }
-
-                contexts = nextSnapshot.contexts
-                try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.runningPollIntervalNanoseconds)
-            }
-        }
-    }
-
-    private func clearPassiveServersForWorklanesWithoutContexts(_ snapshot: PassiveServerDetectionSnapshot) {
-        snapshot.worklaneIDsWithoutContexts.forEach { worklaneID in
-            worklaneStore.clearPassiveServers(worklaneID: worklaneID)
-        }
-    }
-
-    @discardableResult
-    func openServer(_ server: DetectedServer, browserID: String? = nil) -> Bool {
-        worklaneStore.rememberPrimaryServer(server)
-        return serverOpenService.open(
-            server: server,
-            browserID: browserID,
-            config: configStore.current.serverDetection
-        )
-    }
-
-    /// Stops the process backing `server` — a graceful `SIGINT` that escalates to
-    /// a force kill if it lingers — then refreshes detection so the server clears
-    /// from the menu once it exits. Only servers we can prove we own (scanner +
-    /// shell-PID ancestry) reach this path via `ServerMenuModel.stoppable`.
-    func killServer(_ server: DetectedServer) {
-        guard let paneID = server.paneID else {
-            return
-        }
-
-        let shellPID = worklaneStore.worklanes
-            .first { $0.id == server.worklaneID }?
-            .auxiliaryStateByPaneID[paneID]?
-            .raw.paneRootPID
-
-        switch serverProcessTerminator.stop(server, shellPID: shellPID) {
-        case .stopped, .notRunning:
-            schedulePassiveServerDetectionRefresh()
-        case .notOwned, .failed:
-            break
-        }
-    }
-
-    func rememberServerBrowser(_ stableID: String) {
-        guard configStore.current.serverDetection.preferredBrowserID != stableID else {
-            return
-        }
-
-        try? configStore.update { config in
-            config.serverDetection.preferredBrowserID = stableID
-        }
-    }
-
-    private func serverResponse(for worklaneID: WorklaneID) -> AgentIPCResponseResult {
-        let context = worklaneStore.serverContext(for: worklaneID)
-        return AgentIPCResponseResult(serverState: ServerListResult(
-            version: 2,
-            primaryServerID: context.primaryServer?.id,
-            servers: context.ranked.map(serverListEntry)
-        ))
-    }
-
-    private func serverListEntry(_ ranked: RankedServer) -> ServerListEntry {
-        let server = ranked.server
-        return ServerListEntry(
-            id: server.id,
-            origin: server.origin,
-            url: server.url.absoluteString,
-            display: server.display,
-            worklaneID: server.worklaneID.rawValue,
-            paneID: server.paneID?.rawValue,
-            source: server.source.rawValue,
-            ports: server.ports,
-            confidence: server.confidence.rawValue,
-            updatedAt: Self.formatServerDate(server.updatedAt),
-            tier: Self.tierString(ranked.tier),
-            reasons: ranked.reasons.map(Self.reasonString).sorted()
-        )
-    }
-
-    private static func tierString(_ tier: ServerRelevanceTier) -> String {
-        switch tier {
-        case .primary: "primary"
-        case .shown: "shown"
-        case .hidden: "hidden"
-        }
-    }
-
-    private static func reasonString(_ reason: ServerRelevanceReason) -> String {
-        switch reason {
-        case .sessionSelected: "session_selected"
-        case .ignoredPort(let port): "ignored_port:\(port)"
-        case .manual: "manual"
-        case .runningPane: "running_pane"
-        case .focusedPane: "focused_pane"
-        case .source(let source): "source:\(source.rawValue)"
-        case .confidence(let confidence): "confidence:\(confidence.rawValue)"
-        case .fresh: "fresh"
-        }
-    }
-
-    private static func formatServerDate(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
-    }
-
-    private func serverRecordID(
-        worklaneID: WorklaneID,
-        paneID: PaneID?,
-        source: DetectedServerSource,
-        origin: String
-    ) -> String {
-        [
-            worklaneID.rawValue,
-            paneID?.rawValue ?? "worklane",
-            source.rawValue,
-            origin,
-        ].joined(separator: "|")
-    }
-
-    func equalizeFocusedColumnPaneHeights() {
-        worklaneStore.equalizeFocusedColumnPaneHeights()
-    }
-
-    func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
-        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
-            return []
-        }
-
-        var entries: [PaneListEntry] = []
-        var index = 1
-        for (columnIndex, column) in worklane.paneStripState.columns.enumerated() {
-            for pane in column.panes {
-                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
-                let isFocused = worklane.paneStripState.focusedPaneID == pane.id
-                entries.append(
-                    PaneListEntry(
-                        index: index,
-                        id: pane.id.rawValue,
-                        column: columnIndex + 1,
-                        title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
-                        workingDirectory: auxiliaryState?.shellContext?.path,
-                        isFocused: isFocused,
-                        agentTool: auxiliaryState?.agentStatus?.tool.displayName,
-                        agentStatus: auxiliaryState?.agentStatus?.state.rawValue
-                    ))
-                index += 1
-            }
-        }
-        return entries
-    }
-
-    func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
-        worklaneStore.worklanes.enumerated().flatMap { worklaneIndex, worklane in
-            worklane.paneStripState.panes.map { pane in
-                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
-                return TaskManagerPaneSource(
-                    windowID: windowID,
-                    windowTitle: windowTitle,
-                    worklaneID: worklane.id,
-                    worklaneTitle: worklane.title ?? "Worklane \(worklaneIndex + 1)",
-                    paneID: pane.id,
-                    paneTitle: WorklaneContextFormatter.trimmed(pane.customTitle)
-                        ?? auxiliaryState?.presentation.visibleIdentityText
-                        ?? pane.title,
-                    statusText: taskManagerStatusText(for: auxiliaryState),
-                    rootPID: auxiliaryState?.raw.paneRootPID,
-                    isRemote: auxiliaryState?.shellContext?.scope == .remote,
-                    currentWorkingDirectory: PaneTerminalLocationResolver.snapshot(
-                        metadata: auxiliaryState?.metadata,
-                        shellContext: auxiliaryState?.shellContext,
-                        requestWorkingDirectory: pane.sessionRequest.workingDirectory
-                    ).workingDirectory
-                )
-            }
-        }
-    }
-
-    private func taskManagerStatusText(for auxiliaryState: PaneAuxiliaryState?) -> String? {
-        if let agentStatus = auxiliaryState?.agentStatus {
-            return "\(agentStatus.tool.displayName) \(agentStatus.state.rawValue)"
-        }
-
-        switch auxiliaryState?.shellActivityState {
-        case .commandRunning:
-            return "Running"
-        case .promptIdle:
-            return "Idle"
-        case .unknown, nil:
-            return nil
-        }
-    }
-
-    func resolvePaneID(_ target: String, in worklaneID: WorklaneID) -> PaneID? {
-        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
-            return nil
-        }
-
-        if target.hasPrefix("pn_") {
-            let paneID = PaneID(target)
-            if worklane.paneStripState.panes.contains(where: { $0.id == paneID }) {
-                return paneID
-            }
-            return nil
-        }
-
-        if let displayIndex = Int(target), displayIndex >= 1 {
-            let allPanes = worklane.paneStripState.columns.flatMap(\.panes)
-            if displayIndex <= allPanes.count {
-                return allPanes[displayIndex - 1].id
-            }
-        }
-
-        return nil
+        paneCommands.closePane(id: paneID)
     }
 
     var worklaneTitles: [String?] {
@@ -3873,18 +2538,18 @@ final class RootViewController: NSViewController {
         }
 
         var pathCopiedToastViewForTesting: PathCopiedToastView? {
-            pathCopiedToastView
+            toasts.currentToastViewForTesting
         }
 
         func insertRemoteImageUploadTaskForTesting(
             _ task: Task<Void, Never>,
             for paneID: PaneID
         ) {
-            remoteImageUploadTasksByPaneID[paneID] = task
+            remotePaste.insertUploadTaskForTesting(task, for: paneID)
         }
 
         func hasRemoteImageUploadTaskForTesting(for paneID: PaneID) -> Bool {
-            remoteImageUploadTasksByPaneID[paneID] != nil
+            remotePaste.hasUploadTaskForTesting(for: paneID)
         }
 
         func handleTerminalEventForTesting(paneID: PaneID, event: TerminalEvent) {
@@ -3966,7 +2631,7 @@ final class RootViewController: NSViewController {
         }
 
         func simulateGlobalSearchFocusChangedForTesting(_ focused: Bool) {
-            handleGlobalSearchFocusChanged(focused)
+            globalSearchChoreographer.handleFocusChanged(focused)
         }
 
         func focusFocusedTerminalForTesting() {
@@ -3988,19 +2653,19 @@ final class RootViewController: NSViewController {
         }
 
         func performGlobalSearchNextForTesting() {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findNext()
             }
         }
 
         func performGlobalSearchPreviousForTesting() {
-            performGlobalSearchNavigationPreservingHUD {
+            globalSearchChoreographer.performNavigationPreservingHUD {
                 globalSearchCoordinator.findPrevious()
             }
         }
 
         func closeGlobalSearchForTesting() {
-            closeGlobalSearchAndFocusTerminal()
+            globalSearchChoreographer.closeAndFocusTerminal()
         }
 
         func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
@@ -4153,7 +2818,7 @@ final class RootViewController: NSViewController {
         renderCoordinator.render()
         updateOpenWithChromeState()
         updateServerChromeState()
-        schedulePassiveServerDetectionRefresh()
+        serverCommands.schedulePassiveServerDetectionRefresh()
         syncAgentCaffeinationState()
 
         if appearanceDidChange {
@@ -4281,6 +2946,151 @@ final class RootViewController: NSViewController {
     private var hasResolvedPaneLayoutBounds: Bool {
         appCanvasView.bounds.width > 0.5
             || view.bounds.width > (ShellMetrics.outerInset * 2) + 0.5
+    }
+}
+
+// MARK: - AppActionRouterEnvironment
+
+extension RootViewController: AppActionRouterEnvironment {
+    func routeToggleSidebar() {
+        handleToggleSidebar()
+    }
+
+    func routeNewWorklane() {
+        worklaneStore.createWorklane()
+    }
+
+    func routeRenameCurrentWorklane() {
+        beginRenameActiveWorklane()
+    }
+
+    func routeRenameCurrentPane() {
+        beginRenameActivePane()
+    }
+
+    func routeNextWorklane() {
+        peekController.handleTab(forward: true)
+    }
+
+    func routePreviousWorklane() {
+        peekController.handleTab(forward: false)
+    }
+
+    func routeMoveWorklaneUp() {
+        moveActiveWorklane(by: -1)
+    }
+
+    func routeMoveWorklaneDown() {
+        moveActiveWorklane(by: 1)
+    }
+
+    func routeFind() {
+        showFocusedPaneSearch()
+    }
+
+    func routeGlobalFind() {
+        showGlobalSearch()
+    }
+
+    func routeUseSelectionForFind() {
+        useFocusedPaneSelectionForSearch()
+    }
+
+    func routeFindNext() {
+        findNextInFocusedPane()
+    }
+
+    func routeFindPrevious() {
+        findPreviousInFocusedPane()
+    }
+
+    func routeCopyFocusedPanePath() {
+        copyFocusedPanePath()
+    }
+
+    func routeCleanCopy() {
+        performCleanCopy()
+    }
+
+    func routeCopyRaw() {
+        performCopyRaw()
+    }
+
+    func routeCopyMarkdown() {
+        performCopyMarkdown()
+    }
+
+    func routeJumpToLatestNotification() {
+        if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
+            notificationCoordinator.closePanel()
+            navigateToNotification(notification)
+        } else {
+            NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
+        }
+    }
+
+    func routePaneCommand(_ command: PaneCommand) {
+        paneCommands.handlePaneCommand(command)
+    }
+
+    func routeMoveFocusedPaneToNewWindow() {
+        onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+    }
+
+    func routeNavigateBack() {
+        worklaneStore.navigateBack()
+    }
+
+    func routeNavigateForward() {
+        worklaneStore.navigateForward()
+    }
+
+    func routeShowCommandPalette() {
+        showCommandPalette()
+    }
+
+    func routeShowTaskManager() {
+        NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
+    }
+
+    func routeOpenWithSelectedApp() {
+        onOpenWithPrimaryRequested?()
+    }
+
+    func routeOpenSelectedServer() {
+        onServerPrimaryRequested?()
+    }
+
+    func routeOpenBranchOnRemote() {
+        openBranchOnRemote()
+    }
+
+    func routeRefreshPullRequestStatus() {
+        renderCoordinator.refreshFocusedReviewState()
+    }
+
+    func routeThemeMode(_ command: AppearanceThemeModeCommand) {
+        applyThemeModeCommand(command)
+    }
+
+    func routeOpenSettings() {
+        onShowSettingsRequested?()
+    }
+
+    func routeNewWindow() {
+        NSApp.sendAction(#selector(AppDelegate.newWindow(_:)), to: nil, from: nil)
+    }
+
+    func routeCloseWindow() {
+        view.window?.close()
+    }
+
+    func routeReloadConfig() {
+        configStore.reloadFromDisk()
+    }
+
+    func routeOpenBookmarksPopover() {
+        toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
     }
 }
 

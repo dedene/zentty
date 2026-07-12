@@ -402,6 +402,7 @@ final class WorklaneStore {
     let currentDateProvider: @MainActor () -> Date
     private let scheduleReadyStatusTask: ReadyStatusScheduler
     let codexQuestionResolver: CodexQuestionResolver
+    let codexResolver: CodexToolStatusResolver
     private let newWorklanePlacementProvider: @MainActor () -> NewWorklanePlacement
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
     private let serverDetectionProvider: @MainActor () -> AppConfig.ServerDetection
@@ -429,7 +430,22 @@ final class WorklaneStore {
     var activeWorklaneID: WorklaneID
 
     private var subscribers: [(id: UUID, handler: (WorklaneChange) -> Void)] = []
-    private var isBatching = false
+
+    /// Nesting depth of active `batchUpdate` calls. `> 0` means changes passed
+    /// to `notify(_:)` are collected instead of delivered; they flush when the
+    /// outermost batch exits. Using a depth counter (not a `Bool`) makes nested
+    /// `batchUpdate` calls reentrant — only the outermost exit flushes.
+    private var batchDepth = 0
+
+    /// Changes captured by `notify(_:)` while a batch is open, awaiting a
+    /// coalesced flush when the outermost `batchUpdate` returns.
+    private var pendingBatchedChanges: [WorklaneChange] = []
+
+    /// Nesting depth of active `withNotificationsSuppressed` calls. `> 0` means
+    /// changes passed to `notify(_:)` are dropped outright — neither delivered
+    /// nor queued for replay. See `withNotificationsSuppressed` for why this is
+    /// distinct from `batchDepth`.
+    private var suppressionDepth = 0
 
     @discardableResult
     func subscribe(_ handler: @escaping (WorklaneChange) -> Void) -> WorklaneChangeSubscription {
@@ -490,6 +506,7 @@ final class WorklaneStore {
         self.currentDateProvider = currentDateProvider
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.codexQuestionResolver = codexQuestionResolver
+        self.codexResolver = CodexToolStatusResolver(now: currentDateProvider)
         self.newWorklanePlacementProvider = newWorklanePlacementProvider
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.serverDetectionProvider = serverDetectionProvider
@@ -2306,18 +2323,89 @@ final class WorklaneStore {
         )
     }
 
+    /// Runs `body` with change notifications suppressed, then delivers a single
+    /// coalesced burst of everything `body` (and anything it called) tried to
+    /// emit. This keeps subscribers from re-rendering on each intermediate
+    /// mutation of a multi-step operation while guaranteeing that no change is
+    /// silently dropped — the earlier behavior lost every notification raised
+    /// inside the batch and relied on callers to hand-re-emit them.
+    ///
+    /// Reentrant: nested `batchUpdate` calls share one pending buffer and only
+    /// the outermost exit flushes.
     func batchUpdate(_ body: () -> Void) {
-        isBatching = true
+        batchDepth += 1
+        defer {
+            batchDepth -= 1
+            if batchDepth == 0 {
+                flushBatchedChanges()
+            }
+        }
         body()
-        isBatching = false
+    }
+
+    /// Runs `body` with change notifications dropped outright — the pre-replay
+    /// `batchUpdate` semantics. Intended for wrapping a *render* pass that must
+    /// not re-enter its own change handler: if something in the render tree
+    /// synchronously raises a `WorklaneChange` (e.g. as a side effect of
+    /// reading state), that notification is discarded rather than queued for
+    /// replay, which would otherwise re-trigger the render and risk a loop.
+    ///
+    /// Do NOT use this for mutation batching — mutations wrapped here lose
+    /// their notifications permanently. Use `batchUpdate` for that; it
+    /// coalesces and replays instead of dropping.
+    ///
+    /// Composes with `batchUpdate` nesting via one rule: while suppression
+    /// depth is greater than zero, `notify(_:)` drops immediately, regardless
+    /// of `batchDepth`. So `batchUpdate` nested inside `withNotificationsSuppressed`
+    /// drops (suppression wins), and `withNotificationsSuppressed` nested
+    /// inside `batchUpdate` also drops for its duration — nothing it raises is
+    /// queued into the enclosing batch's replay buffer.
+    func withNotificationsSuppressed<T>(_ body: () throws -> T) rethrows -> T {
+        suppressionDepth += 1
+        defer { suppressionDepth -= 1 }
+        return try body()
     }
 
     /// Internal — called by WorklaneStore extension files to dispatch change notifications.
     /// Not intended for use outside WorklaneStore and its extensions.
     func notify(_ change: WorklaneChange) {
-        guard !isBatching else { return }
+        guard suppressionDepth == 0 else {
+            return
+        }
+        guard batchDepth == 0 else {
+            pendingBatchedChanges.append(change)
+            return
+        }
         for subscriber in subscribers {
             subscriber.handler(change)
+        }
+    }
+
+    /// Delivers the changes captured during a batch as one coalesced burst.
+    ///
+    /// Coalescing is order-preserving exact-duplicate removal: the first
+    /// occurrence of each distinct `WorklaneChange` is kept in emission order,
+    /// later exact repeats are dropped. Because `WorklaneChange` is `Equatable`
+    /// over its associated values (paneID, invalidation impacts, animation),
+    /// semantically distinct payloads are always preserved — only redundant
+    /// exact repeats collapse. This is the conservative choice: subscribers see
+    /// every distinct change they would have seen without batching, just once
+    /// and in order, with no broad "re-render everything" substitution.
+    private func flushBatchedChanges() {
+        guard !pendingBatchedChanges.isEmpty else {
+            return
+        }
+
+        var coalesced: [WorklaneChange] = []
+        for change in pendingBatchedChanges where !coalesced.contains(change) {
+            coalesced.append(change)
+        }
+        // Clear before delivery so any change a subscriber raises synchronously
+        // (batchDepth is 0 here) is delivered immediately rather than requeued.
+        pendingBatchedChanges.removeAll(keepingCapacity: true)
+
+        for change in coalesced {
+            notify(change)
         }
     }
 

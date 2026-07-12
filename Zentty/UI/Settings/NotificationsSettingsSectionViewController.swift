@@ -56,11 +56,7 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
         cardStack.addArrangedSubview(notificationRow)
         notificationRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
 
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        cardStack.addArrangedSubview(separator)
-        separator.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+        SettingsFormBuilder.separator(addedTo: cardStack)
 
         let soundRow = makeSoundRow()
         cardStack.addArrangedSubview(soundRow)
@@ -356,11 +352,7 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = font
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 0
-        return label
+        SettingsFormBuilder.label(text, font: font)
     }
 
     // MARK: - Sound Popup (dynamic for custom)

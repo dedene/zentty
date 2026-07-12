@@ -61,6 +61,7 @@ targets:
       - path: Zentty/AppState/Agent/GrokHooksInstaller.swift
       - path: Zentty/AppState/Agent/GrokCanonicalReEmitter.swift
       - path: Zentty/AppState/Agent/HookCanonicalReEmitter.swift
+      - path: Zentty/AppState/Agent/HooksInstalling.swift
       - path: Zentty/AppState/Agent/JSONCRelaxedParse.swift
       - path: Zentty/AppState/Agent/JSONKeyAccess.swift
       - path: Zentty/AppState/Agent/KimiHooksInstaller.swift

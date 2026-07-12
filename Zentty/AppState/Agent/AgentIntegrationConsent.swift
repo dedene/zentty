@@ -204,42 +204,31 @@ enum AgentIntegrationHooks {
     /// On-disk handlers for a persistent agent, or `nil` for ephemeral agents
     /// (which write nothing to the user's config).
     static func handlers(for tool: AgentBootstrapTool) -> Handlers? {
+        // The six persistent hooks installers resolve through the shared
+        // registry; their conformances adapt each installer's own API to the
+        // uniform HooksInstalling surface.
+        if let installer = AgentHooksInstallerRegistry.installer(for: tool) {
+            let environment = ProcessInfo.processInfo.environment
+            return Handlers(
+                isInstalled: {
+                    installer.isInstalledForCurrentUser(environment: environment, fileManager: .default)
+                },
+                uninstall: {
+                    try installer.uninstallForCurrentUser(environment: environment, fileManager: .default)
+                }
+            )
+        }
+
         switch tool {
         case .amp:
+            // Amp is plugin-based, not a HooksInstalling conformer.
             return Handlers(
                 isInstalled: { AmpPluginInstaller.isInstalled() },
                 uninstall: { try AmpPluginInstaller.uninstall() }
             )
-        case .cursor:
-            return Handlers(
-                isInstalled: { CursorHooksInstaller.isInstalled() },
-                uninstall: { try CursorHooksInstaller.uninstall(at: CursorHooksInstaller.defaultUserHooksURL()) }
-            )
-        case .droid:
-            return Handlers(
-                isInstalled: { DroidHooksInstaller.isInstalled() },
-                uninstall: { try DroidHooksInstaller.uninstall(at: DroidHooksInstaller.defaultUserSettingsURL()) }
-            )
-        case .grok:
-            return Handlers(
-                isInstalled: { GrokHooksInstaller.isInstalled() },
-                uninstall: { try GrokHooksInstaller.uninstall() }
-            )
-        case .agy:
-            return Handlers(
-                isInstalled: { AgyHooksInstaller.isInstalled() },
-                uninstall: { try AgyHooksInstaller.uninstall() }
-            )
-        case .hermes:
-            return Handlers(
-                isInstalled: { HermesHooksInstaller.isInstalled() },
-                uninstall: { try HermesHooksInstaller.uninstall() }
-            )
-        case .vibe:
-            return Handlers(
-                isInstalled: { VibeHooksInstaller.isInstalled() },
-                uninstall: { try VibeHooksInstaller.uninstall() }
-            )
+        case .cursor, .droid, .grok, .agy, .hermes, .vibe:
+            // Handled above via AgentHooksInstallerRegistry.
+            return nil
         case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .omp, .smallHarness:
             return nil
         }
