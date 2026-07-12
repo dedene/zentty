@@ -1519,6 +1519,82 @@ final class PaneStripStateTests: XCTestCase {
         XCTAssertEqual(state.columns[1].width, 480, accuracy: 0.001)
     }
 
+    func test_movePaneUp_and_down_reorders_in_column() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn(
+                    "stack",
+                    paneIDs: ["top", "middle", "bottom"],
+                    focusedPaneID: PaneID("middle")
+                )
+            ]
+        )
+
+        // Move middle Up -> should be at index 0 (top of the column)
+        XCTAssertTrue(state.movePaneUp())
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("middle"), PaneID("top"), PaneID("bottom")])
+        XCTAssertEqual(state.focusedPaneID, PaneID("middle"))
+
+        // Move middle Down -> should move to index 1 (middle of the column)
+        XCTAssertTrue(state.movePaneDown())
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("top"), PaneID("middle"), PaneID("bottom")])
+        XCTAssertEqual(state.focusedPaneID, PaneID("middle"))
+
+        // Move middle Down again -> should move to index 2 (bottom of the column)
+        XCTAssertTrue(state.movePaneDown())
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("top"), PaneID("bottom"), PaneID("middle")])
+        XCTAssertEqual(state.focusedPaneID, PaneID("middle"))
+
+        // Try moving down again at bottom -> should return false and not change anything
+        XCTAssertFalse(state.movePaneDown())
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("top"), PaneID("bottom"), PaneID("middle")])
+    }
+
+    func test_movePaneLeft_and_right_to_target_column_and_splits_to_top() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["A"]),
+                makeColumn("middle", paneIDs: ["B", "C"], focusedPaneID: PaneID("B")),
+                makeColumn("right", paneIDs: ["D"])
+            ],
+            focusedColumnID: PaneColumnID("middle")
+        )
+
+        // Move B Left -> B should go to the left column and split vertically to the TOP of the column
+        XCTAssertTrue(state.movePaneLeft())
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("B"), PaneID("A")])
+        XCTAssertEqual(state.columns[1].panes.map(\.id), [PaneID("C")])
+        XCTAssertEqual(state.focusedPaneID, PaneID("B"))
+
+        // Move B Right -> B should go back to the middle column (now index 1) at the TOP
+        XCTAssertTrue(state.movePaneRight())
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("A")])
+        XCTAssertEqual(state.columns[1].panes.map(\.id), [PaneID("B"), PaneID("C")])
+        XCTAssertEqual(state.focusedPaneID, PaneID("B"))
+    }
+
+    func test_movePaneLeft_and_right_creates_new_column_at_boundaries() {
+        var state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["A", "B"], focusedPaneID: PaneID("A")),
+                makeColumn("right", paneIDs: ["C"])
+            ]
+        )
+
+        // Move A Left -> since B is still in 'left' column, A is popped out to a new leftmost column
+        XCTAssertTrue(state.movePaneLeft())
+        XCTAssertEqual(state.columns.count, 3)
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("A")])
+        XCTAssertEqual(state.columns[1].panes.map(\.id), [PaneID("B")])
+        XCTAssertEqual(state.columns[2].panes.map(\.id), [PaneID("C")])
+        XCTAssertEqual(state.focusedPaneID, PaneID("A"))
+
+        // Now A is alone in the leftmost column. Move A Left again -> should fail as it's alone at the boundary
+        XCTAssertFalse(state.movePaneLeft())
+        XCTAssertEqual(state.columns.count, 3)
+        XCTAssertEqual(state.columns[0].panes.map(\.id), [PaneID("A")])
+    }
+
     private func makeColumn(
         _ rawID: String,
         paneIDs: [String],

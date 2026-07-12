@@ -319,9 +319,17 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             .pane(.resizeLeft)
         )
 
-        XCTAssertNil(
+        XCTAssertEqual(
             KeyboardShortcutResolver.resolve(
                 .init(key: .leftArrow, modifiers: [.command, .control, .option]),
+                shortcuts: .default
+            ),
+            .pane(.moveLeft)
+        )
+
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(
+                .init(key: .leftArrow, modifiers: [.command, .control, .option, .shift]),
                 shortcuts: .default
             )
         )

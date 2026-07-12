@@ -62,6 +62,10 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case focusRightPane = "pane.focus.right"
     case focusUpInColumn = "pane.focus.up"
     case focusDownInColumn = "pane.focus.down"
+    case movePaneLeft = "pane.move.left"
+    case movePaneRight = "pane.move.right"
+    case movePaneUp = "pane.move.up"
+    case movePaneDown = "pane.move.down"
     case resizePaneLeft = "pane.resize.left"
     case resizePaneRight = "pane.resize.right"
     case resizePaneUp = "pane.resize.up"
@@ -707,6 +711,54 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .movePaneLeft,
+            title: "Move Pane Left",
+            category: .panes,
+            defaultShortcut: .init(key: .leftArrow, modifiers: [.control, .command, .option]),
+            action: .pane(.moveLeft),
+            menuItem: AppCommandMenuItem(
+                section: .navigation,
+                title: "Move Pane Left",
+                selector: #selector(MainWindowController.movePaneLeft(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .movePaneRight,
+            title: "Move Pane Right",
+            category: .panes,
+            defaultShortcut: .init(key: .rightArrow, modifiers: [.control, .command, .option]),
+            action: .pane(.moveRight),
+            menuItem: AppCommandMenuItem(
+                section: .navigation,
+                title: "Move Pane Right",
+                selector: #selector(MainWindowController.movePaneRight(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .movePaneUp,
+            title: "Move Pane Up",
+            category: .panes,
+            defaultShortcut: .init(key: .upArrow, modifiers: [.control, .command, .option]),
+            action: .pane(.moveUp),
+            menuItem: AppCommandMenuItem(
+                section: .navigation,
+                title: "Move Pane Up",
+                selector: #selector(MainWindowController.movePaneUp(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .movePaneDown,
+            title: "Move Pane Down",
+            category: .panes,
+            defaultShortcut: .init(key: .downArrow, modifiers: [.control, .command, .option]),
+            action: .pane(.moveDown),
+            menuItem: AppCommandMenuItem(
+                section: .navigation,
+                title: "Move Pane Down",
+                selector: #selector(MainWindowController.movePaneDown(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .resizePaneLeft,
             title: "Resize Pane Left",
             category: .panes,
@@ -944,6 +996,10 @@ enum AppCommandRegistry {
             .command(.focusRightPane),
             .command(.focusUpInColumn),
             .command(.focusDownInColumn),
+            .command(.movePaneLeft),
+            .command(.movePaneRight),
+            .command(.movePaneUp),
+            .command(.movePaneDown),
         ],
         .view: [
             .command(.showCommandPalette),
@@ -1055,6 +1111,14 @@ extension AppCommandDefinition {
             "Duplicate the focused pane in a new column, keeping its working directory."
         case .movePaneToNewWindow:
             "Move the focused pane into its own window without restarting the terminal session."
+        case .movePaneLeft:
+            "Move the focused pane to the left column, or to a new column on the far left."
+        case .movePaneRight:
+            "Move the focused pane to the right column, or to a new column on the far right."
+        case .movePaneUp:
+            "Move the focused pane up in its current column."
+        case .movePaneDown:
+            "Move the focused pane down in its current column."
         case .splitHorizontally:
             "Add a pane to the right using your pane split behavior setting."
         case .forceSplitRight:

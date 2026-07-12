@@ -92,6 +92,9 @@ final class PaneCommandExecutor {
 
     func handlePaneCommand(_ command: PaneCommand) {
         switch command {
+        case .moveLeft, .moveRight, .moveUp, .moveDown:
+            canvas.settlePaneStripPresentationNow()
+            worklaneStore.send(command)
         case .resizeLeft:
             canvas.settlePaneStripPresentationNow()
             handleHorizontalKeyboardResize(delta: -keyboardResizeStep(for: .horizontal))

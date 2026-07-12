@@ -984,6 +984,30 @@ final class WorklaneStore {
             worklane.paneStripState.moveFocusToLastColumn()
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
+        case .moveLeft:
+            if worklane.paneStripState.movePaneLeft() {
+                changeType = .paneStructure(activeWorklaneID)
+            } else {
+                return
+            }
+        case .moveRight:
+            if worklane.paneStripState.movePaneRight() {
+                changeType = .paneStructure(activeWorklaneID)
+            } else {
+                return
+            }
+        case .moveUp:
+            if worklane.paneStripState.movePaneUp() {
+                changeType = .paneStructure(activeWorklaneID)
+            } else {
+                return
+            }
+        case .moveDown:
+            if worklane.paneStripState.movePaneDown() {
+                changeType = .paneStructure(activeWorklaneID)
+            } else {
+                return
+            }
         case .resizeLeft,
             .resizeRight,
             .resizeUp,
