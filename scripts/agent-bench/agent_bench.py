@@ -2010,13 +2010,32 @@ class LaunchPlanner:
         # from the top-level symlink set so we can place a hooks.json we own
         # under `.gemini/config/` without mutating the real user file.
         home = self._overlay_home("agy", environment, {".gemini": {"antigravity-cli", "config"}})
+        source_home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home()))
+
+        # agy keeps its OAuth login in the macOS login keychain
+        # (~/Library/Keychains), NOT under ~/.gemini. Because the overlay
+        # redirects HOME, agy resolves the keychain at
+        # <overlay>/Library/Keychains, finds nothing, and starts logged out —
+        # forcing an interactive browser login and breaking the `tools` /
+        # `session_capture` scenarios (auth-skip, no real conversation id).
+        # Symlink the real login keychain into the overlay so agy reuses the
+        # user's existing global Antigravity login. Only auth material is
+        # shared; the agent's conversations / history / state stay isolated in
+        # the fresh overlay `antigravity-cli`, preserving restore_launch
+        # fixture hermeticity. If the keychain is absent (not logged in, or a
+        # non-macOS host) we do nothing and behave exactly as before.
+        real_keychains = source_home / "Library" / "Keychains"
+        if real_keychains.exists():
+            overlay_keychains = home / "Library" / "Keychains"
+            overlay_keychains.parent.mkdir(parents=True, exist_ok=True)
+            if not overlay_keychains.exists() and not overlay_keychains.is_symlink():
+                overlay_keychains.symlink_to(real_keychains)
 
         # Rebuild `.gemini/config` in the overlay: symlink the real config's
         # contents (so agy still sees the user's settings) except hooks.json,
         # which we own and write fresh pointing at the bench CLI. This makes
         # the `tools` scenario hermetic — it no longer depends on the host
         # user having run `zentty install agy-hooks` first.
-        source_home = pathlib.Path(str(environment.get("HOME") or pathlib.Path.home()))
         overlay_config = home / ".gemini" / "config"
         symlink_directory_contents_skipping(
             source_home / ".gemini" / "config", overlay_config, {"hooks.json"}
