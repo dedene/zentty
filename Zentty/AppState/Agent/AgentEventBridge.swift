@@ -53,43 +53,18 @@ enum AgentEventBridge {
         agentEventBridgeLogger.debug("run adapter=\(adapterLabel, privacy: .public) bytes=\(inputData.count)")
         do {
             let payloads: [AgentStatusPayload]
-            switch adapter {
-            case "claude":
-                payloads = try claudeAdapter(data: inputData, environment: environment)
-            case "copilot":
-                let eventName = positionalArgs.first
-                payloads = try copilotAdapter(data: inputData, defaultEventName: eventName, environment: environment)
-            case "codex":
-                let eventName = positionalArgs.first
-                payloads = try codexAdapter(data: inputData, defaultEventName: eventName, environment: environment)
-            case "small-harness":
-                let eventName = positionalArgs.first
-                payloads = try smallHarnessAdapter(data: inputData, defaultEventName: eventName, environment: environment)
-            case "codex-notify":
-                payloads = try codexNotifyAdapter(data: inputData, environment: environment)
-            case "droid":
-                payloads = try droidAdapter(data: inputData, environment: environment)
-            case "gemini":
-                payloads = try geminiAdapter(data: inputData, environment: environment)
-            case "cursor":
-                payloads = try cursorAdapter(data: inputData, environment: environment)
-            case "kimi":
-                payloads = try kimiAdapter(data: inputData, environment: environment)
-            case "grok":
-                payloads = try grokAdapter(data: inputData, environment: environment)
-            case "agy":
-                let eventName = positionalArgs.first
-                payloads = try agyAdapter(data: inputData, defaultEventName: eventName, environment: environment)
-            case "hermes":
-                let eventName = positionalArgs.first
-                payloads = try hermesAdapter(data: inputData, defaultEventName: eventName, environment: environment)
-            case "vibe":
-                payloads = try vibeAdapter(data: inputData, environment: environment)
-            case .none:
+            if let adapter {
+                guard let adapterType = AgentEventAdapterRegistry.adapter(named: adapter) else {
+                    throw AgentStatusPayloadError.invalidArguments("Unknown adapter: \(adapter)")
+                }
+                payloads = try adapterType.makePayloads(
+                    data: inputData,
+                    positionalArguments: positionalArgs,
+                    environment: environment
+                )
+            } else {
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
-            case let name?:
-                throw AgentStatusPayloadError.invalidArguments("Unknown adapter: \(name)")
             }
             agentEventBridgeLogger.debug("run adapter=\(adapterLabel, privacy: .public) produced \(payloads.count) payload(s)")
             for payload in payloads {
@@ -98,7 +73,7 @@ enum AgentEventBridge {
             return EXIT_SUCCESS
         } catch {
             agentEventBridgeLogger.error("run adapter=\(adapterLabel, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
-            if adapter == "claude" || adapter == "grok" || adapter == "agy" || adapter == "hermes" || adapter == "vibe" {
+            if let adapter, AgentEventAdapterRegistry.adapter(named: adapter)?.suppressesErrors == true {
                 return EXIT_SUCCESS
             }
             writeError(error)

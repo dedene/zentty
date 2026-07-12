@@ -363,9 +363,13 @@ enum WorkspaceRecipeExporter {
 }
 
 enum WorkspaceRecipeImporter {
+    /// Expects `window` to already be schema-migrated (see
+    /// `WorkspaceRecipeMigration.migrate`). Worklane titles are used
+    /// verbatim — legacy "MAIN"/"WS N" junk-title sanitization is a
+    /// migration concern, not an import concern, and happens once before
+    /// this is called.
     static func makeWorklanes(
         from window: WorkspaceRecipe.Window,
-        recipeSchemaVersion: Int? = nil,
         restoreDraftWindow: SessionRestoreDraftWindow? = nil,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
@@ -376,7 +380,6 @@ enum WorkspaceRecipeImporter {
             makeWorklane(
                 $0,
                 window: window,
-                recipeSchemaVersion: recipeSchemaVersion,
                 restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 layoutContext: layoutContext,
@@ -398,7 +401,6 @@ enum WorkspaceRecipeImporter {
     private static func makeWorklane(
         _ recipe: WorkspaceRecipe.Worklane,
         window: WorkspaceRecipe.Window,
-        recipeSchemaVersion: Int?,
         restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
@@ -421,15 +423,9 @@ enum WorkspaceRecipeImporter {
             )
         }
 
-        // Versioned recipes store titles verbatim; unversioned ones predate
-        // optional titles and need the legacy "MAIN"/"WS N" junk stripped.
-        let title = recipeSchemaVersion == nil
-            ? WorklaneState.meaningfulTitle(from: recipe.title)
-            : recipe.title
-
         return WorklaneState(
             id: worklaneID,
-            title: title,
+            title: recipe.title,
             paneStripState: PaneStripState(
                 columns: columns,
                 focusedColumnID: recipe.focusedColumnID.map(PaneColumnID.init),
@@ -667,11 +663,56 @@ enum WorkspaceRecipeImporter {
     }
 }
 
+/// Centralizes WorkspaceRecipe schema migration into a single explicit
+/// pipeline. Every caller that might see a decoded (as opposed to freshly
+/// exported) recipe should run it through `migrate(_:)` before inspecting
+/// its contents; that guarantees downstream code (the importer, the
+/// meaningfulness classifier) only ever sees a current-schema recipe and
+/// never needs its own `schemaVersion` branch.
+///
+/// Version history:
+/// - unversioned (nil): predates optional worklane titles. Titles carry
+///   auto-generated "MAIN"/"WS N" junk that must be sanitized once, on the
+///   way in.
+/// - v2: worklane titles are optional and stored verbatim; no junk to
+///   strip.
+/// - v3: adds optional per-pane `customTitle`. Missing keys already decode
+///   as `nil` for Optional properties (Swift's synthesized Decodable
+///   ignores the property default in that case), so no migration action is
+///   needed for this hop.
+/// - newer than v3 (forward-compat): treated exactly like v3 — verbatim
+///   titles, no sanitization. This matches today's behavior, where the
+///   only branch anywhere is `schemaVersion == nil` vs. not.
+enum WorkspaceRecipeMigration {
+    static func migrate(_ recipe: WorkspaceRecipe) -> WorkspaceRecipe {
+        var recipe = recipe
+        if recipe.schemaVersion == nil {
+            recipe.windows = recipe.windows.map(migrateWindowFromUnversioned)
+        }
+        recipe.schemaVersion = WorkspaceRecipe.currentSchemaVersion
+        return recipe
+    }
+
+    /// Hop: unversioned → v2. Strips legacy auto-generated worklane titles
+    /// ("MAIN", "WS N") so they read as untitled rather than as
+    /// user-chosen names.
+    static func migrateWindowFromUnversioned(_ window: WorkspaceRecipe.Window) -> WorkspaceRecipe.Window {
+        var window = window
+        window.worklanes = window.worklanes.map { worklane in
+            var worklane = worklane
+            worklane.title = WorklaneState.meaningfulTitle(from: worklane.title)
+            return worklane
+        }
+        return window
+    }
+}
+
 enum WorkspaceRecipeMeaningfulness {
     static func isMeaningful(
         _ recipe: WorkspaceRecipe,
         defaultWorkingDirectory: String
     ) -> Bool {
+        let recipe = WorkspaceRecipeMigration.migrate(recipe)
         guard recipe.windows.count == 1, let window = recipe.windows.first else {
             return !recipe.windows.isEmpty
         }
@@ -688,12 +729,10 @@ enum WorkspaceRecipeMeaningfulness {
             return true
         }
 
-        // Versioned recipes store titles verbatim, so any non-empty title is
-        // meaningful. Legacy recipes need the "MAIN"/"WS N" junk filtered or
-        // an old default workspace would never be considered disposable.
-        let meaningfulTitle = recipe.schemaVersion == nil
-            ? WorklaneState.meaningfulTitle(from: worklane.title)
-            : WorklaneContextFormatter.trimmed(worklane.title)
+        // `recipe` has already been migrated above, so `worklane.title` is
+        // verbatim (legacy junk titles were stripped during migration); any
+        // non-empty title here is meaningful.
+        let meaningfulTitle = WorklaneContextFormatter.trimmed(worklane.title)
         if meaningfulTitle != nil {
             return true
         }

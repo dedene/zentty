@@ -922,7 +922,10 @@ final class PaneStripViewTests: AppKitTestCase {
             focusedPaneID: PaneID("duplicate")
         )
 
-        paneStripView.onPaneReorderRequested = { paneID, _, isDuplicate in
+        paneStripView.onPaneDragOutcome = { outcome in
+            guard case .reorder(let paneID, _, let isDuplicate) = outcome else {
+                return XCTFail("expected a .reorder outcome, got \(outcome)")
+            }
             XCTAssertEqual(paneID, PaneID("source"))
             XCTAssertTrue(isDuplicate)
             paneStripView.render(duplicateState, animated: false)

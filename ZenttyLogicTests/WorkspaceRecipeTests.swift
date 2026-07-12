@@ -1979,10 +1979,12 @@ final class WorkspaceRecipeTests: XCTestCase {
 
     func test_versioned_import_keeps_exotic_titles_verbatim() {
         let window = makeTitleFixtureWindow(titles: ["MAIN", "WS 3", "Nimbu support", nil])
+        let migrated = WorkspaceRecipeMigration.migrate(
+            WorkspaceRecipe(schemaVersion: WorkspaceRecipe.currentSchemaVersion, windows: [window])
+        )
 
         let restored = WorkspaceRecipeImporter.makeWorklanes(
-            from: window,
-            recipeSchemaVersion: WorkspaceRecipe.currentSchemaVersion,
+            from: migrated.windows[0],
             windowID: WindowID("window-main"),
             layoutContext: .fallback,
             processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
@@ -1993,9 +1995,12 @@ final class WorkspaceRecipeTests: XCTestCase {
 
     func test_unversioned_import_sanitizes_legacy_generated_titles() {
         let window = makeTitleFixtureWindow(titles: ["MAIN", "WS 3", "   ", "Nimbu support"])
+        let migrated = WorkspaceRecipeMigration.migrate(
+            WorkspaceRecipe(schemaVersion: nil, windows: [window])
+        )
 
         let restored = WorkspaceRecipeImporter.makeWorklanes(
-            from: window,
+            from: migrated.windows[0],
             windowID: WindowID("window-main"),
             layoutContext: .fallback,
             processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]

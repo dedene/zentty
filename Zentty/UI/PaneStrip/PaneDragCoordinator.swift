@@ -68,12 +68,10 @@ final class PaneDragCoordinator {
 
     // MARK: - Callbacks
 
-    var onReorder: ((PaneID, Int, Bool) -> Void)?
-    var onReorderInColumn: ((PaneID, PaneColumnID, Int, Bool) -> Void)?
-    var onSplitDrop: ((PaneID, PaneID, PaneSplitPreview.Axis, Bool, Bool) -> Void)?
+    /// Fired once when a drag settles onto a valid target, carrying the resolved
+    /// drop command. Replaces the former five per-gesture drop closures.
+    var onDragOutcome: ((PaneDragOutcome) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
-    var onSidebarDrop: ((PaneID, WorklaneID, Int?, Bool) -> Void)?
-    var onSidebarNewWorklaneDrop: ((PaneID, Int, Bool) -> Void)?
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
     var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
@@ -840,23 +838,27 @@ final class PaneDragCoordinator {
     func endDrag(at cursorInStrip: CGPoint) {
         guard case .active(let activeState) = phase else { return }
 
-        // Sidebar drops take priority
-        if case .sidebarWorklane(let worklaneID) = activeState.currentDropTarget {
-            completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: nil)
-        } else if case .sidebarWorklanePane(let worklaneID, let paneIndex) = activeState.currentDropTarget {
-            completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: paneIndex)
-        } else if case .newWorklane = activeState.currentDropTarget {
-            completeSidebarNewWorklaneDrop(atIndex: nil)
-        } else if case .newWorklaneAtIndex(let index) = activeState.currentDropTarget {
-            completeSidebarNewWorklaneDrop(atIndex: index)
-        } else if let stackGapHit = currentStackGapHit {
-            completeInColumnDrop(stackGapHit: stackGapHit)
-        } else if let splitHit = currentSplitHit {
-            completeSplitDrop(splitHit: splitHit)
-        } else if let idx = currentInsertionIndex {
-            completeDrop(columnIndex: idx)
-        } else {
+        let input = PaneDropResolver.Input(
+            draggedPaneID: activeState.draggedPaneID,
+            dropTarget: activeState.currentDropTarget,
+            stackGapHit: currentStackGapHit,
+            splitHit: currentSplitHit,
+            insertionColumnIndex: currentInsertionIndex,
+            isDuplicate: isOptionHeld
+        )
+
+        switch PaneDropResolver.resolve(input) {
+        case .cancel:
             cancelDrag()
+        case .commit(let outcome):
+            switch outcome {
+            case .reorder, .reorderInColumn, .splitDrop:
+                completeInternalDrop(outcome: outcome)
+            case .crossWorklane(_, let worklaneID, let paneIndex, _):
+                completeSidebarDrop(targetWorklaneID: worklaneID, paneIndex: paneIndex)
+            case .newWorklane(_, let insertionIndex, _):
+                completeSidebarNewWorklaneDrop(atIndex: insertionIndex)
+            }
         }
     }
 
@@ -1204,7 +1206,11 @@ final class PaneDragCoordinator {
         paneStripView.endDragWithZoomIn()
     }
 
-    private func completeDrop(columnIndex: Int) {
+    /// Settle an in-canvas drop (reorder, in-column reorder, or split) and emit
+    /// `outcome`. The reveal strategy is identical across the three gestures — a
+    /// fade for duplicates, otherwise a settle to the dragged pane's slot — so the
+    /// only per-gesture variation is the outcome itself.
+    private func completeInternalDrop(outcome: PaneDragOutcome) {
         let isDuplicate = isOptionHeld
 
         guard let paneID = phase.activeState?.draggedPaneID else {
@@ -1216,23 +1222,7 @@ final class PaneDragCoordinator {
             paneID: paneID,
             revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
         ) { [weak self] in
-            self?.onReorder?(paneID, columnIndex, isDuplicate)
-        }
-    }
-
-    private func completeInColumnDrop(stackGapHit: StackReorderGapHit) {
-        let isDuplicate = isOptionHeld
-
-        guard let paneID = phase.activeState?.draggedPaneID else {
-            cancelDrag()
-            return
-        }
-
-        completeInternalDrop(
-            paneID: paneID,
-            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
-        ) { [weak self] in
-            self?.onReorderInColumn?(paneID, stackGapHit.columnID, stackGapHit.paneIndex, isDuplicate)
+            self?.onDragOutcome?(outcome)
         }
     }
 
@@ -1276,29 +1266,15 @@ final class PaneDragCoordinator {
         }, completionHandler: completion)
     }
 
-    private func completeSplitDrop(splitHit: SplitZoneHit) {
-        let isDuplicate = isOptionHeld
-
-        guard let paneID = phase.activeState?.draggedPaneID else {
-            cancelDrag()
-            return
-        }
-
-        completeInternalDrop(
-            paneID: paneID,
-            revealStrategy: isDuplicate ? .fadeDuplicate : .settleToPane(paneID)
-        ) { [weak self] in
-            self?.onSplitDrop?(paneID, splitHit.targetPaneID, splitHit.axis, splitHit.leading, isDuplicate)
-        }
-    }
-
     // MARK: - Private — Sidebar Drop
 
     private func completeSidebarDrop(targetWorklaneID: WorklaneID, paneIndex: Int?) {
         guard let paneStripView else {
             let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
             let isDuplicate = isOptionHeld
-            onSidebarDrop?(paneID, targetWorklaneID, paneIndex, isDuplicate)
+            onDragOutcome?(.crossWorklane(
+                paneID: paneID, worklaneID: targetWorklaneID, paneIndex: paneIndex, isDuplicate: isDuplicate
+            ))
             teardown()
             return
         }
@@ -1328,7 +1304,9 @@ final class PaneDragCoordinator {
                 self.restoreDraggedPane()
                 self.teardown()
                 if let paneID {
-                    self.onSidebarDrop?(paneID, targetWorklaneID, paneIndex, isDuplicate)
+                    self.onDragOutcome?(.crossWorklane(
+                        paneID: paneID, worklaneID: targetWorklaneID, paneIndex: paneIndex, isDuplicate: isDuplicate
+                    ))
                 }
                 stripView.endDragWithZoomIn()
             }
@@ -1339,8 +1317,9 @@ final class PaneDragCoordinator {
         guard let paneStripView else {
             let paneID = phase.activeState?.draggedPaneID ?? PaneID("")
             let isDuplicate = isOptionHeld
-            let index = insertionIndex ?? (sidebarWorklaneFrameProvider?().count ?? 0)
-            onSidebarNewWorklaneDrop?(paneID, index, isDuplicate)
+            onDragOutcome?(.newWorklane(
+                paneID: paneID, insertionIndex: insertionIndex, isDuplicate: isDuplicate
+            ))
             teardown()
             return
         }
@@ -1373,8 +1352,9 @@ final class PaneDragCoordinator {
                 self.restoreDraggedPane()
                 self.teardown()
                 if let paneID {
-                    let index = insertionIndex ?? (self.sidebarWorklaneFrameProvider?().count ?? 0)
-                    self.onSidebarNewWorklaneDrop?(paneID, index, isDuplicate)
+                    self.onDragOutcome?(.newWorklane(
+                        paneID: paneID, insertionIndex: insertionIndex, isDuplicate: isDuplicate
+                    ))
                 }
                 stripView.endDragWithZoomIn()
             }

@@ -351,6 +351,35 @@ final class AgyHooksInstallerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: foreignScript.path))
     }
 
+    // MARK: - HooksInstalling conformance: HOME resolution (behavior preservation)
+    //
+    // The pre-refactor call site (AgentLaunchBootstrap) resolved home via
+    // `environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()`. A blank-but-present
+    // HOME must fall back to NSHomeDirectory(), not resolve to a path under the
+    // current working directory. Table-driven over the two ways HOME can be
+    // "missing": present-but-blank, and absent from the dictionary entirely.
+    // `integrationConfigURL(environment:)` is used because it is pure path
+    // resolution with no disk I/O, so these cases can be checked without writing
+    // into the real user home.
+
+    func test_HooksInstalling_home_resolution_falls_back_to_NSHomeDirectory() {
+        let cases: [(name: String, environment: [String: String])] = [
+            ("blank HOME", ["HOME": ""]),
+            ("missing HOME", [:]),
+        ]
+
+        for testCase in cases {
+            let resolved = AgyHooksInstaller.integrationConfigURL(environment: testCase.environment)
+            let expected = AgyHooksInstaller.defaultUserHooksFileURL(home: NSHomeDirectory())
+
+            XCTAssertEqual(resolved, expected, "\(testCase.name): expected fallback to NSHomeDirectory()")
+            XCTAssertTrue(
+                resolved?.path.hasPrefix(NSHomeDirectory()) == true,
+                "\(testCase.name): resolved path \(resolved?.path ?? "nil") must live under NSHomeDirectory(), not CWD or be empty"
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     private func makeTemporaryDirectory() throws -> URL {

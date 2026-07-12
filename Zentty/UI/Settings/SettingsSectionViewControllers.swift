@@ -541,11 +541,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         contentStack.addArrangedSubview(focusFollowsMouseRow)
         focusFollowsMouseRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.addArrangedSubview(separator)
-        separator.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+        SettingsFormBuilder.separator(addedTo: contentStack)
 
         let inactiveOpacityRow = makeInactiveOpacityRow()
         contentStack.addArrangedSubview(inactiveOpacityRow)
@@ -568,52 +564,10 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         accessory: NSView? = nil,
         leftStackSpacing: CGFloat = 2
     ) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let leftStack = NSStackView()
-        leftStack.orientation = .vertical
-        leftStack.alignment = .leading
-        leftStack.spacing = leftStackSpacing
-        leftStack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(leftStack)
-
-        let titleLabel = makeLabel(
-            text: title,
-            font: .systemFont(ofSize: 13, weight: .semibold)
-        )
-        leftStack.addArrangedSubview(titleLabel)
-
-        let subtitleLabel = makeLabel(
-            text: subtitle,
-            font: .systemFont(ofSize: 12, weight: .regular)
-        )
-        subtitleLabel.textColor = .secondaryLabelColor
-        leftStack.addArrangedSubview(subtitleLabel)
-        subtitleLabel.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
-
-        if let accessory {
-            leftStack.addArrangedSubview(accessory)
-        }
-
-        toggle.target = self
-        toggle.action = action
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(toggle)
-
-        NSLayoutConstraint.activate([
-            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-
-            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
-            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            leftStack.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -16),
-        ])
-
-        return container
+        SettingsFormBuilder.switchRow(
+            title: title, subtitle: subtitle, toggle: toggle, target: self, action: action,
+            verticalInset: 16, toggleLeadingSpacing: 16, leftStackSpacing: leftStackSpacing,
+            subtitleWidth: .matchStack, accessory: accessory)
     }
 
     private func makePopupRow(
@@ -827,11 +781,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = font
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 0
-        return label
+        SettingsFormBuilder.label(text, font: font)
     }
 
     @objc
@@ -1434,11 +1384,7 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
     }
 
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = font
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 0
-        return label
+        SettingsFormBuilder.label(text, font: font)
     }
 }
 

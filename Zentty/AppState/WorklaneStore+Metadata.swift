@@ -243,48 +243,10 @@ extension WorklaneStore {
         in auxiliaryState: PaneAuxiliaryState,
         nextMetadata: TerminalMetadata
     ) -> Bool {
-        if auxiliaryState.agentStatus?.interactionKind.requiresHumanAttention == true {
-            return false
-        }
-        if let existingStatus = auxiliaryState.agentStatus,
-           existingStatus.tool == .codex,
-           let nextTitlePhase = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                nextMetadata.title,
-                recognizedTool: .codex
-           )?.phase {
-            if nextTitlePhase == .needsInput {
-                return false
-            }
-            if !Self.codexVolatileTitleFastPathStatusMatches(
-                existingStatus: existingStatus,
-                titlePhase: nextTitlePhase
-            ) {
-                return false
-            }
-        } else if AgentToolRecognizer.recognize(metadata: nextMetadata) == .codex,
-                  TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            nextMetadata.title,
-            recognizedTool: .codex
-        ) != nil {
-            return false
-        }
-        return true
-    }
-
-    private static func codexVolatileTitleFastPathStatusMatches(
-        existingStatus: PaneAgentStatus,
-        titlePhase: TerminalMetadataChangeClassifier.VolatileAgentStatusPhase
-    ) -> Bool {
-        switch titlePhase {
-        case .starting:
-            return existingStatus.state == .starting
-        case .running:
-            return existingStatus.state == .running
-        case .idle:
-            return existingStatus.state == .idle
-        case .needsInput:
-            return false
-        }
+        codexResolver.shouldTakeVolatileTitleFastPath(
+            in: auxiliaryState,
+            nextMetadata: nextMetadata
+        )
     }
 
     /// Emits a `.volatileAgentTitleUpdated` notification for realtime agent
@@ -319,21 +281,13 @@ extension WorklaneStore {
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
     ) {
-        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.raw.agentStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: metadata)
-        guard recognizedTool == .codex else {
+        guard let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        let codexTitleInteractionKind = TerminalMetadataChangeClassifier.codexTitleInteractionKind(
-            for: metadata.title
-        )
-        let waitingTitleKind = TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title)
-        let titleNeedsInput = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            metadata.title,
-            recognizedTool: recognizedTool
-        )?.phase == .needsInput
-        guard codexTitleInteractionKind != nil || waitingTitleKind != nil || titleNeedsInput else {
+        guard codexResolver.blockedTitleRequiresReadyClear(
+            in: auxiliaryState,
+            metadata: metadata
+        ) else {
             return
         }
 
@@ -345,46 +299,16 @@ extension WorklaneStore {
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
     ) {
-        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: metadata)
-        let titleInteractionKind = TerminalMetadataChangeClassifier.codexTitleInteractionKind(
-            for: metadata.title
-        )
-        guard
-            recognizedTool == .codex,
-            titleInteractionKind != nil,
-            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-            !auxiliaryState.raw.codexInterruptSuppressionIsActive()
-        else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        if auxiliaryState.agentStatus?.state == .needsInput {
-            return
+        if codexResolver.promoteTitleNeedsInput(
+            &auxiliaryState,
+            metadata: metadata,
+            now: Date()
+        ) {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         }
-
-        let existingStatus = auxiliaryState.agentStatus
-        let titleText = AgentInteractionClassifier.trimmed(metadata.title)
-        let interactionKind = titleInteractionKind ?? .genericInput
-        auxiliaryState.agentStatus = PaneAgentStatus(
-            tool: .codex,
-            state: .needsInput,
-            text: titleText ?? existingStatus?.text,
-            artifactLink: existingStatus?.artifactLink,
-            updatedAt: Date(),
-            source: .inferred,
-            origin: .inferred,
-            interactionKind: interactionKind,
-            confidence: .weak,
-            shellActivityState: existingStatus?.shellActivityState ?? .unknown,
-            trackedPID: existingStatus?.trackedPID,
-            workingDirectory: existingStatus?.workingDirectory,
-            hasObservedRunning: existingStatus?.hasObservedRunning == true,
-            sessionID: existingStatus?.sessionID,
-            parentSessionID: existingStatus?.parentSessionID,
-            taskProgress: existingStatus?.taskProgress
-        )
-        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     func scheduleCodexQuestionEnrichmentIfPossible(
@@ -565,191 +489,15 @@ extension WorklaneStore {
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
     ) {
-        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: metadata)
-        guard recognizedTool == .codex else {
-            logCodexRunningPromotionSkippedIfRelevant(
-                reason: "recognizedTool",
-                paneID: paneID,
-                recognizedTool: recognizedTool,
-                previousMetadata: previousMetadata,
-                metadata: metadata,
-                auxiliaryState: worklane.auxiliaryStateByPaneID[paneID]
-            )
-            return
-        }
-        guard let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            metadata.title,
-            recognizedTool: recognizedTool
-        ) else {
-            logCodexRunningPromotionSkippedIfRelevant(
-                reason: "noSignature",
-                paneID: paneID,
-                recognizedTool: recognizedTool,
-                previousMetadata: previousMetadata,
-                metadata: metadata,
-                auxiliaryState: worklane.auxiliaryStateByPaneID[paneID]
-            )
-            return
-        }
-        guard signature.phase == .running else {
-            logCodexRunningPromotionSkippedIfRelevant(
-                reason: "phase-\(signature.phase)",
-                paneID: paneID,
-                recognizedTool: recognizedTool,
-                previousMetadata: previousMetadata,
-                metadata: metadata,
-                auxiliaryState: worklane.auxiliaryStateByPaneID[paneID]
-            )
-            return
-        }
         guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
-            logCodexRunningPromotionSkippedIfRelevant(
-                reason: "missingAuxiliaryState",
-                paneID: paneID,
-                recognizedTool: recognizedTool,
-                previousMetadata: previousMetadata,
-                metadata: metadata,
-                auxiliaryState: nil
-            )
             return
         }
-        guard !auxiliaryState.raw.codexInterruptSuppressionIsActive() else {
-            logCodexRunningPromotionSkippedIfRelevant(
-                reason: "interruptSuppression",
-                paneID: paneID,
-                recognizedTool: recognizedTool,
-                previousMetadata: previousMetadata,
-                metadata: metadata,
-                auxiliaryState: auxiliaryState
-            )
-            return
-        }
-
-        if let existingStatus = auxiliaryState.agentStatus {
-            let runningTitleMayClearBlockedStatus = Self.codexRunningTitleMayClearBlockedStatus(
-                existingStatus,
-                auxiliaryState: auxiliaryState
-            )
-            if Self.codexStatusShouldBlockTitleDrivenResume(existingStatus),
-               !runningTitleMayClearBlockedStatus {
-                logCodexRunningPromotionSkippedIfRelevant(
-                    reason: "blockedStatus",
-                    paneID: paneID,
-                    recognizedTool: recognizedTool,
-                    previousMetadata: previousMetadata,
-                    metadata: metadata,
-                    auxiliaryState: auxiliaryState
-                )
-                return
-            }
-
-            if runningTitleMayClearBlockedStatus {
-                let now = Date()
-                let newStatus = Self.codexRunningStatus(from: existingStatus, now: now)
-                auxiliaryState.agentStatus = newStatus
-                auxiliaryState.agentReducerState = Self.seededReducerState(
-                    PaneAgentReducerState(),
-                    from: newStatus
-                )
-                worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-                stopSignalLogger.debug(
-                    "codex.title.running cleared-blocked-status pane=\(paneID.rawValue, privacy: .public)"
-                )
-                return
-            }
-        }
-
-        auxiliaryState.agentReducerState = Self.seededReducerState(
-            auxiliaryState.agentReducerState,
-            from: auxiliaryState.agentStatus
-        )
-        let now = Date()
-        let preState = auxiliaryState.agentStatus?.state.rawValue ?? "<nil>"
-        let didPromoteStarting = auxiliaryState.agentReducerState.promoteExplicitStartingSessionToRunning(now: now)
-        let didResumeBlocked = auxiliaryState.agentReducerState.resumeBlockedSessionFromActivity(now: now)
-
-        if didPromoteStarting || didResumeBlocked {
-            auxiliaryState.agentStatus = Self.hydratedStatus(
-                auxiliaryState.agentReducerState.reducedStatus(),
-                existingStatus: auxiliaryState.agentStatus
-            )
-            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-            stopSignalLogger.debug(
-                "codex.title.running reducer-promote pane=\(paneID.rawValue, privacy: .public) preState=\(preState, privacy: .public) didPromoteStarting=\(didPromoteStarting, privacy: .public) didResumeBlocked=\(didResumeBlocked, privacy: .public)"
-            )
-            return
-        }
-
-        if auxiliaryState.agentStatus?.state == .running {
-            logCodexRestartPromotion(
-                stage: "running.already",
-                paneID: paneID,
-                previousMetadata: previousMetadata,
-                metadata: metadata,
-                auxiliaryState: auxiliaryState
-            )
-            return
-        }
-        // Don't re-promote an idle session that came from an authoritative
-        // hook signal (e.g. Codex `Stop`). The title may still show a running
-        // phase for a tick or two while the tool updates it, but the hook is
-        // authoritative. Note: `.explicitAPI` is excluded here because
-        // codex-notify's `agent-turn-complete` can arrive stale, in which
-        // case a subsequent title tick should legitimately recover running.
-        if let existingStatus = auxiliaryState.agentStatus,
-           codexTitleIdleSuppressionIsActive(auxiliaryState.raw, now: now),
-           existingStatus.state == .idle,
-           existingStatus.hasObservedRunning,
-           previousMetadataCanBeStaleCodexRunningTail(previousMetadata) {
-            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-            stopSignalLogger.debug(
-                "codex.title.running skip=withinIdleSuppressionWindow pane=\(paneID.rawValue, privacy: .public)"
-            )
-            return
-        }
-
-        if let existingStatus = auxiliaryState.agentStatus,
-           existingStatus.state == .idle,
-           existingStatus.hasObservedRunning,
-           existingStatus.origin == .explicitHook,
-           now.timeIntervalSince(existingStatus.updatedAt) <= Self.codexTitleIdleSuppressionWindow,
-           previousMetadataCanBeStaleCodexRunningTail(previousMetadata) {
-            stopSignalLogger.debug(
-                "codex.title.running skip=explicitHookIdle pane=\(paneID.rawValue, privacy: .public)"
-            )
-            return
-        }
-
-        stopSignalLogger.debug(
-            "codex.title.running force-inferred pane=\(paneID.rawValue, privacy: .public) preState=\(preState, privacy: .public) => running (inferred)"
-        )
-
-        let newStatus = PaneAgentStatus(
-            tool: .codex,
-            state: .running,
-            text: nil,
-            artifactLink: auxiliaryState.agentStatus?.artifactLink,
-            updatedAt: now,
-            source: .inferred,
-            origin: .inferred,
-            interactionKind: PaneAgentInteractionKind.none,
-            confidence: .weak,
-            shellActivityState: auxiliaryState.agentStatus?.shellActivityState ?? .unknown,
-            trackedPID: auxiliaryState.agentStatus?.trackedPID,
-            workingDirectory: auxiliaryState.agentStatus?.workingDirectory,
-            hasObservedRunning: true,
-            sessionID: auxiliaryState.agentStatus?.sessionID,
-            parentSessionID: auxiliaryState.agentStatus?.parentSessionID,
-            taskProgress: auxiliaryState.agentStatus?.taskProgress
-        )
-        auxiliaryState.agentStatus = newStatus
-        // Keep the reducer in sync with the direct write so the periodic
-        // sweep doesn't resurrect a stale session from before this
-        // transition.
-        auxiliaryState.agentReducerState = Self.seededReducerState(
-            PaneAgentReducerState(),
-            from: newStatus
+        codexResolver.promoteTitleRunning(
+            &auxiliaryState,
+            paneID: paneID,
+            previousMetadata: previousMetadata,
+            metadata: metadata,
+            now: Date()
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
@@ -790,125 +538,23 @@ extension WorklaneStore {
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
     ) -> Bool {
-        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: metadata)
-        guard TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: metadata.title) != .backgroundWait else {
-            stopSignalLogger.debug("codex.title.idle skip=backgroundWait pane=\(paneID.rawValue, privacy: .public)")
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return false
         }
-        guard
-            recognizedTool == .codex,
-            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                metadata.title,
-                recognizedTool: recognizedTool
-            ),
-            signature.phase == .idle,
-            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-            !auxiliaryState.raw.codexInterruptSuppressionIsActive(),
-            Self.codexReadyTitleMayClearStatus(auxiliaryState.agentStatus)
-        else {
-            return false
-        }
-        let previousSignature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            previousMetadata?.title,
-            recognizedTool: recognizedTool
-        )
-        guard previousSignature?.phase != .idle else {
-            stopSignalLogger.debug("codex.title.idle skip=alreadyIdleTitle pane=\(paneID.rawValue, privacy: .public)")
-            return false
-        }
-
-        auxiliaryState.agentReducerState = Self.seededReducerState(
-            auxiliaryState.agentReducerState,
-            from: auxiliaryState.agentStatus
-        )
-        let now = Date()
-        let preExistingStatus = auxiliaryState.agentStatus
-        if auxiliaryState.agentReducerState.markExplicitCodexSessionIdleFromReadyTitle(now: now) {
-            guard codexReadyPromotionAllowed(in: auxiliaryState) else {
-                stopSignalLogger.debug("codex.title.idle firstBranch skip=noCurrentRunEvidence pane=\(paneID.rawValue, privacy: .public)")
-                return false
-            }
-            let reducedStatus = Self.hydratedStatus(
-                auxiliaryState.agentReducerState.reducedStatus(),
-                existingStatus: auxiliaryState.agentStatus
-            )
-            guard let reducedStatus,
-                  reducedStatus.tool == .codex,
-                  reducedStatus.source == .explicit,
-                  reducedStatus.state == .idle,
-                  reducedStatus.hasObservedRunning
-            else {
-                stopSignalLogger.debug("codex.title.idle firstBranch reducer-gated pane=\(paneID.rawValue, privacy: .public) prevState=\(preExistingStatus?.state.rawValue ?? "<nil>", privacy: .public) source=\(reducedStatus?.source == .explicit ? "explicit" : "other", privacy: .public)")
-                return false
-            }
-
-            auxiliaryState.agentStatus = reducedStatus
-            auxiliaryState.raw.codexTitleIdleSuppressionUntil = now.addingTimeInterval(Self.codexTitleIdleSuppressionWindow)
-            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-            stopSignalLogger.debug(
-                "codex.title.idle firstBranch applied pane=\(paneID.rawValue, privacy: .public) prevState=\(preExistingStatus?.state.rawValue ?? "<nil>", privacy: .public) => idle (interrupt candidate, caller will clear ready; suppression window set)"
-            )
-            return true
-        }
-
-        guard let existingStatus = auxiliaryState.agentStatus,
-              existingStatus.tool == .codex,
-              codexReadyPromotionAllowed(in: auxiliaryState),
-              (
-                (
-                    existingStatus.hasObservedRunning
-                    && (
-                        existingStatus.state == .running
-                        || existingStatus.state == .idle
-                    )
-                )
-                || Self.codexStatusMayClearFromReadyTitle(existingStatus)
-              )
-        else {
-            stopSignalLogger.debug("codex.title.idle fallback skip pane=\(paneID.rawValue, privacy: .public) state=\(auxiliaryState.agentStatus?.state.rawValue ?? "<nil>", privacy: .public)")
-            return false
-        }
-
-        let newStatus = PaneAgentStatus(
-            tool: .codex,
-            state: .idle,
-            text: nil,
-            artifactLink: existingStatus.artifactLink,
-            updatedAt: now,
-            source: .inferred,
-            origin: existingStatus.origin == .explicitAPI || existingStatus.origin == .explicitHook ? existingStatus.origin : .inferred,
-            interactionKind: PaneAgentInteractionKind.none,
-            confidence: existingStatus.confidence,
-            shellActivityState: existingStatus.shellActivityState,
-            trackedPID: existingStatus.trackedPID,
-            workingDirectory: existingStatus.workingDirectory,
-            hasObservedRunning: true,
-            sessionID: existingStatus.sessionID,
-            parentSessionID: existingStatus.parentSessionID,
-            taskProgress: existingStatus.taskProgress
-        )
-        auxiliaryState.agentStatus = newStatus
-        // Re-seed the reducer from the new idle status so the periodic
-        // `clearStaleAgentSessions` sweep (which trusts `reducedStatus()` as
-        // the source of truth) doesn't resurrect the previous running
-        // session and clobber this direct write.
-        auxiliaryState.agentReducerState = Self.seededReducerState(
-            PaneAgentReducerState(),
-            from: newStatus
+        let readyPromotionAllowed = codexReadyPromotionAllowed(in: auxiliaryState)
+        let outcome = codexResolver.surfaceReadyFromIdleTitle(
+            &auxiliaryState,
+            paneID: paneID,
+            previousMetadata: previousMetadata,
+            metadata: metadata,
+            readyPromotionAllowed: readyPromotionAllowed,
+            now: Date()
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-        // The fallback branch handles inferred sessions (no explicit hook /
-        // API channel, so no notify to trust) and already-idle sessions
-        // (codex-notify already landed). In both cases we still need the
-        // title-based ready promotion: inferred sessions have no other
-        // completion signal, and for already-idle sessions the call is a
-        // no-op since reconcileReadyStatus already surfaced ready.
-        stopSignalLogger.debug(
-            "codex.title.idle fallback applied pane=\(paneID.rawValue, privacy: .public) prevState=\(existingStatus.state.rawValue, privacy: .public) source=\(existingStatus.source == .explicit ? "explicit" : "inferred", privacy: .public) origin=\(existingStatus.origin.rawValue, privacy: .public) => idle (reducer re-seeded, requesting ready)"
-        )
-        requestReadyStatusIfNeeded(for: paneID, in: &worklane)
-        return false
+        if outcome.requestReadyReveal {
+            requestReadyStatusIfNeeded(for: paneID, in: &worklane)
+        }
+        return outcome.suppressReadyAfterRecompute
     }
 
     @discardableResult
@@ -918,71 +564,23 @@ extension WorklaneStore {
         metadata: TerminalMetadata,
         in worklane: inout WorklaneState
     ) -> Bool {
-        let recognizedTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool
-            ?? AgentToolRecognizer.recognize(metadata: metadata)
-        guard
-            recognizedTool == .codex,
-            let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                metadata.title,
-                recognizedTool: recognizedTool
-            ),
-            signature.phase == .idle,
-            var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-            !auxiliaryState.raw.codexInterruptSuppressionIsActive(),
-            let existingStatus = auxiliaryState.agentStatus,
-            existingStatus.tool == .codex,
-            existingStatus.source == .explicit,
-            existingStatus.hasObservedRunning,
-            existingStatus.state == .running || existingStatus.state == .starting,
-            let notificationText = AgentInteractionClassifier.trimmed(auxiliaryState.raw.lastDesktopNotificationText),
-            let notificationDate = auxiliaryState.raw.lastDesktopNotificationDate
-        else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return false
         }
-
-        if TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            previousMetadata?.title,
-            recognizedTool: recognizedTool
-        )?.phase == .idle {
-            return false
+        let outcome = codexResolver.recoverNeedsInputFromReadyTitle(
+            &auxiliaryState,
+            paneID: paneID,
+            previousMetadata: previousMetadata,
+            metadata: metadata,
+            now: Date()
+        )
+        if outcome.didChangeStatus {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         }
-
-        let now = Date()
-        guard now.timeIntervalSince(notificationDate) <= Self.codexReadyNotificationRecoveryWindow,
-              let interactionKind = AgentInteractionClassifier.interactionKind(forWaitingMessage: notificationText),
-              interactionKind != .genericInput else {
-            return false
+        if outcome.clearReadyStatus {
+            clearReadyStatusIfNeeded(for: paneID, in: &worklane)
         }
-
-        let newStatus = PaneAgentStatus(
-            tool: .codex,
-            state: .needsInput,
-            text: notificationText,
-            artifactLink: existingStatus.artifactLink,
-            updatedAt: now,
-            source: existingStatus.source,
-            origin: .heuristic,
-            interactionKind: interactionKind,
-            confidence: .strong,
-            shellActivityState: existingStatus.shellActivityState,
-            trackedPID: existingStatus.trackedPID,
-            workingDirectory: existingStatus.workingDirectory,
-            hasObservedRunning: true,
-            sessionID: existingStatus.sessionID,
-            parentSessionID: existingStatus.parentSessionID,
-            taskProgress: existingStatus.taskProgress
-        )
-        auxiliaryState.agentStatus = newStatus
-        auxiliaryState.agentReducerState = Self.seededReducerState(
-            PaneAgentReducerState(),
-            from: newStatus
-        )
-        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-        clearReadyStatusIfNeeded(for: paneID, in: &worklane)
-        stopSignalLogger.debug(
-            "codex.title.ready recoverNeedsInput pane=\(paneID.rawValue, privacy: .public) interaction=\(interactionKind.rawValue, privacy: .public) notification=\(notificationText, privacy: .public)"
-        )
-        return true
+        return outcome.didChangeStatus
     }
 
     private func clearExpiredCodexTitleIdleSuppression(
@@ -990,12 +588,11 @@ extension WorklaneStore {
         in worklane: inout WorklaneState,
         now: Date = Date()
     ) {
-        guard let deadline = worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTitleIdleSuppressionUntil,
-              now >= deadline else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexTitleIdleSuppressionUntil = nil
+        codexResolver.clearExpiredTitleIdleSuppression(&auxiliaryState, now: now)
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     private func clearExpiredCodexInterruptSuppression(
@@ -1003,12 +600,11 @@ extension WorklaneStore {
         in worklane: inout WorklaneState,
         now: Date = Date()
     ) {
-        guard let deadline = worklane.auxiliaryStateByPaneID[paneID]?.raw.codexInterruptSuppressionUntil,
-              now >= deadline else {
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] else {
             return
         }
-
-        worklane.auxiliaryStateByPaneID[paneID]?.raw.codexInterruptSuppressionUntil = nil
+        codexResolver.clearExpiredInterruptSuppression(&auxiliaryState, now: now)
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
     }
 
     @discardableResult
@@ -1024,112 +620,22 @@ extension WorklaneStore {
             )
             return false
         }
-
-        let hasActiveCodexStatus = auxiliaryState.agentStatus?.tool == .codex
-            && auxiliaryState.agentStatus?.state != .idle
-        let hasActiveCodexSession = auxiliaryState.agentReducerState.sessionsByID.values.contains { session in
-            session.tool == .codex
-                && (session.state != .idle || session.interactionKind.requiresHumanAttention)
-        }
-        let hasCodexSuppression = auxiliaryState.raw.codexInterruptSuppressionUntil != nil
-        guard hasActiveCodexStatus || hasActiveCodexSession || hasCodexSuppression else {
-            codexRestartLogger.notice(
-                "shellReturn.skip noStaleCodex pane=\(paneID.rawValue, privacy: .public) title=\(metadata?.title ?? "<nil>", privacy: .public) process=\(metadata?.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState.agentStatus), privacy: .public) sessions=\(auxiliaryState.agentReducerState.sessionsByID.count, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState.raw), privacy: .public)"
-            )
-            return false
-        }
-        let shouldClear = Self.metadataIndicatesShellReturnFromCodex(metadata)
-            || (
-                allowsNonCodexPromptFallback
-                && (
-                    Self.metadataIndicatesWeakCodexFallbackEnded(
-                        metadata,
-                        auxiliaryState: auxiliaryState
-                    )
-                    || (
-                        Self.metadataIndicatesNonCodexPrompt(metadata)
-                        && (hasActiveCodexStatus || hasActiveCodexSession)
-                    )
-                )
-            )
-        guard shouldClear else {
-            return false
-        }
-
-        codexRestartLogger.notice(
-            "shellReturn.clear pane=\(paneID.rawValue, privacy: .public) title=\(metadata?.title ?? "<nil>", privacy: .public) process=\(metadata?.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState.agentStatus), privacy: .public) sessions=\(auxiliaryState.agentReducerState.sessionsByID.count, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState.raw), privacy: .public)"
+        let outcome = codexResolver.clearStaleStateAfterShellReturn(
+            &auxiliaryState,
+            paneID: paneID,
+            metadata: metadata,
+            allowsNonCodexPromptFallback: allowsNonCodexPromptFallback
         )
-        _ = auxiliaryState.agentReducerState.clearCodexSessionsFromUserInterrupt()
-        if auxiliaryState.agentStatus?.tool == .codex {
-            auxiliaryState.agentStatus = nil
+        if outcome.didClear {
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         }
-        auxiliaryState.terminalProgress = nil
-        auxiliaryState.raw.wantsReadyStatus = false
-        auxiliaryState.raw.showsReadyStatus = false
-        auxiliaryState.raw.codexCurrentRunHasObservedActivity = false
-        auxiliaryState.raw.codexInterruptSuppressionUntil = nil
-        auxiliaryState.raw.codexTitleIdleSuppressionUntil = nil
-        auxiliaryState.raw.codexTranscriptContext = nil
-        auxiliaryState.raw.lastDesktopNotificationText = nil
-        auxiliaryState.raw.lastDesktopNotificationDate = nil
-        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
-        let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
-        pendingCodexQuestionTasks[paneReference]?.cancel()
-        pendingCodexQuestionTasks[paneReference] = nil
-        pendingCodexQuestionRequests[paneReference] = nil
-        return true
-    }
-
-    private static func metadataIndicatesShellReturnFromCodex(_ metadata: TerminalMetadata?) -> Bool {
-        guard let metadata,
-              AgentToolRecognizer.recognize(metadata: metadata) != .codex else {
-            return false
+        if outcome.cancelPendingQuestionTasks {
+            let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
+            pendingCodexQuestionTasks[paneReference]?.cancel()
+            pendingCodexQuestionTasks[paneReference] = nil
+            pendingCodexQuestionRequests[paneReference] = nil
         }
-
-        if let processName = WorklaneContextFormatter.trimmed(metadata.processName),
-           isKnownShellName(processName) {
-            return true
-        }
-
-        if let title = WorklaneContextFormatter.trimmed(metadata.title),
-           isKnownShellName(title) {
-            return true
-        }
-
-        return false
-    }
-
-    private static func metadataIndicatesWeakCodexFallbackEnded(
-        _ metadata: TerminalMetadata?,
-        auxiliaryState: PaneAuxiliaryState
-    ) -> Bool {
-        guard metadataIndicatesNonCodexPrompt(metadata),
-              let status = auxiliaryState.agentStatus,
-              status.tool == .codex else {
-            return false
-        }
-
-        return status.origin == .shell
-            || status.source == .inferred
-            || auxiliaryState.shellActivityState == .promptIdle
-    }
-
-    private static func metadataIndicatesNonCodexPrompt(_ metadata: TerminalMetadata?) -> Bool {
-        guard let metadata else {
-            return false
-        }
-
-        return AgentToolRecognizer.recognize(metadata: metadata) != .codex
-    }
-
-    private static func isKnownShellName(_ value: String) -> Bool {
-        let basename = URL(fileURLWithPath: value).lastPathComponent.lowercased()
-        switch basename {
-        case "zsh", "bash", "fish", "sh", "pwsh", "nu":
-            return true
-        default:
-            return false
-        }
+        return outcome.didClear
     }
 
     private func logCodexRestartMetadataUpdate(
@@ -1153,39 +659,6 @@ extension WorklaneStore {
         )
     }
 
-    private func logCodexRunningPromotionSkippedIfRelevant(
-        reason: String,
-        paneID: PaneID,
-        recognizedTool: AgentTool?,
-        previousMetadata: TerminalMetadata?,
-        metadata: TerminalMetadata,
-        auxiliaryState: PaneAuxiliaryState?
-    ) {
-        guard recognizedTool == .codex
-            || AgentToolRecognizer.recognize(metadata: metadata) == .codex
-            || AgentToolRecognizer.recognize(metadata: previousMetadata) == .codex
-            || auxiliaryState?.agentStatus?.tool == .codex
-            || auxiliaryState?.raw.codexInterruptSuppressionUntil != nil else {
-            return
-        }
-
-        codexRestartLogger.notice(
-            "running.skip reason=\(reason, privacy: .public) pane=\(paneID.rawValue, privacy: .public) prevTitle=\(previousMetadata?.title ?? "<nil>", privacy: .public) title=\(metadata.title ?? "<nil>", privacy: .public) prevProcess=\(previousMetadata?.processName ?? "<nil>", privacy: .public) process=\(metadata.processName ?? "<nil>", privacy: .public) recognized=\(recognizedTool?.displayName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState?.agentStatus), privacy: .public) sessions=\(auxiliaryState?.agentReducerState.sessionsByID.count ?? -1, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState?.raw), privacy: .public)"
-        )
-    }
-
-    private func logCodexRestartPromotion(
-        stage: String,
-        paneID: PaneID,
-        previousMetadata: TerminalMetadata?,
-        metadata: TerminalMetadata,
-        auxiliaryState: PaneAuxiliaryState
-    ) {
-        codexRestartLogger.notice(
-            "\(stage, privacy: .public) pane=\(paneID.rawValue, privacy: .public) prevTitle=\(previousMetadata?.title ?? "<nil>", privacy: .public) title=\(metadata.title ?? "<nil>", privacy: .public) prevProcess=\(previousMetadata?.processName ?? "<nil>", privacy: .public) process=\(metadata.processName ?? "<nil>", privacy: .public) status=\(Self.codexRestartStatusDescription(auxiliaryState.agentStatus), privacy: .public) sessions=\(auxiliaryState.agentReducerState.sessionsByID.count, privacy: .public) suppression=\(Self.codexRestartSuppressionDescription(auxiliaryState.raw), privacy: .public)"
-        )
-    }
-
     static func codexRestartStatusDescription(_ status: PaneAgentStatus?) -> String {
         guard let status else {
             return "<nil>"
@@ -1206,134 +679,7 @@ extension WorklaneStore {
         _ raw: PaneRawState,
         now: Date = Date()
     ) -> Bool {
-        guard let deadline = raw.codexTitleIdleSuppressionUntil else {
-            return false
-        }
-
-        return now < deadline
-    }
-
-    private func previousMetadataCanBeStaleCodexRunningTail(_ previousMetadata: TerminalMetadata?) -> Bool {
-        guard let previousMetadata else {
-            return true
-        }
-
-        return AgentToolRecognizer.recognize(metadata: previousMetadata) == .codex
-    }
-
-    private static func codexReadyTitleMayClearStatus(_ status: PaneAgentStatus?) -> Bool {
-        guard let status else {
-            return true
-        }
-
-        guard status.state == .needsInput else {
-            return true
-        }
-
-        return codexStatusMayClearFromReadyTitle(status)
-    }
-
-    private static func codexRunningTitleMayClearBlockedStatus(
-        _ status: PaneAgentStatus,
-        auxiliaryState: PaneAuxiliaryState
-    ) -> Bool {
-        guard status.tool == .codex,
-              status.state == .needsInput,
-              status.interactionKind.requiresHumanAttention else {
-            return false
-        }
-
-        if auxiliaryState.terminalProgress?.state.indicatesActivity == true {
-            return true
-        }
-
-        switch status.origin {
-        case .explicitHook, .explicitAPI:
-            return status.interactionKind == .approval
-                || codexStatusIsStalePlanModePrompt(status)
-        case .heuristic, .inferred, .compatibility, .shell:
-            return codexStatusIsStalePlanModePrompt(status)
-        }
-    }
-
-    private static func codexStatusShouldBlockTitleDrivenResume(_ status: PaneAgentStatus) -> Bool {
-        guard status.tool == .codex,
-              status.interactionKind.requiresHumanAttention else {
-            return false
-        }
-
-        return !codexStatusIsStaleGenericNeedsInput(status)
-            && !codexStatusIsStalePlanModePrompt(status)
-    }
-
-    private static func codexStatusIsStalePlanModePrompt(_ status: PaneAgentStatus) -> Bool {
-        guard status.tool == .codex,
-              status.state == .needsInput,
-              let text = AgentInteractionClassifier.trimmed(status.text) else {
-            return false
-        }
-
-        let lowered = text.lowercased()
-        guard lowered.contains("plan-mode-prompt") || lowered.contains("plan mode prompt") else {
-            return false
-        }
-
-        switch status.origin {
-        case .heuristic, .inferred, .compatibility, .explicitAPI:
-            return true
-        case .explicitHook, .shell:
-            return false
-        }
-    }
-
-    private static func codexStatusIsStaleGenericNeedsInput(_ status: PaneAgentStatus) -> Bool {
-        guard status.tool == .codex,
-              status.state == .needsInput,
-              status.interactionKind == .genericInput else {
-            return false
-        }
-
-        switch status.origin {
-        case .heuristic:
-            return true
-        case .inferred, .compatibility:
-            guard let text = AgentInteractionClassifier.trimmed(status.text) else {
-                return false
-            }
-            let lowered = text.lowercased()
-            return lowered.contains("waiting for your input")
-                || TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: text) != nil
-                || TerminalMetadataChangeClassifier.codexWaitingTitleKind(for: text) == .needsInput
-                || TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-                    text,
-                    recognizedTool: .codex
-                )?.phase == .needsInput
-        case .explicitAPI, .explicitHook, .shell:
-            return false
-        }
-    }
-
-    private static func codexStatusMayClearFromReadyTitle(_ status: PaneAgentStatus) -> Bool {
-        guard status.tool == .codex,
-              status.state == .needsInput,
-              status.interactionKind == .genericInput else {
-            return false
-        }
-
-        if codexStatusIsStaleGenericNeedsInput(status) {
-            return true
-        }
-
-        guard status.confidence == .weak else {
-            return false
-        }
-
-        switch status.origin {
-        case .heuristic, .inferred, .compatibility:
-            return true
-        case .explicitAPI, .explicitHook, .shell:
-            return false
-        }
+        codexResolver.titleIdleSuppressionIsActive(raw, now: now)
     }
 
     /// When a Claude Code session is running but the terminal title transitions
@@ -1366,7 +712,7 @@ extension WorklaneStore {
             return false
         }
 
-        auxiliaryState.agentReducerState = Self.seededReducerState(
+        auxiliaryState.agentReducerState = AgentStatusReconciliation.seededReducerState(
             auxiliaryState.agentReducerState,
             from: existingStatus
         )
@@ -1375,7 +721,7 @@ extension WorklaneStore {
             return false
         }
 
-        auxiliaryState.agentStatus = Self.hydratedStatus(
+        auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: existingStatus
         )

@@ -259,3 +259,27 @@ private extension String {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }
 }
+
+// MARK: - HooksInstalling conformance
+
+extension CursorHooksInstaller: HooksInstalling {
+    static func ensureInstalledForCurrentUser(
+        cliPath: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws {
+        installIfPossible(environment: environment, fileManager: fileManager)
+    }
+
+    static func isInstalledForCurrentUser(environment: [String: String], fileManager: FileManager) -> Bool {
+        isInstalled(at: defaultUserHooksURL(home: environment["HOME"] ?? NSHomeDirectory()), fileManager: fileManager)
+    }
+
+    static func uninstallForCurrentUser(environment: [String: String], fileManager: FileManager) throws {
+        try uninstall(at: defaultUserHooksURL(home: environment["HOME"] ?? NSHomeDirectory()), fileManager: fileManager)
+    }
+
+    static func integrationConfigURL(environment: [String: String]) -> URL? {
+        defaultUserHooksURL(home: environment["HOME"] ?? NSHomeDirectory())
+    }
+}

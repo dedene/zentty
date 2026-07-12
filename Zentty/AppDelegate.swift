@@ -785,7 +785,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func launchWorkspace(_ envelope: SessionRestoreEnvelope) -> Bool {
-        let workspace = envelope.workspace
+        // Migrate once, up front, so every downstream consumer (the
+        // importer below) only ever sees a current-schema recipe and never
+        // needs its own schemaVersion branch.
+        let workspace = WorkspaceRecipeMigration.migrate(envelope.workspace)
         let windows = workspace.windows
         guard !windows.isEmpty else {
             return false
@@ -810,7 +813,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let importedState = WorkspaceRecipeImporter.makeWorklanes(
                 from: recipeWindow,
-                recipeSchemaVersion: workspace.schemaVersion,
                 restoreDraftWindow: envelope.restoreDraftWindow(forWindowID: recipeWindow.id),
                 windowID: WindowID(recipeWindow.id),
                 layoutContext: layoutContext,

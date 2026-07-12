@@ -311,11 +311,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         leftStack.addArrangedSubview(searchWrapper)
         searchWrapper.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
 
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        leftStack.addArrangedSubview(separator)
-        separator.widthAnchor.constraint(equalTo: leftStack.widthAnchor).isActive = true
+        SettingsFormBuilder.separator(addedTo: leftStack)
 
         configureTableView()
         leftStack.addArrangedSubview(tableScrollView)
@@ -912,47 +908,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         toggle: NSSwitch,
         action: Selector
     ) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let leftStack = NSStackView()
-        leftStack.orientation = .vertical
-        leftStack.alignment = .leading
-        leftStack.spacing = 2
-        leftStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        leftStack.addArrangedSubview(titleLabel)
-
-        let subtitleLabel = NSTextField(labelWithString: subtitle)
-        subtitleLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.lineBreakMode = .byWordWrapping
-        subtitleLabel.maximumNumberOfLines = 0
-        leftStack.addArrangedSubview(subtitleLabel)
-
-        toggle.target = self
-        toggle.action = action
-        toggle.controlSize = .regular
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-
-        container.addSubview(leftStack)
-        container.addSubview(toggle)
-
-        NSLayoutConstraint.activate([
-            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-
-            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: leftStack.trailingAnchor, constant: 16),
-            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            subtitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
-        ])
-
-        return container
+        SettingsFormBuilder.switchRow(
+            title: title, subtitle: subtitle, toggle: toggle, target: self, action: action,
+            verticalInset: 16, toggleLeadingSpacing: 16, subtitleFontSize: 11,
+            subtitleWidth: .maxWidth(420))
     }
 
     // MARK: - Table

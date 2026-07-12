@@ -2094,6 +2094,12 @@ class ProfileTests(unittest.TestCase):
             (real_home / ".gemini" / "antigravity-cli" / "settings.json").write_text("{}")
             (real_home / ".gemini" / "config").mkdir(parents=True)
             (real_home / ".gemini" / "config" / "config.json").write_text('{"theme":"dark"}')
+            # agy reads its OAuth login from the macOS login keychain under
+            # ~/Library/Keychains; the overlay must surface it so agy reuses
+            # the user's global Antigravity login instead of starting logged
+            # out.
+            (real_home / "Library" / "Keychains").mkdir(parents=True)
+            (real_home / "Library" / "Keychains" / "login.keychain-db").write_text("x")
 
             plan = agent_bench.LaunchPlanner(
                 profile=profile,
@@ -2118,6 +2124,16 @@ class ProfileTests(unittest.TestCase):
             self.assertTrue((overlay_home / ".gemini" / "config" / "config.json").exists())
             # …the antigravity-cli subtree is skipped…
             self.assertFalse((overlay_home / ".gemini" / "antigravity-cli" / "settings.json").exists())
+            # …the login keychain is surfaced as a symlink to the real one so
+            # agy reuses the global Antigravity login (auth material only; the
+            # agent's conversations/state stay isolated in the fresh
+            # overlay antigravity-cli).
+            overlay_keychains = overlay_home / "Library" / "Keychains"
+            self.assertTrue(overlay_keychains.is_symlink())
+            self.assertEqual(
+                os.path.realpath(overlay_keychains),
+                os.path.realpath(real_home / "Library" / "Keychains"),
+            )
             # …and we write a real hooks.json (not a symlink) so the tools
             # scenario fires real hooks against the bench CLI.
             overlay_hooks = overlay_home / ".gemini" / "config" / "hooks.json"
@@ -2153,6 +2169,36 @@ class ProfileTests(unittest.TestCase):
             self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][0]["standardInput"])
             self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][1]["standardInput"])
             self.assertNotIn("pane-antigravity", plan["preLaunchActions"][0]["standardInput"])
+
+    def test_agy_plan_without_login_keychain_omits_symlink(self):
+        # When the host has no ~/Library/Keychains (not logged in, or a
+        # non-macOS runner) the plan must degrade gracefully — no keychain
+        # symlink, and no crash — behaving exactly as before the seed.
+        profile = agent_bench.load_profiles(ROOT / "profiles")["agy"]
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = pathlib.Path(tmp)
+            real_home = run_dir / "real-home"
+            (real_home / ".gemini" / "config").mkdir(parents=True)
+
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="tools",
+                run_dir=run_dir,
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["--print", "--prompt", "hello"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/agy",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty-bench",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_home = pathlib.Path(plan["setEnvironment"]["HOME"])
+            self.assertFalse((overlay_home / "Library" / "Keychains").exists())
+            self.assertFalse((overlay_home / "Library" / "Keychains").is_symlink())
 
     def test_hermes_plan_installs_overlay_hooks_and_preserves_launch_context(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["hermes"]
