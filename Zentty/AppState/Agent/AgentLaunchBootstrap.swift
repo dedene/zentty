@@ -10,6 +10,11 @@ private let agentLaunchLogger = Logger(
 )
 
 enum AgentLaunchBootstrap {
+    /// Kimi shares `session_index.jsonl` across all panes via the persistent
+    /// `~/.kimi-code` home, but its per-launch overlay home paths can end up
+    /// recorded in that index. Serialization protects the read-modify-write.
+    private static let kimiSessionIndexCanonicalizationLock = NSLock()
+
     static func makePlan(
         request: AgentIPCRequest,
         target: AgentIPCTarget,
@@ -1109,6 +1114,80 @@ enum AgentLaunchBootstrap {
         return overlayHomeURL.path
     }
 
+    /// Rewrite stale per-launch overlay paths in Kimi's shared session index
+    /// back to the persistent `~/.kimi-code/sessions/` location.
+    ///
+    /// Kimi records `sessionDir` as an absolute path under `KIMI_CODE_HOME`.
+    /// Because Zentty launches modern Kimi with an ephemeral overlay home,
+    /// the shared `session_index.jsonl` can accumulate entries whose
+    /// `sessionDir` points to a now-deleted overlay directory. On the next
+    /// launch, `kimi -S <id>` fails with "Session not found" because the
+    /// directory no longer exists. This pass canonicalizes those entries
+    /// before Kimi starts.
+    internal static func canonicalizeKimiSessionIndexIfNeeded(
+        sourceHomeURL: URL,
+        fileManager: FileManager
+    ) {
+        kimiSessionIndexCanonicalizationLock.lock()
+        defer { kimiSessionIndexCanonicalizationLock.unlock() }
+
+        let indexURL = sourceHomeURL.appendingPathComponent("session_index.jsonl", isDirectory: false)
+        guard fileManager.isReadableFile(atPath: indexURL.path) else { return }
+
+        let sourceHomePath = sourceHomeURL.path
+        let sourceHomePathWithSlash = sourceHomePath.hasSuffix("/") ? sourceHomePath : sourceHomePath + "/"
+        let sourceSessionsURL = sourceHomeURL.appendingPathComponent("sessions", isDirectory: true)
+
+        guard let rawData = try? Data(contentsOf: indexURL),
+              let rawText = String(data: rawData, encoding: .utf8) else {
+            return
+        }
+
+        var changed = false
+        var newLines: [String] = []
+        let lines = rawText.components(separatedBy: "\n")
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty,
+                  let lineData = trimmed.data(using: .utf8),
+                  var json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                newLines.append(line)
+                continue
+            }
+            guard let sessionID = json["id"] as? String,
+                  let sessionDir = json["sessionDir"] as? String else {
+                newLines.append(line)
+                continue
+            }
+
+            let sessionDirPath = URL(fileURLWithPath: sessionDir, isDirectory: true).path
+            let isCanonical = sessionDirPath == sourceHomePath
+                || sessionDirPath.hasPrefix(sourceHomePathWithSlash)
+            guard !isCanonical else {
+                newLines.append(line)
+                continue
+            }
+
+            let canonicalPath = sourceSessionsURL.appendingPathComponent(sessionID, isDirectory: true).path
+            json["sessionDir"] = canonicalPath
+            guard let newData = try? JSONSerialization.data(withJSONObject: json, options: .sortedKeys),
+                  var newLine = String(data: newData, encoding: .utf8) else {
+                newLines.append(line)
+                continue
+            }
+            newLine = newLine.replacingOccurrences(of: "\\/", with: "/")
+            newLines.append(newLine)
+            changed = true
+        }
+
+        guard changed else { return }
+
+        let newText = newLines.joined(separator: "\n")
+        guard let outputData = newText.data(using: .utf8) else { return }
+
+        try? outputData.write(to: indexURL, options: .atomic)
+    }
+
     private static func prepareKimiCodeOverlay(
         sourceHomeURL: URL,
         overlayDirectoryURL: URL,
@@ -1126,6 +1205,7 @@ enum AgentLaunchBootstrap {
 
         let overlayConfigURL = overlayHomeURL.appendingPathComponent("config.toml", isDirectory: false)
         try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
+        canonicalizeKimiSessionIndexIfNeeded(sourceHomeURL: sourceHomeURL, fileManager: fileManager)
         let migrationSkipURL = overlayHomeURL.appendingPathComponent(".skip-migration-from-kimi-cli", isDirectory: false)
         let migrationSkipPath = migrationSkipURL.path
         let migrationSkipExists = fileManager.fileExists(atPath: migrationSkipPath)
