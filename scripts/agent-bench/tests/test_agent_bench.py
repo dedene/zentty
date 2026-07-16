@@ -16,6 +16,46 @@ sys.modules["agent_bench"] = agent_bench
 SPEC.loader.exec_module(agent_bench)
 
 
+def _write_kimi_session_index(
+    source_home: pathlib.Path,
+    *,
+    session_id: str,
+    session_dir: str,
+    work_dir: str = "/tmp/project",
+) -> pathlib.Path:
+    index_path = source_home / "session_index.jsonl"
+    index_path.write_text(
+        json.dumps(
+            {
+                "sessionId": session_id,
+                "sessionDir": session_dir,
+                "workDir": work_dir,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return index_path
+
+
+def _modern_kimi_launch_planner(run_dir: pathlib.Path) -> agent_bench.LaunchPlanner:
+    return agent_bench.LaunchPlanner(
+        profile=agent_bench.AgentProfile(
+            name="kimi-code",
+            tool="kimi",
+            command="kimi",
+            real_binary_names=["kimi"],
+            version_args=["--version"],
+            launch_args_by_scenario={},
+            expectations={},
+            kimi_variant="modern",
+        ),
+        scenario="smoke",
+        run_dir=run_dir,
+        resources_dir=None,
+    )
+
+
 class RedactionTests(unittest.TestCase):
     def test_redacts_secret_values_and_keeps_routing_context(self):
         env = {
@@ -310,6 +350,84 @@ class ExpectationTests(unittest.TestCase):
             self.assertIn('model = "kimi"', merged)
             self.assertIn("[[hooks]]", merged)
             self.assertTrue((overlay_home / ".skip-migration-from-kimi-cli").is_file())
+
+    def test_canonicalize_kimi_session_index_rewrites_stale_overlay_session_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_home = pathlib.Path(tmp) / "source-home"
+            session_id = "session_a4d78f91-ea80-41e7-91d3-c699197ff442"
+            work_dir_hash = "wd_fix-kimi-code-cli_57590bf29904"
+            durable = source_home / "sessions" / work_dir_hash / session_id
+            durable.mkdir(parents=True)
+            overlay_session_dir = (
+                f"/Users/peter/Library/Caches/Zentty/ipc-11370/launch/wl_x/pn_y/kimi/home/"
+                f"sessions/{work_dir_hash}/{session_id}"
+            )
+            work_dir = "/Users/peter/Development/Personal/worktrees/fix-kimi-code-cli"
+            index_path = _write_kimi_session_index(
+                source_home,
+                session_id=session_id,
+                session_dir=overlay_session_dir,
+                work_dir=work_dir,
+            )
+
+            agent_bench.canonicalize_kimi_session_index_if_needed(source_home)
+
+            rewritten = json.loads(index_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rewritten["sessionId"], session_id)
+            self.assertEqual(rewritten["sessionDir"], str(durable.resolve()))
+            self.assertEqual(rewritten["workDir"], work_dir)
+
+    def test_canonicalize_kimi_session_index_skips_missing_target_and_preserves_other_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_home = pathlib.Path(tmp) / "source-home"
+            (source_home / "sessions").mkdir(parents=True)
+            session_id = "session_missing-on-disk"
+            work_dir_hash = "wd_missing_abcdef123456"
+            overlay_session_dir = f"/tmp/overlay/kimi/home/sessions/{work_dir_hash}/{session_id}"
+            poisoned = json.dumps(
+                {
+                    "sessionId": session_id,
+                    "sessionDir": overlay_session_dir,
+                    "workDir": "/tmp/project",
+                }
+            )
+            original = "\n".join([poisoned, '{"note":"not-a-session"}', "not-json", ""])
+            index_path = source_home / "session_index.jsonl"
+            index_path.write_text(original, encoding="utf-8")
+
+            agent_bench.canonicalize_kimi_session_index_if_needed(source_home)
+
+            self.assertEqual(index_path.read_text(encoding="utf-8"), original)
+
+    def test_kimi_modern_plan_canonicalizes_poisoned_session_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source_home = root / "source-home"
+            source_home.mkdir()
+            (source_home / "config.toml").write_text('model = "kimi"\n', encoding="utf-8")
+            session_id = "session_ae5ef9dc-a4fe-4cc1-9b18-27823ca399cc"
+            work_dir_hash = "wd_fix-kimi-code-cli_57590bf29904"
+            durable = source_home / "sessions" / work_dir_hash / session_id
+            durable.mkdir(parents=True)
+            overlay_session_dir = (
+                f"{root}/overlays/old/kimi/home/sessions/{work_dir_hash}/{session_id}"
+            )
+            index_path = _write_kimi_session_index(
+                source_home,
+                session_id=session_id,
+                session_dir=overlay_session_dir,
+            )
+            planner = _modern_kimi_launch_planner(root)
+
+            planner._plan_kimi(
+                "/usr/bin/kimi",
+                ["-p", "hello"],
+                {"HOME": str(root / "home"), "KIMI_CODE_HOME": str(source_home)},
+                "/usr/bin/zentty",
+            )
+
+            rewritten = json.loads(index_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(rewritten["sessionDir"], str(durable.resolve()))
 
     def test_resolve_agent_binary_picks_matching_kimi_variant(self):
         with tempfile.TemporaryDirectory() as tmp:

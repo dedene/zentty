@@ -10,6 +10,11 @@ private let agentLaunchLogger = Logger(
 )
 
 enum AgentLaunchBootstrap {
+    /// Kimi shares `session_index.jsonl` across all panes via the persistent
+    /// `~/.kimi-code` home, but its per-launch overlay home paths can end up
+    /// recorded in that index. Serialization protects the read-modify-write.
+    private static let kimiSessionIndexCanonicalizationLock = NSLock()
+
     static func makePlan(
         request: AgentIPCRequest,
         target: AgentIPCTarget,
@@ -1126,6 +1131,7 @@ enum AgentLaunchBootstrap {
 
         let overlayConfigURL = overlayHomeURL.appendingPathComponent("config.toml", isDirectory: false)
         try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
+        canonicalizeKimiSessionIndexIfNeeded(sourceHomeURL: sourceHomeURL, fileManager: fileManager)
         let migrationSkipURL = overlayHomeURL.appendingPathComponent(".skip-migration-from-kimi-cli", isDirectory: false)
         let migrationSkipPath = migrationSkipURL.path
         let migrationSkipExists = fileManager.fileExists(atPath: migrationSkipPath)
@@ -1134,6 +1140,106 @@ enum AgentLaunchBootstrap {
             try "".write(to: migrationSkipURL, atomically: true, encoding: .utf8)
         }
         return overlayHomeURL
+    }
+
+    /// Rewrite stale per-launch overlay paths in Kimi's shared session index
+    /// back to the persistent `~/.kimi-code/sessions/` location.
+    ///
+    /// Kimi records `sessionDir` as an absolute path under `KIMI_CODE_HOME`.
+    /// Because Zentty launches modern Kimi with an ephemeral overlay home,
+    /// the shared `session_index.jsonl` can accumulate entries whose
+    /// `sessionDir` points to a now-deleted overlay directory. On the next
+    /// launch, `kimi -S <id>` fails with "Session not found" because the
+    /// directory no longer exists. This pass remaps those entries by
+    /// preserving the `/sessions/...` suffix onto the durable source home,
+    /// but only when that remapped directory already exists on disk.
+    internal static func canonicalizeKimiSessionIndexIfNeeded(
+        sourceHomeURL: URL,
+        fileManager: FileManager
+    ) {
+        kimiSessionIndexCanonicalizationLock.lock()
+        defer { kimiSessionIndexCanonicalizationLock.unlock() }
+
+        let indexURL = sourceHomeURL.appendingPathComponent("session_index.jsonl", isDirectory: false)
+        guard fileManager.isReadableFile(atPath: indexURL.path),
+              let rawData = try? Data(contentsOf: indexURL),
+              let rawText = String(data: rawData, encoding: .utf8) else {
+            return
+        }
+
+        let sourceHomePath = sourceHomeURL.path
+        let sourceHomePathWithSlash = sourceHomePath.hasSuffix("/") ? sourceHomePath : sourceHomePath + "/"
+
+        var changed = false
+        let newLines = rawText.components(separatedBy: "\n").map { line -> String in
+            let result = canonicalizedKimiSessionIndexLine(
+                line,
+                sourceHomePath: sourceHomePath,
+                sourceHomePathWithSlash: sourceHomePathWithSlash,
+                fileManager: fileManager
+            )
+            if result.changed {
+                changed = true
+            }
+            return result.output
+        }
+
+        guard changed,
+              let outputData = newLines.joined(separator: "\n").data(using: .utf8) else {
+            return
+        }
+
+        do {
+            try outputData.write(to: indexURL, options: .atomic)
+        } catch {
+            agentLaunchLogger.error(
+                "Failed to canonicalize Kimi session_index.jsonl at \(indexURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private static func canonicalizedKimiSessionIndexLine(
+        _ line: String,
+        sourceHomePath: String,
+        sourceHomePathWithSlash: String,
+        fileManager: FileManager
+    ) -> (output: String, changed: Bool) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty,
+              let lineData = trimmed.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+            return (line, false)
+        }
+
+        let hasSessionID = (json["sessionId"] as? String) != nil || (json["id"] as? String) != nil
+        guard hasSessionID,
+              let sessionDir = json["sessionDir"] as? String else {
+            return (line, false)
+        }
+
+        let sessionDirPath = URL(fileURLWithPath: sessionDir, isDirectory: true).path
+        let isCanonical = sessionDirPath == sourceHomePath
+            || sessionDirPath.hasPrefix(sourceHomePathWithSlash)
+        guard !isCanonical,
+              let sessionsRange = sessionDirPath.range(of: "/sessions/") else {
+            return (line, false)
+        }
+
+        let relativeFromSessions = String(sessionDirPath[sessionsRange.lowerBound...])
+        let canonicalPath = sourceHomePath + relativeFromSessions
+        guard fileManager.fileExists(atPath: canonicalPath) else {
+            return (line, false)
+        }
+
+        json["sessionDir"] = canonicalPath
+        guard let newData = try? JSONSerialization.data(
+            withJSONObject: json,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        ),
+              let newLine = String(data: newData, encoding: .utf8) else {
+            return (line, false)
+        }
+        return (newLine, true)
     }
 
     private static func kimiCodeHomeURL(environment: [String: String]) -> URL {
