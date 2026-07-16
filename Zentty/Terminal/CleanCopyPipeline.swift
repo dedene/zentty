@@ -24,6 +24,10 @@ enum CleanCopyPipeline {
         let lineShapeEvidence = PlainProseLineShapeEvidence(input: text)
         text = trimTrailingWhitespacePerLine(text)
         text = trimTrailingBlankLines(text)
+        // Line-number gutters run before the box pass: a bat gutter (" 1 │ code")
+        // uses a box-drawing "│", and the box pass would eat the pipe and the code
+        // indentation before the gutter stripper could recognize the shape.
+        text = stripLineNumberPrefixes(text)
         if options.removeBoxDrawing, let cleaned = stripBoxDrawingArtifacts(text) {
             text = cleaned
         }
@@ -37,7 +41,6 @@ enum CleanCopyPipeline {
         if let cleaned = stripSmartPromptPrefixes(text) {
             text = cleaned
         }
-        text = stripLineNumberPrefixes(text)
         if let repaired = repairWrappedURL(text) {
             text = repaired
         }
@@ -243,12 +246,23 @@ enum CleanCopyPipeline {
         }
 
         var normalizedLines = contentLines
+        // Blockquote lines come in two shapes: content ("> text", ">> nested") and
+        // bare separators (">"), whose trailing space an earlier pass has already
+        // trimmed. Count both so a quote whose paragraphs are divided by bare ">"
+        // lines still clears the majority threshold.
         let blockquoteLineCount = nonEmptyContentLines.count { line in
-            line.range(of: #"^>\s+"#, options: .regularExpression) != nil
+            line.range(of: #"^>+\s+"#, options: .regularExpression) != nil
+                || line.range(of: #"^>+\s*$"#, options: .regularExpression) != nil
         }
         if blockquoteLineCount >= nonEmptyContentLines.count / 2 + 1 {
             normalizedLines = contentLines.map { line in
-                guard let match = line.range(of: #"^>\s+"#, options: .regularExpression) else {
+                // A bare ">" separator normalizes to empty so it acts as a paragraph
+                // break downstream instead of fusing paragraphs with a stray " > ".
+                if line.range(of: #"^>+\s*$"#, options: .regularExpression) != nil {
+                    return ""
+                }
+                // Strip the (possibly nested) "> " / ">> " marker from content lines.
+                guard let match = line.range(of: #"^>+\s+"#, options: .regularExpression) else {
                     return line
                 }
                 return String(line[match.upperBound...])
@@ -543,18 +557,24 @@ enum CleanCopyPipeline {
             options: .regularExpression
         )
 
-        // Capitalized identifier mid-break: "N\nODE_PATH" -> "NODE_PATH".
-        // "." is intentionally absent from the LHS so a sentence-boundary like
-        // "Here is the answer.\nHere is more context." does NOT fuse into ".H" —
-        // the later "\n+ -> ' '" pass needs the newline to survive and become a space.
-        // "-" is absent from both sides so a dash run (markdown HR) doesn't fuse with the next line.
-        // The trailing (?=[A-Z0-9_.]) requires the next-line token to continue as an
-        // identifier (2+ chars), so a split identifier (N -> ODE_PATH) still joins while
-        // two standalone capitals don't: "Grade A\nB students" stays "Grade A B students"
-        // (the newline survives to the "\n+ -> ' '" pass). It also subsumes the old (?!\n).
+        // Capitalized identifier mid-break: rejoin an all-caps identifier wrapped
+        // across a newline ("N\nODE_PATH" -> "NODE_PATH", "NODE_\nPATH" -> "NODE_PATH").
+        // An underscore *at the wrap boundary* is the join signal:
+        //   alt 1 — LHS ends in "_" ("NODE_\nPATH")
+        //   alt 2 — LHS is a whole single-char token (\b) and RHS contains "_"
+        //           ("N\nODE_PATH"). The word boundary is required so the final
+        //           letter of a longer word is not treated as a fragment —
+        //           otherwise "THE\nAPI_KEY" would fuse via the trailing "E".
+        // Acronym pairs ("EU\nUS") and "Grade A\nB students" stay separated —
+        // neither side carries the underscore join signal, so the newline
+        // survives to the later "\n+ -> ' '" pass. Complete-identifier
+        // boundaries ("FOO_BAR\nBAZ") do not fuse because "BAZ" has no "_".
+        // "." is absent from every LHS class so a sentence-boundary like
+        // "Here is the answer.\nHere is more context." does NOT fuse into ".H".
+        // "-" is absent from both sides so a dash run (markdown HR) doesn't fuse.
         result = result.replacingOccurrences(
-            of: #"(?<!\n)([A-Z0-9_])\s*\n\s*([A-Z0-9_.])(?=[A-Z0-9_.])"#,
-            with: "$1$2",
+            of: #"(?:([A-Z0-9_]*_)\s*\n\s*([A-Z0-9_.]{2,})|\b([A-Z0-9])\s*\n\s*([A-Z0-9.]*_[A-Z0-9_.]*))"#,
+            with: "$1$2$3$4",
             options: .regularExpression
         )
 
@@ -695,7 +715,12 @@ enum CleanCopyPipeline {
         // Patterns: "  1\t" (cat -n), "42:" (grep -n), "1| " or "1 │ " (bat, editors)
         let patterns: [(regex: String, name: String)] = [
             (#"^\s*\d+\t"#, "cat-n"),              // cat -n: right-aligned number + tab
-            (#"^\s*\d+:\s?"#, "grep-n"),            // grep -n: number + colon
+            // grep -n: number + colon. Reject a bare time-of-day shape after the
+            // colon — exactly two digits then space/end/AM/PM ("3:30 PM", "9:00") —
+            // but allow digit-prefixed content that continues (e.g. "1:00:00 timeout",
+            // where a third ":" follows the minutes). Using \b after \d{2} is wrong
+            // here: ":" is a word boundary, so it would also reject "1:00:00".
+            (#"^\s*\d+:(?!\d{2}(?:\s*(?:[AaPp][Mm])\b|(?:\s|$)))\s?"#, "grep-n"),
             (#"^\s*\d+\s?[|│┃]\s?"#, "pipe"),      // number + optional space + pipe (ASCII or box-drawing) — bat, editors
         ]
 
@@ -807,8 +832,10 @@ enum CleanCopyPipeline {
             }
         }
 
+        // Squeeze runs of spaces only after a non-space character (?<=\S), so leading
+        // indentation on code lines survives while interior double-spaces collapse.
         result = result.replacingOccurrences(
-            of: #" {2,}"#,
+            of: #"(?<=\S) {2,}"#,
             with: " ",
             options: .regularExpression
         )

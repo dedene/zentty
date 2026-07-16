@@ -471,6 +471,47 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertTrue(result.wasModified)
     }
 
+    func test_pipeline_reflows_blockquote_with_bare_separator_lines() {
+        // Bare ">" separator lines (trailing space already trimmed) must act as
+        // paragraph breaks, not fuse every paragraph into one line with a stray " > ".
+        let input = """
+        > It's a good first step, and publishing the source is useful.
+        >
+        > I did look through it. The specific repository-snapshot path we saw
+        > evidence of before is disabled or unavailable in this public build,
+        > which is meaningful.
+        >
+        > So I wouldn't say the concern is fully resolved yet. Still, I'd like
+        > to see a clear commitment.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "It's a good first step, and publishing the source is useful."
+                + "\n\nI did look through it. The specific repository-snapshot path we saw evidence of before is disabled or unavailable in this public build, which is meaningful."
+                + "\n\nSo I wouldn't say the concern is fully resolved yet. Still, I'd like to see a clear commitment."
+        )
+        XCTAssertTrue(result.wasModified)
+        XCTAssertFalse(result.text.contains(">"))
+    }
+
+    func test_pipeline_reflows_nested_blockquote_dropping_both_markers() {
+        let input = """
+        >> The deeper nested quote begins here and runs long enough to read as prose wrapping,
+        >> and it continues on this second line before it ends.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "The deeper nested quote begins here and runs long enough to read as prose wrapping,"
+                + " and it continues on this second line before it ends."
+        )
+        XCTAssertTrue(result.wasModified)
+        XCTAssertFalse(result.text.contains(">"))
+    }
+
     func test_pipeline_preserves_compact_command_block_line_breaks() {
         let input = """
           git status --short --branch
@@ -704,6 +745,14 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertEqual(result, "first match\nsecond match\nthird match\nfourth match")
     }
 
+    func test_stripLineNumbers_grep_n_digit_prefixed_content() {
+        // Content that begins with HH:MM:SS must still be recognized as grep -n.
+        // The time-of-day guard rejects "N:NN" + space/end/AM/PM, not "N:NN:SS…".
+        let input = "1:00:00 timeout\n2:00:01 retry\n3:00:02 done\n4:finished"
+        let result = CleanCopyPipeline.stripLineNumberPrefixes(input)
+        XCTAssertEqual(result, "00:00 timeout\n00:01 retry\n00:02 done\nfinished")
+    }
+
     func test_stripLineNumbers_does_not_strip_ipv6_record() {
         let input = "2400:52e0:fff0::1"
         XCTAssertEqual(CleanCopyPipeline.stripLineNumberPrefixes(input), input)
@@ -752,6 +801,20 @@ final class CleanCopyPipelineTests: XCTestCase {
     func test_stripLineNumbers_identity_for_no_numbers() {
         let input = "no numbers\njust text\nhere today"
         XCTAssertEqual(CleanCopyPipeline.stripLineNumberPrefixes(input), input)
+    }
+
+    func test_pipeline_preserves_time_of_day_single_line() {
+        // "3:30 PM" is a time, not a grep-n gutter — the N:NN shape is rejected.
+        let result = CleanCopyPipeline.clean("3:30 PM meeting")
+        XCTAssertEqual(result.text, "3:30 PM meeting")
+        XCTAssertFalse(result.wasModified)
+    }
+
+    func test_pipeline_preserves_time_of_day_schedule() {
+        let input = "9:00 standup\n10:30 review"
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
     }
 
     // MARK: - Pass 6: Common-Prefix Dedent
@@ -810,6 +873,16 @@ final class CleanCopyPipelineTests: XCTestCase {
         let input = "     1\t    func hello() {\n     2\t        print(\"hi\")\n     3\t    }\n     4\t    func bye() {"
         let result = CleanCopyPipeline.clean(input)
         XCTAssertEqual(result.text, "func hello() {\n    print(\"hi\")\n}\nfunc bye() {")
+        XCTAssertTrue(result.wasModified)
+    }
+
+    func test_pipeline_strips_bat_gutter_preserving_code_indentation() {
+        // Regression: the box pass used to eat the "│" gutter and the code indent
+        // before the line-number stripper could run. The clean() level exercises the
+        // pass ordering the direct stripLineNumberPrefixes tests could not catch.
+        let input = " 1 │ func hello() {\n 2 │     print(\"hi\")\n 3 │ }"
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, "func hello() {\n    print(\"hi\")\n}")
         XCTAssertTrue(result.wasModified)
     }
 
@@ -957,6 +1030,46 @@ final class CleanCopyPipelineTests: XCTestCase {
         )
     }
 
+    func test_stripAgentPromptSelection_does_not_fuse_prose_word_before_identifier() {
+        // A complete all-caps prose word ("THE") before a wrapped identifier
+        // ("API_KEY") must stay separated. Only a single-char LHS fragment plus an
+        // underscore on the next line is a rejoin signal ("N" + "ODE_PATH").
+        let input = """
+        ⏺ Set THE
+          API_KEY before running.
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "Set THE API_KEY before running."
+        )
+    }
+
+    func test_stripAgentPromptSelection_rejoins_identifier_broken_after_underscore() {
+        // The wrap lands right after the underscore, so the LHS run ("NODE_") ends
+        // in "_" — the other half of the boundary-underscore join signal.
+        let input = """
+        › export NODE_
+          PATH=/usr/bin
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "export NODE_PATH=/usr/bin"
+        )
+    }
+
+    func test_stripAgentPromptSelection_does_not_fuse_complete_identifier_before_word() {
+        // A complete identifier ("FOO_BAR") followed by a standalone all-caps word
+        // ("BAZ") must not fuse: the next-line run has no "_", so no boundary signal.
+        let input = """
+        ⏺ The var is FOO_BAR
+          BAZ is a separate token.
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "The var is FOO_BAR BAZ is a separate token."
+        )
+    }
+
     func test_stripAgentPromptSelection_does_not_fuse_standalone_capitals() {
         // A single uppercase word at a wrap boundary must NOT fuse with the next
         // line's leading capital. The rejoin rule requires the second token to be
@@ -969,6 +1082,20 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertEqual(
             CleanCopyPipeline.stripAgentPromptSelection(input),
             "Grade A B students passed"
+        )
+    }
+
+    func test_stripAgentPromptSelection_does_not_fuse_acronym_across_wrap() {
+        // A capital that ends a complete word ("…EU") must not fuse with the next
+        // line's leading capital ("US…"). The single-char-fragment lookbehind keeps
+        // the real split-identifier case (N -> ODE_PATH) joining.
+        let input = """
+        ⏺ We shipped to the EU
+          US customers are next.
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.stripAgentPromptSelection(input),
+            "We shipped to the EU US customers are next."
         )
     }
 
@@ -1055,5 +1182,212 @@ final class CleanCopyPipelineTests: XCTestCase {
         let result = CleanCopyPipeline.clean(input)
         XCTAssertEqual(result.text, "Hello, world.")
         XCTAssertTrue(result.wasModified)
+    }
+
+    // MARK: - Hash Prompt Majority Path Requires Command Shape
+
+    func test_pipeline_preserves_hash_led_shell_comments() {
+        // 2 of 3 lines are "#"-prefixed prose comments (majority), but neither reads
+        // as a command, so the majority path must not strip them.
+        let input = "# Configure the retry limit\n# before running the job\nexport RETRY=3"
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
+    func test_stripPrompts_hash_root_prompt_transcript_still_strips() {
+        // A root-shell transcript still passes isLikelyPromptCommand, so it keeps stripping.
+        let input = "# apt-get update\n# apt-get install -y jq"
+        XCTAssertEqual(
+            (CleanCopyPipeline.stripSmartPromptPrefixes(input) ?? input),
+            "apt-get update\napt-get install -y jq"
+        )
+    }
+
+    // MARK: - Idempotency Property
+
+    /// Curated corpus harvested from representative literals across
+    /// CleanCopyPipelineTests, CleanCopyURLHelpersTests, and CleanCopyCommandFlatteningTests.
+    /// clean() must be a fixed point on its own output: clean(clean(x).text).text == clean(x).text.
+    private static let idempotencyCorpus: [(name: String, input: String)] = [
+        // ANSI escapes + dollar prompt majority
+        ("ansi_dollar_prompts", "\u{1B}[32m$ ls -la   \u{1B}[0m\n\u{1B}[32m$ pwd   \u{1B}[0m\n\n"),
+        // hash-prefixed root shell transcript
+        ("hash_root_prompt_transcript", "# apt-get update\n# apt-get install -y jq"),
+        // chevron agent prompt, wrapped paragraph
+        ("chevron_wrapped_prompt", """
+        › i want to add support from predefined task runners, similar to existing terminal task runner configs, but i'd like
+          to support also VSCode tasks or Taskfiles (from https://taskfile.dev)
+
+          first research what the most popular terminal task runners are and what vscode is doing
+          after that lets usete the $shaping skill and interview me in detail
+        """),
+        // heavy chevron + rule separator (content-after-rule)
+        ("heavy_chevron_rule_separator", """
+        ❯ /my-skill:run-task "Analyze the dataset
+          for patterns and report findings"
+        ────────────────────────────────────────
+        /my-skill:run-task "Analyze the dataset
+          for patterns and report findings"
+        """),
+        // bullet-led agent message with continuation paragraph
+        ("bullet_led_agent_message", """
+        • Hi Peter — I'll keep this review tight and focus only on issues worth fixing before merge.
+
+          Using the code-review skill because this is a branch diff review.
+        """),
+        // blank-separated bullet status blocks, preserving markers
+        ("separated_bullet_status_blocks", """
+        • The push reached GitHub (main -> main), but sandboxing blocked Git from updating the local origin/main tracking ref afterward. I’m verifying the remote
+         and then refreshing the local tracking ref with escalation so the repo state is sane.
+
+
+        • Remote main is at 7ff742d, so the push itself landed. The local tracking ref is stale because of the lock error; I’m fetching with Git metadata write
+         access to update it.
+        """),
+        // plain agent reply with mixed prose/list, no marker
+        ("plain_agent_reply_with_list", """
+        Clean Copy now handles blank-separated • assistant/status blocks before the existing multi-marker bailout. It preserves the bullet markers, reflows
+        wrapped continuation lines inside each block, normalizes the gap to one blank line, and still bails for source code, structured data, shell transcripts,
+        compact lists, and stacked non-bullet markers. See Zentty/Terminal/CleanCopyPipeline.swift:180.
+
+        Added regression coverage for your screenshot shape plus outer-padding cleanup in ZenttyLogicTests/CleanCopyPipelineTests.swift:364.
+
+        Verification:
+
+        - New tests failed first for the expected reason: original wrapped text / nil.
+        - New tests pass after the fix.
+        - CleanCopyPipelineTests: 106 tests, 0 failures.
+        - git diff --check: clean.
+        """),
+        // wrapped blockquote without embedded prompt marker
+        ("wrapped_chevron_quote", """
+        > “Your plan includes generous resource capacity. Most customers never need to think about it. If your usage grows materially, we’ll warn you before
+          > anything changes.”
+        """),
+        // blockquote with bare ">" separator lines
+        ("blockquote_bare_separators", """
+        > It's a good first step, and publishing the source is useful.
+        >
+        > I did look through it. The specific repository-snapshot path we saw
+        > evidence of before is disabled or unavailable in this public build,
+        > which is meaningful.
+        >
+        > So I wouldn't say the concern is fully resolved yet. Still, I'd like
+        > to see a clear commitment.
+        """),
+        // nested blockquote, both markers dropped
+        ("nested_blockquote", """
+        >> The deeper nested quote begins here and runs long enough to read as prose wrapping,
+        >> and it continues on this second line before it ends.
+        """),
+        // compact command block, preserved line breaks
+        ("compact_command_block", """
+          git status --short --branch
+          pnpm install --frozen-lockfile
+          pnpm run pack:check
+          node dist/cli.js --help
+        """),
+        // single command wrapped with backslash continuations
+        ("backslash_wrapped_single_command", """
+        curl https://example.com/api \\
+          --fail \\
+          --silent
+        """),
+        // env-prefixed / scripted commands, no continuation
+        ("env_and_script_commands", """
+        RAILS_ENV=test bundle exec rspec spec/models/drops/channel_collection_proxy_spec.rb:311
+        scripts/test-on-virtual-display -only-testing:ZenttyLogicTests/CleanCopyPipelineTests
+        cargo test --all-targets --all-features
+        """),
+        // bullet marker with nested markdown list preserved
+        ("bullet_with_nested_list", """
+        • Implemented.
+
+        Verification:
+
+        - New tests failed first for the expected reason: original wrapped text / nil.
+        - New tests pass after the fix.
+        - CleanCopyPipelineTests: 106 tests, 0 failures.
+        - git diff --check: clean.
+        """),
+        // record-circle (⏺) message marker
+        ("record_circle_message", """
+        ⏺ Ran the analysis and found two
+          issues worth fixing.
+        """),
+        // stacked ⏺ tool-call lines (not flattened)
+        ("stacked_tool_calls", """
+        ⏺ Read(CleanCopyPipeline.swift)
+        ⏺ Edit(CleanCopyPipeline.swift)
+        """),
+        // cat -n line-number gutter with code indentation
+        ("cat_n_gutter_with_indent", "     1\t    func hello() {\n     2\t        print(\"hi\")\n     3\t    }\n     4\t    func bye() {"),
+        // bat gutter (│) preserving code indentation
+        ("bat_gutter_preserves_indent", " 1 │ func hello() {\n 2 │     print(\"hi\")\n 3 │ }"),
+        // IPv6 record must not be mistaken for a line-number gutter
+        ("ipv6_record", "2400:52e0:fff0::1"),
+        // time-of-day schedule must not be mistaken for a grep -n gutter
+        ("time_of_day_schedule", "9:00 standup\n10:30 review"),
+        // full box-drawing panel (rounded corners)
+        ("rounded_corner_panel", "╭──────╮\n│ hello │\n╰──────╯"),
+        // double-line box-drawing panel
+        ("double_line_panel", """
+        ╔══════════════════╗
+        ║   Hello, world.   ║
+        ╚══════════════════╝
+        """),
+        // lone box-drawing separator (no real content)
+        ("lone_separator", "──────"),
+        // agent prompt rule detection with plain markdown HR (not a rule)
+        ("ascii_dash_hr_not_a_rule", """
+        › Here is text above
+        ----------
+        And text below the rule
+        """),
+        // hyphen-wrapped token rejoin across wrap boundary
+        ("hyphen_wrapped_token", """
+        › open /tmp/scan-qr-f1cc4328-eb1d-4a3c-9bd2-
+          f1a4ccda5f6a.png
+        """),
+        // capitalized identifier split across wrap boundary
+        ("split_identifier_rejoin", """
+        › export N
+          ODE_PATH=/usr/bin
+        """),
+        // URL with tracking + functional params
+        ("url_tracking_and_functional_params", "https://youtube.com/watch?v=abc&t=12s&feature=share&si=xyz&utm_source=mail"),
+        // URL wrapped across two lines with query string
+        ("url_wrapped_two_lines", "https://example.com/very/long/path/segment/that\n/continues/here?query=value"),
+        // URL followed by a prose sentence — must not fuse
+        ("url_followed_by_prose", "https://example.com/docs/setup\nOpen this in your browser, then continue."),
+        // absolute path with spaces requiring quoting
+        ("path_with_spaces", "/Users/peter/My Documents/report final.pdf"),
+        // padded git-status rows (padded short rows vetoed from flattening)
+        ("padded_git_status_rows", [
+            "❯ g" + String(repeating: " ", count: 97),
+            " M .github/workflows/ci.yml" + String(repeating: " ", count: 72),
+            "?? .github/workflows/promote.yml" + String(repeating: " ", count: 67),
+            "?? .github/workflows/test-build.yml" + String(repeating: " ", count: 64),
+        ].joined(separator: "\n")),
+        // two-line prose mentioning a branch-name-shaped token
+        ("prose_mentioning_branch_name", "I pushed the fix to feature/login-flow.\nCan you review it today?"),
+        // wrapped git command with path and backslash continuation
+        ("wrapped_git_command_with_path", "git push origin feature/login-flow \\\n  --force"),
+    ]
+
+    func test_clean_isIdempotent_acrossCuratedCorpus() {
+        for (name, input) in Self.idempotencyCorpus {
+            let firstPass = CleanCopyPipeline.clean(input).text
+            let secondPass = CleanCopyPipeline.clean(firstPass).text
+            XCTAssertEqual(
+                firstPass,
+                secondPass,
+                "clean() is not idempotent for corpus case \"\(name)\".\n"
+                    + "Original input: \(String(reflecting: input))\n"
+                    + "First pass:  \(String(reflecting: firstPass))\n"
+                    + "Second pass: \(String(reflecting: secondPass))"
+            )
+        }
     }
 }

@@ -83,6 +83,40 @@ final class CleanCopyURLHelpersTests: XCTestCase {
         )
     }
 
+    // MARK: - Wrapped URL Repair
+
+    func test_repairWrappedURL_rejoinsURLWrappedAcrossTwoLines() {
+        XCTAssertEqual(
+            CleanCopyPipeline.repairWrappedURL(
+                "https://example.com/very/long/path/segment/that\n/continues/here?query=value"
+            ),
+            "https://example.com/very/long/path/segment/that/continues/here?query=value"
+        )
+    }
+
+    func test_repairWrappedURL_rejoinsURLWrappedAcrossThreeLines() {
+        XCTAssertEqual(
+            CleanCopyPipeline.repairWrappedURL(
+                "https://example.com/very/long/path/segment/that\n/continues/across/multiple\n/lines/of/wrapping"
+            ),
+            "https://example.com/very/long/path/segment/that/continues/across/multiple/lines/of/wrapping"
+        )
+    }
+
+    func test_repairWrappedURL_doesNotFuseTrailingProseIntoURL() {
+        XCTAssertNil(
+            CleanCopyPipeline.repairWrappedURL(
+                "https://example.com/docs/setup\nOpen this in your browser, then continue."
+            )
+        )
+    }
+
+    func test_clean_urlFollowedByProseSentenceKeepsProseSpacesIntact() {
+        let input = "https://example.com/docs/setup\nOpen this in your browser, then continue."
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+    }
+
     // MARK: - Path Quoting
 
     func test_quotePathWithSpaces_quotesAbsolutePath() {
@@ -109,5 +143,27 @@ final class CleanCopyURLHelpersTests: XCTestCase {
             CleanCopyPipeline.quotePathWithSpaces("./My Folder/file"),
             "\"./My Folder/file\""
         )
+    }
+
+    func test_quotePathWithSpaces_doesNotQuoteSentenceStartingWithAbsolutePath() {
+        XCTAssertNil(CleanCopyPipeline.quotePathWithSpaces("/etc/hosts is the file you want"))
+    }
+
+    func test_quotePathWithSpaces_quotesAbsolutePathWithSpacesInTwoSegments() {
+        XCTAssertEqual(
+            CleanCopyPipeline.quotePathWithSpaces("/Users/peter/My Documents/report final.pdf"),
+            "\"/Users/peter/My Documents/report final.pdf\""
+        )
+    }
+
+    func test_quotePathWithSpaces_quotesTildePathWithSpaces() {
+        XCTAssertEqual(
+            CleanCopyPipeline.quotePathWithSpaces("~/Library/Application Support/Zentty"),
+            "\"~/Library/Application Support/Zentty\""
+        )
+    }
+
+    func test_quotePathWithSpaces_doesNotQuoteProseStartingWithRelativeCommand() {
+        XCTAssertNil(CleanCopyPipeline.quotePathWithSpaces("./configure then run make again"))
     }
 }

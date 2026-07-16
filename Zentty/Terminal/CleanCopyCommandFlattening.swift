@@ -118,12 +118,20 @@ extension CleanCopyPipeline {
         if input.range(of: #"(^|\n)\s*\$"#, options: .regularExpression) != nil { score += 1 }
         if isSingleCommandWithIndentedContinuations(nonEmptyLines) { score += 1 }
         if lines.allSatisfy(isLikelyCommandLine(_:)) { score += 1 }
-        if input.range(of: #"(?m)^\s*(sudo\s+)?[A-Za-z0-9./~_-]+"#, options: .regularExpression) != nil {
-            score += 1
-        }
-        if input.range(of: #"[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+"#, options: .regularExpression) != nil {
-            score += 1
-        }
+        // These two signals are near-free on ordinary prose: the generic line-start
+        // regex matches any line beginning with a word, and the a/b path regex matches
+        // any "word/word" token, including branch names mentioned in prose
+        // ("feature/login-flow"). Counting them separately let two-line prose reach the
+        // .normal threshold on a single path-like mention, so they combine into one point.
+        let hasGenericLineStart = input.range(
+            of: #"(?m)^\s*(sudo\s+)?[A-Za-z0-9./~_-]+"#,
+            options: .regularExpression
+        ) != nil
+        let hasPathToken = input.range(
+            of: #"[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+"#,
+            options: .regularExpression
+        ) != nil
+        if hasGenericLineStart || hasPathToken { score += 1 }
 
         guard score >= aggressiveness.scoreThreshold else { return nil }
 
@@ -149,8 +157,13 @@ extension CleanCopyPipeline {
             with: "-$1",
             options: .regularExpression
         )
+        // "." is intentionally absent from the LHS so a sentence-boundary like
+        // "...to feature/login-flow.\nCan you review it today?" does NOT fuse into
+        // ".C" — the later "\n+ -> ' '" pass needs the newline to survive and become
+        // a space. See flattenNonListParagraph in CleanCopyPipeline.swift for the
+        // sibling regex this mirrors.
         result = result.replacingOccurrences(
-            of: #"(?<!\n)([A-Z0-9_.-])\s*\n\s*(?!-)([A-Z0-9_.-])(?!\n)"#,
+            of: #"(?<!\n)([A-Z0-9_-])\s*\n\s*(?!-)([A-Z0-9_.-])(?!\n)"#,
             with: "$1$2",
             options: .regularExpression
         )

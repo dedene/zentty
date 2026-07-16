@@ -75,9 +75,9 @@ final class CleanCopyCommandFlatteningTests: XCTestCase {
     }
 
     func test_transformMultiLineCommandIfNeeded_vetoes_paddedShortRowsEvidence() {
-        let input = "g\n M .github/workflows/ci.yml\n?? .github/workflows/promote.yml"
+        let input = "$ g\n M .github/workflows/ci.yml\n?? .github/workflows/promote.yml"
         let paddedInput = [
-            padded("g"),
+            padded("$ g"),
             padded(" M .github/workflows/ci.yml"),
             padded("?? .github/workflows/promote.yml"),
         ].joined(separator: "\n")
@@ -97,6 +97,30 @@ final class CleanCopyCommandFlatteningTests: XCTestCase {
                 lineShapeEvidence: nil
             )
         )
+    }
+
+    func test_clean_preserves_twoLineProse_mentioningBranchName() {
+        let input = "I pushed the fix to feature/login-flow.\nCan you review it today?"
+
+        let result = CleanCopyPipeline.clean(input)
+
+        XCTAssertEqual(result.text, input)
+    }
+
+    func test_clean_preserves_twoLineProse_mentioningFilePath() {
+        let input = "The fix is in src/main.rs.\nLet me know what you think."
+
+        let result = CleanCopyPipeline.clean(input)
+
+        XCTAssertEqual(result.text, input)
+    }
+
+    func test_clean_flattens_wrappedGitCommand_withPathAndBackslashContinuation() {
+        let input = "git push origin feature/login-flow \\\n  --force"
+
+        let result = CleanCopyPipeline.clean(input)
+
+        XCTAssertEqual(result.text, "git push origin feature/login-flow --force")
     }
 
     private func padded(_ line: String, width: Int = 100) -> String {

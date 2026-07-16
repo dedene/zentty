@@ -15,8 +15,12 @@ extension CleanCopyPipeline {
             var rebuilt: [String] = []
             rebuilt.reserveCapacity(lines.count)
             for line in lines {
+                // "#" is ambiguous with shell-script prose comments, so even in the
+                // majority path it still needs to look like a command (e.g. a root-shell
+                // transcript). "$" has no such prose reading, so it stays relaxed.
+                let requireCommandShape = leadingMarker(of: line) == "#"
                 if isSmartPromptCandidateLine(line),
-                   let stripped = stripSmartPromptPrefix(in: line, requireCommandShape: false)
+                   let stripped = stripSmartPromptPrefix(in: line, requireCommandShape: requireCommandShape)
                 {
                     rebuilt.append(stripped)
                 } else {
@@ -45,6 +49,11 @@ extension CleanCopyPipeline {
 
         let result = rebuilt.joined(separator: "\n")
         return result == input ? nil : result
+    }
+
+    private static func leadingMarker(of line: Substring) -> Character? {
+        let leadingWhitespace = line.prefix { $0.isWhitespace }
+        return line.dropFirst(leadingWhitespace.count).first
     }
 
     private static func isSmartPromptCandidateLine(_ line: Substring) -> Bool {

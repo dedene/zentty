@@ -9,6 +9,13 @@ extension CleanCopyPipeline {
         guard schemeCount == 1 else { return nil }
         guard lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://") else { return nil }
 
+        // Only repair when every line is exclusively part of the wrapped URL (no internal
+        // whitespace once trimmed). Otherwise a URL followed by a prose sentence would have
+        // its inter-word spaces deleted along with the wrap newlines, fusing the prose together.
+        let lines = trimmed.components(separatedBy: "\n")
+        guard lines.allSatisfy({ !$0.trimmingCharacters(in: .whitespaces).contains(where: \.isWhitespace) })
+        else { return nil }
+
         let collapsed = trimmed.replacingOccurrences(
             of: #"\s+"#,
             with: "",
@@ -77,6 +84,30 @@ extension CleanCopyPipeline {
         }
         if trimmed.range(of: #"\s--?[A-Za-z]"#, options: .regularExpression) != nil {
             return nil
+        }
+
+        // Reject sentence-shaped input: a trailing '.'/'?'/'!' reads as end-of-sentence
+        // punctuation rather than part of a filename, unless it's a short file-extension-like
+        // suffix (e.g. "report.pdf").
+        if let lastCharacter = trimmed.last, ".?!".contains(lastCharacter) {
+            let endsWithExtension = trimmed.range(
+                of: #"\.[A-Za-z0-9]{1,5}$"#,
+                options: .regularExpression
+            ) != nil
+            guard lastCharacter == "." && endsWithExtension else { return nil }
+        }
+
+        // Reject when the text after the last "/" is a run of 3+ plain lowercase words —
+        // a real path's final segment is a filename (often with an extension or capitals),
+        // while a prose sentence following a leading path reads as space-separated lowercase
+        // words ("/etc/hosts is the file you want").
+        if let lastSlashIndex = trimmed.lastIndex(of: "/") {
+            let tail = trimmed[trimmed.index(after: lastSlashIndex)...]
+            let tailWords = tail.split(separator: " ")
+            let isProseTail = tailWords.count >= 3 && tailWords.allSatisfy {
+                $0.range(of: #"^[a-z']+$"#, options: .regularExpression) != nil
+            }
+            guard !isProseTail else { return nil }
         }
 
         let escaped = trimmed.replacingOccurrences(of: "\"", with: "\\\"")
