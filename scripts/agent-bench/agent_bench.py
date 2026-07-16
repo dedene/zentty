@@ -1701,6 +1701,7 @@ class LaunchPlanner:
             overlay_home = overlay_dir / "home"
             symlink_directory_contents_skipping(source_dir, overlay_home, {"config.toml"})
             (overlay_home / "config.toml").write_text(merged, encoding="utf-8")
+            canonicalize_kimi_session_index_if_needed(source_dir)
             migration_skip = overlay_home / ".skip-migration-from-kimi-cli"
             if not os.path.lexists(migration_skip):
                 migration_skip.touch()
@@ -3016,6 +3017,88 @@ def kimi_config_source_dir(environment: dict[str, Any], variant: str) -> pathlib
     if str(environment.get("KIMI_SHARE_DIR") or "").strip():
         return config_source_dir(environment, "KIMI_SHARE_DIR", ".kimi")
     return config_source_dir(environment, "KIMI_HOME", ".kimi")
+
+
+_KIMI_SESSION_INDEX_LOCK = threading.Lock()
+_KIMI_SESSIONS_MARKER = "/sessions/"
+
+
+def _rewrite_kimi_session_index_line(
+    line: str,
+    *,
+    source_home_path: str,
+    source_home_prefix: str,
+) -> tuple[str, bool]:
+    trimmed = line.strip()
+    if not trimmed:
+        return line, False
+    try:
+        json_obj = json.loads(trimmed)
+    except json.JSONDecodeError:
+        return line, False
+    if not isinstance(json_obj, dict):
+        return line, False
+
+    session_id = json_obj.get("sessionId") or json_obj.get("id")
+    session_dir = json_obj.get("sessionDir")
+    if not isinstance(session_id, str) or not isinstance(session_dir, str):
+        return line, False
+
+    session_dir_path = str(pathlib.Path(session_dir).expanduser())
+    if session_dir_path == source_home_path or session_dir_path.startswith(source_home_prefix):
+        return line, False
+
+    marker_index = session_dir_path.find(_KIMI_SESSIONS_MARKER)
+    if marker_index < 0:
+        return line, False
+
+    canonical_path = source_home_path + session_dir_path[marker_index:]
+    if not pathlib.Path(canonical_path).exists():
+        return line, False
+
+    json_obj["sessionDir"] = canonical_path
+    return json.dumps(json_obj, sort_keys=True, separators=(",", ":")), True
+
+
+def canonicalize_kimi_session_index_if_needed(source_home: pathlib.Path) -> None:
+    """Rewrite stale overlay sessionDir paths in Kimi's shared session index.
+
+    Mirrors AgentLaunchBootstrap.canonicalizeKimiSessionIndexIfNeeded: remap
+    absolute overlay paths that contain `/sessions/...` onto the durable source
+    home, but only when the remapped directory already exists on disk.
+    """
+    index_path = source_home / "session_index.jsonl"
+    if not index_path.is_file():
+        return
+
+    source_home_path = str(source_home.resolve())
+    source_home_prefix = source_home_path if source_home_path.endswith("/") else source_home_path + "/"
+
+    with _KIMI_SESSION_INDEX_LOCK:
+        try:
+            raw_text = index_path.read_text(encoding="utf-8")
+        except OSError:
+            return
+
+        changed = False
+        new_lines: list[str] = []
+        for line in raw_text.split("\n"):
+            rewritten, line_changed = _rewrite_kimi_session_index_line(
+                line,
+                source_home_path=source_home_path,
+                source_home_prefix=source_home_prefix,
+            )
+            new_lines.append(rewritten)
+            if line_changed:
+                changed = True
+
+        if not changed:
+            return
+
+        try:
+            index_path.write_text("\n".join(new_lines), encoding="utf-8")
+        except OSError:
+            return
 
 
 def is_zentty_launch_cache_path(entry: str) -> bool:

@@ -4737,6 +4737,144 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(sourceConfig, original)
     }
 
+    func test_canonicalize_kimi_session_index_rewrites_stale_overlay_session_dir() throws {
+        let sourceHome = try makeTemporaryDirectory(named: "kimi-session-index-source")
+        let sessionID = "session_a4d78f91-ea80-41e7-91d3-c699197ff442"
+        let workDirHash = "wd_fix-kimi-code-cli_57590bf29904"
+        let durableSessionURL = try makeDurableKimiSessionDirectory(
+            in: sourceHome,
+            workDirHash: workDirHash,
+            sessionID: sessionID
+        )
+
+        let overlaySessionDir = "/Users/peter/Library/Caches/Zentty/ipc-11370-9183AB50/launch/wl_x/pn_y/kimi/home/sessions/\(workDirHash)/\(sessionID)"
+        let workDir = "/Users/peter/Development/Personal/worktrees/fix-kimi-code-cli"
+        let indexURL = try writeKimiSessionIndex(
+            at: sourceHome,
+            sessionID: sessionID,
+            sessionDir: overlaySessionDir,
+            workDir: workDir
+        )
+
+        AgentLaunchBootstrap.canonicalizeKimiSessionIndexIfNeeded(
+            sourceHomeURL: sourceHome,
+            fileManager: .default
+        )
+
+        let json = try firstJSONObject(from: indexURL)
+        XCTAssertEqual(json["sessionId"] as? String, sessionID)
+        XCTAssertEqual(json["sessionDir"] as? String, durableSessionURL.path)
+        XCTAssertEqual(json["workDir"] as? String, workDir)
+    }
+
+    func test_canonicalize_kimi_session_index_preserves_canonical_and_unknown_lines() throws {
+        let sourceHome = try makeTemporaryDirectory(named: "kimi-session-index-preserve")
+        let sessionID = "ses_686b194c-ea5f-45d8-bb4b-d5242a12b009"
+        let workDirHash = "wd_kimi-approval_c6bdd38935ad"
+        let durableSessionURL = try makeDurableKimiSessionDirectory(
+            in: sourceHome,
+            workDirHash: workDirHash,
+            sessionID: sessionID
+        )
+
+        let canonicalLine = #"{"sessionId":"\#(sessionID)","sessionDir":"\#(durableSessionURL.path)","workDir":"/tmp/project"}"#
+        let unknownLine = #"{"note":"not-a-session"}"#
+        let garbageLine = "not-json"
+        let original = [canonicalLine, unknownLine, garbageLine, ""].joined(separator: "\n")
+        let indexURL = sourceHome.appendingPathComponent("session_index.jsonl", isDirectory: false)
+        try original.write(to: indexURL, atomically: true, encoding: .utf8)
+
+        AgentLaunchBootstrap.canonicalizeKimiSessionIndexIfNeeded(
+            sourceHomeURL: sourceHome,
+            fileManager: .default
+        )
+
+        let after = try String(contentsOf: indexURL, encoding: .utf8)
+        XCTAssertEqual(after, original)
+    }
+
+    func test_canonicalize_kimi_session_index_skips_missing_target_directory() throws {
+        let sourceHome = try makeTemporaryDirectory(named: "kimi-session-index-missing-target")
+        try FileManager.default.createDirectory(
+            at: sourceHome.appendingPathComponent("sessions", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let sessionID = "session_missing-on-disk"
+        let workDirHash = "wd_missing_abcdef123456"
+        let overlaySessionDir = "/tmp/overlay/kimi/home/sessions/\(workDirHash)/\(sessionID)"
+        let indexURL = try writeKimiSessionIndex(
+            at: sourceHome,
+            sessionID: sessionID,
+            sessionDir: overlaySessionDir
+        )
+        let poisoned = try String(contentsOf: indexURL, encoding: .utf8)
+
+        AgentLaunchBootstrap.canonicalizeKimiSessionIndexIfNeeded(
+            sourceHomeURL: sourceHome,
+            fileManager: .default
+        )
+
+        let after = try String(contentsOf: indexURL, encoding: .utf8)
+        XCTAssertEqual(after, poisoned)
+    }
+
+    func test_agent_launch_bootstrap_canonicalizes_kimi_session_index_during_modern_overlay() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-canonicalize-runtime")
+        let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-kimi-canonicalize-home")
+        let kimiCodeHome = homeDirectory.appendingPathComponent(".kimi-code", isDirectory: true)
+        try FileManager.default.createDirectory(at: kimiCodeHome, withIntermediateDirectories: true)
+        try #"default_model = "kimi-code/kimi-for-coding""#.write(
+            to: kimiCodeHome.appendingPathComponent("config.toml", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sessionID = "session_ae5ef9dc-a4fe-4cc1-9b18-27823ca399cc"
+        let workDirHash = "wd_fix-kimi-code-cli_57590bf29904"
+        let durableSessionURL = try makeDurableKimiSessionDirectory(
+            in: kimiCodeHome,
+            workDirHash: workDirHash,
+            sessionID: sessionID
+        )
+
+        let overlaySessionDir = "\(runtimeDirectory.path)/launch/wl_old/pn_old/kimi/home/sessions/\(workDirHash)/\(sessionID)"
+        let indexURL = try writeKimiSessionIndex(
+            at: kimiCodeHome,
+            sessionID: sessionID,
+            sessionDir: overlaySessionDir
+        )
+
+        let fakeKimiURL = try makeFakeKimiBinary(modern: true)
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat"],
+            standardInput: nil,
+            environment: [
+                "HOME": homeDirectory.path,
+                "KIMI_CODE_HOME": kimiCodeHome.path,
+                "ZENTTY_REAL_BINARY": fakeKimiURL.path,
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "ZENTTY_KIMI_VARIANT": "modern",
+            ],
+            expectsResponse: true,
+            tool: .kimi
+        )
+
+        _ = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        let json = try firstJSONObject(from: indexURL)
+        XCTAssertEqual(json["sessionDir"] as? String, durableSessionURL.path)
+    }
+
     func test_agent_launch_bootstrap_builds_modern_kimi_overlay_from_default_home_config() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-modern-kimi-default-runtime")
         let homeDirectory = try makeTemporaryDirectory(named: "agent-launch-modern-kimi-default-home")
@@ -10394,6 +10532,38 @@ final class AgentStatusSupportTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    private func makeDurableKimiSessionDirectory(
+        in sourceHome: URL,
+        workDirHash: String,
+        sessionID: String
+    ) throws -> URL {
+        let sessionURL = sourceHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(workDirHash, isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionURL, withIntermediateDirectories: true)
+        return sessionURL
+    }
+
+    @discardableResult
+    private func writeKimiSessionIndex(
+        at sourceHome: URL,
+        sessionID: String,
+        sessionDir: String,
+        workDir: String = "/tmp/project"
+    ) throws -> URL {
+        let indexURL = sourceHome.appendingPathComponent("session_index.jsonl", isDirectory: false)
+        let line = #"{"sessionId":"\#(sessionID)","sessionDir":"\#(sessionDir)","workDir":"\#(workDir)"}"# + "\n"
+        try line.write(to: indexURL, atomically: true, encoding: .utf8)
+        return indexURL
+    }
+
+    private func firstJSONObject(from indexURL: URL) throws -> [String: Any] {
+        let text = try String(contentsOf: indexURL, encoding: .utf8)
+        let line = try XCTUnwrap(text.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
     }
 
     private func makeFakeKimiBinary(modern: Bool) throws -> URL {
