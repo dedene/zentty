@@ -262,7 +262,10 @@ struct KeyboardShortcut: Hashable, Sendable {
 
     init?(event: NSEvent) {
         let sanitizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let allowsFunctionModifier = event.keyCode == UInt16(kVK_ForwardDelete)
+        // Arrow keys and Forward Delete always carry .function in their modifier
+        // flags; only unsupported function-type keys (Home, End, F-keys, …) are
+        // rejected here.
+        let allowsFunctionModifier = KeyboardShortcutKey.from(keyCode: event.keyCode) != nil
         guard sanitizedFlags.contains(.function) == false || allowsFunctionModifier else {
             return nil
         }

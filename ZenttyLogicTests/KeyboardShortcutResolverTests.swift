@@ -27,8 +27,41 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
-    func test_event_shortcuts_with_function_modifier_are_not_bindable() throws {
-        let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+    func test_modified_arrow_events_parse_as_arrow_shortcuts() throws {
+        let cases: [(Int, UInt16, KeyboardShortcutKey)] = [
+            (NSLeftArrowFunctionKey, UInt16(kVK_LeftArrow), .leftArrow),
+            (NSRightArrowFunctionKey, UInt16(kVK_RightArrow), .rightArrow),
+            (NSUpArrowFunctionKey, UInt16(kVK_UpArrow), .upArrow),
+            (NSDownArrowFunctionKey, UInt16(kVK_DownArrow), .downArrow),
+        ]
+
+        for (functionKey, keyCode, expectedKey) in cases {
+            let characters = String(UnicodeScalar(functionKey)!)
+            // Arrow-key events always carry .function in their modifier flags.
+            let event = try XCTUnwrap(
+                NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.command, .function],
+                    timestamp: 0,
+                    windowNumber: 0,
+                    context: nil,
+                    characters: characters,
+                    charactersIgnoringModifiers: characters,
+                    isARepeat: false,
+                    keyCode: keyCode
+                )
+            )
+
+            XCTAssertEqual(
+                KeyboardShortcut(event: event),
+                KeyboardShortcut(key: expectedKey, modifiers: [.command])
+            )
+        }
+    }
+
+    func test_unsupported_function_key_events_are_not_bindable() throws {
+        let home = String(UnicodeScalar(NSHomeFunctionKey)!)
         let event = try XCTUnwrap(
             NSEvent.keyEvent(
                 with: .keyDown,
@@ -37,10 +70,10 @@ final class KeyboardShortcutResolverTests: XCTestCase {
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
-                characters: leftArrow,
-                charactersIgnoringModifiers: leftArrow,
+                characters: home,
+                charactersIgnoringModifiers: home,
                 isARepeat: false,
-                keyCode: UInt16(kVK_LeftArrow)
+                keyCode: UInt16(kVK_Home)
             )
         )
 
