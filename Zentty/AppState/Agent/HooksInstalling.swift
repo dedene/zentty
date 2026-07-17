@@ -35,9 +35,11 @@ protocol HooksInstalling {
     static func integrationConfigURL(environment: [String: String]) -> URL?
 }
 
-/// Persistent-agent installers keyed by bootstrap tool. Ephemeral integrations
-/// (Kimi's in-memory `mergedConfigText` overlay, and the plugin-based Amp) are
-/// intentionally absent — they write nothing through this uniform surface.
+/// Persistent-agent installers keyed by bootstrap tool. The plugin-based Amp is
+/// intentionally absent — it writes through its own plugin surface. Modern Kimi
+/// installs a persistent managed block into ~/.kimi-code/config.toml, so it is
+/// registered here; legacy Kimi still uses an ephemeral --config-file overlay
+/// but shares the same tool entry.
 enum AgentHooksInstallerRegistry {
     static let installers: [AgentBootstrapTool: any HooksInstalling.Type] = [
         .cursor: CursorHooksInstaller.self,
@@ -46,6 +48,7 @@ enum AgentHooksInstallerRegistry {
         .agy: AgyHooksInstaller.self,
         .hermes: HermesHooksInstaller.self,
         .vibe: VibeHooksInstaller.self,
+        .kimi: KimiHooksInstaller.self,
     ]
 
     static func installer(for tool: AgentBootstrapTool) -> (any HooksInstalling.Type)? {

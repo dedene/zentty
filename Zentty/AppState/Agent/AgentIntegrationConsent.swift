@@ -76,9 +76,14 @@ extension AgentBootstrapTool {
     /// per-pane overlay and leaves the user's config untouched.
     var integrationClass: AgentIntegrationClass {
         switch self {
-        case .amp, .cursor, .droid, .grok, .agy, .hermes, .vibe:
+        case .amp, .cursor, .droid, .grok, .agy, .hermes, .vibe, .kimi:
+            // Kimi is persistent for the modern (kimi-code) variant: it writes a
+            // managed hook block into the real ~/.kimi-code/config.toml. (Legacy
+            // kimi still uses an ephemeral --config-file overlay, but the tool's
+            // integration class must be resolved before the variant is probed,
+            // so the whole tool is consent-gated.)
             return .persistent
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .omp, .smallHarness:
+        case .claude, .codex, .copilot, .gemini, .opencode, .pi, .omp, .smallHarness:
             return .ephemeral
         }
     }
@@ -130,7 +135,8 @@ extension AgentBootstrapTool {
         case .agy: return AgyHooksInstaller.defaultUserHooksFileURL()
         case .hermes: return HermesHooksInstaller.defaultConfigURL()
         case .vibe: return VibeHooksInstaller.defaultUserHooksFileURL()
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .omp, .smallHarness:
+        case .kimi: return KimiHooksInstaller.modernConfigURL(environment: ProcessInfo.processInfo.environment)
+        case .claude, .codex, .copilot, .gemini, .opencode, .pi, .omp, .smallHarness:
             return nil
         }
     }
@@ -146,9 +152,9 @@ extension AgentBootstrapTool {
 /// both drive this; persistence and UI live elsewhere.
 enum AgentIntegrationConsent {
     /// Persistent (config-modifying) agents, in Settings display order.
-    static let persistentTools: [AgentBootstrapTool] = [.amp, .cursor, .droid, .grok, .agy, .hermes, .vibe]
+    static let persistentTools: [AgentBootstrapTool] = [.amp, .cursor, .droid, .grok, .agy, .hermes, .vibe, .kimi]
     /// Ephemeral (built-in) agents, in Settings display order.
-    static let ephemeralTools: [AgentBootstrapTool] = [.claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .omp, .smallHarness]
+    static let ephemeralTools: [AgentBootstrapTool] = [.claude, .codex, .copilot, .gemini, .opencode, .pi, .omp, .smallHarness]
     /// All known agents, persistent group first.
     static let allTools: [AgentBootstrapTool] = persistentTools + ephemeralTools
 
@@ -226,10 +232,10 @@ enum AgentIntegrationHooks {
                 isInstalled: { AmpPluginInstaller.isInstalled() },
                 uninstall: { try AmpPluginInstaller.uninstall() }
             )
-        case .cursor, .droid, .grok, .agy, .hermes, .vibe:
+        case .cursor, .droid, .grok, .agy, .hermes, .vibe, .kimi:
             // Handled above via AgentHooksInstallerRegistry.
             return nil
-        case .claude, .codex, .copilot, .gemini, .kimi, .opencode, .pi, .omp, .smallHarness:
+        case .claude, .codex, .copilot, .gemini, .opencode, .pi, .omp, .smallHarness:
             return nil
         }
     }

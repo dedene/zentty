@@ -212,11 +212,36 @@ enum KimiHooksInstaller {
             .appendingPathComponent("config.toml", isDirectory: false)
     }
 
+    /// The real modern-kimi `config.toml` we install the managed block into: a
+    /// user-set `KIMI_CODE_HOME` (unless it points at a stale Zentty runtime
+    /// overlay under `~/Library/Caches/Zentty/`), else `$HOME/.kimi-code`.
+    static func modernConfigURL(environment: [String: String]) -> URL {
+        if let kimiHome = environment["KIMI_CODE_HOME"]?.nonBlank,
+           !isZenttyRuntimeOverlayPath(kimiHome) {
+            return URL(fileURLWithPath: kimiHome, isDirectory: true)
+                .appendingPathComponent("config.toml", isDirectory: false)
+        }
+        return modernUserConfigURL(home: environment["HOME"]?.nonBlank ?? NSHomeDirectory())
+    }
+
+    private static func isZenttyRuntimeOverlayPath(_ path: String) -> Bool {
+        URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+            .range(of: "/Library/Caches/Zentty/") != nil
+    }
+
+    /// Serializes read-merge-write cycles on the shared real config.toml.
+    /// Concurrent pane launches otherwise race install() against itself (and
+    /// uninstall()) on the same file; the atomic write prevents torn files but
+    /// not lost updates.
+    private static let configWriteLock = NSLock()
+
     static func install(
         at configURL: URL,
         cliPath: String,
         fileManager: FileManager = .default
     ) throws {
+        configWriteLock.lock()
+        defer { configWriteLock.unlock() }
         try fileManager.createDirectory(
             at: configURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -239,6 +264,8 @@ enum KimiHooksInstaller {
         at configURL: URL,
         fileManager: FileManager = .default
     ) throws {
+        configWriteLock.lock()
+        defer { configWriteLock.unlock() }
         guard fileManager.fileExists(atPath: configURL.path) else {
             return
         }
@@ -711,6 +738,44 @@ enum KimiHooksInstaller {
         string
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+}
+
+// MARK: - HooksInstalling conformance
+
+/// Modern kimi-code integration: a persistent managed block in the real
+/// `config.toml`. This is the surface Settings and the consent panel drive
+/// (install / detect / remove). Legacy kimi's ephemeral `--config-file` overlay
+/// is unaffected — it writes nothing here.
+extension KimiHooksInstaller: HooksInstalling {
+    static func ensureInstalledForCurrentUser(
+        cliPath: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws {
+        try install(at: modernConfigURL(environment: environment), cliPath: cliPath, fileManager: fileManager)
+    }
+
+    static func isInstalledForCurrentUser(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> Bool {
+        let configURL = modernConfigURL(environment: environment)
+        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return false
+        }
+        return text.contains(beginMarker)
+    }
+
+    static func uninstallForCurrentUser(
+        environment: [String: String],
+        fileManager: FileManager
+    ) throws {
+        try uninstall(at: modernConfigURL(environment: environment), fileManager: fileManager)
+    }
+
+    static func integrationConfigURL(environment: [String: String]) -> URL? {
+        modernConfigURL(environment: environment)
     }
 }
 

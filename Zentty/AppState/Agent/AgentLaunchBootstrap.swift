@@ -50,7 +50,7 @@ enum AgentLaunchBootstrap {
             return directPlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
-                unsetEnvironment: directUnsetEnvironment(for: tool)
+                unsetEnvironment: directUnsetEnvironment(for: tool, environment: environment)
             )
         }
 
@@ -676,8 +676,22 @@ enum AgentLaunchBootstrap {
         }
 
         let isModern = checkIsModernKimiCode(executablePath, environment: environment)
+
+        // Modern kimi-code runs against its REAL home (no overlay) with hooks
+        // installed as a persistent managed block — see `modernKimiPlan`.
+        if isModern {
+            return modernKimiPlan(
+                executablePath: executablePath,
+                arguments: arguments,
+                environment: environment,
+                cliPath: cliPath,
+                fileManager: fileManager
+            )
+        }
+
+        // Legacy kimi keeps the ephemeral `--config-file` overlay (unchanged).
         let (forwardedArguments, configSource) = parseKimiConfig(
-            isModern: isModern,
+            isModern: false,
             arguments: arguments,
             environment: environment
         )
@@ -689,37 +703,101 @@ enum AgentLaunchBootstrap {
         )
         let existingConfig = try kimiConfigContents(from: configSource, fileManager: fileManager)
         let mergedConfig = try KimiHooksInstaller.mergedConfigText(existingConfig: existingConfig, cliPath: cliPath)
+        let overlayConfigURL = overlayDirectoryURL.appendingPathComponent("config.toml", isDirectory: false)
+        try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: ["--config-file", overlayConfigURL.path] + forwardedArguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "kimi",
+            ],
+            unsetEnvironment: [],
+            preLaunchActions: []
+        )
+    }
 
-        if isModern {
-            let overlayHomeURL = try prepareKimiCodeOverlay(
-                sourceHomeURL: kimiCodeHomeURL(environment: environment),
-                overlayDirectoryURL: overlayDirectoryURL,
-                mergedConfig: mergedConfig,
-                fileManager: fileManager
-            )
-            return AgentLaunchPlan(
-                executablePath: executablePath,
-                arguments: forwardedArguments,
-                setEnvironment: [
-                    "ZENTTY_AGENT_TOOL": "kimi",
-                    "KIMI_CODE_HOME": overlayHomeURL.path
-                ],
-                unsetEnvironment: [],
-                preLaunchActions: []
+    /// Modern kimi-code matches persisted sessions by a LEXICAL home-path prefix
+    /// (no realpath), so ANY symlinked overlay home silently breaks `-S`,
+    /// `--continue`, and the session picker even when the data is reachable. We
+    /// therefore launch kimi against its real home and inject Zentty status
+    /// hooks as a PERSISTENT managed block in the real `config.toml`, mirroring
+    /// the grok/agy/vibe persistent integrations. Consent is enforced upstream:
+    /// kimi is a `.persistent` integration, so an unconsented first launch is
+    /// gated by the consent panel before `makePlan` runs, and the block is
+    /// removable from Settings via `AgentHooksInstallerRegistry`.
+    private static func modernKimiPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        cliPath: String,
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        let sourceHomeURL = modernKimiHomeURL(environment: environment)
+
+        // Only auto-install into the DEFAULT home. A custom pane-env
+        // KIMI_CODE_HOME (shell export) may be invisible to the app process,
+        // so Settings could neither detect nor remove a block written there —
+        // an orphaned, unremovable install. Custom-home users can still
+        // install from Settings, which resolves the home from the app env.
+        let hasCustomHome = environment["KIMI_CODE_HOME"]?.nilIfBlank
+            .map { !isZenttyRuntimeHomePath($0) } ?? false
+        if hasCustomHome {
+            agentLaunchLogger.info(
+                "Skipping Kimi hook install into custom KIMI_CODE_HOME \(sourceHomeURL.path, privacy: .public); install from Settings to enable hooks there."
             )
         } else {
-            let overlayConfigURL = overlayDirectoryURL.appendingPathComponent("config.toml", isDirectory: false)
-            try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
-            return AgentLaunchPlan(
-                executablePath: executablePath,
-                arguments: ["--config-file", overlayConfigURL.path] + forwardedArguments,
-                setEnvironment: [
-                    "ZENTTY_AGENT_TOOL": "kimi",
-                ],
-                unsetEnvironment: [],
-                preLaunchActions: []
-            )
+            do {
+                try KimiHooksInstaller.install(
+                    at: sourceHomeURL.appendingPathComponent("config.toml", isDirectory: false),
+                    cliPath: cliPath,
+                    fileManager: fileManager
+                )
+            } catch {
+                agentLaunchLogger.error(
+                    "Failed to install modern Kimi hooks at \(sourceHomeURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
+
+        // Repair stale overlay `sessionDir` values recorded by earlier Zentty
+        // versions so resume works against the real home. Same lock/semantics.
+        canonicalizeKimiSessionIndexIfNeeded(sourceHomeURL: sourceHomeURL, fileManager: fileManager)
+
+        // Strip a stale overlay `KIMI_CODE_HOME` carried in a pre-fix pane or
+        // restore snapshot; kimi must see its real home for lexical prefix
+        // matching. A genuinely user-set home elsewhere is inherited untouched.
+        var unsetEnvironment: [String] = []
+        if let inherited = environment["KIMI_CODE_HOME"]?.nilIfBlank,
+           isZenttyRuntimeHomePath(inherited) {
+            unsetEnvironment.append("KIMI_CODE_HOME")
+        }
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: ["ZENTTY_AGENT_TOOL": "kimi"],
+            unsetEnvironment: unsetEnvironment,
+            preLaunchActions: []
+        )
+    }
+
+    /// The real modern-kimi home: a user-set `KIMI_CODE_HOME` (unless it points
+    /// at a stale Zentty runtime overlay), else `$HOME/.kimi-code`.
+    private static func modernKimiHomeURL(environment: [String: String]) -> URL {
+        if let kimiHome = environment["KIMI_CODE_HOME"]?.nilIfBlank,
+           !isZenttyRuntimeHomePath(kimiHome) {
+            return URL(fileURLWithPath: kimiHome, isDirectory: true)
+        }
+        let home = environment["HOME"]?.nilIfBlank ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".kimi-code", isDirectory: true)
+    }
+
+    /// Whether a path lives under Zentty's per-process runtime cache
+    /// (`~/Library/Caches/Zentty/`) — i.e. a stale ephemeral overlay path.
+    private static func isZenttyRuntimeHomePath(_ path: String) -> Bool {
+        URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+            .range(of: "/Library/Caches/Zentty/") != nil
     }
 
     private static func claudePlan(
@@ -1112,34 +1190,6 @@ enum AgentLaunchBootstrap {
         }
 
         return overlayHomeURL.path
-    }
-
-    private static func prepareKimiCodeOverlay(
-        sourceHomeURL: URL,
-        overlayDirectoryURL: URL,
-        mergedConfig: String,
-        fileManager: FileManager
-    ) throws -> URL {
-        let overlayHomeURL = overlayDirectoryURL.appendingPathComponent("home", isDirectory: true)
-        try fileManager.createDirectory(at: overlayHomeURL, withIntermediateDirectories: true)
-        try symlinkDirectoryContentsSkipping(
-            from: sourceHomeURL,
-            to: overlayHomeURL,
-            skippingNames: ["config.toml"],
-            fileManager: fileManager
-        )
-
-        let overlayConfigURL = overlayHomeURL.appendingPathComponent("config.toml", isDirectory: false)
-        try mergedConfig.write(to: overlayConfigURL, atomically: true, encoding: .utf8)
-        canonicalizeKimiSessionIndexIfNeeded(sourceHomeURL: sourceHomeURL, fileManager: fileManager)
-        let migrationSkipURL = overlayHomeURL.appendingPathComponent(".skip-migration-from-kimi-cli", isDirectory: false)
-        let migrationSkipPath = migrationSkipURL.path
-        let migrationSkipExists = fileManager.fileExists(atPath: migrationSkipPath)
-            || (try? fileManager.destinationOfSymbolicLink(atPath: migrationSkipPath)) != nil
-        if !migrationSkipExists {
-            try "".write(to: migrationSkipURL, atomically: true, encoding: .utf8)
-        }
-        return overlayHomeURL
     }
 
     /// Rewrite stale per-launch overlay paths in Kimi's shared session index
@@ -1746,13 +1796,26 @@ enum AgentLaunchBootstrap {
         "SMALL_HARNESS_MANAGED_HOOKS_JSON",
     ]
 
-    private static func directUnsetEnvironment(for tool: AgentBootstrapTool) -> [String] {
+    private static func directUnsetEnvironment(
+        for tool: AgentBootstrapTool,
+        environment: [String: String]
+    ) -> [String] {
         switch tool {
         case .claude:
             return ["CLAUDECODE"]
         case .smallHarness:
             return smallHarnessManagedHookEnvironmentKeys
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe:
+        case .kimi:
+            // A disabled/restore-suppressed launch must still shed a stale
+            // overlay home from a pre-fix pane or restore snapshot, or kimi
+            // starts against a deleted cache directory (no sessions, no
+            // credentials). A genuinely user-set home is left untouched.
+            if let inherited = environment["KIMI_CODE_HOME"]?.nilIfBlank,
+               isZenttyRuntimeHomePath(inherited) {
+                return ["KIMI_CODE_HOME"]
+            }
+            return []
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe:
             return []
         }
     }

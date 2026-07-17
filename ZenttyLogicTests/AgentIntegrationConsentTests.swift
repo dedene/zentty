@@ -50,7 +50,8 @@ final class AgentIntegrationConsentTests: XCTestCase {
         XCTAssertEqual(AgentBootstrapTool.agy.defaultIntegrationState, .ask)
         XCTAssertEqual(AgentBootstrapTool.amp.defaultIntegrationState, .ask)
         XCTAssertEqual(AgentBootstrapTool.claude.defaultIntegrationState, .on)
-        XCTAssertEqual(AgentBootstrapTool.kimi.defaultIntegrationState, .on)
+        // Modern kimi installs a persistent managed block, so it is consent-gated.
+        XCTAssertEqual(AgentBootstrapTool.kimi.defaultIntegrationState, .ask)
         XCTAssertEqual(AgentBootstrapTool.copilot.defaultIntegrationState, .on)
         XCTAssertEqual(AgentBootstrapTool.smallHarness.defaultIntegrationState, .on)
     }
