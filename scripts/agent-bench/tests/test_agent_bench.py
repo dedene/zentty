@@ -302,54 +302,63 @@ class ExpectationTests(unittest.TestCase):
             self.assertEqual(plan["setEnvironment"]["ZENTTY_KIMI_VARIANT"], "legacy")
             self.assertIn('model = "moonshot"', overlay.read_text(encoding="utf-8"))
 
-    def test_kimi_modern_plan_uses_overlay_home_and_symlinks_source_entries(self):
+    def test_kimi_modern_plan_installs_hooks_into_default_home_without_overlay(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            source_home = root / "source-home"
-            source_home.mkdir()
+            home = root / "home"
+            source_home = home / ".kimi-code"
+            source_home.mkdir(parents=True)
             (source_home / "credentials").mkdir()
             (source_home / "credentials" / "token.json").write_text("{}", encoding="utf-8")
             (source_home / "sessions").mkdir()
-            (source_home / "tui.toml").write_text("theme = 'dark'\n", encoding="utf-8")
             (source_home / "config.toml").write_text('model = "kimi"\n', encoding="utf-8")
-            planner = agent_bench.LaunchPlanner(
-                profile=agent_bench.AgentProfile(
-                    name="kimi-code",
-                    tool="kimi",
-                    command="kimi",
-                    real_binary_names=["kimi"],
-                    version_args=["--version"],
-                    launch_args_by_scenario={},
-                    expectations={},
-                    kimi_variant="modern",
-                ),
-                scenario="smoke",
-                run_dir=root,
-                resources_dir=None,
-            )
+            planner = _modern_kimi_launch_planner(root)
 
+            # No KIMI_CODE_HOME -> the default real home; hooks are installed there.
             plan = planner._plan_kimi(
                 "/usr/bin/kimi",
                 ["-p", "hello"],
-                {"HOME": str(root / "home"), "KIMI_CODE_HOME": str(source_home)},
+                {"HOME": str(home)},
                 "/usr/bin/zentty",
             )
 
-            overlay_home = pathlib.Path(plan["setEnvironment"]["KIMI_CODE_HOME"])
-
+            # No overlay home; kimi runs against the real home unchanged.
             self.assertEqual(plan["arguments"], ["-p", "hello"])
-            self.assertNotIn("--config-file", plan["arguments"])
+            self.assertNotIn("KIMI_CODE_HOME", plan["setEnvironment"])
+            self.assertEqual(plan["unsetEnvironment"], [])
             self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "kimi")
             self.assertEqual(plan["setEnvironment"]["ZENTTY_KIMI_VARIANT"], "modern")
-            self.assertTrue(str(overlay_home).startswith(str(root / "overlays")))
-            self.assertTrue((overlay_home / "credentials").is_symlink())
-            self.assertTrue((overlay_home / "sessions").is_symlink())
-            self.assertTrue((overlay_home / "tui.toml").is_symlink())
-            self.assertFalse((overlay_home / "config.toml").is_symlink())
-            merged = (overlay_home / "config.toml").read_text(encoding="utf-8")
+
+            # Real home is untouched (plain dirs); the hook block lands as a
+            # marker-delimited managed block in config.toml.
+            self.assertFalse((source_home / "credentials").is_symlink())
+            self.assertFalse((source_home / "sessions").is_symlink())
+            merged = (source_home / "config.toml").read_text(encoding="utf-8")
             self.assertIn('model = "kimi"', merged)
             self.assertIn("[[hooks]]", merged)
-            self.assertTrue((overlay_home / ".skip-migration-from-kimi-cli").is_file())
+            self.assertIn(agent_bench.KIMI_MANAGED_BEGIN_MARKER, merged)
+            self.assertFalse((root / "overlays").exists())
+
+    def test_kimi_modern_plan_strips_stale_overlay_home_and_installs_into_default_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            home = root / "home"
+            (home / ".kimi-code").mkdir(parents=True)
+            (home / ".kimi-code" / "config.toml").write_text('model = "kimi"\n', encoding="utf-8")
+            planner = _modern_kimi_launch_planner(root)
+
+            stale = f"{home}/Library/Caches/Zentty/ipc-11370-9183AB50/launch/wl_x/pn_y/kimi/home"
+            plan = planner._plan_kimi(
+                "/usr/bin/kimi",
+                ["-p", "hello"],
+                {"HOME": str(home), "KIMI_CODE_HOME": stale},
+                "/usr/bin/zentty",
+            )
+
+            self.assertEqual(plan["unsetEnvironment"], ["KIMI_CODE_HOME"])
+            self.assertNotIn("KIMI_CODE_HOME", plan["setEnvironment"])
+            merged = (home / ".kimi-code" / "config.toml").read_text(encoding="utf-8")
+            self.assertIn("[[hooks]]", merged)
 
     def test_canonicalize_kimi_session_index_rewrites_stale_overlay_session_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2592,6 +2601,305 @@ class BenchRunnerExecutionTests(unittest.TestCase):
         self.assertEqual(result.status, "pass")
         self.assertEqual(captured_env.get("ZENTTY_KIMI_VARIANT"), "legacy")
         self.assertEqual(captured_env.get("ZENTTY_REAL_BINARY"), str(real_command))
+
+
+class KimiResumeHelperTests(unittest.TestCase):
+    def test_seed_kimi_bench_home_symlinks_auth_and_copies_device_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            operator = root / "op"
+            (operator / "credentials").mkdir(parents=True)
+            (operator / "credentials" / "auth.json").write_text("{}", encoding="utf-8")
+            (operator / "oauth").mkdir()
+            (operator / "device_id").write_text("dev-1", encoding="utf-8")
+            bench = root / "bench"
+
+            self.assertTrue(agent_bench.seed_kimi_bench_home(bench, operator))
+            self.assertTrue((bench / "credentials").is_symlink())
+            self.assertEqual((bench / "credentials").resolve(), (operator / "credentials").resolve())
+            self.assertTrue((bench / "oauth").is_symlink())
+            self.assertFalse((bench / "device_id").is_symlink())
+            self.assertEqual((bench / "device_id").read_text(encoding="utf-8"), "dev-1")
+
+    def test_seed_kimi_bench_home_reports_missing_auth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            operator = root / "op"
+            operator.mkdir()
+            self.assertFalse(agent_bench.seed_kimi_bench_home(root / "bench", operator))
+
+    def test_latest_kimi_session_id_returns_last_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = pathlib.Path(tmp)
+            (home / "session_index.jsonl").write_text(
+                json.dumps({"sessionId": "session_one"}) + "\n"
+                + json.dumps({"id": "session_two"}) + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(agent_bench.latest_kimi_session_id(home), "session_two")
+
+    def test_latest_kimi_session_id_none_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(agent_bench.latest_kimi_session_id(pathlib.Path(tmp)))
+
+    def test_resume_not_found_in_output_detects_failure(self):
+        self.assertTrue(agent_bench.resume_not_found_in_output('Session "session_x" not found'))
+        self.assertTrue(agent_bench.resume_not_found_in_output("no such session"))
+        self.assertFalse(agent_bench.resume_not_found_in_output("ZENTTY_AGENT_BENCH_OK"))
+
+    def test_resume_not_found_ignores_unrelated_not_found(self):
+        # A model mentioning an unrelated missing file must not trip the guard.
+        self.assertFalse(agent_bench.resume_not_found_in_output("file not found: foo.txt"))
+
+    def test_resume_detectors_strip_ansi_sequences(self):
+        self.assertTrue(
+            agent_bench.resume_not_found_in_output('\x1b[31mSession "session_x" not found\x1b[0m')
+        )
+        self.assertTrue(
+            agent_bench.resume_sentinel_in_output("\x1b[32mZENTTY_AGENT_BENCH_OK\x1b[0m")
+        )
+        self.assertFalse(agent_bench.resume_sentinel_in_output("nothing recalled here"))
+
+    def test_install_kimi_managed_hook_block_is_idempotent(self):
+        cfg = 'default_model = "kimi"\n'
+        once = agent_bench.install_kimi_managed_hook_block(cfg, "CMD")
+        twice = agent_bench.install_kimi_managed_hook_block(once, "CMD")
+        self.assertEqual(once, twice)
+        self.assertEqual(once.count(agent_bench.KIMI_MANAGED_BEGIN_MARKER), 1)
+        self.assertEqual(once.count(agent_bench.KIMI_MANAGED_END_MARKER), 1)
+        self.assertIn('default_model = "kimi"', once)
+        self.assertIn("[[hooks]]", once)
+
+    def test_kimi_code_profile_defines_resume_roundtrip_scenario(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["kimi-code"]
+        exp = profile.expectations["resume_roundtrip"]
+        self.assertTrue(exp.resume_roundtrip)
+        # Hooks are absent for the bench-owned custom home, so required_events
+        # must be soft/empty or the scenario would fail on missing hook events.
+        self.assertEqual(exp.required_events, [])
+        self.assertEqual(
+            profile.launch_args_by_scenario["resume_roundtrip"],
+            ["-p", "Reply with exactly: ZENTTY_AGENT_BENCH_OK"],
+        )
+
+
+class KimiManagedBlockPlanTests(unittest.TestCase):
+    def test_modern_kimi_plan_installs_single_managed_block_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            home = root / "home"
+            (home / ".kimi-code").mkdir(parents=True)
+            config_path = home / ".kimi-code" / "config.toml"
+            config_path.write_text('default_model = "kimi"\n', encoding="utf-8")
+            planner = _modern_kimi_launch_planner(root)
+
+            for _ in range(2):
+                planner._plan_kimi("/usr/bin/kimi", ["-p", "hi"], {"HOME": str(home)}, "/usr/bin/zentty")
+
+            config = config_path.read_text(encoding="utf-8")
+            self.assertEqual(config.count(agent_bench.KIMI_MANAGED_BEGIN_MARKER), 1)
+            self.assertEqual(config.count(agent_bench.KIMI_MANAGED_END_MARKER), 1)
+            self.assertIn('default_model = "kimi"', config)
+            self.assertIn("[[hooks]]", config)
+
+    def test_modern_kimi_plan_skips_install_for_custom_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            custom = root / "custom-kimi"
+            custom.mkdir()
+            config_path = custom / "config.toml"
+            config_path.write_text('default_model = "kimi"\n', encoding="utf-8")
+            planner = _modern_kimi_launch_planner(root)
+
+            plan = planner._plan_kimi(
+                "/usr/bin/kimi",
+                ["-p", "hi"],
+                {"HOME": str(root / "home"), "KIMI_CODE_HOME": str(custom)},
+                "/usr/bin/zentty",
+            )
+
+            # A genuine custom home is NOT modified, and its home is not stripped.
+            self.assertEqual(config_path.read_text(encoding="utf-8"), 'default_model = "kimi"\n')
+            self.assertEqual(plan["unsetEnvironment"], [])
+
+
+class KimiResumeRoundtripTests(unittest.TestCase):
+    def _profiles(self):
+        return {
+            "kimi-code": agent_bench.AgentProfile(
+                name="kimi-code",
+                command="kimi",
+                real_binary_names=["kimi"],
+                version_args=["--version"],
+                launch_args_by_scenario={"resume_roundtrip": ["-p", "Reply with exactly: ZENTTY_AGENT_BENCH_OK"]},
+                expectations={
+                    "resume_roundtrip": agent_bench.ScenarioExpectation(
+                        "resume_roundtrip", [], resume_roundtrip=True
+                    )
+                },
+                tool="kimi",
+                kimi_variant="modern",
+                skip_patterns=["not authenticated", "sign in"],
+            )
+        }
+
+    def _build_app(self, root):
+        app_path = root / "Zentty.app"
+        resources = app_path / "Contents" / "Resources"
+        zentty = resources / "bin" / "shared" / "zentty"
+        zentty.parent.mkdir(parents=True)
+        zentty.write_text("#!/bin/sh\n", encoding="utf-8")
+        zentty.chmod(0o755)
+        wrapper_dir = resources / "bin" / "kimi"
+        wrapper_dir.mkdir(parents=True)
+        wrapper = wrapper_dir / "kimi"
+        wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        return app_path, wrapper_dir
+
+    def _operator_home(self, root, with_auth=True):
+        home = root / "operator-kimi"
+        home.mkdir(parents=True)
+        if with_auth:
+            (home / "credentials").mkdir()
+            (home / "credentials" / "auth.json").write_text("{}", encoding="utf-8")
+            (home / "oauth").mkdir()
+            (home / "device_id").write_text("dev-123", encoding="utf-8")
+        return home
+
+    def _run(self, root, run_pty_impl, with_auth=True):
+        app_path, wrapper_dir = self._build_app(root)
+        operator_home = self._operator_home(root, with_auth=with_auth)
+        real_command = root / "real" / "kimi"
+        real_command.parent.mkdir()
+        real_command.write_text("#!/bin/sh\n", encoding="utf-8")
+        real_command.chmod(0o755)
+        args = type(
+            "Args",
+            (),
+            {
+                "run_dir": str(root / "run"),
+                "app_path": str(app_path),
+                "no_build": True,
+                "timeout": 30,
+                "strict": True,
+                "agents": "kimi-code",
+                "scenarios": "resume_roundtrip",
+            },
+        )()
+        runner = agent_bench.BenchRunner(args)
+        runner._resolved_app_path = app_path
+        runner.profiles = self._profiles()
+        env = {
+            "PATH": str(wrapper_dir),
+            "HOME": str(root / "home"),
+            "ZENTTY_BENCH_KIMI_SOURCE_HOME": str(operator_home),
+        }
+        try:
+            with mock.patch.object(agent_bench, "resolve_agent_binary", return_value=(str(real_command), None)), \
+                 mock.patch.object(agent_bench, "run_pty", side_effect=run_pty_impl):
+                return runner._run_resume_roundtrip_scenario("kimi-code", "resume_roundtrip", env)
+        finally:
+            runner._cleanup_socket_dir()
+
+    def test_resume_roundtrip_passes_when_session_reopens(self):
+        session_id = "session_a4d78f91-ea80-41e7-91d3-c699197ff442"
+        seen: dict[str, object] = {"command": None, "phase1_cwd": None, "phase2_argv": None, "phase2_cwd": None}
+
+        def fake(argv, env, cwd, inputs, timeout, transcript_path, completion_predicate=None):
+            home = pathlib.Path(env["KIMI_CODE_HOME"])
+            if "-S" in argv:
+                seen["phase2_argv"] = list(argv)
+                seen["phase2_cwd"] = cwd
+                requested = argv[argv.index("-S") + 1]
+                index = home / "session_index.jsonl"
+                recorded = index.is_file() and requested in index.read_text(encoding="utf-8")
+                # kimi pins sessions to their workdir: only "find" the session
+                # when phase 2 runs in the SAME cwd as phase 1.
+                same_dir = cwd == seen["phase1_cwd"]
+                out = (
+                    agent_bench.RESUME_ROUNDTRIP_SENTINEL
+                    if (recorded and same_dir)
+                    else 'Session "%s" not found' % requested
+                )
+                return agent_bench.PtyResult(0, False, out)
+            seen["command"] = argv[0]
+            seen["phase1_cwd"] = cwd
+            (home / "session_index.jsonl").write_text(
+                json.dumps({"sessionId": session_id, "sessionDir": str(home / "sessions" / "wd" / session_id)}) + "\n",
+                encoding="utf-8",
+            )
+            # Phase 1 output deliberately omits the sentinel so the pass can only
+            # come from phase 2 recalling history.
+            return agent_bench.PtyResult(0, False, "phase1-ack")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(pathlib.Path(tmp), fake)
+
+        self.assertEqual(result.status, "pass", result.detail)
+        self.assertEqual(result.result_kind, "resume-pass")
+        self.assertIn(f"resumed:{session_id}", result.observed_events)
+        # Exact phase-2 argv: a regression to a bogus flag (e.g. --print) fails here.
+        self.assertEqual(
+            seen["phase2_argv"],
+            [seen["command"], "-S", session_id, "--prompt", agent_bench.RESUME_ROUNDTRIP_PROMPT],
+        )
+        # Both phases must share the workdir (kimi's directory pinning).
+        self.assertEqual(seen["phase2_cwd"], seen["phase1_cwd"])
+
+    def test_resume_roundtrip_fails_loudly_when_resume_reports_not_found(self):
+        def fake(argv, env, cwd, inputs, timeout, transcript_path, completion_predicate=None):
+            home = pathlib.Path(env["KIMI_CODE_HOME"])
+            if "-S" in argv:
+                # Simulate the overlay regression: recorded session not found.
+                return agent_bench.PtyResult(1, False, 'Session "session_x" not found')
+            (home / "session_index.jsonl").write_text(
+                json.dumps({"sessionId": "session_x"}) + "\n", encoding="utf-8"
+            )
+            return agent_bench.PtyResult(0, False, "phase1-ack")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(pathlib.Path(tmp), fake)
+
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "resume-not-found")
+
+    def test_resume_roundtrip_fails_when_resume_only_echoes_prompt(self):
+        # Guards the false-positive: the phase-2 prompt does not contain the
+        # sentinel, so a model that merely echoes the prompt must FAIL.
+        def fake(argv, env, cwd, inputs, timeout, transcript_path, completion_predicate=None):
+            home = pathlib.Path(env["KIMI_CODE_HOME"])
+            if "-S" in argv:
+                return agent_bench.PtyResult(0, False, agent_bench.RESUME_ROUNDTRIP_PROMPT)
+            (home / "session_index.jsonl").write_text(
+                json.dumps({"sessionId": "session_x"}) + "\n", encoding="utf-8"
+            )
+            return agent_bench.PtyResult(0, False, "phase1-ack")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(pathlib.Path(tmp), fake)
+
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "resume-no-marker")
+
+    def test_resume_roundtrip_fails_when_phase_one_records_no_session(self):
+        def fake(argv, env, cwd, inputs, timeout, transcript_path, completion_predicate=None):
+            return agent_bench.PtyResult(0, False, "ZENTTY_AGENT_BENCH_OK")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(pathlib.Path(tmp), fake)
+
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.result_kind, "resume-no-session")
+
+    def test_resume_roundtrip_skips_when_auth_absent(self):
+        def fake(*args, **kwargs):
+            raise AssertionError("run_pty must not run when auth cannot be seeded")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(pathlib.Path(tmp), fake, with_auth=False)
+
+        self.assertEqual(result.result_kind, "auth-skip")
 
 
 class EnvironmentTests(unittest.TestCase):

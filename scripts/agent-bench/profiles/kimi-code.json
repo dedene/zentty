@@ -18,6 +18,10 @@
     "restore_launch": [
       "-S",
       "237d8c32-2a27-4850-8da8-3a110f13682c"
+    ],
+    "resume_roundtrip": [
+      "-p",
+      "Reply with exactly: ZENTTY_AGENT_BENCH_OK"
     ]
   },
   "expectations": {
@@ -37,6 +41,10 @@
     "restore_launch": {
       "required_events": [],
       "required_bootstrap_arguments": [["-S", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
+    },
+    "resume_roundtrip": {
+      "resume_roundtrip": true,
+      "required_events": []
     }
   },
   "input_by_scenario": {

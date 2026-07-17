@@ -114,6 +114,11 @@ class ScenarioExpectation:
     synthetic: bool = False
     fixture: str | None = None
     post_stop_notification_required: bool = False
+    # A true end-to-end resume round-trip (modern kimi-code only): phase 1
+    # creates a real session through the wrapper bootstrap against a bench-owned
+    # home, phase 2 simulates a restart and resumes it by id, asserting the
+    # session is found. This is the regression guard for the overlay bug class.
+    resume_roundtrip: bool = False
 
 
 @dataclasses.dataclass
@@ -1690,7 +1695,6 @@ class LaunchPlanner:
         variant = self._kimi_variant(executable, environment)
         command = toml_basic_string(f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=kimi')
         entries = "\n".join(f'[[hooks]]\nevent = "{event}"\ncommand = "{command}"\n' for event in ("SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification", "PreToolUse", "PostToolUse"))
-        overlay_dir = self._overlay_dir("kimi")
         source_dir = kimi_config_source_dir(environment, variant)
         source = source_dir / "config.toml"
         existing = remove_top_level_toml_key(source.read_text(encoding="utf-8"), "hooks") if source.exists() else ""
@@ -1698,16 +1702,42 @@ class LaunchPlanner:
         merged = existing.rstrip() + separator + entries
         env = {"ZENTTY_AGENT_TOOL": "kimi", "ZENTTY_KIMI_VARIANT": variant}
         if variant == "modern":
-            overlay_home = overlay_dir / "home"
-            symlink_directory_contents_skipping(source_dir, overlay_home, {"config.toml"})
-            (overlay_home / "config.toml").write_text(merged, encoding="utf-8")
-            canonicalize_kimi_session_index_if_needed(source_dir)
-            migration_skip = overlay_home / ".skip-migration-from-kimi-cli"
-            if not os.path.lexists(migration_skip):
-                migration_skip.touch()
-            env["KIMI_CODE_HOME"] = str(overlay_home)
-            return self._launch_plan(executable, arguments, env)
-        overlay = overlay_dir / "config.toml"
+            # Modern kimi-code matches sessions by lexical home-path prefix, so
+            # any symlinked overlay home breaks resume. Run against the REAL home.
+            inherited = str(environment.get("KIMI_CODE_HOME") or "").strip()
+            unset: list[str] = []
+            home = str(environment.get("HOME") or pathlib.Path.home())
+            default_home = pathlib.Path(home) / ".kimi-code"
+            if inherited and is_zentty_launch_cache_path(inherited):
+                # Stale overlay home from a pre-fix snapshot: strip it and fall
+                # back to the real default home, where we install hooks.
+                run_home = default_home
+                unset = ["KIMI_CODE_HOME"]
+                install_hooks = True
+            elif inherited:
+                # Genuine custom KIMI_CODE_HOME: run there but do NOT modify the
+                # user's config — mirrors the Swift bootstrap, which skips the
+                # persistent install for a user-set home.
+                run_home = pathlib.Path(inherited)
+                install_hooks = False
+            else:
+                run_home = default_home
+                install_hooks = True
+
+            run_home.mkdir(parents=True, exist_ok=True)
+            if install_hooks:
+                # Install a marker-delimited managed block (same markers/layout as
+                # the Swift KimiHooksInstaller) idempotently: strip any prior
+                # managed block first, so hooks never accumulate and Swift's
+                # uninstall can remove a bench-written block.
+                config_path = run_home / "config.toml"
+                existing_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+                updated_config = install_kimi_managed_hook_block(existing_config, command)
+                if updated_config != existing_config:
+                    config_path.write_text(updated_config, encoding="utf-8")
+            canonicalize_kimi_session_index_if_needed(run_home)
+            return self._launch_plan(executable, arguments, env, unset=unset)
+        overlay = self._overlay_dir("kimi") / "config.toml"
         overlay.write_text(merged, encoding="utf-8")
         return self._launch_plan(executable, ["--config-file", str(overlay)] + arguments, env)
 
@@ -2160,6 +2190,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 synthetic=bool(value.get("synthetic", False)),
                 fixture=value.get("fixture"),
                 post_stop_notification_required=bool(value.get("post_stop_notification_required", False)),
+                resume_roundtrip=bool(value.get("resume_roundtrip", False)),
             )
         profile = AgentProfile(
             name=raw["name"],
@@ -2314,6 +2345,8 @@ class BenchRunner:
             )
         if profile.expectations[scenario].synthetic:
             return self._run_synthetic_scenario(agent, scenario, env)
+        if profile.expectations[scenario].resume_roundtrip:
+            return self._run_resume_roundtrip_scenario(agent, scenario, env)
         if missing := missing_agent_wrapper_resource(self._resolved_app_path, profile):
             return self._finalize_result(
                 self._skip_or_fail(agent, scenario, missing, "missing-wrapper"),
@@ -2479,6 +2512,135 @@ class BenchRunner:
             result.detail = "expected a Notification arriving after Stop in the same session, none captured"
             result.result_kind = "missing-hook"
         return self._finalize_result(result, scenario_records, [])
+
+    def _resolve_kimi_commands(
+        self, profile: AgentProfile, env: dict[str, str]
+    ) -> tuple[str | None, str | None, str | None]:
+        """Resolve (wrapper_command, real_binary, skip_reason) for a kimi profile
+        — the same resolution `_run_agent_scenario` uses for the kimi branch."""
+        names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
+        wrapper_candidates = all_which_candidates(names, env["PATH"])
+        command = wrapper_candidates[0] if wrapper_candidates else None
+        if not command:
+            return None, None, f"none of {', '.join(names)} found"
+        real_command, real_skip_message = resolve_agent_binary(profile, filtered_inherited_path(env["PATH"]))
+        if not real_command:
+            return None, None, real_skip_message or "kimi binary not found"
+        return command, real_command, None
+
+    def _run_resume_roundtrip_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
+        # True end-to-end resume proof for modern kimi-code. Phase 1 creates a
+        # real session through the wrapper bootstrap against a BENCH-OWNED home
+        # (KIMI_CODE_HOME under the run dir, auth symlinked from the operator's
+        # ~/.kimi-code). Phase 2 is a fresh wrapper invocation (a new bootstrap —
+        # the harness idiom for an app restart) that resumes the captured session
+        # id and must echo the marker. A "not found" resume fails loudly: that is
+        # the exact regression the overlay bug produced.
+        env = dict(env)
+        profile = self.profiles[agent]
+        if not (profile.tool == "kimi" and profile.kimi_variant == "modern"):
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "resume_roundtrip is only defined for modern kimi-code", "scenario-skip"),
+                [],
+                [],
+            )
+        if missing := missing_agent_wrapper_resource(self._resolved_app_path, profile):
+            return self._finalize_result(self._skip_or_fail(agent, scenario, missing, "missing-wrapper"), [], [])
+
+        command, real_command, skip_reason = self._resolve_kimi_commands(profile, env)
+        if not command or not real_command:
+            return self._finalize_result(self._skip_or_fail(agent, scenario, skip_reason or "kimi binary not found", "binary-skip"), [], [])
+        env["PATH"] = prioritize_path_entry_after_zentty_resources(env["PATH"], str(pathlib.Path(real_command).parent))
+        env["ZENTTY_KIMI_VARIANT"] = "modern"
+        env["ZENTTY_REAL_BINARY"] = real_command
+
+        # Bench-owned home + auth seed. Operator home is overridable for tests.
+        bench_home = self.run_dir / f"{agent}-{scenario}-kimi-home"
+        operator_home = pathlib.Path(
+            env.get("ZENTTY_BENCH_KIMI_SOURCE_HOME") or os.path.expanduser("~/.kimi-code")
+        )
+        if not seed_kimi_bench_home(bench_home, operator_home):
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "kimi auth not available to seed bench home", "auth-skip"),
+                [],
+                [],
+            )
+        env["KIMI_CODE_HOME"] = str(bench_home)
+
+        # Phase 1 — create a real session. Phase 2 MUST reuse this workdir:
+        # kimi pins sessions to the directory they were created under and
+        # refuses to resume them from anywhere else.
+        repo = self._make_repo(agent, f"{scenario}-phase1")
+        phase1_args = profile.launch_args_by_scenario.get(scenario, [])
+        completed1 = run_pty(
+            [command] + phase1_args,
+            env=env,
+            cwd=repo,
+            inputs=[],
+            timeout=self.args.timeout,
+            transcript_path=self.run_dir / f"{agent}-{scenario}-phase1.terminal.log",
+        )
+        if matches_any(completed1.output, profile.skip_patterns):
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "phase 1 hit an auth/login skip pattern", "auth-skip"),
+                self.recorder.records(),
+                [],
+            )
+        session_id = latest_kimi_session_id(bench_home)
+        if not session_id:
+            result = ScenarioResult(
+                agent, scenario, False, ["session_index.jsonl entry"], [],
+                status="fail", detail="phase 1 did not record a session id in session_index.jsonl",
+                result_kind="resume-no-session",
+            )
+            return self._finalize_result(result, self.recorder.records(), [])
+
+        # Phase 2 — fresh bootstrap (new process) resumes by id.
+        # Modern kimi-code has no --print; -p/--prompt alone runs non-interactively.
+        phase2_args = ["-S", session_id, "--prompt", RESUME_ROUNDTRIP_PROMPT]
+        completed2 = run_pty(
+            [command] + phase2_args,
+            env=env,
+            cwd=repo,
+            inputs=[],
+            timeout=self.args.timeout,
+            transcript_path=self.run_dir / f"{agent}-{scenario}-phase2.terminal.log",
+        )
+
+        if resume_not_found_in_output(completed2.output):
+            result = ScenarioResult(
+                agent, scenario, False, [], [],
+                status="fail",
+                detail=f"resume of {session_id} reported the session as not found — the overlay regression",
+                result_kind="resume-not-found",
+            )
+            return self._finalize_result(result, self.recorder.records(), [])
+        if not resume_sentinel_in_output(completed2.output):
+            result = ScenarioResult(
+                agent, scenario, False, [RESUME_ROUNDTRIP_SENTINEL], [],
+                status="fail",
+                detail=f"resume of {session_id} did not recall the sentinel {RESUME_ROUNDTRIP_SENTINEL}",
+                result_kind="resume-no-marker",
+            )
+            return self._finalize_result(result, self.recorder.records(), [])
+
+        # Hook events are a soft signal here (SessionStart at minimum): the hard
+        # assertion is that the conversation reopened. Surface any gap as a
+        # warning rather than failing the regression on hook timing.
+        expectation = profile.expectations[scenario]
+        warnings: list[str] = []
+        if expectation.required_events:
+            validation = validate_scenario(agent, expectation, self.recorder.records(), agent_tool=profile.tool)
+            if validation.missing_events:
+                warnings.append("resume hooks missing: " + ", ".join(validation.missing_events))
+        result = ScenarioResult(
+            agent, scenario, True, [], [f"resumed:{session_id}"],
+            status="pass",
+            detail=f"created and resumed {session_id}; phase 2 recalled {RESUME_ROUNDTRIP_SENTINEL}",
+            result_kind="resume-pass",
+            warnings=warnings,
+        )
+        return self._finalize_result(result, self.recorder.records(), [])
 
     def _skip_or_fail(self, agent: str, scenario: str, detail: str, result_kind: str = "scenario-skip") -> ScenarioResult:
         return ScenarioResult(
@@ -3101,6 +3263,91 @@ def canonicalize_kimi_session_index_if_needed(source_home: pathlib.Path) -> None
             return
 
 
+# resume_roundtrip markers/prompt. Phase 1 prints a sentinel with NO tool use;
+# phase 2 asks the resumed session to RECALL that sentinel WITHOUT the token
+# appearing in the prompt — so a model merely echoing the prompt cannot satisfy
+# the assertion. Only a genuine reopen of the conversation history passes.
+RESUME_ROUNDTRIP_SENTINEL = "ZENTTY_AGENT_BENCH_OK"
+RESUME_ROUNDTRIP_PROMPT = (
+    "Without using any tools, reply with exactly the sentinel token you were "
+    "asked to print earlier in this conversation."
+)
+# Auth material shared (by symlink) from the operator's real kimi home into the
+# bench-owned home, so token refreshes land back in the shared store — exactly
+# what the operator validated in their lab. device_id is copied (not shared).
+KIMI_AUTH_SYMLINK_NAMES = ("credentials", "oauth")
+
+
+def seed_kimi_bench_home(bench_home: pathlib.Path, operator_home: pathlib.Path) -> bool:
+    """Seed a bench-owned kimi home with the operator's auth so a real session
+    can be created without an interactive login. `credentials/` and `oauth/` are
+    SYMLINKED (token refreshes flow back to the shared store); `device_id` is
+    copied. Returns True when auth material (credentials) is present to seed;
+    False lets the caller honor the profile's auth-skip behavior.
+    """
+    bench_home.mkdir(parents=True, exist_ok=True)
+    for name in KIMI_AUTH_SYMLINK_NAMES:
+        source = operator_home / name
+        target = bench_home / name
+        if source.exists() and not target.exists() and not target.is_symlink():
+            target.symlink_to(source)
+    device_id = operator_home / "device_id"
+    if device_id.is_file() and not (bench_home / "device_id").exists():
+        shutil.copy2(device_id, bench_home / "device_id")
+    # The operator's config.toml carries default_model; without it kimi refuses
+    # prompt mode ("No model configured") even with valid credentials. The hook
+    # installer later merges the managed block into this copy.
+    config = operator_home / "config.toml"
+    if config.is_file() and not (bench_home / "config.toml").exists():
+        shutil.copy2(config, bench_home / "config.toml")
+    credentials = operator_home / "credentials"
+    return credentials.exists()
+
+
+def latest_kimi_session_id(bench_home: pathlib.Path) -> str | None:
+    """Return the most recent `session_<uuid>` id from the bench home's
+    `session_index.jsonl` (kimi appends one line per session)."""
+    index = bench_home / "session_index.jsonl"
+    if not index.is_file():
+        return None
+    session_id: str | None = None
+    try:
+        raw_text = index.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        candidate = obj.get("sessionId") or obj.get("id")
+        if isinstance(candidate, str) and candidate.strip():
+            session_id = candidate.strip()
+    return session_id
+
+
+def resume_sentinel_in_output(output: str) -> bool:
+    """True when the phase-1 sentinel appears in phase-2 output (ANSI-stripped),
+    proving the resumed session recalled it from conversation history."""
+    return RESUME_ROUNDTRIP_SENTINEL in strip_ansi_sequences(output)
+
+
+def resume_not_found_in_output(output: str) -> bool:
+    """True when kimi reported the resumed session could not be found — the
+    exact failure the overlay bug produced and this scenario guards against.
+    ANSI-stripped, and scoped to session-not-found so an unrelated "file not
+    found" from the model does not trip the regression."""
+    text = strip_ansi_sequences(output).lower()
+    if re.search(r"session\b[^\n]*\bnot found", text):
+        return True
+    return "no such session" in text
+
+
 def is_zentty_launch_cache_path(entry: str) -> bool:
     parts = pathlib.PurePath(entry).parts
     for index in range(len(parts) - 2):
@@ -3140,6 +3387,56 @@ def codex_hook_trusted_hash(event_key: str, matcher: str | None, command: str, t
         identity["matcher"] = matcher
     serialized = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(serialized).hexdigest()
+
+
+# Marker strings + block layout mirror Swift KimiHooksInstaller (array-tables
+# style) exactly, so a bench-written block is byte-faithful enough for Swift's
+# `zentty uninstall kimi-hooks` / Settings toggle to remove it.
+KIMI_MANAGED_BEGIN_MARKER = "### BEGIN ZENTTY KIMI HOOKS"
+KIMI_MANAGED_END_MARKER = "### END ZENTTY KIMI HOOKS"
+KIMI_MANAGED_STYLE_MARKER = "# zentty-managed-style = array-tables"
+KIMI_MANAGED_EVENTS = (
+    "SessionStart",
+    "SessionEnd",
+    "UserPromptSubmit",
+    "Stop",
+    "Notification",
+    "PreToolUse",
+    "PostToolUse",
+)
+_KIMI_MANAGED_BLOCK_PATTERN = re.compile(
+    r"(?m)^\#\#\# BEGIN ZENTTY KIMI HOOKS[ \t]*$.*?^\#\#\# END ZENTTY KIMI HOOKS[ \t]*$\n?",
+    re.DOTALL,
+)
+
+
+def kimi_managed_hook_block(command: str) -> str:
+    """The Zentty-managed Kimi hook block (array-tables style), marker-delimited."""
+    lines = [KIMI_MANAGED_BEGIN_MARKER, KIMI_MANAGED_STYLE_MARKER]
+    for index, event in enumerate(KIMI_MANAGED_EVENTS):
+        if index:
+            lines.append("")
+        lines.append("[[hooks]]")
+        lines.append(f'event = "{event}"')
+        lines.append(f'command = "{command}"')
+    lines.append(KIMI_MANAGED_END_MARKER)
+    return "\n".join(lines)
+
+
+def remove_kimi_managed_hook_block(text: str) -> str:
+    """Strip any marker-delimited Zentty-managed Kimi hook block(s)."""
+    return _KIMI_MANAGED_BLOCK_PATTERN.sub("", text)
+
+
+def install_kimi_managed_hook_block(existing: str, command: str) -> str:
+    """Return `existing` with exactly one fresh managed block. Idempotent:
+    removes any prior managed block before appending, so running it repeatedly
+    against the same config yields identical content (no unbounded growth)."""
+    without_block = remove_kimi_managed_hook_block(existing).rstrip()
+    block = kimi_managed_hook_block(command)
+    if without_block:
+        return without_block + "\n\n" + block + "\n"
+    return block + "\n"
 
 
 def remove_top_level_toml_key(text: str, key: str) -> str:
