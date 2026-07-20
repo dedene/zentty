@@ -255,6 +255,7 @@
 		6910CC9A449CF438EEFE8022 /* ThirdPartyLicenseCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA937E13903E6F4629AE7AA /* ThirdPartyLicenseCatalogTests.swift */; };
 		69EE6C583CFC2132C81D9491 /* JSONKeyAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */; };
 		6A72B975870E8AE9C0839ADA /* ServerBrowserCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E263ECB14727930372689593 /* ServerBrowserCatalog.swift */; };
+		6AA84BEE902A5824442396CF /* SidebarSelectionEmphasisOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54C9A5DCB4929A1E90A3D79A /* SidebarSelectionEmphasisOptionView.swift */; };
 		6AF1CD2BF77470AF7368F0F5 /* ClaudeCodeTitleOverrideReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893F6E481A2B8E457B238DE7 /* ClaudeCodeTitleOverrideReducer.swift */; };
 		6BDA3DD6058C31E9C1635868 /* AgentStatusCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DB0F3E90C5CCF115A2E27B /* AgentStatusCommand.swift */; };
 		6C9EB4F61C57A150765111CC /* NotificationChromeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C34091F1CB5D75D73EF939 /* NotificationChromeCoordinatorTests.swift */; };
@@ -838,6 +839,7 @@
 		54894343178398AA618315E4 /* PaneFocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistory.swift; sourceTree = "<group>"; };
 		548FC6076155215F77E6A14B /* ServerPortRuleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerPortRuleTests.swift; sourceTree = "<group>"; };
 		54B6094A0D5CBAD802D8F6FE /* WorklanePeekController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekController.swift; sourceTree = "<group>"; };
+		54C9A5DCB4929A1E90A3D79A /* SidebarSelectionEmphasisOptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionEmphasisOptionView.swift; sourceTree = "<group>"; };
 		54D167BBBE4C7B3318C151C7 /* WorkspaceTemplateImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateImporter.swift; sourceTree = "<group>"; };
 		555A3E876B04160BA692FCFB /* ClosedPaneRestoreCommandResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedPaneRestoreCommandResolverTests.swift; sourceTree = "<group>"; };
 		559F037FFC52BB9F8C9AE5EB /* SidebarViewDebugging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewDebugging.swift; sourceTree = "<group>"; };
@@ -1882,6 +1884,7 @@
 				BB190F0BEA7609493A5A1AB3 /* SettingsSidebarViewController.swift */,
 				96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */,
 				BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */,
+				54C9A5DCB4929A1E90A3D79A /* SidebarSelectionEmphasisOptionView.swift */,
 				8D089E7F235904D263884DDE /* UpdatesPrivacySettingsSectionViewController.swift */,
 			);
 			path = Settings;
@@ -2932,6 +2935,7 @@
 				CBA82B1C9557F98AD04A8672 /* SidebarPaneRowViews.swift in Sources */,
 				7AB05C23149C9A7980629EC9 /* SidebarResizeHandleView.swift in Sources */,
 				0889B047795F8D959B7EC555 /* SidebarRowDiff.swift in Sources */,
+				6AA84BEE902A5824442396CF /* SidebarSelectionEmphasisOptionView.swift in Sources */,
 				E94E1DACAFBCE24E8AA485C5 /* SidebarShimmerColorResolver.swift in Sources */,
 				AA417704363C7781CECDFEBF /* SidebarShimmerTextView.swift in Sources */,
 				A1D6E61EF7D669A5DAE672B0 /* SidebarStatusResolver.swift in Sources */,
