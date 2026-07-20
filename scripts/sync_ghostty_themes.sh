@@ -44,7 +44,10 @@ if [ ! -f "${SOURCE_LICENSE_FILE}" ]; then
 fi
 
 mkdir -p "${THEMES_DEST_DIR}" "${LICENSE_DEST_DIR}"
-rsync -a --delete "${SOURCE_THEME_DIR}/" "${THEMES_DEST_DIR}/"
+# GitHub-Dark-Personal is a hand-authored Zentty theme (mirrors the app's built-in
+# default palette), not a vendored file from upstream — exclude it so re-syncing
+# doesn't delete it.
+rsync -a --delete --exclude 'GitHub-Dark-Personal' "${SOURCE_THEME_DIR}/" "${THEMES_DEST_DIR}/"
 install -m 644 "${SOURCE_LICENSE_FILE}" "${LICENSE_DEST_FILE}"
 
 xcrun swift "${PROJECT_DIR}/scripts/generate_third_party_licenses.swift"

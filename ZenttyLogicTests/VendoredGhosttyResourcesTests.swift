@@ -77,18 +77,28 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         )
     }
 
-    func test_bundled_zero_config_defaults_inline_zentty_default_theme_palette_and_visual_defaults() throws {
+    func test_bundled_zero_config_defaults_reference_default_theme_without_inline_colors() throws {
         let defaultsURL = repoRootURL().appendingPathComponent("ZenttyResources/ghostty/zentty-defaults.ghostty")
         let defaults = try String(contentsOf: defaultsURL, encoding: .utf8)
 
-        XCTAssertFalse(defaults.contains("theme = \(GhosttyThemeLibrary.fallbackPersistedThemeName)"))
-        XCTAssertTrue(defaults.contains("background = #0A0C10"))
-        XCTAssertTrue(defaults.contains("foreground = #F0F3F6"))
-        XCTAssertTrue(defaults.contains("cursor-color = #71B7FF"))
-        XCTAssertTrue(defaults.contains("selection-background = #F0F3F6"))
-        XCTAssertTrue(defaults.contains("selection-foreground = #0A0C10"))
-        XCTAssertTrue(defaults.contains("palette = 0=#7A828E"))
-        XCTAssertTrue(defaults.contains("palette = 15=#FFFFFF"))
+        XCTAssertTrue(defaults.contains("theme = \(GhosttyThemeLibrary.fallbackPersistedThemeName)"))
+
+        for line in defaults.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#"), !trimmed.hasPrefix("//") else {
+                continue
+            }
+            let key = trimmed.split(separator: "=", maxSplits: 1)
+                .first
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? trimmed
+
+            XCTAssertNotEqual(key, "background", "defaults must not inline an explicit background color")
+            XCTAssertNotEqual(key, "foreground", "defaults must not inline an explicit foreground color")
+            XCTAssertNotEqual(key, "cursor-color", "defaults must not inline an explicit cursor color")
+            XCTAssertFalse(key.hasPrefix("selection-"), "defaults must not inline explicit selection colors")
+            XCTAssertFalse(key.hasPrefix("palette"), "defaults must not inline an explicit palette")
+        }
+
         XCTAssertTrue(defaults.contains("background-opacity = 0.95"))
         XCTAssertTrue(defaults.contains("font-feature = -calt"))
         XCTAssertTrue(defaults.contains("font-feature = -liga"))
@@ -105,6 +115,73 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         XCTAssertTrue(defaults.contains("clipboard-paste-bracketed-safe = true"))
         XCTAssertFalse(defaults.contains("background-blur-radius = 25"))
         XCTAssertFalse(defaults.contains("quick-terminal-position"))
+    }
+
+    func test_default_theme_file_matches_built_in_resolved_theme_palette() throws {
+        let themeURL = repoRootURL()
+            .appendingPathComponent("ZenttyResources/ghostty/themes")
+            .appendingPathComponent(GhosttyThemeLibrary.fallbackPersistedThemeName)
+        let contents = try String(contentsOf: themeURL, encoding: .utf8)
+
+        var background: NSColor?
+        var foreground: NSColor?
+        var cursorColor: NSColor?
+        var selectionBackground: NSColor?
+        var selectionForeground: NSColor?
+        var palette: [Int: NSColor] = [:]
+
+        for rawLine in contents.components(separatedBy: .newlines) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#"), !trimmed.hasPrefix("//") else {
+                continue
+            }
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2 else { continue }
+            let key = parts[0]
+            let value = parts[1]
+
+            switch key {
+            case "background":
+                background = NSColor(hexString: value)
+            case "foreground":
+                foreground = NSColor(hexString: value)
+            case "cursor-color":
+                cursorColor = NSColor(hexString: value)
+            case "selection-background":
+                selectionBackground = NSColor(hexString: value)
+            case "selection-foreground":
+                selectionForeground = NSColor(hexString: value)
+            case "palette":
+                let paletteParts = value.split(separator: "=", maxSplits: 1).map(String.init)
+                guard paletteParts.count == 2, let index = Int(paletteParts[0]) else { continue }
+                palette[index] = NSColor(hexString: paletteParts[1])
+            default:
+                continue
+            }
+        }
+
+        let expected = try XCTUnwrap(
+            GhosttyThemeLibrary.builtInResolvedTheme(named: GhosttyThemeLibrary.fallbackThemeName)
+        )
+
+        XCTAssertEqual(background?.themeHexString, expected.background.themeHexString)
+        XCTAssertEqual(foreground?.themeHexString, expected.foreground.themeHexString)
+        XCTAssertEqual(cursorColor?.themeHexString, expected.cursorColor.themeHexString)
+        XCTAssertEqual(selectionBackground?.themeHexString, expected.selectionBackground?.themeHexString)
+        XCTAssertEqual(selectionForeground?.themeHexString, expected.selectionForeground?.themeHexString)
+        XCTAssertEqual(palette.count, expected.palette.count)
+        for (index, expectedColor) in expected.palette {
+            XCTAssertEqual(palette[index]?.themeHexString, expectedColor.themeHexString, "palette index \(index) mismatch")
+        }
+    }
+
+    func test_sync_ghostty_themes_script_excludes_custom_default_theme_from_upstream_sync() throws {
+        let scriptURL = repoRootURL().appendingPathComponent("scripts/sync_ghostty_themes.sh")
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+        XCTAssertTrue(script.contains("--exclude 'GitHub-Dark-Personal'"))
     }
 
     @MainActor
