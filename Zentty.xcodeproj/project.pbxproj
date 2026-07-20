@@ -455,6 +455,7 @@
 		BA240C8DF46842A5C6FCD616 /* WorkspaceRecipeMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0780927F63098801F0B6B9D5 /* WorkspaceRecipeMigrationTests.swift */; };
 		BA2E11FD5E7F4E71D7BF48D9 /* AppActionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609771315B7DE1068E588518 /* AppActionRouter.swift */; };
 		BA3D9BA82D2F770BEEA8CB71 /* CodexToolStatusResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B37D01B8F700B052896E28A /* CodexToolStatusResolverTests.swift */; };
+		BA54D494379B3BED2D9526EC /* CompanionCryptoVectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FDAD23E3A1A0261A0B4729 /* CompanionCryptoVectorTests.swift */; };
 		BA9D0265E08E22F14A7E1C8A /* AgentWrapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5C60D4800BDD040F2D5B12 /* AgentWrapperTests.swift */; };
 		BAC8B4AAA7C594E4CB41FA02 /* TmuxCompatArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8747D7DA152CB73E2CF991C6 /* TmuxCompatArgumentsTests.swift */; };
 		BB1BCADC002057CB2A8211ED /* PaneContainerViewWorklaneBorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D468A4AAC25D668673CC51CE /* PaneContainerViewWorklaneBorderTests.swift */; };
@@ -867,6 +868,7 @@
 		501FF089FC36AA3200A6A1A1 /* PaneNavigationButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneNavigationButtons.swift; sourceTree = "<group>"; };
 		50D5CEB5E915AE3FBE158512 /* LibghosttyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyView.swift; sourceTree = "<group>"; };
 		50DA878894E21F6369AF06B9 /* PaneDragOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragOutcome.swift; sourceTree = "<group>"; };
+		50FDAD23E3A1A0261A0B4729 /* CompanionCryptoVectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionCryptoVectorTests.swift; sourceTree = "<group>"; };
 		51BFAD9337055E61275E0F7D /* ThemeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCoordinatorTests.swift; sourceTree = "<group>"; };
 		51F182C0E58D8DC4249303AA /* GhosttyThemeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolver.swift; sourceTree = "<group>"; };
 		52A3D22F97BFF48E29B7A666 /* PaneRenameIPCParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneRenameIPCParserTests.swift; sourceTree = "<group>"; };
@@ -2192,6 +2194,7 @@
 				E6D7092CD7460BABDBD68C6E /* CommandPaletteTaskRunnerTests.swift */,
 				3DB6DE0A6A550780FF124F3D /* CommandPaletteWorklaneColorTests.swift */,
 				BF5641276CE9B927EA0FA640 /* CompanionBridgeTests.swift */,
+				50FDAD23E3A1A0261A0B4729 /* CompanionCryptoVectorTests.swift */,
 				983F83BAD154D8545C5CF897 /* CompanionPairingViewModelTests.swift */,
 				CE4FAA760734F4CE1A2A52AF /* CompanionRelayTransportTests.swift */,
 				998143503A59D56A41611A1C /* CompanionSecurityTests.swift */,
@@ -2642,6 +2645,7 @@
 				173791FED7615617FAF34B05 /* CommandPaletteTaskRunnerTests.swift in Sources */,
 				E65DC3627B94384EE63626ED /* CommandPaletteWorklaneColorTests.swift in Sources */,
 				E66992B81A4882866C4063FE /* CompanionBridgeTests.swift in Sources */,
+				BA54D494379B3BED2D9526EC /* CompanionCryptoVectorTests.swift in Sources */,
 				24FCA56BE578B42B3055CE1E /* CompanionPairingViewModelTests.swift in Sources */,
 				21CBF64969261FF78656AD84 /* CompanionRelayTransportTests.swift in Sources */,
 				A483FB9DC86F3187E759A352 /* CompanionSecurityTests.swift in Sources */,
