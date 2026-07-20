@@ -271,6 +271,15 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    /// Mobile companion bridge toggle. The bridge only listens/advertises while
+    /// this is on *and* at least one device is paired; default-on so pairing a
+    /// device is enough to make the Mac reachable.
+    struct Companion: Equatable, Sendable {
+        var enabled: Bool
+
+        static let `default` = Companion(enabled: true)
+    }
+
     /// Per-agent enable/disable state for Zentty's CLI integrations. Persistent
     /// (config-modifying) agents are tri-state and consent-gated; ephemeral
     /// agents are on by default. See `AgentIntegrationConsent`.
@@ -309,6 +318,7 @@ struct AppConfig: Equatable, Sendable {
     var agentCaffeination: AgentCaffeination
     var menuBar: MenuBar
     var agentIntegrations: AgentIntegrations
+    var companion: Companion
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -331,7 +341,8 @@ struct AppConfig: Equatable, Sendable {
         agentTeams: .default,
         agentCaffeination: .default,
         menuBar: .default,
-        agentIntegrations: .default
+        agentIntegrations: .default,
+        companion: .default
     )
 
     static func migrated(
@@ -360,7 +371,8 @@ struct AppConfig: Equatable, Sendable {
             agentTeams: .default,
             agentCaffeination: .default,
             menuBar: .default,
-            agentIntegrations: .default
+            agentIntegrations: .default,
+            companion: .default
         )
     }
 

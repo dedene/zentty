@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
+    /// Mobile companion bridge (nil in hosted test mode, and until launch).
+    var companionBridge: CompanionBridgeServer?
     private let sessionRestorePersistence: SessionRestoreSnapshotPersistence
     private let windowFrameDefaults: UserDefaults
     private let notificationStore = NotificationStore()
@@ -109,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
                 self.applyAuxiliaryWindowTheme()
                 self.applyMenuBarStatusConfig(config)
+                self.companionBridge?.refreshAdvertisingState()
                 if self.isSessionRestoreEnabled {
                     self.handleRestorePreferenceChange(config.restore)
                 }
@@ -116,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UNUserNotificationCenter.current().delegate = self
         applyMenuBarStatusConfig(configStore.current)
+        setUpCompanionBridge()
 
         // Grandfather existing on-disk hook installs into the consent model
         // before any restore spawns agents, so upgrading users are not prompted
@@ -203,6 +207,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isSessionRestoreEnabled {
             scheduleWorkspaceSnapshotSave()
         }
+    }
+
+    /// Builds and installs the mobile companion bridge. Skipped in hosted test
+    /// mode so tests never touch the Keychain or open ports. The bridge only
+    /// listens/advertises once a device is paired and the toggle is on, so this
+    /// is inert on a Mac that has never paired.
+    private func setUpCompanionBridge() {
+        guard !Self.isHostedTestMode else { return }
+        let identity = CompanionDeviceIdentity.loadOrCreate(keychain: CompanionKeychainStore())
+        let configDirectoryURL = configStore.fileURL.deletingLastPathComponent()
+        let pairingStore = CompanionPairingStore(configDirectoryURL: configDirectoryURL)
+        let dashboardFeed = CompanionDashboardFeed(provider: self)
+        let inputRouter = CompanionInputRouter(sink: self)
+        let bridge = CompanionBridgeServer(
+            identity: identity,
+            pairingStore: pairingStore,
+            dashboardFeed: dashboardFeed,
+            inputRouter: inputRouter,
+            isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false }
+        )
+        bridge.installAsShared()
+        companionBridge = bridge
+        bridge.refreshAdvertisingState()
     }
 
     @objc
@@ -375,6 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? sessionRestoreStore.markCleanExit()
         }
         AgentIPCServer.shared.stop()
+        companionBridge?.stop()
         for controller in windowControllers.values {
             controller.tearDownRuntime()
         }

@@ -1179,6 +1179,9 @@ final class RootViewController: NSViewController {
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
+            // Fan out to the mobile companion bridge so it can recompute the
+            // dashboard (debounced inside the feed).
+            CompanionBridgeServer.shared?.ingestAgentStatusChange()
         }
         agentStatusCenter.start()
     }
