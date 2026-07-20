@@ -56,7 +56,17 @@ final class CompanionInputRouter {
     // MARK: Key mapping
 
     /// Named keys → terminal bytes, mirroring the tmux special-key mapping used
-    /// by `TmuxCompatIPCHandler` so the phone and `tmux send-keys` agree.
+    /// by `TmuxCompatIPCHandler` so the phone and `tmux send-keys` agree. This is
+    /// the single control-key entry point for the companion: like the tmux path,
+    /// it routes every key through `CompanionInputSink.companionSendText` (raw
+    /// bytes into the pty) rather than synthesizing `NSEvent`s, so no public
+    /// `submitControlKey` on the surface is needed.
+    ///
+    /// Arrows emit the standard CSI ("normal cursor key") sequences. libghostty
+    /// exposes no API to read a surface's DECCKM (application-cursor-key) mode, so
+    /// the bridge cannot switch to the `ESC O` form when a full-screen app has
+    /// enabled it. In practice TUIs that request application mode also accept the
+    /// normal CSI arrows, so this is a safe default rather than a correctness gap.
     static func bytes(for key: CompanionInputKey) -> String {
         switch key {
         case .enter: return "\r"

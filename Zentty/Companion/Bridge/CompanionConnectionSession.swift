@@ -24,6 +24,7 @@ final class CompanionSession {
     private var crypto: CompanionSessionCrypto?
     private var didCompleteHello = false
     private var dashboardToken: CompanionDashboardSubscriptionToken?
+    private var paneTextToken: CompanionPaneWatchToken?
 
     /// The paired device this connection authenticated as, once the crypto
     /// handshake resolves it. Lets the bridge drop a live session when its device
@@ -64,6 +65,10 @@ final class CompanionSession {
         if let dashboardToken {
             services?.removeDashboardSubscriber(dashboardToken)
             self.dashboardToken = nil
+        }
+        if let paneTextToken {
+            services?.removePaneTextWatcher(paneTextToken)
+            self.paneTextToken = nil
         }
         connection.close()
     }
@@ -267,6 +272,33 @@ final class CompanionSession {
             let ack = services.routeInput(envelope.message)
             try await sendSealed(.inputAck(ack), replyTo: envelope.id)
 
+        case .paneWatch(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            let token = ensurePaneTextWatcher(services: services)
+            services.watchPane(token: token, paneId: payload.paneId)
+
+        case .paneUnwatch(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            if let paneTextToken {
+                services.unwatchPane(token: paneTextToken, paneId: payload.paneId)
+            }
+
+        case .paneScrollback(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            // The request half carries `lineLimit`; a stray reply half (text only)
+            // has nothing for the mac to do, so treat it as the request shape.
+            let reply = services.paneScrollback(paneId: payload.paneId, lineLimit: payload.lineLimit)
+            try await sendSealed(.paneScrollback(reply), replyTo: envelope.id)
+
         default:
             try await sendSealed(
                 .sessionError(CompanionSessionError(code: "unsupported_type", message: "Unsupported message type: \(envelope.type)", fatal: false)),
@@ -297,6 +329,29 @@ final class CompanionSession {
         } catch {
             companionSessionLogger.error(
                 "Failed to send dashboard delta: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    // MARK: - Pane text watch
+
+    /// Lazily registers this connection's `pane.text` sink, once, and returns its
+    /// token. Subsequent `pane.watch` calls reuse it.
+    private func ensurePaneTextWatcher(services: any CompanionSessionServicing) -> CompanionPaneWatchToken {
+        if let paneTextToken { return paneTextToken }
+        let token = services.addPaneTextWatcher { [weak self] text in
+            Task { [weak self] in await self?.deliverPaneText(text) }
+        }
+        paneTextToken = token
+        return token
+    }
+
+    private func deliverPaneText(_ text: CompanionPaneText) async {
+        do {
+            try await sendSealed(.paneText(text))
+        } catch {
+            companionSessionLogger.error(
+                "Failed to send pane text: \(String(describing: error), privacy: .public)"
             )
         }
     }

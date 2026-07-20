@@ -410,14 +410,21 @@ private final class FakeRelayServices: CompanionSessionServicing {
         func companionDashboardWorklanes() -> [CompanionDashboardWorklane] { [] }
     }
 
+    private final class EmptyPaneTextProvider: CompanionPaneTextProviding {
+        func companionReadPaneText(paneId: String, includeScrollback: Bool, lineLimit: Int?) -> CompanionPaneTextReadout? { nil }
+    }
+
     let identity: CompanionDeviceIdentity
     var recordedPairings: [String] = []
     private let provider = EmptyDashboardProvider()
+    private let paneTextProvider = EmptyPaneTextProvider()
     private let feed: CompanionDashboardFeed
+    private let paneTextFeed: CompanionPaneTextFeed
 
     init(identity: CompanionDeviceIdentity) {
         self.identity = identity
         self.feed = CompanionDashboardFeed(provider: provider)
+        self.paneTextFeed = CompanionPaneTextFeed(provider: paneTextProvider)
     }
 
     var localDeviceName: String { "TestMac" }
@@ -442,5 +449,25 @@ private final class FakeRelayServices: CompanionSessionServicing {
 
     func routeInput(_ message: CompanionMessage) -> CompanionInputAck {
         CompanionInputAck(ok: false, error: "unsupported")
+    }
+
+    func addPaneTextWatcher(_ send: @escaping (CompanionPaneText) -> Void) -> CompanionPaneWatchToken {
+        paneTextFeed.addWatcher(send)
+    }
+
+    func removePaneTextWatcher(_ token: CompanionPaneWatchToken) {
+        paneTextFeed.removeWatcher(token)
+    }
+
+    func watchPane(token: CompanionPaneWatchToken, paneId: String) {
+        paneTextFeed.watch(token: token, paneId: paneId)
+    }
+
+    func unwatchPane(token: CompanionPaneWatchToken, paneId: String) {
+        paneTextFeed.unwatch(token: token, paneId: paneId)
+    }
+
+    func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback {
+        paneTextFeed.scrollback(paneId: paneId, lineLimit: lineLimit)
     }
 }

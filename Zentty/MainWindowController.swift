@@ -1171,6 +1171,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return reader.readText(includeScrollback: includeScrollback, lineLimit: lineLimit)
     }
 
+    /// Live grid dimensions (columns × rows) for a pane, or `nil` when the pane is
+    /// unknown or has no live runtime. Used by the companion pane-text feed to
+    /// stamp `pane.text` with `gridCols`/`gridRows`.
+    func paneGridSize(from paneID: PaneID) -> (cols: Int, rows: Int)? {
+        guard let runtime = runtimeRegistry.runtime(for: paneID),
+              let reader = runtime.adapter as? TerminalTextReading
+        else {
+            return nil
+        }
+        return reader.gridSize
+    }
+
     /// Re-load the in-memory `WorklaneStore.teamAnchorByWorklaneID` from disk
     /// and emit `.teamAnchorsChanged` for any worklane that changed. Called
     /// by `TmuxCompatIPCHandler` after every store-mutating subcommand so

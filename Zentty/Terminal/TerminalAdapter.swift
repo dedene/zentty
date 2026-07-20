@@ -100,6 +100,11 @@ enum TerminalEvent: Equatable, Sendable {
     case userEditedInput
     case userSubmittedInput
     case surfaceClosed
+    /// Coalesced "the terminal grid may have changed" pulse, derived from
+    /// libghostty's `RENDER` action. Only emitted while a consumer has opted into
+    /// content observation (see `LibghosttyContentChangeObservation`); carries no
+    /// payload and is safe to ignore.
+    case contentChanged
 }
 
 enum TerminalInterruptKeyRecognizer {
@@ -211,6 +216,9 @@ extension TerminalAdapter {
 @MainActor
 protocol TerminalTextReading: AnyObject {
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    /// The live terminal grid dimensions (columns × rows), or `nil` when no live
+    /// surface backs the pane yet.
+    var gridSize: (cols: Int, rows: Int)? { get }
 }
 
 @MainActor

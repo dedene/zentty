@@ -22,6 +22,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     let identity: CompanionDeviceIdentity
     private let pairingStore: CompanionPairingStore
     private let dashboardFeed: CompanionDashboardFeed
+    private let paneTextFeed: CompanionPaneTextFeed
     private let inputRouter: CompanionInputRouter
     private let isFeatureEnabled: () -> Bool
     private let relayUrlProvider: () -> String
@@ -44,6 +45,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         identity: CompanionDeviceIdentity,
         pairingStore: CompanionPairingStore,
         dashboardFeed: CompanionDashboardFeed,
+        paneTextFeed: CompanionPaneTextFeed,
         inputRouter: CompanionInputRouter,
         isFeatureEnabled: @escaping () -> Bool,
         relayUrlProvider: @escaping () -> String = { "" }
@@ -51,6 +53,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         self.identity = identity
         self.pairingStore = pairingStore
         self.dashboardFeed = dashboardFeed
+        self.paneTextFeed = paneTextFeed
         self.inputRouter = inputRouter
         self.isFeatureEnabled = isFeatureEnabled
         self.relayUrlProvider = relayUrlProvider
@@ -195,6 +198,21 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         dashboardFeed.scheduleRecompute()
     }
 
+    // MARK: - Pane text lane signals
+
+    /// Forwarded from the terminal render path (`RootViewController`) whenever a
+    /// watched surface reported new content. Debounced + deduped inside the feed;
+    /// a no-op when no session is watching the pane.
+    func ingestPaneContentChange(paneID: String) {
+        paneTextFeed.handleContentChanged(paneId: paneID)
+    }
+
+    /// Forwarded on pane close (shell exit) so the feed drops any watch before the
+    /// runtime is torn down.
+    func ingestPaneClosed(paneID: String) {
+        paneTextFeed.handlePaneClosed(paneId: paneID)
+    }
+
     // MARK: - Pairing offer (settings UI)
 
     /// Mints a one-time pairing offer for a QR code. The listener is started so a
@@ -325,5 +343,25 @@ final class CompanionBridgeServer: CompanionSessionServicing {
 
     func routeInput(_ message: CompanionMessage) -> CompanionInputAck {
         inputRouter.handle(message) ?? CompanionInputAck(ok: false, error: "unsupported")
+    }
+
+    func addPaneTextWatcher(_ send: @escaping (CompanionPaneText) -> Void) -> CompanionPaneWatchToken {
+        paneTextFeed.addWatcher(send)
+    }
+
+    func removePaneTextWatcher(_ token: CompanionPaneWatchToken) {
+        paneTextFeed.removeWatcher(token)
+    }
+
+    func watchPane(token: CompanionPaneWatchToken, paneId: String) {
+        paneTextFeed.watch(token: token, paneId: paneId)
+    }
+
+    func unwatchPane(token: CompanionPaneWatchToken, paneId: String) {
+        paneTextFeed.unwatch(token: token, paneId: paneId)
+    }
+
+    func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback {
+        paneTextFeed.scrollback(paneId: paneId, lineLimit: lineLimit)
     }
 }

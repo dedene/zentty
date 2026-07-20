@@ -219,11 +219,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let configDirectoryURL = configStore.fileURL.deletingLastPathComponent()
         let pairingStore = CompanionPairingStore(configDirectoryURL: configDirectoryURL)
         let dashboardFeed = CompanionDashboardFeed(provider: self)
+        let paneTextFeed = CompanionPaneTextFeed(
+            provider: self,
+            setObservationEnabled: { enabled in
+                if enabled {
+                    LibghosttyContentChangeObservation.retain()
+                } else {
+                    LibghosttyContentChangeObservation.release()
+                }
+            }
+        )
         let inputRouter = CompanionInputRouter(sink: self)
         let bridge = CompanionBridgeServer(
             identity: identity,
             pairingStore: pairingStore,
             dashboardFeed: dashboardFeed,
+            paneTextFeed: paneTextFeed,
             inputRouter: inputRouter,
             isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false },
             relayUrlProvider: { [weak self] in self?.configStore.current.companion.relayUrl ?? "" }

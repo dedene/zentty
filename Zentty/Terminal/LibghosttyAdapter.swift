@@ -81,6 +81,7 @@ extension LibghosttySurfaceControlling {
 @MainActor
 protocol LibghosttySurfaceTextReading: AnyObject {
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    var gridSize: (cols: Int, rows: Int)? { get }
 }
 
 @MainActor
@@ -181,6 +182,10 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
+    }
+
+    var gridSize: (cols: Int, rows: Int)? {
+        (surfaceController as? LibghosttySurfaceTextReading)?.gridSize
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {

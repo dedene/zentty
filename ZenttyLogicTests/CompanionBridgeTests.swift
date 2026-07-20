@@ -31,12 +31,21 @@ final class CompanionBridgeTests: XCTestCase {
         }
     }
 
+    private final class FakePaneTextProvider: CompanionPaneTextProviding {
+        var readouts: [String: CompanionPaneTextReadout] = [:]
+        func companionReadPaneText(paneId: String, includeScrollback: Bool, lineLimit: Int?) -> CompanionPaneTextReadout? {
+            readouts[paneId]
+        }
+    }
+
     // MARK: - Fixture
 
     private var pairingStore: CompanionPairingStore!
     private var provider: FakeDashboardProvider!
     private var sink: FakeInputSink!
     private var feed: CompanionDashboardFeed!
+    private var paneTextProvider: FakePaneTextProvider!
+    private var paneTextFeed: CompanionPaneTextFeed!
     private var server: CompanionBridgeServer!
     private var macIdentity: CompanionDeviceIdentity!
     private var tempDir: URL!
@@ -59,10 +68,13 @@ final class CompanionBridgeTests: XCTestCase {
         provider = FakeDashboardProvider()
         sink = FakeInputSink()
         feed = CompanionDashboardFeed(provider: provider, debounceInterval: 0.01)
+        paneTextProvider = FakePaneTextProvider()
+        paneTextFeed = CompanionPaneTextFeed(provider: paneTextProvider, debounceInterval: 0.01)
         server = CompanionBridgeServer(
             identity: macIdentity,
             pairingStore: pairingStore,
             dashboardFeed: feed,
+            paneTextFeed: paneTextFeed,
             inputRouter: CompanionInputRouter(sink: sink),
             isFeatureEnabled: { true }
         )
@@ -187,6 +199,67 @@ final class CompanionBridgeTests: XCTestCase {
         XCTAssertEqual(sink.sends.count, 1)
         XCTAssertEqual(sink.sends.first?.text, "ship it\r")
         XCTAssertEqual(sink.sends.first?.paneId, "pane-1")
+
+        driver.close()
+        await driver.runTask.value
+    }
+
+    func testPaneWatchStreamsTextAndScrollbackReplies() async throws {
+        let phone = PhoneIdentity()
+        try pairingStore.add(
+            CompanionPairedDevice(
+                deviceId: phone.deviceId,
+                publicKey: phone.deviceId,
+                name: "Test iPhone",
+                pairedAt: Date(),
+                lastSeenAt: Date()
+            )
+        )
+        paneTextProvider.readouts["pane-1"] = CompanionPaneTextReadout(
+            text: "build succeeded",
+            gridCols: 100,
+            gridRows: 30,
+            cursorRow: nil
+        )
+
+        let driver = try await openEncryptedSession(phone: phone)
+        try await driver.send(.sessionHello(CompanionSessionHello(
+            supported: CompanionVersionRange(min: 1, max: 1),
+            deviceName: "Test iPhone",
+            appVersion: "1.0"
+        )))
+        _ = try await driver.receive() // session.ready
+
+        // pane.watch, then a ping/pong to fence: the session processes frames in
+        // order, so a pong proves the watch is registered before we pulse content.
+        try await driver.send(.paneWatch(CompanionPaneWatch(paneId: "pane-1")))
+        try await driver.send(.sessionPing(CompanionSessionPing(ts: 1)))
+        let pong = try await driver.receive()
+        guard case .sessionPong = pong.message else {
+            return XCTFail("Expected session.pong, got \(pong.type)")
+        }
+
+        // A render pulse yields exactly one debounced pane.text.
+        server.ingestPaneContentChange(paneID: "pane-1")
+        let text = try await driver.receive()
+        guard case .paneText(let textPayload) = text.message else {
+            return XCTFail("Expected pane.text, got \(text.type)")
+        }
+        XCTAssertEqual(textPayload.paneId, "pane-1")
+        XCTAssertEqual(textPayload.seq, 1)
+        XCTAssertEqual(textPayload.viewport, "build succeeded")
+        XCTAssertEqual(textPayload.gridCols, 100)
+        XCTAssertEqual(textPayload.gridRows, 30)
+
+        // pane.scrollback request → correlated reply carrying text.
+        try await driver.send(.paneScrollback(CompanionPaneScrollback(paneId: "pane-1", lineLimit: 200)))
+        let scrollback = try await driver.receive()
+        guard case .paneScrollback(let scrollbackPayload) = scrollback.message else {
+            return XCTFail("Expected pane.scrollback, got \(scrollback.type)")
+        }
+        XCTAssertEqual(scrollbackPayload.paneId, "pane-1")
+        XCTAssertEqual(scrollbackPayload.text, "build succeeded")
+        XCTAssertNotNil(scrollback.replyTo) // reply is correlated to the request
 
         driver.close()
         await driver.runTask.value

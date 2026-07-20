@@ -83,4 +83,14 @@ protocol CompanionSessionServicing: AnyObject {
 
     // Input
     func routeInput(_ message: CompanionMessage) -> CompanionInputAck
+
+    // Pane text lane
+    /// Registers a connection's `pane.text` sink; returns a token to unregister
+    /// on disconnect.
+    func addPaneTextWatcher(_ send: @escaping (CompanionPaneText) -> Void) -> CompanionPaneWatchToken
+    func removePaneTextWatcher(_ token: CompanionPaneWatchToken)
+    func watchPane(token: CompanionPaneWatchToken, paneId: String)
+    func unwatchPane(token: CompanionPaneWatchToken, paneId: String)
+    /// One-shot scrollback read for a `pane.scrollback` request.
+    func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback
 }

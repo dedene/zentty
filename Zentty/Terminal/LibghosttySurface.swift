@@ -40,9 +40,13 @@ struct LibghosttySurfaceActionDrainBatch {
     var cellSize: LibghosttySurfaceCoalescedValue<(width: UInt32, height: UInt32)> = .absent
     var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
     var sequence: [LibghosttySurfaceActionQueueEntry] = []
+    /// Set when at least one `.contentChanged` (RENDER) arrived this tick. Kept off
+    /// `sequence` so a burst of renders collapses to a single boolean rather than
+    /// growing the ordered queue.
+    var contentChanged = false
 
     var isEmpty: Bool {
-        sequence.isEmpty
+        sequence.isEmpty && !contentChanged
     }
 }
 
@@ -56,6 +60,7 @@ final class LibghosttySurfaceActionCoalescer {
         var cellSize: LibghosttySurfaceCoalescedValue<(width: UInt32, height: UInt32)> = .absent
         var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
         var sequence: [LibghosttySurfaceActionQueueEntry] = []
+        var contentChanged = false
 
         mutating func record(_ entry: LibghosttySurfaceActionQueueEntry) {
             sequence.removeAll { $0 == entry }
@@ -89,6 +94,8 @@ final class LibghosttySurfaceActionCoalescer {
         case .mouseShape(let shape):
             state.mouseShape = .present(shape)
             state.record(.mouseShape)
+        case .contentChanged:
+            state.contentChanged = true
         case .commandFinished,
              .desktopNotification,
              .startSearch,
@@ -119,7 +126,8 @@ final class LibghosttySurfaceActionCoalescer {
             scrollbar: state.scrollbar,
             cellSize: state.cellSize,
             mouseShape: state.mouseShape,
-            sequence: state.sequence
+            sequence: state.sequence,
+            contentChanged: state.contentChanged
         )
         state.title = .absent
         state.pwd = .absent
@@ -128,6 +136,7 @@ final class LibghosttySurfaceActionCoalescer {
         state.cellSize = .absent
         state.mouseShape = .absent
         state.sequence.removeAll(keepingCapacity: true)
+        state.contentChanged = false
         return batch
     }
 }
@@ -166,6 +175,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         guard let surface else { return 0 }
         let size = ghostty_surface_size(surface)
         return CGFloat(size.cell_height_px)
+    }
+
+    var gridSize: (cols: Int, rows: Int)? {
+        guard let surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        return (Int(size.columns), Int(size.rows))
     }
 
     init(
@@ -690,6 +705,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
 
         flushMetadataIfNeeded()
+
+        // Emit the coalesced content-changed pulse once per drain, after any
+        // metadata/ordered work, so a downstream reader sees settled state.
+        if batch.contentChanged {
+            eventDidOccur(.contentChanged)
+        }
     }
 
     private func apply(payload: LibghosttySurfaceActionPayload) {
@@ -727,6 +748,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             }
         case .mouseShape(let shape):
             hostView?.setMouseCursorShape(shape)
+        case .contentChanged:
+            // Never enqueued as an ordered payload; the coalesced boolean drives
+            // the `.contentChanged` event. Present only for switch exhaustiveness.
+            break
         }
     }
 

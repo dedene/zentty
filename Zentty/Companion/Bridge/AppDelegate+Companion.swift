@@ -52,3 +52,34 @@ extension AppDelegate: CompanionInputSink {
         return controller.sendText(text, to: paneID)
     }
 }
+
+// MARK: - Pane text source
+
+extension AppDelegate: CompanionPaneTextProviding {
+    /// Resolves the pane and reads its viewport (or scrollback) text plus live
+    /// grid size, mirroring the `TmuxCompatIPCHandler` capture path. Returns `nil`
+    /// when the pane is unknown or has no live runtime.
+    func companionReadPaneText(
+        paneId: String,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> CompanionPaneTextReadout? {
+        let paneID = PaneID(paneId)
+        guard let controller = windowController(containingPane: paneID),
+              let text = controller.readText(
+                  from: paneID,
+                  includeScrollback: includeScrollback,
+                  lineLimit: lineLimit
+              )
+        else {
+            return nil
+        }
+        let grid = controller.paneGridSize(from: paneID)
+        return CompanionPaneTextReadout(
+            text: text,
+            gridCols: grid?.cols ?? 0,
+            gridRows: grid?.rows ?? 0,
+            cursorRow: nil
+        )
+    }
+}
