@@ -2249,6 +2249,35 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         viewportDiagnosticsContext = context
     }
 
+    /// Companion control lease (§2.6): pin the surface to a fixed `cols`×`rows`
+    /// grid instead of the laid-out frame. Suspends the frame-derived viewport
+    /// sync, then pushes an explicit pixel size (grid × cell metrics) straight to
+    /// the surface. Returns `false` when no live surface backs the pane yet.
+    @discardableResult
+    func applyLeasedViewport(cols: Int, rows: Int) -> Bool {
+        guard let surfaceController else { return false }
+        let cellWidth = surfaceController.cellWidth
+        let cellHeight = surfaceController.cellHeight
+        guard cellWidth > 0, cellHeight > 0 else { return false }
+
+        setViewportSyncSuspended(true)
+        let size = CGSize(width: CGFloat(cols) * cellWidth, height: CGFloat(rows) * cellHeight)
+        let signature = ViewportSignature(size: size, scale: currentScaleFactor, displayID: currentDisplayID)
+        // Overwrite the cached signature so a later restore (unsuspend) sees a
+        // changed frame-derived size and re-syncs rather than skipping as a dup.
+        lastViewportSignature = signature
+        surfaceController.updateViewport(size: size, scale: signature.scale, displayID: signature.displayID)
+        surfaceController.refresh()
+        return true
+    }
+
+    /// Releases the control lease: resume frame-derived viewport sync, which
+    /// immediately re-measures and restores the pane to its laid-out grid.
+    func releaseLeasedViewport() {
+        setViewportSyncSuspended(false)
+        invalidateAndSyncViewport()
+    }
+
     var viewportDiagnosticsContextForSurface: TerminalViewportDiagnostics.Context {
         var context = viewportDiagnosticsContext
         context.surfaceBounds = bounds

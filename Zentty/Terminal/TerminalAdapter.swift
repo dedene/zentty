@@ -221,6 +221,21 @@ protocol TerminalTextReading: AnyObject {
     var gridSize: (cols: Int, rows: Int)? { get }
 }
 
+/// Fixed-grid control-lease takeover (companion §2.6). While leased, the pane's
+/// surface is sized to a phone-measured `cols`×`rows` grid instead of its
+/// laid-out AppKit frame, and desktop rendering is suspended. Adopted by the
+/// libghostty adapter; other adapters (mocks) inherit the no-op default.
+@MainActor
+protocol TerminalControlLeasing: AnyObject {
+    /// Fixes the surface grid to `cols`×`rows` (pixel size = grid × cell metrics),
+    /// stops honoring the frame-derived viewport, and occludes the desktop
+    /// surface. Returns `false` when there is no live surface to resize.
+    @discardableResult
+    func applyControlLease(cols: Int, rows: Int) -> Bool
+    /// Restores the frame-derived viewport and re-enables desktop rendering.
+    func releaseControlLease()
+}
+
 @MainActor
 protocol TerminalSearchControlling: AnyObject {
     var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }

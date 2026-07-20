@@ -420,11 +420,13 @@ private final class FakeRelayServices: CompanionSessionServicing {
     private let paneTextProvider = EmptyPaneTextProvider()
     private let feed: CompanionDashboardFeed
     private let paneTextFeed: CompanionPaneTextFeed
+    private let leaseManager: CompanionLeaseManager
 
     init(identity: CompanionDeviceIdentity) {
         self.identity = identity
         self.feed = CompanionDashboardFeed(provider: provider)
         self.paneTextFeed = CompanionPaneTextFeed(provider: paneTextProvider)
+        self.leaseManager = CompanionLeaseManager(applier: nil)
     }
 
     var localDeviceName: String { "TestMac" }
@@ -469,5 +471,35 @@ private final class FakeRelayServices: CompanionSessionServicing {
 
     func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback {
         paneTextFeed.scrollback(paneId: paneId, lineLimit: lineLimit)
+    }
+
+    func addLeaseClient(_ send: @escaping (CompanionLeaseRevoked) -> Void) -> CompanionLeaseClientToken {
+        leaseManager.addClient(send)
+    }
+
+    func removeLeaseClient(_ token: CompanionLeaseClientToken) {
+        leaseManager.removeClient(token)
+    }
+
+    func leaseRequest(
+        token: CompanionLeaseClientToken,
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        deviceName: String
+    ) -> CompanionLeaseGrant {
+        leaseManager.request(token: token, paneId: paneId, cols: cols, rows: rows, deviceName: deviceName)
+    }
+
+    func leaseHeartbeat(token: CompanionLeaseClientToken, leaseId: String) {
+        leaseManager.heartbeat(token: token, leaseId: leaseId)
+    }
+
+    func leaseResize(leaseId: String, cols: Int, rows: Int) {
+        leaseManager.resize(leaseId: leaseId, cols: cols, rows: rows)
+    }
+
+    func leaseRelease(leaseId: String) {
+        leaseManager.release(leaseId: leaseId)
     }
 }

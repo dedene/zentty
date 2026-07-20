@@ -38,6 +38,19 @@ final class CompanionBridgeTests: XCTestCase {
         }
     }
 
+    private final class FakeLeaseApplier: CompanionLeaseTakeoverApplying {
+        private(set) var applied: [(paneId: String, cols: Int, rows: Int, deviceName: String)] = []
+        private(set) var restored: [String] = []
+        var onTakeBackByPane: [String: () -> Void] = [:]
+        @discardableResult
+        func companionApplyLeaseTakeover(paneId: String, cols: Int, rows: Int, deviceName: String, onTakeBack: @escaping () -> Void) -> Bool {
+            applied.append((paneId, cols, rows, deviceName))
+            onTakeBackByPane[paneId] = onTakeBack
+            return true
+        }
+        func companionRestoreLeasedPane(paneId: String) { restored.append(paneId) }
+    }
+
     // MARK: - Fixture
 
     private var pairingStore: CompanionPairingStore!
@@ -46,6 +59,8 @@ final class CompanionBridgeTests: XCTestCase {
     private var feed: CompanionDashboardFeed!
     private var paneTextProvider: FakePaneTextProvider!
     private var paneTextFeed: CompanionPaneTextFeed!
+    private var leaseApplier: FakeLeaseApplier!
+    private var leaseManager: CompanionLeaseManager!
     private var server: CompanionBridgeServer!
     private var macIdentity: CompanionDeviceIdentity!
     private var tempDir: URL!
@@ -70,12 +85,15 @@ final class CompanionBridgeTests: XCTestCase {
         feed = CompanionDashboardFeed(provider: provider, debounceInterval: 0.01)
         paneTextProvider = FakePaneTextProvider()
         paneTextFeed = CompanionPaneTextFeed(provider: paneTextProvider, debounceInterval: 0.01)
+        leaseApplier = FakeLeaseApplier()
+        leaseManager = CompanionLeaseManager(applier: leaseApplier)
         server = CompanionBridgeServer(
             identity: macIdentity,
             pairingStore: pairingStore,
             dashboardFeed: feed,
             paneTextFeed: paneTextFeed,
             inputRouter: CompanionInputRouter(sink: sink),
+            leaseManager: leaseManager,
             isFeatureEnabled: { true }
         )
     }
@@ -260,6 +278,53 @@ final class CompanionBridgeTests: XCTestCase {
         XCTAssertEqual(scrollbackPayload.paneId, "pane-1")
         XCTAssertEqual(scrollbackPayload.text, "build succeeded")
         XCTAssertNotNil(scrollback.replyTo) // reply is correlated to the request
+
+        driver.close()
+        await driver.runTask.value
+    }
+
+    func testLeaseRequestGrantsAppliesTakeoverAndTakebackRevokes() async throws {
+        let phone = PhoneIdentity()
+        try pairingStore.add(
+            CompanionPairedDevice(
+                deviceId: phone.deviceId,
+                publicKey: phone.deviceId,
+                name: "Peter's iPhone",
+                pairedAt: Date(),
+                lastSeenAt: Date()
+            )
+        )
+
+        let driver = try await openEncryptedSession(phone: phone)
+        try await driver.send(.sessionHello(CompanionSessionHello(
+            supported: CompanionVersionRange(min: 1, max: 1),
+            deviceName: "Peter's iPhone",
+            appVersion: "1.0"
+        )))
+        _ = try await driver.receive() // session.ready
+
+        // lease.request → lease.grant (correlated), takeover applied to the pane.
+        try await driver.send(.leaseRequest(CompanionLeaseRequest(paneId: "pane-1", cols: 45, rows: 30)))
+        let granted = try await driver.receive()
+        guard case .leaseGrant(let grant) = granted.message else {
+            return XCTFail("Expected lease.grant, got \(granted.type)")
+        }
+        XCTAssertEqual(grant.paneId, "pane-1")
+        XCTAssertEqual(grant.effective, CompanionGrid(cols: 45, rows: 30))
+        XCTAssertTrue(grant.isCurrentClientLimiting) // in-range: clamp changed nothing
+        XCTAssertNotNil(granted.replyTo)
+        XCTAssertEqual(leaseApplier.applied.count, 1)
+        XCTAssertEqual(leaseApplier.applied.first?.deviceName, "Peter's iPhone")
+
+        // Desktop take-back revokes the lease over the wire and restores the pane.
+        leaseApplier.onTakeBackByPane["pane-1"]?()
+        let revoked = try await driver.receive()
+        guard case .leaseRevoked(let payload) = revoked.message else {
+            return XCTFail("Expected lease.revoked, got \(revoked.type)")
+        }
+        XCTAssertEqual(payload.leaseId, grant.leaseId)
+        XCTAssertEqual(payload.reason, .takeback)
+        XCTAssertEqual(leaseApplier.restored, ["pane-1"])
 
         driver.close()
         await driver.runTask.value

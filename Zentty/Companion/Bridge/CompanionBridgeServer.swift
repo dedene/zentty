@@ -24,6 +24,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     private let dashboardFeed: CompanionDashboardFeed
     private let paneTextFeed: CompanionPaneTextFeed
     private let inputRouter: CompanionInputRouter
+    private let leaseManager: CompanionLeaseManager
     private let isFeatureEnabled: () -> Bool
     private let relayUrlProvider: () -> String
 
@@ -47,6 +48,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         dashboardFeed: CompanionDashboardFeed,
         paneTextFeed: CompanionPaneTextFeed,
         inputRouter: CompanionInputRouter,
+        leaseManager: CompanionLeaseManager,
         isFeatureEnabled: @escaping () -> Bool,
         relayUrlProvider: @escaping () -> String = { "" }
     ) {
@@ -55,6 +57,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         self.dashboardFeed = dashboardFeed
         self.paneTextFeed = paneTextFeed
         self.inputRouter = inputRouter
+        self.leaseManager = leaseManager
         self.isFeatureEnabled = isFeatureEnabled
         self.relayUrlProvider = relayUrlProvider
     }
@@ -81,6 +84,9 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     func stop() {
         stopListener()
         stopRelay()
+        // Nothing about leases is persisted; ending them here restores every pane
+        // so a quit/relaunch starts with no stuck placeholders.
+        leaseManager.revokeAll()
     }
 
     // MARK: - Relay transport gating
@@ -208,9 +214,10 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     }
 
     /// Forwarded on pane close (shell exit) so the feed drops any watch before the
-    /// runtime is torn down.
+    /// runtime is torn down, and any lease on the pane is revoked (`pane_closed`).
     func ingestPaneClosed(paneID: String) {
         paneTextFeed.handlePaneClosed(paneId: paneID)
+        leaseManager.handlePaneClosed(paneId: paneID)
     }
 
     // MARK: - Pairing offer (settings UI)
@@ -363,5 +370,37 @@ final class CompanionBridgeServer: CompanionSessionServicing {
 
     func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback {
         paneTextFeed.scrollback(paneId: paneId, lineLimit: lineLimit)
+    }
+
+    // MARK: Control lease
+
+    func addLeaseClient(_ send: @escaping (CompanionLeaseRevoked) -> Void) -> CompanionLeaseClientToken {
+        leaseManager.addClient(send)
+    }
+
+    func removeLeaseClient(_ token: CompanionLeaseClientToken) {
+        leaseManager.removeClient(token)
+    }
+
+    func leaseRequest(
+        token: CompanionLeaseClientToken,
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        deviceName: String
+    ) -> CompanionLeaseGrant {
+        leaseManager.request(token: token, paneId: paneId, cols: cols, rows: rows, deviceName: deviceName)
+    }
+
+    func leaseHeartbeat(token: CompanionLeaseClientToken, leaseId: String) {
+        leaseManager.heartbeat(token: token, leaseId: leaseId)
+    }
+
+    func leaseResize(leaseId: String, cols: Int, rows: Int) {
+        leaseManager.resize(leaseId: leaseId, cols: cols, rows: rows)
+    }
+
+    func leaseRelease(leaseId: String) {
+        leaseManager.release(leaseId: leaseId)
     }
 }

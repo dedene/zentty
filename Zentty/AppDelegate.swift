@@ -230,12 +230,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         let inputRouter = CompanionInputRouter(sink: self)
+        let leaseManager = CompanionLeaseManager(applier: self)
         let bridge = CompanionBridgeServer(
             identity: identity,
             pairingStore: pairingStore,
             dashboardFeed: dashboardFeed,
             paneTextFeed: paneTextFeed,
             inputRouter: inputRouter,
+            leaseManager: leaseManager,
             isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false },
             relayUrlProvider: { [weak self] in self?.configStore.current.companion.relayUrl ?? "" }
         )

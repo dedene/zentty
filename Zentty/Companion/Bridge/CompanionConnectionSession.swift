@@ -25,6 +25,7 @@ final class CompanionSession {
     private var didCompleteHello = false
     private var dashboardToken: CompanionDashboardSubscriptionToken?
     private var paneTextToken: CompanionPaneWatchToken?
+    private var leaseClientToken: CompanionLeaseClientToken?
 
     /// The paired device this connection authenticated as, once the crypto
     /// handshake resolves it. Lets the bridge drop a live session when its device
@@ -69,6 +70,14 @@ final class CompanionSession {
         if let paneTextToken {
             services?.removePaneTextWatcher(paneTextToken)
             self.paneTextToken = nil
+        }
+        if let leaseClientToken {
+            // Disconnect is treated as missed heartbeats: this only detaches
+            // delivery, it does NOT drop any lease this connection holds. The
+            // lease manager's expiry timer keeps running (transport blips must not
+            // strand the pane); a reconnect that heartbeats the same lease rebinds.
+            services?.removeLeaseClient(leaseClientToken)
+            self.leaseClientToken = nil
         }
         connection.close()
     }
@@ -299,6 +308,43 @@ final class CompanionSession {
             let reply = services.paneScrollback(paneId: payload.paneId, lineLimit: payload.lineLimit)
             try await sendSealed(.paneScrollback(reply), replyTo: envelope.id)
 
+        case .leaseRequest(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            let token = ensureLeaseClient(services: services)
+            let grant = services.leaseRequest(
+                token: token,
+                paneId: payload.paneId,
+                cols: payload.cols,
+                rows: payload.rows,
+                deviceName: leaseDeviceName(services: services)
+            )
+            try await sendSealed(.leaseGrant(grant), replyTo: envelope.id)
+
+        case .leaseHeartbeat(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            let token = ensureLeaseClient(services: services)
+            services.leaseHeartbeat(token: token, leaseId: payload.leaseId)
+
+        case .leaseResize(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            services.leaseResize(leaseId: payload.leaseId, cols: payload.cols, rows: payload.rows)
+
+        case .leaseRelease(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            services.leaseRelease(leaseId: payload.leaseId)
+
         default:
             try await sendSealed(
                 .sessionError(CompanionSessionError(code: "unsupported_type", message: "Unsupported message type: \(envelope.type)", fatal: false)),
@@ -352,6 +398,40 @@ final class CompanionSession {
         } catch {
             companionSessionLogger.error(
                 "Failed to send pane text: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    // MARK: - Control lease
+
+    /// Lazily registers this connection's `lease.revoked` sink, once, and returns
+    /// its token. `lease.request` / `lease.heartbeat` reuse it.
+    private func ensureLeaseClient(services: any CompanionSessionServicing) -> CompanionLeaseClientToken {
+        if let leaseClientToken { return leaseClientToken }
+        let token = services.addLeaseClient { [weak self] revoked in
+            Task { [weak self] in await self?.deliverLeaseRevoked(revoked) }
+        }
+        leaseClientToken = token
+        return token
+    }
+
+    /// The controlling device's display name for the placeholder, resolved from
+    /// the paired-device record (falls back to a generic label).
+    private func leaseDeviceName(services: any CompanionSessionServicing) -> String {
+        guard let pairedDeviceId,
+              let device = services.pairedDevice(withId: pairedDeviceId)
+        else {
+            return "a paired device"
+        }
+        return device.name
+    }
+
+    private func deliverLeaseRevoked(_ revoked: CompanionLeaseRevoked) async {
+        do {
+            try await sendSealed(.leaseRevoked(revoked))
+        } catch {
+            companionSessionLogger.error(
+                "Failed to send lease revoked: \(String(describing: error), privacy: .public)"
             )
         }
     }

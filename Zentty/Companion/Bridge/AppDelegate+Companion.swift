@@ -53,6 +53,37 @@ extension AppDelegate: CompanionInputSink {
     }
 }
 
+// MARK: - Lease takeover applier
+
+extension AppDelegate: CompanionLeaseTakeoverApplying {
+    /// Resolves the pane and applies the control-lease takeover to its live
+    /// terminal host (fixed grid + occlusion + placeholder). Returns `false` when
+    /// the pane is unknown or has no live runtime.
+    @discardableResult
+    func companionApplyLeaseTakeover(
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        deviceName: String,
+        onTakeBack: @escaping () -> Void
+    ) -> Bool {
+        let paneID = PaneID(paneId)
+        guard let controller = windowController(containingPane: paneID) else { return false }
+        return controller.applyControlLease(
+            to: paneID,
+            cols: cols,
+            rows: rows,
+            deviceName: deviceName,
+            onTakeBack: onTakeBack
+        )
+    }
+
+    func companionRestoreLeasedPane(paneId: String) {
+        let paneID = PaneID(paneId)
+        windowController(containingPane: paneID)?.restoreControlLease(from: paneID)
+    }
+}
+
 // MARK: - Pane text source
 
 extension AppDelegate: CompanionPaneTextProviding {

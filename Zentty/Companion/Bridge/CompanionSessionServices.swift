@@ -93,4 +93,21 @@ protocol CompanionSessionServicing: AnyObject {
     func unwatchPane(token: CompanionPaneWatchToken, paneId: String)
     /// One-shot scrollback read for a `pane.scrollback` request.
     func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback
+
+    // Control lease (takeover)
+    /// Registers a connection's `lease.revoked` sink; returns a token to route
+    /// revocations back and rebind on heartbeat.
+    func addLeaseClient(_ send: @escaping (CompanionLeaseRevoked) -> Void) -> CompanionLeaseClientToken
+    func removeLeaseClient(_ token: CompanionLeaseClientToken)
+    /// Grants (or supersedes) a per-pane control lease and applies the takeover.
+    func leaseRequest(
+        token: CompanionLeaseClientToken,
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        deviceName: String
+    ) -> CompanionLeaseGrant
+    func leaseHeartbeat(token: CompanionLeaseClientToken, leaseId: String)
+    func leaseResize(leaseId: String, cols: Int, rows: Int)
+    func leaseRelease(leaseId: String)
 }

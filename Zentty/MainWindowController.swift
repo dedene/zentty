@@ -1171,6 +1171,35 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return reader.readText(includeScrollback: includeScrollback, lineLimit: lineLimit)
     }
 
+    /// Applies a companion control-lease takeover (§2.6) to a pane: pins its
+    /// surface to the phone's fixed grid, occludes the desktop surface, and shows
+    /// the "controlled by <device>" placeholder. Returns `false` when the pane is
+    /// unknown or has no live runtime.
+    @discardableResult
+    func applyControlLease(
+        to paneID: PaneID,
+        cols: Int,
+        rows: Int,
+        deviceName: String,
+        onTakeBack: @escaping () -> Void
+    ) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+            return false
+        }
+        return runtime.hostView.beginControlLease(
+            cols: cols,
+            rows: rows,
+            deviceName: deviceName,
+            onTakeBack: onTakeBack
+        )
+    }
+
+    /// Restores a pane from a control lease to its layout-derived size and removes
+    /// the placeholder. Safe to call for an unknown / already-restored pane.
+    func restoreControlLease(from paneID: PaneID) {
+        runtimeRegistry.runtime(for: paneID)?.hostView.endControlLease()
+    }
+
     /// Live grid dimensions (columns × rows) for a pane, or `nil` when the pane is
     /// unknown or has no live runtime. Used by the companion pane-text feed to
     /// stamp `pane.text` with `gridCols`/`gridRows`.

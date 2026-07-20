@@ -85,7 +85,7 @@ protocol LibghosttySurfaceTextReading: AnyObject {
 }
 
 @MainActor
-final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading {
+final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading, TerminalControlLeasing {
     private let runtime: any LibghosttyRuntimeProviding
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
@@ -186,6 +186,24 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
 
     var gridSize: (cols: Int, rows: Int)? {
         (surfaceController as? LibghosttySurfaceTextReading)?.gridSize
+    }
+
+    // MARK: - Control lease (companion §2.6)
+
+    @discardableResult
+    func applyControlLease(cols: Int, rows: Int) -> Bool {
+        guard hostView.applyLeasedViewport(cols: cols, rows: rows) else { return false }
+        // Suspend desktop rendering while the phone owns the surface. The
+        // placeholder overlay covers the pane regardless, so this is a best-effort
+        // optimization rather than the correctness guarantee.
+        surfaceController?.setOcclusionVisible(false)
+        return true
+    }
+
+    func releaseControlLease() {
+        hostView.releaseLeasedViewport()
+        // Restore occlusion to whatever the pane's current activity implies.
+        surfaceController?.setOcclusionVisible(lastSurfaceActivity.isVisible)
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
