@@ -37,6 +37,30 @@ export {
   TranscriptEntry,
 } from './types';
 
+// Relay transport framing (device <-> relay; not the E2E envelope layer).
+export {
+  Base64Url,
+  RelayChallenge,
+  RelayAuth,
+  RelayReady,
+  RelayDenied,
+  RelayFrame,
+  RelayPeerStatus,
+  RelayWatch,
+  RelayErrorCode,
+  RELAY_ERROR_CODES,
+  RelayError,
+  RELAY_FRAME,
+  RELAY_FRAME_TYPES,
+  type RelayFrameType,
+  RelayFrameSchema,
+  type AnyRelayFrame,
+  UnknownRelayFrameError,
+  parseRelayFrame,
+  safeParseRelayFrame,
+  type SafeRelayFrameResult,
+} from './relay';
+
 // Families.
 export * from './families/pairing';
 export * from './families/session';

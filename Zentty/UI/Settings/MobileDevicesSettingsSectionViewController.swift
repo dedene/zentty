@@ -325,9 +325,11 @@ final class MobileDevicesSettingsSectionViewController: SettingsScrollableSectio
     private func handlePairNewDevice(_ sender: Any?) {
         guard let bridge = bridgeProvider(), let window = view.window else { return }
 
+        let configuredRelayURL = configStore.current.companion.relayUrl
         let session = CompanionPairingSession(mint: {
-            // LAN-only until the relay lands in M2, so the offer carries no relay URL.
-            bridge.makePairingOffer(relayURL: "")
+            // Offer carries the configured relay URL (empty = LAN-only) so the
+            // phone can reach this Mac off-network when a relay is set.
+            bridge.makePairingOffer(relayURL: configuredRelayURL)
         })
         let sheet = MobileDevicesPairingSheetViewController(
             session: session,

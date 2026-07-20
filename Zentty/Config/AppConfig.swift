@@ -276,8 +276,12 @@ struct AppConfig: Equatable, Sendable {
     /// device is enough to make the Mac reachable.
     struct Companion: Equatable, Sendable {
         var enabled: Bool
+        /// Relay URL the Mac dials for remote (off-LAN) reachability. Empty
+        /// disables the relay leg entirely (LAN-only). Included in pairing offers
+        /// when set so the phone learns where to reach this Mac off-network.
+        var relayUrl: String
 
-        static let `default` = Companion(enabled: true)
+        static let `default` = Companion(enabled: true, relayUrl: "")
     }
 
     /// Per-agent enable/disable state for Zentty's CLI integrations. Persistent

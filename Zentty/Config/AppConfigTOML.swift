@@ -194,6 +194,7 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[companion]")
         lines.append("enabled = \(config.companion.enabled)")
+        lines.append("relay_url = \(encode(string: config.companion.relayUrl))")
 
         lines.append("")
         lines.append("[agent_integrations]")
@@ -986,6 +987,9 @@ enum AppConfigTOML {
         case "enabled":
             guard let value = decodeBool(assignment.value) else { return false }
             config.companion.enabled = value
+        case "relay_url":
+            guard let value = decodeString(assignment.value) else { return false }
+            config.companion.relayUrl = value
         default:
             return true
         }

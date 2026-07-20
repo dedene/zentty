@@ -28,6 +28,17 @@ enum CompanionBase64URL {
         }
         return Data(base64Encoded: s)
     }
+
+    /// Non-empty and spelled with only unpadded base64url characters
+    /// (`[A-Za-z0-9_-]`). Mirrors the `Base64Url` zod schema in
+    /// `companion/wire/src/relay.ts` — the relay transport rejects a padded or
+    /// empty string outright rather than accepting-then-normalizing it.
+    private static let unpaddedCharacters = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    )
+    static func isValidUnpadded(_ string: String) -> Bool {
+        !string.isEmpty && string.unicodeScalars.allSatisfy { unpaddedCharacters.contains($0) }
+    }
 }
 
 // MARK: - Keychain seam

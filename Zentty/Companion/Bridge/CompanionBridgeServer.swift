@@ -24,11 +24,17 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     private let dashboardFeed: CompanionDashboardFeed
     private let inputRouter: CompanionInputRouter
     private let isFeatureEnabled: () -> Bool
+    private let relayUrlProvider: () -> String
 
     private let listenerQueue = DispatchQueue(label: "be.zenjoy.zentty.companion-bridge")
     private var listener: NWListener?
     private var activeSessions: [CompanionSession] = []
     private var advertisedPort: UInt16?
+
+    private var relayTransport: CompanionRelayTransport?
+    /// The relay URL the live transport was built for, so a settings change swaps
+    /// transports instead of leaking the old one.
+    private var relayTransportURL: String?
 
     /// Fired on the main actor whenever the paired-device set changes (pair /
     /// revoke), so the settings UI can refresh its list.
@@ -39,13 +45,15 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         pairingStore: CompanionPairingStore,
         dashboardFeed: CompanionDashboardFeed,
         inputRouter: CompanionInputRouter,
-        isFeatureEnabled: @escaping () -> Bool
+        isFeatureEnabled: @escaping () -> Bool,
+        relayUrlProvider: @escaping () -> String = { "" }
     ) {
         self.identity = identity
         self.pairingStore = pairingStore
         self.dashboardFeed = dashboardFeed
         self.inputRouter = inputRouter
         self.isFeatureEnabled = isFeatureEnabled
+        self.relayUrlProvider = relayUrlProvider
     }
 
     /// Installs the process-wide accessor. Call once from `AppDelegate`.
@@ -64,10 +72,57 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         } else {
             stopListener()
         }
+        refreshRelayState(shouldRun: shouldRun)
     }
 
     func stop() {
         stopListener()
+        stopRelay()
+    }
+
+    // MARK: - Relay transport gating
+
+    /// Starts, stops, or swaps the outbound relay transport under the same
+    /// paired-device + feature gating as the listener, plus a configured relay
+    /// URL. Idempotent; a URL change tears down the old transport and dials anew.
+    private func refreshRelayState(shouldRun: Bool) {
+        let urlString = relayUrlProvider()
+        guard
+            shouldRun,
+            !urlString.isEmpty,
+            let url = URL(string: urlString),
+            url.scheme == "ws" || url.scheme == "wss"
+        else {
+            if !urlString.isEmpty, relayTransport == nil {
+                companionBridgeLogger.error(
+                    "Ignoring companion relay URL (must be ws:// or wss://): \(urlString, privacy: .public)"
+                )
+            }
+            stopRelay()
+            return
+        }
+
+        if relayTransportURL == urlString, relayTransport != nil { return }
+
+        stopRelay()
+        let transport = CompanionRelayTransport(url: url, services: self)
+        transport.onPeerStatus = { deviceId, online in
+            companionBridgeLogger.info(
+                "Relay peer \(deviceId, privacy: .public) online=\(online, privacy: .public)"
+            )
+        }
+        transport.start()
+        relayTransport = transport
+        relayTransportURL = urlString
+        companionBridgeLogger.info("Companion relay transport starting")
+    }
+
+    private func stopRelay() {
+        guard let relayTransport else { return }
+        relayTransport.stop()
+        self.relayTransport = nil
+        relayTransportURL = nil
+        companionBridgeLogger.info("Companion relay transport stopped")
     }
 
     private func startListenerIfNeeded() {
@@ -145,8 +200,15 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     /// Mints a one-time pairing offer for a QR code. The listener is started so a
     /// LAN hint (host + live port) can be included even before the first device
     /// is paired.
-    func makePairingOffer(relayURL: String, ttl: TimeInterval = CompanionPairingStore.defaultOfferTTL) -> CompanionPairingOffer {
+    /// - Parameter relayURL: overrides the configured relay URL for the offer;
+    ///   defaults to `companion.relayUrl`, so a configured relay is advertised to
+    ///   the phone automatically and LAN-only Macs mint an empty `relayUrl`.
+    func makePairingOffer(
+        relayURL: String? = nil,
+        ttl: TimeInterval = CompanionPairingStore.defaultOfferTTL
+    ) -> CompanionPairingOffer {
         startListenerIfNeeded()
+        let relayURL = relayURL ?? relayUrlProvider()
         let minted = pairingStore.mintOffer(ttl: ttl)
         let lanHint = advertisedPort.map {
             CompanionLanHint(host: ProcessInfo.processInfo.hostName, port: Int($0))
@@ -187,6 +249,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         for session in activeSessions where session.pairedDeviceId == deviceId {
             session.requestClose()
         }
+        relayTransport?.closePeerSession(deviceId: deviceId)
         onPairedDevicesChanged?(pairingStore.devices())
         refreshAdvertisingState()
     }

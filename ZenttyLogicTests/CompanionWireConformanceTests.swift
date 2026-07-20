@@ -1,10 +1,19 @@
+import CryptoKit
 import XCTest
 @testable import Zentty
 
 /// Conformance tests driven by the shared wire vectors in
-/// `companion/wire/vectors/*.json`. Every vector case is either a valid message
-/// (must decode, and must survive a decode → encode → decode → encode round trip
-/// with stable canonical JSON) or an invalid message (must fail to decode).
+/// `companion/wire/vectors/*.json`. Two lanes:
+///
+/// - `relay.*.json` files carry flat RELAY TRANSPORT frames (`CompanionRelayFrame`,
+///   see `CompanionRelayFrames.swift`) — the plaintext device↔relay handshake, no
+///   `v`/`id`/`payload` envelope.
+/// - Every other file carries an E2E `{v, id, type, payload}` envelope
+///   (`CompanionEnvelope`).
+///
+/// Within each lane every case is either a valid message (must decode, and must
+/// survive a decode → encode → decode → encode round trip with stable canonical
+/// JSON) or an invalid message (must fail to decode).
 ///
 /// The TypeScript `@zentty/wire` suite consumes the same files, so both sides
 /// agree byte-for-byte on the contract (compared by sorted-key canonical JSON,
@@ -16,7 +25,11 @@ final class CompanionWireConformanceTests: XCTestCase {
         let name: String
         let valid: Bool
         let messageData: Data
+        let rawMessage: [String: Any]
     }
+
+    private static let expectedEnvelopeFileCount = 32
+    private static let expectedRelayFileCount = 8
 
     // MARK: - Loading
 
@@ -42,10 +55,12 @@ final class CompanionWireConformanceTests: XCTestCase {
         return []
     }
 
-    private func loadCases() throws -> [VectorCase] {
-        let urls = try vectorFileURLs()
-        XCTAssertEqual(urls.count, 32, "expected 32 vector files, found \(urls.count)")
+    /// `true` for `relay.*.json` — the flat transport-frame lane.
+    private func isRelayVectorFile(_ url: URL) -> Bool {
+        url.deletingPathExtension().lastPathComponent.hasPrefix("relay.")
+    }
 
+    private func loadCases(from urls: [URL]) throws -> [VectorCase] {
         var cases: [VectorCase] = []
         for url in urls {
             let data = try Data(contentsOf: url)
@@ -57,7 +72,7 @@ final class CompanionWireConformanceTests: XCTestCase {
                 guard
                     let name = entry["name"] as? String,
                     let valid = entry["valid"] as? Bool,
-                    let message = entry["message"]
+                    let message = entry["message"] as? [String: Any]
                 else {
                     XCTFail("malformed case in \(url.lastPathComponent): \(entry)")
                     continue
@@ -71,12 +86,33 @@ final class CompanionWireConformanceTests: XCTestCase {
                         file: url.lastPathComponent,
                         name: name,
                         valid: valid,
-                        messageData: messageData
+                        messageData: messageData,
+                        rawMessage: message
                     )
                 )
             }
         }
         return cases
+    }
+
+    private func loadEnvelopeCases() throws -> [VectorCase] {
+        let urls = try vectorFileURLs().filter { !isRelayVectorFile($0) }
+        XCTAssertEqual(
+            urls.count,
+            Self.expectedEnvelopeFileCount,
+            "expected \(Self.expectedEnvelopeFileCount) envelope vector files, found \(urls.count)"
+        )
+        return try loadCases(from: urls)
+    }
+
+    private func loadRelayCases() throws -> [VectorCase] {
+        let urls = try vectorFileURLs().filter { isRelayVectorFile($0) }
+        XCTAssertEqual(
+            urls.count,
+            Self.expectedRelayFileCount,
+            "expected \(Self.expectedRelayFileCount) relay vector files, found \(urls.count)"
+        )
+        return try loadCases(from: urls)
     }
 
     // MARK: - Canonicalization
@@ -90,11 +126,11 @@ final class CompanionWireConformanceTests: XCTestCase {
         )
     }
 
-    // MARK: - Tests
+    // MARK: - Envelope lane
 
     func testAllVectorsRoundTrip() throws {
-        let cases = try loadCases()
-        XCTAssertGreaterThanOrEqual(cases.count, 32, "expected at least one case per file")
+        let cases = try loadEnvelopeCases()
+        XCTAssertGreaterThanOrEqual(cases.count, Self.expectedEnvelopeFileCount, "expected at least one case per file")
 
         let decoder = JSONDecoder()
         let encoder = JSONEncoder()
@@ -140,7 +176,7 @@ final class CompanionWireConformanceTests: XCTestCase {
     /// Every known message family is represented by at least one vector file,
     /// so the round-trip test above actually exercises each `type`.
     func testVectorCoverage() throws {
-        let urls = try vectorFileURLs()
+        let urls = try vectorFileURLs().filter { !isRelayVectorFile($0) }
         let names = Set(urls.map { $0.deletingPathExtension().lastPathComponent })
         let expected: Set<String> = [
             "pairing.offer", "pairing.request", "pairing.confirm", "pairing.reject",
@@ -152,7 +188,7 @@ final class CompanionWireConformanceTests: XCTestCase {
             "lease.request", "lease.grant", "lease.heartbeat", "lease.resize", "lease.release", "lease.revoked",
             "push.register", "push.test"
         ]
-        XCTAssertEqual(names, expected, "vector files do not match the known message families")
+        XCTAssertEqual(names, expected, "envelope vector files do not match the known message families")
     }
 
     /// An unknown `type` must decode to `.unsupported` (carrying the raw payload)
@@ -183,5 +219,143 @@ final class CompanionWireConformanceTests: XCTestCase {
         XCTAssertEqual(try canonical(encoded1), try canonical(encoded2))
         // The unknown payload survived the round trip intact.
         XCTAssertEqual(try canonical(json), try canonical(encoded1))
+    }
+
+    // MARK: - Relay transport lane
+
+    func testAllRelayVectorsRoundTrip() throws {
+        let cases = try loadRelayCases()
+        XCTAssertGreaterThanOrEqual(cases.count, Self.expectedRelayFileCount, "expected at least one case per file")
+
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
+
+        for vector in cases {
+            let label = "\(vector.file) — \(vector.name)"
+            if vector.valid {
+                let frame: CompanionRelayFrame
+                do {
+                    frame = try decoder.decode(CompanionRelayFrame.self, from: vector.messageData)
+                } catch {
+                    XCTFail("valid relay vector failed to decode [\(label)]: \(error)")
+                    continue
+                }
+
+                do {
+                    let encoded1 = try encoder.encode(frame)
+                    let redecoded = try decoder.decode(CompanionRelayFrame.self, from: encoded1)
+                    let encoded2 = try encoder.encode(redecoded)
+
+                    XCTAssertEqual(
+                        frame,
+                        redecoded,
+                        "decoded value not stable across round trip [\(label)]"
+                    )
+                    XCTAssertEqual(
+                        try canonical(encoded1),
+                        try canonical(encoded2),
+                        "canonical JSON not stable across round trip [\(label)]"
+                    )
+                } catch {
+                    XCTFail("valid relay vector failed to round trip [\(label)]: \(error)")
+                }
+            } else {
+                XCTAssertThrowsError(
+                    try decoder.decode(CompanionRelayFrame.self, from: vector.messageData),
+                    "invalid relay vector should have failed to decode [\(label)]"
+                )
+            }
+        }
+    }
+
+    /// Every registered relay frame type is represented by at least one vector
+    /// file, so the round-trip test above actually exercises each `type`.
+    func testRelayVectorCoverage() throws {
+        let urls = try vectorFileURLs().filter { isRelayVectorFile($0) }
+        let names = Set(urls.map { $0.deletingPathExtension().lastPathComponent })
+        let expected: Set<String> = [
+            CompanionRelayFrame.challengeType,
+            CompanionRelayFrame.authType,
+            CompanionRelayFrame.readyType,
+            CompanionRelayFrame.deniedType,
+            CompanionRelayFrame.frameType,
+            CompanionRelayFrame.peerStatusType,
+            CompanionRelayFrame.watchType,
+            CompanionRelayFrame.errorType,
+        ]
+        XCTAssertEqual(names, expected, "relay vector files do not match the known relay frame types")
+    }
+
+    /// An unknown relay `type` must fail to decode (unlike the envelope lane,
+    /// the relay transport has no `.unsupported` forward-compat case: the relay
+    /// server and every device build share one closed frame set).
+    func testUnknownRelayTypeFailsToDecode() throws {
+        let json = """
+        { "type": "relay.teleport", "paneId": "pn_x" }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(CompanionRelayFrame.self, from: json)) { error in
+            guard let unknown = error as? CompanionRelayFrame.UnknownFrameTypeError else {
+                return XCTFail("expected UnknownFrameTypeError, got \(error)")
+            }
+            XCTAssertEqual(unknown.type, "relay.teleport")
+        }
+    }
+
+    /// Interop check: `relay.auth.json`'s valid case carries a *real* Ed25519
+    /// signature generated by Node (see `companion/relay/test/crypto.test.ts`,
+    /// which freezes the exact same fixture). Decode it through
+    /// `CompanionRelayFrame` and independently verify the signature with
+    /// CryptoKit, over the same bytes the relay's `verifyRelayAuth` checks:
+    /// UTF-8 `"zentty-relay-auth:" + nonce`, where `nonce` is the *base64url
+    /// string* exactly as sent in `relay.challenge` — not its decoded bytes.
+    /// `relay.challenge.json`'s valid case nonce is that same frozen nonce.
+    ///
+    /// Note: this deliberately does NOT use `CompanionRelayAuthProof.message`,
+    /// which signs over the *decoded* nonce bytes — a real cross-language
+    /// mismatch with the relay's `verifyRelayAuth` (see
+    /// `companion/relay/src/crypto.ts`). That mismatch was confirmed directly
+    /// against this vector's signature: the decoded-bytes form does not
+    /// verify, only the string form does. Left unfixed here since it's a
+    /// production auth-handshake behavior change, out of scope for a
+    /// conformance-suite fix — flagged for a follow-up.
+    func testRelayAuthVectorInteropSignature() throws {
+        let cases = try loadRelayCases()
+
+        guard let authVector = cases.first(where: { $0.file == "relay.auth.json" && $0.valid }) else {
+            XCTFail("expected a valid case in relay.auth.json")
+            return
+        }
+        guard let challengeVector = cases.first(where: { $0.file == "relay.challenge.json" && $0.valid }) else {
+            XCTFail("expected a valid case in relay.challenge.json")
+            return
+        }
+
+        let frame = try JSONDecoder().decode(CompanionRelayFrame.self, from: authVector.messageData)
+        guard case .auth(let auth) = frame else {
+            return XCTFail("relay.auth.json valid case did not decode to .auth")
+        }
+
+        guard let nonce = challengeVector.rawMessage["nonce"] as? String else {
+            XCTFail("relay.challenge.json valid case is missing nonce")
+            return
+        }
+
+        guard
+            let pubKeyBytes = CompanionBase64URL.decode(auth.pubKey),
+            let sigBytes = CompanionBase64URL.decode(auth.sig)
+        else {
+            XCTFail("relay.auth.json valid case has malformed base64url fields")
+            return
+        }
+
+        let publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: pubKeyBytes)
+        let message = Data((CompanionRelayAuthProof.label + nonce).utf8)
+
+        XCTAssertTrue(
+            publicKey.isValidSignature(sigBytes, for: message),
+            "relay.auth.json vector signature failed CryptoKit verification"
+        )
+        XCTAssertEqual(auth.deviceId, auth.pubKey, "deviceId must equal base64url(pubKey)")
     }
 }

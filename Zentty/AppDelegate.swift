@@ -225,7 +225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pairingStore: pairingStore,
             dashboardFeed: dashboardFeed,
             inputRouter: inputRouter,
-            isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false }
+            isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false },
+            relayUrlProvider: { [weak self] in self?.configStore.current.companion.relayUrl ?? "" }
         )
         bridge.installAsShared()
         companionBridge = bridge

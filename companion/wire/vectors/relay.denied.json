@@ -1,0 +1,17 @@
+[
+  {
+    "name": "valid denied",
+    "valid": true,
+    "message": {
+      "type": "relay.denied",
+      "reason": "signature verification failed"
+    }
+  },
+  {
+    "name": "missing reason is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.denied"
+    }
+  }
+]
