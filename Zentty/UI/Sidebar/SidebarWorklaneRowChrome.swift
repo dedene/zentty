@@ -90,6 +90,8 @@ final class SidebarWorklaneRowChrome {
     func apply(
         summary: WorklaneSidebarSummary,
         theme: ZenttyTheme,
+        activeBackground: NSColor,
+        activeBorder: NSColor,
         isWorking: Bool,
         isHovered: Bool,
         isPaneRowHovered: Bool,
@@ -97,10 +99,8 @@ final class SidebarWorklaneRowChrome {
         animated: Bool,
         layer: CALayer?
     ) {
-        let activeBackground = theme.sidebarButtonActiveBackground
         let hoverBackground = theme.sidebarButtonHoverBackground
         let inactiveBackground = theme.sidebarButtonInactiveBackground
-        let activeBorder = theme.sidebarButtonActiveBorder
         let inactiveBorder = theme.sidebarButtonInactiveBorder.withAlphaComponent(
             isHovered ? 0.16 : 0.10
         )

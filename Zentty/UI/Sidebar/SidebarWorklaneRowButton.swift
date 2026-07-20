@@ -829,7 +829,14 @@ final class SidebarWorklaneRowButton: NSButton {
         appearance = NSAppearance(named: currentTheme.sidebarGlassAppearance.nsAppearanceName)
         updateShimmerState()
 
-        let activeTextColor = currentTheme.sidebarButtonActiveText
+        let selectedChrome = SidebarWorklaneRowStyleResolver.selectedRowChrome(
+            worklaneColor: summary.color,
+            activeBackground: currentTheme.sidebarButtonActiveBackground,
+            activeBorder: currentTheme.sidebarButtonActiveBorder,
+            activeText: currentTheme.sidebarButtonActiveText,
+            theme: currentTheme
+        )
+        let activeTextColor = selectedChrome.text
         let inactiveTextColor = currentTheme.sidebarButtonInactiveText
 
         topLabel.textColor = SidebarWorklaneRowStyleResolver.topLabelTextColor(
@@ -916,6 +923,8 @@ final class SidebarWorklaneRowButton: NSButton {
         chrome.apply(
             summary: summary,
             theme: currentTheme,
+            activeBackground: selectedChrome.background,
+            activeBorder: selectedChrome.border,
             isWorking: isWorking,
             isHovered: isHovered,
             isPaneRowHovered: isPaneRowHovered,
