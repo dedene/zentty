@@ -51,6 +51,24 @@ final class ThemeCoordinatorTests: AppKitTestCase {
         XCTAssertEqual(terminalReloadCount, 1)
     }
 
+    func test_refreshTheme_threads_sidebar_selection_emphasis_from_provider() throws {
+        let appearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        let configURL = directoryURL.appendingPathComponent("ghostty-config")
+        var emphasis: AppConfig.Appearance.SidebarSelectionEmphasis = .subtle
+        let coordinator = ThemeCoordinator(
+            themeResolver: GhosttyThemeResolver(configURL: configURL, additionalThemeDirectories: []),
+            initialTheme: ZenttyTheme.fallback(for: appearance),
+            sidebarSelectionEmphasisProvider: { emphasis }
+        )
+
+        coordinator.refreshTheme(for: appearance, animated: false)
+        XCTAssertEqual(coordinator.currentTheme.sidebarSelectionEmphasis, .subtle)
+
+        emphasis = .vivid
+        coordinator.refreshTheme(for: appearance, animated: false)
+        XCTAssertEqual(coordinator.currentTheme.sidebarSelectionEmphasis, .vivid)
+    }
+
     private func makeCoordinator(initialTheme: ZenttyTheme) -> ThemeCoordinator {
         let configURL = directoryURL.appendingPathComponent("ghostty-config")
         return ThemeCoordinator(

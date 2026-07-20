@@ -296,7 +296,10 @@ final class RootViewController: NSViewController {
                     [weak configStore] in
                     configStore?.current ?? .default
                 })
-            )
+            ),
+            sidebarSelectionEmphasisProvider: { [weak configStore] in
+                configStore?.current.appearance.sidebarSelectionEmphasis ?? .subtle
+            }
         )
         self.notificationCoordinator = NotificationChromeCoordinator(store: notificationStore)
         self.paneLayoutMenuCoordinator = PaneLayoutMenuCoordinator(

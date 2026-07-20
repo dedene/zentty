@@ -51,6 +51,7 @@ final class ThemeCoordinator {
     private let themeResolver: GhosttyThemeResolver
     private let themeWatcher: GhosttyThemeWatcher
     private var systemAppearanceObserver: SystemAppearanceObserver?
+    private let sidebarSelectionEmphasisProvider: () -> AppConfig.Appearance.SidebarSelectionEmphasis
 
     // MARK: - Init
 
@@ -58,11 +59,13 @@ final class ThemeCoordinator {
         themeResolver: GhosttyThemeResolver = GhosttyThemeResolver(),
         themeWatcher: GhosttyThemeWatcher = GhosttyThemeWatcher(),
         initialTheme: ZenttyTheme = ZenttyTheme.fallback(for: nil),
-        distributedNotificationCenter: DistributedNotificationCenter = .default()
+        distributedNotificationCenter: DistributedNotificationCenter = .default(),
+        sidebarSelectionEmphasisProvider: @escaping () -> AppConfig.Appearance.SidebarSelectionEmphasis = { .subtle }
     ) {
         self.themeResolver = themeResolver
         self.themeWatcher = themeWatcher
         self.currentTheme = initialTheme
+        self.sidebarSelectionEmphasisProvider = sidebarSelectionEmphasisProvider
 
         themeWatcher.onChange = { [weak self] in
             self?.refreshTheme(for: NSApp.effectiveAppearance, animated: true, forceTerminalReload: true)
@@ -85,14 +88,17 @@ final class ThemeCoordinator {
     ///   to pick up, so we reload even when the resolved theme is unchanged.
     func refreshTheme(for appearance: NSAppearance, animated: Bool, forceTerminalReload: Bool = false) {
         let resolution = themeResolver.resolve(for: appearance)
+        let sidebarSelectionEmphasis = sidebarSelectionEmphasisProvider()
         let theme = resolution.map {
             ZenttyTheme(
                 resolvedTheme: $0.theme,
-                reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+                reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                sidebarSelectionEmphasis: sidebarSelectionEmphasis
             )
         } ?? ZenttyTheme.fallback(
             for: appearance,
-            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            sidebarSelectionEmphasis: sidebarSelectionEmphasis
         )
 
         let didChange = theme != currentTheme
