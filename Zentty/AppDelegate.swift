@@ -229,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         )
+        let transcriptFeed = CompanionTranscriptFeed(source: self)
         let inputRouter = CompanionInputRouter(sink: self)
         let leaseManager = CompanionLeaseManager(applier: self)
         let bridge = CompanionBridgeServer(
@@ -236,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pairingStore: pairingStore,
             dashboardFeed: dashboardFeed,
             paneTextFeed: paneTextFeed,
+            transcriptFeed: transcriptFeed,
             inputRouter: inputRouter,
             leaseManager: leaseManager,
             isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false },

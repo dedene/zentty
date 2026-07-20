@@ -60,9 +60,11 @@ enum CompanionDashboardMapping {
         let progress = status.taskProgress.map {
             CompanionTaskProgress(completed: $0.doneCount, total: $0.totalCount)
         }
-        // A Conversation tab exists only where a transcript adapter does; v1
-        // ships Claude Code, and only once a session id is known.
-        let hasTranscript = status.tool == .claudeCode && status.sessionID != nil
+        // A Conversation tab exists only where a transcript adapter does (the
+        // per-tool registry is the single source of truth; v1 ships Claude Code),
+        // and only once a session id is known.
+        let hasTranscript = CompanionTranscriptAdapterRegistry.default.hasAdapter(for: status.tool)
+            && status.sessionID != nil
 
         return CompanionPaneSummary(
             paneId: paneID,

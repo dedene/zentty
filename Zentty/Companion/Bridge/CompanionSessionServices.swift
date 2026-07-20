@@ -94,6 +94,15 @@ protocol CompanionSessionServicing: AnyObject {
     /// One-shot scrollback read for a `pane.scrollback` request.
     func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback
 
+    // Transcript lane
+    /// Registers a connection's `transcript.delta` / `transcript.unavailable`
+    /// sink; returns a token to unregister on disconnect.
+    func addTranscriptSubscriber(_ send: @escaping (CompanionTranscriptEvent) -> Void) -> CompanionTranscriptSubscriberToken
+    func removeTranscriptSubscriber(_ token: CompanionTranscriptSubscriberToken)
+    /// Resolves the pane's session file and returns the initial snapshot (or an
+    /// unavailable reason); on success the file is tailed for deltas.
+    func subscribeTranscript(token: CompanionTranscriptSubscriberToken, paneId: String) -> CompanionTranscriptSubscribeReply
+
     // Control lease (takeover)
     /// Registers a connection's `lease.revoked` sink; returns a token to route
     /// revocations back and rebind on heartbeat.

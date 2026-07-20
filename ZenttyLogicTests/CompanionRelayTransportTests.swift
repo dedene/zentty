@@ -414,18 +414,25 @@ private final class FakeRelayServices: CompanionSessionServicing {
         func companionReadPaneText(paneId: String, includeScrollback: Bool, lineLimit: Int?) -> CompanionPaneTextReadout? { nil }
     }
 
+    private final class EmptyTranscriptSource: CompanionTranscriptSourceProviding {
+        func companionTranscriptTarget(forPaneId paneId: String) -> CompanionTranscriptTarget? { nil }
+    }
+
     let identity: CompanionDeviceIdentity
     var recordedPairings: [String] = []
     private let provider = EmptyDashboardProvider()
     private let paneTextProvider = EmptyPaneTextProvider()
+    private let transcriptSource = EmptyTranscriptSource()
     private let feed: CompanionDashboardFeed
     private let paneTextFeed: CompanionPaneTextFeed
+    private let transcriptFeed: CompanionTranscriptFeed
     private let leaseManager: CompanionLeaseManager
 
     init(identity: CompanionDeviceIdentity) {
         self.identity = identity
         self.feed = CompanionDashboardFeed(provider: provider)
         self.paneTextFeed = CompanionPaneTextFeed(provider: paneTextProvider)
+        self.transcriptFeed = CompanionTranscriptFeed(source: transcriptSource)
         self.leaseManager = CompanionLeaseManager(applier: nil)
     }
 
@@ -471,6 +478,23 @@ private final class FakeRelayServices: CompanionSessionServicing {
 
     func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback {
         paneTextFeed.scrollback(paneId: paneId, lineLimit: lineLimit)
+    }
+
+    func addTranscriptSubscriber(
+        _ send: @escaping (CompanionTranscriptEvent) -> Void
+    ) -> CompanionTranscriptSubscriberToken {
+        transcriptFeed.addSubscriber(send)
+    }
+
+    func removeTranscriptSubscriber(_ token: CompanionTranscriptSubscriberToken) {
+        transcriptFeed.removeSubscriber(token)
+    }
+
+    func subscribeTranscript(
+        token: CompanionTranscriptSubscriberToken,
+        paneId: String
+    ) -> CompanionTranscriptSubscribeReply {
+        transcriptFeed.subscribe(token: token, paneId: paneId)
     }
 
     func addLeaseClient(_ send: @escaping (CompanionLeaseRevoked) -> Void) -> CompanionLeaseClientToken {

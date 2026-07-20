@@ -25,6 +25,7 @@ final class CompanionSession {
     private var didCompleteHello = false
     private var dashboardToken: CompanionDashboardSubscriptionToken?
     private var paneTextToken: CompanionPaneWatchToken?
+    private var transcriptToken: CompanionTranscriptSubscriberToken?
     private var leaseClientToken: CompanionLeaseClientToken?
 
     /// The paired device this connection authenticated as, once the crypto
@@ -70,6 +71,10 @@ final class CompanionSession {
         if let paneTextToken {
             services?.removePaneTextWatcher(paneTextToken)
             self.paneTextToken = nil
+        }
+        if let transcriptToken {
+            services?.removeTranscriptSubscriber(transcriptToken)
+            self.transcriptToken = nil
         }
         if let leaseClientToken {
             // Disconnect is treated as missed heartbeats: this only detaches
@@ -308,6 +313,19 @@ final class CompanionSession {
             let reply = services.paneScrollback(paneId: payload.paneId, lineLimit: payload.lineLimit)
             try await sendSealed(.paneScrollback(reply), replyTo: envelope.id)
 
+        case .transcriptSubscribe(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            let token = ensureTranscriptSubscriber(services: services)
+            switch services.subscribeTranscript(token: token, paneId: payload.paneId) {
+            case .snapshot(let snapshot):
+                try await sendSealed(.transcriptSnapshot(snapshot), replyTo: envelope.id)
+            case .unavailable(let unavailable):
+                try await sendSealed(.transcriptUnavailable(unavailable), replyTo: envelope.id)
+            }
+
         case .leaseRequest(let payload):
             guard didCompleteHello else {
                 try await sendExpectedHello(replyTo: envelope.id)
@@ -398,6 +416,34 @@ final class CompanionSession {
         } catch {
             companionSessionLogger.error(
                 "Failed to send pane text: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    // MARK: - Transcript lane
+
+    /// Lazily registers this connection's transcript sink, once, and returns its
+    /// token. Subsequent `transcript.subscribe` calls reuse it.
+    private func ensureTranscriptSubscriber(services: any CompanionSessionServicing) -> CompanionTranscriptSubscriberToken {
+        if let transcriptToken { return transcriptToken }
+        let token = services.addTranscriptSubscriber { [weak self] event in
+            Task { [weak self] in await self?.deliverTranscriptEvent(event) }
+        }
+        transcriptToken = token
+        return token
+    }
+
+    private func deliverTranscriptEvent(_ event: CompanionTranscriptEvent) async {
+        do {
+            switch event {
+            case .delta(let delta):
+                try await sendSealed(.transcriptDelta(delta))
+            case .unavailable(let unavailable):
+                try await sendSealed(.transcriptUnavailable(unavailable))
+            }
+        } catch {
+            companionSessionLogger.error(
+                "Failed to send transcript event: \(String(describing: error), privacy: .public)"
             )
         }
     }

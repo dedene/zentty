@@ -40,6 +40,42 @@ extension AppDelegate: CompanionDashboardStateProviding {
     }
 }
 
+// MARK: - Transcript source
+
+extension AppDelegate: CompanionTranscriptSourceProviding {
+    /// Resolves the transcript-locating context for a pane by finding its
+    /// `PaneAgentStatus` in the discovery graph. For Claude it also consults the
+    /// hook session store for the live transcript path the agent reported (correct
+    /// even when the working directory is a symlink); the feed falls back to the
+    /// canonical `sessionID` + `workingDirectory` path when no live path is known.
+    func companionTranscriptTarget(forPaneId paneId: String) -> CompanionTranscriptTarget? {
+        guard let status = companionPaneAgentStatus(forPaneId: paneId) else { return nil }
+        return CompanionTranscriptTarget(
+            tool: status.tool,
+            sessionID: status.sessionID,
+            workingDirectory: status.workingDirectory,
+            liveTranscriptPath: companionLiveTranscriptPath(for: status)
+        )
+    }
+
+    private func companionPaneAgentStatus(forPaneId paneId: String) -> PaneAgentStatus? {
+        let paneID = PaneID(paneId)
+        for controller in orderedWindowControllersForDiscovery() {
+            for worklane in controller.discoveryWorkspaceState.worklanes {
+                if let status = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus {
+                    return status
+                }
+            }
+        }
+        return nil
+    }
+
+    private func companionLiveTranscriptPath(for status: PaneAgentStatus) -> String? {
+        guard status.tool == .claudeCode, let sessionID = status.sessionID else { return nil }
+        return try? ClaudeHookSessionStore().lookup(sessionID: sessionID)?.transcriptPath
+    }
+}
+
 // MARK: - Input sink
 
 extension AppDelegate: CompanionInputSink {

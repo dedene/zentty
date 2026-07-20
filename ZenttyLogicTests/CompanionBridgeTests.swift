@@ -38,6 +38,21 @@ final class CompanionBridgeTests: XCTestCase {
         }
     }
 
+    private final class FakeTranscriptSource: CompanionTranscriptSourceProviding {
+        var targets: [String: CompanionTranscriptTarget] = [:]
+        func companionTranscriptTarget(forPaneId paneId: String) -> CompanionTranscriptTarget? {
+            targets[paneId]
+        }
+    }
+
+    /// A manually-fired transcript file watch: the feed's production watcher uses
+    /// `DispatchSource`; here the test triggers `.changed` / `.vanished` directly.
+    private final class ManualTranscriptWatch: CompanionTranscriptFileWatch {
+        var onEvent: (@MainActor (CompanionTranscriptFileEvent) -> Void)?
+        private(set) var cancelled = false
+        func cancel() { cancelled = true }
+    }
+
     private final class FakeLeaseApplier: CompanionLeaseTakeoverApplying {
         private(set) var applied: [(paneId: String, cols: Int, rows: Int, deviceName: String)] = []
         private(set) var restored: [String] = []
@@ -59,6 +74,9 @@ final class CompanionBridgeTests: XCTestCase {
     private var feed: CompanionDashboardFeed!
     private var paneTextProvider: FakePaneTextProvider!
     private var paneTextFeed: CompanionPaneTextFeed!
+    private var transcriptSource: FakeTranscriptSource!
+    private var transcriptFeed: CompanionTranscriptFeed!
+    private var transcriptWatch: ManualTranscriptWatch!
     private var leaseApplier: FakeLeaseApplier!
     private var leaseManager: CompanionLeaseManager!
     private var server: CompanionBridgeServer!
@@ -85,6 +103,16 @@ final class CompanionBridgeTests: XCTestCase {
         feed = CompanionDashboardFeed(provider: provider, debounceInterval: 0.01)
         paneTextProvider = FakePaneTextProvider()
         paneTextFeed = CompanionPaneTextFeed(provider: paneTextProvider, debounceInterval: 0.01)
+        transcriptSource = FakeTranscriptSource()
+        let watch = ManualTranscriptWatch()
+        transcriptWatch = watch
+        transcriptFeed = CompanionTranscriptFeed(
+            source: transcriptSource,
+            watcherFactory: { _, onEvent in
+                watch.onEvent = onEvent
+                return watch
+            }
+        )
         leaseApplier = FakeLeaseApplier()
         leaseManager = CompanionLeaseManager(applier: leaseApplier)
         server = CompanionBridgeServer(
@@ -92,6 +120,7 @@ final class CompanionBridgeTests: XCTestCase {
             pairingStore: pairingStore,
             dashboardFeed: feed,
             paneTextFeed: paneTextFeed,
+            transcriptFeed: transcriptFeed,
             inputRouter: CompanionInputRouter(sink: sink),
             leaseManager: leaseManager,
             isFeatureEnabled: { true }
@@ -278,6 +307,72 @@ final class CompanionBridgeTests: XCTestCase {
         XCTAssertEqual(scrollbackPayload.paneId, "pane-1")
         XCTAssertEqual(scrollbackPayload.text, "build succeeded")
         XCTAssertNotNil(scrollback.replyTo) // reply is correlated to the request
+
+        driver.close()
+        await driver.runTask.value
+    }
+
+    func testTranscriptSubscribeSnapshotThenDelta() async throws {
+        let phone = PhoneIdentity()
+        try pairingStore.add(
+            CompanionPairedDevice(
+                deviceId: phone.deviceId,
+                publicKey: phone.deviceId,
+                name: "Test iPhone",
+                pairedAt: Date(),
+                lastSeenAt: Date()
+            )
+        )
+
+        // A real transcript file on disk, resolved via the live-path shortcut.
+        let transcriptURL = tempDir.appendingPathComponent("session.jsonl")
+        let userLine = #"{"type":"user","uuid":"u1","timestamp":"2026-07-20T17:50:44.000Z","message":{"role":"user","content":"hello"}}"#
+        try (userLine + "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        transcriptSource.targets["pane-1"] = CompanionTranscriptTarget(
+            tool: .claudeCode,
+            sessionID: "sess-1",
+            workingDirectory: "/tmp/project",
+            liveTranscriptPath: transcriptURL.path
+        )
+
+        let driver = try await openEncryptedSession(phone: phone)
+        try await driver.send(.sessionHello(CompanionSessionHello(
+            supported: CompanionVersionRange(min: 1, max: 1),
+            deviceName: "Test iPhone",
+            appVersion: "1.0"
+        )))
+        _ = try await driver.receive() // session.ready
+
+        // transcript.subscribe → transcript.snapshot (correlated).
+        try await driver.send(.transcriptSubscribe(CompanionTranscriptSubscribe(paneId: "pane-1")))
+        let snapshot = try await driver.receive()
+        guard case .transcriptSnapshot(let snapshotPayload) = snapshot.message else {
+            return XCTFail("Expected transcript.snapshot, got \(snapshot.type)")
+        }
+        XCTAssertEqual(snapshotPayload.paneId, "pane-1")
+        XCTAssertEqual(snapshotPayload.sessionId, "sess-1")
+        XCTAssertFalse(snapshotPayload.truncated)
+        XCTAssertEqual(snapshotPayload.entries.count, 1)
+        XCTAssertEqual(snapshotPayload.entries.first?.role, .user)
+        XCTAssertEqual(snapshotPayload.entries.first?.text, "hello")
+        XCTAssertNotNil(snapshot.replyTo)
+
+        // Append an assistant line, fire the (manual) file watch → transcript.delta.
+        let assistantLine = #"{"type":"assistant","uuid":"a1","timestamp":"2026-07-20T17:51:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]}}"#
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((assistantLine + "\n").utf8))
+        try handle.close()
+        transcriptWatch.onEvent?(.changed)
+
+        let delta = try await driver.receive()
+        guard case .transcriptDelta(let deltaPayload) = delta.message else {
+            return XCTFail("Expected transcript.delta, got \(delta.type)")
+        }
+        XCTAssertEqual(deltaPayload.paneId, "pane-1")
+        XCTAssertEqual(deltaPayload.entries.count, 1)
+        XCTAssertEqual(deltaPayload.entries.first?.role, .assistant)
+        XCTAssertEqual(deltaPayload.entries.first?.text, "hi there")
 
         driver.close()
         await driver.runTask.value

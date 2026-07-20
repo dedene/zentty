@@ -23,6 +23,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     private let pairingStore: CompanionPairingStore
     private let dashboardFeed: CompanionDashboardFeed
     private let paneTextFeed: CompanionPaneTextFeed
+    private let transcriptFeed: CompanionTranscriptFeed
     private let inputRouter: CompanionInputRouter
     private let leaseManager: CompanionLeaseManager
     private let isFeatureEnabled: () -> Bool
@@ -47,6 +48,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         pairingStore: CompanionPairingStore,
         dashboardFeed: CompanionDashboardFeed,
         paneTextFeed: CompanionPaneTextFeed,
+        transcriptFeed: CompanionTranscriptFeed,
         inputRouter: CompanionInputRouter,
         leaseManager: CompanionLeaseManager,
         isFeatureEnabled: @escaping () -> Bool,
@@ -56,6 +58,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         self.pairingStore = pairingStore
         self.dashboardFeed = dashboardFeed
         self.paneTextFeed = paneTextFeed
+        self.transcriptFeed = transcriptFeed
         self.inputRouter = inputRouter
         self.leaseManager = leaseManager
         self.isFeatureEnabled = isFeatureEnabled
@@ -217,6 +220,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     /// runtime is torn down, and any lease on the pane is revoked (`pane_closed`).
     func ingestPaneClosed(paneID: String) {
         paneTextFeed.handlePaneClosed(paneId: paneID)
+        transcriptFeed.handlePaneClosed(paneId: paneID)
         leaseManager.handlePaneClosed(paneId: paneID)
     }
 
@@ -370,6 +374,25 @@ final class CompanionBridgeServer: CompanionSessionServicing {
 
     func paneScrollback(paneId: String, lineLimit: Int?) -> CompanionPaneScrollback {
         paneTextFeed.scrollback(paneId: paneId, lineLimit: lineLimit)
+    }
+
+    // MARK: Transcript lane
+
+    func addTranscriptSubscriber(
+        _ send: @escaping (CompanionTranscriptEvent) -> Void
+    ) -> CompanionTranscriptSubscriberToken {
+        transcriptFeed.addSubscriber(send)
+    }
+
+    func removeTranscriptSubscriber(_ token: CompanionTranscriptSubscriberToken) {
+        transcriptFeed.removeSubscriber(token)
+    }
+
+    func subscribeTranscript(
+        token: CompanionTranscriptSubscriberToken,
+        paneId: String
+    ) -> CompanionTranscriptSubscribeReply {
+        transcriptFeed.subscribe(token: token, paneId: paneId)
     }
 
     // MARK: Control lease
