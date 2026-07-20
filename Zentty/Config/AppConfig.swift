@@ -51,12 +51,21 @@ struct AppConfig: Equatable, Sendable {
             case alwaysLight
         }
 
+        /// How strongly the selected worklane row is emphasized in the sidebar.
+        /// `.subtle` keeps the historical recessed look; `.vivid` paints the
+        /// selection with an accent-colored fill matching the focused-pane border.
+        enum SidebarSelectionEmphasis: String, CaseIterable, Equatable, Sendable {
+            case subtle
+            case vivid
+        }
+
         var localThemeName: String?
         var themeMode: ThemeMode
         var preferredDarkThemeName: String?
         var preferredLightThemeName: String?
         var localBackgroundOpacity: CGFloat?
         var syncOpenCodeThemeWithTerminal: Bool
+        var sidebarSelectionEmphasis: SidebarSelectionEmphasis
 
         static let `default` = Appearance(
             localThemeName: nil,
@@ -64,7 +73,8 @@ struct AppConfig: Equatable, Sendable {
             preferredDarkThemeName: nil,
             preferredLightThemeName: nil,
             localBackgroundOpacity: nil,
-            syncOpenCodeThemeWithTerminal: true
+            syncOpenCodeThemeWithTerminal: true,
+            sidebarSelectionEmphasis: .subtle
         )
     }
 
