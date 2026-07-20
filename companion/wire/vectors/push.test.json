@@ -1,0 +1,22 @@
+[
+  {
+    "name": "valid empty test request",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "64758697-a8b9-46ad-8778-899001122334",
+      "type": "push.test",
+      "payload": {}
+    }
+  },
+  {
+    "name": "unknown extra field tolerated",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "758697a8-b9ca-47be-8889-900112233445",
+      "type": "push.test",
+      "payload": { "note": "manual trigger from settings" }
+    }
+  }
+]

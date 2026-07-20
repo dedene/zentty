@@ -1,0 +1,33 @@
+{
+  "name": "@zentty/wire",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Zentty companion wire protocol: zod schemas + JSON test vectors.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "vectors"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "4.1.10",
+    "@types/node": "^24.0.0"
+  }
+}

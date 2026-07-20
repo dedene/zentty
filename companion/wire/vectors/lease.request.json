@@ -1,0 +1,29 @@
+[
+  {
+    "name": "valid lease request at phone grid",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "53647586-97a8-45ac-8001-122334455667",
+      "type": "lease.request",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "cols": 46,
+        "rows": 92
+      }
+    }
+  },
+  {
+    "name": "missing rows is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "64758697-a8b9-46bd-8112-233445566778",
+      "type": "lease.request",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "cols": 46
+      }
+    }
+  }
+]

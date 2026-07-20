@@ -1,0 +1,22 @@
+[
+  {
+    "name": "valid release",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "ecfd0e1f-2031-4e35-8990-011223344556",
+      "type": "lease.release",
+      "payload": { "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d" }
+    }
+  },
+  {
+    "name": "numeric leaseId is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "fd0e1f20-3142-4f46-8001-122334455667",
+      "type": "lease.release",
+      "payload": { "leaseId": 987654 }
+    }
+  }
+]

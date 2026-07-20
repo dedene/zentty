@@ -1,0 +1,39 @@
+[
+  {
+    "name": "scrollback request half",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "dbecfd0e-1f20-4034-8667-788990011223",
+      "type": "pane.scrollback",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "lineLimit": 2000
+      }
+    }
+  },
+  {
+    "name": "scrollback reply half",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "ecfd0e1f-2031-4045-8778-899001122334",
+      "type": "pane.scrollback",
+      "replyTo": "dbecfd0e-1f20-4034-8667-788990011223",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "text": "npm warn deprecated\n> build\n> tsc -p tsconfig.build.json\n\nDone in 1.4s\n"
+      }
+    }
+  },
+  {
+    "name": "neither lineLimit nor text is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "fd0e1f20-3142-4056-8889-900112233445",
+      "type": "pane.scrollback",
+      "payload": { "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90" }
+    }
+  }
+]

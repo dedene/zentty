@@ -1,0 +1,6 @@
+packages:
+  - 'wire'
+  # relay and mobile packages land in later milestones; listing them now is a
+  # no-op until their directories exist.
+  - 'relay'
+  - 'mobile'

@@ -1,0 +1,22 @@
+[
+  {
+    "name": "valid empty subscribe",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "dbecfd0e-1f20-4324-8001-122334455667",
+      "type": "dashboard.subscribe",
+      "payload": {}
+    }
+  },
+  {
+    "name": "unknown extra field tolerated",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "ecfd0e1f-2031-4435-8112-233445566778",
+      "type": "dashboard.subscribe",
+      "payload": { "filter": "attention-only" }
+    }
+  }
+]

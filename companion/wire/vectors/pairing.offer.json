@@ -1,0 +1,67 @@
+[
+  {
+    "name": "full offer with lan hint",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "6f1b3d2a-9c47-4e18-8a52-1d7f0b6c3e94",
+      "type": "pairing.offer",
+      "payload": {
+        "relayUrl": "wss://relay.zenjoy.be",
+        "lanHint": { "host": "192.168.1.24", "port": 51820 },
+        "macDeviceId": "k5tR2xQb9m8Zv1Hc7Lp0Wd3Nf6Ay4Ej8Tg2Uh5Ki0",
+        "macPubKey": "MCowBQYDK2VwAyEA6f1b3d2a9c474e188a521d7f0b6c3e94aa",
+        "secret": "n3Qx7Kp2Wm9Zb4Hs1Vd8Rf5",
+        "expiresAt": 1784601600000
+      }
+    }
+  },
+  {
+    "name": "offer without optional lan hint",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "1a2b3c4d-5e6f-4708-8192-a0b1c2d3e4f5",
+      "type": "pairing.offer",
+      "payload": {
+        "relayUrl": "wss://relay.zenjoy.be",
+        "macDeviceId": "k5tR2xQb9m8Zv1Hc7Lp0Wd3Nf6Ay4Ej8Tg2Uh5Ki0",
+        "macPubKey": "MCowBQYDK2VwAyEA6f1b3d2a9c474e188a521d7f0b6c3e94aa",
+        "secret": "n3Qx7Kp2Wm9Zb4Hs1Vd8Rf5",
+        "expiresAt": 1784601600000
+      }
+    }
+  },
+  {
+    "name": "unknown extra field is ignored (forward compat)",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "9d8c7b6a-5f4e-4d3c-8b2a-1908f7e6d5c4",
+      "type": "pairing.offer",
+      "payload": {
+        "relayUrl": "wss://relay.zenjoy.be",
+        "macDeviceId": "k5tR2xQb9m8Zv1Hc7Lp0Wd3Nf6Ay4Ej8Tg2Uh5Ki0",
+        "macPubKey": "MCowBQYDK2VwAyEA6f1b3d2a9c474e188a521d7f0b6c3e94aa",
+        "secret": "n3Qx7Kp2Wm9Zb4Hs1Vd8Rf5",
+        "expiresAt": 1784601600000,
+        "futureField": { "capability": "v2-thing" }
+      }
+    }
+  },
+  {
+    "name": "missing macPubKey is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+      "type": "pairing.offer",
+      "payload": {
+        "relayUrl": "wss://relay.zenjoy.be",
+        "macDeviceId": "k5tR2xQb9m8Zv1Hc7Lp0Wd3Nf6Ay4Ej8Tg2Uh5Ki0",
+        "secret": "n3Qx7Kp2Wm9Zb4Hs1Vd8Rf5",
+        "expiresAt": 1784601600000
+      }
+    }
+  }
+]
