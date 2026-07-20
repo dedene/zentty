@@ -513,9 +513,17 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
             content += "\n"
         }
 
+        // Strip any historic seeded color block so theme switching actually takes effect.
+        // This heals both stale bundled defaults (older app versions) and previously-poisoned
+        // app-support configs being re-seeded to the XDG location.
+        if let healed = GhosttySeededColorHealer.strippingSeededColors(from: content) {
+            content = healed
+        }
+
         do {
             try fileManager.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(content.utf8).write(to: targetURL, options: .atomic)
+            installFallbackThemeIfReferenced(byRawThemeSpec: GhosttyThemeSpec.rawThemeSpec(in: content))
             runtimeReload()
         } catch {
             logger.error("Failed to create shared Ghostty config at \(targetURL.path, privacy: .public): \(error.localizedDescription)")
@@ -548,7 +556,75 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
     }
 
     private func writeSharedValue(_ value: String, forKey key: String, to targetURL: URL) {
-        GhosttyConfigWriter(configURL: targetURL).updateValue(value, forKey: key)
+        // Heal-on-write: the moment the user changes any shared value, a leftover seeded color
+        // block is stripped so the theme finally becomes visible. Healing runs on the fully
+        // updated content, downstream of the atomic + symlink-preserving write in the writer.
+        GhosttyConfigWriter(
+            configURL: targetURL,
+            postUpdateTransform: { GhosttySeededColorHealer.strippingSeededColors(from: $0) ?? $0 }
+        ).updateValue(value, forKey: key)
+
+        // Single fallback-install path: whatever the write was (theme, opacity, …), read the
+        // resulting config back and ensure a standalone-resolvable theme file exists whenever
+        // the effective theme references the bundled fallback. This covers opacity-only writes
+        // to a config that already says `theme = GitHub-Dark-Personal`.
+        let writtenURL = fileManager.resolvingSymlinkTarget(at: targetURL)
+        let writtenContent = try? String(contentsOf: writtenURL, encoding: .utf8)
+        installFallbackThemeIfReferenced(byRawThemeSpec: writtenContent.flatMap(GhosttyThemeSpec.rawThemeSpec(in:)))
+    }
+
+    /// Ensures a standalone-resolvable theme file exists for the bundled fallback theme when a
+    /// written config references it, so plain Ghostty (which cannot see Zentty's bundled
+    /// resources) can still resolve `theme = GitHub-Dark-Personal`. Never overwrites an
+    /// existing file. Errors are logged and swallowed (log-and-continue).
+    private func installFallbackThemeIfReferenced(byRawThemeSpec rawThemeSpec: String?) {
+        let fallbackName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        guard let rawThemeSpec, rawThemeSpecReferencesFallback(rawThemeSpec) else {
+            return
+        }
+
+        let themesDirectoryURL = currentEnvironment().homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+        let themeFileURL = themesDirectoryURL.appendingPathComponent(fallbackName, isDirectory: false)
+
+        guard !fileManager.fileExists(atPath: themeFileURL.path) else {
+            return
+        }
+
+        guard let contents = bundledFallbackThemeContents() else {
+            logger.error("Unable to resolve bundled fallback theme contents for \(fallbackName, privacy: .public)")
+            return
+        }
+
+        do {
+            try fileManager.createDirectory(at: themesDirectoryURL, withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: themeFileURL, options: .atomic)
+        } catch {
+            logger.error("Failed to install fallback theme at \(themeFileURL.path, privacy: .public): \(error.localizedDescription)")
+        }
+    }
+
+    private func rawThemeSpecReferencesFallback(_ rawThemeSpec: String) -> Bool {
+        let fallbackName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        guard let spec = GhosttyThemeSpec(rawValue: rawThemeSpec) else {
+            return rawThemeSpec.contains(fallbackName)
+        }
+        return spec.darkThemeName == fallbackName || spec.lightThemeName == fallbackName
+    }
+
+    private func bundledFallbackThemeContents() -> String? {
+        let fallbackName = GhosttyThemeLibrary.fallbackPersistedThemeName
+        if let resourceURL = Bundle.main.url(
+            forResource: fallbackName,
+            withExtension: nil,
+            subdirectory: "ghostty/themes"
+        ), let contents = try? String(contentsOf: resourceURL, encoding: .utf8) {
+            return contents
+        }
+
+        return GhosttyThemeLibrary.builtInThemeConfigContents(named: GhosttyThemeLibrary.fallbackThemeName)
     }
 
     static func presentSharedConfigDecision(window: NSWindow?) async -> GhosttySharedConfigDecision {

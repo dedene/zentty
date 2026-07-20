@@ -22,22 +22,24 @@ extension GhosttyConfigWriting {
 
 final class GhosttyConfigWriter: GhosttyConfigWriting {
     private let configURL: URL
+    private let postUpdateTransform: ((String) -> String)?
 
+    /// - Parameter postUpdateTransform: An optional pure transform applied to the fully
+    ///   updated content just before it is written. The writer stays generic — callers use
+    ///   this hook to inject domain-specific rewrites (e.g. appearance-level color healing)
+    ///   without the writer needing to know about them.
     init(
-        configURL: URL = GhosttyConfigEnvironment().preferredCreateTargetURL
+        configURL: URL = GhosttyConfigEnvironment().preferredCreateTargetURL,
+        postUpdateTransform: ((String) -> String)? = nil
     ) {
         self.configURL = configURL
+        self.postUpdateTransform = postUpdateTransform
     }
 
     func updateValue(_ value: String, forKey key: String) {
-        let existingContent: String
-        do {
-            existingContent = try String(contentsOf: configURL, encoding: .utf8)
-        } catch {
-            writeAtomically(Self.updating(content: nil, value: value, forKey: key))
-            return
-        }
-        writeAtomically(Self.updating(content: existingContent, value: value, forKey: key))
+        let existingContent = try? String(contentsOf: configURL, encoding: .utf8)
+        let updated = Self.updating(content: existingContent, value: value, forKey: key)
+        writeAtomically(postUpdateTransform?(updated) ?? updated)
     }
 
     private func writeAtomically(_ content: String) {
