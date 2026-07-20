@@ -213,6 +213,179 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
         XCTAssertLessThan(unfocusedShimmer.srgbClamped.alphaComponent, focusedShimmer.srgbClamped.alphaComponent)
     }
 
+    // MARK: - Vivid selected-row per-worklane color
+
+    func test_subtle_selected_chrome_with_lane_color_is_identity_dark() {
+        assertSubtleSelectedChromeIsIdentity(theme: makeTheme(dark: true, emphasis: .subtle))
+    }
+
+    func test_subtle_selected_chrome_with_lane_color_is_identity_light() {
+        assertSubtleSelectedChromeIsIdentity(theme: makeTheme(dark: false, emphasis: .subtle))
+    }
+
+    func test_vivid_selected_chrome_without_color_is_identity() {
+        let theme = makeTheme(dark: true, emphasis: .vivid)
+        let bg = NSColor(srgbRed: 0.2, green: 0.3, blue: 0.4, alpha: 0.9)
+        let border = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.6, alpha: 0.42)
+        let text = NSColor.white
+
+        let chrome = SidebarWorklaneRowStyleResolver.selectedRowChrome(
+            worklaneColor: nil,
+            activeBackground: bg,
+            activeBorder: border,
+            activeText: text,
+            theme: theme
+        )
+
+        assertColorsEqual(chrome.background, bg)
+        assertColorsEqual(chrome.border, border)
+        assertColorsEqual(chrome.text, text.srgbClamped)
+    }
+
+    func test_vivid_selected_chrome_with_lane_color_is_lane_tinted_dark() throws {
+        try assertVividLaneChrome(theme: makeTheme(dark: true, emphasis: .vivid), color: .blue)
+    }
+
+    func test_vivid_selected_chrome_with_lane_color_is_lane_tinted_light() throws {
+        try assertVividLaneChrome(theme: makeTheme(dark: false, emphasis: .vivid), color: .pink)
+    }
+
+    func test_vivid_selected_chrome_lane_fill_is_clearly_separated_from_idle() {
+        let theme = makeTheme(dark: true, emphasis: .vivid)
+        let chrome = SidebarWorklaneRowStyleResolver.selectedRowChrome(
+            worklaneColor: .green,
+            activeBackground: theme.sidebarButtonActiveBackground,
+            activeBorder: theme.sidebarButtonActiveBorder,
+            activeText: theme.sidebarButtonActiveText,
+            theme: theme
+        )
+        let surface = theme.sidebarBackground.composited(over: theme.windowBackground)
+        let selected = chrome.background.composited(over: surface)
+        let idle = theme.sidebarButtonInactiveBackground.composited(over: surface)
+
+        XCTAssertGreaterThan(srgbDistance(selected, idle), 0.12)
+    }
+
+    func test_vivid_selected_chrome_text_stays_legible_on_lane_fill() throws {
+        for color in WorklaneColor.allCases {
+            for dark in [true, false] {
+                let theme = makeTheme(dark: dark, emphasis: .vivid)
+                let chrome = SidebarWorklaneRowStyleResolver.selectedRowChrome(
+                    worklaneColor: color,
+                    activeBackground: theme.sidebarButtonActiveBackground,
+                    activeBorder: theme.sidebarButtonActiveBorder,
+                    activeText: theme.sidebarButtonActiveText,
+                    theme: theme
+                )
+                let surface = theme.sidebarBackground.composited(over: theme.windowBackground)
+                let fill = chrome.background.composited(over: surface)
+                XCTAssertGreaterThanOrEqual(
+                    chrome.text.contrastRatio(against: fill),
+                    4.5,
+                    "Lane \(color.rawValue) (dark=\(dark)) selected text must clear WCAG AA on its fill"
+                )
+            }
+        }
+    }
+
+    func test_vivid_active_lane_row_background_is_lane_tinted_and_differs_from_idle() throws {
+        let theme = makeTheme(dark: true, emphasis: .vivid)
+        let activeRow = makeRow()
+        activeRow.configure(with: makeSummary(color: .blue, isActive: true), theme: theme, animated: false)
+        let idleRow = makeRow()
+        idleRow.configure(with: makeSummary(color: .blue, isActive: false), theme: theme, animated: false)
+
+        let activeBackground = try XCTUnwrap(activeRow.debugSnapshotForTesting.backgroundColor)
+        let idleBackground = try XCTUnwrap(idleRow.debugSnapshotForTesting.backgroundColor)
+
+        let laneHue = try XCTUnwrap(hsbComponents(WorklaneColor.blue.tint(alpha: 1))).hue
+        let activeHue = try XCTUnwrap(hsbComponents(activeBackground)).hue
+        XCTAssertEqual(activeHue, laneHue, accuracy: 0.06)
+        XCTAssertGreaterThan(srgbDistance(activeBackground, idleBackground), 0.1)
+    }
+
+    private func assertSubtleSelectedChromeIsIdentity(theme: ZenttyTheme) {
+        let bg = NSColor(srgbRed: 0.11, green: 0.22, blue: 0.33, alpha: 0.88)
+        let border = NSColor(srgbRed: 0.4, green: 0.5, blue: 0.6, alpha: 0.1)
+        let text = NSColor(srgbRed: 0.95, green: 0.96, blue: 0.97, alpha: 1)
+
+        let chrome = SidebarWorklaneRowStyleResolver.selectedRowChrome(
+            worklaneColor: .red,
+            activeBackground: bg,
+            activeBorder: border,
+            activeText: text,
+            theme: theme
+        )
+
+        assertColorsEqual(chrome.background, bg)
+        assertColorsEqual(chrome.border, border)
+        assertColorsEqual(chrome.text, text.srgbClamped)
+    }
+
+    private func assertVividLaneChrome(theme: ZenttyTheme, color: WorklaneColor) throws {
+        let chrome = SidebarWorklaneRowStyleResolver.selectedRowChrome(
+            worklaneColor: color,
+            activeBackground: theme.sidebarButtonActiveBackground,
+            activeBorder: theme.sidebarButtonActiveBorder,
+            activeText: theme.sidebarButtonActiveText,
+            theme: theme
+        )
+
+        let laneHue = try XCTUnwrap(hsbComponents(color.tint(alpha: 1))).hue
+        let fillHue = try XCTUnwrap(hsbComponents(chrome.background)).hue
+        XCTAssertEqual(fillHue, laneHue, accuracy: 0.06)
+
+        let borderHue = try XCTUnwrap(hsbComponents(chrome.border)).hue
+        XCTAssertEqual(borderHue, laneHue, accuracy: 0.06)
+        XCTAssertEqual(chrome.border.alphaComponent, WorklaneColor.Alpha.focusedBorder, accuracy: 0.001)
+
+        // Fill reads as a real, near-opaque tint (not the low-alpha wash).
+        XCTAssertGreaterThan(chrome.background.alphaComponent, 0.9)
+    }
+
+    private func makeTheme(
+        dark: Bool,
+        emphasis: AppConfig.Appearance.SidebarSelectionEmphasis
+    ) -> ZenttyTheme {
+        ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: dark ? "#0A0C10" : "#FBFBFD")!,
+                foreground: NSColor(hexString: dark ? "#F0F3F6" : "#1A1C1F")!,
+                cursorColor: NSColor(hexString: dark ? "#71B7FF" : "#3366CC")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: dark ? 0.9 : 1.0,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: false,
+            sidebarSelectionEmphasis: emphasis
+        )
+    }
+
+    private func srgbDistance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+        let a = lhs.srgbClamped
+        let b = rhs.srgbClamped
+        let dr = a.redComponent - b.redComponent
+        let dg = a.greenComponent - b.greenComponent
+        let db = a.blueComponent - b.blueComponent
+        return (dr * dr + dg * dg + db * db).squareRoot()
+    }
+
+    private func assertColorsEqual(
+        _ lhs: NSColor,
+        _ rhs: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let a = lhs.srgbClamped
+        let b = rhs.srgbClamped
+        XCTAssertEqual(a.redComponent, b.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(a.greenComponent, b.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(a.blueComponent, b.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(a.alphaComponent, b.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+
     private func makeRow(width: CGFloat = 280, height: CGFloat = 72) -> SidebarWorklaneRowButton {
         let row = SidebarWorklaneRowButton(
             worklaneID: WorklaneID("worklane-main"),

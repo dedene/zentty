@@ -118,6 +118,7 @@ struct ZenttyTheme: Equatable {
     let sidebarGlassAppearance: ThemeChromeAppearance
     let sidebarGlassOpacity: CGFloat
     let reducedTransparency: Bool
+    let sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis
 
     static let animationDuration: CFTimeInterval = 0.20
 
@@ -184,12 +185,15 @@ struct ZenttyTheme: Equatable {
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
             && lhs.sidebarGlassOpacity == rhs.sidebarGlassOpacity
             && lhs.reducedTransparency == rhs.reducedTransparency
+            && lhs.sidebarSelectionEmphasis == rhs.sidebarSelectionEmphasis
     }
 
     init(
         resolvedTheme: GhosttyResolvedTheme,
-        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+        sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis = .subtle
     ) {
+        self.sidebarSelectionEmphasis = sidebarSelectionEmphasis
         let background = resolvedTheme.background.srgbClamped
         let foreground = resolvedTheme.foreground.srgbClamped
         let accent = (resolvedTheme.cursorColor).srgbClamped
@@ -280,18 +284,13 @@ struct ZenttyTheme: Equatable {
         failureOverlayBackground = background.mixed(towards: foreground, amount: 0.08).withAlphaComponent(0.92)
         failurePrimaryText = readableForeground.withAlphaComponent(0.96)
         failureSecondaryText = readableForeground.withAlphaComponent(0.72)
-        sidebarButtonActiveBackground = sidebarRowSelectedBase.withAlphaComponent(
-            reduceTransparency ? 0.94 : (background.isDarkThemeColor ? 0.62 : 0.88)
-        )
         sidebarButtonHoverBackground = sidebarRowHoverBase.withAlphaComponent(
             reduceTransparency ? 0.28 : (background.isDarkThemeColor ? 0.28 : 0.42)
         )
         sidebarButtonInactiveBackground = sidebarRowIdleBase.withAlphaComponent(
             reduceTransparency ? 0.10 : (background.isDarkThemeColor ? 0.12 : 0.08)
         )
-        sidebarButtonActiveBorder = accent.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.10)
         sidebarButtonInactiveBorder = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.10 : 0.12)
-        sidebarButtonActiveText = readableSidebarActiveText.withAlphaComponent(background.isDarkThemeColor ? 0.98 : 0.96)
         sidebarButtonInactiveText = readableSidebarText.withAlphaComponent(background.isDarkThemeColor ? 0.74 : 0.72)
         sidebarWorkingTextHighlight = background.isDarkThemeColor
             ? readableSidebarText.mixed(towards: NSColor.white, amount: 0.14)
@@ -318,6 +317,80 @@ struct ZenttyTheme: Equatable {
         statusStopped = paletteRed
         statusReady = paletteGreen
         statusIdle = accent.withAlphaComponent(isDark ? 0.54 : 0.48)
+
+        // Selected-row chrome. `.subtle` keeps the historical recessed fill
+        // (selected reads as the darkest/lightest of selected/hover/idle). `.vivid`
+        // paints the row with an accent-tinted fill cohesive with `paneBorderFocused`.
+        //
+        // Both modes get a separation guard so the active lane stays findable on
+        // themes where the derivation collapses selected ~= idle, but they use
+        // different instruments. `.vivid` uses a WCAG contrast floor (its accent
+        // fill has the luminance headroom to satisfy it). `.subtle` cannot: on the
+        // near-black backgrounds Zentty ships with, two dark translucent fills never
+        // reach a 1.4 WCAG ratio, so a subtle WCAG floor would both alter the shipped
+        // look and invert the selected<hover<idle ordering `.subtle` is defined by.
+        // Instead `.subtle` measures perceptual sRGB distance and, when the fills
+        // collapse, widens the gap along the ordering-preserving axis (darker on
+        // dark, lighter on light); if the surface is too near-black/white to gain
+        // headroom, it compensates with a visible accent border instead.
+        let sidebarSurface = sidebarBackground.composited(over: background)
+        let idleComposited = sidebarButtonInactiveBackground.composited(over: sidebarSurface)
+        // Guard the accent so an accent-colored selection treatment never
+        // degenerates when the cursor color is ~= the sidebar surface: fall back
+        // through palette blue, then a foreground mix, then foreground (the same
+        // escalation the status colors lean on). Vivid uses this for its fill and
+        // border; subtle only reaches for it when the separation guard has to
+        // escalate the border on a collapsed theme.
+        let guardedAccent: NSColor = {
+            if accent.contrastRatio(against: baseSidebar) >= 1.2 {
+                return accent
+            }
+            if paletteBlue.contrastRatio(against: baseSidebar) >= 1.2 {
+                return paletteBlue
+            }
+            let mix = foreground.mixed(towards: accent, amount: 0.35)
+            return mix.contrastRatio(against: baseSidebar) >= 1.2 ? mix : foreground
+        }()
+        switch sidebarSelectionEmphasis {
+        case .subtle:
+            let baseActiveFill = sidebarRowSelectedBase.withAlphaComponent(
+                reduceTransparency ? 0.94 : (isDark ? 0.62 : 0.88)
+            )
+            let baseBorderAlpha: CGFloat = isDark ? 0.12 : 0.10
+            let separated = ZenttyTheme.separatedSubtleSelection(
+                fill: baseActiveFill,
+                idleComposited: idleComposited,
+                sidebarSurface: sidebarSurface,
+                separationTarget: isDark ? NSColor.black : NSColor.white,
+                baseBorderAlpha: baseBorderAlpha,
+                maximumBorderAlpha: isDark ? 0.42 : 0.34
+            )
+            sidebarButtonActiveBackground = separated.fill
+            // When the guard escalates the border it exists to rescue a collapsed
+            // theme, so the border color itself must be visible — use the guarded
+            // accent there. The unescalated path keeps the raw accent so healthy
+            // themes stay byte-identical to the historical derivation.
+            let borderColor = separated.borderAlpha > baseBorderAlpha ? guardedAccent : accent
+            sidebarButtonActiveBorder = borderColor.withAlphaComponent(separated.borderAlpha)
+            sidebarButtonActiveText = readableSidebarActiveText
+                .withAlphaComponent(isDark ? 0.98 : 0.96)
+        case .vivid:
+            let vividFill = guardedAccent
+                .mixed(towards: baseSidebar, amount: isDark ? 0.55 : 0.45)
+                .withAlphaComponent(reduceTransparency ? 0.96 : 0.92)
+            let flooredFill = ZenttyTheme.contrastFlooredActiveFill(
+                vividFill,
+                idleComposited: idleComposited,
+                sidebarSurface: sidebarSurface,
+                foreground: foreground,
+                minimumContrast: 1.4
+            )
+            sidebarButtonActiveBackground = flooredFill
+            sidebarButtonActiveBorder = guardedAccent.withAlphaComponent(isDark ? 0.42 : 0.34)
+            sidebarButtonActiveText = foreground.ensuringTextContrast(
+                on: flooredFill.composited(over: sidebarSurface)
+            )
+        }
 
         openWithChromeBackground = openWithChromeBase.withAlphaComponent(
             reduceTransparency ? 0.96 : (background.isDarkThemeColor ? 0.60 : 0.82)
@@ -395,9 +468,83 @@ struct ZenttyTheme: Equatable {
         underlapShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
     }
 
+    /// Nudges an active-selection fill toward `foreground` until it clears
+    /// `minimumContrast` against the composited idle row, or a small iteration
+    /// bound is hit. A no-op when the fill already separates cleanly. Used only by
+    /// the vivid recipe (see the init note on why `.subtle` skips the floor).
+    private static func contrastFlooredActiveFill(
+        _ fill: NSColor,
+        idleComposited: NSColor,
+        sidebarSurface: NSColor,
+        foreground: NSColor,
+        minimumContrast: CGFloat
+    ) -> NSColor {
+        var result = fill
+        var iterations = 0
+        while result.composited(over: sidebarSurface).contrastRatio(against: idleComposited) < minimumContrast,
+              iterations < 10 {
+            result = result.mixed(towards: foreground, amount: 0.10)
+            iterations += 1
+        }
+        return result
+    }
+
+    /// Ensures the subtle-mode selected row stays perceptually distinct from the
+    /// idle row even when the theme's derivation collapses the two fills together.
+    ///
+    /// Uses sRGB distance (WCAG ratio is useless for near-black dark-on-dark) and
+    /// is a strict no-op above `minimumSeparation`, so healthy themes are untouched.
+    /// When collapsed it first widens the gap by nudging the fill toward
+    /// `separationTarget` (black on dark, white on light) — the direction that
+    /// preserves the selected<hover<idle ordering by construction — and, only if
+    /// the surface is too near-black/white to gain headroom, escalates the border
+    /// alpha toward `maximumBorderAlpha` (the `paneBorderFocused` level) instead.
+    private static func separatedSubtleSelection(
+        fill: NSColor,
+        idleComposited: NSColor,
+        sidebarSurface: NSColor,
+        separationTarget: NSColor,
+        baseBorderAlpha: CGFloat,
+        maximumBorderAlpha: CGFloat,
+        minimumSeparation: CGFloat = 0.012
+    ) -> (fill: NSColor, borderAlpha: CGFloat) {
+        func separation(_ candidate: NSColor) -> CGFloat {
+            candidate.composited(over: sidebarSurface).srgbDistance(to: idleComposited)
+        }
+
+        guard separation(fill) < minimumSeparation else {
+            return (fill, baseBorderAlpha)
+        }
+
+        // Remedy a: widen the fill gap along the ordering-preserving axis.
+        var result = fill
+        var iterations = 0
+        while separation(result) < minimumSeparation, iterations < 8 {
+            let nudged = result.mixed(towards: separationTarget, amount: 0.12)
+            // Stop when there is no headroom left (surface already near-black/white).
+            guard separation(nudged) - separation(result) > 0.0005 else {
+                break
+            }
+            result = nudged
+            iterations += 1
+        }
+
+        let finalSeparation = separation(result)
+        guard finalSeparation < minimumSeparation else {
+            return (result, baseBorderAlpha)
+        }
+
+        // Remedy b: no fill headroom -> give the lane a visible accent outline,
+        // scaled by how collapsed it remains and capped at the focused-pane level.
+        let deficit = min(max((minimumSeparation - finalSeparation) / minimumSeparation, 0), 1)
+        let borderAlpha = baseBorderAlpha + (deficit * (maximumBorderAlpha - baseBorderAlpha))
+        return (result, borderAlpha)
+    }
+
     static func fallback(
         for appearance: NSAppearance?,
-        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+        sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis = .subtle
     ) -> ZenttyTheme {
         let isDarkMode = appearance?.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let resolvedTheme = GhosttyResolvedTheme(
@@ -416,7 +563,11 @@ struct ZenttyTheme: Equatable {
             backgroundOpacity: isDarkMode ? 0.92 : 0.94,
             backgroundBlurRadius: 18
         )
-        return ZenttyTheme(resolvedTheme: resolvedTheme, reduceTransparency: reduceTransparency)
+        return ZenttyTheme(
+            resolvedTheme: resolvedTheme,
+            reduceTransparency: reduceTransparency,
+            sidebarSelectionEmphasis: sidebarSelectionEmphasis
+        )
     }
 }
 
@@ -500,6 +651,19 @@ extension NSColor {
         let lighter = max(perceivedLuminance, other.perceivedLuminance)
         let darker = min(perceivedLuminance, other.perceivedLuminance)
         return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    /// Euclidean distance in sRGB space. Unlike WCAG contrast ratio, this stays
+    /// meaningful for two near-black (or near-white) colors, so it is the right
+    /// tool for detecting when two sidebar-row fills have perceptually collapsed
+    /// into each other.
+    func srgbDistance(to other: NSColor) -> CGFloat {
+        let source = srgbClamped
+        let target = other.srgbClamped
+        let red = source.redComponent - target.redComponent
+        let green = source.greenComponent - target.greenComponent
+        let blue = source.blueComponent - target.blueComponent
+        return sqrt((red * red) + (green * green) + (blue * blue))
     }
 
     func ensuringTextContrast(on background: NSColor, minimum: CGFloat = 4.5) -> NSColor {

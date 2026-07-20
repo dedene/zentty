@@ -127,12 +127,14 @@ protocol AppearanceSettingsConfigCoordinating {
     var sourceState: AppearanceSettingsSourceState { get }
     var themePreferences: AppearanceThemePreferences { get }
     var syncOpenCodeThemeWithTerminal: Bool { get }
+    var sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis { get }
     func applyTheme(_ name: String, presentingWindow: NSWindow?) async
     func applyTheme(_ name: String, slot: AppearanceThemeSlot, presentingWindow: NSWindow?) async
     func applyThemeMode(_ mode: AppConfig.Appearance.ThemeMode, presentingWindow: NSWindow?) async
     func resetThemePreferences(presentingWindow: NSWindow?) async
     func applyBackgroundOpacity(_ opacity: CGFloat, presentingWindow: NSWindow?) async
     func applyOpenCodeThemeSync(_ enabled: Bool) async
+    func applySidebarSelectionEmphasis(_ emphasis: AppConfig.Appearance.SidebarSelectionEmphasis) async
     func createSharedConfig(presentingWindow: NSWindow?) async
 }
 
@@ -188,6 +190,10 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
 
     var syncOpenCodeThemeWithTerminal: Bool {
         configStore.current.appearance.syncOpenCodeThemeWithTerminal
+    }
+
+    var sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis {
+        configStore.current.appearance.sidebarSelectionEmphasis
     }
 
     var themePreferences: AppearanceThemePreferences {
@@ -283,6 +289,16 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
             }
         } catch {
             logger.error("Failed to persist OpenCode theme sync setting: \(error.localizedDescription)")
+        }
+    }
+
+    func applySidebarSelectionEmphasis(_ emphasis: AppConfig.Appearance.SidebarSelectionEmphasis) async {
+        do {
+            try configStore.update { config in
+                config.appearance.sidebarSelectionEmphasis = emphasis
+            }
+        } catch {
+            logger.error("Failed to persist sidebar selection emphasis setting: \(error.localizedDescription)")
         }
     }
 

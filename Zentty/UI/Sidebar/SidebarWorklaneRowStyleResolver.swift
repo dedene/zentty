@@ -1,6 +1,63 @@
 import AppKit
 
 enum SidebarWorklaneRowStyleResolver {
+    /// Resolved selected-row chrome: the near-opaque fill, its border, and a
+    /// legible active-text color for that fill.
+    struct SelectedRowChrome {
+        let background: NSColor
+        let border: NSColor
+        let text: NSColor
+    }
+
+    /// Selected-row fill / border / text for the current emphasis mode.
+    ///
+    /// - `.subtle`, or `.vivid` without a worklane color: returns the theme's
+    ///   accent-derived values untouched, so those paths stay byte-for-byte as
+    ///   the core theme change produced them.
+    /// - `.vivid` WITH a worklane color: rebuilds the vivid recipe around the
+    ///   lane color so the selected row reads as clearly lane-tinted, mirroring
+    ///   how the focused pane border prefers the worklane color over
+    ///   `theme.paneBorderFocused` (see `PaneContainerView.applyVisualState`).
+    ///   The border uses `WorklaneColor.Alpha.focusedBorder` (0.55) to match the
+    ///   focused-pane stroke, and the text is re-guaranteed against the lane fill
+    ///   via `ensuringTextContrast(on:)`.
+    static func selectedRowChrome(
+        worklaneColor: WorklaneColor?,
+        activeBackground: NSColor,
+        activeBorder: NSColor,
+        activeText: NSColor,
+        theme: ZenttyTheme
+    ) -> SelectedRowChrome {
+        guard theme.sidebarSelectionEmphasis == .vivid, let worklaneColor else {
+            return SelectedRowChrome(
+                background: activeBackground,
+                border: activeBorder,
+                text: activeText
+            )
+        }
+
+        let isDark = theme.sidebarGlassAppearance == .dark
+        let sidebarSurface = theme.sidebarBackground.composited(
+            over: theme.windowBackground
+        )
+        // Mirror AppTheme's vivid fill recipe, swapping the theme accent for the
+        // lane color. Worklane colors are fixed, saturated hues that are never
+        // ~= the sidebar surface, so the accent contrast-floor guard AppTheme
+        // needs is unnecessary here.
+        let laneFill = worklaneColor.tint(alpha: 1)
+            .mixed(towards: sidebarSurface, amount: isDark ? 0.55 : 0.45)
+            .withAlphaComponent(theme.reducedTransparency ? 0.96 : 0.92)
+        let laneBorder = worklaneColor.tint(alpha: WorklaneColor.Alpha.focusedBorder)
+        let laneText = activeText.ensuringTextContrast(
+            on: laneFill.composited(over: sidebarSurface)
+        )
+        return SelectedRowChrome(
+            background: laneFill,
+            border: laneBorder,
+            text: laneText
+        )
+    }
+
     static func tintColor(
         worklaneColor: WorklaneColor?,
         isActive: Bool,
