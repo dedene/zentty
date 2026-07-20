@@ -428,6 +428,251 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         XCTAssertEqual(reloadCount, 1)
     }
 
+    // MARK: - Seeded color healing
+
+    private let historicSeededColorBlock = """
+    background = #0A0C10
+    foreground = #F0F3F6
+    cursor-color = #71B7FF
+    selection-background = #F0F3F6
+    selection-foreground = #0A0C10
+    palette = 0=#7A828E
+    palette = 1=#FF9492
+    palette = 2=#26CD4D
+    palette = 3=#FFE073
+    palette = 4=#71B7FF
+    palette = 5=#CB9EFF
+    palette = 6=#24EAF7
+    palette = 7=#D9DEE3
+    palette = 8=#9EA7B3
+    palette = 9=#FFB1AF
+    palette = 10=#4AE168
+    palette = 11=#FFE073
+    palette = 12=#91CBFF
+    palette = 13=#DBB7FF
+    palette = 14=#56D4DD
+    palette = 15=#FFFFFF
+    """
+
+    private let historicSeededColorKeys = [
+        "background = ",
+        "foreground = ",
+        "cursor-color = ",
+        "selection-background = ",
+        "selection-foreground = ",
+        "palette = ",
+    ]
+
+    func test_createSharedConfig_healsSeededColorBlockFromBundledDefaults() async throws {
+        // Older app versions shipped bundled defaults carrying the explicit color block.
+        try (historicSeededColorBlock + "\nbackground-opacity = 0.80\n")
+            .write(to: bundledDefaultsURL, atomically: true, encoding: .utf8)
+
+        let store = makeConfigStore()
+        try store.update { config in
+            config.appearance.preferredDarkThemeName = "LocalTheme"
+            config.appearance.localThemeName = "LocalTheme"
+        }
+
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .createSharedConfig },
+            runtimeReload: {}
+        )
+
+        await coordinator.createSharedConfig(presentingWindow: nil)
+
+        let content = try String(contentsOf: coordinatorTestCreateTargetURL(), encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = LocalTheme"))
+        XCTAssertTrue(content.contains("background-opacity = 0.80"))
+        for key in historicSeededColorKeys {
+            XCTAssertFalse(content.contains(key), "expected seeded \(key) line to be healed away")
+        }
+    }
+
+    func test_createSharedConfig_preservesUserAuthoredColorsFromAppSupportConfig() async throws {
+        let userConfig = """
+        theme = Existing
+        background = #222222
+        foreground = #EEEEEE
+        palette = 0=#101010
+        """
+        _ = try makeGhosttyConfig(
+            relativePath: "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+            contents: userConfig
+        )
+
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .createSharedConfig },
+            runtimeReload: {}
+        )
+
+        await coordinator.createSharedConfig(presentingWindow: nil)
+
+        let content = try String(contentsOf: coordinatorTestCreateTargetURL(), encoding: .utf8)
+        XCTAssertTrue(content.contains("background = #222222"))
+        XCTAssertTrue(content.contains("foreground = #EEEEEE"))
+        XCTAssertTrue(content.contains("palette = 0=#101010"))
+        XCTAssertTrue(content.contains("theme = Existing"))
+    }
+
+    func test_applyTheme_healsSeededColorBlockInExistingSharedConfig() async throws {
+        let poisoned = "theme = Old\n" + historicSeededColorBlock + "\nfont-size = 14\n"
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: poisoned
+        )
+
+        let store = makeConfigStore()
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        await coordinator.applyTheme("TokyoNight", presentingWindow: nil)
+
+        let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = TokyoNight"))
+        XCTAssertFalse(content.contains("theme = Old"))
+        XCTAssertTrue(content.contains("font-size = 14"))
+        for key in historicSeededColorKeys {
+            XCTAssertFalse(content.contains(key), "expected seeded \(key) line to be healed on write")
+        }
+        XCTAssertEqual(reloadCount, 1)
+    }
+
+    func test_applyTheme_leavesUserAuthoredColorsUntouchedOnWrite() async throws {
+        let userConfig = """
+        theme = Old
+        background = #222222
+        palette = 0=#101010
+        """
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: userConfig
+        )
+
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: {}
+        )
+
+        await coordinator.applyTheme("TokyoNight", presentingWindow: nil)
+
+        let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = TokyoNight"))
+        XCTAssertTrue(content.contains("background = #222222"))
+        XCTAssertTrue(content.contains("palette = 0=#101010"))
+    }
+
+    // MARK: - Fallback theme install
+
+    func test_applyTheme_installsFallbackThemeFileWhenReferenced() async throws {
+        _ = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: "theme = Old\n"
+        )
+
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: {}
+        )
+
+        await coordinator.applyTheme(GhosttyThemeLibrary.fallbackPersistedThemeName, presentingWindow: nil)
+
+        let themeFileURL = coordinatorTestFallbackThemeURL()
+        let installed = try String(contentsOf: themeFileURL, encoding: .utf8)
+        XCTAssertEqual(
+            installed,
+            try XCTUnwrap(GhosttyThemeLibrary.builtInThemeConfigContents(named: GhosttyThemeLibrary.fallbackThemeName))
+        )
+    }
+
+    func test_applyTheme_doesNotOverwriteExistingFallbackThemeFile() async throws {
+        _ = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: "theme = Old\n"
+        )
+
+        let themeFileURL = coordinatorTestFallbackThemeURL()
+        try FileManager.default.createDirectory(
+            at: themeFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "SENTINEL".write(to: themeFileURL, atomically: true, encoding: .utf8)
+
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: {}
+        )
+
+        await coordinator.applyTheme(GhosttyThemeLibrary.fallbackPersistedThemeName, presentingWindow: nil)
+
+        XCTAssertEqual(try String(contentsOf: themeFileURL, encoding: .utf8), "SENTINEL")
+    }
+
+    func test_applyTheme_doesNotInstallFallbackThemeForUnrelatedTheme() async throws {
+        _ = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: "theme = Old\n"
+        )
+
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: {}
+        )
+
+        await coordinator.applyTheme("Atom", presentingWindow: nil)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: coordinatorTestFallbackThemeURL().path))
+    }
+
+    func test_applyBackgroundOpacity_healsAndInstallsFallbackWhenConfigReferencesFallback() async throws {
+        // Poisoned config that pins the fallback theme; an opacity-only change must still both
+        // heal the seeded block and materialize the standalone theme file.
+        let poisoned = "theme = \(GhosttyThemeLibrary.fallbackPersistedThemeName)\n"
+            + historicSeededColorBlock + "\n"
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: poisoned
+        )
+
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: {}
+        )
+
+        await coordinator.applyBackgroundOpacity(0.5, presentingWindow: nil)
+
+        let content = try String(contentsOf: sharedConfigURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("theme = \(GhosttyThemeLibrary.fallbackPersistedThemeName)"))
+        XCTAssertTrue(content.contains("background-opacity = 0.50"))
+        for key in historicSeededColorKeys {
+            XCTAssertFalse(content.contains(key), "expected seeded \(key) line to be healed on opacity write")
+        }
+
+        let themeFileURL = coordinatorTestFallbackThemeURL()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: themeFileURL.path))
+        XCTAssertEqual(
+            try String(contentsOf: themeFileURL, encoding: .utf8),
+            try XCTUnwrap(GhosttyThemeLibrary.builtInThemeConfigContents(named: GhosttyThemeLibrary.fallbackThemeName))
+        )
+    }
+
     private func makeConfigStore() -> AppConfigStore {
         AppConfigStore(
             fileURL: temporaryDirectoryURL.appendingPathComponent(UUID().uuidString).appendingPathComponent("config.toml")
@@ -469,5 +714,13 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("ghostty", isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
+    }
+
+    private func coordinatorTestFallbackThemeURL() -> URL {
+        homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+            .appendingPathComponent(GhosttyThemeLibrary.fallbackPersistedThemeName, isDirectory: false)
     }
 }
