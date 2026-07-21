@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  agentIconKey,
+  agentIconSvg,
   formatRelativeTime,
   interactionKindLabel,
   paneStateLabel,
@@ -26,15 +28,38 @@ describe('formatRelativeTime', () => {
   });
 });
 
-describe('toolIconName', () => {
-  it('maps known agents to distinct glyphs', () => {
-    expect(toolIconName('claude')).toBe('sparkles-outline');
-    expect(toolIconName('Codex')).toBe('logo-electron');
+describe('agentIconKey', () => {
+  it('resolves known agent CLIs to their bundled logo', () => {
+    expect(agentIconKey('claude')).toBe('claudeCode');
+    expect(agentIconKey('Claude Code')).toBe('claudeCode');
+    expect(agentIconKey('Codex')).toBe('codex');
+    expect(agentIconKey('gpt-5.5')).toBe('codex');
+    expect(agentIconKey('cursor-agent')).toBe('cursor');
+    expect(agentIconKey('Gemini')).toBe('gemini');
+    expect(agentIconKey('grok')).toBe('grok');
+    expect(agentIconKey('opencode')).toBe('openCode');
   });
 
-  it('falls back to the terminal glyph for unknown or missing tools', () => {
+  it('returns undefined for unknown or missing tools', () => {
+    expect(agentIconKey('some-random-shell')).toBeUndefined();
+    expect(agentIconKey(undefined)).toBeUndefined();
+    expect(agentIconKey('')).toBeUndefined();
+  });
+
+  it('exposes real SVG markup for a known tool and nothing for unknown', () => {
+    expect(agentIconSvg('claude')).toContain('<svg');
+    expect(agentIconSvg('some-random-shell')).toBeUndefined();
+  });
+});
+
+describe('toolIconName', () => {
+  it('falls back to the terminal glyph for tools without a bundled logo', () => {
     expect(toolIconName('some-random-shell')).toBe('terminal-outline');
     expect(toolIconName(undefined)).toBe('terminal-outline');
+  });
+
+  it('keeps a distinct glyph for Antigravity, which has no logo yet', () => {
+    expect(toolIconName('antigravity')).toBe('rocket-outline');
   });
 });
 

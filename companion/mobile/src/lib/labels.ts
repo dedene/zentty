@@ -49,16 +49,42 @@ export function interactionKindLabel(kind: InteractionKind): string {
   return INTERACTION_LABEL[kind];
 }
 
-/** Map a known agent CLI name to an Ionicon; everything else gets the terminal glyph. */
+import { AGENT_ICON_SVG, type AgentIconKey } from './agentIcons';
+
+/**
+ * Resolve an agent CLI name to one of the desktop app's logos (rendered by
+ * {@link ToolIcon}). Order matters: match more specific names before broad
+ * substrings. Returns undefined for unknown tools, which fall back to a glyph.
+ */
+export function agentIconKey(tool?: string): AgentIconKey | undefined {
+  const key = (tool ?? '').toLowerCase();
+  if (!key) return undefined;
+  if (key.includes('claude')) return 'claudeCode';
+  if (key.includes('codex') || key.includes('openai') || key.includes('gpt')) return 'codex';
+  if (key.includes('copilot')) return 'copilot';
+  if (key.includes('cursor')) return 'cursor';
+  if (key.includes('droid') || key.includes('factory')) return 'droid';
+  if (key.includes('gemini')) return 'gemini';
+  if (key.includes('grok')) return 'grok';
+  if (key.includes('hermes')) return 'hermes';
+  if (key.includes('kimi')) return 'kimi';
+  if (key.includes('mistral')) return 'mistral';
+  if (key.includes('opencode')) return 'openCode';
+  if (key.includes('amp')) return 'amp';
+  if (key === 'pi' || key.includes('pi ') || key.includes('pi-') || key.includes('pomp')) return 'pi';
+  if (key.includes('zentty')) return 'zentty';
+  return undefined;
+}
+
+/** The SVG markup for a tool's logo, or undefined when there's no known logo. */
+export function agentIconSvg(tool?: string): string | undefined {
+  const k = agentIconKey(tool);
+  return k ? AGENT_ICON_SVG[k] : undefined;
+}
+
+/** Fallback Ionicon for tools without a bundled logo — the terminal glyph. */
 export function toolIconName(tool?: string): IoniconName {
   const key = (tool ?? '').toLowerCase();
-  if (key.includes('claude')) return 'sparkles-outline';
-  if (key.includes('codex') || key.includes('gpt') || key.includes('openai')) return 'logo-electron';
-  if (key.includes('cursor')) return 'navigate-outline';
-  if (key.includes('gemini')) return 'planet-outline';
-  if (key.includes('kimi')) return 'moon-outline';
-  if (key.includes('grok')) return 'flash-outline';
-  if (key.includes('droid') || key.includes('factory')) return 'hardware-chip-outline';
   if (key.includes('agy') || key.includes('antigravity')) return 'rocket-outline';
   return 'terminal-outline';
 }

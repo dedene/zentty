@@ -5,10 +5,9 @@
   "dependencies": {
     "@expo/ui": "~57.0.7",
     "@expo/vector-icons": "^15.1.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@stablelib/chacha20poly1305": "2.0.1",
     "@stablelib/ed25519": "2.1.0",
-    "@stablelib/hmac": "2.0.1",
-    "@stablelib/sha256": "2.0.1",
     "@stablelib/x25519": "2.0.1",
     "@tanstack/react-query": "^5.101.3",
     "@zentty/wire": "workspace:*",
@@ -37,6 +36,7 @@
     "react-native-reanimated": "4.5.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
+    "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.0",
     "zustand": "^5.0.14"
@@ -56,8 +56,8 @@
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
