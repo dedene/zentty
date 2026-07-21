@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { LeaseRevokedReason } from '@zentty/wire';
 import type { LeaseSnapshot } from '@/store';
@@ -17,15 +17,23 @@ const REVOKED_REASON: Record<LeaseRevokedReason, string> = {
  * Takeover affordance for the Terminal tab (spec §2.6). Reflects the lease state:
  * offer "Take control" when idle, show the held grid with a Release button, or
  * explain why control dropped to a read-only mirror.
+ *
+ * `demoted` collapses only the idle state to a quiet inline link — used on agent
+ * panes that also have a Conversation tab, where take-control is a power-user
+ * escape hatch rather than the main path. Every active lease state stays a full
+ * card regardless, since a held lease is reflowing the Mac and the Release
+ * control must stay visible.
  */
 export function TakeoverControls({
   lease,
   grid,
+  demoted = false,
   onTakeControl,
   onRelease,
 }: {
   lease: LeaseSnapshot;
   grid?: { cols: number; rows: number };
+  demoted?: boolean;
   onTakeControl: () => void;
   onRelease: () => void;
 }) {
@@ -77,7 +85,24 @@ export function TakeoverControls({
     );
   }
 
-  // idle
+  // idle, demoted: a quiet inline link (agent panes with a Conversation tab).
+  if (demoted) {
+    return (
+      <Pressable
+        onPress={onTakeControl}
+        style={styles.demotedLink}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Take control and reflow the pane to your phone"
+      >
+        <Ionicons name="phone-portrait-outline" size={14} color={colors.textDim} />
+        <Text style={type.dim}>Take control</Text>
+        {lease.error ? <Text style={type.faint}>· {lease.error}</Text> : null}
+      </Pressable>
+    );
+  }
+
+  // idle, primary: the full card (panes whose only surface is the terminal).
   return (
     <View style={[styles.card, styles.rowCard]}>
       <View style={styles.idleText}>
@@ -108,6 +133,14 @@ const styles = StyleSheet.create({
   idleText: {
     flex: 1,
     gap: 2,
+  },
+  demotedLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: space.xs,
+    paddingVertical: space.xs,
+    paddingHorizontal: space.sm,
   },
   heldCard: {
     gap: space.sm,

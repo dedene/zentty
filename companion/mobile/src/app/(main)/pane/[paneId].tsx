@@ -172,6 +172,7 @@ export default function PaneDetailScreen() {
                 <TakeoverControls
                   lease={lease}
                   grid={grid}
+                  demoted={hasTranscript}
                   onTakeControl={onTakeControl}
                   onRelease={onRelease}
                 />
