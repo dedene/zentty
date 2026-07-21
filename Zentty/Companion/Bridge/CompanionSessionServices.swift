@@ -119,4 +119,12 @@ protocol CompanionSessionServicing: AnyObject {
     func leaseHeartbeat(token: CompanionLeaseClientToken, leaseId: String)
     func leaseResize(leaseId: String, cols: Int, rows: Int)
     func leaseRelease(leaseId: String)
+
+    // Push
+    /// Records a phone's push token (from `push.register`) on its pairing and
+    /// forwards a signed registration to the gateway when one is configured.
+    /// `phoneDeviceId` is the session's authenticated device, not the wire payload.
+    func registerPush(phoneDeviceId: String, platform: CompanionPushPlatform, token: String)
+    /// Fans a single test wake (from `push.test`) out to the requesting device.
+    func sendTestPush(phoneDeviceId: String)
 }

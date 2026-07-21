@@ -16,6 +16,7 @@ import type { RelayConfig } from './config.js';
 import { createLogger, type Logger } from './log.js';
 import { DeviceLimiter } from './rateLimit.js';
 import { classifySealed, verifyRelayAuth } from './crypto.js';
+import type { PushGateway } from './push/gateway.js';
 
 // The relay: a zero-knowledge WebSocket router. Per connection it runs a small
 // state machine (challenge -> auth -> ready), then routes relay.frame messages
@@ -45,6 +46,7 @@ export interface RelayServerHandle {
 export function createRelayServer(
   config: RelayConfig,
   logger: Logger = createLogger(config.logLevel),
+  gateway?: PushGateway,
 ): RelayServerHandle {
   // deviceId -> its current authenticated connection (latest wins).
   const devices = new Map<string, Conn>();
@@ -246,6 +248,28 @@ export function createRelayServer(
     if (req.method === 'GET' && path === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('ok');
+      return;
+    }
+    // The push gateway (if configured) owns /register and /wake; everything else
+    // falls through to 404.
+    if (gateway) {
+      gateway.handleRequest(req, res).then(
+        (handled) => {
+          if (!handled) {
+            res.writeHead(404, { 'content-type': 'text/plain' });
+            res.end('not found');
+          }
+        },
+        (error: unknown) => {
+          logger.error('push gateway error', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          if (!res.headersSent) {
+            res.writeHead(500, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'internal_error' }));
+          }
+        },
+      );
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain' });

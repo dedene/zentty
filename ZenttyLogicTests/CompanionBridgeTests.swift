@@ -457,6 +457,50 @@ final class CompanionBridgeTests: XCTestCase {
         await driver.runTask.value
     }
 
+    // MARK: - Push
+
+    func testPushRegisterPersistsTokenOnPairing() async throws {
+        let phone = PhoneIdentity()
+        try pairingStore.add(
+            CompanionPairedDevice(
+                deviceId: phone.deviceId,
+                publicKey: phone.deviceId,
+                name: "Test iPhone",
+                pairedAt: Date(),
+                lastSeenAt: Date()
+            )
+        )
+
+        let driver = try await openEncryptedSession(phone: phone)
+        try await driver.send(.sessionHello(CompanionSessionHello(
+            supported: CompanionVersionRange(min: 1, max: 1),
+            deviceName: "Test iPhone",
+            appVersion: "1.0"
+        )))
+        _ = try await driver.receive() // session.ready
+
+        // push.register stores the token on the pairing. No gateway URL is
+        // configured here, so nothing leaves the process.
+        try await driver.send(.pushRegister(CompanionPushRegister(
+            platform: .apns,
+            token: "apns-token-abc",
+            deviceId: phone.deviceId
+        )))
+        // Fence with ping/pong: in-order processing means the token is persisted
+        // by the time the pong arrives.
+        try await driver.send(.sessionPing(CompanionSessionPing(ts: 1)))
+        let pong = try await driver.receive()
+        guard case .sessionPong = pong.message else {
+            return XCTFail("Expected session.pong, got \(pong.type)")
+        }
+
+        XCTAssertEqual(pairingStore.device(withId: phone.deviceId)?.pushToken, "apns-token-abc")
+        XCTAssertEqual(pairingStore.device(withId: phone.deviceId)?.pushPlatform, .apns)
+
+        driver.close()
+        await driver.runTask.value
+    }
+
     // MARK: - Helpers
 
     private static func worklane(paneId: String, state: PaneAgentState, attention: Bool) -> CompanionDashboardWorklane {

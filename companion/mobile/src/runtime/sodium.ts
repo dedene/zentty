@@ -50,6 +50,8 @@ export function createStablelibSodium(randomBytes: RandomBytes): SodiumLike {
       }
       return opened;
     },
+    ed25519PublicKeyToX25519: (publicKey) => ed25519.convertPublicKeyToX25519(publicKey),
+    ed25519SecretKeyToX25519: (secretKey) => ed25519.convertSecretKeyToX25519(secretKey),
     randomBytes: (length) => randomBytes(length),
   };
 }

@@ -83,11 +83,19 @@ final class WorklaneAttentionNotificationCoordinator {
         let paneID: String
         let soundName: String
         let shouldRequestUserAttention: Bool
+        /// True for `needsInput` (requires-human-attention) deliveries: the only
+        /// transitions that also fan out a companion push to paired phones.
+        let isAttention: Bool
     }
 
     private let center: any WorklaneAttentionUserNotificationCenter
     private let notificationStore: NotificationStore
     private let configStore: AppConfigStore?
+    /// Beside every debounced local attention notification, fan the same content
+    /// out to paired mobile companions. Nil when the companion bridge is absent
+    /// (hosted test mode / never paired); firing here guarantees the push
+    /// coalesces identically to the local path and never double-fires.
+    private let attentionPushSink: (@MainActor (CompanionAttentionPush) -> Void)?
     private let needsInputSystemNotificationDelay: TimeInterval
     private let unclassifiedNeedsInputLogger: @MainActor (WorklaneAttentionUnclassifiedNeedsInputLogRecord) -> Void
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneAttentionNotifications")
@@ -102,11 +110,13 @@ final class WorklaneAttentionNotificationCoordinator {
         center: (any WorklaneAttentionUserNotificationCenter)? = nil,
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
+        attentionPushSink: (@MainActor (CompanionAttentionPush) -> Void)? = nil,
         unclassifiedNeedsInputLogger: (@MainActor (WorklaneAttentionUnclassifiedNeedsInputLogRecord) -> Void)? = nil
     ) {
         self.center = center ?? Self.makeDefaultNotificationCenter()
         self.notificationStore = notificationStore
         self.configStore = configStore
+        self.attentionPushSink = attentionPushSink
         self.needsInputSystemNotificationDelay = Runtime.isRunningTests ? 0 : 1.5
         self.unclassifiedNeedsInputLogger = unclassifiedNeedsInputLogger ?? Self.logUnclassifiedNeedsInputRecord
         self.center.requestAuthorizationIfNeeded()
@@ -117,11 +127,13 @@ final class WorklaneAttentionNotificationCoordinator {
         notificationStore: NotificationStore,
         configStore: AppConfigStore? = nil,
         needsInputSystemNotificationDelay: TimeInterval,
+        attentionPushSink: (@MainActor (CompanionAttentionPush) -> Void)? = nil,
         unclassifiedNeedsInputLogger: (@MainActor (WorklaneAttentionUnclassifiedNeedsInputLogRecord) -> Void)? = nil
     ) {
         self.center = center ?? Self.makeDefaultNotificationCenter()
         self.notificationStore = notificationStore
         self.configStore = configStore
+        self.attentionPushSink = attentionPushSink
         self.needsInputSystemNotificationDelay = needsInputSystemNotificationDelay
         self.unclassifiedNeedsInputLogger = unclassifiedNeedsInputLogger ?? Self.logUnclassifiedNeedsInputRecord
         self.center.requestAuthorizationIfNeeded()
@@ -281,7 +293,8 @@ final class WorklaneAttentionNotificationCoordinator {
             worklaneID: worklaneID,
             paneID: paneID,
             soundName: soundName,
-            shouldRequestUserAttention: shouldRequestUserAttention
+            shouldRequestUserAttention: shouldRequestUserAttention,
+            isAttention: state == .needsInput
         )
 
         guard state == .needsInput, needsInputSystemNotificationDelay > 0 else {
@@ -324,6 +337,16 @@ final class WorklaneAttentionNotificationCoordinator {
         )
         if request.shouldRequestUserAttention {
             NSApplication.shared.requestUserAttention(.informationalRequest)
+        }
+        if request.isAttention {
+            attentionPushSink?(
+                CompanionAttentionPush(
+                    title: request.title,
+                    body: request.body,
+                    paneId: request.paneID,
+                    worklaneId: request.worklaneID
+                )
+            )
         }
     }
 

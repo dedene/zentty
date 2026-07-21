@@ -363,6 +363,24 @@ final class CompanionSession {
             }
             services.leaseRelease(leaseId: payload.leaseId)
 
+        case .pushRegister(let payload):
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            // The authenticated `pairedDeviceId` is authoritative — the phone's
+            // payload `deviceId` is advisory and never trusted for routing.
+            guard let phoneDeviceId = pairedDeviceId else { return }
+            services.registerPush(phoneDeviceId: phoneDeviceId, platform: payload.platform, token: payload.token)
+
+        case .pushTest:
+            guard didCompleteHello else {
+                try await sendExpectedHello(replyTo: envelope.id)
+                return
+            }
+            guard let phoneDeviceId = pairedDeviceId else { return }
+            services.sendTestPush(phoneDeviceId: phoneDeviceId)
+
         default:
             try await sendSealed(
                 .sessionError(CompanionSessionError(code: "unsupported_type", message: "Unsupported message type: \(envelope.type)", fatal: false)),

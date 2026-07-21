@@ -26,6 +26,10 @@ export interface SodiumLike {
   aeadEncrypt(plaintext: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array;
   /** ChaCha20-Poly1305-IETF open. Throws on authentication failure. */
   aeadDecrypt(ciphertextWithTag: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array;
+  /** Map a 32-byte Ed25519 public key to its 32-byte X25519 (Montgomery) form. */
+  ed25519PublicKeyToX25519(publicKey: Uint8Array): Uint8Array;
+  /** Map a 64-byte Ed25519 secret key to its 32-byte X25519 private key. */
+  ed25519SecretKeyToX25519(secretKey: Uint8Array): Uint8Array;
   /** Cryptographically-random bytes. */
   randomBytes(length: number): Uint8Array;
 }
@@ -59,6 +63,8 @@ export interface RawLibsodium {
     publicNonce: Uint8Array,
     key: Uint8Array,
   ): Uint8Array;
+  crypto_sign_ed25519_pk_to_curve25519(publicKey: Uint8Array): Uint8Array;
+  crypto_sign_ed25519_sk_to_curve25519(secretKey: Uint8Array): Uint8Array;
   randombytes_buf(length: number): Uint8Array;
 }
 
@@ -83,6 +89,8 @@ export function createSodium(raw: RawLibsodium): SodiumLike {
       raw.crypto_aead_chacha20poly1305_ietf_encrypt(plaintext, null, null, nonce, key),
     aeadDecrypt: (ciphertextWithTag, nonce, key) =>
       raw.crypto_aead_chacha20poly1305_ietf_decrypt(null, ciphertextWithTag, null, nonce, key),
+    ed25519PublicKeyToX25519: (publicKey) => raw.crypto_sign_ed25519_pk_to_curve25519(publicKey),
+    ed25519SecretKeyToX25519: (secretKey) => raw.crypto_sign_ed25519_sk_to_curve25519(secretKey),
     randomBytes: (length) => raw.randombytes_buf(length),
   };
 }

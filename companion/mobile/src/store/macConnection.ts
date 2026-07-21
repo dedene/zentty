@@ -13,10 +13,13 @@ import type { LeaseRevokedReason, ParsedMessage, TranscriptEntry, TranscriptUnav
 import {
   ConnectionManager,
   PhoneSession,
+  PushRegistrar,
   type ActiveTransport,
   type ConnectionStatus,
   type PairedMac,
   type PhoneDeviceIdentity,
+  type PushRegistrationState,
+  type PushToken,
   type SessionState,
   type SodiumLike,
 } from '@/core';
@@ -47,6 +50,8 @@ export interface MacConnectionState {
   lastConnectedAt?: number;
   /** ms-epoch of the last snapshot/delta applied. */
   lastSnapshotAt?: number;
+  /** What this phone last registered with the Mac for push, if anything. */
+  pushRegistration?: PushRegistrationState;
 }
 
 export interface MacConnectionDeps {
@@ -62,6 +67,8 @@ export interface MacConnectionDeps {
   reconnectDelayMs?: number;
   /** Seed the model with cached worklanes (e.g. from a prior session). */
   initialWorklanes?: Worklane[];
+  /** Current native push token, read on every session-ready to register with the Mac. */
+  pushToken?: () => PushToken | undefined;
 }
 
 export class MacConnection {
@@ -76,12 +83,14 @@ export class MacConnection {
   /** Stable transport seam handed to every {@link PaneController}; reads the
    * current session on each call so a reconnect is transparent. */
   private readonly paneTransport: PaneTransport;
+  private readonly registrar: PushRegistrar;
   state: MacConnectionState;
 
   constructor(deps: MacConnectionDeps) {
     this.deps = deps;
     this.delay = deps.delay ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.worklanes = deps.initialWorklanes ?? [];
+    this.registrar = new PushRegistrar(deps.identity.deviceId);
     this.state = { status: 'connecting', worklanes: this.worklanes, panes: {} };
     this.paneTransport = {
       send: (type, payload) => {
@@ -120,6 +129,28 @@ export class MacConnection {
     this.running = true;
     this.stopped = false;
     void this.runLoop();
+  }
+
+  /**
+   * Send this phone's current push token to the Mac when it first arrives or
+   * rotates while a session is already live. Only sends when the token changed;
+   * the session-ready path re-registers unconditionally.
+   */
+  registerPush(): void {
+    this.sendRegistration(this.registrar.registerIfChanged.bind(this.registrar));
+  }
+
+  private sendRegistration(
+    apply: (session: { send: (type: string, payload: unknown) => void }, token: PushToken | undefined) => PushRegistrationState | undefined,
+  ): void {
+    if (this.session?.state !== 'ready') {
+      return;
+    }
+    const session = this.session;
+    const registration = apply({ send: (t, p) => session.send(t, p) }, this.deps.pushToken?.());
+    if (registration) {
+      this.emit({ pushRegistration: registration });
+    }
   }
 
   /** Force a reconnect (pull-to-refresh): drop the live session, keep cached data. */
@@ -212,6 +243,11 @@ export class MacConnection {
           // The Mac answers a subscribe with a fresh dashboard.snapshot, then
           // streams dashboard.delta frames (both routed via onMessage).
           session.send('dashboard.subscribe', {});
+          // Hand the Mac this phone's push token (if any) so it can register with
+          // the gateway. A fresh session means the Mac lost its in-memory binding,
+          // so always re-send. A no-op when push is unavailable; foreground updates
+          // still flow over this same session.
+          this.sendRegistration(this.registrar.register.bind(this.registrar));
           // Re-issue any pane watches/transcript subscriptions from before a drop.
           for (const controller of this.panes.values()) {
             controller.resync();

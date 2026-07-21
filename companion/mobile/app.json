@@ -35,6 +35,12 @@
       "expo-dev-client",
       "expo-secure-store",
       [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Zentty uses the camera to scan the pairing QR code shown on your Mac."
@@ -47,7 +53,8 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200
         }
-      ]
+      ],
+      "./plugins/withNotificationServiceExtension"
     ],
     "experiments": {
       "typedRoutes": true,

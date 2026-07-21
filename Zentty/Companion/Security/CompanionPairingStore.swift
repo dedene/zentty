@@ -14,13 +14,28 @@ struct CompanionPairedDevice: Codable, Equatable, Sendable {
     var name: String
     var pairedAt: Date
     var lastSeenAt: Date
+    /// The phone's push platform, once it has sent `push.register`. `nil` until the
+    /// phone registers a token (older records decode with this absent).
+    var pushPlatform: CompanionPushPlatform?
+    /// The phone's current APNs/FCM token, once registered. Replaced on re-register.
+    var pushToken: String?
 
-    init(deviceId: String, publicKey: String, name: String, pairedAt: Date, lastSeenAt: Date) {
+    init(
+        deviceId: String,
+        publicKey: String,
+        name: String,
+        pairedAt: Date,
+        lastSeenAt: Date,
+        pushPlatform: CompanionPushPlatform? = nil,
+        pushToken: String? = nil
+    ) {
         self.deviceId = deviceId
         self.publicKey = publicKey
         self.name = name
         self.pairedAt = pairedAt
         self.lastSeenAt = lastSeenAt
+        self.pushPlatform = pushPlatform
+        self.pushToken = pushToken
     }
 }
 
@@ -103,6 +118,15 @@ final class CompanionPairingStore {
     func updateLastSeen(deviceId: String, at date: Date) throws {
         guard let index = cachedDevices.firstIndex(where: { $0.deviceId == deviceId }) else { return }
         cachedDevices[index].lastSeenAt = date
+        try persist()
+    }
+
+    /// Records the phone's push token + platform on its pairing (a re-register
+    /// replaces both), then persists. No-op if the device is unknown.
+    func setPushRegistration(deviceId: String, platform: CompanionPushPlatform, token: String) throws {
+        guard let index = cachedDevices.firstIndex(where: { $0.deviceId == deviceId }) else { return }
+        cachedDevices[index].pushPlatform = platform
+        cachedDevices[index].pushToken = token
         try persist()
     }
 

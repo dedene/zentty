@@ -69,3 +69,19 @@ export {
   secureStoreKV,
 } from './storage';
 export type { KVStore, SecureStoreLike, PhoneDeviceIdentity, PairedMac } from './storage';
+
+export { PushRegistrar } from './pushRegistration';
+export type { PushToken, PushRegistrationState, RegistrarSession } from './pushRegistration';
+
+export {
+  PUSH_SEAL_LABEL,
+  derivePushKey,
+  unsealPush,
+  sealPush,
+} from './pushCrypto';
+export {
+  parsePushWakeEnvelope,
+  parsePushWakeContent,
+  resolvePushDeepLink,
+} from './pushWake';
+export type { PushWakeEnvelope, PushWakeContent, PushDeepLink } from './pushWake';

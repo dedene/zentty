@@ -6,8 +6,15 @@
  */
 import { create } from 'zustand';
 
-import type { PairedMac, PhoneDeviceIdentity } from '@/core';
+import {
+  resolvePushDeepLink,
+  type PairedMac,
+  type PhoneDeviceIdentity,
+  type PushDeepLink,
+  type PushToken,
+} from '@/core';
 import { APP_VERSION, phoneName } from '@/runtime/device';
+import { fetchDevicePushToken } from '@/runtime/notifications';
 import { getSodium } from '@/runtime/sodium';
 import { getStorage } from '@/runtime/storage';
 
@@ -22,9 +29,24 @@ export interface CompanionStore {
   identity?: PhoneDeviceIdentity;
   macs: PairedMac[];
   views: Record<string, MacConnectionState>;
+  /** The phone's native push token, once permission is granted and it is fetched. */
+  pushToken?: PushToken;
 
   /** Load identity + pairings from secure storage. Safe to call repeatedly. */
   hydrate: () => Promise<void>;
+  /**
+   * Request notification permission, fetch the native device token, and register
+   * it with every connected Mac. Degrades cleanly to a no-op when push is
+   * unavailable (simulator, denied, no entitlement) — the dashboard still updates
+   * live in the foreground.
+   */
+  enablePush: () => Promise<void>;
+  /**
+   * Resolve a tapped/received wake notification's `data` payload to a deep-link
+   * target by decrypting its sealed content offline. `undefined` when it is not a
+   * recognizable wake for a paired Mac.
+   */
+  resolveNotification: (data: unknown) => Promise<PushDeepLink | undefined>;
   /** Ensure a live connection to a Mac (idempotent) — call on screen focus. */
   connect: (macDeviceId: string) => Promise<void>;
   /** Force-reconnect a Mac (pull-to-refresh). */
@@ -48,6 +70,7 @@ export const useCompanionStore = create<CompanionStore>((set, get) => ({
   identity: undefined,
   macs: [],
   views: {},
+  pushToken: undefined,
 
   hydrate: async () => {
     if (get().ready) {
@@ -62,6 +85,36 @@ export const useCompanionStore = create<CompanionStore>((set, get) => ({
       })();
     }
     await hydrating;
+  },
+
+  enablePush: async () => {
+    const token = await fetchDevicePushToken();
+    if (!token) {
+      return;
+    }
+    if (get().pushToken?.token === token.token && get().pushToken?.platform === token.platform) {
+      return;
+    }
+    set({ pushToken: token });
+    // Push the new token to every live connection immediately.
+    for (const connection of controllers.values()) {
+      connection.registerPush();
+    }
+  },
+
+  resolveNotification: async (data) => {
+    await get().hydrate();
+    const { identity, macs } = get();
+    if (!identity) {
+      return undefined;
+    }
+    const sodium = await getSodium();
+    return resolvePushDeepLink(sodium, {
+      data,
+      phoneIdentitySeed: identity.seed,
+      macPublicKeyFor: (macDeviceId) =>
+        macs.find((m) => m.macDeviceId === macDeviceId)?.macPubKey,
+    });
   },
 
   connect: async (macDeviceId) => {
@@ -89,6 +142,7 @@ export const useCompanionStore = create<CompanionStore>((set, get) => ({
       deviceName: phoneName(),
       appVersion: APP_VERSION,
       initialWorklanes: get().views[macDeviceId]?.worklanes,
+      pushToken: () => get().pushToken,
       onChange: (state) =>
         set((s) => ({ views: { ...s.views, [macDeviceId]: state } })),
     });

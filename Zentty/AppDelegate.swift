@@ -241,7 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             inputRouter: inputRouter,
             leaseManager: leaseManager,
             isFeatureEnabled: { [weak self] in self?.configStore.current.companion.enabled ?? false },
-            relayUrlProvider: { [weak self] in self?.configStore.current.companion.relayUrl ?? "" }
+            relayUrlProvider: { [weak self] in self?.configStore.current.companion.relayUrl ?? "" },
+            pushGatewayUrlProvider: { [weak self] in self?.configStore.current.companion.pushGatewayUrl ?? "" }
         )
         bridge.installAsShared()
         companionBridge = bridge

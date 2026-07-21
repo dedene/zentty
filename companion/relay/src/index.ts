@@ -1,21 +1,39 @@
-import { loadConfig } from './config.js';
+import { loadConfig, loadPushConfig } from './config.js';
 import { createLogger } from './log.js';
 import { createRelayServer } from './server.js';
+import { createPushGateway } from './push/gateway.js';
 
-// Service entry point. Loads config from the environment, starts the relay, and
-// wires graceful shutdown on SIGINT/SIGTERM.
+// Service entry point. Loads config from the environment, starts the relay + push
+// gateway, and wires graceful shutdown on SIGINT/SIGTERM.
 
-export { loadConfig } from './config.js';
-export type { RelayConfig, LogLevel } from './config.js';
+export { loadConfig, loadPushConfig } from './config.js';
+export type {
+  RelayConfig,
+  LogLevel,
+  PushConfig,
+  ApnsConfig,
+  FcmConfig,
+} from './config.js';
 export { createRelayServer } from './server.js';
 export type { RelayServerHandle } from './server.js';
 export { createLogger } from './log.js';
 export type { Logger } from './log.js';
+export { createPushGateway } from './push/gateway.js';
+export type { PushGateway, PushGatewayDeps } from './push/gateway.js';
+export { PushRegistry } from './push/registry.js';
+export { ApnsClient } from './push/apns.js';
+export { FcmClient } from './push/fcm.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
-  const server = createRelayServer(config, logger);
+  const pushConfig = loadPushConfig();
+  const gateway = createPushGateway(pushConfig, logger);
+  logger.info('push gateway', {
+    apns: gateway.apns.isEnabled,
+    fcm: gateway.fcm.isEnabled,
+  });
+  const server = createRelayServer(config, logger, gateway);
   await server.listen();
 
   const shutdown = (signal: string): void => {

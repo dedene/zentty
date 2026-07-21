@@ -69,4 +69,20 @@ export * from './families/pane';
 export * from './families/input';
 export * from './families/transcript';
 export * from './families/lease';
-export * from './families/push';
+// push uses explicit named re-exports (not `export *`) so nodenext consumers such
+// as the relay's push gateway can resolve the gateway REST contract + signing
+// helpers, which live in a subdirectory module.
+export {
+  PushPlatform,
+  PushRegister,
+  PushTest,
+  pushMessages,
+  PUSH_WAKE_SIGN_PREFIX,
+  PUSH_REGISTER_SIGN_PREFIX,
+  PushRegisterRequest,
+  type PushRegisterSignFields,
+  PushWakeRequest,
+  type PushWakeSignFields,
+  pushWakeSigningString,
+  pushRegisterSigningString,
+} from './families/push';

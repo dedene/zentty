@@ -28,6 +28,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     private let leaseManager: CompanionLeaseManager
     private let isFeatureEnabled: () -> Bool
     private let relayUrlProvider: () -> String
+    private let pushCoordinator: CompanionPushCoordinator
 
     private let listenerQueue = DispatchQueue(label: "be.zenjoy.zentty.companion-bridge")
     private var listener: NWListener?
@@ -52,7 +53,9 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         inputRouter: CompanionInputRouter,
         leaseManager: CompanionLeaseManager,
         isFeatureEnabled: @escaping () -> Bool,
-        relayUrlProvider: @escaping () -> String = { "" }
+        relayUrlProvider: @escaping () -> String = { "" },
+        pushGatewayUrlProvider: @escaping () -> String = { "" },
+        pushTransport: CompanionPushHTTPTransport = CompanionPushURLSessionTransport()
     ) {
         self.identity = identity
         self.pairingStore = pairingStore
@@ -63,6 +66,13 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         self.leaseManager = leaseManager
         self.isFeatureEnabled = isFeatureEnabled
         self.relayUrlProvider = relayUrlProvider
+        self.pushCoordinator = CompanionPushCoordinator(
+            identity: identity,
+            pairingStore: pairingStore,
+            isFeatureEnabled: isFeatureEnabled,
+            gatewayURLProvider: pushGatewayUrlProvider,
+            transport: pushTransport
+        )
     }
 
     /// Installs the process-wide accessor. Call once from `AppDelegate`.
@@ -425,5 +435,24 @@ final class CompanionBridgeServer: CompanionSessionServicing {
 
     func leaseRelease(leaseId: String) {
         leaseManager.release(leaseId: leaseId)
+    }
+
+    // MARK: Push
+
+    func registerPush(phoneDeviceId: String, platform: CompanionPushPlatform, token: String) {
+        pushCoordinator.registerPush(phoneDeviceId: phoneDeviceId, platform: platform, token: token)
+        onPairedDevicesChanged?(pairingStore.devices())
+    }
+
+    func sendTestPush(phoneDeviceId: String) {
+        pushCoordinator.sendTestPush(phoneDeviceId: phoneDeviceId)
+    }
+
+    /// Fans a local attention notification out to every paired phone with a
+    /// registered push token. Called from `WorklaneAttentionNotificationCoordinator`
+    /// on the same debounced transition as the local `UNUserNotification`, so the
+    /// two never double-fire.
+    func fanOutAttentionPush(_ push: CompanionAttentionPush) {
+        pushCoordinator.fanOutAttention(push)
     }
 }

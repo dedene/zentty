@@ -280,8 +280,13 @@ struct AppConfig: Equatable, Sendable {
         /// disables the relay leg entirely (LAN-only). Included in pairing offers
         /// when set so the phone learns where to reach this Mac off-network.
         var relayUrl: String
+        /// Base URL of the push gateway the Mac posts `/register` + `/wake` to for
+        /// remote attention notifications. Empty disables the push leg entirely;
+        /// foreground dashboard updates keep working. Typically the same host as
+        /// the relay, so a self-hosted relay+gateway is one URL each.
+        var pushGatewayUrl: String
 
-        static let `default` = Companion(enabled: true, relayUrl: "")
+        static let `default` = Companion(enabled: true, relayUrl: "", pushGatewayUrl: "")
     }
 
     /// Per-agent enable/disable state for Zentty's CLI integrations. Persistent

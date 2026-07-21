@@ -1,0 +1,20 @@
+{
+  "description": "Zentty companion push-seal interop vector (PHONE side). TEST-ONLY private keys — never reuse. Key = HKDF-SHA256(X25519(macIdentity, phoneIdentity), salt=\"zentty-push/v1\", info=\"zentty-push\"), sealed = nonce||ChaCha20-Poly1305-IETF. The Mac push seal (CryptoKit) must reproduce pushKey and open sealedSample.",
+  "label": "zentty-push",
+  "keys": {
+    "macIdentityPriv": "HkAEqlFhk7yVXoxxbu5H5gKUYT3qNTWB8lBRzDSqySw",
+    "phoneIdentityPriv": "xJab8Jzcx_f73uN1PFTXQ0ndcILK-0JLq4jxVbpAlvc"
+  },
+  "derivedPublicKeys": {
+    "macIdentityPub": "Wkifi0gGMM6G5w_BaiBb04_YSgbPSBkVV5OtpnXwQCg",
+    "phoneIdentityPub": "DHZ1fJTto_N1-XBldOcG-21uHnajpQQnXm9a4wTpwsA"
+  },
+  "expected": {
+    "pushKey": "w8zwu0gYawEQGe2Xr2FhWhn2MSYpumShQI3qKgL3HCs",
+    "sealedSample": {
+      "plaintext": "{\"paneId\":\"pane-7\",\"worklaneId\":\"wl-2\",\"title\":\"Claude needs your approval\",\"body\":\"Run tests in ~/code/app?\"}",
+      "nonce": "AAECAwQFBgcICQoL",
+      "sealed": "AAECAwQFBgcICQoLDO0HTZcRd2IwpA4gGD7YpHAs3gfDeW6UfROVnypXPwOYJ9UggCxMaw2etA63e8FHBl8ZbNCD5301idHAdNeOdHPHKByqtZQCASRsIs56ucdIiRvzH4D4Jv_VQisMCufdauN04JFBZrdcxQNPbfYxQLnrwzLHyJCCp9qrFjRI"
+    }
+  }
+}

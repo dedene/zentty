@@ -526,4 +526,7 @@ private final class FakeRelayServices: CompanionSessionServicing {
     func leaseRelease(leaseId: String) {
         leaseManager.release(leaseId: leaseId)
     }
+
+    func registerPush(phoneDeviceId: String, platform: CompanionPushPlatform, token: String) {}
+    func sendTestPush(phoneDeviceId: String) {}
 }
