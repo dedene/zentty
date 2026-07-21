@@ -20,6 +20,16 @@ export interface RelayConfig {
   maxFrameBytes: number;
   /** Hard cap on a plaintext pairing `sealed` payload (bytes, pre-base64). */
   maxPairingSealedBytes: number;
+  /** Max distinct peers a single device may watch (explicit + implicit). */
+  maxWatchedPeers: number;
+  /** Global cap on concurrent WebSocket connections. */
+  maxConnections: number;
+  /** Per-remote-address cap on concurrent WebSocket connections. */
+  maxConnectionsPerIp: number;
+  /** Grace period (ms) to complete auth before an idle socket is closed. */
+  authTimeoutMs: number;
+  /** Per-socket outbound buffer cap (bytes); frames past it are dropped. */
+  maxBufferedBytes: number;
   logLevel: LogLevel;
 }
 
@@ -40,6 +50,11 @@ const DEFAULTS: RelayConfig = {
   pairingPerMin: 5,
   maxFrameBytes: 256 * 1024,
   maxPairingSealedBytes: 4 * 1024,
+  maxWatchedPeers: 256,
+  maxConnections: 10_000,
+  maxConnectionsPerIp: 64,
+  authTimeoutMs: 10_000,
+  maxBufferedBytes: 4 * 1024 * 1024,
   logLevel: 'info',
 };
 
@@ -111,6 +126,10 @@ export interface PushConfig {
   rateBurst: number;
   /** Per-device sustained wakes per minute. */
   ratePerMin: number;
+  /** Max distinct rate-limit buckets kept in memory (LRU-evicted past this). */
+  maxRateBuckets: number;
+  /** Max distinct phones registered per Mac device id. */
+  maxPhonesPerMac: number;
 }
 
 const DEFAULT_APNS_TOPIC = 'be.zenjoy.zentty.mobile';
@@ -118,6 +137,8 @@ const DEFAULT_APNS_HOST = 'api.push.apple.com';
 const DEFAULT_FCM_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 const PUSH_DEFAULT_RATE_BURST = 5;
 const PUSH_DEFAULT_RATE_PER_MIN = 10;
+const PUSH_DEFAULT_MAX_RATE_BUCKETS = 10_000;
+const PUSH_DEFAULT_MAX_PHONES_PER_MAC = 64;
 
 function strEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const raw = env[key];
@@ -182,7 +203,8 @@ function loadFcmConfig(env: NodeJS.ProcessEnv): FcmConfig | undefined {
 /**
  * Load push config from the environment. Recognized: APNS_KEY_P8 (path or inline
  * PEM), APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_HOST, FCM_SERVICE_ACCOUNT_JSON
- * (path or inline JSON), PUSH_TOKEN_STORE, PUSH_RATE_BURST, PUSH_RATE_PER_MIN.
+ * (path or inline JSON), PUSH_TOKEN_STORE, PUSH_RATE_BURST, PUSH_RATE_PER_MIN,
+ * PUSH_MAX_RATE_BUCKETS, PUSH_MAX_PHONES_PER_MAC.
  * Reads credential files eagerly so a bad path fails fast at startup.
  */
 export function loadPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig {
@@ -195,13 +217,25 @@ export function loadPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig
     ...(tokenStorePath !== undefined ? { tokenStorePath } : {}),
     rateBurst: intEnv(env, 'PUSH_RATE_BURST', PUSH_DEFAULT_RATE_BURST),
     ratePerMin: intEnv(env, 'PUSH_RATE_PER_MIN', PUSH_DEFAULT_RATE_PER_MIN),
+    maxRateBuckets: intEnv(
+      env,
+      'PUSH_MAX_RATE_BUCKETS',
+      PUSH_DEFAULT_MAX_RATE_BUCKETS,
+    ),
+    maxPhonesPerMac: intEnv(
+      env,
+      'PUSH_MAX_PHONES_PER_MAC',
+      PUSH_DEFAULT_MAX_PHONES_PER_MAC,
+    ),
   };
 }
 
 /**
  * Build config from an environment map (defaults `process.env`). Recognized:
  * PORT, RATE_FRAMES_PER_SEC, RATE_BYTES_PER_SEC, RATE_PAIRING_PER_MIN,
- * RATE_MAX_FRAME_BYTES, RATE_MAX_PAIRING_SEALED_BYTES, LOG_LEVEL.
+ * RATE_MAX_FRAME_BYTES, RATE_MAX_PAIRING_SEALED_BYTES, MAX_WATCHED_PEERS,
+ * MAX_CONNECTIONS, MAX_CONNECTIONS_PER_IP, AUTH_TIMEOUT_MS, MAX_BUFFERED_BYTES,
+ * LOG_LEVEL.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
   return {
@@ -215,6 +249,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
       'RATE_MAX_PAIRING_SEALED_BYTES',
       DEFAULTS.maxPairingSealedBytes,
     ),
+    maxWatchedPeers: intEnv(env, 'MAX_WATCHED_PEERS', DEFAULTS.maxWatchedPeers),
+    maxConnections: intEnv(env, 'MAX_CONNECTIONS', DEFAULTS.maxConnections),
+    maxConnectionsPerIp: intEnv(
+      env,
+      'MAX_CONNECTIONS_PER_IP',
+      DEFAULTS.maxConnectionsPerIp,
+    ),
+    authTimeoutMs: intEnv(env, 'AUTH_TIMEOUT_MS', DEFAULTS.authTimeoutMs),
+    maxBufferedBytes: intEnv(env, 'MAX_BUFFERED_BYTES', DEFAULTS.maxBufferedBytes),
     logLevel: logLevelEnv(env, DEFAULTS.logLevel),
   };
 }

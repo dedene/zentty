@@ -64,17 +64,34 @@ export function createPushGateway(
   const registry = deps.registry ?? PushRegistry.open(config.tokenStorePath);
   const now = deps.now ?? Date.now;
 
-  // Per-device token bucket: `burst` immediate, then `perMin`/60 sustained.
+  // Per-key token bucket: `burst` immediate, then `perMin`/60 sustained.
   // Attention pushes are human-scale (spec: >1/min sustained -> throttle).
-  const buckets = new Map<string, TokenBucket>();
-  function admit(deviceId: string): boolean {
-    let bucket = buckets.get(deviceId);
-    if (!bucket) {
-      bucket = new TokenBucket(config.rateBurst, config.ratePerMin / 60, now);
-      buckets.set(deviceId, bucket);
-    }
-    return bucket.take(1);
+  // Buckets are only allocated AFTER the caller's Mac signature verifies (see
+  // handleWake/handleRegister), so an unauthenticated caller cannot grow this
+  // map. It is still bounded by an LRU cap so a large fleet of legit signers
+  // cannot grow it without limit; the Map's insertion order is the LRU order.
+  function makeAdmitter(): (key: string) => boolean {
+    const buckets = new Map<string, TokenBucket>();
+    return (key: string): boolean => {
+      let bucket = buckets.get(key);
+      if (bucket) {
+        buckets.delete(key); // touch: re-insert at the most-recent end
+      } else {
+        bucket = new TokenBucket(config.rateBurst, config.ratePerMin / 60, now);
+      }
+      buckets.set(key, bucket);
+      while (buckets.size > config.maxRateBuckets) {
+        const oldest = buckets.keys().next().value;
+        if (oldest === undefined) {
+          break;
+        }
+        buckets.delete(oldest);
+      }
+      return bucket.take(1);
+    };
   }
+  const admitWake = makeAdmitter();
+  const admitRegister = makeAdmitter();
 
   function enabledFor(platform: PushPlatform): boolean {
     return platform === 'apns' ? apns.isEnabled : fcm.isEnabled;
@@ -90,9 +107,23 @@ export function createPushGateway(
       pushRegisterSigningString({ macDeviceId, phoneDeviceId, platform, token }),
       'utf8',
     );
+    // Signature-first: verify BEFORE allocating a rate bucket or touching the
+    // registry, so an unauthenticated caller cannot grow either.
     if (!verifyEd25519(macDeviceId, message, sig)) {
       logger.warn('push register: bad signature', { macDeviceId });
       return reply(res, 401, { error: 'unauthorized' });
+    }
+    if (!admitRegister(macDeviceId)) {
+      return reply(res, 429, { error: 'rate_limited' });
+    }
+    // Cap phones per Mac. A re-register of an existing pairing (token refresh)
+    // is always allowed; only brand-new pairings are bounded.
+    if (
+      !registry.hasPair(macDeviceId, phoneDeviceId) &&
+      registry.countForMac(macDeviceId) >= config.maxPhonesPerMac
+    ) {
+      logger.warn('push register: phone cap reached', { macDeviceId });
+      return reply(res, 429, { error: 'registration_limit' });
     }
     registry.register({ macDeviceId, phoneDeviceId, platform, token });
     logger.info('push token registered', { macDeviceId, phoneDeviceId, platform });
@@ -109,10 +140,10 @@ export function createPushGateway(
     if (!enabledFor(platform)) {
       return reply(res, 503, { error: 'platform_unconfigured', platform });
     }
-    if (!admit(deviceId)) {
-      return reply(res, 429, { error: 'rate_limited' });
-    }
 
+    // Signature-first: a registry read (macsForWake) never grows state; the
+    // rate-limit bucket is only allocated AFTER a candidate Mac's signature
+    // verifies, so an unauthenticated caller cannot grow the bucket map.
     const candidates = registry.macsForWake(deviceId, token, platform);
     if (candidates.length === 0) {
       return reply(res, 404, { error: 'not_registered' });
@@ -125,6 +156,9 @@ export function createPushGateway(
     if (!authorized) {
       logger.warn('push wake: bad signature', { deviceId, platform });
       return reply(res, 401, { error: 'unauthorized' });
+    }
+    if (!admitWake(deviceId)) {
+      return reply(res, 429, { error: 'rate_limited' });
     }
 
     const result =

@@ -65,6 +65,7 @@ export type {
 
 export {
   CompanionStorage,
+  CorruptPairingsError,
   InMemoryKVStore,
   secureStoreKV,
 } from './storage';

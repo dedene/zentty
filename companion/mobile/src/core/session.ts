@@ -195,6 +195,9 @@ interface HandshakeFrame {
 
 export type SessionState = 'idle' | 'handshaking' | 'ready' | 'closed';
 
+/** Default ceiling from transport-open to `session.ready` before we give up. */
+export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
+
 export interface PhoneSessionOptions {
   transport: TransportLike;
   identity: PhoneDeviceIdentity;
@@ -207,6 +210,13 @@ export interface PhoneSessionOptions {
   onStateChange?: (state: SessionState) => void;
   /** Fired for a dropped/undecryptable frame (e.g. replay); non-fatal. */
   onFrameError?: (error: Error) => void;
+  /**
+   * Ceiling from {@link connect} to `session.ready`. If the crypto handshake or
+   * the sealed hello/ready exchange does not complete in time, the session is
+   * closed with a {@link HandshakeError} so the caller can reconnect with backoff.
+   * Defaults to {@link DEFAULT_HANDSHAKE_TIMEOUT_MS}; `0` disables the timeout.
+   */
+  handshakeTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -228,6 +238,7 @@ export class PhoneSession {
   private readonly pending = new Map<string, PendingRequest>();
   private ready?: { resolve: () => void; reject: (error: Error) => void };
   private receiveLoop?: Promise<void>;
+  private handshakeTimer?: ReturnType<typeof setTimeout>;
 
   constructor(options: PhoneSessionOptions) {
     this.opts = options;
@@ -251,6 +262,19 @@ export class PhoneSession {
       throw new HandshakeError(`cannot connect from state ${this._state}`);
     }
     this.setState('handshaking');
+    const timeoutMs = this.opts.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+    if (timeoutMs > 0) {
+      this.handshakeTimer = setTimeout(() => this.onHandshakeTimeout(), timeoutMs);
+    }
+    try {
+      await this.runHandshake();
+    } finally {
+      this.clearHandshakeTimer();
+    }
+  }
+
+  /** The crypto handshake + sealed hello/ready exchange, guarded by the timer. */
+  private async runHandshake(): Promise<void> {
     const { sodium, identity, mac, transport } = this.opts;
 
     const ephemeralPrivateKey = sodium.randomBytes(32);
@@ -345,6 +369,7 @@ export class PhoneSession {
     if (this._state === 'closed') {
       return;
     }
+    this.clearHandshakeTimer();
     this.setState('closed');
     this.opts.transport.close();
     this.failPending(new SessionClosedError());
@@ -353,6 +378,26 @@ export class PhoneSession {
   }
 
   // MARK: internals
+
+  /** Fired when the handshake overruns its deadline: fail the pending ready and
+   * close the transport so the run loop reconnects with backoff. */
+  private onHandshakeTimeout(): void {
+    this.handshakeTimer = undefined;
+    if (this._state !== 'handshaking') {
+      return;
+    }
+    const error = new HandshakeError('handshake timed out');
+    this.ready?.reject(error);
+    this.ready = undefined;
+    this.close();
+  }
+
+  private clearHandshakeTimer(): void {
+    if (this.handshakeTimer) {
+      clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = undefined;
+    }
+  }
 
   private sendSealed(id: string, type: string, payload: unknown, replyTo?: string): void {
     if (this.crypto === null) {
@@ -437,6 +482,7 @@ export class PhoneSession {
     if (this._state === 'closed') {
       return;
     }
+    this.clearHandshakeTimer();
     this.setState('closed');
     this.failPending(error);
     this.ready?.reject(error);

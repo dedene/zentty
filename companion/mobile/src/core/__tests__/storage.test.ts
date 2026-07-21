@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it } from '@jest/globals';
 
 import { loadSodium } from '../../../scripts/loadSodium';
-import { CompanionStorage, InMemoryKVStore } from '../storage';
+import { CompanionStorage, CorruptPairingsError, InMemoryKVStore } from '../storage';
 import type { PairedMac } from '../storage';
 import type { SodiumLike } from '../sodium';
 
@@ -70,4 +70,43 @@ describe('CompanionStorage', () => {
     await kv.setItem('companion.paired-macs', '{not json');
     expect(await new CompanionStorage(kv, sodium).listPairings()).toEqual([]);
   });
+
+  it('refuses to overwrite a corrupt pairings blob on add (no silent data loss)', async () => {
+    const kv = new InMemoryKVStore();
+    const corrupt = '{not json — a transient bad read';
+    await kv.setItem('companion.paired-macs', corrupt);
+    const storage = new CompanionStorage(kv, sodium);
+    const mac: PairedMac = {
+      macDeviceId: 'mac-1',
+      macPubKey: 'mac-1',
+      macName: 'Studio',
+      pairedAt: 1,
+    };
+
+    await expect(storage.addPairing(mac)).rejects.toBeInstanceOf(CorruptPairingsError);
+
+    // The corrupt blob was NOT replaced by a wiped single-element array...
+    expect(await kv.getItem('companion.paired-macs')).toBe(corrupt);
+    // ...and a timestamped backup of it was retained for recovery.
+    const backup = await kv.getItem(
+      (await keysStartingWith(kv, 'companion.paired-macs.corrupt.'))[0] ?? '',
+    );
+    expect(backup).toBe(corrupt);
+  });
+
+  it('refuses to wipe pairings via remove when the stored blob is corrupt', async () => {
+    const kv = new InMemoryKVStore();
+    const corrupt = 'null'; // valid JSON, but not an array
+    await kv.setItem('companion.paired-macs', corrupt);
+    const storage = new CompanionStorage(kv, sodium);
+
+    await expect(storage.removePairing('mac-1')).rejects.toBeInstanceOf(CorruptPairingsError);
+    expect(await kv.getItem('companion.paired-macs')).toBe(corrupt);
+  });
 });
+
+/** Peek at the in-memory store's keys (test-only) to find the backup entry. */
+async function keysStartingWith(kv: InMemoryKVStore, prefix: string): Promise<string[]> {
+  const map = (kv as unknown as { map: Map<string, string> }).map;
+  return [...map.keys()].filter((k) => k.startsWith(prefix));
+}

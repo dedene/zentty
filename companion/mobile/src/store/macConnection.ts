@@ -11,10 +11,12 @@
 import type { LeaseRevokedReason, ParsedMessage, TranscriptEntry, TranscriptUnavailableReason } from '@zentty/wire';
 
 import {
+  Backoff,
   ConnectionManager,
   PhoneSession,
   PushRegistrar,
   type ActiveTransport,
+  type BackoffOptions,
   type ConnectionStatus,
   type PairedMac,
   type PhoneDeviceIdentity,
@@ -63,17 +65,29 @@ export interface MacConnectionDeps {
   onChange: (state: MacConnectionState) => void;
   /** Injectable sleep for reconnect pacing (tests). */
   delay?: (ms: number) => Promise<void>;
-  /** Pause before reconnecting after a session drop. Default 1500ms. */
-  reconnectDelayMs?: number;
+  /** Exponential-backoff config for session-drop reconnects. Default: Backoff defaults. */
+  reconnectBackoff?: BackoffOptions;
+  /** A session that stays ready at least this long resets the reconnect backoff. Default 30000ms. */
+  sessionUpThresholdMs?: number;
+  /** Injectable clock for measuring session uptime (tests). Default Date.now. */
+  now?: () => number;
   /** Seed the model with cached worklanes (e.g. from a prior session). */
   initialWorklanes?: Worklane[];
   /** Current native push token, read on every session-ready to register with the Mac. */
   pushToken?: () => PushToken | undefined;
 }
 
+/** A session that stays ready at least this long is treated as healthy, resetting backoff. */
+const DEFAULT_SESSION_UP_THRESHOLD_MS = 30_000;
+
 export class MacConnection {
   private readonly deps: MacConnectionDeps;
   private readonly delay: (ms: number) => Promise<void>;
+  private readonly now: () => number;
+  private readonly reconnectBackoff: Backoff;
+  private readonly sessionUpThresholdMs: number;
+  /** ms-epoch the current session reached `ready`, or undefined if it never did. */
+  private sessionReadyAt?: number;
   private manager?: ConnectionManager;
   private session?: PhoneSession;
   private running = false;
@@ -89,6 +103,9 @@ export class MacConnection {
   constructor(deps: MacConnectionDeps) {
     this.deps = deps;
     this.delay = deps.delay ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.now = deps.now ?? Date.now;
+    this.reconnectBackoff = new Backoff(deps.reconnectBackoff);
+    this.sessionUpThresholdMs = deps.sessionUpThresholdMs ?? DEFAULT_SESSION_UP_THRESHOLD_MS;
     this.worklanes = deps.initialWorklanes ?? [];
     this.registrar = new PushRegistrar(deps.identity.deviceId);
     this.state = { status: 'connecting', worklanes: this.worklanes, panes: {} };
@@ -179,7 +196,7 @@ export class MacConnection {
         identity: this.deps.identity,
         sodium: this.deps.sodium,
         macDeviceId: this.deps.mac.macDeviceId,
-        onPeerStatus: (online) => this.emit({ peerOnline: online }),
+        onPeerStatus: (online) => this.onPeerStatus(online),
       });
       this.manager = new ConnectionManager({
         mac: this.deps.mac,
@@ -199,15 +216,34 @@ export class MacConnection {
         break;
       }
 
+      this.sessionReadyAt = undefined;
       await this.runSession(active);
 
       if (this.stopped) {
         break;
       }
       this.emit({ status: 'offline' });
-      await this.delay(this.deps.reconnectDelayMs ?? 1500);
+      // A session that stayed ready past the threshold was healthy; a fresh drop
+      // shouldn't inherit accumulated backoff. Otherwise back off exponentially so
+      // a Mac that accepts + handshakes then instantly drops can't trigger a storm.
+      const uptime =
+        this.sessionReadyAt !== undefined ? this.now() - this.sessionReadyAt : 0;
+      if (uptime >= this.sessionUpThresholdMs) {
+        this.reconnectBackoff.reset();
+      }
+      await this.delay(this.reconnectBackoff.next());
     }
     this.running = false;
+  }
+
+  /** Relay-reported peer presence. If the Mac goes unreachable while a session is
+   * still mid-handshake (not yet ready), abort it so the run loop reconnects with
+   * backoff instead of hanging on a dead peer until the handshake timeout. */
+  private onPeerStatus(online: boolean): void {
+    this.emit({ peerOnline: online });
+    if (!online && this.session && this.session.state !== 'ready') {
+      this.session.close();
+    }
   }
 
   private onManagerStatus(status: ConnectionStatus): void {
@@ -240,6 +276,7 @@ export class MacConnection {
       session
         .connect()
         .then(() => {
+          this.sessionReadyAt = this.now();
           // The Mac answers a subscribe with a fresh dashboard.snapshot, then
           // streams dashboard.delta frames (both routed via onMessage).
           session.send('dashboard.subscribe', {});

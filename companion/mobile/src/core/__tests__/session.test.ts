@@ -1,11 +1,12 @@
 /** @jest-environment node */
-import { beforeAll, describe, expect, it } from '@jest/globals';
+import { beforeAll, describe, expect, it, jest } from '@jest/globals';
 import type { ParsedMessage } from '@zentty/wire';
 
 import { loadSodium } from '../../../scripts/loadSodium';
 import { encodeBase64Url } from '../base64url';
 import { utf8Bytes } from '../crypto';
 import {
+  HandshakeError,
   PairingRejectedError,
   PhoneSession,
   VersionMismatchError,
@@ -115,7 +116,12 @@ describe('PhoneSession', () => {
     sodium = await loadSodium();
   });
 
-  function wire(options?: { versionMismatch?: boolean; afterReady?: (mac: FakeMac) => void }) {
+  function wire(options?: {
+    versionMismatch?: boolean;
+    stallReady?: boolean;
+    handshakeTimeoutMs?: number;
+    afterReady?: (mac: FakeMac) => void;
+  }) {
     const identity = makePhoneIdentity(sodium);
     const macSeed = sodium.randomBytes(32);
     const [phoneT, macT] = makePipe();
@@ -127,6 +133,7 @@ describe('PhoneSession', () => {
       macIdentitySeed: macSeed,
       phoneIdentityPublicKey: identity.publicKey,
       versionMismatch: options?.versionMismatch,
+      stallReady: options?.stallReady,
       afterReady: options?.afterReady,
     });
     const session = new PhoneSession({
@@ -136,6 +143,7 @@ describe('PhoneSession', () => {
       sodium,
       deviceName: 'iPhone',
       appVersion: '1.0.0',
+      handshakeTimeoutMs: options?.handshakeTimeoutMs,
       onMessage: (m) => inbox.push(m),
       onFrameError: (e) => frameErrors.push(e),
     });
@@ -161,6 +169,26 @@ describe('PhoneSession', () => {
 
     session.close();
     await macRun;
+  });
+
+  it('times out and closes the session when session.ready never arrives', async () => {
+    jest.useFakeTimers();
+    try {
+      // The relay/socket is up and the crypto handshake completes, but the Mac
+      // never sends session.ready — without a deadline connect() would hang forever.
+      const { session, mac } = wire({ stallReady: true, handshakeTimeoutMs: 10_000 });
+      const macRun = mac.run().catch(() => undefined);
+      const connectP = session.connect();
+      const assertion = expect(connectP).rejects.toBeInstanceOf(HandshakeError);
+
+      // Let the handshake microtasks settle, then trip the 10s deadline.
+      await jest.advanceTimersByTimeAsync(10_000);
+      await assertion;
+      expect(session.state).toBe('closed');
+      await macRun;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('rejects connect with VersionMismatchError on an incompatible peer', async () => {

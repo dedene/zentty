@@ -25,6 +25,22 @@ export const initialTranscript: TranscriptState = {
   truncated: false,
 };
 
+/**
+ * Cap on retained entries per pane. A long-lived agent session streams unbounded
+ * deltas, so — mirroring the bounded `pane.text` discipline — we keep only the
+ * most recent {@link MAX_TRANSCRIPT_ENTRIES} and drop the oldest on overflow,
+ * flagging `truncated` so the UI can show "earlier messages not shown".
+ */
+export const MAX_TRANSCRIPT_ENTRIES = 1000;
+
+/** Keep only the most recent entries; report whether any were dropped. */
+function clampEntries(entries: TranscriptEntry[]): { entries: TranscriptEntry[]; clipped: boolean } {
+  if (entries.length <= MAX_TRANSCRIPT_ENTRIES) {
+    return { entries, clipped: false };
+  }
+  return { entries: entries.slice(entries.length - MAX_TRANSCRIPT_ENTRIES), clipped: true };
+}
+
 /** Mark the transcript as loading (subscribe sent, awaiting the snapshot). */
 export function loadingTranscript(prev: TranscriptState = initialTranscript): TranscriptState {
   return { ...prev, status: 'loading', unavailableReason: undefined };
@@ -36,11 +52,12 @@ export function applyTranscriptSnapshot(payload: {
   entries: TranscriptEntry[];
   truncated: boolean;
 }): TranscriptState {
+  const { entries, clipped } = clampEntries([...payload.entries]);
   return {
     status: 'active',
     sessionId: payload.sessionId,
-    entries: [...payload.entries],
-    truncated: payload.truncated,
+    entries,
+    truncated: payload.truncated || clipped,
     unavailableReason: undefined,
   };
 }
@@ -65,10 +82,12 @@ export function applyTranscriptDelta(
       entries[at] = entry;
     }
   }
+  const { entries: capped, clipped } = clampEntries(entries);
   return {
     ...state,
     status: 'active',
-    entries,
+    entries: capped,
+    truncated: state.truncated || clipped,
     unavailableReason: undefined,
   };
 }

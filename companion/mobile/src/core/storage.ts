@@ -82,6 +82,20 @@ const PAIRINGS_KEY = 'companion.paired-macs';
 const PREFS_KEY = 'companion.prefs';
 const ED25519_SEED_BYTES = 32;
 
+/**
+ * Thrown when the stored pairings blob can't be parsed as an array. Read-modify-write
+ * callers ({@link CompanionStorage.addPairing} / {@link CompanionStorage.removePairing})
+ * surface this instead of treating a corrupt read as empty — otherwise a single
+ * transient bad read would let the next write persist a wiped list and permanently
+ * destroy every other pairing.
+ */
+export class CorruptPairingsError extends Error {
+  constructor(message = 'stored pairings are corrupt') {
+    super(message);
+    this.name = 'CorruptPairingsError';
+  }
+}
+
 /** Persists the device identity and paired-Mac list. */
 export class CompanionStorage {
   private readonly kv: KVStore;
@@ -141,9 +155,42 @@ export class CompanionStorage {
     return all.find((p) => p.macDeviceId === macDeviceId);
   }
 
+  /**
+   * Strict read for the read-modify-write path. Backs up an unparseable blob and
+   * throws {@link CorruptPairingsError} rather than returning `[]`, so a write can
+   * never overwrite (and wipe) pairings we merely failed to read this once.
+   */
+  private async readPairingsForWrite(): Promise<PairedMac[]> {
+    const stored = await this.kv.getItem(PAIRINGS_KEY);
+    if (!stored) {
+      return [];
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stored);
+    } catch {
+      await this.backupCorruptPairings(stored);
+      throw new CorruptPairingsError();
+    }
+    if (!Array.isArray(parsed)) {
+      await this.backupCorruptPairings(stored);
+      throw new CorruptPairingsError('stored pairings are not an array');
+    }
+    return parsed as PairedMac[];
+  }
+
+  /** Best-effort snapshot of a corrupt blob under a timestamped key before we refuse the write. */
+  private async backupCorruptPairings(blob: string): Promise<void> {
+    try {
+      await this.kv.setItem(`${PAIRINGS_KEY}.corrupt.${Date.now()}`, blob);
+    } catch {
+      // Backup is best-effort; the important part is that we do not overwrite PAIRINGS_KEY.
+    }
+  }
+
   /** Adds or replaces (by `macDeviceId`) a paired Mac, then persists. */
   async addPairing(mac: PairedMac): Promise<void> {
-    const all = await this.listPairings();
+    const all = await this.readPairingsForWrite();
     const index = all.findIndex((p) => p.macDeviceId === mac.macDeviceId);
     if (index >= 0) {
       all[index] = mac;
@@ -155,7 +202,7 @@ export class CompanionStorage {
 
   /** Removes a paired Mac (unpair). No-op if unknown. */
   async removePairing(macDeviceId: string): Promise<void> {
-    const all = await this.listPairings();
+    const all = await this.readPairingsForWrite();
     const next = all.filter((p) => p.macDeviceId !== macDeviceId);
     if (next.length !== all.length) {
       await this.kv.setItem(PAIRINGS_KEY, JSON.stringify(next));

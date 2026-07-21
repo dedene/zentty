@@ -90,6 +90,7 @@ export const RELAY_ERROR_CODES = [
   'peer_unknown',
   'frame_too_large',
   'not_authed',
+  'too_many_watches',
 ] as const;
 export const RelayErrorCode = z.enum(RELAY_ERROR_CODES);
 export type RelayErrorCode = z.infer<typeof RelayErrorCode>;

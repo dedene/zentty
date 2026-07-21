@@ -103,6 +103,8 @@ export interface FakeMacOptions {
   phoneIdentityPublicKey: Uint8Array;
   /** Reply to session.hello with an incompatible_version error instead of ready. */
   versionMismatch?: boolean;
+  /** Complete the crypto handshake but never answer session.hello (stalls at ready). */
+  stallReady?: boolean;
   macName?: string;
   onMessage?: (message: { type: string; id: string; payload: unknown }) => void;
   /** Invoked once, right after `session.ready` is sent. */
@@ -241,6 +243,9 @@ export class FakeMac {
     payload: unknown;
   }): Promise<void> {
     if (message.type === 'session.hello') {
+      if (this.opts.stallReady) {
+        return; // Handshake done, but the Mac never answers — the phone must time out.
+      }
       if (this.opts.versionMismatch) {
         this.sendSealed(
           'session.error',

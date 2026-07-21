@@ -210,22 +210,26 @@ describe('relay integration', () => {
     expect(error.code).toBe('rate_limited');
   });
 
-  it('rejects an oversized frame with frame_too_large', async () => {
+  it('rejects an oversized frame at the ws maxPayload layer (closes 1009)', async () => {
+    // maxPayload == maxFrameBytes: an oversized frame is rejected by ws before it
+    // is ever buffered or JSON.parsed, so the socket closes with 1009 ("message
+    // too big") rather than routing an application-level relay.error.
     const port = await startServer({ maxFrameBytes: 512 });
     const aKeys = makeKeypair();
     const bKeys = makeKeypair();
     const a = await connectDevice(port);
     await a.authenticate(aKeys);
 
-    a.send({
-      type: 'relay.frame',
-      to: bKeys.deviceId,
-      from: aKeys.deviceId,
-      sealed: 'A'.repeat(2000), // valid base64url, well over the 512-byte cap
+    const closeCode = await new Promise<number>((resolve) => {
+      a.ws.on('close', (code) => resolve(code));
+      a.send({
+        type: 'relay.frame',
+        to: bKeys.deviceId,
+        from: aKeys.deviceId,
+        sealed: 'A'.repeat(2000), // well over the 512-byte cap
+      });
     });
-
-    const error = await a.waitType('relay.error');
-    expect(error.code).toBe('frame_too_large');
+    expect(closeCode).toBe(1009);
   });
 
   it('rejects a frame sent before authentication with not_authed', async () => {

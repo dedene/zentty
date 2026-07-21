@@ -114,7 +114,12 @@ function captureFcm(responder: (call: CapturedHttps) => HttpsResponse): {
   };
 }
 
-const basePush: PushConfig = { rateBurst: 5, ratePerMin: 60 };
+const basePush: PushConfig = {
+  rateBurst: 5,
+  ratePerMin: 60,
+  maxRateBuckets: 10_000,
+  maxPhonesPerMac: 64,
+};
 
 let server: RelayServerHandle | undefined;
 async function start(pushConfig: PushConfig, deps: PushGatewayDeps): Promise<number> {
@@ -335,7 +340,7 @@ describe('push gateway — degradation & limits', () => {
     const apns = new ApnsClient(testApnsConfig(), silent, apnsCap.transport);
     // Frozen clock so the token bucket never refills during the test.
     const port = await start(
-      { rateBurst: 2, ratePerMin: 60 },
+      { rateBurst: 2, ratePerMin: 60, maxRateBuckets: 10_000, maxPhonesPerMac: 64 },
       { apns, registry, now: () => 1_000 },
     );
 
@@ -357,5 +362,130 @@ describe('push gateway — degradation & limits', () => {
     expect((await wake()).status).toBe(202);
     expect((await wake()).status).toBe(202);
     expect((await wake()).status).toBe(429);
+  });
+});
+
+describe('push gateway — resource-exhaustion hardening', () => {
+  it('an unauthenticated /wake (bad signature) is not rate-limited before the 401', async () => {
+    const registry = PushRegistry.open();
+    const apnsCap = captureApns({ status: 200, headers: {}, body: '' });
+    const apns = new ApnsClient(testApnsConfig(), silent, apnsCap.transport);
+    // rateBurst 1 + frozen clock: a single admitted call exhausts the bucket. If
+    // the attacker's bogus wakes allocated/charged a bucket, the later legit wake
+    // would be throttled to 429. Signature-first means they never touch it.
+    const port = await start(
+      { rateBurst: 1, ratePerMin: 60, maxRateBuckets: 10_000, maxPhonesPerMac: 64 },
+      { apns, registry, now: () => 1_000 },
+    );
+
+    const mac = makeMac();
+    const attacker = makeMac();
+    const phoneId = 'phone-sf';
+    const token = 'tok-sf';
+    registry.register({ macDeviceId: mac.deviceId, phoneDeviceId: phoneId, platform: 'apns', token });
+
+    const sealedPayload = 'U0VBTEVE';
+    // Ten unauthenticated wakes for the same deviceId — all rejected 401.
+    for (let i = 0; i < 10; i++) {
+      const res = await post(port, '/wake', {
+        deviceId: phoneId,
+        token,
+        platform: 'apns',
+        sealedPayload,
+        sig: signWake(attacker, { deviceId: phoneId, token, platform: 'apns', sealedPayload }),
+      });
+      expect(res.status).toBe(401);
+    }
+    // The real Mac's first wake still succeeds: no bucket was spent by the flood.
+    const good = await post(port, '/wake', {
+      deviceId: phoneId,
+      token,
+      platform: 'apns',
+      sealedPayload,
+      sig: signWake(mac, { deviceId: phoneId, token, platform: 'apns', sealedPayload }),
+    });
+    expect(good.status).toBe(202);
+  });
+
+  it('an unauthenticated /register (bad signature) never grows the registry', async () => {
+    const registry = PushRegistry.open();
+    const port = await start(basePush, { registry });
+    const attacker = makeMac();
+
+    for (let i = 0; i < 10; i++) {
+      const res = await post(port, '/register', {
+        macDeviceId: attacker.deviceId,
+        phoneDeviceId: `phone-${i}`,
+        platform: 'apns',
+        token: `tok-${i}`,
+        sig: 'not-a-valid-signature',
+      });
+      expect(res.status).toBe(401);
+    }
+    expect(registry.size()).toBe(0);
+  });
+
+  it('caps distinct phones per Mac, but still allows token refresh of an existing pair', async () => {
+    const registry = PushRegistry.open();
+    const port = await start(
+      { rateBurst: 100, ratePerMin: 6000, maxRateBuckets: 10_000, maxPhonesPerMac: 2 },
+      { registry },
+    );
+    const mac = makeMac();
+
+    const register = (phoneDeviceId: string, token: string): Promise<Response> =>
+      post(port, '/register', {
+        macDeviceId: mac.deviceId,
+        phoneDeviceId,
+        platform: 'apns',
+        token,
+        sig: signRegister(mac, {
+          macDeviceId: mac.deviceId,
+          phoneDeviceId,
+          platform: 'apns',
+          token,
+        }),
+      });
+
+    expect((await register('phone-a', 'tok-a')).status).toBe(200);
+    expect((await register('phone-b', 'tok-b')).status).toBe(200);
+    // Third distinct phone is over the cap.
+    const capped = await register('phone-c', 'tok-c');
+    expect(capped.status).toBe(429);
+    expect(((await capped.json()) as { error?: string }).error).toBe('registration_limit');
+    expect(registry.size()).toBe(2);
+
+    // Re-registering an existing pair (token refresh) is still allowed at the cap.
+    const refresh = await register('phone-a', 'tok-a-rotated');
+    expect(refresh.status).toBe(200);
+    expect(registry.size()).toBe(2);
+  });
+
+  it('rate-limits /register per Mac device id with 429', async () => {
+    const registry = PushRegistry.open();
+    // rateBurst 2 + frozen clock: the 3rd register in the same tick is throttled.
+    const port = await start(
+      { rateBurst: 2, ratePerMin: 60, maxRateBuckets: 10_000, maxPhonesPerMac: 64 },
+      { registry, now: () => 1_000 },
+    );
+    const mac = makeMac();
+
+    const register = (phoneDeviceId: string): Promise<Response> =>
+      post(port, '/register', {
+        macDeviceId: mac.deviceId,
+        phoneDeviceId,
+        platform: 'apns',
+        token: 'tok',
+        sig: signRegister(mac, {
+          macDeviceId: mac.deviceId,
+          phoneDeviceId,
+          platform: 'apns',
+          token: 'tok',
+        }),
+      });
+
+    expect((await register('p1')).status).toBe(200);
+    expect((await register('p2')).status).toBe(200);
+    expect((await register('p3')).status).toBe(429);
   });
 });

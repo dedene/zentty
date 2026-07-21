@@ -425,6 +425,76 @@ final class CompanionBridgeTests: XCTestCase {
         await driver.runTask.value
     }
 
+    /// Disabling the feature (or unpairing the last device) must not only stop the
+    /// listener but also force-close every live LAN session and revoke all control
+    /// leases, so a connected phone can't stay live with a takeover placeholder
+    /// pinned on the desktop. The teardown is edge-triggered on the running →
+    /// disabled flip.
+    func testDisablingFeatureClosesLiveSessionsAndRevokesLeases() async throws {
+        // A server whose feature toggle we flip at runtime; the LAN listener is
+        // gated off so the run-state transition needs no real socket.
+        var featureEnabled = true
+        let gatedServer = CompanionBridgeServer(
+            identity: macIdentity,
+            pairingStore: pairingStore,
+            dashboardFeed: feed,
+            paneTextFeed: paneTextFeed,
+            transcriptFeed: transcriptFeed,
+            inputRouter: CompanionInputRouter(sink: sink),
+            leaseManager: leaseManager,
+            isFeatureEnabled: { featureEnabled },
+            lanListenerEnabled: { false }
+        )
+
+        let phone = PhoneIdentity()
+        try pairingStore.add(
+            CompanionPairedDevice(
+                deviceId: phone.deviceId,
+                publicKey: phone.deviceId,
+                name: "Peter's iPhone",
+                pairedAt: Date(),
+                lastSeenAt: Date()
+            )
+        )
+
+        // Feature on + a paired device → running (isRunning becomes true).
+        gatedServer.refreshAdvertisingState()
+
+        // A live LAN session takes a lease, pinning a takeover placeholder.
+        let driver = try await openEncryptedSession(phone: phone, server: gatedServer)
+        try await driver.send(.sessionHello(CompanionSessionHello(
+            supported: CompanionVersionRange(min: 1, max: 1),
+            deviceName: "Peter's iPhone",
+            appVersion: "1.0"
+        )))
+        _ = try await driver.receive() // session.ready
+        try await driver.send(.leaseRequest(CompanionLeaseRequest(paneId: "pane-1", cols: 80, rows: 24)))
+        let granted = try await driver.receive()
+        guard case .leaseGrant = granted.message else {
+            return XCTFail("Expected lease.grant, got \(granted.type)")
+        }
+        XCTAssertEqual(leaseApplier.applied.count, 1)
+        XCTAssertTrue(leaseApplier.restored.isEmpty)
+
+        // Disable the feature and refresh: the live session is force-closed and the
+        // lease revoked, restoring the pane on the desktop.
+        featureEnabled = false
+        gatedServer.refreshAdvertisingState()
+
+        XCTAssertEqual(leaseApplier.restored, ["pane-1"])
+        // The server closed the connection out from under the phone; its run loop
+        // ends, proving the session was force-closed (not left dangling).
+        await driver.runTask.value
+
+        // Edge-triggered: a lease created while already disabled must NOT be swept
+        // by a further disabled refresh (no running → disabled transition).
+        let lingeringToken = leaseManager.addClient { _ in }
+        _ = leaseManager.request(token: lingeringToken, paneId: "pane-2", cols: 80, rows: 24, deviceName: "x")
+        XCTAssertEqual(leaseApplier.applied.count, 2)
+        gatedServer.refreshAdvertisingState()
+        XCTAssertFalse(leaseApplier.restored.contains("pane-2"))
+    }
+
     func testUnknownMessageYieldsUnsupportedError() async throws {
         let phone = PhoneIdentity()
         try pairingStore.add(
@@ -539,11 +609,17 @@ final class CompanionBridgeTests: XCTestCase {
     }
 
     /// Runs the mac side of the crypto handshake against a fresh session and
-    /// returns a phone-side driver holding the established session crypto.
-    private func openEncryptedSession(phone: PhoneIdentity) async throws -> PhoneSessionDriver {
+    /// returns a phone-side driver holding the established session crypto. The
+    /// session is registered with the server (so it lands in `activeSessions`),
+    /// mirroring the production accept path.
+    private func openEncryptedSession(
+        phone: PhoneIdentity,
+        server: CompanionBridgeServer? = nil
+    ) async throws -> PhoneSessionDriver {
+        let usedServer = server ?? self.server!
         let (phoneConn, serverConn) = CompanionInMemoryConnection.makePair()
-        let session = CompanionSession(connection: serverConn, services: server)
-        let runTask = Task { await session.run() }
+        let session = CompanionSession(connection: serverConn, services: usedServer)
+        let runTask = usedServer.trackSession(session)
 
         let phoneEphemeral = Curve25519.KeyAgreement.PrivateKey()
 

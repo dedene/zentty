@@ -114,6 +114,45 @@ final class CompanionTranscriptFeedTests: XCTestCase {
         XCTAssertEqual(snapshot.entries.compactMap(\.text), ["line3", "line4"])
     }
 
+    func testLargeFileReadsBoundedTailAndDeltaStaysContinuous() throws {
+        let url = tempDir.appendingPathComponent("big.jsonl")
+        // Synthesize a transcript well over the 256KB tail window so the snapshot
+        // must read a bounded tail instead of the whole (multi-MB) file.
+        let lineCount = 3000
+        try writeLines((0..<lineCount).map { userLine("u\($0)", "line\($0)") }, to: url)
+        let size = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int
+        )
+        XCTAssertGreaterThan(size, CompanionTranscriptFeed.snapshotTailByteWindow)
+        source.targets["p1"] = claudeTarget(url: url)
+
+        let feed = makeFeed() // default snapshotLimit = 200
+        var events: [CompanionTranscriptEvent] = []
+        let token = feed.addSubscriber { events.append($0) }
+        guard case .snapshot(let snapshot) = feed.subscribe(token: token, paneId: "p1") else {
+            return XCTFail("Expected a snapshot")
+        }
+
+        // Bounded: exactly the last `snapshotLimit` entries, flagged truncated.
+        XCTAssertTrue(snapshot.truncated)
+        XCTAssertEqual(snapshot.entries.count, CompanionTranscriptFeed.defaultSnapshotLimit)
+        let expectedTail = (lineCount - CompanionTranscriptFeed.defaultSnapshotLimit ..< lineCount)
+            .map { "line\($0)" }
+        XCTAssertEqual(snapshot.entries.compactMap(\.text), expectedTail)
+
+        // Offset continuity: an appended line yields exactly one delta carrying only
+        // that line — no gap (missed lines) and no overlap (duplicated tail), even
+        // though the snapshot read only a bounded window.
+        try appendLine(userLine("u\(lineCount)", "line\(lineCount)"), to: url)
+        lastWatch.onEvent?(.changed)
+
+        XCTAssertEqual(events.count, 1)
+        guard case .delta(let delta) = events.first else {
+            return XCTFail("Expected a delta")
+        }
+        XCTAssertEqual(delta.entries.compactMap(\.text), ["line\(lineCount)"])
+    }
+
     // MARK: - Deltas
 
     func testAppendAfterSubscribeEmitsDelta() throws {

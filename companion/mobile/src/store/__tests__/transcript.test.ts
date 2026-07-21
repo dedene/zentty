@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import type { TranscriptEntry } from '@zentty/wire';
 
 import {
+  MAX_TRANSCRIPT_ENTRIES,
   applyTranscriptDelta,
   applyTranscriptSnapshot,
   applyTranscriptUnavailable,
@@ -67,6 +68,37 @@ describe('transcript reducer', () => {
     expect(back.status).toBe('active');
     expect(back.unavailableReason).toBeUndefined();
     expect(back.entries.map((e) => e.id)).toEqual(['a', 'b']);
+  });
+
+  it('caps a snapshot to the most recent entries and flags truncation', () => {
+    const overflow = Array.from({ length: MAX_TRANSCRIPT_ENTRIES + 5 }, (_, i) => entry(`e${i}`));
+    const state = applyTranscriptSnapshot({ sessionId: 's', entries: overflow, truncated: false });
+    expect(state.entries).toHaveLength(MAX_TRANSCRIPT_ENTRIES);
+    // Oldest dropped, newest kept.
+    expect(state.entries[0].id).toBe('e5');
+    expect(state.entries[state.entries.length - 1].id).toBe(`e${MAX_TRANSCRIPT_ENTRIES + 4}`);
+    expect(state.truncated).toBe(true);
+  });
+
+  it('keeps a server-truncated flag even when the snapshot fits under the cap', () => {
+    const state = applyTranscriptSnapshot({ sessionId: 's', entries: [entry('a')], truncated: true });
+    expect(state.truncated).toBe(true);
+    expect(state.entries).toHaveLength(1);
+  });
+
+  it('drops the oldest entries when a delta pushes past the cap', () => {
+    const base = applyTranscriptSnapshot({
+      sessionId: 's',
+      entries: Array.from({ length: MAX_TRANSCRIPT_ENTRIES }, (_, i) => entry(`e${i}`)),
+      truncated: false,
+    });
+    expect(base.truncated).toBe(false);
+    const next = applyTranscriptDelta(base, { entries: [entry('new1'), entry('new2')] });
+    expect(next.entries).toHaveLength(MAX_TRANSCRIPT_ENTRIES);
+    // The two oldest were evicted; the appended entries survive at the tail.
+    expect(next.entries[0].id).toBe('e2');
+    expect(next.entries[next.entries.length - 1].id).toBe('new2');
+    expect(next.truncated).toBe(true);
   });
 
   it('loadingTranscript clears a prior unavailable reason', () => {

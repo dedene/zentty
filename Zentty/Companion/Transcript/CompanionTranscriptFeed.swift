@@ -76,6 +76,13 @@ struct CompanionTranscriptSubscriberToken: Hashable, Sendable {
 @MainActor
 final class CompanionTranscriptFeed {
     static let defaultSnapshotLimit = 200
+    /// Upper bound on how many trailing bytes a snapshot reads off the main actor.
+    /// Claude transcripts reach tens of MB; a full `Data(contentsOf:)` + parse of
+    /// one would visibly stall the desktop when a phone opens the Conversation tab.
+    /// The snapshot only ever surfaces the last `snapshotLimit` entries, so a
+    /// bounded tail is indistinguishable for normal files and merely caps the work
+    /// for huge ones. Comfortably larger than `snapshotLimit` typical-length lines.
+    static let snapshotTailByteWindow = 256 * 1024
 
     private weak var source: CompanionTranscriptSourceProviding?
     private let registry: CompanionTranscriptAdapterRegistry
@@ -202,20 +209,55 @@ final class CompanionTranscriptFeed {
 
     // MARK: Internals
 
-    /// Reads the whole file through a throwaway scanner to build the snapshot,
-    /// leaving the live tail's offset/scanner untouched (the tail already spans
-    /// the same bytes for deltas).
+    /// Builds the snapshot from a bounded tail of the file (last
+    /// `snapshotTailByteWindow` bytes) so a multi-MB transcript can't stall the
+    /// main actor. The live tail's offset is pinned to end-of-file and its scanner
+    /// seeded with the same window, so deltas resume with no gap or overlap.
     private func snapshotEntries(for tail: PaneTail) -> (entries: [CompanionTranscriptEntry], truncated: Bool) {
-        guard let data = try? Data(contentsOf: tail.url) else { return ([], false) }
+        guard let handle = try? FileHandle(forReadingFrom: tail.url) else { return ([], false) }
+        defer { try? handle.close() }
+
+        let fileSize: UInt64
+        let windowStart: UInt64
+        let data: Data
+        do {
+            fileSize = try handle.seekToEnd()
+            windowStart = fileSize > UInt64(Self.snapshotTailByteWindow)
+                ? fileSize - UInt64(Self.snapshotTailByteWindow)
+                : 0
+            try handle.seek(toOffset: windowStart)
+            data = try handle.read(upToCount: Int(fileSize - windowStart)) ?? Data()
+        } catch {
+            return ([], false)
+        }
+        // The window dropped earlier bytes when it did not start at the file head.
+        let windowTruncated = windowStart > 0
+
         // Seed the live tail so the first delta only carries bytes appended after
-        // this snapshot.
+        // this snapshot. Consuming the window leaves the scanner's partial-line
+        // buffer holding any unterminated trailing bytes exactly as a full-file
+        // read would; the offset is pinned to end-of-file so `emitDelta` resumes
+        // with no gap or overlap.
         if tail.offset == 0 {
             _ = tail.scanner.consume(data)
-            tail.offset = UInt64(data.count)
+            tail.offset = fileSize
         }
-        let all = ClaudeTranscriptTail().consume(data)
-        guard all.count > snapshotLimit else { return (all, false) }
-        return (Array(all.suffix(snapshotLimit)), true)
+
+        // Parse the window through a throwaway scanner. When the window began
+        // mid-file, drop the leading (partial) line so a torn first record is
+        // never surfaced.
+        var parseData = data
+        if windowTruncated, let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
+            parseData = Data(data[data.index(after: firstNewline)...])
+        }
+        let all = ClaudeTranscriptTail().consume(parseData)
+
+        // `truncated` means the phone is not seeing the whole conversation, whether
+        // because the byte window clipped the head or the entry count exceeded the
+        // limit.
+        let truncated = windowTruncated || all.count > snapshotLimit
+        guard all.count > snapshotLimit else { return (all, truncated) }
+        return (Array(all.suffix(snapshotLimit)), truncated)
     }
 
     private func startWatch(for paneId: String, tail: PaneTail) {

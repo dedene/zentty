@@ -77,7 +77,26 @@ export class PushRegistry {
     renameSync(tmp, this.filePath);
   }
 
-  /** Upsert a phone's token for a pairing (a re-register replaces platform/token). */
+  /** True if a (mac, phone) pairing already has a registration. */
+  hasPair(macDeviceId: string, phoneDeviceId: string): boolean {
+    return this.byPair.has(pairKey(macDeviceId, phoneDeviceId));
+  }
+
+  /** Number of distinct phones registered under `macDeviceId`. */
+  countForMac(macDeviceId: string): number {
+    let count = 0;
+    for (const reg of this.byPair.values()) {
+      if (reg.macDeviceId === macDeviceId) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  /** Upsert a phone's token for a pairing (a re-register replaces platform/token).
+   * NOTE: persistence is a full-file atomic rewrite — O(n) in total registrations
+   * per mutation. Fine at the expected scale (a home/team of Macs, a handful of
+   * phones each); revisit with an append log or debounced flush if that grows. */
   register(reg: Registration): void {
     this.byPair.set(pairKey(reg.macDeviceId, reg.phoneDeviceId), reg);
     this.persist();

@@ -28,6 +28,10 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     private let leaseManager: CompanionLeaseManager
     private let isFeatureEnabled: () -> Bool
     private let relayUrlProvider: () -> String
+    /// Gates real `NWListener` binding. Always on in the app; tests pass `false`
+    /// so the run-state edge logic is exercisable without opening a socket (the
+    /// firewall would otherwise prompt on a hosted test binary).
+    private let lanListenerEnabled: () -> Bool
     private let pushCoordinator: CompanionPushCoordinator
 
     private let listenerQueue = DispatchQueue(label: "be.zenjoy.zentty.companion-bridge")
@@ -39,6 +43,11 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     /// The relay URL the live transport was built for, so a settings change swaps
     /// transports instead of leaking the old one.
     private var relayTransportURL: String?
+
+    /// Tracks the last `shouldRun` decision so the running → disabled transition is
+    /// edge-triggered: sessions and leases are torn down once, on the flip, not on
+    /// every config change that re-evaluates an already-disabled feature.
+    private var isRunning = false
 
     /// Fired on the main actor whenever the paired-device set changes (pair /
     /// revoke), so the settings UI can refresh its list.
@@ -55,7 +64,8 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         isFeatureEnabled: @escaping () -> Bool,
         relayUrlProvider: @escaping () -> String = { "" },
         pushGatewayUrlProvider: @escaping () -> String = { "" },
-        pushTransport: CompanionPushHTTPTransport = CompanionPushURLSessionTransport()
+        pushTransport: CompanionPushHTTPTransport = CompanionPushURLSessionTransport(),
+        lanListenerEnabled: @escaping () -> Bool = { true }
     ) {
         self.identity = identity
         self.pairingStore = pairingStore
@@ -66,6 +76,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
         self.leaseManager = leaseManager
         self.isFeatureEnabled = isFeatureEnabled
         self.relayUrlProvider = relayUrlProvider
+        self.lanListenerEnabled = lanListenerEnabled
         self.pushCoordinator = CompanionPushCoordinator(
             identity: identity,
             pairingStore: pairingStore,
@@ -90,7 +101,21 @@ final class CompanionBridgeServer: CompanionSessionServicing {
             startListenerIfNeeded()
         } else {
             stopListener()
+            // Edge-triggered: on the running → disabled flip (toggle off, or the
+            // last device unpaired), stopping the listener is not enough — an
+            // already-connected phone stays fully live (input, streaming, takeover
+            // placeholder) until it disconnects. Force-close every live LAN session
+            // and revoke all control leases so any takeover placeholder is restored
+            // on the desktop. Relay peer sessions are torn down by stopRelay (below,
+            // via refreshRelayState), so this only sweeps `activeSessions`.
+            if isRunning {
+                for session in activeSessions {
+                    session.requestClose()
+                }
+                leaseManager.revokeAll()
+            }
         }
+        isRunning = shouldRun
         refreshRelayState(shouldRun: shouldRun)
     }
 
@@ -148,6 +173,7 @@ final class CompanionBridgeServer: CompanionSessionServicing {
     }
 
     private func startListenerIfNeeded() {
+        guard lanListenerEnabled() else { return }
         guard listener == nil else { return }
         do {
             let parameters = NWParameters.tcp
@@ -201,9 +227,16 @@ final class CompanionBridgeServer: CompanionSessionServicing {
 
     private func accept(_ connection: NWConnection) {
         let transport = CompanionNetworkConnection(connection: connection, queue: listenerQueue)
-        let session = CompanionSession(connection: transport, services: self)
+        trackSession(CompanionSession(connection: transport, services: self))
+    }
+
+    /// Runs a live LAN session to completion, dropping it from `activeSessions`
+    /// when its connection ends. Split from `accept` so the socket-accept path and
+    /// tests share one lifecycle; returns the run task for callers that await it.
+    @discardableResult
+    func trackSession(_ session: CompanionSession) -> Task<Void, Never> {
         activeSessions.append(session)
-        Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             await session.run()
             self?.activeSessions.removeAll { $0 === session }
         }

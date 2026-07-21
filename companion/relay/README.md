@@ -36,9 +36,17 @@ so they cannot drift. `/wake` carries only the phone side; the gateway looks up
 every Mac paired to `(deviceId, token, platform)` and accepts if any candidate
 key verifies the signature.
 
+The signature is verified **before** any rate-limit bucket is allocated or the
+registry is touched, so an unauthenticated caller cannot grow server state by
+replaying bogus `deviceId`s. Rate buckets are additionally bounded by an LRU cap
+(`PUSH_MAX_RATE_BUCKETS`), and each Mac may register at most
+`PUSH_MAX_PHONES_PER_MAC` phones (a token refresh of an existing pairing is always
+allowed).
+
 Status codes: `202` wake accepted · `200` registered · `400` bad body · `401`
-signature failed · `404` no matching registration · `429` per-device rate limit ·
-`502` APNs/FCM rejected the push · `503` that platform is unconfigured.
+signature failed · `404` no matching registration · `429` per-device rate limit
+**or** registration cap (`error: registration_limit`) · `502` APNs/FCM rejected
+the push · `503` that platform is unconfigured.
 
 ## Configuration
 
@@ -52,8 +60,13 @@ All configuration is environment-driven; every knob has a safe default.
 | `RATE_FRAMES_PER_SEC`            | `50`       | Per-device sustained frame rate.         |
 | `RATE_BYTES_PER_SEC`             | `262144`   | Per-device sustained byte rate.          |
 | `RATE_PAIRING_PER_MIN`           | `5`        | Per-device pairing-frame window.         |
-| `RATE_MAX_FRAME_BYTES`           | `262144`   | Hard per-frame size cap.                 |
+| `RATE_MAX_FRAME_BYTES`           | `262144`   | Hard per-frame size cap; also the ws `maxPayload` — frames over it are closed (1009) before parse. |
 | `RATE_MAX_PAIRING_SEALED_BYTES`  | `4096`     | Hard cap on a plaintext pairing payload. |
+| `MAX_WATCHED_PEERS`              | `256`      | Max distinct peers one device may watch; over it → `too_many_watches`. |
+| `MAX_CONNECTIONS`                | `10000`    | Global cap on concurrent WebSocket connections. |
+| `MAX_CONNECTIONS_PER_IP`         | `64`       | Per-remote-address cap on concurrent connections. |
+| `AUTH_TIMEOUT_MS`                | `10000`    | Grace period to complete auth before an idle socket is closed. |
+| `MAX_BUFFERED_BYTES`             | `4194304`  | Per-socket outbound buffer cap; frames past it are dropped (slow consumer). |
 | `LOG_LEVEL`                      | `info`     | `debug\|info\|warn\|error\|silent`.      |
 
 ### Push gateway (all optional)
@@ -67,8 +80,10 @@ All configuration is environment-driven; every knob has a safe default.
 | `APNS_HOST`                | `api.push.apple.com`           | Use `api.sandbox.push.apple.com` for debug builds.        |
 | `FCM_SERVICE_ACCOUNT_JSON` | —                              | FCM service account: a file path **or** inline JSON.      |
 | `PUSH_TOKEN_STORE`         | — (in-memory)                  | JSON token-store path; omit to keep the registry in RAM.  |
-| `PUSH_RATE_BURST`          | `5`                            | Per-device immediate wake burst.                          |
-| `PUSH_RATE_PER_MIN`        | `10`                           | Per-device sustained wakes per minute.                    |
+| `PUSH_RATE_BURST`          | `5`                            | Per-device immediate wake/register burst.                 |
+| `PUSH_RATE_PER_MIN`        | `10`                           | Per-device sustained wakes/registers per minute.          |
+| `PUSH_MAX_RATE_BUCKETS`    | `10000`                        | Max in-memory rate buckets (LRU-evicted); allocated only after a signature verifies. |
+| `PUSH_MAX_PHONES_PER_MAC`  | `64`                           | Max distinct phones registered per Mac; over it → `registration_limit`. |
 
 APNs is enabled only when **all** of `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`
 are set; a partial set is a loud startup error, never a silent half-enable. FCM is
