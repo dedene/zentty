@@ -12,6 +12,7 @@ import { getSodium } from '@/runtime/sodium';
 import { getStorage } from '@/runtime/storage';
 
 import { MacConnection, type MacConnectionState } from './macConnection';
+import type { PaneController } from './paneController';
 
 /** Live controllers, keyed by macDeviceId. Kept out of React state on purpose. */
 const controllers = new Map<string, MacConnection>();
@@ -32,6 +33,12 @@ export interface CompanionStore {
   addPairedMac: (mac: PairedMac) => Promise<void>;
   /** Remove a pairing locally and tear down its connection. */
   unpair: (macDeviceId: string) => Promise<void>;
+  /**
+   * Ensure a live connection, then resolve the pane's runtime controller. The
+   * pane detail screen calls this on focus and drives watch/input/lease/
+   * transcript on the returned controller; its state streams into `views`.
+   */
+  ensurePaneController: (macDeviceId: string, paneId: string) => Promise<PaneController | undefined>;
 }
 
 let hydrating: Promise<void> | undefined;
@@ -109,6 +116,11 @@ export const useCompanionStore = create<CompanionStore>((set, get) => ({
       return { macs };
     });
     await get().connect(mac.macDeviceId);
+  },
+
+  ensurePaneController: async (macDeviceId, paneId) => {
+    await get().connect(macDeviceId);
+    return controllers.get(macDeviceId)?.paneController(paneId);
   },
 
   unpair: async (macDeviceId) => {

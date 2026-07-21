@@ -79,6 +79,7 @@ export interface PairedMac {
 
 const IDENTITY_KEY = 'companion.identity.ed25519-seed';
 const PAIRINGS_KEY = 'companion.paired-macs';
+const PREFS_KEY = 'companion.prefs';
 const ED25519_SEED_BYTES = 32;
 
 /** Persists the device identity and paired-Mac list. */
@@ -158,6 +159,35 @@ export class CompanionStorage {
     const next = all.filter((p) => p.macDeviceId !== macDeviceId);
     if (next.length !== all.length) {
       await this.kv.setItem(PAIRINGS_KEY, JSON.stringify(next));
+    }
+  }
+
+  /** Reads a small UI preference (e.g. a pane's sticky tab choice). */
+  async getPreference(key: string): Promise<string | undefined> {
+    const prefs = await this.loadPrefs();
+    return prefs[key];
+  }
+
+  /** Persists a small UI preference. */
+  async setPreference(key: string, value: string): Promise<void> {
+    const prefs = await this.loadPrefs();
+    if (prefs[key] === value) {
+      return;
+    }
+    prefs[key] = value;
+    await this.kv.setItem(PREFS_KEY, JSON.stringify(prefs));
+  }
+
+  private async loadPrefs(): Promise<Record<string, string>> {
+    const stored = await this.kv.getItem(PREFS_KEY);
+    if (!stored) {
+      return {};
+    }
+    try {
+      const parsed: unknown = JSON.parse(stored);
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+    } catch {
+      return {};
     }
   }
 }

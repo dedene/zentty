@@ -1,19 +1,40 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { Screen, StateBadge, ToolIcon } from '@/components';
-import { interactionKindLabel } from '@/lib/labels';
-import { useCompanionStore } from '@/store';
-import { colors, radius, space, type } from '@/theme';
+import type { InputKey } from '@zentty/wire';
+
+import {
+  InputBar,
+  PaneTabBar,
+  QuickActionsBar,
+  Screen,
+  StateBadge,
+  TakeoverControls,
+  TerminalView,
+  ToolIcon,
+  TranscriptView,
+} from '@/components';
+import { measureGrid } from '@/lib/cellMetrics';
+import { usePaneTab } from '@/lib/usePaneTab';
+import { hasQuickActions, quickActionsFor } from '@/lib/quickActions';
+import {
+  idleLease,
+  initialTranscript,
+  type PaneController,
+  useCompanionStore,
+} from '@/store';
+import { space, type } from '@/theme';
 
 /**
- * Pane detail — placeholder shell. M4 fills the body with the Terminal /
- * Conversation tabs and wires the input bar; for now it shows the pane's identity
- * and a disabled input bar so the navigation + layout are real.
+ * Pane detail: a live Terminal mirror (with takeover) and, for adapted tools, a
+ * Conversation transcript — with a quick-actions bar and input pinned in both
+ * tabs. Drives a per-pane {@link PaneController} resolved on focus; its runtime
+ * state streams in through the store.
  */
 export default function PaneDetailScreen() {
   const { paneId, deviceId } = useLocalSearchParams<{ paneId: string; deviceId?: string }>();
+
   const pane = useCompanionStore((s) => {
     const view = deviceId ? s.views[deviceId] : undefined;
     for (const worklane of view?.worklanes ?? []) {
@@ -24,56 +45,161 @@ export default function PaneDetailScreen() {
     }
     return undefined;
   });
+  const runtime = useCompanionStore((s) => (deviceId ? s.views[deviceId]?.panes?.[paneId] : undefined));
+  const status = useCompanionStore((s) => (deviceId ? s.views[deviceId]?.status : undefined));
+  const ensurePaneController = useCompanionStore((s) => s.ensurePaneController);
+
+  const controllerRef = useRef<PaneController | undefined>(undefined);
+  const [grid, setGrid] = useState<{ cols: number; rows: number } | undefined>(undefined);
+
+  const hasTranscript = pane?.hasTranscript ?? false;
+  const { active, tabs, setTab } = usePaneTab(paneId, hasTranscript);
+
+  const lease = runtime?.lease ?? idleLease;
+  const transcript = runtime?.transcript ?? initialTranscript;
+  const ready = status === 'connected';
+
+  // Resolve + watch the pane on focus; unwatch (and release any lease) on blur.
+  useFocusEffect(
+    useCallback(() => {
+      if (!deviceId) {
+        return;
+      }
+      let cancelled = false;
+      void ensurePaneController(deviceId, paneId).then((controller) => {
+        if (cancelled || !controller) {
+          return;
+        }
+        controllerRef.current = controller;
+        controller.watch();
+      });
+      return () => {
+        cancelled = true;
+        controllerRef.current?.unwatch();
+      };
+    }, [deviceId, paneId, ensurePaneController]),
+  );
+
+  // Subscribe to the transcript the first time Conversation becomes active.
+  useEffect(() => {
+    if (active === 'conversation' && hasTranscript && transcript.status === 'idle') {
+      void controllerRef.current?.subscribeTranscript();
+    }
+  }, [active, hasTranscript, transcript.status]);
+
+  // Backgrounding releases control (heartbeats would otherwise stop and expire it
+  // anyway; releasing is the clean path so the Mac restores immediately).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') {
+        controllerRef.current?.releaseLease();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  const quickActions = useMemo(
+    () =>
+      pane && pane.requiresHumanAttention && hasQuickActions(pane.interactionKind)
+        ? quickActionsFor(pane.interactionKind)
+        : [],
+    [pane],
+  );
+
+  const onMeasure = useCallback(
+    (widthPx: number, heightPx: number) => {
+      const next = measureGrid(widthPx, heightPx);
+      setGrid(next);
+      // Rotation/font while holding a lease: re-request the grid (debounced).
+      if (controllerRef.current && lease.status === 'held') {
+        controllerRef.current.resizeLease(next.cols, next.rows);
+      }
+    },
+    [lease.status],
+  );
+
+  const onTakeControl = useCallback(() => {
+    if (grid) {
+      controllerRef.current?.requestLease(grid.cols, grid.rows);
+    }
+  }, [grid]);
+
+  const onRelease = useCallback(() => controllerRef.current?.releaseLease(), []);
+  const onPullTop = useCallback(() => void controllerRef.current?.fetchScrollback(), []);
+  const onSubmitText = useCallback((text: string) => controllerRef.current?.sendText(text), []);
+  const onKey = useCallback((key: InputKey) => controllerRef.current?.sendKey(key), []);
+  const onQuickAction = useCallback((actionId: string) => controllerRef.current?.quickAction(actionId), []);
 
   const title = pane?.title || 'Pane';
-  const interaction = pane ? interactionKindLabel(pane.interactionKind) : '';
 
   return (
-    <Screen edges={['bottom', 'left', 'right']}>
+    <Screen edges={['bottom', 'left', 'right']} padded={false}>
       <Stack.Screen options={{ title }} />
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <ToolIcon tool={pane?.tool} />
-          <View style={styles.headerText}>
-            <Text style={type.rowTitle} numberOfLines={1}>
-              {title}
-            </Text>
-            {pane ? (
-              <Text style={[type.mono, styles.dir]} numberOfLines={1}>
-                {pane.workingDirectory}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
+      >
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <ToolIcon tool={pane?.tool} />
+            <View style={styles.headerText}>
+              <Text style={type.rowTitle} numberOfLines={1}>
+                {title}
               </Text>
-            ) : null}
+              {pane ? (
+                <Text style={[type.mono, styles.dir]} numberOfLines={1}>
+                  {pane.workingDirectory}
+                </Text>
+              ) : null}
+            </View>
+            {pane ? <StateBadge state={pane.state} /> : null}
           </View>
-          {pane ? <StateBadge state={pane.state} /> : null}
-        </View>
 
-        <View style={styles.body}>
-          <Ionicons name="terminal-outline" size={28} color={colors.textFaint} />
-          <Text style={[type.dim, styles.bodyText]}>
-            {pane?.requiresHumanAttention && interaction
-              ? `This pane is waiting on you (${interaction}).`
-              : 'Terminal and conversation views arrive next.'}
-          </Text>
-        </View>
+          {tabs.length > 1 ? <PaneTabBar tabs={tabs} active={active} onChange={setTab} /> : null}
 
-        <View style={styles.inputBar} pointerEvents="none">
-          <View style={styles.input}>
-            <Text style={styles.inputPlaceholder}>Message this pane…</Text>
+          <View style={styles.body}>
+            {active === 'conversation' && hasTranscript ? (
+              <TranscriptView transcript={transcript} />
+            ) : (
+              <View style={styles.terminalStack}>
+                <TerminalView
+                  text={runtime?.text}
+                  scrollbackLoading={runtime?.scrollbackLoading}
+                  onPullTop={onPullTop}
+                  onMeasure={onMeasure}
+                />
+                <TakeoverControls
+                  lease={lease}
+                  grid={grid}
+                  onTakeControl={onTakeControl}
+                  onRelease={onRelease}
+                />
+              </View>
+            )}
           </View>
-          <View style={styles.sendButton}>
-            <Ionicons name="arrow-up" size={18} color={colors.textFaint} />
-          </View>
+
+          {quickActions.length > 0 ? (
+            <View style={styles.quick}>
+              <QuickActionsBar actions={quickActions} onAction={onQuickAction} />
+            </View>
+          ) : null}
+
+          <InputBar onSubmitText={onSubmitText} onKey={onKey} disabled={!ready} />
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     padding: space.lg,
-    gap: space.lg,
+    gap: space.md,
   },
   header: {
     flexDirection: 'row',
@@ -89,40 +215,12 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.sm,
   },
-  bodyText: {
-    textAlign: 'center',
-    maxWidth: 280,
-  },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    opacity: 0.5,
-  },
-  input: {
+  terminalStack: {
     flex: 1,
-    height: 44,
-    justifyContent: 'center',
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    gap: space.md,
   },
-  inputPlaceholder: {
-    color: colors.textFaint,
-    fontSize: 15,
-  },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceRaised,
+  quick: {
+    marginTop: space.xs,
   },
 });

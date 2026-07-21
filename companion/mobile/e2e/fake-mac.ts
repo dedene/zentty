@@ -196,6 +196,125 @@ const deltaPayload = {
   removedPaneIds: [] as string[],
 };
 
+// MARK: - Scripted terminal text (realistic Claude Code approval TUI)
+
+const CLAUDE_PANE_ID = 'pane-claude';
+
+/** A believable Claude Code approval frame at an 80×24 desktop grid. */
+const claudeApprovalViewport = [
+  '  ⎿  Read src/store/paneController.ts (229 lines)',
+  '',
+  '● I can wire the transcript feed into the pane controller. It needs a new',
+  '  file, so I have to create it and register the adapter.',
+  '',
+  '╭─────────────────────────────────────────────────────────────────────────╮',
+  '│ Bash command                                                              │',
+  '│                                                                           │',
+  '│   swift build --target ZenttyCompanion                                    │',
+  '│   Build the companion transcript feed                                     │',
+  '│                                                                           │',
+  '│ Do you want to proceed?                                                   │',
+  '│ ❯ 1. Yes                                                                  │',
+  '│   2. Yes, and don'+"'"+'t ask again for swift build commands                     │',
+  '│   3. No, and tell Claude what to do differently (esc)                     │',
+  '╰─────────────────────────────────────────────────────────────────────────╯',
+  '',
+  '  3 files changed · 4 of 7 tasks · esc to interrupt',
+].join('\n');
+
+/** The post-approval frame streamed after the user taps Approve. */
+const claudeRunningViewport = [
+  '● Approved — running the build.',
+  '',
+  '● Bash(swift build --target ZenttyCompanion)',
+  '  ⎿  Compiling ZenttyCompanion (12 sources)',
+  '     Build complete! (3.4s)',
+  '',
+  '● Build passed. Wiring the feed into PaneController next.',
+  '',
+  '  ✻ Working… (4 of 7 tasks · esc to interrupt)',
+].join('\n');
+
+/** A phone-reflowed frame (~45 cols) streamed after a takeover lease is granted. */
+const claudeReflowedViewport = [
+  '● Approved — running the build.',
+  '',
+  '● Bash(swift build \\',
+  '    --target ZenttyCompanion)',
+  '  ⎿  Compiling ZenttyCompanion',
+  '     (12 sources)',
+  '     Build complete! (3.4s)',
+  '',
+  '● Build passed. Wiring the feed into',
+  '  PaneController next.',
+  '',
+  '  ✻ Working… (4 of 7 · esc)',
+].join('\n');
+
+const claudeScrollback = Array.from({ length: 12 }, (_, i) =>
+  `[scrollback ${String(i + 1).padStart(2, '0')}] earlier build/plan output for the zentty worklane`,
+).join('\n');
+
+// MARK: - Scripted transcript (mirrors ClaudeTranscriptParser over the fixture at
+// ZenttyLogicTests/Fixtures/claude-session-fixture.jsonl)
+
+const ms = (iso: string): number => Date.parse(iso);
+
+interface TranscriptEntry {
+  id: string;
+  role: string;
+  ts?: number;
+  text?: string;
+  toolName?: string;
+  toolInput?: unknown;
+  toolResultSummary?: string;
+  status?: string;
+}
+
+const transcriptSnapshotEntries: TranscriptEntry[] = [
+  {
+    id: 'uuid-user-1',
+    role: 'user',
+    ts: ms('2026-07-20T17:50:44.687Z'),
+    text: 'Can you add a transcript feed?',
+  },
+  {
+    id: 'uuid-assistant-1#0',
+    role: 'assistant',
+    ts: ms('2026-07-20T17:50:46.100Z'),
+    text: 'On it — let me check the build.',
+  },
+  {
+    id: 'uuid-assistant-1#1',
+    role: 'tool_use',
+    ts: ms('2026-07-20T17:50:46.100Z'),
+    toolName: 'Bash',
+    toolInput: { command: 'swift build', description: 'Build the package' },
+  },
+  {
+    id: 'uuid-user-2',
+    role: 'tool_result',
+    ts: ms('2026-07-20T17:50:49.900Z'),
+    toolResultSummary: 'Compiling target...\nBuild complete!',
+    status: 'ok',
+  },
+];
+
+const transcriptDeltaEntries: TranscriptEntry[] = [
+  {
+    id: 'uuid-assistant-2',
+    role: 'assistant',
+    ts: ms('2026-07-20T17:50:52.300Z'),
+    text: 'Build passed. Done.',
+  },
+  {
+    id: 'uuid-system-1',
+    role: 'system',
+    ts: ms('2026-07-20T17:51:00.000Z'),
+    text: 'User stepped away; summarized progress.',
+  },
+];
+
 // MARK: - Main
 
 async function main(): Promise<void> {
@@ -340,13 +459,16 @@ async function handleSession(
     signature: encodeBase64Url(macSignature),
   };
   ws.send(utf8Encoder.encode(JSON.stringify(serverHello)));
+  const helloSentAt = Date.now();
+  log('session: serverHello sent (', JSON.stringify(serverHello).length, 'bytes) — awaiting phone signature');
 
   // phone -> mac: {signature}
   const sigFrame = await reader.receive();
   if (sigFrame === null) {
-    log('session: closed before phone signature');
+    log(`session: closed before phone signature (after ${Date.now() - helloSentAt}ms)`);
     return;
   }
+  log(`session: phone signature received (after ${Date.now() - helloSentAt}ms)`);
   const phoneSigMsg = JSON.parse(utf8Decoder.decode(sigFrame)) as HandshakeFrame;
   if (!phoneSigMsg.signature) {
     log('session: missing phone signature');
@@ -383,15 +505,38 @@ async function handleSession(
   log('session: sealed', hello.type, 'received; sending session.ready');
   sendSealed('session.ready', { v: PROTOCOL_VERSION }, hello.id);
   void MIN_SUPPORTED;
+  void DELTA_DELAY_MS;
 
-  let deltaTimer: ReturnType<typeof setTimeout> | undefined;
+  // Per-pane monotonic pane.text seq + one-shot latches so the flow is causal
+  // (the approval clears only when the phone actually taps Approve).
+  let paneSeq = 0;
+  let approved = false;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const later = (ms: number, fn: () => void): void => {
+    const t = setTimeout(() => {
+      timers.delete(t);
+      fn();
+    }, ms);
+    timers.add(t);
+  };
+  const sendPaneText = (viewport: string, gridCols: number, gridRows: number): void => {
+    paneSeq += 1;
+    sendSealed('pane.text', {
+      paneId: CLAUDE_PANE_ID,
+      seq: paneSeq,
+      viewport,
+      gridCols,
+      gridRows,
+      truncatedScrollback: true,
+    });
+  };
 
   // Receive loop for the live session.
   for (;;) {
     const frame = await reader.receive();
     if (frame === null) {
       log('session: phone disconnected');
-      if (deltaTimer) clearTimeout(deltaTimer);
+      for (const t of timers) clearTimeout(t);
       return;
     }
     let msg: Envelope;
@@ -401,18 +546,118 @@ async function handleSession(
       log('session: dropped undecryptable frame:', err instanceof Error ? err.message : err);
       continue;
     }
+    const payload = (msg.payload ?? {}) as Record<string, unknown>;
 
-    if (msg.type === 'dashboard.subscribe') {
-      log('session: dashboard.subscribe → sending snapshot (2 worklanes, Claude approval pending)');
-      sendSealed('dashboard.snapshot', snapshotPayload);
-      deltaTimer = setTimeout(() => {
-        log('session: pushing dashboard.delta → Claude pane flips to running');
-        sendSealed('dashboard.delta', deltaPayload);
-      }, DELTA_DELAY_MS);
-    } else if (msg.type === 'session.ping') {
-      sendSealed('session.pong', { ts: Date.now() }, msg.id);
-    } else {
-      log('session: received', msg.type);
+    switch (msg.type) {
+      case 'dashboard.subscribe':
+        log('session: dashboard.subscribe → snapshot (2 worklanes, Claude approval 3/7 pending)');
+        sendSealed('dashboard.snapshot', snapshotPayload);
+        break;
+
+      case 'session.ping':
+        sendSealed('session.pong', { ts: Date.now() }, msg.id);
+        break;
+
+      // MARK: pane text
+      case 'pane.watch':
+        log('session: pane.watch', payload.paneId, '→ streaming Claude approval frame');
+        if (payload.paneId === CLAUDE_PANE_ID) {
+          sendPaneText(approved ? claudeRunningViewport : claudeApprovalViewport, 80, 24);
+        }
+        break;
+      case 'pane.unwatch':
+        log('session: pane.unwatch', payload.paneId);
+        break;
+      case 'pane.scrollback':
+        log('session: pane.scrollback', payload.paneId, `(lineLimit ${String(payload.lineLimit)})`);
+        sendSealed('pane.scrollback', { paneId: payload.paneId, text: claudeScrollback }, msg.id);
+        break;
+
+      // MARK: transcript
+      case 'transcript.subscribe':
+        log('session: transcript.subscribe', payload.paneId, '→ snapshot (4 entries) + live delta');
+        sendSealed(
+          'transcript.snapshot',
+          {
+            paneId: payload.paneId,
+            sessionId: 'sess-claude-1',
+            entries: transcriptSnapshotEntries,
+            truncated: false,
+          },
+          msg.id,
+        );
+        later(1200, () => {
+          log('session: transcript.delta → +2 entries (assistant "Build passed" + system)');
+          sendSealed('transcript.delta', {
+            paneId: payload.paneId,
+            entries: transcriptDeltaEntries,
+          });
+        });
+        break;
+
+      // MARK: input
+      case 'input.text':
+        log('session: input.text', payload.paneId, JSON.stringify(payload.text));
+        sendSealed('input.ack', { ok: true }, msg.id);
+        break;
+      case 'input.key':
+        log('session: input.key', payload.paneId, `key=${String(payload.key)}`);
+        sendSealed('input.ack', { ok: true }, msg.id);
+        break;
+      case 'input.quickAction': {
+        const actionId = String(payload.actionId);
+        log('session: input.quickAction', payload.paneId, `actionId=${actionId}`);
+        sendSealed('input.ack', { ok: true }, msg.id);
+        if (actionId === 'approve' && !approved) {
+          approved = true;
+          log('session: APPROVE injected (Enter) → flip Claude pane to running + delta');
+          sendSealed('dashboard.delta', deltaPayload);
+          sendPaneText(claudeRunningViewport, 80, 24);
+        }
+        break;
+      }
+
+      // MARK: lease (takeover)
+      case 'lease.request': {
+        const reqCols = Number(payload.cols);
+        const reqRows = Number(payload.rows);
+        const cols = Math.max(20, Math.min(500, reqCols));
+        const rows = Math.max(5, Math.min(200, reqRows));
+        const leaseId = randomUUID();
+        log(
+          'session: lease.request',
+          payload.paneId,
+          `→ GRANT ${leaseId.slice(0, 8)} · reflow pane to ${cols}×${rows}`,
+        );
+        sendSealed(
+          'lease.grant',
+          {
+            paneId: payload.paneId,
+            leaseId,
+            effective: { cols, rows },
+            client: { cols: reqCols, rows: reqRows },
+            isCurrentClientLimiting: true,
+            heartbeatIntervalMs: 5000,
+            expiryMs: 15000,
+          },
+          msg.id,
+        );
+        // The pane genuinely reflows to phone width behind the desktop placeholder.
+        sendPaneText(claudeReflowedViewport, cols, rows);
+        break;
+      }
+      case 'lease.heartbeat':
+        log('session: lease.heartbeat', String(payload.leaseId).slice(0, 8));
+        break;
+      case 'lease.resize':
+        log('session: lease.resize', `→ ${String(payload.cols)}×${String(payload.rows)}`);
+        break;
+      case 'lease.release':
+        log('session: lease.release', String(payload.leaseId).slice(0, 8), '→ pane restored to desktop size');
+        break;
+
+      default:
+        log('session: received', msg.type);
     }
   }
 }

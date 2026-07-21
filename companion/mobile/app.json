@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "be.zenjoy.zentty.mobile",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)be.zenjoy.zentty.mobile"
+        ]
+      }
     },
     "android": {
       "package": "be.zenjoy.zentty.mobile",
@@ -42,8 +47,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200
         }
-      ],
-      "react-native-libsodium"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

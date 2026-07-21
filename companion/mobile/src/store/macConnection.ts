@@ -8,7 +8,7 @@
  * only its {@link MacConnectionState} snapshot enters the store, so components
  * re-render on data, not on the machinery.
  */
-import type { ParsedMessage } from '@zentty/wire';
+import type { LeaseRevokedReason, ParsedMessage, TranscriptEntry, TranscriptUnavailableReason } from '@zentty/wire';
 
 import {
   ConnectionManager,
@@ -30,6 +30,8 @@ import {
   type DashboardSnapshotPayload,
   type Worklane,
 } from './dashboard';
+import type { PaneTextFrame } from './paneText';
+import { PaneController, type PaneRuntimeState, type PaneTransport } from './paneController';
 
 /** Serializable per-Mac state the store holds and screens render. */
 export interface MacConnectionState {
@@ -39,6 +41,8 @@ export interface MacConnectionState {
   /** Relay-reported peer presence (Mac reachable), when known. */
   peerOnline?: boolean;
   worklanes: Worklane[];
+  /** Live per-pane runtime (terminal text, lease, transcript), keyed by paneId. */
+  panes: Record<string, PaneRuntimeState>;
   /** ms-epoch of the last successful connect. */
   lastConnectedAt?: number;
   /** ms-epoch of the last snapshot/delta applied. */
@@ -68,13 +72,44 @@ export class MacConnection {
   private running = false;
   private stopped = false;
   private worklanes: Worklane[];
+  private readonly panes = new Map<string, PaneController>();
+  /** Stable transport seam handed to every {@link PaneController}; reads the
+   * current session on each call so a reconnect is transparent. */
+  private readonly paneTransport: PaneTransport;
   state: MacConnectionState;
 
   constructor(deps: MacConnectionDeps) {
     this.deps = deps;
     this.delay = deps.delay ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.worklanes = deps.initialWorklanes ?? [];
-    this.state = { status: 'connecting', worklanes: this.worklanes };
+    this.state = { status: 'connecting', worklanes: this.worklanes, panes: {} };
+    this.paneTransport = {
+      send: (type, payload) => {
+        if (this.session?.state === 'ready') {
+          this.session.send(type, payload);
+        }
+      },
+      request: (type, payload) => {
+        if (this.session?.state !== 'ready') {
+          return Promise.reject(new Error('session not ready'));
+        }
+        return this.session.request(type, payload);
+      },
+      isReady: () => this.session?.state === 'ready',
+    };
+  }
+
+  /** Get (or lazily create) the runtime controller for a pane. */
+  paneController(paneId: string): PaneController {
+    let controller = this.panes.get(paneId);
+    if (!controller) {
+      controller = new PaneController(paneId, this.paneTransport, (state) => {
+        this.emit({ panes: { ...this.state.panes, [paneId]: state } });
+      });
+      this.panes.set(paneId, controller);
+      this.emit({ panes: { ...this.state.panes, [paneId]: controller.state } });
+    }
+    return controller;
   }
 
   /** Start (or restart) the connect/session loop. Idempotent while running. */
@@ -102,6 +137,9 @@ export class MacConnection {
     this.running = false;
     this.manager?.stop();
     this.session?.close();
+    for (const controller of this.panes.values()) {
+      controller.dispose();
+    }
   }
 
   private async runLoop(): Promise<void> {
@@ -174,6 +212,10 @@ export class MacConnection {
           // The Mac answers a subscribe with a fresh dashboard.snapshot, then
           // streams dashboard.delta frames (both routed via onMessage).
           session.send('dashboard.subscribe', {});
+          // Re-issue any pane watches/transcript subscriptions from before a drop.
+          for (const controller of this.panes.values()) {
+            controller.resync();
+          }
         })
         .catch(() => {
           session.close();
@@ -188,6 +230,21 @@ export class MacConnection {
     } else if (message.type === 'dashboard.delta') {
       this.worklanes = applyDelta(this.worklanes, message.payload as DashboardDeltaPayload);
       this.emit({ worklanes: this.worklanes, lastSnapshotAt: Date.now() });
+    } else if (message.type === 'pane.text') {
+      const payload = message.payload as PaneTextFrame;
+      this.panes.get(payload.paneId)?.onPaneText(payload);
+    } else if (message.type === 'lease.revoked') {
+      const payload = message.payload as { leaseId: string; reason: LeaseRevokedReason };
+      // A revoked frame carries no paneId; the holder recognizes its own leaseId.
+      for (const controller of this.panes.values()) {
+        controller.handleLeaseRevoked(payload.leaseId, payload.reason);
+      }
+    } else if (message.type === 'transcript.delta') {
+      const payload = message.payload as { paneId: string; entries: TranscriptEntry[] };
+      this.panes.get(payload.paneId)?.onTranscriptDelta(payload);
+    } else if (message.type === 'transcript.unavailable') {
+      const payload = message.payload as { paneId: string; reason: TranscriptUnavailableReason };
+      this.panes.get(payload.paneId)?.onTranscriptUnavailable(payload.reason);
     }
   }
 

@@ -5,11 +5,17 @@
   "dependencies": {
     "@expo/ui": "~57.0.7",
     "@expo/vector-icons": "^15.1.1",
+    "@stablelib/chacha20poly1305": "2.0.1",
+    "@stablelib/ed25519": "2.1.0",
+    "@stablelib/hmac": "2.0.1",
+    "@stablelib/sha256": "2.0.1",
+    "@stablelib/x25519": "2.0.1",
     "@tanstack/react-query": "^5.101.3",
     "@zentty/wire": "workspace:*",
     "expo": "~57.0.7",
     "expo-camera": "~57.0.3",
     "expo-constants": "~57.0.6",
+    "expo-crypto": "~57.0.1",
     "expo-dev-client": "~57.0.7",
     "expo-device": "~57.0.1",
     "expo-font": "~57.0.1",
@@ -27,7 +33,6 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.0",
     "react-native-gesture-handler": "~2.32.0",
-    "react-native-libsodium": "1.7.0",
     "react-native-reanimated": "4.5.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
@@ -66,16 +71,12 @@
     "testMatch": [
       "**/__tests__/**/*.test.[jt]s?(x)",
       "**/?(*.)+(spec|test).[jt]s?(x)"
+    ],
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base|standard-navigation|@stablelib))",
+      "/node_modules/react-native-reanimated/plugin/",
+      "/node_modules/@react-native/babel-preset/"
     ]
-  },
-  "expo": {
-    "doctor": {
-      "reactNativeDirectoryCheck": {
-        "exclude": [
-          "react-native-libsodium"
-        ]
-      }
-    }
   },
   "private": true
 }
