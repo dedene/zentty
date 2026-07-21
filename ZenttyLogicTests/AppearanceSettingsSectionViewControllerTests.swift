@@ -25,12 +25,14 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
             lightThemeName: nil
         )
         var syncOpenCodeThemeWithTerminal = false
+        var sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis = .subtle
         private(set) var appliedThemes: [String] = []
         private(set) var appliedThemeSlots: [AppearanceThemeSlot] = []
         private(set) var appliedThemeModes: [AppConfig.Appearance.ThemeMode] = []
         private(set) var resetThemePreferencesCallCount = 0
         private(set) var appliedOpacities: [CGFloat] = []
         private(set) var appliedOpenCodeThemeSyncValues: [Bool] = []
+        private(set) var appliedSidebarSelectionEmphasisValues: [AppConfig.Appearance.SidebarSelectionEmphasis] = []
         private(set) var createSharedConfigCallCount = 0
 
         func applyTheme(_ name: String, presentingWindow _: NSWindow?) async {
@@ -63,6 +65,11 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         func applyOpenCodeThemeSync(_ enabled: Bool) async {
             syncOpenCodeThemeWithTerminal = enabled
             appliedOpenCodeThemeSyncValues.append(enabled)
+        }
+
+        func applySidebarSelectionEmphasis(_ emphasis: AppConfig.Appearance.SidebarSelectionEmphasis) async {
+            sidebarSelectionEmphasis = emphasis
+            appliedSidebarSelectionEmphasisValues.append(emphasis)
         }
 
         func createSharedConfig(presentingWindow _: NSWindow?) async {
@@ -568,6 +575,28 @@ final class AppearanceSettingsSectionViewControllerTests: AppKitTestCase {
         await waitForCondition { coordinator.appliedOpenCodeThemeSyncValues == [true] }
 
         XCTAssertEqual(coordinator.appliedOpenCodeThemeSyncValues, [true])
+    }
+
+    func testSidebarSelectionEmphasisReflectsCoordinatorState() {
+        let coordinator = StubConfigCoordinator()
+        coordinator.sidebarSelectionEmphasis = .vivid
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.sidebarSelectionEmphasisForTesting, .vivid)
+    }
+
+    func testSidebarSelectionEmphasisSelectionCallsCoordinator() async {
+        let coordinator = StubConfigCoordinator()
+        let (controller, _, _) = makeController(configCoordinator: coordinator)
+
+        controller.loadViewIfNeeded()
+        controller.setSidebarSelectionEmphasisForTesting(.vivid)
+        await waitForCondition { coordinator.appliedSidebarSelectionEmphasisValues == [.vivid] }
+
+        XCTAssertEqual(coordinator.appliedSidebarSelectionEmphasisValues, [.vivid])
+        XCTAssertEqual(controller.sidebarSelectionEmphasisForTesting, .vivid)
     }
 
     func testConformsToSettingsAppearanceUpdating() {

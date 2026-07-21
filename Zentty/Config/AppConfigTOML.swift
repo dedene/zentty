@@ -77,6 +77,11 @@ enum AppConfigTOML {
                     "sync_opencode_theme_with_terminal = \(config.appearance.syncOpenCodeThemeWithTerminal)"
                 )
             }
+            if config.appearance.sidebarSelectionEmphasis != AppConfig.Appearance.default.sidebarSelectionEmphasis {
+                lines.append(
+                    "sidebar_selection_emphasis = \(encode(string: config.appearance.sidebarSelectionEmphasis.rawValue))"
+                )
+            }
             lines.append("")
         }
 
@@ -611,6 +616,12 @@ enum AppConfigTOML {
                 return false
             }
             config.appearance.syncOpenCodeThemeWithTerminal = value
+        case "sidebar_selection_emphasis":
+            guard let value = decodeString(assignment.value),
+                  let emphasis = AppConfig.Appearance.SidebarSelectionEmphasis(rawValue: value) else {
+                return false
+            }
+            config.appearance.sidebarSelectionEmphasis = emphasis
         default:
             return true
         }

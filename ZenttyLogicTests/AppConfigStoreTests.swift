@@ -583,6 +583,58 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.updates.channel, .beta)
     }
 
+    func test_sidebar_selection_emphasis_round_trips_through_store() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.appearance.sidebarSelectionEmphasis = .vivid
+        }
+
+        let reloaded = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(reloaded.current.appearance.sidebarSelectionEmphasis, .vivid)
+    }
+
+    func test_default_sidebar_selection_emphasis_is_omitted_from_encoded_toml() {
+        let encoded = AppConfigTOML.encode(.default)
+        XCTAssertFalse(encoded.contains("sidebar_selection_emphasis"))
+
+        var vivid = AppConfig.default
+        vivid.appearance.sidebarSelectionEmphasis = .vivid
+        XCTAssertTrue(AppConfigTOML.encode(vivid).contains("sidebar_selection_emphasis = \"vivid\""))
+    }
+
+    func test_invalid_sidebar_selection_emphasis_falls_back_to_default() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [appearance]
+        sidebar_selection_emphasis = "neon"
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertEqual(
+            store.current.appearance.sidebarSelectionEmphasis,
+            AppConfig.Appearance.default.sidebarSelectionEmphasis
+        )
+    }
+
     func test_store_writes_shortcut_overrides_and_unbound_entries() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         let store = AppConfigStore(

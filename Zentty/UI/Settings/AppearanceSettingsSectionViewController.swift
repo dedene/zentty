@@ -97,6 +97,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private let currentBackgroundOpacityProvider: () -> CGFloat?
 
     private var modeOptionViews: [ThemeModeOptionView] = []
+    private var sidebarSelectionEmphasisOptionViews: [SidebarSelectionEmphasisOptionView] = []
     private let darkSlotView = ThemeSlotTabControl(slot: .dark)
     private let lightSlotView = ThemeSlotTabControl(slot: .light)
     private let currentThemeSummaryLabel = NSTextField(labelWithString: "")
@@ -117,6 +118,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     private var filteredThemes: [ThemePreview] = []
     private var activeThemeName: String?
     private var themePreferences = AppearanceThemePreferences(mode: .alwaysDark, darkThemeName: nil, lightThemeName: nil)
+    private var sidebarSelectionEmphasis = AppConfig.Appearance.SidebarSelectionEmphasis.subtle
     private var editingThemeSlot = AppearanceThemeSlot.dark
     private var hasUserSelectedThemeSlot = false
     private var catalogFilterMode = ThemeCatalogFilterMode.dark
@@ -420,6 +422,65 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         stackView.addArrangedSubview(openCodeThemeCard)
         openCodeThemeCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
+        // Sidebar selection emphasis card
+        let sidebarEmphasisCard = SettingsCardView()
+        let sidebarEmphasisStack = NSStackView()
+        sidebarEmphasisStack.orientation = .vertical
+        sidebarEmphasisStack.alignment = .leading
+        sidebarEmphasisStack.spacing = 12
+        sidebarEmphasisStack.translatesAutoresizingMaskIntoConstraints = false
+        sidebarEmphasisCard.addSubview(sidebarEmphasisStack)
+
+        let sidebarEmphasisTitleLabel = NSTextField(labelWithString: "Sidebar selection")
+        sidebarEmphasisTitleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        sidebarEmphasisStack.addArrangedSubview(sidebarEmphasisTitleLabel)
+
+        let sidebarEmphasisSubtitleLabel = NSTextField(
+            labelWithString: "How strongly the active worklane is highlighted."
+        )
+        sidebarEmphasisSubtitleLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        sidebarEmphasisSubtitleLabel.textColor = .secondaryLabelColor
+        sidebarEmphasisSubtitleLabel.lineBreakMode = .byWordWrapping
+        sidebarEmphasisSubtitleLabel.maximumNumberOfLines = 0
+        sidebarEmphasisStack.addArrangedSubview(sidebarEmphasisSubtitleLabel)
+        sidebarEmphasisSubtitleLabel.widthAnchor.constraint(equalTo: sidebarEmphasisStack.widthAnchor).isActive = true
+
+        let sidebarEmphasisOptionsRow = NSStackView()
+        sidebarEmphasisOptionsRow.orientation = .horizontal
+        sidebarEmphasisOptionsRow.alignment = .top
+        sidebarEmphasisOptionsRow.distribution = .fillEqually
+        sidebarEmphasisOptionsRow.spacing = 10
+        sidebarEmphasisOptionsRow.translatesAutoresizingMaskIntoConstraints = false
+
+        sidebarSelectionEmphasisOptionViews = [
+            SidebarSelectionEmphasisOptionView(
+                emphasis: .subtle,
+                title: "Subtle",
+                subtitle: "Quiet tint that blends with the theme."
+            ),
+            SidebarSelectionEmphasisOptionView(
+                emphasis: .vivid,
+                title: "Vivid",
+                subtitle: "Accent-colored highlight, matches the focused pane."
+            ),
+        ]
+        for optionView in sidebarSelectionEmphasisOptionViews {
+            optionView.target = self
+            optionView.action = #selector(handleSidebarSelectionEmphasisSelected(_:))
+            sidebarEmphasisOptionsRow.addArrangedSubview(optionView)
+        }
+        sidebarEmphasisStack.addArrangedSubview(sidebarEmphasisOptionsRow)
+        sidebarEmphasisOptionsRow.widthAnchor.constraint(equalTo: sidebarEmphasisStack.widthAnchor).isActive = true
+
+        NSLayoutConstraint.activate([
+            sidebarEmphasisStack.topAnchor.constraint(equalTo: sidebarEmphasisCard.topAnchor, constant: 16),
+            sidebarEmphasisStack.leadingAnchor.constraint(equalTo: sidebarEmphasisCard.leadingAnchor, constant: 16),
+            sidebarEmphasisStack.trailingAnchor.constraint(equalTo: sidebarEmphasisCard.trailingAnchor, constant: -16),
+            sidebarEmphasisStack.bottomAnchor.constraint(equalTo: sidebarEmphasisCard.bottomAnchor, constant: -16),
+        ])
+        stackView.addArrangedSubview(sidebarEmphasisCard)
+        sidebarEmphasisCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -435,6 +496,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         refreshOpenCodeThemeSyncSwitch()
+        refreshSidebarSelectionEmphasis()
         Task {
             await reloadThemes()
         }
@@ -446,6 +508,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         refreshOpenCodeThemeSyncSwitch()
+        refreshSidebarSelectionEmphasis()
         super.prepareForPresentation()
     }
 
@@ -455,6 +518,7 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         refreshActiveThemeName()
         refreshOpacitySlider()
         refreshOpenCodeThemeSyncSwitch()
+        refreshSidebarSelectionEmphasis()
     }
 
     // MARK: - Theme State
@@ -490,6 +554,10 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
 
     var isOpenCodeThemeSyncEnabledForTesting: Bool {
         openCodeThemeSyncSwitch.state == .on
+    }
+
+    var sidebarSelectionEmphasisForTesting: AppConfig.Appearance.SidebarSelectionEmphasis {
+        sidebarSelectionEmphasis
     }
 
     private func refreshActiveThemeName() {
@@ -640,6 +708,13 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
     func setOpenCodeThemeSyncEnabledForTesting(_ enabled: Bool) {
         openCodeThemeSyncSwitch.state = enabled ? .on : .off
         handleOpenCodeThemeSyncChanged(openCodeThemeSyncSwitch)
+    }
+
+    func setSidebarSelectionEmphasisForTesting(_ emphasis: AppConfig.Appearance.SidebarSelectionEmphasis) {
+        guard let optionView = sidebarSelectionEmphasisOptionViews.first(where: { $0.emphasis == emphasis }) else {
+            return
+        }
+        handleSidebarSelectionEmphasisSelected(optionView)
     }
 
     func createSharedConfigForTesting() {
@@ -823,6 +898,15 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
         openCodeThemeSyncSwitch.state = configCoordinator.syncOpenCodeThemeWithTerminal ? .on : .off
     }
 
+    private func refreshSidebarSelectionEmphasis() {
+        sidebarSelectionEmphasis = configCoordinator.sidebarSelectionEmphasis
+        updateSidebarSelectionEmphasisViews()
+    }
+
+    private func updateSidebarSelectionEmphasisViews() {
+        sidebarSelectionEmphasisOptionViews.forEach { $0.isSelected = $0.emphasis == sidebarSelectionEmphasis }
+    }
+
     private func updateOpacityLabel(_ opacity: CGFloat) {
         opacityValueLabel.stringValue = "\(Int(round(opacity * 100)))%"
     }
@@ -899,6 +983,17 @@ final class AppearanceSettingsSectionViewController: SettingsScrollableSectionVi
             guard let self else { return }
             await configCoordinator.applyOpenCodeThemeSync(enabled)
             refreshOpenCodeThemeSyncSwitch()
+        }
+    }
+
+    @objc
+    private func handleSidebarSelectionEmphasisSelected(_ sender: SidebarSelectionEmphasisOptionView) {
+        sidebarSelectionEmphasis = sender.emphasis
+        updateSidebarSelectionEmphasisViews()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await configCoordinator.applySidebarSelectionEmphasis(sender.emphasis)
+            refreshSidebarSelectionEmphasis()
         }
     }
 

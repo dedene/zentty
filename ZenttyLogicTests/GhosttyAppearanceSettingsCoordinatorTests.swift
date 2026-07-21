@@ -673,6 +673,24 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         )
     }
 
+    func test_applySidebarSelectionEmphasis_persistsToConfigStoreOnly() async throws {
+        let store = makeConfigStore()
+        var reloadCount = 0
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: { reloadCount += 1 }
+        )
+
+        XCTAssertEqual(coordinator.sidebarSelectionEmphasis, .subtle)
+
+        await coordinator.applySidebarSelectionEmphasis(.vivid)
+
+        XCTAssertEqual(coordinator.sidebarSelectionEmphasis, .vivid)
+        XCTAssertEqual(store.current.appearance.sidebarSelectionEmphasis, .vivid)
+        XCTAssertEqual(reloadCount, 0, "sidebar selection emphasis is a pure config-store mutation with no ghostty runtime reload")
+    }
+
     private func makeConfigStore() -> AppConfigStore {
         AppConfigStore(
             fileURL: temporaryDirectoryURL.appendingPathComponent(UUID().uuidString).appendingPathComponent("config.toml")

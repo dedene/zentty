@@ -623,6 +623,212 @@ final class GhosttyThemeResolverTests: AppKitTestCase {
         XCTAssertEqual(theme.sidebarGlassAppearance, .light)
     }
 
+    // MARK: - Sidebar selection emphasis (issue #51)
+
+    private func sidebarTheme(
+        background: String,
+        foreground: String,
+        cursor: String,
+        emphasis: AppConfig.Appearance.SidebarSelectionEmphasis,
+        palette: [Int: NSColor] = [:],
+        reduceTransparency: Bool = false
+    ) -> ZenttyTheme {
+        ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: background)!,
+                foreground: NSColor(hexString: foreground)!,
+                cursorColor: NSColor(hexString: cursor)!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: palette,
+                backgroundOpacity: 0.9,
+                backgroundBlurRadius: 25
+            ),
+            reduceTransparency: reduceTransparency,
+            sidebarSelectionEmphasis: emphasis
+        )
+    }
+
+    /// Composited contrast between the selected and idle rows, as they actually
+    /// render (each fill flattened over the sidebar surface over the window).
+    private func selectionVsIdleContrast(_ theme: ZenttyTheme, background: String) -> CGFloat {
+        let bg = NSColor(hexString: background)!.srgbClamped
+        let surface = theme.sidebarBackground.composited(over: bg)
+        let active = theme.sidebarButtonActiveBackground.composited(over: surface)
+        let idle = theme.sidebarButtonInactiveBackground.composited(over: surface)
+        return active.contrastRatio(against: idle)
+    }
+
+    private func activeTextVsFillContrast(_ theme: ZenttyTheme, background: String) -> CGFloat {
+        let bg = NSColor(hexString: background)!.srgbClamped
+        let surface = theme.sidebarBackground.composited(over: bg)
+        let fill = theme.sidebarButtonActiveBackground.composited(over: surface)
+        return theme.sidebarButtonActiveText.contrastRatio(against: fill)
+    }
+
+    func test_subtle_emphasis_healthy_dark_theme_matches_shipped_selection_derivation() {
+        // Byte-for-byte regression guard: the safety floor must be a no-op in
+        // subtle mode on a normal dark theme (values captured from the shipped
+        // derivation, reduceTransparency = false).
+        let theme = sidebarTheme(
+            background: "#0A0C10", foreground: "#F0F3F6", cursor: "#71B7FF",
+            emphasis: .subtle
+        )
+
+        XCTAssertEqual(theme.sidebarButtonActiveBackground.themeToken, "#111316-620")
+        XCTAssertEqual(theme.sidebarButtonActiveBorder.themeToken, "#71B7FF-120")
+        XCTAssertEqual(theme.sidebarButtonActiveText.themeToken, "#F0F3F6-980")
+    }
+
+    func test_vivid_emphasis_dark_theme_pushes_selection_far_above_subtle_contrast() {
+        let subtle = sidebarTheme(
+            background: "#0A0C10", foreground: "#F0F3F6", cursor: "#71B7FF", emphasis: .subtle
+        )
+        let vivid = sidebarTheme(
+            background: "#0A0C10", foreground: "#F0F3F6", cursor: "#71B7FF", emphasis: .vivid
+        )
+
+        let subtleContrast = selectionVsIdleContrast(subtle, background: "#0A0C10")
+        let vividContrast = selectionVsIdleContrast(vivid, background: "#0A0C10")
+
+        // Subtle stays low (that is the #51 pain point); vivid is unmistakable.
+        XCTAssertLessThan(subtleContrast, 1.4)
+        XCTAssertGreaterThanOrEqual(vividContrast, 1.8)
+        XCTAssertGreaterThan(vividContrast, subtleContrast)
+
+        // The vivid fill reads as accent-tinted, not the near-black recessed fill.
+        let accent = NSColor(hexString: "#71B7FF")!
+        XCTAssertLessThan(
+            colorDistance(vivid.sidebarButtonActiveBackground, accent),
+            colorDistance(subtle.sidebarButtonActiveBackground, accent)
+        )
+
+        // Border matches the focused-pane treatment (accent at 0.42 on dark).
+        XCTAssertEqual(vivid.sidebarButtonActiveBorder.srgbClamped.alphaComponent, 0.42, accuracy: 0.001)
+        XCTAssertEqual(
+            vivid.sidebarButtonActiveBorder.srgbClamped.alphaComponent,
+            vivid.paneBorderFocused.srgbClamped.alphaComponent,
+            accuracy: 0.001
+        )
+
+        // Selected label stays legible on the stronger fill.
+        XCTAssertGreaterThanOrEqual(activeTextVsFillContrast(vivid, background: "#0A0C10"), 4.5)
+    }
+
+    func test_vivid_emphasis_light_theme_selection_is_legible_and_accent_bordered() {
+        let vivid = sidebarTheme(
+            background: "#F7FBFF", foreground: "#102030", cursor: "#2F74D0", emphasis: .vivid
+        )
+
+        XCTAssertGreaterThanOrEqual(selectionVsIdleContrast(vivid, background: "#F7FBFF"), 1.8)
+        XCTAssertGreaterThanOrEqual(activeTextVsFillContrast(vivid, background: "#F7FBFF"), 4.5)
+        // Focused-pane treatment on light is accent at 0.34.
+        XCTAssertEqual(vivid.sidebarButtonActiveBorder.srgbClamped.alphaComponent, 0.34, accuracy: 0.001)
+        XCTAssertEqual(
+            vivid.sidebarButtonActiveBorder.srgbClamped.alphaComponent,
+            vivid.paneBorderFocused.srgbClamped.alphaComponent,
+            accuracy: 0.001
+        )
+    }
+
+    func test_vivid_emphasis_survives_degenerate_accent_matching_background() {
+        // Cursor color == background: the raw accent would vanish into the
+        // sidebar. The guarded fallback (palette blue) keeps the selection visible.
+        let vivid = sidebarTheme(
+            background: "#1A1B26", foreground: "#C0CAF5", cursor: "#1A1B26",
+            emphasis: .vivid,
+            palette: [12: NSColor(hexString: "#7AA2F7")!]
+        )
+
+        XCTAssertGreaterThanOrEqual(selectionVsIdleContrast(vivid, background: "#1A1B26"), 1.8)
+        XCTAssertGreaterThanOrEqual(activeTextVsFillContrast(vivid, background: "#1A1B26"), 4.5)
+        XCTAssertNotEqual(
+            vivid.sidebarButtonActiveBackground.themeToken,
+            vivid.sidebarBackground.themeToken
+        )
+    }
+
+    func test_vivid_emphasis_survives_accent_and_palette_matching_background() {
+        // Even when both cursor and the palette blue collapse into the background,
+        // the foreground fallback keeps a visible, legible selection.
+        let vivid = sidebarTheme(
+            background: "#1A1B26", foreground: "#C0CAF5", cursor: "#1A1B26",
+            emphasis: .vivid,
+            palette: [12: NSColor(hexString: "#1B1C27")!]
+        )
+
+        XCTAssertGreaterThanOrEqual(selectionVsIdleContrast(vivid, background: "#1A1B26"), 1.6)
+        XCTAssertGreaterThanOrEqual(activeTextVsFillContrast(vivid, background: "#1A1B26"), 4.5)
+    }
+
+    private func selectionVsIdleSeparation(_ theme: ZenttyTheme, background: String) -> CGFloat {
+        let bg = NSColor(hexString: background)!.srgbClamped
+        let surface = theme.sidebarBackground.composited(over: bg)
+        let active = theme.sidebarButtonActiveBackground.composited(over: surface)
+        let idle = theme.sidebarButtonInactiveBackground.composited(over: surface)
+        return active.srgbDistance(to: idle)
+    }
+
+    func test_subtle_guard_is_noop_on_healthy_light_theme() {
+        // Healthy light theme: separation is well above the guard threshold, so the
+        // fill is untouched and the border stays at the whisper base alpha (0.10).
+        let theme = sidebarTheme(
+            background: "#F7FBFF", foreground: "#102030", cursor: "#2F74D0", emphasis: .subtle
+        )
+
+        XCTAssertGreaterThanOrEqual(selectionVsIdleSeparation(theme, background: "#F7FBFF"), 0.012)
+        XCTAssertEqual(theme.sidebarButtonActiveBorder.srgbClamped.alphaComponent, 0.10, accuracy: 0.001)
+    }
+
+    func test_subtle_guard_rescues_collapsed_dark_theme_by_widening_fill() {
+        // Low-contrast dark theme whose selected/idle fills collapse (~0.011 apart).
+        // Remedy A widens the fill along the darker axis; the border stays base.
+        let collapsed = sidebarTheme(
+            background: "#2A2A2A", foreground: "#323232", cursor: "#343434", emphasis: .subtle
+        )
+
+        XCTAssertGreaterThanOrEqual(selectionVsIdleSeparation(collapsed, background: "#2A2A2A"), 0.012)
+        // Fill headroom was enough, so the border is not escalated.
+        XCTAssertEqual(collapsed.sidebarButtonActiveBorder.srgbClamped.alphaComponent, 0.12, accuracy: 0.001)
+        // Selected stays the darkest row (ordering preserved by construction).
+        XCTAssertLessThan(
+            collapsed.sidebarButtonActiveBackground.perceivedLuminance,
+            collapsed.sidebarButtonInactiveBackground.perceivedLuminance
+        )
+    }
+
+    func test_subtle_guard_escalates_border_when_fill_has_no_headroom() {
+        // Pure-black theme: darkening the fill cannot create separation, so remedy B
+        // raises the accent border alpha toward the focused-pane level (0.42).
+        let collapsed = sidebarTheme(
+            background: "#000000", foreground: "#050505", cursor: "#000000", emphasis: .subtle
+        )
+
+        let borderAlpha = collapsed.sidebarButtonActiveBorder.srgbClamped.alphaComponent
+        XCTAssertGreaterThanOrEqual(borderAlpha, 0.30)
+        XCTAssertLessThanOrEqual(borderAlpha, 0.42)
+    }
+
+    func test_subtle_guard_escalated_border_stays_visible_when_accent_matches_background() {
+        // Same no-headroom theme as the escalation test, but with a black cursor
+        // color and a real palette blue: the escalated rescue border must not
+        // inherit the invisible raw accent — it should fall back through the
+        // guarded-accent chain (landing on palette blue) so the outline is visible.
+        let collapsed = sidebarTheme(
+            background: "#000000", foreground: "#050505", cursor: "#000000", emphasis: .subtle,
+            palette: [4: NSColor(hexString: "#4A8FD4")!, 12: NSColor(hexString: "#71B7FF")!]
+        )
+
+        let border = collapsed.sidebarButtonActiveBorder.srgbClamped
+        XCTAssertGreaterThanOrEqual(border.alphaComponent, 0.30)
+        let sidebarSurface = collapsed.sidebarBackground.composited(over: collapsed.windowBackground)
+        let opaqueBorder = border.withAlphaComponent(1)
+        XCTAssertGreaterThanOrEqual(
+            opaqueBorder.contrastRatio(against: sidebarSurface), 1.2,
+            "Escalated subtle rescue border must remain visible against the sidebar surface"
+        )
+    }
+
     private func colorDistance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
         let left = lhs.srgbClamped
         let right = rhs.srgbClamped
