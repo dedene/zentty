@@ -156,6 +156,82 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
         )
     }
 
+    func test_row_labels_stay_light_when_dark_menu_row_appearance_changes_after_rebuild() {
+        // After a system theme switch, AppKit can flip a custom menu row's
+        // effectiveAppearance before the next rebuild. Title/context/age must
+        // keep the menu's dark-mode label colors (same contract as the icon),
+        // or the first open renders near-black text on the dark menu chrome.
+        let menu = NSMenu()
+        menu.appearance = NSAppearance(named: .darkAqua)
+        let running = paneSnapshot(fleetState: .active, statusLabel: "Running")
+
+        MenuBarStatusMenuBuilder.rebuild(
+            menu: menu,
+            snapshots: [running],
+            fleetSummary: MenuBarFleetSummary.from(snapshots: [running]),
+            target: nil,
+            rowAction: #selector(NSObject.description),
+            settingsAction: #selector(NSObject.description)
+        )
+
+        let row = try! XCTUnwrap(menu.items[1].view)
+        row.appearance = NSAppearance(named: .aqua)
+        row.viewDidChangeEffectiveAppearance()
+
+        let labels = textFields(in: row)
+        let titleLabel = try! XCTUnwrap(labels.first { $0.stringValue == "Claude Code" })
+        let contextLabel = try! XCTUnwrap(labels.first { $0.stringValue == "zentty · main" })
+
+        assertResolvedLabelColor(
+            titleLabel.textColor,
+            matches: .labelColor,
+            appearance: .darkAqua,
+            expectLightInk: true
+        )
+        assertResolvedLabelColor(
+            contextLabel.textColor,
+            matches: .secondaryLabelColor,
+            appearance: .darkAqua,
+            expectLightInk: true
+        )
+    }
+
+    func test_row_labels_stay_dark_when_light_menu_row_appearance_changes_after_rebuild() {
+        let menu = NSMenu()
+        menu.appearance = NSAppearance(named: .aqua)
+        let running = paneSnapshot(fleetState: .active, statusLabel: "Running")
+
+        MenuBarStatusMenuBuilder.rebuild(
+            menu: menu,
+            snapshots: [running],
+            fleetSummary: MenuBarFleetSummary.from(snapshots: [running]),
+            target: nil,
+            rowAction: #selector(NSObject.description),
+            settingsAction: #selector(NSObject.description)
+        )
+
+        let row = try! XCTUnwrap(menu.items[1].view)
+        row.appearance = NSAppearance(named: .darkAqua)
+        row.viewDidChangeEffectiveAppearance()
+
+        let labels = textFields(in: row)
+        let titleLabel = try! XCTUnwrap(labels.first { $0.stringValue == "Claude Code" })
+        let contextLabel = try! XCTUnwrap(labels.first { $0.stringValue == "zentty · main" })
+
+        assertResolvedLabelColor(
+            titleLabel.textColor,
+            matches: .labelColor,
+            appearance: .aqua,
+            expectLightInk: false
+        )
+        assertResolvedLabelColor(
+            contextLabel.textColor,
+            matches: .secondaryLabelColor,
+            appearance: .aqua,
+            expectLightInk: false
+        )
+    }
+
     private func textFields(in view: NSView) -> [NSTextField] {
         view.subviews.reduce(into: (view as? NSTextField).map { [$0] } ?? []) { result, subview in
             result.append(contentsOf: textFields(in: subview))
@@ -242,6 +318,43 @@ final class MenuBarStatusMenuBuilderTests: XCTestCase {
         XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
+    }
+
+    private func assertResolvedLabelColor(
+        _ color: NSColor?,
+        matches semantic: NSColor,
+        appearance named: NSAppearance.Name,
+        expectLightInk: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let actual = try! XCTUnwrap(color, file: file, line: line).srgbClamped
+        let appearance = try! XCTUnwrap(NSAppearance(named: named), file: file, line: line)
+        var expected = semantic
+        appearance.performAsCurrentDrawingAppearance {
+            expected = semantic.usingColorSpace(.deviceRGB) ?? semantic
+        }
+        let expectedSRGB = expected.srgbClamped
+        XCTAssertEqual(actual.redComponent, expectedSRGB.redComponent, accuracy: 0.05, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expectedSRGB.greenComponent, accuracy: 0.05, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expectedSRGB.blueComponent, accuracy: 0.05, file: file, line: line)
+        if expectLightInk {
+            XCTAssertGreaterThan(
+                actual.perceivedLuminance,
+                0.55,
+                "Dark-menu row labels must stay light after a live appearance flip",
+                file: file,
+                line: line
+            )
+        } else {
+            XCTAssertLessThan(
+                actual.perceivedLuminance,
+                0.45,
+                "Light-menu row labels must stay dark after a live appearance flip",
+                file: file,
+                line: line
+            )
+        }
     }
 
     func test_itemTitle_uses_accessibility_summary() {
