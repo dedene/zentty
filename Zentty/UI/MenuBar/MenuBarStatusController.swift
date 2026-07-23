@@ -31,6 +31,7 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
     private var latestFleetSummary = MenuBarFleetSummary.from(snapshots: [])
     private var latestPresentation: MenuBarStatusPresentation?
     private var isMenuOpen = false
+    private var systemAppearanceObserver: NSObjectProtocol?
 
     init(
         configStore: AppConfigStore,
@@ -62,10 +63,12 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
         item.menu = menu
         statusItem = item
         isStarted = true
+        startObservingSystemAppearance()
         refresh()
     }
 
     func stop() {
+        stopObservingSystemAppearance()
         for entry in subscriptions.values {
             entry.store.unsubscribe(entry.subscription)
         }
@@ -203,12 +206,53 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
         }
     }
 
+    private func startObservingSystemAppearance() {
+        guard systemAppearanceObserver == nil else { return }
+        // Eagerly sync menu.appearance when the system theme flips so the first
+        // click after a light/dark switch does not open against a stale appearance.
+        systemAppearanceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleSystemAppearanceDidChange()
+            }
+        }
+    }
+
+    private func stopObservingSystemAppearance() {
+        if let systemAppearanceObserver {
+            DistributedNotificationCenter.default().removeObserver(systemAppearanceObserver)
+            self.systemAppearanceObserver = nil
+        }
+    }
+
+    private func handleSystemAppearanceDidChange() {
+        guard isStarted else { return }
+        menu.appearance = Self.systemMenuAppearance()
+        // Status-item icon also follows appearance (template rendering); refresh it.
+        latestPresentation = nil
+        refresh()
+        if isMenuOpen {
+            rebuildMenu()
+        }
+    }
+
     private static func systemMenuAppearance() -> NSAppearance? {
-        let globalStyle = (
-            UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleInterfaceStyle"] as? String
-        )
-        let appStyle = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")
-        let isDark = (globalStyle ?? appStyle) == "Dark"
+        // Prefer the live effective appearance. UserDefaults `AppleInterfaceStyle`
+        // can lag a beat after a system theme switch — exactly when the first
+        // menu open used to paint custom rows with the wrong ink.
+        let isDark: Bool
+        if let app = NSApp {
+            isDark = MenuBarStatusPalette.isDark(app.effectiveAppearance)
+        } else {
+            let globalStyle = (
+                UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleInterfaceStyle"] as? String
+            )
+            let appStyle = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")
+            isDark = (globalStyle ?? appStyle) == "Dark"
+        }
         return NSAppearance(named: isDark ? .darkAqua : .aqua)
     }
 

@@ -297,6 +297,11 @@ private final class MenuBarAgentRowView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // Keep title/context/age locked to the menu appearance captured at rebuild.
+        // After a system theme switch, AppKit can flip this row's effectiveAppearance
+        // before the next menuNeedsUpdate; dynamic semantic colors would then render
+        // light-mode ink on dark menu chrome (or the reverse) on the first open.
+        applyLabelColors()
         configurePill()
     }
 
@@ -371,15 +376,15 @@ private final class MenuBarAgentRowView: NSView {
         titleLabel.maximumNumberOfLines = 1
 
         contextLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        contextLabel.textColor = .secondaryLabelColor
         contextLabel.lineBreakMode = .byTruncatingMiddle
         contextLabel.maximumNumberOfLines = 1
 
         ageLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        ageLabel.textColor = .secondaryLabelColor
         ageLabel.alignment = .right
         ageLabel.lineBreakMode = .byTruncatingTail
         ageLabel.maximumNumberOfLines = 1
+
+        applyLabelColors()
 
         pillView.onProgressHoverEntered = { [weak self] in
             self?.setHovered(true)
@@ -399,11 +404,31 @@ private final class MenuBarAgentRowView: NSView {
         titleLabel.stringValue = snapshot.primaryText
         contextLabel.stringValue = snapshot.contextText ?? snapshot.agentTool.displayName
         ageLabel.stringValue = ageText(for: snapshot)
+        applyLabelColors()
         configurePill()
 
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(MenuBarStatusMenuBuilder.itemTitle(for: snapshot))
         setAccessibilityValue(snapshot.contextText)
+    }
+
+    /// Bake label colors against the menu appearance (not live effectiveAppearance).
+    /// Layer-backed custom menu rows otherwise resolve dynamic catalog colors against
+    /// a stale appearance on the first open after a system light/dark switch.
+    private func applyLabelColors() {
+        let appearance = menuAppearance ?? effectiveAppearance
+        titleLabel.textColor = Self.resolvedColor(.labelColor, appearance: appearance)
+        contextLabel.textColor = Self.resolvedColor(.secondaryLabelColor, appearance: appearance)
+        ageLabel.textColor = Self.resolvedColor(.secondaryLabelColor, appearance: appearance)
+    }
+
+    private static func resolvedColor(_ color: NSColor, appearance: NSAppearance?) -> NSColor {
+        guard let appearance else { return color }
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.deviceRGB) ?? color
+        }
+        return resolved
     }
 
     private func configurePill() {
