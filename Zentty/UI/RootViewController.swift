@@ -1182,6 +1182,9 @@ final class RootViewController: NSViewController {
         }
         agentStatusCenter.onPayload = { [weak self] payload in
             self?.worklaneStore.applyAgentStatusPayload(payload)
+            // Fan out to the mobile companion bridge so it can recompute the
+            // dashboard (debounced inside the feed).
+            CompanionBridgeServer.shared?.ingestAgentStatusChange()
         }
         agentStatusCenter.start()
     }
@@ -1474,7 +1477,18 @@ final class RootViewController: NSViewController {
 
     private func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
         if event == .surfaceClosed {
+            // Let the companion pane-text feed drop any watch before the pane is
+            // torn down, then run the normal shell-exit close.
+            CompanionBridgeServer.shared?.ingestPaneClosed(paneID: paneID.rawValue)
             paneCommands.handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
+            return
+        }
+
+        // Content-changed is a high-frequency render pulse consumed only by the
+        // mobile companion. Route it straight to the bridge and return, keeping it
+        // off the worklane-store agent-status path entirely.
+        if event == .contentChanged {
+            CompanionBridgeServer.shared?.ingestPaneContentChange(paneID: paneID.rawValue)
             return
         }
 

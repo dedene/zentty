@@ -9,6 +9,7 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
     private let adapter: any TerminalAdapter
     private let terminalView: NSView
     private let searchHUDView = PaneSearchHUDView()
+    private var leasePlaceholderView: CompanionLeasePlaceholderView?
     private var hasStartedSession = false
     private var lastRenderedSearchState = PaneSearchState()
     private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
@@ -263,6 +264,50 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
             return
         }
         terminalView.frame = bounds
+    }
+
+    // MARK: - Companion control lease (§2.6)
+
+    /// Begins a control-lease takeover: pin the surface to the phone's fixed grid,
+    /// occlude the desktop surface, and install the "controlled by <device>"
+    /// placeholder with a Take Back Control button. Idempotent — a repeat call
+    /// (resize / supersede) refreshes the grid and device name in place. Returns
+    /// `false` when the adapter has no live surface to lease.
+    @discardableResult
+    func beginControlLease(
+        cols: Int,
+        rows: Int,
+        deviceName: String,
+        onTakeBack: @escaping () -> Void
+    ) -> Bool {
+        guard let leaseable = adapter as? TerminalControlLeasing,
+              leaseable.applyControlLease(cols: cols, rows: rows)
+        else {
+            return false
+        }
+
+        if let existing = leasePlaceholderView {
+            existing.updateDeviceName(deviceName)
+        } else {
+            let placeholder = CompanionLeasePlaceholderView(deviceName: deviceName, onTakeBack: onTakeBack)
+            placeholder.frame = bounds
+            placeholder.autoresizingMask = [.width, .height]
+            addSubview(placeholder, positioned: .above, relativeTo: terminalView)
+            leasePlaceholderView = placeholder
+        }
+        return true
+    }
+
+    /// Ends the control lease: restore the frame-derived viewport, re-enable
+    /// desktop rendering, and remove the placeholder.
+    func endControlLease() {
+        (adapter as? TerminalControlLeasing)?.releaseControlLease()
+        leasePlaceholderView?.removeFromSuperview()
+        leasePlaceholderView = nil
+    }
+
+    var isUnderControlLeaseForTesting: Bool {
+        leasePlaceholderView != nil
     }
 
     private func layoutTerminalSubtreeIfNeeded() {

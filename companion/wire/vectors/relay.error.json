@@ -1,0 +1,38 @@
+[
+  {
+    "name": "valid rate_limited error",
+    "valid": true,
+    "message": {
+      "type": "relay.error",
+      "code": "rate_limited",
+      "message": "frame rate exceeded"
+    }
+  },
+  {
+    "name": "valid not_authed error",
+    "valid": true,
+    "message": {
+      "type": "relay.error",
+      "code": "not_authed",
+      "message": "authenticate before sending frames"
+    }
+  },
+  {
+    "name": "valid frame_too_large error",
+    "valid": true,
+    "message": {
+      "type": "relay.error",
+      "code": "frame_too_large",
+      "message": "sealed payload exceeds cap"
+    }
+  },
+  {
+    "name": "unknown code is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.error",
+      "code": "teapot",
+      "message": "nope"
+    }
+  }
+]

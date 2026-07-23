@@ -1,0 +1,22 @@
+[
+  {
+    "name": "valid ping",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "64758697-a8b9-4bcb-8334-455667788990",
+      "type": "session.ping",
+      "payload": { "ts": 1784601600123 }
+    }
+  },
+  {
+    "name": "string ts is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "758697a8-b9ca-4cdc-8445-566778899001",
+      "type": "session.ping",
+      "payload": { "ts": "1784601600123" }
+    }
+  }
+]

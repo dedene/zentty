@@ -281,6 +281,24 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    /// Mobile companion bridge toggle. The bridge only listens/advertises while
+    /// this is on *and* at least one device is paired; default-on so pairing a
+    /// device is enough to make the Mac reachable.
+    struct Companion: Equatable, Sendable {
+        var enabled: Bool
+        /// Relay URL the Mac dials for remote (off-LAN) reachability. Empty
+        /// disables the relay leg entirely (LAN-only). Included in pairing offers
+        /// when set so the phone learns where to reach this Mac off-network.
+        var relayUrl: String
+        /// Base URL of the push gateway the Mac posts `/register` + `/wake` to for
+        /// remote attention notifications. Empty disables the push leg entirely;
+        /// foreground dashboard updates keep working. Typically the same host as
+        /// the relay, so a self-hosted relay+gateway is one URL each.
+        var pushGatewayUrl: String
+
+        static let `default` = Companion(enabled: true, relayUrl: "", pushGatewayUrl: "")
+    }
+
     /// Per-agent enable/disable state for Zentty's CLI integrations. Persistent
     /// (config-modifying) agents are tri-state and consent-gated; ephemeral
     /// agents are on by default. See `AgentIntegrationConsent`.
@@ -319,6 +337,7 @@ struct AppConfig: Equatable, Sendable {
     var agentCaffeination: AgentCaffeination
     var menuBar: MenuBar
     var agentIntegrations: AgentIntegrations
+    var companion: Companion
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -341,7 +360,8 @@ struct AppConfig: Equatable, Sendable {
         agentTeams: .default,
         agentCaffeination: .default,
         menuBar: .default,
-        agentIntegrations: .default
+        agentIntegrations: .default,
+        companion: .default
     )
 
     static func migrated(
@@ -370,7 +390,8 @@ struct AppConfig: Equatable, Sendable {
             agentTeams: .default,
             agentCaffeination: .default,
             menuBar: .default,
-            agentIntegrations: .default
+            agentIntegrations: .default,
+            companion: .default
         )
     }
 

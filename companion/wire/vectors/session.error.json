@@ -1,0 +1,44 @@
+[
+  {
+    "name": "valid unsupported_type error",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "a8b9cadb-ecfd-4f0f-8778-899001122334",
+      "type": "session.error",
+      "replyTo": "b9cadbec-fd0e-4102-8889-900112233445",
+      "payload": {
+        "code": "unsupported_type",
+        "message": "unknown message type: pane.teleport",
+        "fatal": false
+      }
+    }
+  },
+  {
+    "name": "valid fatal error",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "b9cadbec-fd0e-4102-8889-900112233445",
+      "type": "session.error",
+      "payload": {
+        "code": "version_mismatch",
+        "message": "no common protocol version",
+        "fatal": true
+      }
+    }
+  },
+  {
+    "name": "missing fatal flag is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "cadbecfd-0e1f-4213-8990-011223344556",
+      "type": "session.error",
+      "payload": {
+        "code": "internal",
+        "message": "boom"
+      }
+    }
+  }
+]

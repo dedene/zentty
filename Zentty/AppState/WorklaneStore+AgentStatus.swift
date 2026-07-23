@@ -313,6 +313,11 @@ extension WorklaneStore {
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
+        case .contentChanged:
+            // Pure render pulse; carries no agent-status meaning. The companion
+            // pane-text feed consumes it upstream (RootViewController), so it is a
+            // no-op here beyond satisfying the exhaustive switch.
+            break
         }
 
         recomputePresentation(for: paneID, in: &worklane)
@@ -900,7 +905,7 @@ extension WorklaneStore {
         switch event {
         case .userInterrupted, .commandFinished, .userSubmittedInput, .progressReport:
             return true
-        case .shellReady, .desktopNotification, .userEditedInput, .surfaceClosed:
+        case .shellReady, .desktopNotification, .userEditedInput, .surfaceClosed, .contentChanged:
             return false
         }
     }
@@ -923,6 +928,8 @@ extension WorklaneStore {
             return "userSubmittedInput"
         case .surfaceClosed:
             return "surfaceClosed"
+        case .contentChanged:
+            return "contentChanged"
         }
     }
 

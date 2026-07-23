@@ -1,0 +1,24 @@
+{
+  // moduleResolution "bundler": the only consumers in M0 are vitest (Vite/esbuild)
+  // and, later, the relay/mobile packages which bundle via their own toolchains
+  // (Metro, tsup/esbuild). Nothing imports the emitted dist through raw Node ESM
+  // yet, so extensionless relative imports are fine and keep the source clean.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test"]
+}

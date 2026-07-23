@@ -100,6 +100,11 @@ enum TerminalEvent: Equatable, Sendable {
     case userEditedInput
     case userSubmittedInput
     case surfaceClosed
+    /// Coalesced "the terminal grid may have changed" pulse, derived from
+    /// libghostty's `RENDER` action. Only emitted while a consumer has opted into
+    /// content observation (see `LibghosttyContentChangeObservation`); carries no
+    /// payload and is safe to ignore.
+    case contentChanged
 }
 
 enum TerminalInterruptKeyRecognizer {
@@ -211,6 +216,24 @@ extension TerminalAdapter {
 @MainActor
 protocol TerminalTextReading: AnyObject {
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    /// The live terminal grid dimensions (columns × rows), or `nil` when no live
+    /// surface backs the pane yet.
+    var gridSize: (cols: Int, rows: Int)? { get }
+}
+
+/// Fixed-grid control-lease takeover (companion §2.6). While leased, the pane's
+/// surface is sized to a phone-measured `cols`×`rows` grid instead of its
+/// laid-out AppKit frame, and desktop rendering is suspended. Adopted by the
+/// libghostty adapter; other adapters (mocks) inherit the no-op default.
+@MainActor
+protocol TerminalControlLeasing: AnyObject {
+    /// Fixes the surface grid to `cols`×`rows` (pixel size = grid × cell metrics),
+    /// stops honoring the frame-derived viewport, and occludes the desktop
+    /// surface. Returns `false` when there is no live surface to resize.
+    @discardableResult
+    func applyControlLease(cols: Int, rows: Int) -> Bool
+    /// Restores the frame-derived viewport and re-enables desktop rendering.
+    func releaseControlLease()
 }
 
 @MainActor

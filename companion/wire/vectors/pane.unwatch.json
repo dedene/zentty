@@ -1,0 +1,22 @@
+[
+  {
+    "name": "valid unwatch",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "8697a8b9-cadb-4def-8112-233445566778",
+      "type": "pane.unwatch",
+      "payload": { "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90" }
+    }
+  },
+  {
+    "name": "numeric paneId is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "97a8b9ca-dbec-4ef0-8223-344556677889",
+      "type": "pane.unwatch",
+      "payload": { "paneId": 12345 }
+    }
+  }
+]

@@ -1,0 +1,47 @@
+[
+  {
+    "name": "valid pairing request",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "4e5f6a7b-8c9d-4e0f-8112-2334455667788",
+      "type": "pairing.request",
+      "payload": {
+        "phoneDeviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+        "phonePubKey": "MCowBQYDK2VwAyEA4e5f6a7b8c9d4e0f81122334455667788bb",
+        "phoneName": "Peter's iPhone",
+        "proof": "sBQ2Vd8Rf5n3Qx7Kp2Wm9Zb4Hs1Td6Yg0Nc3Mp7Lk="
+      }
+    }
+  },
+  {
+    "name": "missing proof is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "5f6a7b8c-9d0e-4f10-8223-3445566778899",
+      "type": "pairing.request",
+      "payload": {
+        "phoneDeviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+        "phonePubKey": "MCowBQYDK2VwAyEA4e5f6a7b8c9d4e0f81122334455667788bb",
+        "phoneName": "Peter's iPhone"
+      }
+    }
+  },
+  {
+    "name": "extra field tolerated",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "6a7b8c9d-0e1f-4021-8334-455667788990",
+      "type": "pairing.request",
+      "payload": {
+        "phoneDeviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+        "phonePubKey": "MCowBQYDK2VwAyEA4e5f6a7b8c9d4e0f81122334455667788bb",
+        "phoneName": "Peter's iPhone",
+        "proof": "sBQ2Vd8Rf5n3Qx7Kp2Wm9Zb4Hs1Td6Yg0Nc3Mp7Lk=",
+        "osVersion": "iOS 19.2"
+      }
+    }
+  }
+]

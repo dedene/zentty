@@ -1,0 +1,23 @@
+[
+  {
+    "name": "valid ready",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "42536475-8697-49a9-8112-233445566778",
+      "type": "session.ready",
+      "replyTo": "1f203142-5364-4576-8889-900112233445",
+      "payload": { "v": 1 }
+    }
+  },
+  {
+    "name": "non-integer version is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "53647586-97a8-4aba-8223-344556677889",
+      "type": "session.ready",
+      "payload": { "v": 1.5 }
+    }
+  }
+]

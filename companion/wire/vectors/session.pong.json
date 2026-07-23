@@ -1,0 +1,23 @@
+[
+  {
+    "name": "valid pong",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "8697a8b9-cadb-4ded-8556-677889900112",
+      "type": "session.pong",
+      "replyTo": "64758697-a8b9-4bcb-8334-455667788990",
+      "payload": { "ts": 1784601600456 }
+    }
+  },
+  {
+    "name": "missing ts is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "97a8b9ca-dbec-4efe-8667-788990011223",
+      "type": "session.pong",
+      "payload": {}
+    }
+  }
+]

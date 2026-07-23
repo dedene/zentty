@@ -1,0 +1,8 @@
+{"type":"summary","summary":"Wire the mobile companion transcript adapter","leafUuid":"leaf-1"}
+{"parentUuid":null,"type":"user","uuid":"uuid-user-1","timestamp":"2026-07-20T17:50:44.687Z","sessionId":"sess-fixture","cwd":"/tmp/project","message":{"role":"user","content":"Can you add a transcript feed?"}}
+{"parentUuid":"uuid-user-1","type":"assistant","uuid":"uuid-assistant-1","timestamp":"2026-07-20T17:50:46.100Z","sessionId":"sess-fixture","message":{"role":"assistant","content":[{"type":"text","text":"On it — let me check the build."},{"type":"tool_use","id":"toolu_abc","name":"Bash","input":{"command":"swift build","description":"Build the package"}}]}}
+{"parentUuid":"uuid-assistant-1","type":"user","uuid":"uuid-user-2","timestamp":"2026-07-20T17:50:49.900Z","sessionId":"sess-fixture","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_abc","is_error":false,"content":"Compiling target...\nBuild complete!"}]}}
+{"type":"file-history-snapshot","messageId":"msg-9","snapshot":{"trackedFileBackups":{}}}
+{"parentUuid":"uuid-user-2","type":"assistant","uuid":"uuid-assistant-2","timestamp":"2026-07-20T17:50:52.300Z","sessionId":"sess-fixture","message":{"role":"assistant","content":[{"type":"text","text":"Build passed. Done."}]}}
+{"type":"system","subtype":"away_summary","uuid":"uuid-system-1","timestamp":"2026-07-20T17:51:00.000Z","content":"User stepped away; summarized progress.","sessionId":"sess-fixture"}
+{"type":"mode","mode":"default","sessionId":"sess-fixture"}
