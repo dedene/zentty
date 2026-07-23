@@ -22,6 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>GlitchTipDSN</key>
 	<string>$(GLITCHTIP_DSN)</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within Zentty would like to access devices on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>A program running within Zentty would like to use your microphone.</string>
 	<key>SUAutomaticallyUpdate</key>
