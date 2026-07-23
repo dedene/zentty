@@ -217,6 +217,7 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertIn("session_capture", cursor.expectations)
         self.assertIn("restore_launch", cursor.expectations)
         self.assertIn("interactive_turn_complete", cursor.expectations)
+        self.assertIn("subagents", cursor.expectations)
         self.assertEqual(
             cursor.expectations["session_capture"].session_identity.session_id_pattern,
             "uuid",
@@ -228,6 +229,15 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertEqual(
             cursor.expectations["interactive_turn_complete"].required_events,
             ["beforeSubmitPrompt", "sessionStart", "stop"],
+        )
+        self.assertTrue(cursor.expectations["subagents"].synthetic)
+        self.assertEqual(
+            cursor.expectations["subagents"].fixture,
+            "cursor_subagent_lifecycle.jsonl",
+        )
+        self.assertEqual(
+            cursor.expectations["subagents"].required_events,
+            ["sessionStart", "subagentStart", "subagentStop", "stop"],
         )
 
     def test_stop_race_fixture_contains_late_notification_after_stop(self):
@@ -3209,7 +3219,16 @@ class LaunchPlannerTests(unittest.TestCase):
             self.assertTrue(overlay_hooks.exists())
             self.assertFalse(overlay_hooks.is_symlink())
             hooks = json.loads(overlay_hooks.read_text(encoding="utf-8"))["hooks"]
-            for event in ("sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop", "beforeShellExecution", "afterShellExecution"):
+            for event in (
+                "sessionStart",
+                "sessionEnd",
+                "beforeSubmitPrompt",
+                "stop",
+                "beforeShellExecution",
+                "afterShellExecution",
+                "subagentStart",
+                "subagentStop",
+            ):
                 self.assertIn(event, hooks)
             self.assertEqual(real_hooks.read_text(encoding="utf-8"), '{"hooks":{"user":[{"command":"echo user"}]}}\n')
 

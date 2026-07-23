@@ -3166,6 +3166,74 @@ final class AgentStatusSupportTests: XCTestCase {
         )
     }
 
+    func test_cursor_hooks_installer_is_installed_requires_every_managed_event() throws {
+        let directory = try makeTemporaryDirectory(named: "cursor-hooks-installer-partial")
+        let hooksURL = directory.appendingPathComponent("hooks.json", isDirectory: false)
+        let command = CursorHooksInstaller.hookCommand(cliPath: "/opt/zentty/bin/zentty")
+        let oldEvents = [
+            "sessionStart",
+            "sessionEnd",
+            "beforeSubmitPrompt",
+            "stop",
+            "beforeShellExecution",
+            "afterShellExecution",
+            "preToolUse",
+            "postToolUse",
+        ]
+        var hooks: [String: Any] = [
+            "sessionStart": [
+                ["command": "/custom/user-hook.sh"],
+                ["command": command],
+            ],
+        ]
+        for event in oldEvents where event != "sessionStart" {
+            if event == "preToolUse" || event == "postToolUse" {
+                hooks[event] = [["matcher": "TodoWrite", "command": command]]
+            } else {
+                hooks[event] = [["command": command]]
+            }
+        }
+        let seeded = try JSONSerialization.data(
+            withJSONObject: ["version": 1, "hooks": hooks],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try seeded.write(to: hooksURL, options: .atomic)
+
+        XCTAssertFalse(
+            CursorHooksInstaller.isInstalled(at: hooksURL),
+            "partial pre-upgrade installs must not report as fully installed"
+        )
+
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+
+        XCTAssertTrue(CursorHooksInstaller.isInstalled(at: hooksURL))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        let installedHooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        for event in CursorHooksInstaller.managedEvents {
+            let entries = try XCTUnwrap(installedHooks[event] as? [[String: Any]], "\(event) missing")
+            let zenttyEntries = entries.filter {
+                ($0["command"] as? String)?.contains(CursorHooksInstaller.hookMarker) == true
+            }
+            XCTAssertEqual(zenttyEntries.count, 1, "\(event) should have exactly one Zentty entry")
+        }
+        let sessionStart = try XCTUnwrap(installedHooks["sessionStart"] as? [[String: Any]])
+        XCTAssertEqual(sessionStart.first?["command"] as? String, "/custom/user-hook.sh")
+        XCTAssertTrue(
+            installedHooks["subagentStart"] != nil && installedHooks["subagentStop"] != nil,
+            "repair must add newly managed subagent hooks"
+        )
+
+        let attributesBefore = try FileManager.default.attributesOfItem(atPath: hooksURL.path)
+        let mtimeBefore = try XCTUnwrap(attributesBefore[.modificationDate] as? Date)
+        Thread.sleep(forTimeInterval: 1.1)
+        try CursorHooksInstaller.install(at: hooksURL, cliPath: "/opt/zentty/bin/zentty")
+        let attributesAfter = try FileManager.default.attributesOfItem(atPath: hooksURL.path)
+        let mtimeAfter = try XCTUnwrap(attributesAfter[.modificationDate] as? Date)
+        XCTAssertEqual(mtimeBefore, mtimeAfter, "complete install should be a no-op rewrite")
+    }
+
     // MARK: - DroidHooksInstaller — suppressHookOutput
 
     func test_droid_suppress_hook_output_sets_false_on_fresh_file() throws {

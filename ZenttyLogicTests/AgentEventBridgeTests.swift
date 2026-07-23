@@ -339,7 +339,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
     }
 
-    func test_cursor_adapter_after_shell_execution_marks_activity_then_idle_candidate() throws {
+    func test_cursor_adapter_after_shell_execution_marks_activity_without_idle_candidate() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = #"{"hook_event_name":"afterShellExecution","session_id":"237d8c32-2a27-4850-8da8-3a110f13682c","transcript_path":"/tmp/cursor.jsonl"}"#
         let result = AgentEventBridge.run(
@@ -351,15 +351,11 @@ final class AgentEventBridgeTests: XCTestCase {
         )
 
         XCTAssertEqual(result, EXIT_SUCCESS)
-        XCTAssertEqual(postedPayloads.count, 2)
+        XCTAssertEqual(postedPayloads.count, 1)
         XCTAssertEqual(postedPayloads[0].state, .running)
         XCTAssertEqual(postedPayloads[0].lifecycleEvent, .toolActivity)
         XCTAssertEqual(postedPayloads[0].sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
         XCTAssertEqual(postedPayloads[0].agentTranscriptPath, "/tmp/cursor.jsonl")
-        XCTAssertEqual(postedPayloads[1].state, .idle)
-        XCTAssertEqual(postedPayloads[1].lifecycleEvent, .stopCandidate)
-        XCTAssertEqual(postedPayloads[1].sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
-        XCTAssertEqual(postedPayloads[1].agentTranscriptPath, "/tmp/cursor.jsonl")
     }
 
     func test_cursor_adapter_after_shell_execution_reads_todo_progress_from_transcript() throws {
@@ -376,30 +372,42 @@ final class AgentEventBridgeTests: XCTestCase {
             taskStore: store
         )
 
-        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
-        XCTAssertEqual(payloads[1].state, .idle)
-        XCTAssertEqual(payloads[1].taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
         XCTAssertEqual(try store.taskProgress(sessionID: "cursor-session"), PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
     }
 
-    func test_cursor_after_shell_execution_can_settle_to_idle_without_prior_prompt_hook() throws {
-        let payloads = try AgentEventBridge.cursorAdapter(
+    func test_cursor_after_shell_execution_stays_running_past_grace_until_stop() throws {
+        let store = try makeCursorTaskStore()
+        let shellPayloads = try AgentEventBridge.cursorAdapter(
             data: Data(#"{"hook_event_name":"afterShellExecution","session_id":"237d8c32-2a27-4850-8da8-3a110f13682c"}"#.utf8),
-            environment: defaultEnvironment
+            environment: defaultEnvironment,
+            taskStore: store
         )
         var reducerState = PaneAgentReducerState()
         let startedAt = Date(timeIntervalSince1970: 100)
 
-        for payload in payloads {
+        for payload in shellPayloads {
             reducerState.apply(payload, now: startedAt)
         }
         reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in true })
 
-        let status = try XCTUnwrap(reducerState.reducedStatus(now: startedAt.addingTimeInterval(3)))
-        XCTAssertEqual(status.state, .idle)
-        XCTAssertEqual(status.sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
+        let midStatus = try XCTUnwrap(reducerState.reducedStatus(now: startedAt.addingTimeInterval(3)))
+        XCTAssertEqual(midStatus.state, .running)
+        XCTAssertEqual(midStatus.sessionID, "237d8c32-2a27-4850-8da8-3a110f13682c")
+
+        let stopPayloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"stop","session_id":"237d8c32-2a27-4850-8da8-3a110f13682c","status":"completed"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+        for payload in stopPayloads {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(4))
+        }
+
+        let idleStatus = try XCTUnwrap(reducerState.reducedStatus(now: startedAt.addingTimeInterval(4)))
+        XCTAssertEqual(idleStatus.state, .idle)
     }
 
     func test_cursor_adapter_stop_error_maps_to_unresolved_stop() throws {
@@ -456,7 +464,7 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(postedPayloads[0].agentWorkingDirectory, "/tmp/ws")
     }
 
-    func test_cursor_adapter_after_shell_execution_verbose_still_maps_to_idle_candidate() throws {
+    func test_cursor_adapter_after_shell_execution_verbose_still_maps_to_running_activity() throws {
         var postedPayloads: [AgentStatusPayload] = []
         let json = #"{"hook_event_name":"afterShellExecution","conversation_id":"c-shell"}"#
         let env = defaultEnvironment.merging(["ZENTTY_CURSOR_VERBOSE_HOOKS": "1"]) { _, new in new }
@@ -469,12 +477,151 @@ final class AgentEventBridgeTests: XCTestCase {
         )
 
         XCTAssertEqual(result, EXIT_SUCCESS)
-        XCTAssertEqual(postedPayloads.count, 2)
+        XCTAssertEqual(postedPayloads.count, 1)
         XCTAssertEqual(postedPayloads[0].state, .running)
         XCTAssertEqual(postedPayloads[0].lifecycleEvent, .toolActivity)
-        XCTAssertEqual(postedPayloads[1].state, .idle)
-        XCTAssertEqual(postedPayloads[1].lifecycleEvent, .stopCandidate)
-        XCTAssertEqual(postedPayloads[1].toolName, "Cursor")
+        XCTAssertEqual(postedPayloads[0].toolName, "Cursor")
+    }
+
+    func test_cursor_adapter_subagent_start_maps_to_running() throws {
+        let store = try makeCursorTaskStore()
+        let payloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStart","parent_conversation_id":"parent-1","subagent_id":"sub-1","subagent_type":"generalPurpose"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .toolActivity)
+        XCTAssertEqual(payloads[0].sessionID, "parent-1")
+        XCTAssertTrue(try store.hasOpenSubagents(sessionID: "parent-1"))
+    }
+
+    func test_cursor_adapter_subagent_stop_keeps_parent_running() throws {
+        let store = try makeCursorTaskStore()
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStart","parent_conversation_id":"parent-1","subagent_id":"sub-1"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+        // Cursor's subagentStop payload often omits subagent_id; count must still clear.
+        let payloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStop","parent_conversation_id":"parent-1","status":"completed"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .toolActivity)
+        XCTAssertFalse(try store.hasOpenSubagents(sessionID: "parent-1"))
+    }
+
+    func test_cursor_subagent_stop_ignores_tool_call_id_and_clears_by_count() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+        let stateURL = directoryURL.appendingPathComponent("cursor-task-sessions.json")
+
+        let store = CursorTaskStore(stateURL: stateURL)
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStart","parent_conversation_id":"parent-1","subagent_id":"sub-1"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+        // tool_call_id must not be treated as subagent identity; count still clears.
+        _ = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStop","parent_conversation_id":"parent-1","tool_call_id":"tc-other","status":"completed"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+
+        let reloaded = CursorTaskStore(stateURL: stateURL)
+        XCTAssertFalse(
+            try reloaded.hasOpenSubagents(sessionID: "parent-1"),
+            "stop without subagent_id must clear open count without resurrecting stale ids on reload"
+        )
+    }
+
+    func test_cursor_parent_stop_is_authoritative_even_with_open_subagents() throws {
+        let store = try makeCursorTaskStore()
+        var reducerState = PaneAgentReducerState()
+        let startedAt = Date(timeIntervalSince1970: 200)
+
+        for payload in try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"beforeSubmitPrompt","conversation_id":"parent-1"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        ) {
+            reducerState.apply(payload, now: startedAt)
+        }
+        for payload in try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStart","parent_conversation_id":"parent-1","subagent_id":"sub-1"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        ) {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(1))
+        }
+        XCTAssertTrue(try store.hasOpenSubagents(sessionID: "parent-1"))
+
+        let stopPayloads = try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"stop","conversation_id":"parent-1","status":"completed"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        )
+        XCTAssertEqual(stopPayloads.map(\.state), [.idle])
+        for payload in stopPayloads {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(2))
+        }
+        XCTAssertEqual(
+            reducerState.reducedStatus(now: startedAt.addingTimeInterval(2))?.state,
+            .idle
+        )
+        XCTAssertFalse(
+            try store.hasOpenSubagents(sessionID: "parent-1"),
+            "authoritative stop must clear stale open-subagent bookkeeping"
+        )
+    }
+
+    func test_cursor_subagent_then_shell_keeps_running_until_stop() throws {
+        let store = try makeCursorTaskStore()
+        var reducerState = PaneAgentReducerState()
+        let startedAt = Date(timeIntervalSince1970: 300)
+
+        for payload in try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"subagentStart","parent_conversation_id":"parent-1","subagent_id":"sub-1"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        ) {
+            reducerState.apply(payload, now: startedAt)
+        }
+        for payload in try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"afterShellExecution","conversation_id":"parent-1"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        ) {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(1))
+        }
+        reducerState.sweep(now: startedAt.addingTimeInterval(4), isProcessAlive: { _ in true })
+        XCTAssertEqual(
+            reducerState.reducedStatus(now: startedAt.addingTimeInterval(4))?.state,
+            .running,
+            "shell completion must not idle while the turn is still in progress"
+        )
+
+        for payload in try AgentEventBridge.cursorAdapter(
+            data: Data(#"{"hook_event_name":"stop","conversation_id":"parent-1","status":"completed"}"#.utf8),
+            environment: defaultEnvironment,
+            taskStore: store
+        ) {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(5))
+        }
+        XCTAssertEqual(
+            reducerState.reducedStatus(now: startedAt.addingTimeInterval(5))?.state,
+            .idle
+        )
     }
 
     func test_cursor_adapter_pre_tool_use_todo_write_array_reports_progress() throws {
@@ -600,9 +747,9 @@ final class AgentEventBridgeTests: XCTestCase {
             taskStore: store
         )
 
-        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
-        XCTAssertEqual(payloads[1].taskProgress, PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
         XCTAssertEqual(try store.taskProgress(sessionID: "cursor-session"), PaneAgentTaskProgress(doneCount: 2, totalCount: 6))
     }
 

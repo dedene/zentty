@@ -22,6 +22,8 @@ enum CursorHooksInstaller {
         "afterShellExecution",
         "preToolUse",
         "postToolUse",
+        "subagentStart",
+        "subagentStop",
     ]
 
     /// Substring present in every Zentty-managed hook command. Used to locate
@@ -163,9 +165,10 @@ enum CursorHooksInstaller {
         try newData.write(to: hooksURL, options: .atomic)
     }
 
-    /// True when the user's hooks file currently carries a Zentty-managed
-    /// entry — the same predicate `uninstall` uses to find our entries. Used by
-    /// the grandfather migration to recognize pre-existing installs.
+    /// True when every managed event currently carries a Zentty-marked entry.
+    /// Partial installs (e.g. pre-upgrade files missing newly added events)
+    /// return false so Settings can surface "Hooks missing" and the next
+    /// `ensureInstalled` launch path can repair the gap.
     static func isInstalled(
         at hooksURL: URL = defaultUserHooksURL(),
         fileManager: FileManager = .default
@@ -179,12 +182,13 @@ enum CursorHooksInstaller {
             return false
         }
         for event in managedEvents {
-            guard let entries = hooks[event] as? [[String: Any]] else { continue }
-            if entries.contains(where: { ($0["command"] as? String)?.contains(hookMarker) == true }) {
-                return true
+            guard let entries = hooks[event] as? [[String: Any]],
+                  entries.contains(where: { ($0["command"] as? String)?.contains(hookMarker) == true })
+            else {
+                return false
             }
         }
-        return false
+        return true
     }
 
     /// Run `install` with environment-derived paths, logging the outcome.

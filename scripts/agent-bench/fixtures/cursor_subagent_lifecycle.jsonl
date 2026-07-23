@@ -1,0 +1,6 @@
+{"hook_event_name":"sessionStart","conversation_id":"cursor-bench-subagents"}
+{"hook_event_name":"beforeSubmitPrompt","conversation_id":"cursor-bench-subagents"}
+{"hook_event_name":"subagentStart","parent_conversation_id":"cursor-bench-subagents","subagent_id":"sub-1","subagent_type":"generalPurpose","task":"printf ZENTTY_AGENT_BENCH_SUBAGENT_OK"}
+{"hook_event_name":"afterShellExecution","conversation_id":"cursor-bench-subagents"}
+{"hook_event_name":"subagentStop","parent_conversation_id":"cursor-bench-subagents","subagent_id":"sub-1","status":"completed"}
+{"hook_event_name":"stop","conversation_id":"cursor-bench-subagents","status":"completed"}

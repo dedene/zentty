@@ -1656,7 +1656,16 @@ class LaunchPlanner:
         config_dir = home / ".cursor"
         hooks = {"version": 1, "hooks": {}}
         command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=cursor'
-        for event in ("sessionStart", "sessionEnd", "beforeSubmitPrompt", "stop", "beforeShellExecution", "afterShellExecution"):
+        for event in (
+            "sessionStart",
+            "sessionEnd",
+            "beforeSubmitPrompt",
+            "stop",
+            "beforeShellExecution",
+            "afterShellExecution",
+            "subagentStart",
+            "subagentStop",
+        ):
             hooks["hooks"][event] = [{"command": command}]
         for event in ("preToolUse", "postToolUse"):
             hooks["hooks"][event] = [{"matcher": "TodoWrite", "command": command}]

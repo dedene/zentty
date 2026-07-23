@@ -89,6 +89,10 @@ extension AgentEventBridge {
                 transcriptPath: transcriptPath,
                 taskStore: taskStore
             )
+            // Cursor's `stop` means the agent loop ended. Treat it as authoritative
+            // even if subagent bookkeeping is stale (CLI may omit subagentStop),
+            // and clear tracked workers so a later turn cannot inherit open count.
+            try taskStore.clearSession(sessionID: sessionID)
             switch status {
             case "error":
                 return [lifecyclePayload(
@@ -136,8 +140,36 @@ extension AgentEventBridge {
                 )]
             }
 
-        case "subagentstart", "subagentstop":
-            return []
+        case "subagentstart":
+            let parentSessionID = cursorParentSessionID(from: jsonObject) ?? sessionID
+            let subagentID = cursorSubagentID(from: jsonObject)
+            _ = try taskStore.trackSubagentStart(sessionID: parentSessionID, subagentID: subagentID)
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: parentSessionID,
+                cwd: cwd,
+                taskProgress: try taskStore.taskProgress(sessionID: parentSessionID),
+                transcriptPath: transcriptPath
+            )]
+
+        case "subagentstop":
+            let parentSessionID = cursorParentSessionID(from: jsonObject) ?? sessionID
+            let subagentID = cursorSubagentID(from: jsonObject)
+            _ = try taskStore.trackSubagentStop(sessionID: parentSessionID, subagentID: subagentID)
+            // Parent usually continues synthesizing after workers finish.
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: parentSessionID,
+                cwd: cwd,
+                taskProgress: try taskStore.taskProgress(sessionID: parentSessionID),
+                transcriptPath: transcriptPath
+            )]
 
         case "pretooluse", "posttooluse":
             if cursorToolNameIsTodoWrite(hookToolName),
@@ -176,28 +208,18 @@ extension AgentEventBridge {
                 transcriptPath: transcriptPath,
                 taskStore: taskStore
             )
-            return [
-                lifecyclePayload(
-                    target: target,
-                    toolName: toolName,
-                    state: .running,
-                    lifecycleEvent: .toolActivity,
-                    sessionID: sessionID,
-                    cwd: cwd,
-                    taskProgress: taskProgress,
-                    transcriptPath: transcriptPath
-                ),
-                lifecyclePayload(
-                    target: target,
-                    toolName: toolName,
-                    state: .idle,
-                    lifecycleEvent: .stopCandidate,
-                    sessionID: sessionID,
-                    cwd: cwd,
-                    taskProgress: taskProgress,
-                    transcriptPath: transcriptPath
-                ),
-            ]
+            // Shell completion is mid-turn activity, not agent-loop completion.
+            // True idle comes from Cursor's `stop` hook.
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: sessionID,
+                cwd: cwd,
+                taskProgress: taskProgress,
+                transcriptPath: transcriptPath
+            )]
 
         case "posttoolusefailure", "beforeshellexecution":
             guard environment["ZENTTY_CURSOR_VERBOSE_HOOKS"] == "1" else {
@@ -225,6 +247,34 @@ extension AgentEventBridge {
             return nil
         }
         return first
+    }
+
+    private static func cursorParentSessionID(from jsonObject: [String: Any]) -> String? {
+        // Prefer the explicit parent id from subagent payloads; fall back to the
+        // common conversation/session envelope fields Cursor includes on hooks.
+        JSONKeyAccess.firstString(
+            in: jsonObject,
+            keys: [
+                "parent_conversation_id",
+                "parentConversationId",
+                "conversation_id",
+                "conversationId",
+                "session_id",
+                "sessionId",
+            ]
+        )
+    }
+
+    private static func cursorSubagentID(from jsonObject: [String: Any]) -> String? {
+        // Only real subagent ids. Do not fall back to tool_call_id — that value
+        // often differs between start/stop and poisons per-id bookkeeping.
+        JSONKeyAccess.firstString(
+            in: jsonObject,
+            keys: [
+                "subagent_id",
+                "subagentId",
+            ]
+        )
     }
 
     private static func cursorToolNameIsTodoWrite(_ value: String?) -> Bool {

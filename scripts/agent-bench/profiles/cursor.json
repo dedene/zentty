@@ -56,6 +56,11 @@
     "restore_launch": {
       "required_events": [],
       "required_bootstrap_arguments": [["--resume=237d8c32-2a27-4850-8da8-3a110f13682c"]]
+    },
+    "subagents": {
+      "synthetic": true,
+      "fixture": "cursor_subagent_lifecycle.jsonl",
+      "required_events": ["sessionStart", "subagentStart", "subagentStop", "stop"]
     }
   },
   "input_by_scenario": {
