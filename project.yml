@@ -123,6 +123,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
         GlitchTipDSN: $(GLITCHTIP_DSN)
+        NSLocalNetworkUsageDescription: A program running within Zentty would like to access devices on your local network.
         NSMicrophoneUsageDescription: A program running within Zentty would like to use your microphone.
         SUAutomaticallyUpdate: false
         SUEnableAutomaticChecks: true

@@ -61,7 +61,7 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         XCTAssertTrue(projectYAML.contains("rsync -a --delete \"${RESOURCES_SRC}/terminfo/\" \"${RESOURCES_DST}/terminfo/\""))
     }
 
-    func test_app_privacy_configuration_declares_microphone_access_for_terminal_voice_input() throws {
+    func test_app_privacy_configuration_declares_terminal_resource_access() throws {
         let repoRoot = repoRootURL()
         let entitlements = try propertyListDictionary(
             at: repoRoot.appendingPathComponent("Zentty/Zentty.entitlements")
@@ -71,6 +71,10 @@ final class VendoredGhosttyResourcesTests: XCTestCase {
         )
 
         XCTAssertEqual(entitlements["com.apple.security.device.audio-input"] as? Bool, true)
+        XCTAssertEqual(
+            infoPlist["NSLocalNetworkUsageDescription"] as? String,
+            "A program running within Zentty would like to access devices on your local network."
+        )
         XCTAssertEqual(
             infoPlist["NSMicrophoneUsageDescription"] as? String,
             "A program running within Zentty would like to use your microphone."
