@@ -17,6 +17,16 @@ struct TmuxCompatArguments: Equatable {
 
         while index < arguments.count {
             let argument = arguments[index]
+            if argument == "--" {
+                // POSIX end-of-options terminator: consume `--` and treat every
+                // remaining argument as a positional verbatim. A tmux
+                // `split-window … -- <command>` relies on this so the command
+                // (e.g. the `cat` keep-alive placeholder) is not corrupted into
+                // the `-- cat` string that crashes the launched shell with
+                // `zsh: no such option: cat`. See dedene/zentty#58.
+                positionals.append(contentsOf: arguments[(index + 1)...])
+                break
+            }
             if valueFlags.contains(argument) {
                 if index + 1 < arguments.count {
                     valuesByFlag[argument] = arguments[index + 1]
