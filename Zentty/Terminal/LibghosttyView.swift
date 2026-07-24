@@ -2521,6 +2521,7 @@ extension LibghosttyView: NSTextInputClient {
             self.markedTextStorage = ""
             self.markedTextSelection = NSRange(location: NSNotFound, length: 0)
             self.selectedTextStorageRange = NSRange(location: NSNotFound, length: 0)
+            self.surfaceController?.setPreedit("")
 
             guard let text = Self.sanitizedInputText(text) else {
                 return
@@ -2549,6 +2550,7 @@ extension LibghosttyView: NSTextInputClient {
             self.markedTextStorage = text
             self.markedTextSelection = selectedRange
             self.selectedTextStorageRange = replacementRange
+            self.surfaceController?.setPreedit(text)
         }
     }
 
@@ -2556,6 +2558,7 @@ extension LibghosttyView: NSTextInputClient {
         MainActorShim.assumeIsolated {
             self.markedTextStorage = ""
             self.markedTextSelection = NSRange(location: NSNotFound, length: 0)
+            self.surfaceController?.setPreedit("")
         }
     }
 
@@ -2590,12 +2593,22 @@ extension LibghosttyView: NSTextInputClient {
 
     nonisolated func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         let rect = MainActorShim.assumeIsolated {
-            guard let window = self.window else {
+            guard let window = self.window,
+                  let caret = self.surfaceController?.imeRect() else {
                 return NSRect.zero
             }
 
-            let rectInWindow = self.convert(self.bounds, to: nil)
-            return window.convertToScreen(rectInWindow)
+            // Ghostty reports the caret in points measured from the top-left, while this
+            // view is bottom-left, so the origin has to be flipped. This rect is what the
+            // input method anchors its candidate window to, so it must describe the caret
+            // rather than the whole surface.
+            let rectInView = NSRect(
+                x: caret.minX,
+                y: self.bounds.height - caret.minY,
+                width: caret.width,
+                height: max(caret.height, self.terminalCellHeightInPoints)
+            )
+            return window.convertToScreen(self.convert(rectInView, to: nil))
         }
         actualRange?.pointee = range
         return rect

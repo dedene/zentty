@@ -58,6 +58,12 @@ protocol LibghosttySurfaceControlling: AnyObject {
         modifiers: NSEvent.ModifierFlags
     ) -> Bool
     func sendText(_ text: String)
+    /// Hands the in-progress IME composition to the terminal so it renders inline at the caret.
+    /// Passing an empty string clears it.
+    func setPreedit(_ text: String)
+    /// Where the terminal wants an input method to anchor its UI, in points with a
+    /// top-left origin. Width is zero when nothing is being composed.
+    func imeRect() -> CGRect?
     func cancelPromptInput()
     func submitReturn()
     func performBindingAction(_ action: String) -> Bool
@@ -70,6 +76,8 @@ protocol LibghosttySurfaceControlling: AnyObject {
 extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
     var mouseScrollIsTerminalInput: Bool { mouseCaptured }
+    func setPreedit(_ text: String) {}
+    func imeRect() -> CGRect? { nil }
     func cancelPromptInput() {}
     func translatedKeyEvent(for event: NSEvent) -> NSEvent { event }
     func setSmoothScrollingEnabled(_ enabled: Bool) {}
