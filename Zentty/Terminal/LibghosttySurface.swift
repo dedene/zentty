@@ -400,6 +400,37 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
     }
 
+    func setPreedit(_ text: String) {
+        guard let surface else {
+            return
+        }
+
+        guard !text.isEmpty else {
+            ghostty_surface_preedit(surface, nil, 0)
+            return
+        }
+
+        text.utf8CString.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                return
+            }
+            ghostty_surface_preedit(surface, baseAddress, UInt(buffer.count - 1))
+        }
+    }
+
+    func imeRect() -> CGRect? {
+        guard let surface else {
+            return nil
+        }
+
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = 0
+        var height: Double = 0
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     func submitReturn() {
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
