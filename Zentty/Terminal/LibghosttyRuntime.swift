@@ -502,7 +502,9 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return nil
         }
 
-        var lines = "background-opacity = 0\n"
+        // Ghostty evaluates contrast against a fully transparent background as black,
+        // which can turn dark foregrounds white. Preserve theme colors on the app backdrop.
+        var lines = "background-opacity = 0\nminimum-contrast = 1\n"
 
         guard !userConfigContainsBackgroundBlur(userConfigContents) else {
             return lines
