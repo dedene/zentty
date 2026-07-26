@@ -1,0 +1,35 @@
+[
+  {
+    "name": "delta appends one assistant entry",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "0e1f2031-4253-4057-8556-677889900112",
+      "type": "transcript.delta",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "entries": [
+          {
+            "id": "e_0005",
+            "role": "assistant",
+            "ts": 1784601504000,
+            "text": "All 32 vector files are in place."
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "entries must be an array",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "1f203142-5364-4168-8667-788990011223",
+      "type": "transcript.delta",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "entries": { "id": "e_1", "role": "user" }
+      }
+    }
+  }
+]

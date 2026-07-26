@@ -58,8 +58,9 @@ protocol LibghosttySurfaceControlling: AnyObject {
         modifiers: NSEvent.ModifierFlags
     ) -> Bool
     func sendText(_ text: String)
+    func sendSpecialKey(_ key: TerminalSpecialKey) -> Bool
     func cancelPromptInput()
-    func submitReturn()
+    @discardableResult func submitReturn() -> Bool
     func performBindingAction(_ action: String) -> Bool
     func scroll(toOffset offset: Double)
     func hasSelection() -> Bool
@@ -71,6 +72,7 @@ extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
     var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func cancelPromptInput() {}
+    func sendSpecialKey(_ key: TerminalSpecialKey) -> Bool { false }
     func translatedKeyEvent(for event: NSEvent) -> NSEvent { event }
     func setSmoothScrollingEnabled(_ enabled: Bool) {}
     func scroll(toOffset offset: Double) {
@@ -78,13 +80,33 @@ extension LibghosttySurfaceControlling {
     }
 }
 
+/// Main-actor sink for a surface's coalesced raw-PTY runs. `seq` is libghostty's
+/// absolute byte offset from surface creation.
+typealias LibghosttyPTYStreamSink = @MainActor (_ epoch: String, _ seq: Int, _ bytes: Data) -> Void
+
+/// A surface that can hand out its raw PTY output (the companion byte lane's
+/// producer). Split from `LibghosttySurfaceControlling` so surface doubles that
+/// do not stream bytes stay unaffected.
 @MainActor
-protocol LibghosttySurfaceTextReading: AnyObject {
-    func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+protocol LibghosttyPTYStreaming: AnyObject {
+    /// Opaque id for this surface's byte-stream lifetime.
+    var ptyStreamEpoch: String { get }
+    /// Installs (or removes, with `nil`) the raw-PTY tee.
+    func setPTYStreamSink(_ sink: LibghosttyPTYStreamSink?)
+    /// Captures the current screen as replayable VT bytes, for a consumer
+    /// attaching mid-session. `nil` when there is no live surface or the capture
+    /// failed. Expensive — see ``TerminalPTYStreaming``.
+    func captureScreenSnapshot() -> TerminalScreenSnapshot?
 }
 
 @MainActor
-final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading {
+protocol LibghosttySurfaceTextReading: AnyObject {
+    func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    var gridSize: (cols: Int, rows: Int)? { get }
+}
+
+@MainActor
+final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading, TerminalControlLeasing, TerminalRenderKeepAliving, TerminalPTYStreaming {
     private let runtime: any LibghosttyRuntimeProviding
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
@@ -97,6 +119,15 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     private var surfaceController: (any LibghosttySurfaceControlling)?
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
     private var hasAppliedSurfaceActivity = false
+    /// True while a companion control lease pins the surface to a fixed grid; the
+    /// desktop occlusion is normally suspended in that state.
+    private var isUnderControlLease = false
+    /// True while the phone is mirroring this pane; forces the surface un-occluded
+    /// (overriding both backgrounding and a control lease) so it keeps repainting.
+    private var companionRenderKeepAlive = false
+    /// Held so a session started (or restarted) later re-installs the tee. Cleared
+    /// only when the companion detaches.
+    private var companionByteSink: TerminalPTYByteSink?
     private var inheritedConfigTemplate: ghostty_surface_config_s?
 
     var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
@@ -149,16 +180,33 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             self.surfaceController = surfaceController
             hasAppliedSurfaceActivity = false
             setSurfaceActivity(lastSurfaceActivity)
+            // A phone attached before this surface existed (or across a shell
+            // respawn) still gets bytes: re-install its tee on the new surface,
+            // which mints a fresh epoch so the phone resets its emulator.
+            applyCompanionByteStream()
         }
     }
 
     func close() {
+        // Uninstall the tee before the surface is freed; once the removal returns
+        // libghostty guarantees no callback is in flight. `companionByteSink` is
+        // kept so a surface started later re-installs it.
+        if companionByteSink != nil {
+            (surfaceController as? LibghosttyPTYStreaming)?.setPTYStreamSink(nil)
+        }
         surfaceController?.close()
         surfaceController = nil
     }
 
     func sendText(_ text: String) {
         surfaceController?.sendText(text)
+    }
+
+    // Companion control keys route here (not through sendText) so the ESC in
+    // cursor-key CSI and a real Return survive libghostty's bracketed-paste
+    // wrapping. Returns `false` when no live surface backs the pane.
+    func sendSpecialKey(_ key: TerminalSpecialKey) -> Bool {
+        surfaceController?.sendSpecialKey(key) ?? false
     }
 
     func cancelPromptInput() {
@@ -181,6 +229,91 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
+    }
+
+    var gridSize: (cols: Int, rows: Int)? {
+        (surfaceController as? LibghosttySurfaceTextReading)?.gridSize
+    }
+
+    // MARK: - Control lease (companion §2.6)
+
+    @discardableResult
+    func applyControlLease(cols: Int, rows: Int) -> Bool {
+        guard hostView.applyLeasedViewport(cols: cols, rows: rows) else { return false }
+        // Suspend desktop rendering while the phone owns the surface. The
+        // placeholder overlay covers the pane regardless, so this is a best-effort
+        // optimization rather than the correctness guarantee — but it must yield to
+        // a companion render keepalive, otherwise an occluded surface stops
+        // repainting and the phone's own mirror goes dark.
+        isUnderControlLease = true
+        reapplyOcclusion()
+        return true
+    }
+
+    func releaseControlLease() {
+        hostView.releaseLeasedViewport()
+        isUnderControlLease = false
+        // Restore occlusion to whatever the pane's current activity (or an active
+        // companion keepalive) implies.
+        reapplyOcclusion()
+    }
+
+    // MARK: - Companion render keepalive
+
+    func setCompanionRenderKeepAlive(_ active: Bool) {
+        guard companionRenderKeepAlive != active else { return }
+        companionRenderKeepAlive = active
+        reapplyOcclusion()
+    }
+
+    // MARK: - Companion raw-PTY byte stream
+
+    /// Installs (or removes) the pane's PTY tee. Called on the 0↔1 edge of the
+    /// byte lane's watchers for this pane, so a Mac nobody is mirroring pays
+    /// nothing on the io-reader thread.
+    func setCompanionByteStream(_ sink: TerminalPTYByteSink?) {
+        guard sink != nil else {
+            let hadSink = companionByteSink != nil
+            companionByteSink = nil
+            if hadSink {
+                (surfaceController as? LibghosttyPTYStreaming)?.setPTYStreamSink(nil)
+            }
+            return
+        }
+        companionByteSink = sink
+        applyCompanionByteStream()
+    }
+
+    /// Installs the held sink on the current surface. A no-op when no companion is
+    /// attached, so a plain session start never touches the tee.
+    private func applyCompanionByteStream() {
+        guard let sink = companionByteSink,
+              let streaming = surfaceController as? LibghosttyPTYStreaming
+        else {
+            return
+        }
+        streaming.setPTYStreamSink { epoch, seq, bytes in
+            sink(epoch, seq, bytes)
+        }
+    }
+
+    /// Captures the pane's screen for a phone attaching mid-session. Resolves the
+    /// live surface the same way the byte-stream install does.
+    func captureCompanionScreenSnapshot() -> TerminalScreenSnapshot? {
+        (surfaceController as? LibghosttyPTYStreaming)?.captureScreenSnapshot()
+    }
+
+    /// Desired surface visibility, resolving the three inputs by precedence: a
+    /// companion mirror pins it visible; otherwise a control lease occludes it;
+    /// otherwise it follows the pane's activity (visible = foreground).
+    private var shouldSurfaceRender: Bool {
+        if companionRenderKeepAlive { return true }
+        if isUnderControlLease { return false }
+        return lastSurfaceActivity.isVisible
+    }
+
+    private func reapplyOcclusion() {
+        surfaceController?.setOcclusionVisible(shouldSurfaceRender)
     }
 
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
@@ -206,7 +339,9 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             }
 
             if isFirstApplication || previouslyAppliedActivity.isVisible != activity.isVisible {
-                surfaceController.setOcclusionVisible(activity.isVisible)
+                // Resolve through the shared precedence: a companion keepalive or a
+                // control lease can override the raw activity visibility.
+                surfaceController.setOcclusionVisible(shouldSurfaceRender)
             }
 
             if !previouslyAppliedActivity.isVisible && activity.isVisible {

@@ -1,0 +1,22 @@
+[
+  {
+    "name": "valid subscribe",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "b9cadbec-fd0e-4b12-8001-122334455667",
+      "type": "transcript.subscribe",
+      "payload": { "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90" }
+    }
+  },
+  {
+    "name": "missing paneId is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "cadbecfd-0e1f-4c23-8112-233445566778",
+      "type": "transcript.subscribe",
+      "payload": {}
+    }
+  }
+]

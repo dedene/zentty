@@ -1106,6 +1106,31 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertTrue(missingKeyDecoded.panes.showBorders)
     }
 
+    func test_companion_listen_port_round_trips_through_toml_and_defaults_to_auto() throws {
+        var config = AppConfig.default
+        config.companion.listenPort = 49606
+
+        let encoded = AppConfigTOML.encode(config)
+        XCTAssertTrue(encoded.contains("[companion]"))
+        XCTAssertTrue(encoded.contains("listen_port = 49606"))
+
+        let decoded = try XCTUnwrap(AppConfigTOML.decode(encoded))
+        XCTAssertEqual(decoded.companion.listenPort, 49606)
+
+        // Configs written before the pin existed decode to 0 ("pick and pin").
+        let missingKeyDecoded = try XCTUnwrap(AppConfigTOML.decode("""
+        [companion]
+        enabled = true
+        """))
+        XCTAssertEqual(missingKeyDecoded.companion.listenPort, 0)
+
+        // An out-of-range port is rejected rather than binding nonsense.
+        XCTAssertNil(AppConfigTOML.decode("""
+        [companion]
+        listen_port = 70000
+        """))
+    }
+
     func test_store_reads_legacy_local_theme_name_as_always_dark_preference() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """

@@ -1,0 +1,41 @@
+[
+  {
+    "name": "revoked by desktop takeback",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "0e1f2031-4253-4047-8112-233445566778",
+      "type": "lease.revoked",
+      "payload": {
+        "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d",
+        "reason": "takeback"
+      }
+    }
+  },
+  {
+    "name": "revoked by heartbeat expiry",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "1f203142-5364-4158-8223-344556677889",
+      "type": "lease.revoked",
+      "payload": {
+        "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d",
+        "reason": "expired"
+      }
+    }
+  },
+  {
+    "name": "unknown reason is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "20314253-6475-4269-8334-455667788990",
+      "type": "lease.revoked",
+      "payload": {
+        "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d",
+        "reason": "stolen"
+      }
+    }
+  }
+]

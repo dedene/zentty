@@ -31,6 +31,7 @@ enum AppConfigTOML {
         case menuBar
         case agentIntegrations
         case agentIntegrationStates
+        case companion
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -196,6 +197,13 @@ enum AppConfigTOML {
         lines.append("show_status_item = \(config.menuBar.showStatusItem)")
 
         lines.append("")
+        lines.append("[companion]")
+        lines.append("enabled = \(config.companion.enabled)")
+        lines.append("relay_url = \(encode(string: config.companion.relayUrl))")
+        lines.append("push_gateway_url = \(encode(string: config.companion.pushGatewayUrl))")
+        lines.append("listen_port = \(config.companion.listenPort)")
+
+        lines.append("")
         lines.append("[agent_integrations]")
         lines.append("grandfathered_v1 = \(config.agentIntegrations.grandfatheredV1)")
 
@@ -317,6 +325,10 @@ enum AppConfigTOML {
                 section = .agentIntegrationStates
                 continue
             }
+            if line == "[companion]" {
+                section = .companion
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -415,6 +427,10 @@ enum AppConfigTOML {
                 }
             case .agentIntegrationStates:
                 guard decodeAgentIntegrationStatesAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .companion:
+                guard decodeCompanionAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -970,6 +986,29 @@ enum AppConfigTOML {
             config.menuBar.showStatusItem = value
         case "indicator_style", "hide_idle_panes", "show_waiting_count_on_icon", "click_focuses_waiting_pane":
             return true
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeCompanionAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "enabled":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.companion.enabled = value
+        case "relay_url":
+            guard let value = decodeString(assignment.value) else { return false }
+            config.companion.relayUrl = value
+        case "push_gateway_url":
+            guard let value = decodeString(assignment.value) else { return false }
+            config.companion.pushGatewayUrl = value
+        case "listen_port":
+            guard let value = Int(assignment.value), (0...65535).contains(value) else { return false }
+            config.companion.listenPort = value
         default:
             return true
         }

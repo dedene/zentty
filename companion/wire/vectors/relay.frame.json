@@ -1,0 +1,42 @@
+[
+  {
+    "name": "valid frame carrying an opaque sealed payload",
+    "valid": true,
+    "message": {
+      "type": "relay.frame",
+      "to": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "from": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+      "sealed": "q83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4k"
+    }
+  },
+  {
+    "name": "extra field tolerated",
+    "valid": true,
+    "message": {
+      "type": "relay.frame",
+      "to": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "from": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+      "sealed": "q83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4k",
+      "hint": "lan"
+    }
+  },
+  {
+    "name": "missing sealed is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.frame",
+      "to": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "from": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3"
+    }
+  },
+  {
+    "name": "sealed with base64 padding is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.frame",
+      "to": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "from": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+      "sealed": "q83vASNFZ4mrze8BI0VniavN7wEjRWeJ=="
+    }
+  }
+]

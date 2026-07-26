@@ -610,6 +610,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "cellSize"
         case .mouseShape:
             return "mouseShape"
+        case .contentChanged:
+            return "contentChanged"
         }
     }
 

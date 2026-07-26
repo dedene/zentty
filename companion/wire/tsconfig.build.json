@@ -1,0 +1,14 @@
+{
+  // Emits dist/ (JS + .d.ts) for downstream bundlers. Extends the base config but
+  // scopes to src only and turns emit back on.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

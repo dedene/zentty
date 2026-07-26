@@ -15,6 +15,7 @@ final class SettingsSidebarLayoutTests: AppKitTestCase {
                 .section(.appearance),
                 .section(.shortcuts),
                 .section(.notifications),
+                .section(.mobileDevices),
                 .section(.updatesPrivacy),
                 .header("Workspace"),
                 .section(.paneLayout),

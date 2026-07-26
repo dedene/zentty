@@ -1,0 +1,42 @@
+[
+  {
+    "name": "no adapter for this tool",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "20314253-6475-4279-8778-899001122334",
+      "type": "transcript.unavailable",
+      "replyTo": "b9cadbec-fd0e-4b12-8001-122334455667",
+      "payload": {
+        "paneId": "pn_7c4e8a2b-1d63-4f95-a0e7-3b8f6c1a2d54",
+        "reason": "no_adapter"
+      }
+    }
+  },
+  {
+    "name": "session ended",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "31425364-7586-438a-8889-900112233445",
+      "type": "transcript.unavailable",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "reason": "session_ended"
+      }
+    }
+  },
+  {
+    "name": "unknown reason is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "42536475-8697-449b-8990-011223344556",
+      "type": "transcript.unavailable",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "reason": "rotated"
+      }
+    }
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "name": "valid peer online",
+    "valid": true,
+    "message": {
+      "type": "relay.peerStatus",
+      "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+      "online": true
+    }
+  },
+  {
+    "name": "valid peer offline",
+    "valid": true,
+    "message": {
+      "type": "relay.peerStatus",
+      "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+      "online": false
+    }
+  },
+  {
+    "name": "online as string is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.peerStatus",
+      "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3",
+      "online": "true"
+    }
+  }
+]

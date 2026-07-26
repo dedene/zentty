@@ -1,0 +1,44 @@
+[
+  {
+    "name": "apns registration",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "31425364-7586-437a-8445-566778899001",
+      "type": "push.register",
+      "payload": {
+        "platform": "apns",
+        "token": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3"
+      }
+    }
+  },
+  {
+    "name": "fcm registration",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "42536475-8697-448b-8556-677889900112",
+      "type": "push.register",
+      "payload": {
+        "platform": "fcm",
+        "token": "fMEP0Vv1Q3a:APA91bH_example_fcm_token_value_9zXcVbNm",
+        "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3"
+      }
+    }
+  },
+  {
+    "name": "unknown platform is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "53647586-97a8-459c-8667-788990011223",
+      "type": "push.register",
+      "payload": {
+        "platform": "webpush",
+        "token": "abc",
+        "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3"
+      }
+    }
+  }
+]

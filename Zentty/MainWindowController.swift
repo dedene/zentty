@@ -1162,6 +1162,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
+    /// Injects a non-printable key (cursor keys, Return, Esc, Tab, control-letters)
+    /// as a real key event. Companion input uses this instead of `sendText` so the
+    /// bytes survive libghostty's bracketed-paste wrapping. Returns `false` when the
+    /// pane has no live runtime.
+    @discardableResult
+    func sendSpecialKey(_ key: TerminalSpecialKey, to paneID: PaneID) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+            return false
+        }
+        return runtime.adapter.sendSpecialKey(key)
+    }
+
     func readText(from paneID: PaneID, includeScrollback: Bool, lineLimit: Int?) -> String? {
         guard let runtime = runtimeRegistry.runtime(for: paneID),
               let reader = runtime.adapter as? TerminalTextReading
@@ -1169,6 +1181,71 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return nil
         }
         return reader.readText(includeScrollback: includeScrollback, lineLimit: lineLimit)
+    }
+
+    /// Applies a companion control-lease takeover (§2.6) to a pane: pins its
+    /// surface to the phone's fixed grid, occludes the desktop surface, and shows
+    /// the "controlled by <device>" placeholder. Returns `false` when the pane is
+    /// unknown or has no live runtime.
+    @discardableResult
+    func applyControlLease(
+        to paneID: PaneID,
+        cols: Int,
+        rows: Int,
+        deviceName: String,
+        onTakeBack: @escaping () -> Void
+    ) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+            return false
+        }
+        return runtime.hostView.beginControlLease(
+            cols: cols,
+            rows: rows,
+            deviceName: deviceName,
+            onTakeBack: onTakeBack
+        )
+    }
+
+    /// Restores a pane from a control lease to its layout-derived size and removes
+    /// the placeholder. Safe to call for an unknown / already-restored pane.
+    func restoreControlLease(from paneID: PaneID) {
+        runtimeRegistry.runtime(for: paneID)?.hostView.endControlLease()
+    }
+
+    /// Pins/unpins a pane's companion render keepalive so it keeps repainting while
+    /// the phone mirrors it, even when its surface is occluded (backgrounded or
+    /// under a control-lease placeholder). Safe to call for an unknown pane.
+    func setCompanionRenderKeepAlive(_ active: Bool, for paneID: PaneID) {
+        runtimeRegistry.runtime(for: paneID)?.hostView.setCompanionRenderKeepAlive(active)
+    }
+
+    /// Installs (or removes, with `nil`) the pane's companion raw-PTY byte stream.
+    /// Safe to call for an unknown pane; returns `false` when the pane has no live
+    /// runtime or its adapter cannot tee PTY output.
+    @discardableResult
+    func setCompanionByteStream(_ sink: TerminalPTYByteSink?, for paneID: PaneID) -> Bool {
+        guard let runtime = runtimeRegistry.runtime(for: paneID) else { return false }
+        return runtime.hostView.setCompanionByteStream(sink)
+    }
+
+    /// Captures a pane's screen as replayable VT bytes so a companion attaching
+    /// mid-session can repaint. `nil` when the pane is unknown, has no live
+    /// runtime, or its adapter cannot snapshot. Expensive — the companion feed
+    /// throttles it.
+    func captureCompanionScreenSnapshot(from paneID: PaneID) -> TerminalScreenSnapshot? {
+        runtimeRegistry.runtime(for: paneID)?.hostView.captureCompanionScreenSnapshot()
+    }
+
+    /// Live grid dimensions (columns × rows) for a pane, or `nil` when the pane is
+    /// unknown or has no live runtime. Used by the companion pane-text feed to
+    /// stamp `pane.text` with `gridCols`/`gridRows`.
+    func paneGridSize(from paneID: PaneID) -> (cols: Int, rows: Int)? {
+        guard let runtime = runtimeRegistry.runtime(for: paneID),
+              let reader = runtime.adapter as? TerminalTextReading
+        else {
+            return nil
+        }
+        return reader.gridSize
     }
 
     /// Re-load the in-memory `WorklaneStore.teamAnchorByWorklaneID` from disk

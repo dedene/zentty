@@ -1055,6 +1055,70 @@ final class LibghosttyWakeupCoordinatorTests: XCTestCase {
 }
 
 @MainActor
+extension LibghosttyAdapterTests {
+    func test_companion_byte_stream_installs_on_surface_and_forwards_bytes() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surface = try XCTUnwrap(runtime.lastSurfaceController)
+
+        var received: [(epoch: String, seq: Int, bytes: Data)] = []
+        adapter.setCompanionByteStream { epoch, seq, bytes in
+            received.append((epoch, seq, bytes))
+        }
+
+        XCTAssertEqual(surface.lifecycleEvents, [.installTee])
+        surface.ptyStreamSink?("epoch-1", 4096, Data("out".utf8))
+
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received[0].epoch, "epoch-1")
+        XCTAssertEqual(received[0].seq, 4096)
+        XCTAssertEqual(received[0].bytes, Data("out".utf8))
+    }
+
+    func test_companion_byte_stream_detach_removes_tee() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surface = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.setCompanionByteStream { _, _, _ in }
+        adapter.setCompanionByteStream(nil)
+
+        XCTAssertEqual(surface.lifecycleEvents, [.installTee, .removeTee])
+        XCTAssertNil(surface.ptyStreamSink)
+    }
+
+    /// Teardown ordering: the tee must be uninstalled BEFORE the surface is
+    /// closed/freed, since only the uninstall guarantees no callback is in flight.
+    func test_companion_byte_stream_removed_before_surface_close() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surface = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.setCompanionByteStream { _, _, _ in }
+        adapter.close()
+
+        XCTAssertEqual(surface.lifecycleEvents, [.installTee, .removeTee, .close])
+    }
+
+    /// A shell respawn makes a new surface; a phone that is still attached must get
+    /// the tee back (on the new surface, hence a new epoch).
+    func test_companion_byte_stream_reinstalls_on_new_surface() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        try adapter.startSession(using: TerminalSessionRequest())
+        adapter.setCompanionByteStream { _, _, _ in }
+        adapter.close()
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let respawned = try XCTUnwrap(runtime.lastSurfaceController)
+
+        XCTAssertEqual(respawned.lifecycleEvents, [.installTee])
+    }
+}
+
 private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     private(set) var makeSurfaceCallCount = 0
     private(set) weak var lastHostView: LibghosttyView?
@@ -1092,7 +1156,7 @@ private final class LibghosttyRuntimeProviderSpy: LibghosttyRuntimeProviding {
     func applyBackgroundBlur(to window: NSWindow) {}
 }
 
-private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling {
+private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling, LibghosttyPTYStreaming {
     var hasScrollback = false
     var cellWidth: CGFloat = 0
     var cellHeight: CGFloat = 0
@@ -1136,14 +1200,37 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
         modifiers: NSEvent.ModifierFlags
     ) -> Bool { false }
     func sendText(_ text: String) { sentTexts.append(text) }
-    func submitReturn() { submitReturnCallCount += 1 }
+    func submitReturn() -> Bool { submitReturnCallCount += 1; return true }
     func cancelPromptInput() { cancelPromptInputCallCount += 1 }
     func performBindingAction(_ action: String) -> Bool {
         bindingActions.append(action)
         return true
     }
     func hasSelection() -> Bool { selectionPresent }
-    func close() {}
+    func close() { lifecycleEvents.append(.close) }
+
+    // MARK: PTY tee
+
+    enum LifecycleEvent: Equatable {
+        case installTee
+        case removeTee
+        case close
+    }
+
+    let ptyStreamEpoch = "spy-epoch"
+    private(set) var lifecycleEvents: [LifecycleEvent] = []
+    private(set) var ptyStreamSink: LibghosttyPTYStreamSink?
+
+    func setPTYStreamSink(_ sink: LibghosttyPTYStreamSink?) {
+        ptyStreamSink = sink
+        lifecycleEvents.append(sink == nil ? .removeTee : .installTee)
+    }
+    var screenSnapshot: TerminalScreenSnapshot?
+    private(set) var screenSnapshotCallCount = 0
+    func captureScreenSnapshot() -> TerminalScreenSnapshot? {
+        screenSnapshotCallCount += 1
+        return screenSnapshot
+    }
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {
         inheritedConfigRequests.append(context)
         guard let inheritedConfigContext else {

@@ -1,0 +1,25 @@
+[
+  {
+    "name": "valid reject",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "9d0e1f20-3142-4354-8667-788990011223",
+      "type": "pairing.reject",
+      "replyTo": "4e5f6a7b-8c9d-4e0f-8112-2334455667788",
+      "payload": {
+        "reason": "secret expired"
+      }
+    }
+  },
+  {
+    "name": "missing reason is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "0e1f2031-4253-4465-8778-899001122334",
+      "type": "pairing.reject",
+      "payload": {}
+    }
+  }
+]

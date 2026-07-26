@@ -16,6 +16,16 @@ extension TerminalViewportSyncControlling {
     func forceViewportSync() {}
 }
 
+/// Companion control lease (§2.6): a terminal view whose surface can be pinned to
+/// a phone-measured grid reports the point-space size it is pinned to, so the
+/// pane host can frame it at exactly that size and center it in the pane.
+@MainActor
+protocol TerminalLeasedViewportSizing: AnyObject {
+    /// Point-space size of the pinned lease viewport, or `nil` when the view is
+    /// not under a control lease.
+    var leasedViewportPointSize: CGSize? { get }
+}
+
 @MainActor
 private protocol LibghosttyScrollbarHandling: AnyObject {
     func applyScrollbarUpdate(_ update: LibghosttySurfaceScrollbarUpdate)
@@ -421,7 +431,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, TerminalLeasedViewportSizing, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -486,6 +496,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     var hasValidViewportSync: Bool {
         surfaceView.hasValidViewportSync
+    }
+
+    var leasedViewportPointSize: CGSize? {
+        surfaceView.leasedViewportPointSize
     }
 
     var terminalFocusTargetView: NSView {
@@ -1520,7 +1534,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 }
 
-final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiagnosticsContextConfiguring {
+final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiagnosticsContextConfiguring, TerminalLeasedViewportSizing {
     private struct ViewportSignature: Equatable {
         let size: CGSize
         let scale: CGFloat
@@ -1558,6 +1572,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     private var lastViewportSignature: ViewportSignature?
     private var lastLayerGeometrySignature: ViewportSignature?
     private var isViewportSyncSuspended = false
+    private var leasedViewportPixelSize: CGSize?
     private(set) var hasValidViewportSync = false
     private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
     private let inputBreadcrumbThrottler = TerminalInputBreadcrumbThrottler()
@@ -2247,6 +2262,57 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
 
     func updateViewportDiagnosticsContext(_ context: TerminalViewportDiagnostics.Context) {
         viewportDiagnosticsContext = context
+    }
+
+    /// Companion control lease (§2.6): pin the surface to a fixed `cols`×`rows`
+    /// grid instead of the laid-out frame. Suspends the frame-derived viewport
+    /// sync, then pushes an explicit pixel size (grid × cell metrics) straight to
+    /// the surface. Returns `false` when no live surface backs the pane yet.
+    @discardableResult
+    func applyLeasedViewport(cols: Int, rows: Int) -> Bool {
+        guard let surfaceController else { return false }
+        let cellWidth = surfaceController.cellWidth
+        let cellHeight = surfaceController.cellHeight
+        guard cellWidth > 0, cellHeight > 0 else { return false }
+
+        setViewportSyncSuspended(true)
+        let size = CGSize(width: CGFloat(cols) * cellWidth, height: CGFloat(rows) * cellHeight)
+        let signature = ViewportSignature(size: size, scale: currentScaleFactor, displayID: currentDisplayID)
+        // Overwrite the cached signature so a later restore (unsuspend) sees a
+        // changed frame-derived size and re-syncs rather than skipping as a dup.
+        lastViewportSignature = signature
+        leasedViewportPixelSize = size
+        // The drawable must follow the leased size too. `syncLayerGeometryIfNeeded`
+        // normally runs from `syncViewport`, which we just suspended — and once
+        // `drawableSize` has been assigned explicitly, CAMetalLayer stops deriving
+        // it from bounds. Without this the host's centered lease frame shrinks the
+        // layer while the drawable keeps its full-pane pixel size, and the leased
+        // grid renders scaled instead of 1:1.
+        syncLayerGeometryIfNeeded(signature: signature)
+        surfaceController.updateViewport(size: size, scale: signature.scale, displayID: signature.displayID)
+        surfaceController.refresh()
+        return true
+    }
+
+    /// Releases the control lease: resume frame-derived viewport sync, which
+    /// immediately re-measures and restores the pane to its laid-out grid.
+    func releaseLeasedViewport() {
+        leasedViewportPixelSize = nil
+        setViewportSyncSuspended(false)
+        invalidateAndSyncViewport()
+    }
+
+    /// The leased grid expressed in points, which is what the pane host needs to
+    /// frame this view at the phone's exact grid size. Derived from the current
+    /// backing scale, so it follows the view onto a display with a different
+    /// scale factor.
+    var leasedViewportPointSize: CGSize? {
+        guard let leasedViewportPixelSize else { return nil }
+        let scale = currentScaleFactor
+        return CGSize(
+            width: leasedViewportPixelSize.width / scale,
+            height: leasedViewportPixelSize.height / scale
+        )
     }
 
     var viewportDiagnosticsContextForSurface: TerminalViewportDiagnostics.Context {

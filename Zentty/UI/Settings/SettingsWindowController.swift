@@ -10,6 +10,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     case paneLayout
     case updatesPrivacy
     case agents
+    case mobileDevices
 
     var title: String {
         switch self {
@@ -21,6 +22,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "Shortcuts"
         case .notifications:
             "Notifications"
+        case .mobileDevices:
+            "Mobile Devices"
         case .openWith:
             "Open With"
         case .devServers:
@@ -44,6 +47,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "keyboard"
         case .notifications:
             "bell.badge"
+        case .mobileDevices:
+            "iphone"
         case .openWith:
             "square.and.arrow.up.on.square"
         case .devServers:
@@ -67,6 +72,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "Keyboard shortcuts and conflicts"
         case .notifications:
             "Desktop alerts and notification sound"
+        case .mobileDevices:
+            "Pair phones and manage the companion bridge"
         case .openWith:
             "Default apps and custom launchers"
         case .devServers:
@@ -92,6 +99,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             ["keyboard", "keybinding", "hotkey", "binding", "shortcut"]
         case .notifications:
             ["sound", "alert", "notify", "permission", "desktop"]
+        case .mobileDevices:
+            ["mobile", "phone", "iphone", "android", "companion", "pair", "pairing", "qr", "device", "remote", "bonjour"]
         case .openWith:
             ["app", "editor", "launch", "finder", "vscode", "cursor", "xcode"]
         case .devServers:
@@ -115,6 +124,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             .systemIndigo
         case .notifications:
             .systemRed
+        case .mobileDevices:
+            .systemMint
         case .openWith:
             .systemBlue
         case .devServers:
@@ -155,7 +166,7 @@ enum SettingsSidebarLayout {
     static let groups: [SettingsSidebarGroup] = [
         SettingsSidebarGroup(
             title: nil,
-            sections: [.general, .appearance, .shortcuts, .notifications, .updatesPrivacy]
+            sections: [.general, .appearance, .shortcuts, .notifications, .mobileDevices, .updatesPrivacy]
         ),
         SettingsSidebarGroup(title: "Workspace", sections: [.paneLayout, .openWith, .devServers, .agents]),
     ]
@@ -496,6 +507,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         )
     }()
     private lazy var shortcutsViewController = ShortcutsSettingsSectionViewController(configStore: configStore)
+    private lazy var mobileDevicesViewController = MobileDevicesSettingsSectionViewController(configStore: configStore)
     private lazy var paneLayoutViewController = PaneLayoutSettingsSectionViewController(configStore: configStore)
     private lazy var agentsViewController = AgentsSettingsSectionViewController(
         configStore: configStore,
@@ -730,6 +742,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         generalViewController.apply(restore: config.restore)
         generalViewController.apply(clipboard: config.clipboard)
         notificationsViewController.apply(notifications: config.notifications)
+        mobileDevicesViewController.apply(companion: config.companion)
         updatesPrivacyViewController.apply(updates: config.updates)
         updatesPrivacyViewController.apply(errorReporting: config.errorReporting)
         agentsViewController.apply(
@@ -753,6 +766,8 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
             shortcutsViewController
         case .notifications:
             notificationsViewController
+        case .mobileDevices:
+            mobileDevicesViewController
         case .openWith:
             openWithViewController
         case .devServers:

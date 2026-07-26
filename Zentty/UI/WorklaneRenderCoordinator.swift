@@ -122,7 +122,10 @@ final class WorklaneRenderCoordinator {
         self.configStore = configStore
         self.attentionNotificationCoordinator = WorklaneAttentionNotificationCoordinator(
             notificationStore: notificationStore,
-            configStore: configStore
+            configStore: configStore,
+            attentionPushSink: { push in
+                CompanionBridgeServer.shared?.fanOutAttentionPush(push)
+            }
         )
     }
 

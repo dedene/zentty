@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "Zentty",
+    "slug": "zentty-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "zentty",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "be.zenjoy.zentty.mobile",
+      "supportsTablet": false,
+      "infoPlist": {
+        "EXDevMenuShowFloatingActionButton": false,
+        "NSLocalNetworkUsageDescription": "Zentty connects directly to your Mac over your local network so your panes mirror instantly, without traffic leaving your home or office.",
+        "NSBonjourServices": [
+          "_zentty._tcp"
+        ],
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      },
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)be.zenjoy.zentty.mobile"
+        ]
+      }
+    },
+    "android": {
+      "package": "be.zenjoy.zentty.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#2B486B",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Zentty uses the camera to scan the pairing QR code shown on your Mac."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#2B486B",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200
+        }
+      ],
+      "./plugins/withNotificationServiceExtension"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

@@ -1,0 +1,76 @@
+[
+  {
+    "name": "snapshot with mixed entry roles",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "dbecfd0e-1f20-4d34-8223-344556677889",
+      "type": "transcript.snapshot",
+      "replyTo": "b9cadbec-fd0e-4b12-8001-122334455667",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "sessionId": "d94f1f5d-bc1f-4b13-bbb8-4f79713398ed",
+        "truncated": false,
+        "entries": [
+          {
+            "id": "e_0001",
+            "role": "user",
+            "ts": 1784601500000,
+            "text": "implement the wire package"
+          },
+          {
+            "id": "e_0002",
+            "role": "assistant",
+            "ts": 1784601501000,
+            "text": "I'll start by reading the draft."
+          },
+          {
+            "id": "e_0003",
+            "role": "tool_use",
+            "ts": 1784601502000,
+            "toolName": "Write",
+            "toolInput": { "path": "wire/src/index.ts" },
+            "status": "running"
+          },
+          {
+            "id": "e_0004",
+            "role": "tool_result",
+            "ts": 1784601503000,
+            "toolResultSummary": "File created",
+            "status": "ok"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "empty entries with truncated flag",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "ecfd0e1f-2031-4e45-8334-455667788990",
+      "type": "transcript.snapshot",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "sessionId": "d94f1f5d-bc1f-4b13-bbb8-4f79713398ed",
+        "truncated": true,
+        "entries": []
+      }
+    }
+  },
+  {
+    "name": "entry with invalid role is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "fd0e1f20-3142-4f56-8445-566778899001",
+      "type": "transcript.snapshot",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "sessionId": "d94f1f5d-bc1f-4b13-bbb8-4f79713398ed",
+        "truncated": false,
+        "entries": [{ "id": "e_1", "role": "narrator", "text": "hi" }]
+      }
+    }
+  }
+]

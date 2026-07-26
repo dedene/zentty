@@ -1,0 +1,31 @@
+[
+  {
+    "name": "valid auth (real Ed25519 sig over zentty-relay-auth:nonce)",
+    "valid": true,
+    "message": {
+      "type": "relay.auth",
+      "deviceId": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "pubKey": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "sig": "s13340AnvgblPQCSfKLdy6h8lxEDm2kAumQDrM2PKHV6xoVB01xczLrDiCvuUD1F2IGMbuf9LIcsabgI4eObCA"
+    }
+  },
+  {
+    "name": "missing sig is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.auth",
+      "deviceId": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "pubKey": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho"
+    }
+  },
+  {
+    "name": "empty deviceId is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.auth",
+      "deviceId": "",
+      "pubKey": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho",
+      "sig": "s13340AnvgblPQCSfKLdy6h8lxEDm2kAumQDrM2PKHV6xoVB01xczLrDiCvuUD1F2IGMbuf9LIcsabgI4eObCA"
+    }
+  }
+]

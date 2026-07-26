@@ -1,0 +1,95 @@
+[
+  {
+    "name": "cold attach omits lastSeq and epoch",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90"
+      }
+    }
+  },
+  {
+    "name": "warm re-attach carries lastSeq and epoch",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "lastSeq": 1048576,
+        "epoch": "ep_9c1e8b47"
+      }
+    }
+  },
+  {
+    "name": "unknown extra field is ignored (forward compat)",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "lastSeq": 0,
+        "epoch": "ep_9c1e8b47",
+        "futureField": { "capability": "v2-thing" }
+      }
+    }
+  },
+  {
+    "name": "lastSeq of wrong type (string) is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "lastSeq": "42"
+      }
+    }
+  },
+  {
+    "name": "missing paneId is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "lastSeq": 42,
+        "epoch": "ep_9c1e8b47"
+      }
+    }
+  },
+  {
+    "name": "lastSeq without epoch is invalid (partial warm)",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "lastSeq": 42
+      }
+    }
+  },
+  {
+    "name": "epoch without lastSeq is invalid (partial warm)",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "type": "pane.bytes.attach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "epoch": "ep_9c1e8b47"
+      }
+    }
+  }
+]

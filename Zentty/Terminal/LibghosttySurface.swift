@@ -1,6 +1,33 @@
 import AppKit
 import Carbon.HIToolbox
+import Foundation
 import GhosttyKit
+import OSLog
+
+private let libghosttySurfaceLogger = Logger(subsystem: "be.zenjoy.zentty", category: "LibghosttySurface")
+
+/// C trampoline for libghostty's raw-PTY tee.
+///
+/// Runs on the surface's io-reader thread while libghostty holds its renderer
+/// state mutex, with no autorelease pool. It must not call any `ghostty_*`
+/// function, block, or dispatch synchronously — it copies into the tee's
+/// accumulator and returns.
+private func libghosttyPTYTeeCallback(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ seq: UInt64,
+    _ data: UnsafePointer<UInt8>?,
+    _ length: UInt
+) {
+    guard let userdata, let data, length > 0 else {
+        return
+    }
+
+    let tee = Unmanaged<LibghosttyPTYTee>.fromOpaque(userdata).takeUnretainedValue()
+    tee.receive(
+        seq: seq,
+        bytes: UnsafeRawBufferPointer(start: UnsafeRawPointer(data), count: Int(length))
+    )
+}
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
     let total: UInt64
@@ -40,9 +67,13 @@ struct LibghosttySurfaceActionDrainBatch {
     var cellSize: LibghosttySurfaceCoalescedValue<(width: UInt32, height: UInt32)> = .absent
     var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
     var sequence: [LibghosttySurfaceActionQueueEntry] = []
+    /// Set when at least one `.contentChanged` (RENDER) arrived this tick. Kept off
+    /// `sequence` so a burst of renders collapses to a single boolean rather than
+    /// growing the ordered queue.
+    var contentChanged = false
 
     var isEmpty: Bool {
-        sequence.isEmpty
+        sequence.isEmpty && !contentChanged
     }
 }
 
@@ -56,6 +87,7 @@ final class LibghosttySurfaceActionCoalescer {
         var cellSize: LibghosttySurfaceCoalescedValue<(width: UInt32, height: UInt32)> = .absent
         var mouseShape: LibghosttySurfaceCoalescedValue<ghostty_action_mouse_shape_e> = .absent
         var sequence: [LibghosttySurfaceActionQueueEntry] = []
+        var contentChanged = false
 
         mutating func record(_ entry: LibghosttySurfaceActionQueueEntry) {
             sequence.removeAll { $0 == entry }
@@ -89,6 +121,8 @@ final class LibghosttySurfaceActionCoalescer {
         case .mouseShape(let shape):
             state.mouseShape = .present(shape)
             state.record(.mouseShape)
+        case .contentChanged:
+            state.contentChanged = true
         case .commandFinished,
              .desktopNotification,
              .startSearch,
@@ -119,7 +153,8 @@ final class LibghosttySurfaceActionCoalescer {
             scrollbar: state.scrollbar,
             cellSize: state.cellSize,
             mouseShape: state.mouseShape,
-            sequence: state.sequence
+            sequence: state.sequence,
+            contentChanged: state.contentChanged
         )
         state.title = .absent
         state.pwd = .absent
@@ -128,14 +163,22 @@ final class LibghosttySurfaceActionCoalescer {
         state.cellSize = .absent
         state.mouseShape = .absent
         state.sequence.removeAll(keepingCapacity: true)
+        state.contentChanged = false
         return batch
     }
 }
 
 @MainActor
-final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading {
+final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading, LibghosttyPTYStreaming {
     nonisolated(unsafe) var surface: ghostty_surface_t?
     nonisolated(unsafe) private let actionCoalescer = LibghosttySurfaceActionCoalescer()
+    /// Opaque id for THIS surface's byte stream. Minted once per surface, so it
+    /// changes exactly when the surface is recreated (new pane, shell respawn)
+    /// and never merely because the tee was reinstalled.
+    nonisolated let ptyStreamEpoch = UUID().uuidString
+    /// The live tee, retained for exactly as long as it is installed in libghostty.
+    /// `nonisolated(unsafe)` so `deinit` can tear it down before the surface is freed.
+    nonisolated(unsafe) private var ptyTee: LibghosttyPTYTee?
     nonisolated let paneID: PaneID
     nonisolated let diagnostics: TerminalDiagnostics
     private var metadata = TerminalMetadata()
@@ -166,6 +209,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         guard let surface else { return 0 }
         let size = ghostty_surface_size(surface)
         return CGFloat(size.cell_height_px)
+    }
+
+    var gridSize: (cols: Int, rows: Int)? {
+        guard let surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        return (Int(size.columns), Int(size.rows))
     }
 
     init(
@@ -268,15 +317,108 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
 
     func close() {
         guard let surface else { return }
+        removePTYTee()
         ghostty_surface_request_close(surface)
         ghostty_surface_free(surface)
         self.surface = nil
     }
 
     deinit {
+        // Order matters: uninstall the tee (which guarantees no callback is in
+        // flight and drops our `userdata`) before the surface goes away.
+        removePTYTee()
         if let surface {
             ghostty_surface_free(surface)
         }
+    }
+
+    // MARK: - Raw PTY tee (companion byte lane)
+
+    /// Installs (or removes, with `nil`) the raw-PTY tee for this surface.
+    ///
+    /// The sink is invoked on the main actor with coalesced runs of bytes; `seq`
+    /// is libghostty's absolute offset from surface creation, which keeps
+    /// advancing while no tee is installed, so a consumer sees a forward jump
+    /// instead of a silent splice after any period without a tee.
+    func setPTYStreamSink(_ sink: LibghosttyPTYStreamSink?) {
+        guard let surface else {
+            // No live surface: drop any stale tee so nothing outlives it.
+            removePTYTee()
+            return
+        }
+
+        guard let sink else {
+            removePTYTee()
+            return
+        }
+
+        // Uninstall any previous tee first: overwriting the stored reference would
+        // deallocate it while libghostty still holds its pointer, and the io-reader
+        // thread could fire into freed memory before the replacement lands.
+        removePTYTee()
+
+        let epoch = ptyStreamEpoch
+        let tee = LibghosttyPTYTee(epoch: epoch) { batch in
+            sink(epoch, batch.startSeq, batch.bytes)
+        }
+        // Retain the tee in a stored property BEFORE handing libghostty an
+        // unretained pointer to it, and only ever release it after the matching
+        // uninstall (see `removePTYTee`).
+        ptyTee = tee
+        ghostty_surface_set_pty_tee(
+            surface,
+            libghosttyPTYTeeCallback,
+            Unmanaged.passUnretained(tee).toOpaque()
+        )
+    }
+
+    /// Captures the current screen as a replayable VT byte stream, so a phone
+    /// attaching mid-session can repaint instead of trying to rebuild a TUI screen
+    /// from a raw byte tail that starts mid-escape-sequence.
+    ///
+    /// The palette is included: the phone does not share the Mac's theme, so
+    /// bare palette indices in the capture would resolve against its own.
+    ///
+    /// EXPENSIVE — walks every active cell under the renderer state mutex, which
+    /// blocks the io-reader thread for the duration. Callers must throttle.
+    func captureScreenSnapshot() -> TerminalScreenSnapshot? {
+        guard let surface else { return nil }
+
+        var capture = ghostty_snapshot_s()
+        let options = ghostty_snapshot_opts_s(include_palette: true)
+        guard ghostty_surface_snapshot(surface, options, &capture) else {
+            libghosttySurfaceLogger.error(
+                "screen snapshot failed: pane=\(self.paneID.rawValue, privacy: .public)"
+            )
+            return nil
+        }
+        // We own the returned bytes on success; free them however we exit.
+        defer { ghostty_string_free(capture.data) }
+
+        guard let pointer = capture.data.ptr, capture.data.len > 0 else {
+            return nil
+        }
+        return TerminalScreenSnapshot(
+            data: Data(bytes: pointer, count: Int(capture.data.len)),
+            seq: Int(capture.seq),
+            cols: Int(capture.cols),
+            rows: Int(capture.rows),
+            epoch: ptyStreamEpoch
+        )
+    }
+
+    /// Uninstalls the tee, then releases it.
+    ///
+    /// Safe by contract: `ghostty_surface_set_pty_tee` takes the same renderer
+    /// state mutex the io-reader thread holds for the whole of its callback, so
+    /// once the uninstall returns no callback is in flight and none can fire
+    /// again — only then is it safe to drop the `userdata` we handed out.
+    nonisolated private func removePTYTee() {
+        guard ptyTee != nil else { return }
+        if let surface {
+            ghostty_surface_set_pty_tee(surface, nil, nil)
+        }
+        ptyTee = nil
     }
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {
@@ -400,7 +542,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
     }
 
-    func submitReturn() {
+    @discardableResult
+    func submitReturn() -> Bool {
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -413,9 +556,64 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             isARepeat: false,
             keyCode: UInt16(kVK_Return)
         ) else {
-            return
+            return false
         }
-        _ = sendKey(event: event, action: .press, text: "\r", composing: false)
+        return sendKey(event: event, action: .press, text: "\r", composing: false)
+    }
+
+    /// Injects a non-printable key as a real key event so libghostty encodes the
+    /// correct bytes. Unlike `sendText`, this bypasses bracketed-paste wrapping —
+    /// the ESC in a cursor-key CSI and a submitting Return both survive, and
+    /// arrows honor the surface's DECCKM (application-cursor-key) mode. Mirrors the
+    /// real-keyboard path (`sendKey(event:)`) rather than pasting raw byte strings.
+    @discardableResult
+    func sendSpecialKey(_ key: TerminalSpecialKey) -> Bool {
+        switch key {
+        case .enter:
+            return submitReturn()
+        case .escape:
+            return submitPlainKey(character: "\u{1b}", keyCode: UInt16(kVK_Escape))
+        case .tab:
+            return submitPlainKey(character: "\t", keyCode: UInt16(kVK_Tab))
+        case .up:
+            return submitPlainKey(character: "\u{F700}", keyCode: UInt16(kVK_UpArrow))
+        case .down:
+            return submitPlainKey(character: "\u{F701}", keyCode: UInt16(kVK_DownArrow))
+        case .left:
+            return submitPlainKey(character: "\u{F702}", keyCode: UInt16(kVK_LeftArrow))
+        case .right:
+            return submitPlainKey(character: "\u{F703}", keyCode: UInt16(kVK_RightArrow))
+        case .ctrlC:
+            return submitControlKey(character: "\u{03}", charactersIgnoringModifiers: "c", keyCode: UInt16(kVK_ANSI_C))
+        case .ctrlD:
+            return submitControlKey(character: "\u{04}", charactersIgnoringModifiers: "d", keyCode: UInt16(kVK_ANSI_D))
+        case .ctrlZ:
+            return submitControlKey(character: "\u{1a}", charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z))
+        case .ctrlR:
+            return submitControlKey(character: "\u{12}", charactersIgnoringModifiers: "r", keyCode: UInt16(kVK_ANSI_R))
+        }
+    }
+
+    /// A key press with no modifiers. Arrows/escape/tab pass their raw character
+    /// so `shouldSendText` drops the C0/private-use bytes and libghostty encodes
+    /// the key from its keycode — exactly the real-keyboard path.
+    @discardableResult
+    private func submitPlainKey(character: String, keyCode: UInt16) -> Bool {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: character,
+            charactersIgnoringModifiers: character,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            return false
+        }
+        return sendKey(event: event, action: .press, text: nil, composing: false)
     }
 
     func cancelPromptInput() {
@@ -431,11 +629,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         )
     }
 
+    @discardableResult
     private func submitControlKey(
         character: String,
         charactersIgnoringModifiers: String,
         keyCode: UInt16
-    ) {
+    ) -> Bool {
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -448,9 +647,9 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             isARepeat: false,
             keyCode: keyCode
         ) else {
-            return
+            return false
         }
-        _ = sendKey(event: event, action: .press, text: nil, composing: false)
+        return sendKey(event: event, action: .press, text: nil, composing: false)
     }
 
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
@@ -690,6 +889,12 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
 
         flushMetadataIfNeeded()
+
+        // Emit the coalesced content-changed pulse once per drain, after any
+        // metadata/ordered work, so a downstream reader sees settled state.
+        if batch.contentChanged {
+            eventDidOccur(.contentChanged)
+        }
     }
 
     private func apply(payload: LibghosttySurfaceActionPayload) {
@@ -727,6 +932,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             }
         case .mouseShape(let shape):
             hostView?.setMouseCursorShape(shape)
+        case .contentChanged:
+            // Never enqueued as an ordered payload; the coalesced boolean drives
+            // the `.contentChanged` event. Present only for switch exhaustiveness.
+            break
         }
     }
 

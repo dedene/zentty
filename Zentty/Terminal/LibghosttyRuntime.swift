@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import os
 import UniformTypeIdentifiers
 
 enum LibghosttySurfaceActionPayload: Equatable {
@@ -16,6 +17,37 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case cellSize(width: UInt32, height: UInt32)
     case openURL(String)
     case mouseShape(ghostty_action_mouse_shape_e)
+    /// The surface asked to be redrawn (`GHOSTTY_ACTION_RENDER`) — a coarse
+    /// "content may have changed" pulse. Fires constantly during output, so it is
+    /// only surfaced when something is actively observing (see
+    /// `LibghosttyContentChangeObservation`) and is coalesced to one drain tick.
+    case contentChanged
+}
+
+/// Process-wide gate for the `GHOSTTY_ACTION_RENDER` → `.contentChanged` signal.
+///
+/// `RENDER` fires on the render thread on essentially every frame of terminal
+/// output, for every surface. Decoding it into a coalesced event and scheduling a
+/// main-queue drain would add per-frame work to the hot path of the whole app —
+/// even for users who never open the mobile companion. This refcounted flag keeps
+/// that cost at zero (one enum construction + one atomic read in the callback,
+/// then an early return) unless a consumer — today only the companion pane-text
+/// feed — has explicitly opted in. Retain when the first watcher appears, release
+/// when the last one goes away.
+enum LibghosttyContentChangeObservation {
+    private static let observers = OSAllocatedUnfairLock(initialState: 0)
+
+    static var isEnabled: Bool {
+        observers.withLock { $0 > 0 }
+    }
+
+    static func retain() {
+        observers.withLock { $0 += 1 }
+    }
+
+    static func release() {
+        observers.withLock { $0 = Swift.max(0, $0 - 1) }
+    }
 }
 
 func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> LibghosttySurfaceActionPayload? {
@@ -89,6 +121,8 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
         return .openURL(urlString)
     case GHOSTTY_ACTION_MOUSE_SHAPE:
         return .mouseShape(action.action.mouse_shape)
+    case GHOSTTY_ACTION_RENDER:
+        return .contentChanged
     default:
         return nil
     }
@@ -211,6 +245,14 @@ private func libghosttyActionCallback(
     guard let payload = copyLibghosttySurfaceActionPayload(from: action) else {
         return false
     }
+
+    // `RENDER` (→ `.contentChanged`) fires per frame on the render thread. When no
+    // one is observing, drop it here — before any diagnostics or drain scheduling —
+    // so the common case stays a single enum construction plus an atomic read.
+    if payload == .contentChanged, !LibghosttyContentChangeObservation.isEnabled {
+        return true
+    }
+
     owner.recordActionCallback(payload: payload)
 
     if owner.enqueue(payload: payload) {

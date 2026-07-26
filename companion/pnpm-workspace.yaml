@@ -1,0 +1,16 @@
+packages:
+  - 'wire'
+  # relay and mobile packages land in later milestones; listing them now is a
+  # no-op until their directories exist.
+  - 'relay'
+  - 'mobile'
+# esbuild is the only dependency allowed to run a build script: the relay bundles
+# itself with it (`pnpm --filter @zentty/relay bundle`, and relay/Dockerfile).
+#
+# pnpm 11 reads this HERE, not from a `pnpm` field in package.json, and the key is
+# `allowBuilds` (a map) — NOT `onlyBuiltDependencies` (a list), which pnpm 11
+# accepts into the file and then silently ignores, so a fresh install still fails
+# with ERR_PNPM_IGNORED_BUILDS. pnpm scaffolds this block itself on that error;
+# the value just has to be filled in.
+allowBuilds:
+  esbuild: true

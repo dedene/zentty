@@ -1,0 +1,56 @@
+[
+  {
+    "name": "valid grant with effective and client grids",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "758697a8-b9ca-47ce-8223-344556677889",
+      "type": "lease.grant",
+      "replyTo": "53647586-97a8-45ac-8001-122334455667",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d",
+        "effective": { "cols": 46, "rows": 92 },
+        "client": { "cols": 46, "rows": 92 },
+        "isCurrentClientLimiting": true,
+        "heartbeatIntervalMs": 5000,
+        "expiryMs": 15000
+      }
+    }
+  },
+  {
+    "name": "missing effective grid is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "8697a8b9-cadb-48df-8334-455667788990",
+      "type": "lease.grant",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d",
+        "client": { "cols": 46, "rows": 92 },
+        "isCurrentClientLimiting": true,
+        "heartbeatIntervalMs": 5000,
+        "expiryMs": 15000
+      }
+    }
+  },
+  {
+    "name": "effective grid missing rows is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "97a8b9ca-dbec-49e0-8445-566778899001",
+      "type": "lease.grant",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "leaseId": "ls_2b7f4c1a-9e63-4d80-a15c-6f92183b4e7d",
+        "effective": { "cols": 46 },
+        "client": { "cols": 46, "rows": 92 },
+        "isCurrentClientLimiting": true,
+        "heartbeatIntervalMs": 5000,
+        "expiryMs": 15000
+      }
+    }
+  }
+]

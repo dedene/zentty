@@ -1069,3 +1069,65 @@ platform :mac do
     sh("../scripts/build_ghosttykit.sh")
   end
 end
+
+IOS_APP_IDENTIFIERS = [
+  "be.zenjoy.zentty.mobile",
+  "be.zenjoy.zentty.mobile.NotificationService"
+].freeze
+
+# Registers test devices from a 1Password-held list so UDIDs never live in
+# this (public) repo. IOS_DEVICES_OP_REF must be an op:// reference to a
+# fastlane devices file ("Device ID\tDevice Name" per line, tab-separated,
+# with that exact header row).
+def register_ios_devices!(api_key)
+  devices_content = resolved_env_value("IOS_DEVICES_OP_REF")
+  if devices_content.empty?
+    UI.important("IOS_DEVICES_OP_REF is not set; skipping device registration")
+    return
+  end
+
+  file = Tempfile.new(["zentty-ios-devices", ".txt"])
+  begin
+    file.write(devices_content.end_with?("\n") ? devices_content : "#{devices_content}\n")
+    file.close
+    register_devices(devices_file: file.path, api_key: api_key)
+  ensure
+    file.close!
+  end
+end
+
+platform :ios do
+
+  desc "Generate/refresh iOS certificates and profiles in the match repo (requires ASC API key)"
+  lane :generate_signing do
+    hydrate_release_env_from_one_password!
+    api_key = load_api_key
+    register_ios_devices!(api_key)
+    match(
+      type: "development",
+      platform: "ios",
+      app_identifier: IOS_APP_IDENTIFIERS,
+      force_for_new_devices: true,
+      api_key: api_key
+    )
+    match(
+      type: "appstore",
+      platform: "ios",
+      app_identifier: IOS_APP_IDENTIFIERS,
+      api_key: api_key
+    )
+  end
+
+  desc "Sync iOS certificates and profiles from the match repo (read-only)"
+  lane :sync_signing do
+    hydrate_release_env_from_one_password!
+    %w[development appstore].each do |type|
+      match(
+        type: type,
+        platform: "ios",
+        app_identifier: IOS_APP_IDENTIFIERS,
+        readonly: true
+      )
+    end
+  end
+end

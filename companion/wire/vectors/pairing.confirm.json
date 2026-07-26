@@ -1,0 +1,29 @@
+[
+  {
+    "name": "valid confirm",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "7b8c9d0e-1f20-4132-8445-566778899001",
+      "type": "pairing.confirm",
+      "replyTo": "4e5f6a7b-8c9d-4e0f-8112-2334455667788",
+      "payload": {
+        "macName": "Peter's MacBook Pro",
+        "paired": true
+      }
+    }
+  },
+  {
+    "name": "paired must be literal true",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "8c9d0e1f-2031-4243-8556-677889900112",
+      "type": "pairing.confirm",
+      "payload": {
+        "macName": "Peter's MacBook Pro",
+        "paired": false
+      }
+    }
+  }
+]

@@ -121,7 +121,7 @@ private final class MiddleClickSurfaceSpy: LibghosttySurfaceControlling {
         return false
     }
     func sendText(_ text: String) {}
-    func submitReturn() {}
+    func submitReturn() -> Bool { true }
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }
     func close() {}

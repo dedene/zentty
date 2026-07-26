@@ -35,6 +35,12 @@ struct PaneAgentSessionState: Equatable, Sendable {
 struct PaneAgentReducerState: Equatable, Sendable {
     static let stopGraceWindow: TimeInterval = 2
     static let ephemeralStartExitWindow: TimeInterval = 1
+    /// How long a session may sit in `.starting` with a live process and no
+    /// follow-up activity before it is treated as idle-at-prompt. Covers
+    /// process spin-up for a genuinely fresh launch while breaking the
+    /// workspace-restore case where a resumed agent (`claude --resume`) emits
+    /// only a session-start signal and then waits at its prompt.
+    static let startingGraceWindow: TimeInterval = 15
     static let idleVisibilityWindow: TimeInterval = 120
     static let unresolvedStopVisibilityWindow: TimeInterval = 600
     static let staleSessionVisibilityWindow: TimeInterval = 1_800
@@ -119,6 +125,32 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 session.text = nil
                 session.trackedPID = nil
                 session.completionCandidateDeadline = nil
+                session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
+                session.unresolvedStopVisibleUntil = nil
+                session.updatedAt = now
+            }
+
+            // Bounded `.starting`: a session that emitted only a start signal
+            // (e.g. a workspace-restore `claude --resume`, or any agent that
+            // fires session_start and then sits at its prompt) would otherwise
+            // stay `.starting` forever — its process is alive and idle, so no
+            // dead-PID sweep, completion grace, or activity hook ever moves it.
+            // Any dead PID has already been handled above, so a session still
+            // `.starting` here has a live or untracked process. After a grace
+            // window with no follow-up event, demote it to `.idle` so the badge
+            // reflects an agent waiting at its prompt instead of a permanent
+            // "Starting". Real activity refreshes `updatedAt` and keeps the
+            // clock from firing.
+            if session.state == .starting,
+               session.completionCandidateDeadline == nil,
+               !session.interactionKind.requiresHumanAttention,
+               now.timeIntervalSince(session.updatedAt) >= Self.startingGraceWindow {
+                stopSignalLogger.debug(
+                    "reducer.sweep startingGraceExpired session=\(sessionID, privacy: .public) tool=\(session.tool.displayName, privacy: .public) => idle"
+                )
+                session.state = .idle
+                session.interactionKind = .none
+                session.text = nil
                 session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
                 session.unresolvedStopVisibleUntil = nil
                 session.updatedAt = now

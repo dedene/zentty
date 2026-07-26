@@ -1,0 +1,28 @@
+{
+  "description": "Zentty companion session-crypto interop vector. TEST-ONLY private keys — never reuse. Derivation mirrors CompanionSessionCrypto.swift; the Swift pin asserts CryptoKit reproduces every expected value byte-for-byte.",
+  "label": "zentty-companion/v1/handshake",
+  "keys": {
+    "macIdentityPriv": "HkAEqlFhk7yVXoxxbu5H5gKUYT3qNTWB8lBRzDSqySw",
+    "phoneIdentityPriv": "xJab8Jzcx_f73uN1PFTXQ0ndcILK-0JLq4jxVbpAlvc",
+    "macEphPriv": "ztb4d8IQAu1Ff1XNzlIpe6pivv7_raRUiw2NWUnl2-o",
+    "phoneEphPriv": "3Dal_NIQ_zHr-tn1bpkd7pohpDqlEpeEy2Gg8IeZAgU"
+  },
+  "derivedPublicKeys": {
+    "macIdentityPub": "Wkifi0gGMM6G5w_BaiBb04_YSgbPSBkVV5OtpnXwQCg",
+    "phoneIdentityPub": "DHZ1fJTto_N1-XBldOcG-21uHnajpQQnXm9a4wTpwsA",
+    "macEphPub": "Hc7E4NLkX7emhNRT5rg8G0ENpINN8iEhQgv49-otZlQ",
+    "phoneEphPub": "4oUEUlLhq_MPbcCqIDpDQDuG4lM9b5IFkSxBiriixQU"
+  },
+  "expected": {
+    "sendKeyMacToPhone": "MexA8S4WyYLupafPVL9ZALX2L30ChpkNPB9GNYtT-SE",
+    "sendKeyPhoneToMac": "EJun9cHjDY1xZcGc0DwJnCaqteaab51ZKMxK7OnqiOs",
+    "handshakeSigMac": "BbkcMK9zX53zRQaDNETfbqRclteLr1uoiXjHLzyaJN5VGcqOtW2oz9NQ7ltwlq4NX38gsm62el5CXZAdz58lBQ",
+    "handshakeSigPhone": "l7-4zqviOV-WkltBp9saXIOxmSlDwJOCh471OapzidXXwfKHOq9ZCO0jbZ1HmEoP5y3auoINaArn3YHN39g2Bg",
+    "sealedSample": {
+      "direction": "mac->phone",
+      "plaintext": "{\"v\":1,\"id\":\"00000000-0000-4000-8000-000000000000\",\"type\":\"session.pong\",\"payload\":{\"ts\":1720000000000}}",
+      "counter": 5,
+      "ciphertext": "AAAAAAAAAAVM4j1RfikfSWn9FiDctrpwggHlUE3XIdH7gySIK6dlTgk6lxhBxJ-lwsZic6GwoPgMc3mqcXXSaUn0mVguEBCSKI3l8KedSx2aLuHdh7CYVGawtncg4vbjRC08ZZOL-MpsGzAHXsr7p236moJLsZcSZ_YQA_mZ7dA"
+    }
+  }
+}

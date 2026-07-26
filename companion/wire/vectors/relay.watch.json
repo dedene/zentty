@@ -1,0 +1,17 @@
+[
+  {
+    "name": "valid watch",
+    "valid": true,
+    "message": {
+      "type": "relay.watch",
+      "deviceId": "Pf9Xw2Rt6Yh1Bn4Qm8Lz3Kd7Vc0Sg5Aj2Uf6Ei9Ow3"
+    }
+  },
+  {
+    "name": "missing deviceId is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.watch"
+    }
+  }
+]

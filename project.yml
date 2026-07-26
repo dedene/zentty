@@ -252,6 +252,9 @@ targets:
     platform: macOS
     sources:
       - path: ZenttyLogicTests
+      - path: companion/wire/vectors
+        type: folder
+        buildPhase: resources
     info:
       path: ZenttyLogicTests/Info.plist
     settings:

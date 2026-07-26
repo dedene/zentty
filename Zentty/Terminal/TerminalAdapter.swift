@@ -7,6 +7,26 @@ enum TerminalSurfaceContext: Equatable, Sendable {
     case split
 }
 
+/// A non-printable terminal key the app can inject as a real *key event* rather
+/// than as pasted text. This matters because libghostty's text path
+/// (`ghostty_surface_text`) wraps input in bracketed paste, which strips the
+/// `ESC` out of cursor-key CSI sequences and delivers `Return`'s `CR` as a
+/// literal `LF`. Routing these through the key encoder lets libghostty emit the
+/// correct bytes (and honor DECCKM application-cursor-key mode for arrows).
+enum TerminalSpecialKey: Equatable, Sendable {
+    case enter
+    case escape
+    case tab
+    case up
+    case down
+    case left
+    case right
+    case ctrlC
+    case ctrlD
+    case ctrlZ
+    case ctrlR
+}
+
 struct TerminalSessionRequest: Equatable, Sendable {
     var workingDirectory: String?
     var command: String?
@@ -100,6 +120,11 @@ enum TerminalEvent: Equatable, Sendable {
     case userEditedInput
     case userSubmittedInput
     case surfaceClosed
+    /// Coalesced "the terminal grid may have changed" pulse, derived from
+    /// libghostty's `RENDER` action. Only emitted while a consumer has opted into
+    /// content observation (see `LibghosttyContentChangeObservation`); carries no
+    /// payload and is safe to ignore.
+    case contentChanged
 }
 
 enum TerminalInterruptKeyRecognizer {
@@ -188,6 +213,7 @@ protocol TerminalAdapter: AnyObject {
     func startSession(using request: TerminalSessionRequest) throws
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity)
     func sendText(_ text: String)
+    func sendSpecialKey(_ key: TerminalSpecialKey) -> Bool
     func cancelPromptInput()
     func submitCommand(_ command: String)
     func close()
@@ -198,6 +224,11 @@ protocol TerminalAdapter: AnyObject {
 @MainActor
 extension TerminalAdapter {
     func cancelPromptInput() {}
+
+    // Default for non-Libghostty adapters (mocks, tests). The Libghostty adapter
+    // overrides this to synthesize a real key event. Returns `false` so callers
+    // can detect that no live surface consumed the key.
+    func sendSpecialKey(_ key: TerminalSpecialKey) -> Bool { false }
 
     // Default for non-Libghostty adapters (mocks, tests). The Libghostty adapter
     // overrides this to send a synthetic Return key event *outside* bracketed-paste
@@ -211,6 +242,76 @@ extension TerminalAdapter {
 @MainActor
 protocol TerminalTextReading: AnyObject {
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    /// The live terminal grid dimensions (columns × rows), or `nil` when no live
+    /// surface backs the pane yet.
+    var gridSize: (cols: Int, rows: Int)? { get }
+}
+
+/// Fixed-grid control-lease takeover (companion §2.6). While leased, the pane's
+/// surface is sized to a phone-measured `cols`×`rows` grid instead of its
+/// laid-out AppKit frame, and desktop rendering is suspended. Adopted by the
+/// libghostty adapter; other adapters (mocks) inherit the no-op default.
+@MainActor
+protocol TerminalControlLeasing: AnyObject {
+    /// Fixes the surface grid to `cols`×`rows` (pixel size = grid × cell metrics),
+    /// stops honoring the frame-derived viewport, and occludes the desktop
+    /// surface. Returns `false` when there is no live surface to resize.
+    @discardableResult
+    func applyControlLease(cols: Int, rows: Int) -> Bool
+    /// Restores the frame-derived viewport and re-enables desktop rendering.
+    func releaseControlLease()
+}
+
+/// Companion render keepalive: while the phone mirrors a pane, its surface must
+/// keep issuing render pulses (the source of `pane.text` frames) even when it is
+/// occluded — backgrounded, or hidden behind a control-lease placeholder. This
+/// pins the surface un-occluded independently of activity and lease state.
+/// Adopted by the libghostty adapter; other adapters (mocks) inherit the no-op
+/// default.
+@MainActor
+protocol TerminalRenderKeepAliving: AnyObject {
+    /// Pins (or unpins) the surface un-occluded for companion streaming.
+    func setCompanionRenderKeepAlive(_ active: Bool)
+}
+
+/// One coalesced run of raw PTY output, delivered on the main actor.
+/// `epoch` identifies the surface lifetime the offsets belong to and `seq` is the
+/// absolute byte offset of `bytes[0]` within that lifetime — a forward jump means
+/// bytes were lost and the consumer must resync rather than splice.
+typealias TerminalPTYByteSink = @MainActor (_ epoch: String, _ seq: Int, _ bytes: Data) -> Void
+
+/// Companion raw-PTY byte lane: streams the exact bytes the child process wrote
+/// so the phone can drive its own VT emulator. Installed only while a phone is
+/// attached to the pane's byte lane. Adopted by the libghostty adapter; other
+/// adapters (mocks) inherit the no-op default.
+@MainActor
+protocol TerminalPTYStreaming: AnyObject {
+    /// Installs (or removes, with `nil`) the pane's PTY byte sink.
+    func setCompanionByteStream(_ sink: TerminalPTYByteSink?)
+    /// Captures the pane's current screen as replayable VT bytes for a consumer
+    /// attaching mid-session, or `nil` when no live surface backs the pane or the
+    /// capture failed.
+    ///
+    /// EXPENSIVE: walks every active cell while holding the terminal engine's
+    /// renderer mutex, which blocks its io-reader thread. Same cost class as
+    /// reading screen text — throttle it, never call it per frame.
+    func captureCompanionScreenSnapshot() -> TerminalScreenSnapshot?
+}
+
+/// One screen capture as replayable VT bytes: written to a freshly reset emulator
+/// sized `cols`×`rows` it reproduces the screen, including the modes that change
+/// how LATER bytes are interpreted. `seq` is the absolute PTY offset the capture
+/// reflects — every byte below it is already baked in, so a consumer applies teed
+/// bytes at or after `seq` and discards anything below.
+struct TerminalScreenSnapshot: Sendable {
+    var data: Data
+    var seq: Int
+    var cols: Int
+    var rows: Int
+    /// The surface's PTY stream epoch at capture time. The capture and the live
+    /// byte stream must agree on it, or a consumer that repaints from the
+    /// snapshot discards the very next chunk as belonging to another stream.
+    var epoch: String
 }
 
 @MainActor

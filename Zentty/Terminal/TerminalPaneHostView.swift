@@ -9,6 +9,8 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
     private let adapter: any TerminalAdapter
     private let terminalView: NSView
     private let searchHUDView = PaneSearchHUDView()
+    private var leasePlaceholderView: CompanionLeasePlaceholderView?
+    private var isUnderControlLease = false
     private var hasStartedSession = false
     private var lastRenderedSearchState = PaneSearchState()
     private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
@@ -247,6 +249,15 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         terminalView.frame = bounds
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // A leased terminal view is centered, not bounds-tracking, so autoresizing
+        // cannot follow the pane on its own — a resize has to re-run layout.
+        if isUnderControlLease {
+            needsLayout = true
+        }
+    }
+
     override func layout() {
         super.layout()
         syncTerminalViewFrameIfNeeded()
@@ -259,10 +270,145 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
     }
 
     private func syncTerminalViewFrameIfNeeded() {
-        guard terminalView.frame != bounds else {
-            return
+        let target = terminalViewTarget
+        if terminalView.frame != target.frame {
+            terminalView.frame = target.frame
         }
-        terminalView.frame = bounds
+        if let placeholder = leasePlaceholderView {
+            // Only punch a cutout when the frame really is the phone's grid. If the
+            // leased size could not be resolved the frame is the whole pane, and a
+            // cutout there would undim everything — a pane under remote control
+            // would read as fully live. Dim it all instead: the safe direction.
+            placeholder.setLiveGridRect(
+                target.isLeasedGeometry ? placeholder.convert(target.frame, from: self) : nil
+            )
+        }
+    }
+
+    /// Normally the terminal view fills the pane. Under a companion control lease
+    /// the surface is pinned to the phone's grid instead, so the view is framed at
+    /// exactly that size and centered — the pane dims around it.
+    ///
+    /// `isLeasedGeometry` distinguishes a real leased rect from the pane-filling
+    /// fallback, which a lease on an adapter that cannot report its leased size
+    /// still produces.
+    private var terminalViewTarget: (frame: CGRect, isLeasedGeometry: Bool) {
+        guard isUnderControlLease,
+              let leasedSize = (terminalView as? any TerminalLeasedViewportSizing)?.leasedViewportPointSize,
+              leasedSize.width > 0, leasedSize.height > 0
+        else {
+            return (bounds, false)
+        }
+        return (Self.centeredLeaseFrame(forLeasedSize: leasedSize, in: bounds), true)
+    }
+
+    /// Centers `size` in `bounds`, clamped per axis. A phone may lease a grid
+    /// larger than the desktop pane can show (the grant is unconditional, §2.6);
+    /// on an overflowing axis the rect falls back to the pane's own extent so the
+    /// leased surface is cropped to the pane instead of drawing outside it.
+    /// Origins are floored to whole points to keep the grid on a pixel boundary.
+    static func centeredLeaseFrame(forLeasedSize size: CGSize, in bounds: CGRect) -> CGRect {
+        let width = min(max(size.width, 0), bounds.width)
+        let height = min(max(size.height, 0), bounds.height)
+        return CGRect(
+            x: bounds.minX + ((bounds.width - width) / 2).rounded(.down),
+            y: bounds.minY + ((bounds.height - height) / 2).rounded(.down),
+            width: width,
+            height: height
+        )
+    }
+
+    // MARK: - Companion control lease (§2.6)
+
+    /// Begins a control-lease takeover: pin the surface to the phone's fixed grid,
+    /// center the terminal view at that grid's pixel size, and install the
+    /// "controlled by <device>" placeholder with a Take Back Control button.
+    /// Idempotent — a repeat call (resize / supersede) refreshes the geometry, the
+    /// grid line, and the device name in place. Returns `false` when the adapter
+    /// has no live surface to lease.
+    @discardableResult
+    func beginControlLease(
+        cols: Int,
+        rows: Int,
+        deviceName: String,
+        onTakeBack: @escaping () -> Void
+    ) -> Bool {
+        guard let leaseable = adapter as? TerminalControlLeasing,
+              leaseable.applyControlLease(cols: cols, rows: rows)
+        else {
+            return false
+        }
+
+        isUnderControlLease = true
+        // The centered lease frame is not a bounds-tracking frame, so autoresizing
+        // must stop stretching the terminal view back over the whole pane; `layout`
+        // keeps the centered rect current instead.
+        terminalView.autoresizingMask = []
+
+        if let existing = leasePlaceholderView {
+            existing.update(deviceName: deviceName, gridSize: (cols: cols, rows: rows))
+        } else {
+            let placeholder = CompanionLeasePlaceholderView(
+                deviceName: deviceName,
+                gridSize: (cols: cols, rows: rows),
+                onTakeBack: onTakeBack
+            )
+            placeholder.frame = bounds
+            placeholder.autoresizingMask = [.width, .height]
+            addSubview(placeholder, positioned: .above, relativeTo: terminalView)
+            leasePlaceholderView = placeholder
+            placeholder.animateIn()
+        }
+
+        syncTerminalViewFrameIfNeeded()
+        layoutTerminalSubtreeIfNeeded()
+        return true
+    }
+
+    /// Ends the control lease: restore the pane-filling frame *before* the adapter
+    /// resumes frame-derived viewport sync (so it re-measures against the restored
+    /// geometry, including a resize that happened mid-lease), re-enable desktop
+    /// rendering, and remove the placeholder.
+    func endControlLease() {
+        isUnderControlLease = false
+        terminalView.autoresizingMask = [.width, .height]
+        syncTerminalViewFrameIfNeeded()
+        layoutTerminalSubtreeIfNeeded()
+        (adapter as? TerminalControlLeasing)?.releaseControlLease()
+        // Clear the reference first so a fresh lease builds a new overlay, then let
+        // the detached view fade itself out and self-remove.
+        let departing = leasePlaceholderView
+        leasePlaceholderView = nil
+        departing?.setLiveGridRect(nil)
+        departing?.animateOutAndRemove()
+    }
+
+    /// Pins/unpins the companion render keepalive on the adapter: while active the
+    /// surface stays un-occluded so it keeps issuing render pulses for the phone's
+    /// mirror, overriding both the backgrounded-pane and control-lease occlusion.
+    func setCompanionRenderKeepAlive(_ active: Bool) {
+        (adapter as? TerminalRenderKeepAliving)?.setCompanionRenderKeepAlive(active)
+    }
+
+    /// Installs/removes the companion raw-PTY byte stream on the adapter. A no-op
+    /// for adapters that cannot tee their PTY (mocks).
+    /// - Returns: `false` when this pane has no byte-streaming adapter.
+    @discardableResult
+    func setCompanionByteStream(_ sink: TerminalPTYByteSink?) -> Bool {
+        guard let streaming = adapter as? TerminalPTYStreaming else { return false }
+        streaming.setCompanionByteStream(sink)
+        return true
+    }
+
+    /// Captures the pane's screen as replayable VT bytes for a companion attaching
+    /// mid-session. `nil` for adapters that cannot snapshot (mocks) or when there
+    /// is no live surface.
+    func captureCompanionScreenSnapshot() -> TerminalScreenSnapshot? {
+        (adapter as? TerminalPTYStreaming)?.captureCompanionScreenSnapshot()
+    }
+
+    var isUnderControlLeaseForTesting: Bool {
+        leasePlaceholderView != nil
     }
 
     private func layoutTerminalSubtreeIfNeeded() {

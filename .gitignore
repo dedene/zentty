@@ -33,3 +33,8 @@ fastlane/.env
 *.p8
 .sentryclirc
 agent.config.json
+
+# Companion (JS world) — build + dependency artifacts
+companion/**/node_modules/
+companion/**/dist/
+companion/.pnpm-store/

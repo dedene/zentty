@@ -1,0 +1,81 @@
+# Gate for the companion JS workspace (wire / relay / mobile). Path-filtered so
+# macOS-app-only changes never spin an Ubuntu runner up.
+#
+# The Swift side of the wire contract (ZenttyLogicTests/CompanionWireConformanceTests)
+# reads the same companion/wire/vectors JSON, but building it needs
+# FrameworksLocal/GhosttyKit.xcframework, which is untracked and produced by
+# scripts/build_ghosttykit.sh. Run it locally with scripts/test-on-virtual-display
+# after touching the vectors.
+name: Companion CI
+
+on:
+  # Push is limited to main. On a branch with an open PR, keying the concurrency
+  # group cannot dedupe the two events — `push` and `pull_request` carry
+  # different refs AND different SHAs (the PR event uses the merge commit) — so
+  # every commit would run the whole job twice.
+  push:
+    branches: [main]
+    paths:
+      - 'companion/**'
+      - '.github/workflows/companion-ci.yml'
+  pull_request:
+    paths:
+      - 'companion/**'
+      - '.github/workflows/companion-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Key on the PR number when there is one: a push to a PR branch fires both
+  # `push` (refs/heads/<branch>) and `pull_request` (refs/pull/<n>/merge), which
+  # would otherwise land in two groups and run the whole job twice.
+  group: companion-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # companion/ is the pnpm workspace root, not the repository root.
+    working-directory: companion
+
+jobs:
+  check:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          # companion/package.json carries no packageManager field, so pin here.
+          version: 11.8.0
+          package_json_file: companion/package.json
+          cache: true
+          cache_dependency_path: companion/pnpm-lock.yaml
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          # Matches relay/Dockerfile (node:24-alpine) and the relay esbuild target.
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install
+        # No --config.strictDepBuilds escape hatch: esbuild's build script is
+        # allowed via onlyBuiltDependencies in pnpm-workspace.yaml, so a strict
+        # install must pass here exactly as it does in relay/Dockerfile.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build wire
+        # relay and mobile resolve @zentty/wire through its dist exports, so the
+        # declaration output has to exist before anything typechecks.
+        run: pnpm --filter @zentty/wire build
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        run: pnpm -r test

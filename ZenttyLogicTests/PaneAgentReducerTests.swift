@@ -2154,4 +2154,123 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.taskProgress?.doneCount, 3)
         XCTAssertEqual(status?.taskProgress?.totalCount, 7)
     }
+
+    // MARK: - Bounded starting grace (workspace-restore resume)
+
+    func test_sweep_demotes_stuck_starting_session_to_idle_after_grace_window() {
+        // Reproduces the workspace-restore bug: a resumed agent fires only a
+        // session_start signal (here a PID attach), landing in `.starting`,
+        // then sits idle at its prompt with a live process and never emits
+        // another hook. Without a bounded grace it stays `.starting` forever.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                sessionID: "resumed-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+
+        XCTAssertEqual(reducerState.reducedStatus(now: startedAt)?.state, .starting)
+
+        let afterGrace = startedAt.addingTimeInterval(PaneAgentReducerState.startingGraceWindow + 1)
+        reducerState.sweep(now: afterGrace, isProcessAlive: { _ in true })
+
+        let status = reducerState.reducedStatus(now: afterGrace)
+        XCTAssertEqual(status?.state, .idle)
+        XCTAssertEqual(status?.tool, .claudeCode)
+        XCTAssertEqual(status?.trackedPID, 4242)
+    }
+
+    func test_sweep_keeps_fresh_starting_session_within_grace_window() {
+        // Fresh launches should still read as "Starting" during process
+        // spin-up; only a stuck starting session past the grace window demotes.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                sessionID: "fresh-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+
+        let withinGrace = startedAt.addingTimeInterval(PaneAgentReducerState.startingGraceWindow - 1)
+        reducerState.sweep(now: withinGrace, isProcessAlive: { _ in true })
+
+        XCTAssertEqual(reducerState.reducedStatus(now: withinGrace)?.state, .starting)
+    }
+
+    func test_activity_during_grace_window_prevents_starting_demotion() {
+        // A user prompt (or any activity hook) arriving during the grace
+        // window promotes to running; the later sweep must not demote it.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                sessionID: "active-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .update,
+                confidence: .explicit,
+                sessionID: "active-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(5)
+        )
+
+        let afterGrace = startedAt.addingTimeInterval(PaneAgentReducerState.startingGraceWindow + 1)
+        reducerState.sweep(now: afterGrace, isProcessAlive: { _ in true })
+
+        XCTAssertEqual(reducerState.reducedStatus(now: afterGrace)?.state, .running)
+    }
 }

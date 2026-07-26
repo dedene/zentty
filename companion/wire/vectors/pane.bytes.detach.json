@@ -1,0 +1,37 @@
+[
+  {
+    "name": "detach a watched byte lane",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "d4e5f6a7-0001-4000-8000-000000000001",
+      "type": "pane.bytes.detach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90"
+      }
+    }
+  },
+  {
+    "name": "unknown extra field is ignored (forward compat)",
+    "valid": true,
+    "message": {
+      "v": 1,
+      "id": "d4e5f6a7-0002-4000-8000-000000000002",
+      "type": "pane.bytes.detach",
+      "payload": {
+        "paneId": "pn_3f2a9c1e-8b47-4d6a-9f21-2c5e7a1b4d90",
+        "futureField": "ignored"
+      }
+    }
+  },
+  {
+    "name": "missing paneId is invalid",
+    "valid": false,
+    "message": {
+      "v": 1,
+      "id": "d4e5f6a7-0003-4000-8000-000000000003",
+      "type": "pane.bytes.detach",
+      "payload": {}
+    }
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "valid ready",
+    "valid": true,
+    "message": {
+      "type": "relay.ready",
+      "deviceId": "mUhoCMEvQkPzIzTfLY2gKLowTnv7ph_gVsRVF-6fEho"
+    }
+  },
+  {
+    "name": "missing deviceId is invalid",
+    "valid": false,
+    "message": {
+      "type": "relay.ready"
+    }
+  }
+]
