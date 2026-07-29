@@ -71,6 +71,35 @@ final class TmuxCompatArgumentsTests: XCTestCase {
         XCTAssertTrue(parsed.hasFlag("-P"))
     }
 
+    func test_parseTreatsDoubleDashAsEndOfOptionsTerminator() {
+        // A tmux `split-window … -- <command>` uses `--` to terminate options.
+        // The terminator must be consumed so the command (e.g. the `cat`
+        // keep-alive placeholder) survives intact instead of collapsing to the
+        // crashing `-- cat` string that dies with `zsh: no such option: cat`.
+        // Regression for dedene/zentty#58.
+        let parsed = TmuxCompatArguments.parse(
+            ["-d", "--", "cat"],
+            valueFlags: ["-c", "-F", "-l", "-t"],
+            boolFlags: ["-P", "-b", "-d", "-h", "-v"]
+        )
+
+        XCTAssertTrue(parsed.hasFlag("-d"))
+        XCTAssertEqual(parsed.positionals, ["cat"])
+    }
+
+    func test_parseStopsOptionProcessingAfterDoubleDash() {
+        // Everything after `--` is positional verbatim, even option-like tokens,
+        // so a command carrying its own flags is not mis-parsed.
+        let parsed = TmuxCompatArguments.parse(
+            ["--", "-c", "value"],
+            valueFlags: ["-c", "-F", "-l", "-t"],
+            boolFlags: ["-P", "-b", "-d", "-h", "-v"]
+        )
+
+        XCTAssertNil(parsed.value("-c"))
+        XCTAssertEqual(parsed.positionals, ["-c", "value"])
+    }
+
     func test_sendKeysTranslatesEnterToCarriageReturn() {
         XCTAssertEqual(
             TmuxCompatIPCHandler.sendKeysText(arguments: ["-t", "%pane", "claude", "Enter"], standardInput: nil),
