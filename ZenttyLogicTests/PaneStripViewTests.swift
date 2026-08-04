@@ -91,6 +91,26 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_identical_render_does_not_reinvalidate_cursor_rects() {
+        let paneStripView = makePaneStripView()
+        let state = PaneStripState(
+            panes: [makePane("shell")],
+            focusedPaneID: PaneID("shell")
+        )
+
+        paneStripView.render(state, animated: false)
+        let invalidationCount = paneStripView.cursorRectInvalidationCountForTesting
+
+        paneStripView.render(state, animated: false)
+
+        XCTAssertEqual(
+            paneStripView.cursorRectInvalidationCountForTesting,
+            invalidationCount,
+            "content-only renders must preserve the pane strip's cursor rectangles"
+        )
+    }
+
+    @MainActor
     func test_single_pane_keeps_full_width_and_uses_balanced_bottom_gutter() throws {
         let paneStripView = makePaneStripView()
         let state = PaneStripState(
@@ -1481,6 +1501,38 @@ final class PaneStripViewTests: AppKitTestCase {
             assertRetinaAligned(paneView.frame.minY)
             assertRetinaAligned(paneView.frame.maxY)
         }
+    }
+
+    @MainActor
+    func test_sidebar_inset_suppresses_cursor_ownership_for_panes_under_sidebar() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter)
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        paneStripView.leadingVisibleInset = sidebarInset
+        let state = PaneStripState(
+            panes: [makePane("logs"), makePane("editor"), makePane("tests")],
+            focusedPaneID: PaneID("tests")
+        )
+
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let coveredPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first { $0.frame.minX < sidebarInset }
+        )
+        let adapter = try XCTUnwrap(adapterFactory.adapter(for: coveredPane.paneID))
+        let expectedWidth = min(coveredPane.frame.width, sidebarInset - coveredPane.frame.minX)
+        XCTAssertTrue(adapter.terminalView.mouseInteractionSuppressionRects.contains(
+            CGRect(
+                x: 0,
+                y: 0,
+                width: expectedWidth,
+                height: adapter.terminalView.bounds.height
+            )
+        ))
     }
 
     @MainActor
@@ -4553,7 +4605,13 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     }
 }
 
-private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding {
+private final class PaneStripTerminalViewSpy:
+    NSView,
+    TerminalViewportSyncControlling,
+    TerminalFocusReporting,
+    TerminalFocusTargetProviding,
+    TerminalMouseInteractionSuppressionControlling
+{
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var hasValidViewportSync = false
     private(set) var viewportSyncSuspensionUpdates: [Bool] = []
@@ -4562,6 +4620,7 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     private(set) var forceViewportSyncCallCount = 0
     private(set) var displayIfNeededCallCount = 0
     private(set) var layoutPassCount = 0
+    private(set) var mouseInteractionSuppressionRects: [CGRect] = []
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
 
@@ -4588,6 +4647,10 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     func forceViewportSync() {
         hasValidViewportSync = true
         forceViewportSyncCallCount += 1
+    }
+
+    func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
+        mouseInteractionSuppressionRects = rects
     }
 
     func simulateFocusChange(_ isFocused: Bool) {

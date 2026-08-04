@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class SidebarViewRenderTests: AppKitTestCase {
+    func test_worklane_row_uses_the_default_arrow_cursor() throws {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: [makeSummary(worklaneID: "main", primaryText: "demo")],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        sidebar.layoutSubtreeIfNeeded()
+
+        let row = try XCTUnwrap(sidebarWorklaneButtons(in: sidebar).first)
+        row.updateTrackingAreas()
+        XCTAssertFalse(row.trackingAreas.contains { $0.options.contains(.cursorUpdate) })
+        XCTAssertFalse(row.trackingAreas.contains { $0.options.contains(.mouseMoved) })
+    }
+
+    func test_empty_sidebar_has_no_worklane_row_cursor_owner() throws {
+        let sidebar = makeSidebar()
+
+        sidebar.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(try sidebarWorklaneButtons(in: sidebar).isEmpty)
+    }
+
     func test_sidebar_toggle_tooltip_uses_configured_shortcut() {
         let button = SidebarToggleButton()
 
@@ -956,6 +978,22 @@ final class SidebarViewRenderTests: AppKitTestCase {
                 context: nil,
                 eventNumber: 1,
                 clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
+    private func makeMouseMovedEvent() throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: NSPoint(x: 12, y: 120),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 0,
                 pressure: 0
             )
         )

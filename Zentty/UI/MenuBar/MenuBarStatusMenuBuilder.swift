@@ -280,7 +280,6 @@ private final class MenuBarAgentRowView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        super.cursorUpdate(with: event)
         NSCursor.arrow.set()
     }
 

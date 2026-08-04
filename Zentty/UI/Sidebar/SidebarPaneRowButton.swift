@@ -562,6 +562,7 @@ final class SidebarPaneRowButton: NSButton {
     private var activeContextPicker: WorklaneColorMenuItemView?
 
     private let contentStack = NSStackView()
+    private var contentViews: [NSView] = []
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
     private var hoverBackgroundColor: NSColor = .clear
@@ -596,6 +597,7 @@ final class SidebarPaneRowButton: NSButton {
         contentStack.orientation = .vertical
         contentStack.spacing = ShellMetrics.sidebarRowInterlineSpacing
         contentStack.alignment = .leading
+        contentStack.detachesHiddenViews = true
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(contentStack)
@@ -676,8 +678,24 @@ final class SidebarPaneRowButton: NSButton {
         return true
     }
 
-    func setContent(_ views: [NSView]) {
-        contentStack.setViews(views, in: .top)
+    func setContent(allViews: [NSView], visibleViews: [NSView]) {
+        if contentViews.elementsEqual(allViews, by: { $0 === $1 }) == false {
+            contentViews = allViews
+            contentStack.setViews(allViews, in: .top)
+#if DEBUG
+            contentStackReplacementCountForTesting &+= 1
+#endif
+        }
+
+        let visibleViewIDs = Set(visibleViews.map(ObjectIdentifier.init))
+        for view in contentViews {
+            let priority: NSStackView.VisibilityPriority = visibleViewIDs.contains(ObjectIdentifier(view))
+                ? .mustHold
+                : .notVisible
+            if contentStack.visibilityPriority(for: view) != priority {
+                contentStack.setVisibilityPriority(priority, for: view)
+            }
+        }
     }
 
     func updateTheme(hoverColor: NSColor, pressedColor: NSColor) {
@@ -710,11 +728,9 @@ final class SidebarPaneRowButton: NSButton {
         layer?.cornerRadius ?? 0
     }
 
-    // MARK: - Cursor
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
+#if DEBUG
+    private(set) var contentStackReplacementCountForTesting = 0
+#endif
 
     // MARK: - Hover
 

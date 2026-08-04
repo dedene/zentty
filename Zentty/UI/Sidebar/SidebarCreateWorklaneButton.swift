@@ -135,7 +135,6 @@ final class SidebarCreateWorklaneButton: NSButton {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        super.cursorUpdate(with: event)
         NSCursor.pointingHand.set()
     }
 

@@ -658,6 +658,14 @@ final class SidebarPanePrimaryRowView: NSView {
         trailingLabelView.textColor ?? .clear
     }
 
+    var animatesBrailleSpinnerForTesting: Bool {
+        shimmerLabel.animatesBrailleSpinner
+    }
+
+    var baseLabelIsHiddenForTesting: Bool {
+        baseLabel.isHidden
+    }
+
     var remoteIconIsVisibleForTesting: Bool {
         remoteIconView.isHidden == false
     }
@@ -828,6 +836,11 @@ final class SidebarPanePrimaryRowView: NSView {
         shimmerLabel.isShimmering = isShimmering
         shimmerLabel.reducedMotion = reducedMotion
         shimmerLabel.shimmerColor = shimmerColor
+        let animatesBrailleSpinner = isShimmering
+            && SidebarShimmerTextView.containsBrailleSpinner(in: primaryText)
+        shimmerLabel.animatesBrailleSpinner = animatesBrailleSpinner
+        shimmerLabel.animatedSpinnerBaseColor = animatesBrailleSpinner ? primaryColor : nil
+        baseLabel.isHidden = animatesBrailleSpinner
     }
 
     func setShimmerCoordinator(_ coordinator: SidebarShimmerCoordinator?) {

@@ -106,6 +106,8 @@ final class RootViewController: NSViewController {
 
     private enum SidebarLayout {
         static let hoverRailWidth: CGFloat = 8
+        static let resizeHandleWidth = SidebarResizeHandleView.hitWidth
+            + ShellMetrics.canvasSidebarGap
         static let defaultTrafficLightAnchor = NSPoint(
             x: ChromeGeometry.trafficLightLeadingInset + 48, y: 0)
     }
@@ -118,6 +120,7 @@ final class RootViewController: NSViewController {
     private let serverOpenService: ServerOpening
     private let taskRunnerDiscoveryService = TaskRunnerDiscoveryService()
     private let sidebarView = SidebarView()
+    private let sidebarOuterResizeHandleView = SidebarResizeHandleView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
     private let runtimeRegistry: PaneRuntimeRegistry
@@ -175,6 +178,7 @@ final class RootViewController: NSViewController {
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
     private var toggleLeadingConstraint: NSLayoutConstraint?
+    private var outerSidebarResizeStartWidth = SidebarWidthPreference.defaultWidth
 #if DEBUG
     private(set) var lastSidebarChromeFrameMotionForTesting: SidebarChromeFrameMotionRecord?
 #endif
@@ -558,6 +562,10 @@ final class RootViewController: NSViewController {
         appCanvasView.translatesAutoresizingMaskIntoConstraints = false
         windowChromeView.translatesAutoresizingMaskIntoConstraints = false
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarOuterResizeHandleView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarOuterResizeHandleView.onPan = { [weak self] recognizer in
+            self?.handleOuterSidebarResizePan(recognizer)
+        }
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         peekView.translatesAutoresizingMaskIntoConstraints = false
         peekView.isHidden = true
@@ -568,6 +576,7 @@ final class RootViewController: NSViewController {
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
         view.addSubview(sidebarView)
+        view.addSubview(sidebarOuterResizeHandleView)
         view.addSubview(dragOverlayView)
         view.addSubview(leadingChromeControlsBar)
         sidebarView.setUpdateAvailable(isUpdateAvailable)
@@ -599,6 +608,16 @@ final class RootViewController: NSViewController {
             sidebarView.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor, constant: -ShellMetrics.outerInset),
             sidebarWidthConstraint,
+
+            sidebarOuterResizeHandleView.topAnchor.constraint(equalTo: sidebarView.topAnchor),
+            sidebarOuterResizeHandleView.leadingAnchor.constraint(
+                equalTo: sidebarView.trailingAnchor,
+                constant: -SidebarResizeHandleView.hitWidth
+            ),
+            sidebarOuterResizeHandleView.bottomAnchor.constraint(equalTo: sidebarView.bottomAnchor),
+            sidebarOuterResizeHandleView.widthAnchor.constraint(
+                equalToConstant: SidebarLayout.resizeHandleWidth
+            ),
 
             appCanvasView.topAnchor.constraint(
                 equalTo: windowChromeView.bottomAnchor,
@@ -1122,9 +1141,6 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onCheckForUpdatesRequested = { [weak self] in
             self?.onCheckForUpdatesRequested?()
-        }
-        sidebarView.onResized = { [weak self] width in
-            self?.handleSidebarWidthChange(width)
         }
         sidebarView.onPointerEntered = { [weak self] in
             self?.sidebarMotionCoordinator.handle(.sidebarEntered)
@@ -2164,8 +2180,28 @@ final class RootViewController: NSViewController {
         updateSidebarWidth(width, persist: true)
     }
 
+    private func handleOuterSidebarResizePan(_ recognizer: NSPanGestureRecognizer) {
+        guard sidebarMotionCoordinator.showsResizeHandle else { return }
+
+        switch recognizer.state {
+        case .began:
+            outerSidebarResizeStartWidth = sidebarMotionCoordinator.currentSidebarWidth
+        case .changed, .ended:
+            let translation = recognizer.translation(in: view).x
+            handleSidebarWidthChange(
+                SidebarResizeModel.proposedWidth(
+                    startWidth: outerSidebarResizeStartWidth,
+                    translation: translation
+                )
+            )
+        default:
+            break
+        }
+    }
+
     private func syncSidebarVisibilityControls(animated: Bool) {
-        sidebarView.setResizeEnabled(sidebarMotionCoordinator.showsResizeHandle)
+        let showsResizeHandle = sidebarMotionCoordinator.showsResizeHandle
+        sidebarOuterResizeHandleView.setEnabled(showsResizeHandle)
         sidebarToggleButton.configure(
             theme: currentTheme,
             isActive: sidebarMotionCoordinator.mode == .pinnedOpen,
@@ -2542,6 +2578,15 @@ final class RootViewController: NSViewController {
 
         var pathCopiedToastViewForTesting: PathCopiedToastView? {
             toasts.currentToastViewForTesting
+        }
+
+        func rootPointerCursorForTesting(at localPoint: NSPoint) -> NSCursor? {
+            guard let resizeHandle = view.hitTest(localPoint) as? SidebarResizeHandleView,
+                  resizeHandle.isEnabled
+            else {
+                return nil
+            }
+            return .resizeLeftRight
         }
 
         func insertRemoteImageUploadTaskForTesting(
@@ -3109,6 +3154,7 @@ private final class WindowContentView: NSView {
         super.viewDidChangeEffectiveAppearance()
         onEffectiveAppearanceDidChange?()
     }
+
 }
 
 // MARK: - Bookmarks popover

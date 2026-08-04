@@ -7,6 +7,47 @@ import XCTest
 final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     private var rowWidthConstraints: [ObjectIdentifier: NSLayoutConstraint] = [:]
 
+    func test_working_braille_title_uses_local_spinner_renderer() {
+        let row = makeRow()
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Working ⠋ zentty",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertTrue(row.debugAccessForTesting.primaryLabel.animatesBrailleSpinner)
+        XCTAssertTrue(row.debugAccessForTesting.primaryBaseLabel.isHidden)
+    }
+
+    func test_idle_braille_title_restores_static_base_label() {
+        let row = makeRow()
+        row.configure(
+            with: makeSummary(
+                primaryText: "Working ⠋ zentty",
+                statusText: "Running",
+                attentionState: .running,
+                isWorking: true
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        row.configure(
+            with: makeSummary(primaryText: "Ready · zentty"),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        XCTAssertFalse(row.debugAccessForTesting.primaryLabel.animatesBrailleSpinner)
+        XCTAssertFalse(row.debugAccessForTesting.primaryBaseLabel.isHidden)
+    }
+
     func test_working_worklane_row_does_not_animate_until_it_is_hosted_in_a_visible_sidebar() {
         let row = makeRow()
 
@@ -2951,6 +2992,55 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.debugSnapshotForTesting.configureApplyCount, 2)
     }
 
+    func test_working_state_refresh_preserves_sidebar_view_hierarchy() throws {
+        let row = makeRow(width: 320, height: 120)
+        let theme = ZenttyTheme.fallback(for: nil)
+        let idlePaneRows = [
+            makePaneRow(
+                isFocused: true,
+                detailText: nil,
+                statusText: nil
+            )
+        ]
+
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code", paneRows: idlePaneRows),
+            theme: theme,
+            animated: false
+        )
+        let paneButton = try XCTUnwrap(row.debugAccessForTesting.paneRowButtons.first)
+        let rowReplacementCount = row.contentStackReplacementCountForTesting
+        let paneReplacementCount = paneButton.contentStackReplacementCountForTesting
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    makePaneRow(
+                        isFocused: true,
+                        detailText: "…/zentty",
+                        statusText: "Working",
+                        isWorking: true
+                    )
+                ],
+                isWorking: true
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(
+            row.contentStackReplacementCountForTesting,
+            rowReplacementCount,
+            "a content-only Working refresh must not rebuild the Worklane stack"
+        )
+        XCTAssertEqual(
+            paneButton.contentStackReplacementCountForTesting,
+            paneReplacementCount,
+            "a content-only Working refresh must not rebuild the pane stack"
+        )
+    }
+
     func test_configure_runsAgainWhenBoundsWidthChanges() {
         let row = makeRow(width: 220)
         let theme = ZenttyTheme.fallback(for: nil)
@@ -3046,17 +3136,20 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
 
     private func makePaneRow(
         paneID: String = "worklane-main-pane",
-        isFocused: Bool
+        isFocused: Bool,
+        detailText: String? = "…/zentty",
+        statusText: String? = "╰ Idle",
+        isWorking: Bool = false
     ) -> WorklaneSidebarPaneRow {
         WorklaneSidebarPaneRow(
             paneID: PaneID(paneID),
             primaryText: "Claude Code",
             trailingText: "main",
-            detailText: "…/zentty",
-            statusText: "╰ Idle",
+            detailText: detailText,
+            statusText: statusText,
             attentionState: nil,
             isFocused: isFocused,
-            isWorking: false
+            isWorking: isWorking
         )
     }
 

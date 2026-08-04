@@ -8,7 +8,6 @@ struct SidebarViewDebugSnapshot {
     let arrangedWorklaneIDs: [WorklaneID]
     let reorderSpacerHeight: CGFloat
     let worklaneRowFramesForReordering: [(WorklaneID, CGRect)]
-    let resizeHandleWidth: CGFloat
     let appearanceMatch: NSAppearance.Name?
     let shimmerDriverIsRunning: Bool
     let isUpdateRowHidden: Bool
@@ -32,7 +31,6 @@ struct SidebarViewDebugAccess {
     let worklaneSummaries: [WorklaneSidebarSummary]
     let listStack: NSStackView
     let reorderSpacerView: SidebarReorderSpacerView?
-    let resizeHandleView: SidebarResizeHandleView
     let updateAvailableRowView: SidebarUpdateAvailableRowView
     let addWorklaneButton: SidebarCreateWorklaneButton
     let globalSearchButton: SidebarGlobalSearchButton
@@ -57,7 +55,6 @@ struct SidebarViewDebugAccess {
             },
             reorderSpacerHeight: reorderSpacerView?.spacerHeight ?? 0,
             worklaneRowFramesForReordering: sidebarView.worklaneRowFramesForReordering(),
-            resizeHandleWidth: resizeHandleView.frame.width,
             appearanceMatch: appearance?.bestMatch(from: [.darkAqua, .aqua]),
             shimmerDriverIsRunning: shimmerDriverIsRunning,
             isUpdateRowHidden: updateAvailableRowView.isHidden,
@@ -401,30 +398,6 @@ extension SidebarView {
 
     func performGlobalSearchNextCommandForTesting() {
         debugAccessForTesting.globalSearchRowView.performNextCommandForTesting()
-    }
-
-    var resizeHandleMinX: CGFloat {
-        debugAccessForTesting.resizeHandleView.frame.minX
-    }
-
-    var resizeHandleMaxX: CGFloat {
-        debugAccessForTesting.resizeHandleView.frame.maxX
-    }
-
-    var resizeHandleFillAlpha: CGFloat {
-        debugAccessForTesting.resizeHandleView.fillAlpha
-    }
-
-    var isResizeHandleHidden: Bool {
-        debugAccessForTesting.resizeHandleView.isHidden
-    }
-
-    var trailingEdgeHitTargetsResizeHandle: Bool {
-        hitTest(NSPoint(x: bounds.maxX - 1, y: bounds.midY)) === debugAccessForTesting.resizeHandleView
-    }
-
-    func hitTargetsResizeHandle(atX x: CGFloat) -> Bool {
-        hitTest(NSPoint(x: x, y: bounds.midY)) === debugAccessForTesting.resizeHandleView
     }
 
     var isUpdateAvailableRowVisible: Bool {

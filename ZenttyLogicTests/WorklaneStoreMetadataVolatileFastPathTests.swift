@@ -658,7 +658,7 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         )
     }
 
-    func test_volatileTitleTick_fires_volatileAgentTitleUpdated_not_auxiliaryStateUpdated() throws {
+    func test_codexVolatileTitleTick_updatesMetadata_withoutUIInvalidation() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         store.knownNonRepositoryPaths.insert("/tmp/project")
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -699,8 +699,12 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
             if case .auxiliaryStateUpdated = change { return true }
             return false
         }
-        XCTAssertEqual(volatileUpdates.count, 1, "expected one volatileAgentTitleUpdated")
+        XCTAssertEqual(volatileUpdates.count, 0, "spinner-only Codex ticks must not repaint AppKit UI")
         XCTAssertEqual(auxiliaryUpdates.count, 0, "slow path should not fire for volatile-only tick")
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.metadata?.title,
+            "Working ⠙ zentty"
+        )
     }
 
     func test_volatileTitleTick_updates_stored_metadata() throws {
@@ -1474,7 +1478,7 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         XCTAssertNotEqual(auxiliaryState.presentation.statusText, "Stopped early")
     }
 
-    func test_hiddenWorklane_doesNotCoalesceVolatileNotifications() throws {
+    func test_hiddenWorklane_codexVolatileTicks_doNotEmitUIUpdates() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         store.knownNonRepositoryPaths.insert("/tmp/project")
         let activeWorklaneID = try XCTUnwrap(store.activeWorklane?.id)
@@ -1525,8 +1529,8 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         }
         XCTAssertEqual(
             volatileUpdates.count,
-            3,
-            "hidden-worklane volatile ticks should stay realtime so background panes feel active"
+            0,
+            "hidden Codex spinner ticks must not repaint AppKit UI"
         )
 
         XCTAssertEqual(
@@ -1593,7 +1597,7 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         )
     }
 
-    func test_activeWorklane_doesNotCoalesceVolatileNotifications() throws {
+    func test_activeWorklane_codexVolatileTicks_doNotEmitUIUpdates() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         store.knownNonRepositoryPaths.insert("/tmp/project")
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -1633,8 +1637,8 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         }
         XCTAssertEqual(
             volatileUpdates.count,
-            3,
-            "active-worklane volatile ticks must not be throttled — they drive the realtime spinner"
+            0,
+            "active Codex spinner ticks must not repaint AppKit UI"
         )
     }
 

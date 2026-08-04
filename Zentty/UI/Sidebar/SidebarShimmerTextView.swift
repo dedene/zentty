@@ -45,7 +45,10 @@ final class SidebarShimmerTextView: NSView {
         static let velocity: CGFloat = 130      // pts/sec — constant across all widths
         static let bandWidth: CGFloat = 48
         static let frameInterval: TimeInterval = 1.0 / 30.0
+        static let spinnerTicksPerFrame = 3
     }
+
+    private static let brailleSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     private static let textLeadingInset: CGFloat = 0
 
@@ -81,6 +84,22 @@ final class SidebarShimmerTextView: NSView {
         didSet {
             guard oldValue != shimmerColor else { return }
             needsDisplay = true
+        }
+    }
+
+    var animatedSpinnerBaseColor: NSColor? {
+        didSet {
+            guard oldValue != animatedSpinnerBaseColor else { return }
+            invalidateLayout()
+        }
+    }
+
+    var animatesBrailleSpinner = false {
+        didSet {
+            guard oldValue != animatesBrailleSpinner else { return }
+            spinnerTick = 0
+            spinnerFrameIndex = 0
+            invalidateLayout()
         }
     }
 
@@ -136,6 +155,8 @@ final class SidebarShimmerTextView: NSView {
 
     private var sharedShimmerPhase: CGFloat = 0.5
     private var sharedShimmerInSweep = false
+    private var spinnerTick = 0
+    private var spinnerFrameIndex = 0
     private var cachedWidth: CGFloat = -1
     private var cachedStringValue = ""
     private var cachedFont: NSFont?
@@ -197,6 +218,15 @@ final class SidebarShimmerTextView: NSView {
             return
         }
 
+        if let animatedSpinnerBaseColor {
+            context.saveGState()
+            context.textMatrix = .identity
+            context.textPosition = layout.origin
+            context.setFillColor(animatedSpinnerBaseColor.cgColor)
+            CTLineDraw(layout.line, context)
+            context.restoreGState()
+        }
+
         guard canAnimateSharedShimmer, sharedShimmerInSweep else {
             return
         }
@@ -249,13 +279,14 @@ final class SidebarShimmerTextView: NSView {
 
     private func layoutSnapshot(forWidth width: CGFloat) -> LayoutSnapshot? {
         let availableWidth = width - Self.textLeadingInset
-        guard availableWidth > 0, stringValue.isEmpty == false else {
+        let displayedStringValue = displayedStringValue
+        guard availableWidth > 0, displayedStringValue.isEmpty == false else {
             return nil
         }
 
         if let cachedLayout,
             abs(cachedWidth - width) <= .ulpOfOne,
-            cachedStringValue == stringValue,
+            cachedStringValue == displayedStringValue,
             cachedFont == font,
             cachedLineBreakMode == lineBreakMode
         {
@@ -263,10 +294,11 @@ final class SidebarShimmerTextView: NSView {
         }
 
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font
+            .font: font,
+            .foregroundColor: animatedSpinnerBaseColor ?? NSColor.labelColor,
         ]
         let line = CTLineCreateWithAttributedString(
-            NSAttributedString(string: stringValue, attributes: attributes)
+            NSAttributedString(string: displayedStringValue, attributes: attributes)
         )
         let drawLine = truncatedLine(
             from: line, attributes: attributes, availableWidth: availableWidth)
@@ -286,12 +318,43 @@ final class SidebarShimmerTextView: NSView {
         )
 
         cachedWidth = width
-        cachedStringValue = stringValue
+        cachedStringValue = displayedStringValue
         cachedFont = font
         cachedLineBreakMode = lineBreakMode
         cachedLayout = snapshot
 
         return snapshot
+    }
+
+    static func containsBrailleSpinner(in text: String) -> Bool {
+        text.contains { character in
+            guard character.unicodeScalars.count == 1,
+                  let value = character.unicodeScalars.first?.value else {
+                return false
+            }
+            return (0x2800...0x28FF).contains(value)
+        }
+    }
+
+    private var displayedStringValue: String {
+        guard animatesBrailleSpinner,
+              Self.brailleSpinnerFrames.indices.contains(spinnerFrameIndex),
+              let spinnerIndex = stringValue.firstIndex(where: { character in
+                  guard character.unicodeScalars.count == 1,
+                        let value = character.unicodeScalars.first?.value else {
+                      return false
+                  }
+                  return (0x2800...0x28FF).contains(value)
+              }) else {
+            return stringValue
+        }
+
+        var value = stringValue
+        value.replaceSubrange(
+            spinnerIndex..<value.index(after: spinnerIndex),
+            with: Self.brailleSpinnerFrames[spinnerFrameIndex]
+        )
+        return value
     }
 
     private func truncatedLine(
@@ -355,6 +418,14 @@ final class SidebarShimmerTextView: NSView {
     func applySharedShimmerState(phase: CGFloat, inSweep: Bool) {
         sharedShimmerPhase = phase
         sharedShimmerInSweep = inSweep
+        if animatesBrailleSpinner, canAnimateSharedShimmer {
+            spinnerTick += 1
+            if spinnerTick >= Animation.spinnerTicksPerFrame {
+                spinnerTick = 0
+                spinnerFrameIndex = (spinnerFrameIndex + 1) % Self.brailleSpinnerFrames.count
+                cachedLayout = nil
+            }
+        }
         needsDisplay = true
     }
 
@@ -367,6 +438,16 @@ final class SidebarShimmerTextView: NSView {
     fileprivate var canAnimateSharedShimmer: Bool {
         isShimmering && isVisibleForSharedAnimation && reducedMotion == false
     }
+
+#if DEBUG
+    static var spinnerTicksPerFrameForTesting: Int {
+        Animation.spinnerTicksPerFrame
+    }
+
+    var displayedStringValueForTesting: String {
+        displayedStringValue
+    }
+#endif
 
     private func refreshSharedShimmerParticipation() {
         guard let shimmerCoordinator else {

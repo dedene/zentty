@@ -1,10 +1,11 @@
 import AppKit
 
 final class SidebarResizeHandleView: NSView {
+    nonisolated static let hitWidth: CGFloat = 4
+
     var onPan: ((NSPanGestureRecognizer) -> Void)?
 
     private var panRecognizer: NSPanGestureRecognizer?
-    private var trackingArea: NSTrackingArea?
     private(set) var isEnabled = true
 
     override init(frame frameRect: NSRect) {
@@ -23,39 +24,9 @@ final class SidebarResizeHandleView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        self.trackingArea = trackingArea
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         invalidatePointerAffordances()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        guard isEnabled else {
-            return
-        }
-
-        NSCursor.resizeLeftRight.set()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
     }
 
     override func resetCursorRects() {
@@ -64,15 +35,6 @@ final class SidebarResizeHandleView: NSView {
             return
         }
         addCursorRect(bounds, cursor: .resizeLeftRight)
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        super.cursorUpdate(with: event)
-        guard isEnabled else {
-            return
-        }
-
-        NSCursor.resizeLeftRight.set()
     }
 
     func apply(theme _: ZenttyTheme, animated: Bool) {
@@ -102,7 +64,6 @@ final class SidebarResizeHandleView: NSView {
     }
 
     private func invalidatePointerAffordances() {
-        updateTrackingAreas()
         discardCursorRects()
         window?.invalidateCursorRects(for: self)
     }

@@ -1356,6 +1356,38 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(terminalView.mouseInteractionSuppressionRects, [dragZoneRect])
     }
 
+    func test_metadata_updates_do_not_reapply_unchanged_search_hud_suppression() {
+        let terminalView = OverlayHostingTerminalView()
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let initialUpdateCount = terminalView.mouseInteractionSuppressionUpdateCount
+
+        adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/one"))
+        adapter.metadataDidChange?(TerminalMetadata(currentWorkingDirectory: "/tmp/two"))
+
+        XCTAssertGreaterThan(initialUpdateCount, 0)
+        XCTAssertEqual(
+            terminalView.mouseInteractionSuppressionUpdateCount,
+            initialUpdateCount
+        )
+        XCTAssertFalse(paneView.isSearchHUDVisible)
+    }
+
     func test_drag_strip_suppresses_terminal_mouse_interaction_when_search_hud_is_hidden() {
         let terminalView = OverlayHostingTerminalView()
         let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
@@ -1388,6 +1420,42 @@ final class PaneContainerViewTests: AppKitTestCase {
                 height: PaneContainerView.dragZoneHeight
             )
         )
+    }
+
+    func test_sidebar_overlap_suppresses_terminal_mouse_interaction() {
+        let terminalView = OverlayHostingTerminalView()
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        paneView.setLeadingMouseInteractionOcclusionWidth(160)
+
+        XCTAssertTrue(terminalView.mouseInteractionSuppressionRects.contains(
+            CGRect(x: 0, y: 0, width: 160, height: terminalView.bounds.height)
+        ))
+        XCTAssertTrue(terminalView.mouseInteractionSuppressionRects.contains(
+            CGRect(
+                x: 0,
+                y: terminalView.bounds.height - PaneContainerView.dragZoneHeight,
+                width: terminalView.bounds.width,
+                height: PaneContainerView.dragZoneHeight
+            )
+        ))
     }
 
     func test_search_hud_and_drag_strip_both_suppress_terminal_mouse_interaction() {
@@ -2010,6 +2078,7 @@ private final class OverlayHostingTerminalView: NSView, TerminalFocusReporting, 
     let overlayHostView = NSView()
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var mouseInteractionSuppressionRects: [CGRect] = []
+    private(set) var mouseInteractionSuppressionUpdateCount = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2045,6 +2114,7 @@ private final class OverlayHostingTerminalView: NSView, TerminalFocusReporting, 
 
 extension OverlayHostingTerminalView: TerminalMouseInteractionSuppressionControlling {
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
+        mouseInteractionSuppressionUpdateCount += 1
         mouseInteractionSuppressionRects = rects
     }
 }

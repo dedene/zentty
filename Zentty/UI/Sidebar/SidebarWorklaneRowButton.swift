@@ -648,14 +648,16 @@ final class SidebarWorklaneRowButton: NSButton {
             configurePaneRows(for: renderPlan.paneRows, animated: animated)
         }
 
-        textStack.setViews(
-            contentRenderer.groupedViews(
-                for: renderPlan,
-                labels: contentLabels(),
-                paneRows: contentPaneRows()
-            ),
-            in: .top
+        let groupedViews = contentRenderer.groupedViews(
+            for: renderPlan,
+            labels: contentLabels(),
+            paneRows: contentPaneRows()
         )
+        if textStack.setSidebarViewsIfNeeded(groupedViews, in: .top) {
+#if DEBUG
+            contentStackReplacementCountForTesting &+= 1
+#endif
+        }
         heightConstraint?.constant = renderPlan.rowHeight
         invalidateIntrinsicContentSize()
 
@@ -862,6 +864,13 @@ final class SidebarWorklaneRowButton: NSButton {
                 isShimmering: summary.isWorking,
                 treatment: .shadow
             )
+            let animatesBrailleSpinner = summary.isWorking
+                && SidebarShimmerTextView.containsBrailleSpinner(in: summary.primaryText)
+            primaryLabel.animatesBrailleSpinner = animatesBrailleSpinner
+            primaryLabel.animatedSpinnerBaseColor = animatesBrailleSpinner
+                ? primaryBaseLabel.textColor
+                : nil
+            primaryBaseLabel.isHidden = animatesBrailleSpinner
             statusBaseLabel.textColor = SidebarWorklaneRowStyleResolver.statusTextColor(
                 attentionState: summary.attentionState,
                 theme: currentTheme
@@ -902,6 +911,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 )
             }
         } else {
+            primaryLabel.animatesBrailleSpinner = false
+            primaryLabel.animatedSpinnerBaseColor = nil
+            primaryBaseLabel.isHidden = false
             applyPaneRowColors(
                 paneRows: summary.paneRows,
                 activeTextColor: activeTextColor,
@@ -1176,6 +1188,8 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
 #if DEBUG
+    private(set) var contentStackReplacementCountForTesting = 0
+
     var debugAccessForTesting: SidebarWorklaneRowDebugAccess {
         SidebarWorklaneRowDebugAccess(
             owner: self,

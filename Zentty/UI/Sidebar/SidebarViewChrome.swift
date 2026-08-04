@@ -12,7 +12,6 @@ final class SidebarViewChrome {
     private let globalSearchRowView: SidebarGlobalSearchRowView
     private let bookmarksButton: SidebarBookmarksButton
     private let updateAvailableRowView: SidebarUpdateAvailableRowView
-    private let resizeHandleView: SidebarResizeHandleView
 
     init(
         hostView: NSView,
@@ -24,8 +23,7 @@ final class SidebarViewChrome {
         globalSearchButton: SidebarGlobalSearchButton,
         globalSearchRowView: SidebarGlobalSearchRowView,
         bookmarksButton: SidebarBookmarksButton,
-        updateAvailableRowView: SidebarUpdateAvailableRowView,
-        resizeHandleView: SidebarResizeHandleView
+        updateAvailableRowView: SidebarUpdateAvailableRowView
     ) {
         self.hostView = hostView
         self.backgroundView = backgroundView
@@ -37,7 +35,6 @@ final class SidebarViewChrome {
         self.globalSearchRowView = globalSearchRowView
         self.bookmarksButton = bookmarksButton
         self.updateAvailableRowView = updateAvailableRowView
-        self.resizeHandleView = resizeHandleView
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -51,7 +48,6 @@ final class SidebarViewChrome {
         globalSearchRowView.apply(theme: theme, animated: animated)
         bookmarksButton.configure(theme: theme, animated: animated)
         updateAvailableRowView.configure(theme: theme, animated: animated)
-        resizeHandleView.apply(theme: theme, animated: animated)
         backgroundView.apply(theme: theme, animated: animated)
 
         performThemeAnimation(animated: animated) {

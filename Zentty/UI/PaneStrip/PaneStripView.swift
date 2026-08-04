@@ -167,6 +167,7 @@ final class PaneStripView: NSView {
     private var currentPresentation: StripPresentation?
     private var shortcutManager = ShortcutManager(shortcuts: .default)
     private var paneViews: [PaneID: PaneContainerView] = [:]
+    private var cursorRectSignature: [PaneCursorRect]?
     private var dragZoneViews: [PaneID: PaneDragZoneView] = [:]
     private var dividerViews: [PaneDivider: PaneDividerHandleView] = [:]
     private var lastRenderedSize: CGSize = .zero
@@ -200,7 +201,13 @@ final class PaneStripView: NSView {
     var onHostDrivenResizeRenderRequested: (() -> Void)?
     #if DEBUG
         private(set) var renderSnapshotsForTesting: [RenderSnapshot] = []
+        private(set) var cursorRectInvalidationCountForTesting = 0
     #endif
+
+    private struct PaneCursorRect: Equatable {
+        let paneID: PaneID
+        let frame: CGRect
+    }
 
     private struct DividerDragSession {
         let target: PaneResizeTarget
@@ -1069,8 +1076,7 @@ final class PaneStripView: NSView {
         if isResizeSuppressedRender {
             renderGuard.clearResizeSuppression(forGeneration: settleGeneration)
         }
-        discardCursorRects()
-        window?.invalidateCursorRects(for: self)
+        invalidateCursorRectsIfNeeded()
         syncFocusedTerminal(with: state.focusedPaneID)
         #if DEBUG
             renderSnapshotsForTesting.append(
@@ -1096,6 +1102,29 @@ final class PaneStripView: NSView {
         }
 
         return nil
+    }
+
+    private func invalidateCursorRectsIfNeeded() {
+        let nextSignature = paneViews.compactMap { paneID, paneView -> PaneCursorRect? in
+            guard let frameInPane = paneView.interactiveBorderContextFrameInSelf else {
+                return nil
+            }
+            return PaneCursorRect(
+                paneID: paneID,
+                frame: convert(frameInPane, from: paneView)
+            )
+        }
+        .sorted { $0.paneID.rawValue < $1.paneID.rawValue }
+
+        guard cursorRectSignature != nextSignature else {
+            return
+        }
+        cursorRectSignature = nextSignature
+        discardCursorRects()
+        window?.invalidateCursorRects(for: self)
+#if DEBUG
+        cursorRectInvalidationCountForTesting &+= 1
+#endif
     }
 
     private func sharesAnyPane(
@@ -1268,6 +1297,9 @@ final class PaneStripView: NSView {
                 dx: -resolvedOffset(offset),
                 dy: 0
             )
+            paneView.setLeadingMouseInteractionOcclusionWidth(
+                leadingMouseInteractionOcclusionWidth(for: targetFrame)
+            )
             let targetAlpha: CGFloat
             if panePresentation.paneID == dropSettleCoveredPaneID {
                 targetAlpha = 0
@@ -1412,6 +1444,9 @@ final class PaneStripView: NSView {
                         inactiveOpacity: currentInactivePaneOpacity
                     )
                 }
+                paneView.setLeadingMouseInteractionOcclusionWidth(
+                    leadingMouseInteractionOcclusionWidth(for: paneView.frame)
+                )
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
                 if startsWithViewportSyncSuspended {
@@ -1473,6 +1508,10 @@ final class PaneStripView: NSView {
 
             lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
         }
+    }
+
+    private func leadingMouseInteractionOcclusionWidth(for paneFrame: CGRect) -> CGFloat {
+        min(paneFrame.width, max(0, resolvedLeadingVisibleInset - paneFrame.minX))
     }
 
     private func suspendedPaneIDs(
@@ -3142,7 +3181,6 @@ private final class PaneDividerHandleView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        super.cursorUpdate(with: event)
         resolvedCursor.set()
     }
 

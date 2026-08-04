@@ -10090,18 +10090,12 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.reviewState)
     }
 
-    func test_updating_codex_spinner_title_variant_notifies_sidebar_immediately() throws {
+    func test_updating_codex_spinner_title_variant_doesNotInvalidateUI() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.knownNonRepositoryPaths.insert("/tmp/project")
-        // Notification can arrive via either channel:
-        //   1. `.auxiliaryStateUpdated(.sidebar)` via the slow path (e.g. for
-        //      meaningful changes like cwd/branch/phase transitions)
-        //   2. `.volatileAgentTitleUpdated` via the fast path when the
-        //      classifier recognizes a pure codex spinner variant tick
-        // Both channels ultimately update the sidebar row label for the
-        // changed pane. The test asserts the intent — "sidebar is notified
-        // of the spinner change" — without binding to the specific channel.
+        // Spinner-only title ticks remain stored for state inference but do
+        // not repaint sidebar or window chrome labels.
         var sidebarNotified = false
         var headerNotified = false
         let subscription = store.subscribe { change in
@@ -10141,7 +10135,7 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(sidebarNotified, "sidebar must be notified of the spinner variant change")
+        XCTAssertFalse(sidebarNotified, "spinner-only Codex ticks must not invalidate sidebar UI")
         XCTAssertFalse(
             headerNotified,
             "chrome header must not be structurally invalidated for a pure spinner tick"

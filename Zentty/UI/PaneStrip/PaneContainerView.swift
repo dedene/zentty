@@ -335,6 +335,8 @@ final class PaneContainerView: NSView {
     private var isZoomedOutBackdropVisible = false
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
+    private var hasRenderedSearchState = false
+    private var leadingMouseInteractionOcclusionWidth: CGFloat = 0
     private var terminalResizePreview: TerminalResizePreview?
     private var hoverTrackingArea: NSTrackingArea?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
@@ -1684,9 +1686,14 @@ final class PaneContainerView: NSView {
     }
 
     private func updateSearchHUD(_ search: PaneSearchState) {
+        guard !hasRenderedSearchState || lastRenderedSearchState != search else {
+            return
+        }
+
         let didVisibilityChange = lastRenderedSearchState.isHUDVisible != search.isHUDVisible
         let didBecomeVisible = !lastRenderedSearchState.isHUDVisible && search.isHUDVisible
         lastRenderedSearchState = search
+        hasRenderedSearchState = true
         terminalHostView.applySearchHUD(search)
         updateSearchHUDMouseSuppression()
         if didVisibilityChange {
@@ -1705,11 +1712,27 @@ final class PaneContainerView: NSView {
 
     private func updateSearchHUDMouseSuppression() {
         var suppressionRects = [dragZoneSuppressionRect]
+        if leadingMouseInteractionOcclusionWidth > 0 {
+            let paneRect = CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: min(leadingMouseInteractionOcclusionWidth, bounds.width),
+                height: bounds.height
+            )
+            suppressionRects.append(terminalHostView.convert(paneRect, from: self))
+        }
         if lastRenderedSearchState.isHUDVisible {
             suppressionRects.append(terminalHostView.searchHUDFrameInHostCoordinates)
         }
 
         terminalHostView.setMouseInteractionSuppressionRects(suppressionRects)
+    }
+
+    func setLeadingMouseInteractionOcclusionWidth(_ width: CGFloat) {
+        let resolvedWidth = max(0, width)
+        guard abs(leadingMouseInteractionOcclusionWidth - resolvedWidth) > 0.5 else { return }
+        leadingMouseInteractionOcclusionWidth = resolvedWidth
+        updateSearchHUDMouseSuppression()
     }
 
     private var dragZoneSuppressionRect: CGRect {

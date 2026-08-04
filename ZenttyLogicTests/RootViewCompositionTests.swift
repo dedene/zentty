@@ -1711,30 +1711,52 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertGreaterThan(sidebarView.addWorklaneIconAlpha, restingIconAlpha)
     }
 
-    func test_sidebar_resize_hit_area_is_centered_on_outer_edge_without_visible_indicator() {
+    func test_sidebar_has_no_embedded_resize_cursor_owner() {
         let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(sidebarView.debugSnapshotForTesting.resizeHandleWidth, 4, accuracy: 0.001)
-        XCTAssertEqual(
-            sidebarView.resizeHandleMinX,
-            sidebarView.bounds.maxX - sidebarView.debugSnapshotForTesting.resizeHandleWidth,
-            accuracy: 0.001
-        )
-        XCTAssertEqual(sidebarView.resizeHandleMaxX, sidebarView.bounds.maxX, accuracy: 0.001)
-        XCTAssertEqual(sidebarView.resizeHandleFillAlpha, 0, accuracy: 0.001)
-        XCTAssertFalse(sidebarView.isResizeHandleHidden)
-        XCTAssertTrue(sidebarView.trailingEdgeHitTargetsResizeHandle)
-        XCTAssertFalse(sidebarView.hitTargetsResizeHandle(atX: sidebarView.bounds.maxX - 5))
+        XCTAssertFalse(sidebarView.subviews.contains { $0 is SidebarResizeHandleView })
     }
 
-    func test_sidebar_hides_resize_handle_when_resize_is_disabled() {
-        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+    func test_root_resize_hit_area_continues_across_sidebar_outer_edge() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        controller.view.layoutSubtreeIfNeeded()
 
-        sidebarView.setResizeEnabled(false)
+        let sidebar = try XCTUnwrap(
+            controller.view.subviews.first { $0 is SidebarView } as? SidebarView
+        )
+        let outerHandle = try XCTUnwrap(
+            controller.view.subviews.first { $0 is SidebarResizeHandleView }
+                as? SidebarResizeHandleView
+        )
+        let innerPoint = NSPoint(x: sidebar.frame.maxX - 1, y: sidebar.frame.midY)
+        let outerPoint = NSPoint(
+            x: sidebar.frame.maxX + ShellMetrics.canvasSidebarGap - 1,
+            y: sidebar.frame.midY
+        )
 
-        XCTAssertTrue(sidebarView.isResizeHandleHidden)
+        XCTAssertEqual(
+            outerHandle.frame.minX,
+            sidebar.frame.maxX - SidebarResizeHandleView.hitWidth,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            outerHandle.frame.width,
+            SidebarResizeHandleView.hitWidth + ShellMetrics.canvasSidebarGap,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(controller.view.hitTest(innerPoint) === outerHandle)
+        XCTAssertTrue(controller.view.hitTest(outerPoint) === outerHandle)
+        XCTAssertFalse(outerHandle.trackingAreas.contains { $0.options.contains(.cursorUpdate) })
+        XCTAssertTrue(
+            controller.rootPointerCursorForTesting(at: innerPoint) === NSCursor.resizeLeftRight
+        )
+        XCTAssertTrue(
+            controller.rootPointerCursorForTesting(at: outerPoint) === NSCursor.resizeLeftRight
+        )
     }
 
     func test_sidebar_glass_forces_dark_appearance_for_dark_themes() {

@@ -48,11 +48,9 @@ extension WorklaneStore {
         // Volatile-title fast path. When the classifier recognizes a pure
         // supported-agent title tick (phase+subject signature unchanged, only
         // elapsed time differs), skip the full promotion / inference /
-        // normalization pipeline below and emit a surgical
-        // `.volatileAgentTitleUpdated` for the coordinator to apply a direct
-        // label update. The sidebar row and chrome focused label can read
-        // `metadata.title` directly for supported realtime agent titles, so
-        // storing the new metadata is enough for correct rendering.
+        // normalization pipeline below. Codex updates its spinner title at a
+        // high frequency, so store those ticks without repainting AppKit UI.
+        // Other supported agents retain the surgical realtime label update.
         if metadataChangeKind == .volatileTitleOnly,
            shouldTakeVolatileAgentTitleFastPath(
                 in: previousAuxiliaryState,
@@ -68,7 +66,11 @@ extension WorklaneStore {
             )
             worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
             worklanes[worklaneIndex] = worklane
-            emitVolatileAgentTitleUpdateIfAllowed(worklaneID: worklane.id, paneID: paneID)
+            handleVolatileAgentTitleUpdate(
+                worklaneID: worklane.id,
+                paneID: paneID,
+                metadata: metadata
+            )
             return
         }
 
@@ -249,14 +251,15 @@ extension WorklaneStore {
         )
     }
 
-    /// Emits a `.volatileAgentTitleUpdated` notification for realtime agent
-    /// title ticks. Hidden worklanes intentionally stay realtime so the
-    /// sidebar continues to feel active while background agents are working.
-    private func emitVolatileAgentTitleUpdateIfAllowed(
+    private func handleVolatileAgentTitleUpdate(
         worklaneID: WorklaneID,
-        paneID: PaneID
+        paneID: PaneID,
+        metadata: TerminalMetadata
     ) {
         terminalDiagnostics.recordStoreFastPath(paneID: paneID)
+        guard AgentToolRecognizer.recognize(metadata: metadata) != .codex else {
+            return
+        }
         notify(.volatileAgentTitleUpdated(worklaneID: worklaneID, paneID: paneID))
     }
 

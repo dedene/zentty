@@ -51,6 +51,61 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         XCTAssertTrue(view.trackingAreas.contains { $0.options.contains(.activeAlways) })
     }
 
+    func test_surface_does_not_install_an_overlapping_cursor_tracking_area() {
+        view.updateTrackingAreas()
+
+        XCTAssertFalse(view.trackingAreas.contains { $0.options.contains(.cursorUpdate) })
+    }
+
+    func test_mouse_shape_change_does_not_invalidate_moving_surface_cursor_rect() {
+        let window = CursorInvalidationWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        window.contentView = view
+        addTeardownBlock {
+            window.contentView = nil
+            window.close()
+        }
+        window.resetInvalidatedViews()
+
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+
+        XCTAssertTrue(window.invalidatedViews.filter { $0 === view }.isEmpty)
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "pointingHand")
+    }
+
+    func test_transient_arrow_text_cycle_keeps_text_cursor_style() {
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_DEFAULT)
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_TEXT)
+        view.flushPendingTextCursorTransitionForTesting()
+
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "text")
+    }
+
+    func test_repeated_semantic_mouse_shape_commits_once() {
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "pointingHand")
+    }
+
+    func test_stable_arrow_text_changes_commit_after_transition_delay() {
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_DEFAULT)
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "text")
+
+        view.flushPendingTextCursorTransitionForTesting()
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "arrow")
+
+        view.setMouseCursorShape(GHOSTTY_MOUSE_SHAPE_TEXT)
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "arrow")
+
+        view.flushPendingTextCursorTransitionForTesting()
+        XCTAssertEqual(view.currentMouseCursorStyleForTesting, "text")
+    }
+
     func test_detached_view_does_not_push_viewport_size() {
         view.frame = NSRect(x: 0, y: 0, width: 3200, height: 900)
 
@@ -350,6 +405,19 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         let position = try XCTUnwrap(surface.sentMousePositions.last?.position)
         XCTAssertEqual(position.x, 150, accuracy: 0.01)
         XCTAssertEqual(position.y, 390, accuracy: 0.01)
+    }
+}
+
+private final class CursorInvalidationWindow: NSWindow {
+    private(set) var invalidatedViews: [NSView] = []
+
+    override func invalidateCursorRects(for view: NSView) {
+        invalidatedViews.append(view)
+        super.invalidateCursorRects(for: view)
+    }
+
+    func resetInvalidatedViews() {
+        invalidatedViews.removeAll()
     }
 }
 

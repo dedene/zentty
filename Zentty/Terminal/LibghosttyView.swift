@@ -451,9 +451,16 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let scrollView: LibghosttyScrollView
     private let overlayHostView = LibghosttyOverlayHostView()
     private let frameMeterSampler: any TerminalScrollFrameSampling
+    private let currentSystemCursorProvider: () -> NSCursor?
     private let frameMeterHUDView = TerminalFrameMeterHUDView(frame: NSRect(x: 0, y: 0, width: 128, height: 48))
     private let documentView: NSView
     private let surfaceView: LibghosttyView
+    private var terminalCursor: NSCursor = .iBeam
+    private var retainedProgrammaticViewportCursor: NSCursor?
+    private var terminalCursorSuppressionRects: [CGRect] = []
+    private var pendingTerminalCursorRefresh: DispatchWorkItem?
+    private var isTerminalScrollCursorActive = false
+    private var isPointerInsideTerminal = false
     private var isLiveScrolling = false
     private var needsLiveScrollReconciliation = false
     private var pendingExplicitWheelScroll = false
@@ -525,12 +532,14 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         paneID: PaneID,
         diagnostics: TerminalDiagnostics,
         scrollFrameSampler: any TerminalScrollFrameSampling = TerminalScrollFrameSampler(),
-        frameMeterSampler: (any TerminalScrollFrameSampling)? = nil
+        frameMeterSampler: (any TerminalScrollFrameSampling)? = nil,
+        currentSystemCursorProvider: @escaping () -> NSCursor? = { NSCursor.currentSystem }
     ) {
         self.paneID = paneID
         self.diagnostics = diagnostics
         self.scrollFrameSampler = scrollFrameSampler
         self.surfaceView = surfaceView
+        self.currentSystemCursorProvider = currentSystemCursorProvider
         self.scrollView = LibghosttyScrollView()
         self.documentView = NSView(frame: .zero)
         self.frameMeterSampler = frameMeterSampler ?? TerminalScrollFrameSampler()
@@ -552,13 +561,17 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView.onExplicitWheelScroll = { [weak self] in
             self?.cancelBackingMetricsTransition()
             self?.pendingExplicitWheelScroll = true
+            self?.noteTerminalScrollCursorActivity()
         }
         surfaceView.onSelectionDragStateDidChange = { [weak self] isActive in
             self?.selectionAutoscrollController.setSelectionDragActive(isActive)
             self?.updateSelectionAutoscrollTimerState()
         }
         surfaceView.onMouseLocationDidChange = { [weak self] location in
-            self?.selectionAutoscrollController.setMouseLocation(location)
+            self?.handleSurfaceMouseLocationDidChange(location)
+        }
+        surfaceView.onMouseMotionDidOccur = { [weak self] in
+            self?.handleSurfaceMouseMotionDidOccur()
         }
         surfaceView.onBackingPropertiesDidChange = { [weak self] in
             self?.beginBackingMetricsReconciliation()
@@ -581,6 +594,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         overlayHostView.frame = bounds
         addSubview(overlayHostView)
         overlayHostView.addSubview(frameMeterHUDView)
+        terminalCursor = surfaceView.mouseCursorForHost
         syncFrameMeterHUDVisibility()
 
         surfaceView.scrollbarHandler = self
@@ -626,6 +640,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     deinit {
         NotificationCenter.default.removeObserver(self)
         MainActorShim.assumeIsolated {
+            pendingTerminalCursorRefresh?.cancel()
             surfaceView.onBackingPropertiesDidChange = nil
             surfaceView.onCellSizeDidChange = nil
             scrollFrameSampler.stop()
@@ -636,6 +651,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
+            isTerminalScrollCursorActive = false
             stopSmoothScrollFrameSampling()
             stopFrameMeterSampling()
             stopSelectionAutoscrollTimer()
@@ -709,8 +725,161 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
+        if terminalCursorSuppressionRects != rects {
+            terminalCursorSuppressionRects = rects
+            window?.invalidateCursorRects(for: self)
+        }
         let surfaceRects = rects.map { surfaceView.convert($0, from: self) }
         surfaceView.setMouseInteractionSuppressionRects(surfaceRects)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for rect in terminalCursorRects {
+            addCursorRect(rect, cursor: displayedTerminalCursor)
+        }
+    }
+
+    private var displayedTerminalCursor: NSCursor {
+        if isTerminalScrollCursorActive {
+            return .arrow
+        }
+        return retainedProgrammaticViewportCursor ?? terminalCursor
+    }
+
+    private func handleSurfaceMouseLocationDidChange(_ location: CGPoint?) {
+        isPointerInsideTerminal = location != nil
+        selectionAutoscrollController.setMouseLocation(location)
+        if location == nil {
+            let hadRetainedCursor = retainedProgrammaticViewportCursor != nil
+            retainedProgrammaticViewportCursor = nil
+            if hadRetainedCursor {
+                window?.invalidateCursorRects(for: self)
+            }
+            return
+        }
+        guard !isTerminalScrollCursorActive, retainedProgrammaticViewportCursor == nil else { return }
+        handleTerminalPointerActivity(location)
+    }
+
+    private func handleSurfaceMouseMotionDidOccur() {
+        let isRestoringStableCursor = isTerminalScrollCursorActive
+            || retainedProgrammaticViewportCursor != nil
+        guard isRestoringStableCursor else { return }
+        retainedProgrammaticViewportCursor = nil
+        handleTerminalPointerActivity(
+            surfaceView.lastMouseLocationInView,
+            restoringStableCursor: true
+        )
+    }
+
+    private func handleTerminalPointerActivity(
+        _ location: CGPoint?,
+        restoringStableCursor: Bool = false
+    ) {
+        pendingTerminalCursorRefresh?.cancel()
+        pendingTerminalCursorRefresh = nil
+        guard location != nil else { return }
+
+        setTerminalCursor(
+            surfaceView.mouseCursorForHost,
+            restoringStableCursor: isTerminalScrollCursorActive || restoringStableCursor
+        )
+
+        let refresh = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingTerminalCursorRefresh = nil
+            self.setTerminalCursor(self.surfaceView.mouseCursorForHost)
+        }
+        pendingTerminalCursorRefresh = refresh
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.terminalCursorRefreshDelay,
+            execute: refresh
+        )
+    }
+
+    private func setTerminalCursor(
+        _ cursor: NSCursor,
+        restoringStableCursor: Bool = false
+    ) {
+        guard terminalCursor !== cursor || restoringStableCursor else { return }
+        terminalCursor = cursor
+        if restoringStableCursor {
+            isTerminalScrollCursorActive = false
+        }
+        guard !isTerminalScrollCursorActive else { return }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    private static let terminalCursorRefreshDelay: TimeInterval = 0.1
+
+    private func beginTerminalScrollCursorActivity() {
+        guard !isTerminalScrollCursorActive else { return }
+        retainedProgrammaticViewportCursor = nil
+        isTerminalScrollCursorActive = true
+        window?.invalidateCursorRects(for: self)
+    }
+
+    private func noteTerminalScrollCursorActivity() {
+        beginTerminalScrollCursorActivity()
+    }
+
+    private func retainCursorForProgrammaticViewportChange() {
+        guard isPointerInsideTerminal,
+              !isTerminalScrollCursorActive,
+              retainedProgrammaticViewportCursor == nil
+        else {
+            return
+        }
+        retainedProgrammaticViewportCursor = currentSystemCursorProvider() ?? NSCursor.current
+    }
+
+    private var terminalCursorRects: [CGRect] {
+        terminalCursorSuppressionRects.reduce(into: [bounds]) { rects, suppressionRect in
+            rects = rects.flatMap { Self.subtract(suppressionRect, from: $0) }
+        }
+    }
+
+    private static func subtract(_ excludedRect: CGRect, from sourceRect: CGRect) -> [CGRect] {
+        let intersection = sourceRect.intersection(excludedRect)
+        guard !intersection.isNull, !intersection.isEmpty else {
+            return [sourceRect]
+        }
+
+        var remaining: [CGRect] = []
+        if intersection.minY > sourceRect.minY {
+            remaining.append(CGRect(
+                x: sourceRect.minX,
+                y: sourceRect.minY,
+                width: sourceRect.width,
+                height: intersection.minY - sourceRect.minY
+            ))
+        }
+        if intersection.maxY < sourceRect.maxY {
+            remaining.append(CGRect(
+                x: sourceRect.minX,
+                y: intersection.maxY,
+                width: sourceRect.width,
+                height: sourceRect.maxY - intersection.maxY
+            ))
+        }
+        if intersection.minX > sourceRect.minX {
+            remaining.append(CGRect(
+                x: sourceRect.minX,
+                y: intersection.minY,
+                width: intersection.minX - sourceRect.minX,
+                height: intersection.height
+            ))
+        }
+        if intersection.maxX < sourceRect.maxX {
+            remaining.append(CGRect(
+                x: intersection.maxX,
+                y: intersection.minY,
+                width: sourceRect.maxX - intersection.maxX,
+                height: intersection.height
+            ))
+        }
+        return remaining
     }
 
     func applyScrollbarUpdate(_ update: LibghosttySurfaceScrollbarUpdate) {
@@ -754,6 +923,40 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView
     }
 
+#if DEBUG
+    var terminalCursorRectsForTesting: [CGRect] {
+        terminalCursorRects
+    }
+
+    var terminalCursorOwnerForTesting: NSView {
+        self
+    }
+
+    var displayedTerminalCursorForTesting: NSCursor {
+        displayedTerminalCursor
+    }
+
+    func syncTerminalCursorForPointerActivityForTesting() {
+        handleTerminalPointerActivity(.zero)
+    }
+
+    func syncTerminalCursorForPointerEntryForTesting() {
+        handleSurfaceMouseLocationDidChange(.zero)
+    }
+
+    func syncTerminalCursorForMouseMotionForTesting() {
+        let isRestoringStableCursor = isTerminalScrollCursorActive
+            || retainedProgrammaticViewportCursor != nil
+        retainedProgrammaticViewportCursor = nil
+        handleTerminalPointerActivity(.zero, restoringStableCursor: isRestoringStableCursor)
+    }
+
+    func cancelPendingTerminalCursorRefreshForTesting() {
+        pendingTerminalCursorRefresh?.cancel()
+        pendingTerminalCursorRefresh = nil
+    }
+#endif
+
     var debugFrameMeterHUDSnapshotForTesting: TerminalFrameMeterHUDView.Snapshot {
         frameMeterHUDView.snapshotForTesting
     }
@@ -767,6 +970,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private func handleWillStartLiveScrollNotification(_ notification: Notification) {
         cancelBackingMetricsTransition()
         isLiveScrolling = true
+        beginTerminalScrollCursorActivity()
         startSmoothScrollFrameSamplingIfNeeded()
     }
 
@@ -1266,6 +1470,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         var autoScrollApplied = false
         var explicitScrollbarSyncAllowed: Bool?
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
+            retainCursorForProgrammaticViewportChange()
             documentView.frame.size.height = targetDocumentHeight
             didChangeGeometry = true
         }
@@ -1306,6 +1511,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
                     explicitScrollbarSyncAllowedNow
                 shouldAutoScroll = shouldAutoScrollNow
                 if shouldAutoScrollNow && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                    retainCursorForProgrammaticViewportChange()
                     performProgrammaticScrollUpdate {
                         scrollView.contentView.scroll(to: targetOrigin)
                     }
@@ -1521,6 +1727,85 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 }
 
 final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiagnosticsContextConfiguring {
+    private enum MouseCursorStyle: Equatable {
+        case arrow
+        case pointingHand
+        case text
+        case crosshair
+        case openHand
+        case closedHand
+        case operationNotAllowed
+        case contextualMenu
+        case verticalText
+        case resizeHorizontal
+        case resizeVertical
+
+        init(shape: ghostty_action_mouse_shape_e) {
+            self = switch shape {
+            case GHOSTTY_MOUSE_SHAPE_POINTER:
+                .pointingHand
+            case GHOSTTY_MOUSE_SHAPE_TEXT:
+                .text
+            case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
+                .crosshair
+            case GHOSTTY_MOUSE_SHAPE_GRAB:
+                .openHand
+            case GHOSTTY_MOUSE_SHAPE_GRABBING:
+                .closedHand
+            case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED:
+                .operationNotAllowed
+            case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+                .contextualMenu
+            case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+                .verticalText
+            case GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+                 GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+                 GHOSTTY_MOUSE_SHAPE_EW_RESIZE,
+                 GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
+                .resizeHorizontal
+            case GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+                 GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+                 GHOSTTY_MOUSE_SHAPE_NS_RESIZE,
+                 GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
+                .resizeVertical
+            default:
+                .arrow
+            }
+        }
+
+        var cursor: NSCursor {
+            switch self {
+            case .arrow: .arrow
+            case .pointingHand: .pointingHand
+            case .text: .iBeam
+            case .crosshair: .crosshair
+            case .openHand: .openHand
+            case .closedHand: .closedHand
+            case .operationNotAllowed: .operationNotAllowed
+            case .contextualMenu: .contextualMenu
+            case .verticalText: .iBeamCursorForVerticalLayout
+            case .resizeHorizontal: .resizeLeftRight
+            case .resizeVertical: .resizeUpDown
+            }
+        }
+
+        var testingName: String {
+            switch self {
+            case .arrow: "arrow"
+            case .pointingHand: "pointingHand"
+            case .text: "text"
+            case .crosshair: "crosshair"
+            case .openHand: "openHand"
+            case .closedHand: "closedHand"
+            case .operationNotAllowed: "operationNotAllowed"
+            case .contextualMenu: "contextualMenu"
+            case .verticalText: "verticalText"
+            case .resizeHorizontal: "resizeHorizontal"
+            case .resizeVertical: "resizeVertical"
+            }
+        }
+    }
+
     private struct ViewportSignature: Equatable {
         let size: CGSize
         let scale: CGFloat
@@ -1565,7 +1850,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     private var markedTextStorage = ""
     private var markedTextSelection = NSRange(location: NSNotFound, length: 0)
     private var selectedTextStorageRange = NSRange(location: NSNotFound, length: 0)
-    private var currentCursor: NSCursor = .iBeam
+    private var currentCursorStyle: MouseCursorStyle = .text
+    private var requestedCursorStyle: MouseCursorStyle = .text
+    private var pendingTextCursorTransition: DispatchWorkItem?
     private var mouseTrackingArea: NSTrackingArea?
     private var mouseInteractionSuppressionRects: [CGRect] = []
     private var activeSecondaryMouseRouting: SecondaryMouseRouting?
@@ -1580,6 +1867,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     var onExplicitWheelScroll: (() -> Void)?
     var onSelectionDragStateDidChange: ((Bool) -> Void)?
     var onMouseLocationDidChange: ((CGPoint?) -> Void)?
+    var onMouseMotionDidOccur: (() -> Void)?
     var onBackingPropertiesDidChange: (() -> Void)?
     var onCellSizeDidChange: (() -> Void)?
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
@@ -1652,14 +1940,14 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         if let existing = mouseTrackingArea {
             removeTrackingArea(existing)
         }
-        let area = NSTrackingArea(
+        let mouseArea = NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
-        addTrackingArea(area)
-        mouseTrackingArea = area
+        addTrackingArea(mouseArea)
+        mouseTrackingArea = mouseArea
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -1689,58 +1977,62 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             return
         }
         forwardMousePosition(event)
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: currentCursor)
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
-            return
-        }
-        currentCursor.set()
+        onMouseMotionDidOccur?()
     }
 
     func setMouseCursorShape(_ shape: ghostty_action_mouse_shape_e) {
-        let cursor: NSCursor = switch shape {
-        case GHOSTTY_MOUSE_SHAPE_POINTER:
-            .pointingHand
-        case GHOSTTY_MOUSE_SHAPE_TEXT:
-            .iBeam
-        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
-            .crosshair
-        case GHOSTTY_MOUSE_SHAPE_GRAB:
-            .openHand
-        case GHOSTTY_MOUSE_SHAPE_GRABBING:
-            .closedHand
-        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED:
-            .operationNotAllowed
-        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
-            .contextualMenu
-        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
-            .iBeamCursorForVerticalLayout
-        case GHOSTTY_MOUSE_SHAPE_E_RESIZE, GHOSTTY_MOUSE_SHAPE_W_RESIZE, GHOSTTY_MOUSE_SHAPE_EW_RESIZE, GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
-            .resizeLeftRight
-        case GHOSTTY_MOUSE_SHAPE_N_RESIZE, GHOSTTY_MOUSE_SHAPE_S_RESIZE, GHOSTTY_MOUSE_SHAPE_NS_RESIZE, GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
-            .resizeUpDown
-        default:
-            .arrow
+        let cursorStyle = MouseCursorStyle(shape: shape)
+
+        pendingTextCursorTransition?.cancel()
+        pendingTextCursorTransition = nil
+        requestedCursorStyle = cursorStyle
+
+        guard cursorStyle != currentCursorStyle else { return }
+        guard Self.isArrowTextTransition(from: currentCursorStyle, to: cursorStyle) else {
+            applyMouseCursorStyle(cursorStyle)
+            return
         }
 
-        guard cursor != currentCursor else { return }
-        currentCursor = cursor
-        if let window {
-            let location = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            if !isPointInsideSuppressedMouseRegion(location) {
-                currentCursor.set()
-            }
-        } else {
-            currentCursor.set()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.commitTextCursorTransition(cursorStyle)
         }
-        window?.invalidateCursorRects(for: self)
+        pendingTextCursorTransition = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.textCursorTransitionDelay,
+            execute: workItem
+        )
     }
+
+    private func commitTextCursorTransition(_ cursorStyle: MouseCursorStyle) {
+        guard requestedCursorStyle == cursorStyle else { return }
+        pendingTextCursorTransition = nil
+        applyMouseCursorStyle(cursorStyle)
+    }
+
+    private func applyMouseCursorStyle(_ cursorStyle: MouseCursorStyle) {
+        guard currentCursorStyle != cursorStyle else { return }
+        currentCursorStyle = cursorStyle
+    }
+
+    private static func isArrowTextTransition(
+        from current: MouseCursorStyle,
+        to next: MouseCursorStyle
+    ) -> Bool {
+        (current == .arrow && next == .text)
+            || (current == .text && next == .arrow)
+    }
+
+    private static let textCursorTransitionDelay: TimeInterval = 0.1
+
+#if DEBUG
+    var currentMouseCursorStyleForTesting: String {
+        currentCursorStyle.testingName
+    }
+
+    func flushPendingTextCursorTransitionForTesting() {
+        pendingTextCursorTransition?.perform()
+    }
+#endif
 
     override func mouseDown(with event: NSEvent) {
         guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
@@ -2013,8 +2305,12 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
+        guard mouseInteractionSuppressionRects != rects else { return }
         mouseInteractionSuppressionRects = rects
-        window?.invalidateCursorRects(for: self)
+    }
+
+    fileprivate var mouseCursorForHost: NSCursor {
+        currentCursorStyle.cursor
     }
 
     private func isPointInsideSuppressedMouseRegion(_ point: CGPoint) -> Bool {

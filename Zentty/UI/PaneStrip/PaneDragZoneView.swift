@@ -196,7 +196,6 @@ final class PaneDragZoneView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        super.cursorUpdate(with: event)
         resolvedCursor.set()
     }
 

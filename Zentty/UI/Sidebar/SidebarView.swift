@@ -176,7 +176,7 @@ final class SidebarView: NSView {
         static let updateRowHeight: CGFloat = 28
         static let updateRowBottomInset: CGFloat = ShellMetrics.sidebarContentInset
         static let updateRowSpacing: CGFloat = 8
-        static let resizeHandleWidth: CGFloat = 4
+        static let resizeHandleWidth = SidebarResizeHandleView.hitWidth
         static let headerButtonSpacing: CGFloat = 4
         static let headerAccessoryHeight: CGFloat = ShellMetrics.sidebarCreateWorklaneButtonHeight
         static let pinnedSearchBookmarkSpacing: CGFloat = 0
@@ -223,7 +223,6 @@ final class SidebarView: NSView {
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     var onCheckForUpdatesRequested: (() -> Void)?
-    var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
     var onPointerExited: (() -> Void)?
 
@@ -240,7 +239,6 @@ final class SidebarView: NSView {
     private let globalSearchButton = SidebarGlobalSearchButton()
     private let globalSearchRowView = SidebarGlobalSearchRowView()
     private let bookmarksButton = SidebarBookmarksButton()
-    private let resizeHandleView = SidebarResizeHandleView()
     private let shimmerCoordinator = SidebarShimmerCoordinator()
     private let activeWorklaneAutoScroller = SidebarActiveWorklaneAutoScroller()
     private let windowRenderabilityResolver: (NSWindow?) -> Bool
@@ -254,8 +252,7 @@ final class SidebarView: NSView {
         globalSearchButton: globalSearchButton,
         globalSearchRowView: globalSearchRowView,
         bookmarksButton: bookmarksButton,
-        updateAvailableRowView: updateAvailableRowView,
-        resizeHandleView: resizeHandleView
+        updateAvailableRowView: updateAvailableRowView
     )
     private lazy var dragCoordinator = SidebarDragCoordinator(sidebarView: self)
     private lazy var paneDropPresenter = SidebarPaneDropPresenter(targetStack: listStack, lineContainer: listDocumentView)
@@ -283,9 +280,7 @@ final class SidebarView: NSView {
 #endif
     private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
     private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
-    private var resizeStartWidth: CGFloat = SidebarWidthPreference.defaultWidth
     private var trackingArea: NSTrackingArea?
-    private var isResizeEnabled = true
     private var isUpdateAvailable = false
     private var isGlobalSearchPresented = false
 
@@ -339,7 +334,6 @@ final class SidebarView: NSView {
             name: NSView.boundsDidChangeNotification,
             object: listScrollView.contentView
         )
-
         addWorklaneButton.translatesAutoresizingMaskIntoConstraints = false
         addWorklaneButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
         addWorklaneButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -370,10 +364,6 @@ final class SidebarView: NSView {
         bookmarksButton.action = #selector(handleOpenBookmarksPopover)
         bookmarksButton.setSegmentPosition(.trailing)
 
-        resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
-        resizeHandleView.onPan = { [weak self] recognizer in
-            self?.handleResizePan(recognizer)
-        }
         updateAvailableRowView.onPressed = { [weak self] in
             self?.handleCheckForUpdates()
         }
@@ -384,7 +374,6 @@ final class SidebarView: NSView {
         addSubview(globalSearchRowView)
         addSubview(headerDividerView)
         addSubview(updateAvailableRowView)
-        addSubview(resizeHandleView)
 
         headerView.addSubview(headerBandView)
         headerView.addSubview(headerAccessoryGroupView)
@@ -506,11 +495,6 @@ final class SidebarView: NSView {
             listStack.leadingAnchor.constraint(equalTo: listDocumentView.leadingAnchor),
             listStack.trailingAnchor.constraint(equalTo: listDocumentView.trailingAnchor),
             listStack.bottomAnchor.constraint(equalTo: listDocumentView.bottomAnchor),
-
-            resizeHandleView.topAnchor.constraint(equalTo: topAnchor),
-            resizeHandleView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            resizeHandleView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            resizeHandleView.widthAnchor.constraint(equalToConstant: Layout.resizeHandleWidth),
         ])
 
         updateHeaderLayoutConstraints()
@@ -533,7 +517,7 @@ final class SidebarView: NSView {
 
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -549,6 +533,10 @@ final class SidebarView: NSView {
         onPointerExited?()
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+    }
+
     override func layout() {
         updateHeaderLayoutConstraints()
         super.layout()
@@ -559,14 +547,6 @@ final class SidebarView: NSView {
         super.viewDidMoveToWindow()
         updateWindowVisibilityObservation()
         syncShimmerVisibility()
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard isResizeEnabled, !resizeHandleView.isHidden, resizeHandleView.frame.contains(point) else {
-            return super.hitTest(point)
-        }
-
-        return resizeHandleView
     }
 
     /// Surgical label update for the volatile agent title fast path.
@@ -849,11 +829,6 @@ final class SidebarView: NSView {
         needsLayout = true
     }
 
-    func setResizeEnabled(_ isEnabled: Bool) {
-        isResizeEnabled = isEnabled
-        resizeHandleView.setEnabled(isEnabled)
-    }
-
     func setUpdateAvailable(_ isUpdateAvailable: Bool) {
         guard self.isUpdateAvailable != isUpdateAvailable else {
             return
@@ -1131,27 +1106,6 @@ final class SidebarView: NSView {
         }
     }
 
-    private func handleResizePan(_ recognizer: NSPanGestureRecognizer) {
-        guard isResizeEnabled else {
-            return
-        }
-
-        switch recognizer.state {
-        case .began:
-            resizeStartWidth = bounds.width
-        case .changed, .ended:
-            let translation = recognizer.translation(in: self).x
-            onResized?(
-                SidebarResizeModel.proposedWidth(
-                    startWidth: resizeStartWidth,
-                    translation: translation
-                )
-            )
-        default:
-            break
-        }
-    }
-
 #if DEBUG
     var debugAccessForTesting: SidebarViewDebugAccess {
         SidebarViewDebugAccess(
@@ -1162,7 +1116,6 @@ final class SidebarView: NSView {
             worklaneSummaries: worklaneSummaries,
             listStack: listStack,
             reorderSpacerView: reorderSpacerView,
-            resizeHandleView: resizeHandleView,
             updateAvailableRowView: updateAvailableRowView,
             addWorklaneButton: addWorklaneButton,
             globalSearchButton: globalSearchButton,

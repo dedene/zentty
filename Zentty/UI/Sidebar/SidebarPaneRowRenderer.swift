@@ -1,5 +1,18 @@
 import AppKit
 
+extension NSStackView {
+    @discardableResult
+    func setSidebarViewsIfNeeded(_ views: [NSView], in gravity: NSStackView.Gravity) -> Bool {
+        let currentViews = self.views(in: gravity)
+        guard !currentViews.elementsEqual(views, by: { $0 === $1 }) else {
+            return false
+        }
+
+        setViews(views, in: gravity)
+        return true
+    }
+}
+
 @MainActor
 final class SidebarPaneRowRenderer {
     struct Callbacks {
@@ -225,6 +238,7 @@ final class SidebarWorklaneRowContentRenderer {
 
     private weak var textStack: NSStackView?
     private let textWrapperInset: CGFloat
+    private var insetContainersByContentID: [ObjectIdentifier: SidebarInsetContainerView] = [:]
 
     init(
         textStack: NSStackView,
@@ -245,11 +259,31 @@ final class SidebarWorklaneRowContentRenderer {
                 return insetWrappedView(for: view(for: row, labels: labels, paneRows: paneRows))
             case .pane(let index, let rows):
                 paneRows.buttons[index].setContent(
-                    rows.map { view(for: $0, labels: labels, paneRows: paneRows) }
+                    allViews: allViews(forPaneAt: index, labels: labels, paneRows: paneRows),
+                    visibleViews: rows.map { view(for: $0, labels: labels, paneRows: paneRows) }
                 )
                 return paneRows.containers[index]
             }
         }
+    }
+
+    private func allViews(
+        forPaneAt index: Int,
+        labels: Labels,
+        paneRows: PaneRows
+    ) -> [NSView] {
+        var views = [
+            paneRows.primaryRows[index],
+            paneRows.detailLabels[index],
+        ]
+        if index == 0 {
+            views.append(labels.contextPrefixLabel)
+        }
+        views.append(contentsOf: [
+            paneRows.statusRows[index],
+            paneRows.serverRows[index],
+        ])
+        return views
     }
 
     private func insetWrappedView(for view: NSView) -> NSView {
@@ -257,11 +291,18 @@ final class SidebarWorklaneRowContentRenderer {
             return view
         }
 
-        return SidebarInsetContainerView(
+        let contentID = ObjectIdentifier(view)
+        if let container = insetContainersByContentID[contentID] {
+            return container
+        }
+
+        let container = SidebarInsetContainerView(
             contentView: view,
             horizontalInset: textWrapperInset,
             referenceWidthView: textStack
         )
+        insetContainersByContentID[contentID] = container
+        return container
     }
 
     private func view(
