@@ -60,7 +60,7 @@ final class WindowChromeView: NSView {
         }
     }
 
-    private let rowContainerView = NSView()
+    private let rowContainerView = WindowChromeDragRegionView()
     private let focusedProxyIconView = WindowChromeProxyIconView()
     private let serverContainerView = NSView()
     private let serverPrimaryBackgroundView = NSView()
@@ -181,6 +181,10 @@ final class WindowChromeView: NSView {
     func animateNextRowLayoutForSidebarTransition() {
         animatesNextRowLayout = true
         needsLayout = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
     }
 
     private func setup() {
@@ -1280,7 +1284,7 @@ final class WindowChromeView: NSView {
         font: NSFont,
         lineBreakMode: NSLineBreakMode
     ) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
+        let label = WindowChromeDragLabel(labelWithString: text)
         label.font = font
         label.textColor = color
         label.lineBreakMode = lineBreakMode
@@ -1522,6 +1526,17 @@ final class WindowChromeView: NSView {
         focusedProxyIconView.setDragSessionActiveForTesting(active)
     }
 
+    func acceptsWindowDragForTesting(at point: NSPoint) -> Bool {
+        guard let hitView = hitTest(point) else {
+            return false
+        }
+
+        return hitView === self ||
+            hitView === rowContainerView ||
+            hitView is WindowChromeDragLabel ||
+            hitView is WindowChromeReviewChipView
+    }
+
     private static func contextMenuEventForTesting() -> NSEvent? {
         NSEvent.mouseEvent(
             with: .rightMouseDown,
@@ -1534,6 +1549,33 @@ final class WindowChromeView: NSView {
             clickCount: 1,
             pressure: 0
         )
+    }
+}
+
+private final class WindowChromeDragRegionView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
+
+private final class WindowChromeDragLabel: NSTextField {
+    init(labelWithString stringValue: String) {
+        super.init(frame: .zero)
+        self.stringValue = stringValue
+        isEditable = false
+        isSelectable = false
+        isBordered = false
+        drawsBackground = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
     }
 }
 
@@ -2439,7 +2481,7 @@ private final class WindowChromeBranchLabel: NSTextField {
 }
 
 private final class WindowChromeReviewChipView: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private let label = WindowChromePassiveLabel(labelWithString: "")
     private let chip: WorklaneReviewChip
 
     init(chip: WorklaneReviewChip) {
@@ -2475,6 +2517,10 @@ private final class WindowChromeReviewChipView: NSView {
             width: max(0, bounds.width - 20),
             height: labelHeight
         )
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
@@ -2533,5 +2579,26 @@ private final class WindowChromeReviewChipView: NSView {
         label.usesSingleLineMode = true
         label.cell?.wraps = false
         return ceil(max(label.fittingSize.width, label.intrinsicContentSize.width)) + 20
+    }
+}
+
+private final class WindowChromePassiveLabel: NSTextField {
+    init(labelWithString stringValue: String) {
+        super.init(frame: .zero)
+        self.stringValue = stringValue
+        isEditable = false
+        isSelectable = false
+        isBordered = false
+        drawsBackground = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
