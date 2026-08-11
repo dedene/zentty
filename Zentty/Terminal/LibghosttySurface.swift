@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import os
 import GhosttyKit
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
@@ -144,6 +145,8 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     private weak var hostView: LibghosttyView?
     private(set) var hasScrollback = false
     private var hasEmittedShellReady = false
+    nonisolated(unsafe) private var isCloseRequested = false
+    private let pendingFree = OSAllocatedUnfairLock<ghostty_surface_t?>(initialState: nil)
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     var mouseCaptured: Bool {
@@ -267,15 +270,32 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     func close() {
+        // Thread-safety: never free a ghostty surface on the main thread.
+        // ghostty's teardown may join its io/renderer threads; when one of
+        // those is blocked (e.g. after a pane stream stall), the join never
+        // returns and the whole app freezes (dedene/zentty#67).
+        // The surface pointer is handed off to `pendingFree` and freed only
+        // from ghostty's close callback (freeSurface) or deinit, off-main.
+        guard !isCloseRequested else { return }
+        isCloseRequested = true
         guard let surface else { return }
-        ghostty_surface_request_close(surface)
-        ghostty_surface_free(surface)
+        // Stop further ghostty calls through the property synchronously on
+        // the main thread; the raw pointer below is what teardown needs.
         self.surface = nil
+        ghostty_surface_request_close(surface)
+        pendingFree.withLock { $0 = surface }
     }
 
     deinit {
-        if let surface {
-            ghostty_surface_free(surface)
+        let pending = pendingFree.withLock { ptr -> ghostty_surface_t? in
+            let p = ptr
+            ptr = nil
+            return p
+        }
+        if let pending {
+            DispatchQueue.global(qos: .utility).async {
+                ghostty_surface_free(pending)
+            }
         }
     }
 
@@ -775,8 +795,30 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     nonisolated func notifySurfaceClosed() {
+        // Invoked by ghostty from its own thread once the surface close has
+        // completed — the safe point to free, since ghostty no longer owns
+        // the io/renderer threads that a main-thread free could join forever
+        // (dedene/zentty#67).
+        freeSurface()
         DispatchQueue.main.async { [weak self] in
             self?.eventDidOccur(.surfaceClosed)
+        }
+    }
+
+    private nonisolated func freeSurface() {
+        let pending = pendingFree.withLock { ptr -> ghostty_surface_t? in
+            let p = ptr
+            ptr = nil
+            return p
+        }
+        guard let pending else { return }
+        if Thread.isMainThread {
+            // Defensive bounce: teardown must never run on the main thread.
+            DispatchQueue.global(qos: .utility).async {
+                ghostty_surface_free(pending)
+            }
+        } else {
+            ghostty_surface_free(pending)
         }
     }
 
