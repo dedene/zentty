@@ -15,6 +15,7 @@ final class AppActionRouterTests: XCTestCase {
             (.renameCurrentPane, "routeRenameCurrentPane"),
             (.nextWorklane, "routeNextWorklane"),
             (.previousWorklane, "routePreviousWorklane"),
+            (.selectWorklane(position: 7), "routeSelectWorklane"),
             (.moveWorklaneUp, "routeMoveWorklaneUp"),
             (.moveWorklaneDown, "routeMoveWorklaneDown"),
             (.find, "routeFind"),
@@ -52,6 +53,9 @@ final class AppActionRouterTests: XCTestCase {
             router.route(action)
 
             XCTAssertEqual(env.calls, [expected], "unexpected routing for \(action)")
+            if action == .selectWorklane(position: 7) {
+                XCTAssertEqual(env.lastSelectedWorklanePosition, 7)
+            }
         }
     }
 
@@ -81,6 +85,7 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     private(set) var calls: [String] = []
     private(set) var lastPaneCommand: PaneCommand?
     private(set) var lastThemeMode: AppearanceThemeModeCommand?
+    private(set) var lastSelectedWorklanePosition: Int?
 
     func routeToggleSidebar() { calls.append("routeToggleSidebar") }
     func routeNewWorklane() { calls.append("routeNewWorklane") }
@@ -88,6 +93,10 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     func routeRenameCurrentPane() { calls.append("routeRenameCurrentPane") }
     func routeNextWorklane() { calls.append("routeNextWorklane") }
     func routePreviousWorklane() { calls.append("routePreviousWorklane") }
+    func routeSelectWorklane(position: Int) {
+        calls.append("routeSelectWorklane")
+        lastSelectedWorklanePosition = position
+    }
     func routeMoveWorklaneUp() { calls.append("routeMoveWorklaneUp") }
     func routeMoveWorklaneDown() { calls.append("routeMoveWorklaneDown") }
     func routeFind() { calls.append("routeFind") }

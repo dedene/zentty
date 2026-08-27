@@ -27,6 +27,15 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case renameCurrentPane = "pane.rename"
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
+    case selectWorklane1 = "worklane.select_1"
+    case selectWorklane2 = "worklane.select_2"
+    case selectWorklane3 = "worklane.select_3"
+    case selectWorklane4 = "worklane.select_4"
+    case selectWorklane5 = "worklane.select_5"
+    case selectWorklane6 = "worklane.select_6"
+    case selectWorklane7 = "worklane.select_7"
+    case selectWorklane8 = "worklane.select_8"
+    case selectWorklane9 = "worklane.select_9"
     case worklaneMoveUp = "worklane.move_up"
     case worklaneMoveDown = "worklane.move_down"
     case find = "pane.search.find"
@@ -105,6 +114,7 @@ enum AppAction: Equatable, Sendable {
     case renameCurrentPane
     case nextWorklane
     case previousWorklane
+    case selectWorklane(position: Int)
     case moveWorklaneUp
     case moveWorklaneDown
     case find
@@ -277,6 +287,78 @@ enum AppCommandRegistry {
                 title: "Previous Worklane",
                 selector: #selector(MainWindowController.previousWorklane(_:))
             )
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane1,
+            title: "Switch to Worklane 1",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 1),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane2,
+            title: "Switch to Worklane 2",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 2),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane3,
+            title: "Switch to Worklane 3",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 3),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane4,
+            title: "Switch to Worklane 4",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 4),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane5,
+            title: "Switch to Worklane 5",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 5),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane6,
+            title: "Switch to Worklane 6",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 6),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane7,
+            title: "Switch to Worklane 7",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 7),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane8,
+            title: "Switch to Worklane 8",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 8),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .selectWorklane9,
+            title: "Switch to Worklane 9",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: 9),
+            menuItem: nil
         ),
         AppCommandDefinition(
             id: .worklaneMoveUp,
@@ -1083,6 +1165,10 @@ extension AppCommandDefinition {
             "Switch to the next worklane."
         case .previousWorklane:
             "Switch to the previous worklane."
+        case .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4,
+             .selectWorklane5, .selectWorklane6, .selectWorklane7, .selectWorklane8,
+             .selectWorklane9:
+            "Switch to this numbered worklane, or the last worklane if that position does not exist."
         case .worklaneMoveUp:
             "Move the active worklane up in the sidebar."
         case .worklaneMoveDown:

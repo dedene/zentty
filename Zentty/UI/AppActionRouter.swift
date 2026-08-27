@@ -11,6 +11,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeRenameCurrentPane()
     func routeNextWorklane()
     func routePreviousWorklane()
+    func routeSelectWorklane(position: Int)
     func routeMoveWorklaneUp()
     func routeMoveWorklaneDown()
     func routeFind()
@@ -62,6 +63,8 @@ struct AppActionRouter {
             environment.routeNextWorklane()
         case .previousWorklane:
             environment.routePreviousWorklane()
+        case .selectWorklane(let position):
+            environment.routeSelectWorklane(position: position)
         case .moveWorklaneUp:
             environment.routeMoveWorklaneUp()
         case .moveWorklaneDown:

@@ -395,6 +395,14 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertNil(shortcutsController.selectedCommandDefaultShortcutForTesting)
         XCTAssertEqual(shortcutsController.displayString(for: .toggleSidebar), "⌘B")
         XCTAssertEqual(shortcutsController.displayString(for: .copyFocusedPanePath), "Unassigned")
+        for position in 1...9 {
+            XCTAssertTrue(
+                shortcutsController.visibleCommandTitles.contains("Switch to Worklane \(position)")
+            )
+        }
+        shortcutsController.selectCommandForTesting(.selectWorklane9)
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Switch to Worklane 9")
+        XCTAssertEqual(shortcutsController.displayString(for: .selectWorklane9), "Unassigned")
     }
 
     func test_settings_window_can_present_appearance_section_when_requested() throws {

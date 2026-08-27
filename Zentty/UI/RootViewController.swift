@@ -2108,8 +2108,8 @@ final class RootViewController: NSViewController {
 
     private func cancelPendingPaneStripScrollSwitchGestureIfNeeded(for action: AppAction) {
         switch action {
-        case .newWorklane, .nextWorklane, .previousWorklane, .navigateBack, .navigateForward,
-            .pane(_):
+        case .newWorklane, .nextWorklane, .previousWorklane, .selectWorklane,
+            .navigateBack, .navigateForward, .pane(_):
             appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         default:
             break
@@ -3023,6 +3023,10 @@ extension RootViewController: AppActionRouterEnvironment {
 
     func routePreviousWorklane() {
         peekController.handleTab(forward: false)
+    }
+
+    func routeSelectWorklane(position: Int) {
+        worklaneStore.selectWorklane(atPosition: position)
     }
 
     func routeMoveWorklaneUp() {

@@ -110,6 +110,58 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         )
     }
 
+    func test_numbered_worklane_commands_are_registered_unbound_and_user_bindable() {
+        let commandIDs: [AppCommandID] = [
+            .selectWorklane1,
+            .selectWorklane2,
+            .selectWorklane3,
+            .selectWorklane4,
+            .selectWorklane5,
+            .selectWorklane6,
+            .selectWorklane7,
+            .selectWorklane8,
+            .selectWorklane9,
+        ]
+
+        for (index, commandID) in commandIDs.enumerated() {
+            let position = index + 1
+            let definition = AppCommandRegistry.definition(for: commandID)
+
+            XCTAssertEqual(definition.title, "Switch to Worklane \(position)")
+            XCTAssertEqual(definition.category, .worklanes)
+            XCTAssertNil(definition.defaultShortcut)
+            XCTAssertEqual(definition.action, .selectWorklane(position: position))
+            XCTAssertNil(definition.menuItem)
+            XCTAssertFalse(definition.detailDescription.isEmpty)
+        }
+
+        let shortcut = KeyboardShortcut(key: .character("4"), modifiers: [.command])
+        let manager = ShortcutManager(
+            shortcuts: .init(bindings: [
+                ShortcutBindingOverride(commandID: .selectWorklane4, shortcut: shortcut),
+            ])
+        )
+
+        XCTAssertEqual(manager.shortcut(for: .selectWorklane4), shortcut)
+        XCTAssertEqual(manager.commandID(for: shortcut), .selectWorklane4)
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(shortcut, shortcuts: .init(bindings: manager.bindings)),
+            .selectWorklane(position: 4)
+        )
+    }
+
+    func test_numbered_worklane_shortcut_round_trips_through_toml() throws {
+        let binding = ShortcutBindingOverride(
+            commandID: .selectWorklane9,
+            shortcut: .init(key: .character("9"), modifiers: [.command])
+        )
+
+        let source = AppConfigTOML.encodeShortcuts([binding])
+        let decoded = try XCTUnwrap(AppConfigTOML.decodeShortcuts(source))
+
+        XCTAssertEqual(decoded, [binding])
+    }
+
     func test_registry_includes_find_commands_with_standard_shortcuts() {
         XCTAssertEqual(AppCommandRegistry.definition(for: .find).title, "Find")
         XCTAssertEqual(
