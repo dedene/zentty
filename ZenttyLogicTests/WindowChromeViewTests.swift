@@ -1623,4 +1623,73 @@ final class WindowChromeViewTests: AppKitTestCase {
 
         XCTAssertNil(delay)
     }
+
+    func test_titlebar_gesture_single_click_stays_a_window_drag() {
+        let gesture = WindowChromeTitlebarGesture.resolve(
+            clickCount: 1,
+            isFullscreen: false,
+            doubleClickActionPreference: "Maximize"
+        )
+
+        XCTAssertEqual(gesture, .windowDrag)
+    }
+
+    func test_titlebar_gesture_double_click_resolves_maximize_preference_to_zoom() {
+        let gesture = WindowChromeTitlebarGesture.resolve(
+            clickCount: 2,
+            isFullscreen: false,
+            doubleClickActionPreference: "Maximize"
+        )
+
+        XCTAssertEqual(gesture, .zoom)
+    }
+
+    func test_titlebar_gesture_double_click_defaults_to_zoom_without_preference() {
+        XCTAssertEqual(
+            WindowChromeTitlebarGesture.resolve(
+                clickCount: 2,
+                isFullscreen: false,
+                doubleClickActionPreference: nil
+            ),
+            .zoom
+        )
+        XCTAssertEqual(
+            WindowChromeTitlebarGesture.resolve(
+                clickCount: 2,
+                isFullscreen: false,
+                doubleClickActionPreference: "Unrecognized"
+            ),
+            .zoom
+        )
+    }
+
+    func test_titlebar_gesture_double_click_resolves_minimize_preference_to_miniaturize() {
+        let gesture = WindowChromeTitlebarGesture.resolve(
+            clickCount: 2,
+            isFullscreen: false,
+            doubleClickActionPreference: "Minimize"
+        )
+
+        XCTAssertEqual(gesture, .miniaturize)
+    }
+
+    func test_titlebar_gesture_double_click_resolves_none_preference_to_no_action() {
+        let gesture = WindowChromeTitlebarGesture.resolve(
+            clickCount: 2,
+            isFullscreen: false,
+            doubleClickActionPreference: "None"
+        )
+
+        XCTAssertEqual(gesture, .noAction)
+    }
+
+    func test_titlebar_gesture_double_click_is_no_action_in_fullscreen() {
+        let gesture = WindowChromeTitlebarGesture.resolve(
+            clickCount: 2,
+            isFullscreen: true,
+            doubleClickActionPreference: "Maximize"
+        )
+
+        XCTAssertEqual(gesture, .noAction)
+    }
 }

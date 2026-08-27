@@ -14,6 +14,55 @@ struct WindowChromeServerState: Equatable {
     let isMenuEnabled: Bool
 }
 
+/// The gesture the custom window chrome should perform for a mouse-down.
+///
+/// The main window draws its own chrome over the native titlebar
+/// (`.fullSizeContentView` + `titlebarAppearsTransparent`), so AppKit's built-in
+/// double-click-to-zoom never runs there. Resolving the gesture here reproduces
+/// native titlebar behavior, honoring the "Double-click a window's title bar to"
+/// system setting (`AppleActionOnDoubleClick`: Maximize / Minimize / None).
+enum WindowChromeTitlebarGesture {
+    case windowDrag
+    case zoom
+    case miniaturize
+    case noAction
+
+    static func resolve(
+        clickCount: Int,
+        isFullscreen: Bool,
+        doubleClickActionPreference: String?
+    ) -> WindowChromeTitlebarGesture {
+        guard clickCount == 2 else { return .windowDrag }
+        guard !isFullscreen else { return .noAction }
+        switch doubleClickActionPreference {
+        case "Minimize": return .miniaturize
+        case "None": return .noAction
+        default: return .zoom
+        }
+    }
+}
+
+/// Mouse-down handling shared by the chrome's drag surfaces: clicks and drags keep
+/// moving the window; double-clicks perform the system titlebar action instead.
+@MainActor
+private func performWindowChromeMouseDown(_ event: NSEvent, window: NSWindow?) {
+    guard let window else { return }
+    switch WindowChromeTitlebarGesture.resolve(
+        clickCount: event.clickCount,
+        isFullscreen: window.styleMask.contains(.fullScreen),
+        doubleClickActionPreference: UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")
+    ) {
+    case .windowDrag:
+        window.performDrag(with: event)
+    case .zoom:
+        window.performZoom(event)
+    case .miniaturize:
+        window.performMiniaturize(event)
+    case .noAction:
+        break
+    }
+}
+
 @MainActor
 final class WindowChromeView: NSView {
     static let preferredHeight: CGFloat = ChromeGeometry.headerHeight
@@ -196,7 +245,7 @@ final class WindowChromeView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 
     private func setup() {
@@ -1636,7 +1685,7 @@ private final class WindowChromeDragRegionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 }
 
@@ -1657,7 +1706,7 @@ private final class WindowChromeDragLabel: NSTextField {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 }
 
@@ -2606,7 +2655,7 @@ private final class WindowChromeReviewChipView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
