@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import os
 import GhosttyKit
 
 struct LibghosttySurfaceScrollbarUpdate: Equatable, Sendable {
@@ -144,6 +145,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     private weak var hostView: LibghosttyView?
     private(set) var hasScrollback = false
     private var hasEmittedShellReady = false
+    private enum TeardownState {
+        case live(ghostty_surface_t)
+        case closing(ghostty_surface_t)
+        case freed
+    }
+    private var isCloseRequested = false
+    private let teardownState = OSAllocatedUnfairLock<TeardownState>(initialState: .freed)
+    private var closeRetain: LibghosttySurface?
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     var mouseCaptured: Bool {
@@ -256,6 +265,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
 
         self.surface = surface
+        // Single owner of the raw pointer for teardown (state machine, armed
+        // once here). Transitioned atomically by close(), the close callback
+        // (freeSurface), and deinit — no unlocked gap between a liveness
+        // check and an action on the pointer.
+        teardownState.withLock { $0 = .live(surface) }
         self.hostView = hostView
         metadata.currentWorkingDirectory = request.workingDirectory
         let initialViewportSize = hostView.normalizedBackingViewportSize
@@ -274,15 +288,61 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     func close() {
-        guard let surface else { return }
-        ghostty_surface_request_close(surface)
-        ghostty_surface_free(surface)
+        dispatchPrecondition(condition: .onQueue(.main))
+        // Thread-safety: never free a ghostty surface on the main thread.
+        // ghostty's teardown may join its io/renderer threads; when one of
+        // those is blocked (e.g. after a pane stream stall), the join never
+        // returns and the whole app freezes (dedene/zentty#67).
+        guard !isCloseRequested else { return }
+        isCloseRequested = true
+        // Atomic live -> closing transition. The returned pointer is safe to
+        // request_close on: the callback can only fire after the request is
+        // processed, and either way the pointer is never freed twice.
+        let target = teardownState.withLock { state -> ghostty_surface_t? in
+            guard case .live(let ptr) = state else { return nil }
+            state = .closing(ptr)
+            return ptr
+        }
+        guard let target else {
+            // Already closed or freed by another path (e.g. shell exit).
+            self.surface = nil
+            return
+        }
+        // Strong self-bridge: keep the object alive until the close callback
+        // drains (cleared in freeSurface), so deinit can never free a pointer
+        // ghostty still owns in the .closing state.
+        closeRetain = self
+        // Stop further ghostty calls through the property synchronously on
+        // the main thread; ownership of the pointer stays in teardownState.
         self.surface = nil
+        ghostty_surface_request_close(target)
+        // Deliberate trade-off: if ghostty never fires the close callback (a
+        // stalled pane), closeRetain keeps this object — and its surface —
+        // alive indefinitely. That leak is accepted: freeing while ghostty
+        // may still be closing is a guaranteed use-after-free, and the leak
+        // is bounded to stalled panes.
     }
 
     deinit {
-        if let surface {
-            ghostty_surface_free(surface)
+        // Last-resort safety net: frees a pointer neither the close callback
+        // nor the close() watchdog got to. .live here is a contract violation
+        // worth shouting about in debug; .closing is possible only if the
+        // watchdog fired and the object was retained past it.
+        let pending = teardownState.withLock { state -> ghostty_surface_t? in
+            defer { state = .freed }
+            if case .live = state {
+                assertionFailure("LibghosttySurface deallocated in .live state")
+            }
+            switch state {
+            case .live(let ptr): return ptr
+            case .closing(let ptr): return ptr
+            case .freed: return nil
+            }
+        }
+        if let pending {
+            DispatchQueue.global(qos: .utility).async {
+                ghostty_surface_free(pending)
+            }
         }
     }
 
@@ -782,8 +842,42 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     nonisolated func notifySurfaceClosed() {
+        // The close callback is ghostty ASKING the embedder to release the
+        // surface — the designated safe point to free, in both the
+        // shell-exit (.live) and app-initiated (.closing) paths.
+        freeSurface()
         DispatchQueue.main.async { [weak self] in
             self?.eventDidOccur(.surfaceClosed)
+        }
+    }
+
+    private nonisolated func freeSurface() {
+        let pending = teardownState.withLock { state -> ghostty_surface_t? in
+            switch state {
+            case .live(let ptr):
+                state = .freed
+                return ptr
+            case .closing(let ptr):
+                state = .freed
+                return ptr
+            case .freed:
+                return nil
+            }
+        }
+        guard let pending else { return }
+        let owner = self
+        // Nil the property and release the close-bridge on the main thread
+        // BEFORE dispatching the free, so main-thread property reads stop
+        // before the pointer dies; the free itself stays off-main, and the
+        // object stays alive through it via the owner capture. (Reads from
+        // ghostty's own callback threads are pre-existing and out of scope.)
+        DispatchQueue.main.async { [weak self] in
+            self?.surface = nil
+            self?.closeRetain = nil
+            DispatchQueue.global(qos: .utility).async {
+                ghostty_surface_free(pending)
+                withExtendedLifetime(owner) {}
+            }
         }
     }
 
