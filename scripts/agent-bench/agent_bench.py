@@ -114,6 +114,13 @@ class ScenarioExpectation:
     synthetic: bool = False
     fixture: str | None = None
     post_stop_notification_required: bool = False
+    # The scenario must capture a SubagentStart/SubagentStop pair whose payload
+    # names the agent type and whose transcript sidecar yields the model —
+    # the two facts the sidebar badge and its expanded list are built from.
+    subagent_payload_required: bool = False
+    # Whether that payload check also demands a resolvable model. Grok exposes
+    # no per-subagent transcript, so its profile only proves count and type.
+    subagent_model_required: bool = True
     # A true end-to-end resume round-trip (modern kimi-code only): phase 1
     # creates a real session through the wrapper bootstrap against a bench-owned
     # home, phase 2 simulates a restart and resumes it by id, asserting the
@@ -189,6 +196,7 @@ class ScenarioResult:
     terminal_phase_sequence: list[str] = dataclasses.field(default_factory=list)
     terminal_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     task_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    subagent_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     session_identity_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     rerun_command: str = ""
@@ -590,6 +598,17 @@ def classify_completed_result(
         result.detail = "required TodoWrite task progress was not captured"
         result.result_kind = "missing-task-progress"
         return result
+    if expectation.subagent_payload_required:
+        subagent_detail = missing_subagent_payload_detail(
+            subagent_observations_for_records(agent, scenario, records),
+            model_required=expectation.subagent_model_required,
+        )
+        if subagent_detail:
+            result.passed = False
+            result.status = "fail"
+            result.detail = subagent_detail
+            result.result_kind = "missing-subagent-payload"
+            return result
     if scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
         result.passed = False
         result.status = "fail"
@@ -672,6 +691,17 @@ def classify_timeout_result(
             partial.status = "fail"
             partial.detail = "required TodoWrite task progress was not captured"
             partial.result_kind = "missing-task-progress"
+        elif expectation.subagent_payload_required and missing_subagent_payload_detail(
+            subagent_observations_for_records(agent, scenario, records),
+            model_required=expectation.subagent_model_required,
+        ):
+            partial.passed = False
+            partial.status = "fail"
+            partial.detail = missing_subagent_payload_detail(
+                subagent_observations_for_records(agent, scenario, records),
+                model_required=expectation.subagent_model_required,
+            ) or ""
+            partial.result_kind = "missing-subagent-payload"
         elif scenario_requires_terminal_needs_input(scenario) and not terminal_needs_input_observed(terminal_observations):
             partial.passed = False
             partial.status = "fail"
@@ -1057,6 +1087,116 @@ def task_observations_for_records(agent: str, scenario: str, records: list[Trace
                         }
                     )
     return observations
+
+
+SUBAGENT_START_EVENTS = {"subagentstart", "subagent_start", "subagent-start"}
+SUBAGENT_STOP_EVENTS = {"subagentstop", "subagent_stop", "subagent-stop", "subagentend", "subagent_end"}
+
+
+def subagent_trace_extra(agent: str | None, event_name: str | None, stdin_payload: str | None) -> dict[str, Any] | None:
+    """Capture, at record time, the facts Zentty's adapters derive from a
+    SubagentStart/SubagentStop hook: the agent type from the payload and the
+    model from the transcript sidecar next to it. Runs before redaction so the
+    real transcript path can still be read; only derived values are stored."""
+    lowered = (event_name or "").lower()
+    payload = parse_json_object(stdin_payload)
+    if lowered not in SUBAGENT_START_EVENTS | SUBAGENT_STOP_EVENTS:
+        payload_event = str(first_string(payload, ["hook_event_name", "hookEventName"]) or "").lower()
+        if payload_event not in SUBAGENT_START_EVENTS | SUBAGENT_STOP_EVENTS:
+            return None
+        lowered = payload_event
+    transcript_path = first_string(payload, ["agent_transcript_path", "agentTranscriptPath"])
+    resolved = resolve_subagent_model(agent, transcript_path, payload)
+    observation: dict[str, Any] = {
+        "event": "start" if lowered in SUBAGENT_START_EVENTS else "stop",
+        "agent_type": first_string(payload, ["agent_type", "agentType", "subagent_type", "subagentType", "agent_role", "agentRole"]),
+        "agent_id": first_string(payload, ["agent_id", "agentId", "turn_id", "turnId"]),
+        "transcript_path_present": bool(transcript_path),
+        "transcript_exists": bool(transcript_path) and pathlib.Path(transcript_path).exists(),
+        "model": resolved.get("model"),
+        "nickname": resolved.get("nickname"),
+    }
+    return {"subagent": observation}
+
+
+def resolve_subagent_model(agent: str | None, transcript_path: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    """Python mirror of AgentSubagentModelResolver so the bench proves the
+    sidecar files the app relies on actually carry a model."""
+    result: dict[str, Any] = {"model": first_string(payload, ["model", "model_id", "modelId"]), "nickname": None}
+    if not transcript_path:
+        return result
+    path = pathlib.Path(transcript_path)
+    if agent == "claude":
+        meta_path = path.with_name(path.name[: -len(".jsonl")] + ".meta.json") if path.name.endswith(".jsonl") else pathlib.Path(str(path) + ".meta.json")
+        meta = parse_json_object(_read_head(meta_path))
+        if isinstance(meta.get("model"), str) and meta["model"].strip():
+            result["model"] = meta["model"].strip()
+            return result
+        for line in (_read_head(path) or "").splitlines():
+            if '"model"' not in line:
+                continue
+            obj = parse_json_object(line)
+            message = obj.get("message")
+            model = message.get("model") if isinstance(message, dict) else obj.get("model")
+            if isinstance(model, str) and model.strip():
+                result["model"] = model.strip()
+                break
+        return result
+    if agent == "codex":
+        for line in (_read_head(path) or "").splitlines():
+            obj = parse_json_object(line)
+            record_type = obj.get("type")
+            record_payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
+            if record_type == "session_meta":
+                spawn = (((record_payload.get("source") or {}).get("subagent") or {}).get("thread_spawn") or {})
+                if isinstance(spawn, dict) and isinstance(spawn.get("agent_nickname"), str):
+                    result["nickname"] = spawn["agent_nickname"]
+            elif record_type == "turn_context" and result.get("model") is None:
+                model = record_payload.get("model")
+                if isinstance(model, str) and model.strip():
+                    result["model"] = model.strip()
+            if result.get("model") and result.get("nickname"):
+                break
+        return result
+    return result
+
+
+def _read_head(path: pathlib.Path, max_bytes: int = 256 * 1024) -> str | None:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(max_bytes).decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def subagent_observations_for_records(agent: str, scenario: str, records: list[TraceRecord]) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for record in records:
+        if record.agent != agent or record.scenario != scenario or record.kind != "hook":
+            continue
+        if isinstance(record.extra, dict) and isinstance(record.extra.get("subagent"), dict):
+            observations.append(dict(record.extra["subagent"]))
+    return observations
+
+
+def missing_subagent_payload_detail(observations: list[dict[str, Any]], model_required: bool = True) -> str | None:
+    """None when the captured subagent hooks carry everything the sidebar
+    needs; otherwise a one-line explanation of what was missing."""
+    starts = [item for item in observations if item.get("event") == "start"]
+    stops = [item for item in observations if item.get("event") == "stop"]
+    if not starts:
+        return "no SubagentStart hook payload was captured"
+    if not stops:
+        return "SubagentStart captured but no SubagentStop followed"
+    if not any(item.get("agent_type") for item in observations):
+        return "subagent hooks captured but none named an agent type"
+    if not model_required:
+        return None
+    if not any(item.get("model") for item in observations):
+        if any(item.get("transcript_exists") for item in observations):
+            return "subagent transcript exists but no model could be resolved from it"
+        return "subagent hooks captured but no transcript sidecar was available to resolve the model"
+    return None
 
 
 def todo_progress(tool_input: dict[str, Any] | None) -> tuple[int, int] | None:
@@ -1452,6 +1592,9 @@ class CaptureServer:
         if current_profile := self._current_profile_for_tool(agent):
             agent = current_profile.name
         extra = cursor_trace_extra(agent, stdin_payload if isinstance(stdin_payload, str) else None)
+        subagent_extra = subagent_trace_extra(agent, hook.event_name, stdin_payload if isinstance(stdin_payload, str) else None)
+        if subagent_extra:
+            extra = {**(extra or {}), **subagent_extra}
         self.recorder.append(
             TraceRecord(
                 kind="hook",
@@ -1598,6 +1741,8 @@ class LaunchPlanner:
             "PostCompact",
             "TaskCreated",
             "TaskCompleted",
+            "SubagentStart",
+            "SubagentStop",
         ):
             settings["hooks"][event] = [{"matcher": "", "hooks": [{"type": "command", "command": hook_command, "timeout": 10}]}]
         settings["hooks"]["SessionStart"] = [
@@ -1625,6 +1770,8 @@ class LaunchPlanner:
             ("UserPromptSubmit", "user_prompt_submit", "prompt-submit"),
             ("PreCompact", "pre_compact", "pre-compact"),
             ("PostCompact", "post_compact", "post-compact"),
+            ("SubagentStart", "subagent_start", "subagent-start"),
+            ("SubagentStop", "subagent_stop", "subagent-stop"),
             ("Stop", "stop", "stop"),
         ]
         hook_config_args = ["features.hooks=true"]
@@ -1914,7 +2061,7 @@ class LaunchPlanner:
         # the entry — that's exactly the bug this rewrite fixes.
         lifecycle_events = [
             "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification",
-            "BeforeAgent", "AfterAgent",
+            "SubagentStart", "SubagentStop", "BeforeAgent", "AfterAgent",
         ]
         tool_events = ["PreToolUse", "PostToolUse"]
         hooks_json: dict[str, Any] = {"hooks": {}}
@@ -2254,6 +2401,8 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 synthetic=bool(value.get("synthetic", False)),
                 fixture=value.get("fixture"),
                 post_stop_notification_required=bool(value.get("post_stop_notification_required", False)),
+                subagent_payload_required=bool(value.get("subagent_payload_required", False)),
+                subagent_model_required=bool(value.get("subagent_model_required", True)),
                 resume_roundtrip=bool(value.get("resume_roundtrip", False)),
             )
         profile = AgentProfile(
@@ -2740,6 +2889,7 @@ class BenchRunner:
         result.terminal_phase_sequence = terminal_phase_sequence(observations)
         result.terminal_observations = [dataclasses.asdict(observation) for observation in observations]
         result.task_observations = task_observations_for_records(result.agent, result.scenario, records)
+        result.subagent_observations = subagent_observations_for_records(result.agent, result.scenario, records)
         result.timeline = build_timeline(result.agent, result.scenario, records, observations)
         result.rerun_command = self._rerun_command(result.agent, result.scenario)
         if observations and not any(warning.startswith("terminal observations") for warning in result.warnings):
@@ -2750,6 +2900,12 @@ class BenchRunner:
             result.warnings.append("terminal post-scripted-input phase: needs-input")
         if result.task_observations and not any(warning.startswith("task observations") for warning in result.warnings):
             result.warnings.append(f"task observations captured: {len(result.task_observations)}")
+        if result.subagent_observations and not any(warning.startswith("subagent observations") for warning in result.warnings):
+            models = sorted({str(item.get("model")) for item in result.subagent_observations if item.get("model")})
+            result.warnings.append(
+                f"subagent observations captured: {len(result.subagent_observations)}"
+                + (f" (models: {', '.join(models)})" if models else "")
+            )
         return result
 
     def _rerun_command(self, agent: str, scenario: str) -> str:

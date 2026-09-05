@@ -37,6 +37,7 @@ enum AgentStatusReconciliation {
             trackedPID: existingStatus.trackedPID,
             hasObservedRunning: existingStatus.hasObservedRunning,
             taskProgress: existingStatus.taskProgress,
+            subagents: existingStatus.subagents,
             completionCandidateDeadline: nil,
             idleVisibleUntil: existingStatus.state == .idle
                 ? existingStatus.updatedAt.addingTimeInterval(PaneAgentReducerState.idleVisibilityWindow)

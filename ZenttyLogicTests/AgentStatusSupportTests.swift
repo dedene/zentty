@@ -2324,6 +2324,8 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNotNil(hooks["PreCompact"])
         XCTAssertNotNil(hooks["PostCompact"])
         XCTAssertNotNil(hooks["TaskCompleted"])
+        XCTAssertNotNil(hooks["SubagentStart"])
+        XCTAssertNotNil(hooks["SubagentStop"])
         // PostToolUse / PostToolUseFailure are the only hooks Claude Code emits
         // between an approved tool and the next Bash/Write/Edit call; without
         // them an approval prompt stays "Needs input" while Claude works
@@ -2461,7 +2463,11 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:pre_compact:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:post_compact:0:0""#))
         XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:stop:0:0""#))
-        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 8)
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.SubagentStart=") && $0.contains("subagent-start") })
+        XCTAssertTrue(hookConfigArguments.contains { $0.hasPrefix("hooks.SubagentStop=") && $0.contains("subagent-stop") })
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:subagent_start:0:0""#))
+        XCTAssertTrue(hookStateArgument.contains(#""/<session-flags>/config.toml:subagent_stop:0:0""#))
+        XCTAssertEqual(hookStateArgument.components(separatedBy: "trusted_hash=\"sha256:").count - 1, 10)
         let sourceConfig = try String(contentsOf: sourceConfigURL, encoding: .utf8)
         XCTAssertFalse(sourceConfig.contains("hooks.state"))
         XCTAssertTrue(plan.arguments.contains("features.hooks=true"))

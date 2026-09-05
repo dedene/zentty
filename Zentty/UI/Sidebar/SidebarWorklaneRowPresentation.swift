@@ -11,6 +11,8 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
         let serverPorts: [WorklaneSidebarServerPort]
         let isRemotePane: Bool
         let remotePaneLabel: String?
+        let subagents: PaneAgentSubagentSummary?
+        let showsSubagentDetails: Bool
     }
 
     let summary: WorklaneSidebarSummary
@@ -25,9 +27,13 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
     let statusLineCount: Int
     let paneRows: [PaneRow]
 
-    init(summary: WorklaneSidebarSummary, availableWidth: CGFloat?) {
+    init(summary: WorklaneSidebarSummary, availableWidth: CGFloat?, expandedSubagentPaneIDs: Set<PaneID> = []) {
         self.summary = summary
-        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: availableWidth)
+        let layout = SidebarWorklaneRowLayout(
+            summary: summary,
+            availableWidth: availableWidth,
+            expandedSubagentPaneIDs: expandedSubagentPaneIDs
+        )
         mode = layout.mode
         visibleTextRows = layout.visibleTextRows
         contentGroups = layout.contentGroups
@@ -88,7 +94,12 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
                 ),
                 serverPorts: paneRow.serverPorts,
                 isRemotePane: paneRow.isRemotePane,
-                remotePaneLabel: paneRow.remotePaneLabel
+                remotePaneLabel: paneRow.remotePaneLabel,
+                subagents: (paneRow.subagents?.isEmpty ?? true) ? nil : paneRow.subagents,
+                showsSubagentDetails: SidebarWorklaneRowLayout.paneRowShowsSubagentDetails(
+                    paneRow,
+                    expandedSubagentPaneIDs: expandedSubagentPaneIDs
+                )
             )
         }
     }

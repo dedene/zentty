@@ -1890,7 +1890,9 @@ final class AgentEventBridgeTests: XCTestCase {
         let json = #"{"hook_event_name": "SubagentStop", "session_id": "cs1"}"#
         let payloads = try AgentEventBridge.claudeAdapter(data: json.data(using: .utf8)!, environment: claudeEnvironment())
 
-        XCTAssertEqual(payloads[0].state, .idle)
+        // A subagent finishing is not the parent's turn ending: the parent
+        // still has to consume the result, so the pane stays running.
+        XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].lifecycleEvent, .update)
     }
 

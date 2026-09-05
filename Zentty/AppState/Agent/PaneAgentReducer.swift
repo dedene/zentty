@@ -20,6 +20,7 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var trackedPID: Int32?
     var hasObservedRunning: Bool
     var taskProgress: PaneAgentTaskProgress? = nil
+    var subagents: PaneAgentSubagentSummary? = nil
     var completionCandidateDeadline: Date?
     var idleVisibleUntil: Date?
     var unresolvedStopVisibleUntil: Date?
@@ -394,7 +395,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
             sessionID: session.sessionID,
             parentSessionID: session.parentSessionID,
             agentLaunchSnapshot: session.agentLaunchSnapshot,
-            taskProgress: session.taskProgress
+            taskProgress: session.taskProgress,
+            subagents: session.subagents
         )
     }
 
@@ -439,6 +441,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             trackedPID: nil,
             hasObservedRunning: false,
             taskProgress: payload.taskProgress,
+            subagents: payload.subagents,
             completionCandidateDeadline: nil,
             idleVisibleUntil: nil,
             unresolvedStopVisibleUntil: nil,
@@ -475,6 +478,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
         session.taskProgress = payload.taskProgress ?? session.taskProgress
+        session.subagents = payload.subagents ?? session.subagents
 
         if payload.lifecycleEvent == .stopCandidate {
             session.state = .running
@@ -580,6 +584,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             session.text = session.text ?? inferredSession.text
             session.transientTextVisibleUntil = session.transientTextVisibleUntil ?? inferredSession.transientTextVisibleUntil
             session.taskProgress = session.taskProgress ?? inferredSession.taskProgress
+            session.subagents = session.subagents ?? inferredSession.subagents
             session.agentLaunchSnapshot = session.agentLaunchSnapshot ?? inferredSession.agentLaunchSnapshot
             if inferredSession.updatedAt > session.updatedAt {
                 session.updatedAt = inferredSession.updatedAt
@@ -607,6 +612,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.transientTextVisibleUntil = session.transientTextVisibleUntil ?? fallbackSession.transientTextVisibleUntil
         session.trackedPID = session.trackedPID ?? fallbackSession.trackedPID
         session.taskProgress = session.taskProgress ?? fallbackSession.taskProgress
+        session.subagents = session.subagents ?? fallbackSession.subagents
         session.agentLaunchSnapshot = session.agentLaunchSnapshot ?? fallbackSession.agentLaunchSnapshot
         if session.shellActivityState == .unknown {
             session.shellActivityState = fallbackSession.shellActivityState
@@ -642,6 +648,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 trackedPID: nil,
                 hasObservedRunning: false,
                 taskProgress: payload.taskProgress,
+                subagents: payload.subagents,
                 completionCandidateDeadline: nil,
                 idleVisibleUntil: nil,
                 unresolvedStopVisibleUntil: nil,

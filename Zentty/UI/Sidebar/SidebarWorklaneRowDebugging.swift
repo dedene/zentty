@@ -51,6 +51,10 @@ struct SidebarWorklaneRowDebugSnapshot {
     let paneStatusSymbolNames: [String]
     let paneServerPortTexts: [[String]]
     let firstPaneServerIconIsVisible: Bool
+    let paneSubagentBadgeTexts: [String]
+    let firstPaneSubagentBadgeToolTip: String?
+    let firstPaneSubagentBadgeFillColor: NSColor?
+    let paneSubagentListTexts: [[String]]
     let paneStatusShimmerPhaseOffsets: [CGFloat]
     let firstPaneStatusTextColor: NSColor?
     let firstPaneStatusProgressIndicatorIsVisible: Bool
@@ -95,6 +99,7 @@ enum SidebarWorklaneRowDebugInteraction {
     case firstPaneStatusLineExit(pointerStillInsideLine: Bool)
     case firstPaneStatusLineHoverReconciliation(pointerInsideLine: Bool)
     case firstPaneServerPortClick(index: Int)
+    case firstPaneSubagentBadgeClick
 }
 
 enum SidebarWorklaneRowDebugMenuTarget {
@@ -128,6 +133,7 @@ struct SidebarWorklaneRowDebugAccess {
     let paneDetailLabels: [SidebarStaticLabel]
     let paneStatusRows: [SidebarPaneTextRowView]
     let paneServerRows: [SidebarPaneServerRowView]
+    let paneSubagentRows: [SidebarPaneSubagentListView]
     let paneRowButtons: [SidebarPaneRowButton]
     let paneRowContainers: [SidebarInsetContainerView]
     let tintLayer: CALayer
@@ -246,6 +252,12 @@ extension SidebarWorklaneRowButton {
                 .map(\.portTextsForTesting)
                 .filter { $0.isEmpty == false },
             firstPaneServerIconIsVisible: access.paneServerRows.first?.iconIsVisibleForTesting ?? false,
+            paneSubagentBadgeTexts: access.paneStatusRows.prefix(paneRowCount)
+                .map { $0.subagentBadgeIsVisibleForTesting ? $0.subagentBadgeTextForTesting : "" },
+            firstPaneSubagentBadgeToolTip: access.paneStatusRows.first?.subagentBadgeToolTipForTesting,
+            firstPaneSubagentBadgeFillColor: access.paneStatusRows.first?.subagentBadgeFillColorForTesting,
+            paneSubagentListTexts: access.paneSubagentRows.prefix(paneRowCount)
+                .map { $0.isHidden ? [] : $0.lineTextsForTesting },
             paneStatusShimmerPhaseOffsets: access.paneStatusRows.prefix(paneRowCount)
                 .map(\.shimmerPhaseOffsetForTesting),
             firstPaneStatusTextColor: access.paneStatusRows.first?.textColor,
@@ -323,6 +335,15 @@ extension SidebarWorklaneRowButton {
             }
 
             paneButton.performPrimaryClickForTesting(at: paneButton.convert(pointInServerRow, from: serverRow))
+        case .firstPaneSubagentBadgeClick:
+            guard let paneButton = access.paneRowButtons.first,
+                  let statusRow = access.paneStatusRows.first,
+                  let badgeFrame = statusRow.subagentBadgeFrame(in: paneButton)
+            else {
+                return
+            }
+
+            paneButton.performPrimaryClickForTesting(at: NSPoint(x: badgeFrame.midX, y: badgeFrame.midY))
         }
     }
 

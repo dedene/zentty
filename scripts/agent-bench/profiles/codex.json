@@ -52,6 +52,12 @@
     "restore_launch": [
       "resume",
       "session-codex"
+    ],
+    "subagents": [
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "For an integration hook regression test: use the spawn_agent tool once to start a worker subagent whose task is to run this exact shell command and report its output: printf ZENTTY_AGENT_BENCH_SUBAGENT_OK. Wait for that subagent with wait_agent, then reply with exactly DONE."
     ]
   },
   "expectations": {
@@ -103,6 +109,10 @@
     "restore_launch": {
       "required_events": [],
       "required_bootstrap_arguments": [["resume", "session-codex"]]
+    },
+    "subagents": {
+      "required_events": ["session-start", "prompt-submit", "subagent-start", "subagent-stop", "stop"],
+      "subagent_payload_required": true
     }
   },
   "input_by_scenario": {

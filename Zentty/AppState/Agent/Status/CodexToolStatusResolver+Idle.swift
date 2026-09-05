@@ -70,7 +70,8 @@ extension CodexToolStatusResolver {
             hasObservedRunning: true,
             sessionID: existingStatus.sessionID,
             parentSessionID: existingStatus.parentSessionID,
-            taskProgress: existingStatus.taskProgress
+            taskProgress: existingStatus.taskProgress,
+            subagents: existingStatus.subagents
         )
         aux.agentStatus = newStatus
         aux.agentReducerState = AgentStatusReconciliation.seededReducerState(
@@ -192,7 +193,8 @@ extension CodexToolStatusResolver {
             hasObservedRunning: true,
             sessionID: existingStatus.sessionID,
             parentSessionID: existingStatus.parentSessionID,
-            taskProgress: existingStatus.taskProgress
+            taskProgress: existingStatus.taskProgress,
+            subagents: existingStatus.subagents
         )
         working.agentStatus = newStatus
         // Re-seed the reducer from the new idle status so the periodic

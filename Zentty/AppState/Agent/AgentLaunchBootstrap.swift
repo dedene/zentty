@@ -840,6 +840,8 @@ enum AgentLaunchBootstrap {
                 "PostCompact": claudeHookEntries(command: hookCommand, timeout: 10),
                 "TaskCreated": claudeHookEntries(command: hookCommand, timeout: 5),
                 "TaskCompleted": claudeHookEntries(command: hookCommand, timeout: 5),
+                "SubagentStart": claudeHookEntries(command: hookCommand, timeout: 5),
+                "SubagentStop": claudeHookEntries(command: hookCommand, timeout: 5),
             ],
         ])
 
@@ -1473,6 +1475,8 @@ enum AgentLaunchBootstrap {
             CodexHookSpec(eventName: "UserPromptSubmit", eventKey: "user_prompt_submit", eventArgument: "prompt-submit", timeout: 10),
             CodexHookSpec(eventName: "PreCompact", eventKey: "pre_compact", eventArgument: "pre-compact", timeout: 10),
             CodexHookSpec(eventName: "PostCompact", eventKey: "post_compact", eventArgument: "post-compact", timeout: 10),
+            CodexHookSpec(eventName: "SubagentStart", eventKey: "subagent_start", eventArgument: "subagent-start", timeout: 10),
+            CodexHookSpec(eventName: "SubagentStop", eventKey: "subagent_stop", eventArgument: "subagent-stop", timeout: 10),
             CodexHookSpec(eventName: "Stop", eventKey: "stop", eventArgument: "stop", timeout: 10),
         ]
     }

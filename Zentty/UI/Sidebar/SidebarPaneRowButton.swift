@@ -553,6 +553,8 @@ final class SidebarPaneRowButton: NSButton {
     var onWorklaneDragRequested: ((NSEvent) -> Bool)?
     weak var serverRowView: SidebarPaneServerRowView?
     var onServerPortSelected: ((String) -> Void)?
+    weak var statusRowView: SidebarPaneTextRowView?
+    var onSubagentBadgeClicked: ((PaneID) -> Void)?
     var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
     var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
@@ -629,7 +631,7 @@ final class SidebarPaneRowButton: NSButton {
 
     override func mouseDown(with event: NSEvent) {
         let pointInSelf = convert(event.locationInWindow, from: nil)
-        if event.type == .leftMouseDown, openServerIfNeeded(at: pointInSelf) {
+        if event.type == .leftMouseDown, openServerIfNeeded(at: pointInSelf) || toggleSubagentDetailsIfNeeded(at: pointInSelf) {
             return
         }
 
@@ -653,7 +655,7 @@ final class SidebarPaneRowButton: NSButton {
 
     @discardableResult
     func performPrimaryClick(at point: NSPoint) -> Bool {
-        if openServerIfNeeded(at: point) {
+        if openServerIfNeeded(at: point) || toggleSubagentDetailsIfNeeded(at: point) {
             return true
         }
 
@@ -675,6 +677,20 @@ final class SidebarPaneRowButton: NSButton {
         }
 
         onServerPortSelected?(serverID)
+        return true
+    }
+
+    /// The subagent badge toggles its detail list instead of selecting the
+    /// pane, mirroring how server ports open without a pane switch.
+    private func toggleSubagentDetailsIfNeeded(at point: NSPoint) -> Bool {
+        guard let statusRowView,
+              let badgeFrame = statusRowView.subagentBadgeFrame(in: self),
+              badgeFrame.insetBy(dx: -2, dy: -2).contains(point)
+        else {
+            return false
+        }
+
+        onSubagentBadgeClicked?(paneID)
         return true
     }
 

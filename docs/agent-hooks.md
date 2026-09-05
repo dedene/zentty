@@ -47,6 +47,8 @@ Register the same command for these Claude hook events:
 - `PreToolUse` with matcher `AskUserQuestion`
 - `TaskCreated`
 - `TaskCompleted`
+- `SubagentStart`
+- `SubagentStop`
 
 Example config snippet:
 
@@ -153,7 +155,8 @@ Example config snippet:
 - `SessionStart` -> session/PID attach only
 - `Notification`, `PermissionRequest`, `PreToolUse(AskUserQuestion)` -> `needs-input`
 - `UserPromptSubmit` -> `running`
-- `Stop` -> `idle`
+- `SubagentStart` / `SubagentStop` -> `running` plus the updated subagent set (see below)
+- `Stop` -> `idle` and clears the subagent set
 - `SessionEnd` -> clear session + PID mapping
 
 This keeps Zentty’s sidebar and alerts aligned with Claude’s own lifecycle instead of terminal heuristics.
@@ -165,6 +168,14 @@ Claude Code task hooks are used to maintain a per-session task registry. When a 
 Counts are intentionally scoped to the main session only. Subagent or nested task lists are ignored so the suffix stays stable.
 
 Claude hook execution is best effort. If the Claude adapter fails internally, Zentty returns success to Claude and suppresses stderr so users do not see hook error banners.
+
+### Subagents
+
+`SubagentStart` / `SubagentStop` maintain a per-pane registry of running subagents (`AgentSubagentRegistryStore`, shared with Codex and Grok). The sidebar shows the count as a badge next to the status icon; clicking it unfolds a list grouped by model and agent type.
+
+No hook payload carries the model, so Zentty resolves it from the files Claude writes next to the subagent transcript: `agent-<id>.meta.json` (present at spawn, holds `model` only when the parent chose one explicitly) or the first assistant line of `agent-<id>.jsonl`. `SubagentStart` arrives before either exists, so hooks fired from inside the subagent (`PreToolUse`, `PostToolUse`, …, recognizable by `agent_id`) retry the lookup and carry the refreshed set. The parent's `Stop` broadcasts an explicit empty set, and entries older than six hours are dropped in case a `SubagentStop` never arrived.
+
+The agent-bench `subagents` scenario is the regression check for this pipeline.
 
 ## Codex CLI
 
@@ -186,6 +197,8 @@ Zentty registers these Codex hook events:
 - `PreToolUse`
 - `PermissionRequest`
 - `PostToolUse`
+- `PreCompact` / `PostCompact`
+- `SubagentStart` / `SubagentStop`
 - `Stop`
 
 Each hook calls:
@@ -201,7 +214,10 @@ Each hook calls:
 - `PreToolUse` -> `running`
 - `PermissionRequest` -> `needs-input` with `approval`
 - `PostToolUse` -> `running`
-- `Stop` -> `idle`
+- `SubagentStart` / `SubagentStop` -> `running` plus the updated subagent set
+- `Stop` -> `idle`; clears the subagent set when it is the parent thread's stop
+
+Codex 0.153 fires subagent hooks with the parent `session_id` and the sub-thread id as `agent_id`; `agent_transcript_path` only arrives on `SubagentStop`. The model comes from the payload's `model` field at start and from the sub-thread rollout (`turn_context.model`, plus `agent_nickname` / `agent_role` from `session_meta`) once it exists.
 
 Codex 0.129's built-in AskUserQuestion UI does not emit a `PreToolUse` hook.
 When Codex switches the terminal title to `[ ! ] Action Required | ...`, Zentty
@@ -393,6 +409,7 @@ Zentty provides first-class support:
 - **Automatic on first run**: the first time `grok` (or `zentty launch grok`) runs inside a Zentty pane, Zentty drops the two files above. You get "Running (N/M)" for `TodoWrite` task lists and proper `needs-input` badges immediately.
 - **Manual**: `zentty install grok-hooks` / `zentty uninstall grok-hooks`.
 - `--adapter=grok` plus a Swift-side re-emitter produces canonical `task.progress`, `agent.needs-input`, and `session.start` events alongside the raw forward.
+- `SubagentStart` / `SubagentStop` (`subagentId`, `subagentType`) feed the sidebar subagent badge. Grok exposes no per-subagent transcript, so the list shows the agent type without a model.
 
 Disable with `ZENTTY_GROK_HOOKS_DISABLED=1`.
 

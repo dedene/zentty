@@ -9,7 +9,12 @@ extension AgentEventBridge {
     ) throws -> [AgentStatusPayload] {
         let input = try claudeParseInput(data)
         let sessionStore = ClaudeHookSessionStore()
-        return try claudeMakePayloads(from: input, environment: environment, sessionStore: sessionStore)
+        return try claudeMakePayloads(
+            from: input,
+            environment: environment,
+            sessionStore: sessionStore,
+            subagentStore: AgentSubagentRegistryStore()
+        )
     }
 }
 
@@ -27,6 +32,43 @@ struct ClaudeAdapterInput {
     let toolUseID: String?
     let taskID: String?
     let taskSubject: String?
+    /// Present on `SubagentStart` / `SubagentStop` and on every hook fired
+    /// from inside a subagent.
+    let agentID: String?
+    let agentType: String?
+    let agentTranscriptPath: String?
+
+    init(
+        hookEventName: String,
+        sessionID: String?,
+        message: String?,
+        notificationType: String?,
+        cwd: String?,
+        transcriptPath: String?,
+        toolName: String?,
+        toolInput: [String: Any],
+        toolUseID: String?,
+        taskID: String?,
+        taskSubject: String?,
+        agentID: String? = nil,
+        agentType: String? = nil,
+        agentTranscriptPath: String? = nil
+    ) {
+        self.hookEventName = hookEventName
+        self.sessionID = sessionID
+        self.message = message
+        self.notificationType = notificationType
+        self.cwd = cwd
+        self.transcriptPath = transcriptPath
+        self.toolName = toolName
+        self.toolInput = toolInput
+        self.toolUseID = toolUseID
+        self.taskID = taskID
+        self.taskSubject = taskSubject
+        self.agentID = agentID
+        self.agentType = agentType
+        self.agentTranscriptPath = agentTranscriptPath
+    }
 }
 
 extension AgentEventBridge {
@@ -49,14 +91,33 @@ extension AgentEventBridge {
             toolInput: (json["tool_input"] as? [String: Any]) ?? [:],
             toolUseID: JSONKeyAccess.firstString(in: json, keys: ["tool_use_id", "toolUseId"]),
             taskID: JSONKeyAccess.firstString(in: json, keys: ["task_id", "taskId"]),
-            taskSubject: JSONKeyAccess.firstString(in: json, keys: ["task", "task_subject", "taskSubject", "title"])
+            taskSubject: JSONKeyAccess.firstString(in: json, keys: ["task", "task_subject", "taskSubject", "title"]),
+            agentID: JSONKeyAccess.firstString(in: json, keys: ["agent_id", "agentId"]),
+            agentType: JSONKeyAccess.firstString(in: json, keys: ["agent_type", "agentType", "agent_name", "agentName"]),
+            agentTranscriptPath: JSONKeyAccess.firstString(in: json, keys: ["agent_transcript_path", "agentTranscriptPath"])
         )
     }
 
     static func claudeMakePayloads(
         from input: ClaudeAdapterInput,
         environment: [String: String],
-        sessionStore: ClaudeHookSessionStore
+        sessionStore: ClaudeHookSessionStore,
+        subagentStore: AgentSubagentRegistryStore = AgentSubagentRegistryStore()
+    ) throws -> [AgentStatusPayload] {
+        let payloads = try claudeMakeLifecyclePayloads(
+            from: input,
+            environment: environment,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+        return try claudeAttachSubagents(to: payloads, input: input, subagentStore: subagentStore)
+    }
+
+    private static func claudeMakeLifecyclePayloads(
+        from input: ClaudeAdapterInput,
+        environment: [String: String],
+        sessionStore: ClaudeHookSessionStore,
+        subagentStore: AgentSubagentRegistryStore
     ) throws -> [AgentStatusPayload] {
         let toolName = AgentTool.claudeCode.displayName
 
@@ -81,7 +142,8 @@ extension AgentEventBridge {
         case "Notification":
             if input.notificationType == "idle_prompt" {
                 let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
-                return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
+                let subagents = try subagentStore.clear(key: claudeSubagentKey(target))
+                return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID, subagents: subagents)]
             }
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let sessionRecord = try claudeLookupRecord(for: input, sessionStore: sessionStore)
@@ -204,7 +266,7 @@ extension AgentEventBridge {
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
             )]
 
-        case "UserPromptSubmit", "SubagentStart":
+        case "UserPromptSubmit":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             if let sessionID = input.sessionID {
                 try sessionStore.clearInteractionContext(sessionID: sessionID)
@@ -214,6 +276,24 @@ extension AgentEventBridge {
                 target: target, state: .running, cwd: input.cwd ?? promptExisting?.cwd,
                 interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
+            )]
+
+        case "SubagentStart":
+            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
+            let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
+            let entry = claudeSubagentEntry(
+                for: input,
+                sessionTranscriptPath: input.transcriptPath ?? existing?.transcriptPath
+            )
+            let subagents = try subagentStore.start(key: claudeSubagentKey(target), entry: entry)
+            return [claudeLifecyclePayload(
+                target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
+                interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
+                taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID),
+                subagents: subagents
             )]
 
         case "PreCompact":
@@ -258,14 +338,29 @@ extension AgentEventBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
-            return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
+            // The main agent finished its turn, so no subagent can still be
+            // running under it: broadcast the explicit empty set.
+            let subagents = try subagentStore.clear(key: claudeSubagentKey(target))
+            return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID, subagents: subagents)]
 
         case "SubagentStop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             if let sessionID = input.sessionID {
                 try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
-            return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
+            // The parent keeps working (it still has to read the subagent's
+            // result), so this is a running update, not an idle transition.
+            let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
+            let subagents = try subagentStore.stop(
+                key: claudeSubagentKey(target),
+                subagentID: claudeSubagentID(for: input, sessionTranscriptPath: existing?.transcriptPath)
+            )
+            return [claudeLifecyclePayload(
+                target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
+                interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
+                taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID),
+                subagents: subagents
+            )]
 
         case "SessionEnd":
             let current = currentTargetIfAvailable(from: environment)
@@ -277,6 +372,7 @@ extension AgentEventBridge {
             )
             guard let record else { return [] }
             let target = (record.windowID, record.worklaneID, record.paneID)
+            try subagentStore.remove(key: claudeSubagentKey((record.windowID, record.worklaneID, record.paneID)))
             return [
                 AgentStatusPayload(
                     windowID: target.0, worklaneID: target.1, paneID: target.2,
@@ -288,6 +384,71 @@ extension AgentEventBridge {
 
         default:
             return []
+        }
+    }
+
+    // MARK: - Claude Subagents
+
+    static func claudeSubagentKey(
+        _ target: (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID)
+    ) -> AgentSubagentRegistryStore.Key {
+        AgentSubagentRegistryStore.Key(tool: "claude", worklaneID: target.worklaneID, paneID: target.paneID)
+    }
+
+    static func claudeSubagentID(for input: ClaudeAdapterInput, sessionTranscriptPath: String?) -> String? {
+        if let agentID = AgentInteractionClassifier.trimmed(input.agentID) {
+            return agentID
+        }
+        if let path = AgentInteractionClassifier.trimmed(input.agentTranscriptPath) {
+            return path
+        }
+        return nil
+    }
+
+    static func claudeSubagentEntry(for input: ClaudeAdapterInput, sessionTranscriptPath: String?) -> PaneAgentSubagentEntry {
+        let transcriptPath = AgentInteractionClassifier.trimmed(input.agentTranscriptPath)
+            ?? AgentSubagentModelResolver.claudeAgentTranscriptPath(
+                sessionTranscriptPath: sessionTranscriptPath,
+                agentID: input.agentID
+            )
+        let id = claudeSubagentID(for: input, sessionTranscriptPath: sessionTranscriptPath)
+            ?? transcriptPath
+            ?? UUID().uuidString
+        return PaneAgentSubagentEntry(
+            id: id,
+            agentType: AgentInteractionClassifier.trimmed(input.agentType),
+            model: AgentSubagentModelResolver.claudeModel(agentTranscriptPath: transcriptPath),
+            nickname: nil,
+            transcriptPath: transcriptPath
+        )
+    }
+
+    /// Hooks fired from inside a subagent (`PreToolUse`, `PostToolUse`, …)
+    /// arrive after the subagent's first model response, which is the moment
+    /// its transcript reveals the model. Fill in what `SubagentStart` could
+    /// not know yet and carry the current set on the outgoing payload.
+    private static func claudeAttachSubagents(
+        to payloads: [AgentStatusPayload],
+        input: ClaudeAdapterInput,
+        subagentStore: AgentSubagentRegistryStore
+    ) throws -> [AgentStatusPayload] {
+        switch input.hookEventName {
+        case "SubagentStart", "SubagentStop", "Stop", "SessionEnd", "SessionStart":
+            return payloads
+        default:
+            break
+        }
+        guard let first = payloads.first(where: { $0.signalKind == .lifecycle }) else {
+            return payloads
+        }
+        let key = AgentSubagentRegistryStore.Key(tool: "claude", worklaneID: first.worklaneID, paneID: first.paneID)
+        return try attachSubagents(to: payloads, key: key, subagentStore: subagentStore) { entry in
+            let transcriptPath = entry.transcriptPath
+                ?? (input.agentID == entry.id ? AgentInteractionClassifier.trimmed(input.agentTranscriptPath) : nil)
+            guard let model = AgentSubagentModelResolver.claudeModel(agentTranscriptPath: transcriptPath) else {
+                return nil
+            }
+            return entry.with(model: model)
         }
     }
 
@@ -404,7 +565,8 @@ extension AgentEventBridge {
         interactionKind: PaneAgentInteractionKind? = nil,
         confidence: AgentSignalConfidence? = nil,
         sessionID: String? = nil,
-        taskProgress: PaneAgentTaskProgress? = nil
+        taskProgress: PaneAgentTaskProgress? = nil,
+        subagents: PaneAgentSubagentSummary? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             windowID: target.windowID,
@@ -419,6 +581,7 @@ extension AgentEventBridge {
             confidence: confidence,
             sessionID: sessionID,
             taskProgress: taskProgress,
+            subagents: subagents,
             artifactKind: nil,
             artifactLabel: nil,
             artifactURL: nil,

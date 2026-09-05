@@ -79,3 +79,12 @@ finishing. The trace must show `PostToolUse` events between
 `PermissionRequest` and `Stop`; those are the only hooks Claude emits while it
 works through tools outside the PreToolUse matcher, and without them the pane
 stays on "Needs input" after an approval typed as `1`/`y`.
+
+`subagents` is the regression scenario for the sidebar subagent badge. It asks
+the agent to spawn one subagent (Claude `Agent`, Codex `spawn_agent`, Grok
+`spawn_subagent`) and requires a `SubagentStart` / `SubagentStop` pair. With
+`subagent_payload_required` the bench also checks, before redaction, that the
+hook payload names an agent type and that the transcript sidecar next to it
+yields a model (`agent-<id>.meta.json` or the first assistant line for Claude,
+the sub-thread rollout's `turn_context` for Codex), because those two facts are
+what the badge and its expanded list are built from.
