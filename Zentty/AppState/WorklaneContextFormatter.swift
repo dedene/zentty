@@ -918,7 +918,7 @@ enum WorklaneContextFormatter {
         "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"
     ]
 
-    private static func isGenericShellIdentity(_ value: String) -> Bool {
+    static func isGenericShellIdentity(_ value: String) -> Bool {
         switch value.lowercased() {
         case "zsh", "bash", "fish", "sh":
             return true

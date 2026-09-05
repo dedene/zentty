@@ -150,15 +150,16 @@ private final class StubCanvas: PaneCanvasGeometry {
 
 @MainActor
 private final class HooksSpy {
-    var presentedReason: WorklaneStore.PaneCloseReason?
+    var presentedContext: PaneCloseConfirmationContext?
+    var presentedReason: WorklaneStore.PaneCloseReason? { presentedContext?.reason }
     var capturedOnConfirm: (() -> Void)?
     var toastMessages: [String] = []
     var windowCloseCount = 0
 
     func makeHooks() -> PaneCommandExecutor.UIHooks {
         PaneCommandExecutor.UIHooks(
-            presentClosePaneConfirmation: { [self] reason, onConfirm in
-                presentedReason = reason
+            presentClosePaneConfirmation: { [self] context, onConfirm in
+                presentedContext = context
                 capturedOnConfirm = onConfirm
             },
             showToast: { [self] message in toastMessages.append(message) },
