@@ -171,6 +171,13 @@ enum CommandAvailabilityResolver {
             // regardless of worklane count. The controller's instant-switch
             // path is a no-op when there's nothing to switch to.
             return true
+        case .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4,
+             .selectWorklane5, .selectWorklane6, .selectWorklane7, .selectWorklane8,
+             .selectWorklane9:
+            guard let position = commandID.selectWorklanePosition else {
+                return false
+            }
+            return context.worklaneCount >= position
         default:
             return true
         }

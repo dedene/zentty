@@ -196,6 +196,18 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.openBranchOnRemote))
     }
 
+    func testNumberedWorklaneCommandsRequireThatManyWorklanes() {
+        let available = CommandAvailabilityResolver.availableCommandIDs(
+            worklaneCount: 3,
+            activePaneCount: 1,
+            totalPaneCount: 3
+        )
+        XCTAssertTrue(available.contains(.selectWorklane1))
+        XCTAssertTrue(available.contains(.selectWorklane3))
+        XCTAssertFalse(available.contains(.selectWorklane4))
+        XCTAssertFalse(available.contains(.selectWorklane9))
+    }
+
     func testGlobalSearchRememberedStateEnablesSearchNavigation() {
         let available = CommandAvailabilityResolver.availableCommandIDs(
             worklaneCount: 1,

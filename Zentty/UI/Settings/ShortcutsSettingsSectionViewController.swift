@@ -23,6 +23,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         static let shortcutControlHeight: CGFloat = 52
         static let shortcutControlInset: CGFloat = 12
         static let conflictSpacing: CGFloat = 6
+        static let conflictActionSpacing: CGFloat = 12
         static let previewHeight: CGFloat = 182
         static let keyboardPreviewLeadingBleed: CGFloat = 2
         static let headerRowHeight: CGFloat = max(searchHeight, headerActionSize)
@@ -36,7 +37,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     private enum ShortcutIssue: Equatable {
         case message(String)
-        case conflict(AppCommandID)
+        case conflict(AppCommandID, pending: KeyboardShortcut)
     }
 
     private enum BrowserItem: Equatable {
@@ -68,7 +69,9 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private let errorLabel = NSTextField(labelWithString: "")
     private let conflictContainerView = NSStackView()
     private let conflictLabel = NSTextField(labelWithString: "This shortcut conflicts with another shortcut:")
+    private let conflictActionsView = NSStackView()
     private let conflictTargetButton = NSButton(title: "", target: nil, action: nil)
+    private let conflictReassignButton = NSButton(title: "Assign Anyway", target: nil, action: nil)
     private let keyboardPreviewContainerView = NSView()
     private let keyboardPreviewView = KeyboardShortcutPreviewView()
     private let layoutIndicatorLabel = NSTextField(labelWithString: "")
@@ -301,11 +304,15 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     var conflictTargetTitleForTesting: String? {
         guard let selectedCommandID,
-              case let .conflict(conflictingCommandID) = issueByCommandID[selectedCommandID] else {
+              case let .conflict(conflictingCommandID, _) = issueByCommandID[selectedCommandID] else {
             return nil
         }
 
         return AppCommandRegistry.definition(for: conflictingCommandID).title
+    }
+
+    var showsConflictReassignActionForTesting: Bool {
+        conflictContainerView.isHidden == false && conflictReassignButton.isHidden == false
     }
 
     var showsKeyboardPreviewForTesting: Bool {
@@ -379,6 +386,10 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     func activateConflictTargetForTesting() {
         handleConflictTargetClicked(nil)
+    }
+
+    func activateConflictReassignForTesting() {
+        handleConflictReassignClicked(nil)
     }
 
     func apply(shortcuts: AppConfig.Shortcuts) {
@@ -613,7 +624,24 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         conflictTargetButton.font = .systemFont(ofSize: 13, weight: .medium)
         conflictTargetButton.target = self
         conflictTargetButton.action = #selector(handleConflictTargetClicked(_:))
-        conflictContainerView.addArrangedSubview(conflictTargetButton)
+
+        conflictReassignButton.bezelStyle = .inline
+        conflictReassignButton.isBordered = false
+        conflictReassignButton.contentTintColor = .controlAccentColor
+        conflictReassignButton.font = .systemFont(ofSize: 13, weight: .medium)
+        conflictReassignButton.target = self
+        conflictReassignButton.action = #selector(handleConflictReassignClicked(_:))
+        conflictReassignButton.setAccessibilityLabel(
+            "Assign shortcut to this command and unassign it from the conflicting command"
+        )
+
+        conflictActionsView.orientation = .horizontal
+        conflictActionsView.alignment = .firstBaseline
+        conflictActionsView.spacing = Layout.conflictActionSpacing
+        conflictActionsView.translatesAutoresizingMaskIntoConstraints = false
+        conflictActionsView.addArrangedSubview(conflictTargetButton)
+        conflictActionsView.addArrangedSubview(conflictReassignButton)
+        conflictContainerView.addArrangedSubview(conflictActionsView)
 
         stackView.addArrangedSubview(conflictContainerView)
         conflictContainerView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
@@ -772,10 +800,11 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             errorLabel.stringValue = message
             errorLabel.isHidden = false
             conflictContainerView.isHidden = true
-        case let .conflict(conflictingCommandID):
+        case let .conflict(conflictingCommandID, _):
             errorLabel.stringValue = ""
             errorLabel.isHidden = true
             conflictTargetButton.title = "\(AppCommandRegistry.definition(for: conflictingCommandID).title) ↗"
+            conflictReassignButton.isHidden = false
             conflictContainerView.isHidden = false
         case nil:
             errorLabel.stringValue = ""
@@ -1106,7 +1135,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         }
 
         if let conflict = shortcutManager.conflict(for: shortcut, assigningTo: commandID) {
-            issueByCommandID[commandID] = .conflict(conflict.commandID)
+            issueByCommandID[commandID] = .conflict(conflict.commandID, pending: shortcut)
             recordingCommandID = nil
             clearRecordingPreview()
             refreshVisibleState()
@@ -1238,10 +1267,28 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         guard let selectedCommandID else {
             return
         }
-        guard case let .conflict(conflictingCommandID) = issueByCommandID[selectedCommandID] else {
+        guard case let .conflict(conflictingCommandID, _) = issueByCommandID[selectedCommandID] else {
             return
         }
         jumpToCommand(conflictingCommandID)
+    }
+
+    @objc
+    private func handleConflictReassignClicked(_ sender: Any?) {
+        guard let selectedCommandID,
+              case let .conflict(conflictingCommandID, pending) = issueByCommandID[selectedCommandID] else {
+            return
+        }
+
+        issueByCommandID[selectedCommandID] = nil
+        recordingCommandID = nil
+        clearRecordingPreview()
+        try? configStore.update { config in
+            config.shortcuts = config.shortcuts
+                .updating(commandID: conflictingCommandID, shortcut: nil)
+                .updating(commandID: selectedCommandID, shortcut: pending)
+        }
+        apply(shortcuts: configStore.current.shortcuts)
     }
 
     @objc

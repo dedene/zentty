@@ -27,6 +27,15 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case renameCurrentPane = "pane.rename"
     case nextWorklane = "worklane.next"
     case previousWorklane = "worklane.previous"
+    case selectWorklane1 = "worklane.select_1"
+    case selectWorklane2 = "worklane.select_2"
+    case selectWorklane3 = "worklane.select_3"
+    case selectWorklane4 = "worklane.select_4"
+    case selectWorklane5 = "worklane.select_5"
+    case selectWorklane6 = "worklane.select_6"
+    case selectWorklane7 = "worklane.select_7"
+    case selectWorklane8 = "worklane.select_8"
+    case selectWorklane9 = "worklane.select_9"
     case worklaneMoveUp = "worklane.move_up"
     case worklaneMoveDown = "worklane.move_down"
     case find = "pane.search.find"
@@ -91,6 +100,25 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case copyMarkdown = "clipboard.copy_markdown"
     case reloadConfig = "app.reload_config"
     case openBookmarksPopover = "bookmarks.openPopover"
+
+    static let selectWorklaneIDs: [AppCommandID] = [
+        .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4, .selectWorklane5,
+        .selectWorklane6, .selectWorklane7, .selectWorklane8, .selectWorklane9,
+    ]
+
+    static func selectWorklaneID(position: Int) -> AppCommandID? {
+        guard selectWorklaneIDs.indices.contains(position - 1) else {
+            return nil
+        }
+        return selectWorklaneIDs[position - 1]
+    }
+
+    var selectWorklanePosition: Int? {
+        guard let index = Self.selectWorklaneIDs.firstIndex(of: self) else {
+            return nil
+        }
+        return index + 1
+    }
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -105,6 +133,7 @@ enum AppAction: Equatable, Sendable {
     case renameCurrentPane
     case nextWorklane
     case previousWorklane
+    case selectWorklane(position: Int)
     case moveWorklaneUp
     case moveWorklaneDown
     case find
@@ -178,6 +207,17 @@ struct AppCommandDefinition {
 }
 
 enum AppCommandRegistry {
+    private static let selectWorklaneDefinitions: [AppCommandDefinition] = AppCommandID.selectWorklaneIDs.enumerated().map { index, id in
+        AppCommandDefinition(
+            id: id,
+            title: "Switch to Worklane \(index + 1)",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: index + 1),
+            menuItem: nil
+        )
+    }
+
     static let definitions: [AppCommandDefinition] = [
         AppCommandDefinition(
             id: .toggleSidebar,
@@ -278,6 +318,7 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.previousWorklane(_:))
             )
         ),
+    ] + selectWorklaneDefinitions + [
         AppCommandDefinition(
             id: .worklaneMoveUp,
             title: "Move Worklane Up",
@@ -1083,6 +1124,10 @@ extension AppCommandDefinition {
             "Switch to the next worklane."
         case .previousWorklane:
             "Switch to the previous worklane."
+        case .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4,
+             .selectWorklane5, .selectWorklane6, .selectWorklane7, .selectWorklane8,
+             .selectWorklane9:
+            "Switch to the worklane at this position in the sidebar."
         case .worklaneMoveUp:
             "Move the active worklane up in the sidebar."
         case .worklaneMoveDown:
