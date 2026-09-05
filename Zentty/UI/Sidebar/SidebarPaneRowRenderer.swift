@@ -41,12 +41,14 @@ final class SidebarPaneRowRenderer {
         var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
         var onServerPortSelected: ((String) -> Void)?
         var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+        var onToggleSubagentDetails: ((PaneID) -> Void)?
     }
 
     private(set) var panePrimaryRows: [SidebarPanePrimaryRowView] = []
     private(set) var paneDetailLabels: [SidebarStaticLabel] = []
     private(set) var paneStatusRows: [SidebarPaneTextRowView] = []
     private(set) var paneServerRows: [SidebarPaneServerRowView] = []
+    private(set) var paneSubagentRows: [SidebarPaneSubagentListView] = []
     private(set) var paneRowButtons: [SidebarPaneRowButton] = []
     private(set) var paneRowContainers: [SidebarInsetContainerView] = []
 
@@ -116,6 +118,8 @@ final class SidebarPaneRowRenderer {
                 text: panePresentation.statusDisplayText,
                 symbolName: panePresentation.statusSymbolName,
                 taskProgress: paneRow.taskProgress,
+                subagents: panePresentation.subagents,
+                subagentsExpanded: panePresentation.showsSubagentDetails,
                 trailingText: panePresentation.statusTrailingLayout.isVisible ? paneRow.trailingText : nil,
                 trailingWidth: panePresentation.statusTrailingLayout.width,
                 lineCount: panePresentation.statusLineCount,
@@ -123,6 +127,9 @@ final class SidebarPaneRowRenderer {
             )
             paneStatusRows[index].setShimmerPhaseOffset(panePhaseOffset)
             paneServerRows[index].configure(serverPorts: panePresentation.serverPorts)
+            paneSubagentRows[index].configure(
+                summary: panePresentation.showsSubagentDetails ? panePresentation.subagents : nil
+            )
 
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
@@ -150,6 +157,8 @@ final class SidebarPaneRowRenderer {
             button.bookmarkNameLookup = callbacks.bookmarkNameLookup
             button.onWorklaneDragRequested = callbacks.onWorklaneDragRequested
             button.serverRowView = paneServerRows[index]
+            button.statusRowView = paneStatusRows[index]
+            button.onSubagentBadgeClicked = callbacks.onToggleSubagentDetails
             button.onServerPortSelected = callbacks.onServerPortSelected
             button.onHoverChanged = callbacks.onHoverChanged
             button.worklaneMoveAvailability = callbacks.worklaneMoveAvailability
@@ -186,6 +195,10 @@ final class SidebarPaneRowRenderer {
 
         while paneServerRows.count < count {
             paneServerRows.append(SidebarPaneServerRowView())
+        }
+
+        while paneSubagentRows.count < count {
+            paneSubagentRows.append(SidebarPaneSubagentListView())
         }
 
         while paneRowButtons.count < count {
@@ -232,6 +245,7 @@ final class SidebarWorklaneRowContentRenderer {
         let detailLabels: [NSView]
         let statusRows: [NSView]
         let serverRows: [NSView]
+        let subagentRows: [NSView]
         let buttons: [SidebarPaneRowButton]
         let containers: [NSView]
     }
@@ -282,6 +296,7 @@ final class SidebarWorklaneRowContentRenderer {
         views.append(contentsOf: [
             paneRows.statusRows[index],
             paneRows.serverRows[index],
+            paneRows.subagentRows[index],
         ])
         return views
     }
@@ -327,6 +342,8 @@ final class SidebarWorklaneRowContentRenderer {
             paneRows.statusRows[index]
         case .paneServer(let index):
             paneRows.serverRows[index]
+        case .paneSubagents(let index):
+            paneRows.subagentRows[index]
         case .context:
             labels.detailLabels.first ?? labels.overflowLabel
         case .detail(let index):

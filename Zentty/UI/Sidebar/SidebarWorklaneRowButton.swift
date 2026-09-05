@@ -43,6 +43,12 @@ final class SidebarWorklaneRowButton: NSButton {
     private var paneDetailLabels: [SidebarStaticLabel] { paneRowRenderer.paneDetailLabels }
     private var paneStatusRows: [SidebarPaneTextRowView] { paneRowRenderer.paneStatusRows }
     private var paneServerRows: [SidebarPaneServerRowView] { paneRowRenderer.paneServerRows }
+    private var paneSubagentRows: [SidebarPaneSubagentListView] { paneRowRenderer.paneSubagentRows }
+    /// Panes whose subagent list is unfolded under the status line. UI-only
+    /// state: it lives with the row, is keyed by pane id so a recycled row
+    /// cannot inherit another worklane's choice, and collapses on its own
+    /// once the pane has no running subagents left.
+    private var expandedSubagentPaneIDs: Set<PaneID> = []
     private var paneRowButtons: [SidebarPaneRowButton] { paneRowRenderer.paneRowButtons }
     private var paneRowContainers: [SidebarInsetContainerView] { paneRowRenderer.paneRowContainers }
     private let chrome = SidebarWorklaneRowChrome()
@@ -597,7 +603,14 @@ final class SidebarWorklaneRowButton: NSButton {
         isApplyingResolvedSummary = true
         defer { isApplyingResolvedSummary = false }
 
-        let renderPlan = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: bounds.width)
+        expandedSubagentPaneIDs = expandedSubagentPaneIDs.filter { paneID in
+            summary.paneRows.contains { $0.paneID == paneID && $0.subagents?.isEmpty == false }
+        }
+        let renderPlan = SidebarWorklaneRowRenderPlan(
+            summary: summary,
+            availableWidth: bounds.width,
+            expandedSubagentPaneIDs: expandedSubagentPaneIDs
+        )
         currentRenderPlan = renderPlan
         applyTextStackVerticalInsets(renderPlan)
 
@@ -742,6 +755,19 @@ final class SidebarWorklaneRowButton: NSButton {
         }
     }
 
+    func toggleSubagentDetails(for paneID: PaneID) {
+        if expandedSubagentPaneIDs.contains(paneID) {
+            expandedSubagentPaneIDs.remove(paneID)
+        } else {
+            expandedSubagentPaneIDs.insert(paneID)
+        }
+        applyResolvedSummary(animated: true)
+    }
+
+    var expandedSubagentPaneIDsForTesting: Set<PaneID> {
+        expandedSubagentPaneIDs
+    }
+
     private func configurePaneRows(
         for panePresentations: [SidebarWorklaneRowRenderPlan.PaneRow],
         animated: Bool
@@ -816,7 +842,10 @@ final class SidebarWorklaneRowButton: NSButton {
                 onServerPortSelected: { [weak self] serverID in
                     self?.onServerPortSelected?(serverID)
                 },
-                restoredRerunnableCommandProvider: restoredRerunnableCommandProvider
+                restoredRerunnableCommandProvider: restoredRerunnableCommandProvider,
+                onToggleSubagentDetails: { [weak self] paneID in
+                    self?.toggleSubagentDetails(for: paneID)
+                }
             )
         )
     }
@@ -1012,7 +1041,8 @@ final class SidebarWorklaneRowButton: NSButton {
             guard panePrimaryRows.indices.contains(index),
                 paneDetailLabels.indices.contains(index),
                 paneStatusRows.indices.contains(index),
-                paneServerRows.indices.contains(index)
+                paneServerRows.indices.contains(index),
+                paneSubagentRows.indices.contains(index)
             else {
                 continue
             }
@@ -1055,7 +1085,7 @@ final class SidebarWorklaneRowButton: NSButton {
                 reducedMotion: reducedMotionProvider(),
                 animatesLocalCodexSpinner: paneRow.animatesLocalCodexSpinner
             )
-            paneDetailLabels[index].textColor = SidebarWorklaneRowStyleResolver.paneDetailTextColor(
+            let detailColor = SidebarWorklaneRowStyleResolver.paneDetailTextColor(
                 isFocused: paneRow.isFocused,
                 isWorking: paneRow.isWorking,
                 isActive: isActive,
@@ -1063,6 +1093,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
+            paneDetailLabels[index].textColor = detailColor
+            paneSubagentRows[index].applyColors(primary: primaryColor, secondary: detailColor)
             paneStatusRows[index].applyColors(
                 textColor: SidebarWorklaneRowStyleResolver.statusTextColor(
                     attentionState: paneRow.attentionState,
@@ -1070,6 +1102,7 @@ final class SidebarWorklaneRowButton: NSButton {
                 ),
                 trailingTextColor: presentationMode == .adaptive ? trailingColor : nil,
                 progressColor: currentTheme.statusRunning,
+                subagentBadgeColor: primaryColor,
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
                 shimmerColor: SidebarWorklaneRowStyleResolver.shimmerColor(
                     baseTextColor: SidebarWorklaneRowStyleResolver.statusShimmerBaseColor(
@@ -1166,6 +1199,7 @@ final class SidebarWorklaneRowButton: NSButton {
             detailLabels: paneDetailLabels,
             statusRows: paneStatusRows,
             serverRows: paneServerRows,
+            subagentRows: paneSubagentRows,
             buttons: paneRowButtons,
             containers: paneRowContainers
         )
@@ -1221,6 +1255,7 @@ final class SidebarWorklaneRowButton: NSButton {
             paneDetailLabels: paneDetailLabels,
             paneStatusRows: paneStatusRows,
             paneServerRows: paneServerRows,
+            paneSubagentRows: paneSubagentRows,
             paneRowButtons: paneRowButtons,
             paneRowContainers: paneRowContainers,
             tintLayer: chrome.tintLayer,

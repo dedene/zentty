@@ -362,6 +362,7 @@ final class SidebarTaskProgressRevealLineView: NSView {
 
     private var trackingAreaValue: NSTrackingArea?
     private weak var iconView: NSImageView?
+    private weak var subagentBadgeView: SidebarSubagentBadgeView?
     private weak var progressIndicator: SidebarTaskProgressIndicatorView?
     private weak var progressRevealView: SidebarTaskProgressRevealView?
     private weak var textContainer: NSView?
@@ -393,15 +394,17 @@ final class SidebarTaskProgressRevealLineView: NSView {
         progressIndicator: SidebarTaskProgressIndicatorView,
         progressRevealView: SidebarTaskProgressRevealView,
         textContainer: NSView,
-        trailingLabelView: SidebarStaticLabel? = nil
+        trailingLabelView: SidebarStaticLabel? = nil,
+        subagentBadgeView: SidebarSubagentBadgeView? = nil
     ) {
         self.iconView = iconView
+        self.subagentBadgeView = subagentBadgeView
         self.progressIndicator = progressIndicator
         self.progressRevealView = progressRevealView
         self.textContainer = textContainer
         self.trailingLabelView = trailingLabelView
 
-        [iconView, progressIndicator, progressRevealView, textContainer, trailingLabelView].forEach { view in
+        [iconView, subagentBadgeView, progressIndicator, progressRevealView, textContainer, trailingLabelView].forEach { view in
             guard let view else { return }
             view.translatesAutoresizingMaskIntoConstraints = false
             if view.superview !== self {
@@ -513,6 +516,17 @@ final class SidebarTaskProgressRevealLineView: NSView {
                 animated: animated
             )
             x += side + Layout.spacing
+        }
+
+        if let subagentBadgeView, subagentBadgeView.isHidden == false {
+            let badgeWidth = subagentBadgeView.preferredWidth
+            let badgeHeight = SidebarSubagentBadgeMetrics.height
+            setFrame(
+                NSRect(x: x, y: centeredY(for: badgeHeight, in: contentHeight, originY: originY), width: badgeWidth, height: badgeHeight),
+                for: subagentBadgeView,
+                animated: animated
+            )
+            x += badgeWidth + SidebarSubagentBadgeMetrics.spacing
         }
 
         if let progressIndicator, progressIndicator.isHidden == false {
@@ -903,6 +917,7 @@ final class SidebarPaneTextRowView: NSView {
     private static let symbolPointSize: CGFloat = 11
 
     private let iconView = NSImageView()
+    private let subagentBadgeView = SidebarSubagentBadgeView()
     private let progressIndicator = SidebarTaskProgressIndicatorView()
     private let progressRevealView = SidebarTaskProgressRevealView()
     private let textContainer = SidebarPrimaryTextContainerView()
@@ -917,6 +932,8 @@ final class SidebarPaneTextRowView: NSView {
     private(set) var trailingText: String?
     private(set) var trailingTextColor: NSColor = .secondaryLabelColor
     private(set) var taskProgress: PaneAgentTaskProgress?
+    private(set) var subagents: PaneAgentSubagentSummary?
+    private var subagentsExpanded = false
     private var rowLineHeight: CGFloat = ShellMetrics.sidebarStatusLineHeight
     private var heightConstraint: NSLayoutConstraint?
     private var trailingPreferredWidth: CGFloat = 0
@@ -951,7 +968,8 @@ final class SidebarPaneTextRowView: NSView {
             progressIndicator: progressIndicator,
             progressRevealView: progressRevealView,
             textContainer: textContainer,
-            trailingLabelView: trailingLabelView
+            trailingLabelView: trailingLabelView,
+            subagentBadgeView: subagentBadgeView
         )
         progressIndicator.onHoverEntered = { [weak self] in
             self?.setProgressRevealVisible(true, animated: true)
@@ -1022,6 +1040,8 @@ final class SidebarPaneTextRowView: NSView {
         text: String,
         symbolName: String?,
         taskProgress: PaneAgentTaskProgress?,
+        subagents: PaneAgentSubagentSummary? = nil,
+        subagentsExpanded: Bool = false,
         trailingText: String?,
         trailingWidth: CGFloat,
         lineCount: Int,
@@ -1031,8 +1051,14 @@ final class SidebarPaneTextRowView: NSView {
         self.symbolName = symbolName ?? ""
         self.trailingText = trailingText
         self.taskProgress = taskProgress
+        self.subagents = subagents
+        self.subagentsExpanded = subagentsExpanded
         animatesProgressUpdates = animated
         let showsTrailingTextInLeadingSlot = rendersTrailingTextInLeadingSlot
+        subagentBadgeView.configure(
+            summary: showsTrailingTextInLeadingSlot ? nil : subagents,
+            isExpanded: subagentsExpanded
+        )
         let leadingText = showsTrailingTextInLeadingSlot ? (trailingText ?? "") : text
 
         baseLabel.stringValue = leadingText
@@ -1061,6 +1087,7 @@ final class SidebarPaneTextRowView: NSView {
         textColor: NSColor,
         trailingTextColor: NSColor?,
         progressColor: NSColor,
+        subagentBadgeColor: NSColor? = nil,
         isShimmering: Bool,
         shimmerColor: NSColor,
         reducedMotion: Bool
@@ -1068,6 +1095,7 @@ final class SidebarPaneTextRowView: NSView {
         self.textColor = textColor
         self.trailingTextColor = trailingTextColor ?? .clear
         self.reducedMotion = reducedMotion
+        subagentBadgeView.applyFillColor(subagentBadgeColor ?? textColor)
         let dimmedColor = isShimmering
             ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
             : textColor
@@ -1127,6 +1155,28 @@ final class SidebarPaneTextRowView: NSView {
 
     var progressIndicatorIsVisibleForTesting: Bool {
         progressIndicator.isHidden == false
+    }
+
+    var subagentBadgeIsVisibleForTesting: Bool {
+        subagentBadgeView.isHidden == false
+    }
+
+    var subagentBadgeTextForTesting: String {
+        subagentBadgeView.badgeTextForTesting
+    }
+
+    var subagentBadgeToolTipForTesting: String? {
+        subagentBadgeView.toolTip
+    }
+
+    var subagentBadgeFillColorForTesting: NSColor {
+        subagentBadgeView.fillColorForTesting
+    }
+
+    /// Badge frame in `view`'s coordinates, or `nil` while no badge is shown.
+    func subagentBadgeFrame(in view: NSView) -> NSRect? {
+        guard subagentBadgeView.isHidden == false, isHidden == false, alphaValue > 0 else { return nil }
+        return view.convert(subagentBadgeView.bounds, from: subagentBadgeView)
     }
 
     var progressFractionForTesting: CGFloat {
@@ -1215,6 +1265,7 @@ final class SidebarPaneTextRowView: NSView {
         if wraps || rendersTrailingTextInLeadingSlot || taskProgress == nil {
             setProgressRevealVisible(false, animated: false)
         }
+        subagentBadgeView.isHidden = wraps || rendersTrailingTextInLeadingSlot || (subagents?.isEmpty ?? true)
         trailingLabelView.isHidden = wraps || rendersTrailingTextInLeadingSlot || (trailingText?.isEmpty ?? true)
         heightConstraint?.constant = rowLineHeight * CGFloat(clampedLineCount)
         configureContentLine(taskProgressVisible: progressIndicator.isHidden == false)
