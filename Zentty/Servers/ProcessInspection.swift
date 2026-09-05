@@ -75,6 +75,59 @@ struct DarwinProcessInspector: ProcessInspecting {
         return kill(pid, 0) == 0 || errno == EPERM
     }
 
+    /// Peer paths of every connected AF_UNIX socket `pid` holds. Lets callers
+    /// tell which local daemon a process is talking to (e.g. an SSH agent).
+    func unixSocketPeerPaths(of pid: pid_t) -> [String] {
+        socketFDs(of: pid).compactMap { fd in
+            var info = socket_fdinfo()
+            let size = MemoryLayout<socket_fdinfo>.size
+            let result = proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, Int32(size))
+            guard result == Int32(size), info.psi.soi_kind == SOCKINFO_UN else {
+                return nil
+            }
+            let path = Self.sunPath(info.psi.soi_proto.pri_un.unsi_caddr.ua_sun)
+            return path.isEmpty ? nil : path
+        }
+    }
+
+    private static func sunPath(_ address: sockaddr_un) -> String {
+        withUnsafeBytes(of: address.sun_path) { rawBuffer in
+            let bytes = rawBuffer.prefix { $0 != 0 }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+
+    private func socketFDs(of pid: pid_t) -> [Int32] {
+        guard pid > 0 else {
+            return []
+        }
+
+        let byteCount = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard byteCount > 0 else {
+            return []
+        }
+
+        let capacity = Int(byteCount) / MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
+        let usedByteCount = fds.withUnsafeMutableBufferPointer { buffer in
+            proc_pidinfo(
+                pid,
+                PROC_PIDLISTFDS,
+                0,
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<proc_fdinfo>.stride)
+            )
+        }
+        guard usedByteCount > 0 else {
+            return []
+        }
+
+        return fds
+            .prefix(Int(usedByteCount) / MemoryLayout<proc_fdinfo>.stride)
+            .filter { $0.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) }
+            .map(\.proc_fd)
+    }
+
     private func processIDs() -> [pid_t] {
         let byteCount = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
         guard byteCount > 0 else {
@@ -102,39 +155,7 @@ struct DarwinProcessInspector: ProcessInspecting {
     }
 
     private func listeningTCPSockets(for pid: pid_t) -> [ListeningSocket] {
-        guard pid > 0 else {
-            return []
-        }
-
-        let byteCount = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard byteCount > 0 else {
-            return []
-        }
-
-        let capacity = Int(byteCount) / MemoryLayout<proc_fdinfo>.stride
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
-        let usedByteCount = fds.withUnsafeMutableBufferPointer { buffer in
-            proc_pidinfo(
-                pid,
-                PROC_PIDLISTFDS,
-                0,
-                buffer.baseAddress,
-                Int32(buffer.count * MemoryLayout<proc_fdinfo>.stride)
-            )
-        }
-        guard usedByteCount > 0 else {
-            return []
-        }
-
-        return fds
-            .prefix(Int(usedByteCount) / MemoryLayout<proc_fdinfo>.stride)
-            .compactMap { fd -> ListeningSocket? in
-                guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else {
-                    return nil
-                }
-
-                return listeningTCPSocket(pid: pid, fd: fd.proc_fd)
-            }
+        socketFDs(of: pid).compactMap { listeningTCPSocket(pid: pid, fd: $0) }
     }
 
     private func listeningTCPSocket(pid: pid_t, fd: Int32) -> ListeningSocket? {

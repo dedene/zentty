@@ -187,6 +187,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private let showProjectIconsSwitch = NSSwitch()
     private let smoothScrollingSwitch = NSSwitch()
     private let focusFollowsMouseSwitch = NSSwitch()
+    private let focusOnOnePasswordPromptSwitch = NSSwitch()
     private let focusFollowsMouseDelayControl = NSSegmentedControl(
         labels: AppConfig.Panes.FocusFollowsMouseDelay.allCases.map(\.title),
         trackingMode: .selectOne,
@@ -341,6 +342,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         showProjectIconsSwitch.state = panes.showProjectIcons ? .on : .off
         smoothScrollingSwitch.state = panes.smoothScrollingEnabled ? .on : .off
         focusFollowsMouseSwitch.state = panes.focusFollowsMouse ? .on : .off
+        focusOnOnePasswordPromptSwitch.state = panes.focusOnOnePasswordPrompt ? .on : .off
         let selectedDelaySegment = AppConfig.Panes.FocusFollowsMouseDelay.allCases.firstIndex(of: panes.focusFollowsMouseDelay)
         assert(selectedDelaySegment != nil, "Focus-follows-mouse delay must have a matching segment")
         focusFollowsMouseDelayControl.selectedSegment = selectedDelaySegment ?? 0
@@ -540,6 +542,15 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         let focusFollowsMouseRow = makeFocusFollowsMouseRow()
         contentStack.addArrangedSubview(focusFollowsMouseRow)
         focusFollowsMouseRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+
+        let onePasswordRow = makeSwitchRow(
+            title: "Jump to pane on 1Password prompt",
+            subtitle: "When 1Password asks to approve a CLI or SSH request, select the pane that made it.",
+            toggle: focusOnOnePasswordPromptSwitch,
+            action: #selector(handleFocusOnOnePasswordPromptChanged(_:))
+        )
+        contentStack.addArrangedSubview(onePasswordRow)
+        onePasswordRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
 
         SettingsFormBuilder.separator(addedTo: contentStack)
 
@@ -838,6 +849,14 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         guard !isApplyingPanes else { return }
         try? configStore.update {
             $0.panes.focusFollowsMouse = updatedPanes.focusFollowsMouse
+        }
+    }
+
+    @objc
+    private func handleFocusOnOnePasswordPromptChanged(_ sender: NSSwitch) {
+        guard !isApplyingPanes else { return }
+        try? configStore.update {
+            $0.panes.focusOnOnePasswordPrompt = sender.state == .on
         }
     }
 

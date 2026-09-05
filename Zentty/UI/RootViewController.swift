@@ -1580,6 +1580,15 @@ final class RootViewController: NSViewController {
             windowID: windowID, worklaneID: worklaneID, paneID: paneID)
     }
 
+    /// Like `navigateToPane` but without resolving pane notifications: the user
+    /// has not seen this pane yet, 1Password merely pointed us at it.
+    func revealPaneForOnePasswordPrompt(worklaneID: WorklaneID, paneID: PaneID, processName: String) {
+        worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+        view.layoutSubtreeIfNeeded()
+        runtimeRegistry.runtime(for: paneID)?.forceViewportSync()
+        showToast(message: "1Password request from \(processName) in this pane", duration: 4)
+    }
+
     private func navigateToNotification(_ notification: AppNotification) {
         if notification.windowID == windowID {
             navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
@@ -2429,6 +2438,13 @@ final class RootViewController: NSViewController {
 
     func focusedPaneID(in worklaneID: WorklaneID) -> PaneID? {
         worklaneStore.worklanes.first { $0.id == worklaneID }?.paneStripState.focusedPaneID
+    }
+
+    func isPaneFocused(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
+        guard let active = worklaneStore.activeWorklane, active.id == worklaneID else {
+            return false
+        }
+        return active.paneStripState.focusedPaneID == paneID
     }
 
     func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {

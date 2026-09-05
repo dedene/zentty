@@ -145,6 +145,8 @@ struct AppConfig: Equatable, Sendable {
         var smoothScrollingEnabled: Bool
         var focusFollowsMouse: Bool
         var focusFollowsMouseDelay: FocusFollowsMouseDelay
+        /// Jump to the pane whose process made 1Password prompt for approval.
+        var focusOnOnePasswordPrompt: Bool
 
         static let minimumInactiveOpacity: CGFloat = 0.6
         static let maximumInactiveOpacity: CGFloat = 1.0
@@ -156,7 +158,8 @@ struct AppConfig: Equatable, Sendable {
             showProjectIcons: Bool,
             smoothScrollingEnabled: Bool = false,
             focusFollowsMouse: Bool = false,
-            focusFollowsMouseDelay: FocusFollowsMouseDelay = .short
+            focusFollowsMouseDelay: FocusFollowsMouseDelay = .short,
+            focusOnOnePasswordPrompt: Bool = true
         ) {
             self.showLabels = showLabels
             self.showBorders = showBorders
@@ -165,6 +168,7 @@ struct AppConfig: Equatable, Sendable {
             self.smoothScrollingEnabled = smoothScrollingEnabled
             self.focusFollowsMouse = focusFollowsMouse
             self.focusFollowsMouseDelay = focusFollowsMouseDelay
+            self.focusOnOnePasswordPrompt = focusOnOnePasswordPrompt
         }
 
         static let `default` = Panes(
@@ -174,7 +178,8 @@ struct AppConfig: Equatable, Sendable {
             showProjectIcons: true,
             smoothScrollingEnabled: false,
             focusFollowsMouse: false,
-            focusFollowsMouseDelay: .short
+            focusFollowsMouseDelay: .short,
+            focusOnOnePasswordPrompt: true
         )
     }
 
@@ -558,7 +563,8 @@ extension AppConfig.Panes {
             showProjectIcons: showProjectIcons,
             smoothScrollingEnabled: smoothScrollingEnabled,
             focusFollowsMouse: focusFollowsMouse,
-            focusFollowsMouseDelay: focusFollowsMouseDelay
+            focusFollowsMouseDelay: focusFollowsMouseDelay,
+            focusOnOnePasswordPrompt: focusOnOnePasswordPrompt
         )
     }
 }
