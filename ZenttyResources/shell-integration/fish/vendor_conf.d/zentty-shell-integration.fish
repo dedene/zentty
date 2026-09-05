@@ -315,6 +315,183 @@ function _zentty_is_navigation_command
     return 1
 end
 
+# --- ssh wrapper (GHOSTTY_SHELL_FEATURES: ssh-env / ssh-terminfo) --------------
+#
+# libghostty advertises the user's shell-integration-features whether or not the
+# integration implements them, so Zentty ships its own wrapper rather than shell
+# out to `ghostty +ssh` (not bundled). Mirrors upstream Ghostty v1.3.1 plus PR
+# #11518 (COLORTERM travels locally + SendEnv, never `-o SetEnv`, so a user's own
+# ssh_config SetEnv survives). See zentty-zsh-integration.zsh for the full notes
+# on the two deliberate divergences: the installer rides in `-o RemoteCommand=`
+# ahead of $argv (upstream appends it, which re-runs `ssh host 'cmd'`), and we
+# only open a ControlMaster when `ssh -G` reports `controlpath none`.
+#
+# The cache upstream keeps via `ghostty +ssh-cache` lives here in a flat file,
+# one entry per line: `user@host` for a host that has the terminfo, and
+# `!user@host` for one whose installer ran and failed (no tic, no base64, an
+# exotic login shell) so we neither retry nor warn on every connection. Delete
+# the file, or the one line, to try again.
+
+function _zentty_ssh_cache_file
+    set -l state_home $XDG_STATE_HOME
+    if test -z "$state_home"
+        set state_home "$HOME/.local/state"
+    end
+    echo "$state_home/zentty/ssh_cache"
+end
+
+function _zentty_ssh_cache_has
+    set -l cache_file (_zentty_ssh_cache_file)
+    test -f "$cache_file"; or return 1
+    # Exact line match only; a substring match would treat bob@host as a hit for b@host.
+    for line in (command cat "$cache_file" 2>/dev/null)
+        if test "$line" = "$argv[1]"
+            return 0
+        end
+    end
+    return 1
+end
+
+function _zentty_ssh_cache_add
+    set -l cache_file (_zentty_ssh_cache_file)
+    if _zentty_ssh_cache_has $argv[1]
+        return 0
+    end
+    command mkdir -p (command dirname "$cache_file") 2>/dev/null; or return 0
+    echo $argv[1] >> "$cache_file" 2>/dev/null
+    return 0
+end
+
+# Remote installer for xterm-ghostty terminfo. Passed via -o RemoteCommand=, so
+# it must not contain a '%' (OpenSSH percent-expansion) — hence echo, not printf.
+function _zentty_ssh_remote_installer
+    echo "infocmp xterm-ghostty >/dev/null 2>&1 && exit 0; command -v tic >/dev/null 2>&1 || exit 1; command -v base64 >/dev/null 2>&1 || exit 1; mkdir -p ~/.terminfo 2>/dev/null && echo '$argv[1]' | base64 -d | tic -x - 2>/dev/null && exit 0; exit 1"
+end
+
+set -l _zentty_ssh_features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
+if contains ssh-env $_zentty_ssh_features; or contains ssh-terminfo $_zentty_ssh_features
+    function ssh --wraps=ssh --description "SSH wrapper with Zentty integration"
+        set -l features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
+        set -l ssh_term xterm-256color
+        set -l ssh_opts
+        set -l ssh_cpath_dir ""
+        set -l ssh_cpath ""
+        set -l ssh_master 0
+        set -l ssh_hostname ""
+        set -l ssh_env_enabled 0
+
+        if contains ssh-env $features
+            set ssh_env_enabled 1
+            set -a ssh_opts -o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION"
+        end
+
+        if contains ssh-terminfo $features
+            set -l ssh_user
+            set -l ssh_sessiontype default
+            set -l ssh_controlpath none
+
+            for line in (command ssh -G $argv 2>/dev/null)
+                # Split once: values such as `proxycommand ssh -W a:b bastion` keep
+                # everything after the first space, like the bash/zsh `read -r key value`.
+                set -l parts (string split --max 1 ' ' -- $line)
+                if test (count $parts) -ge 2
+                    switch $parts[1]
+                        case user
+                            set ssh_user $parts[2]
+                        case hostname
+                            set ssh_hostname $parts[2]
+                        case sessiontype
+                            # OpenSSH < 8.7 omits this; the default above stands.
+                            set ssh_sessiontype $parts[2]
+                        case controlpath
+                            set ssh_controlpath $parts[2]
+                    end
+                end
+            end
+
+            if test -n "$ssh_hostname"
+                set -l ssh_target "$ssh_user@$ssh_hostname"
+                if _zentty_ssh_cache_has "$ssh_target"
+                    set ssh_term xterm-ghostty
+                else if _zentty_ssh_cache_has "!$ssh_target"
+                    # Known to reject the terminfo; don't spend a connection or warn again.
+                else if test "$ssh_sessiontype" != default
+                    # -N / -s: no remote command can run, so skip silently.
+                else if command -q infocmp
+                    set -l ssh_terminfo (command infocmp -0 -x xterm-ghostty 2>/dev/null | command base64 | command tr -d '\n')
+                    if test -n "$ssh_terminfo"
+                        # Unix domain sockets cap out around 104 bytes and OpenSSH appends a
+                        # ~17-char random suffix while binding the ControlPath, so a long
+                        # TMPDIR (macOS's per-user /var/folders/... is ~49 chars on its own)
+                        # cannot host the socket. The user name is left out of the template
+                        # for the same reason; mktemp already creates the dir 0700.
+                        set -l ssh_tmp_root $TMPDIR
+                        if test -z "$ssh_tmp_root"; or test (string length -- "$ssh_tmp_root") -gt 40
+                            set ssh_tmp_root /tmp
+                        end
+                        set ssh_cpath_dir (command mktemp -d "$ssh_tmp_root/zentty-ssh.XXXXXX" 2>/dev/null; or echo "")
+                        if test -n "$ssh_cpath_dir"
+                            set -l ssh_install_error "$ssh_cpath_dir/install.err"
+                            # Only open our own master when the user has none: with their
+                            # ControlPath (ssh_config or -S) in play, their multiplexing
+                            # already reuses one connection and `-O exit` would kill it.
+                            set -l ssh_master_opts
+                            if test "$ssh_controlpath" = none
+                                set ssh_cpath "$ssh_cpath_dir/socket"
+                                set ssh_master_opts -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s
+                            end
+                            command ssh $ssh_opts $ssh_master_opts -o RequestTTY=no -o RemoteCommand=(_zentty_ssh_remote_installer "$ssh_terminfo") $argv </dev/null >/dev/null 2>"$ssh_install_error"
+                            set -l ssh_install_status $status
+                            if test "$ssh_install_status" = 0
+                                set ssh_term xterm-ghostty
+                                if test -n "$ssh_cpath"
+                                    set -a ssh_opts -o "ControlPath=$ssh_cpath"
+                                    set ssh_master 1
+                                end
+                                _zentty_ssh_cache_add "$ssh_target"
+                            else if test "$ssh_install_status" = 255
+                                # ssh itself failed (refusal, auth, network): transient, no cache.
+                                if command grep -q "Cannot execute command-line and remote command" "$ssh_install_error" 2>/dev/null
+                                    # The user passed their own remote command; ssh ran nothing.
+                                else
+                                    echo "Warning: Failed to install xterm-ghostty terminfo on $ssh_hostname." >&2
+                                end
+                            else
+                                # The installer itself ran and failed: no tic/base64 on the
+                                # remote, or a shell that cannot run it. Remember, warn once.
+                                _zentty_ssh_cache_add "!$ssh_target"
+                                echo "Warning: Could not install xterm-ghostty terminfo on $ssh_hostname; using xterm-256color. Remove the \"!$ssh_target\" line from "(_zentty_ssh_cache_file)" to retry." >&2
+                            end
+                        end
+                    else
+                        echo "Warning: Could not generate xterm-ghostty terminfo data." >&2
+                    end
+                end
+            end
+        end
+
+        # COLORTERM is part of the ssh-env feature; ssh-terminfo alone must not add it.
+        if test "$ssh_env_enabled" = 1
+            TERM="$ssh_term" COLORTERM=truecolor command ssh $ssh_opts $argv
+        else
+            TERM="$ssh_term" command ssh $ssh_opts $argv
+        end
+        set -l ssh_status $status
+        # Only ever close a master we opened, and address it by ControlPath and host
+        # alone: replaying $argv would let a user's own -S/-o ControlPath win and shut
+        # down their multiplexed connection. A Ctrl-C that kills the shell before this
+        # point skips the teardown; ControlPersist=60s bounds the stray master and the
+        # temp dir is left behind (accepted).
+        if test "$ssh_master" = 1
+            command ssh -o ControlPath="$ssh_cpath" -O exit -- "$ssh_hostname" >/dev/null 2>&1
+        end
+        if test -n "$ssh_cpath_dir"
+            command rm -rf -- "$ssh_cpath_dir" 2>/dev/null
+        end
+        return $ssh_status
+    end
+end
+
 # Initial load
 _zentty_ensure_wrapper_path
 _zentty_fish_prompt_hook   # run once at load so context is reported immediately
