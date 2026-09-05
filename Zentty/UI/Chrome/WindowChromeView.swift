@@ -196,7 +196,7 @@ final class WindowChromeView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 
     private func setup() {
@@ -1636,7 +1636,7 @@ private final class WindowChromeDragRegionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 }
 
@@ -1657,7 +1657,7 @@ private final class WindowChromeDragLabel: NSTextField {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 }
 
@@ -2606,7 +2606,7 @@ private final class WindowChromeReviewChipView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        performWindowChromeMouseDown(event, window: window)
     }
 
     func apply(theme: ZenttyTheme, animated: Bool) {
