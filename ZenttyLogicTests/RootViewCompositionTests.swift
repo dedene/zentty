@@ -1029,6 +1029,110 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(controller.activeWorklaneIDForTesting, WorklaneID("other"))
     }
 
+    func test_sidebar_toggle_stays_per_window_but_seeds_new_windows() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.PerWindowSidebarToggle")
+        )
+        let firstController = makeController(configStore: configStore)
+        let secondController = makeController(configStore: configStore)
+        firstController.loadViewIfNeeded()
+        secondController.loadViewIfNeeded()
+        XCTAssertEqual(firstController.sidebarVisibilityMode, .pinnedOpen)
+        XCTAssertEqual(secondController.sidebarVisibilityMode, .pinnedOpen)
+
+        firstController.routeToggleSidebar()
+        waitForMainQueue()
+
+        XCTAssertEqual(firstController.sidebarVisibilityMode, .hidden)
+        XCTAssertEqual(secondController.sidebarVisibilityMode, .pinnedOpen, "toggle must not ripple to other windows")
+        XCTAssertEqual(configStore.current.sidebar.visibility, .hidden, "last change is remembered as the seed")
+
+        let thirdController = makeController(configStore: configStore)
+        thirdController.loadViewIfNeeded()
+        XCTAssertEqual(thirdController.sidebarVisibilityMode, .hidden, "new windows start from the last change")
+    }
+
+    func test_sidebar_width_change_stays_per_window_but_seeds_new_windows() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.PerWindowSidebarWidth")
+        )
+        let firstController = makeController(configStore: configStore)
+        let secondController = makeController(configStore: configStore)
+        for controller in [firstController, secondController] {
+            controller.loadViewIfNeeded()
+            controller.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 840)
+            controller.view.layoutSubtreeIfNeeded()
+        }
+
+        firstController.resizeSidebarAsUserForTesting(340)
+        waitForMainQueue()
+        secondController.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(firstController.currentSidebarWidth, 340, accuracy: 0.001)
+        XCTAssertEqual(
+            secondController.currentSidebarWidth,
+            SidebarWidthPreference.defaultWidth,
+            accuracy: 0.001,
+            "width change must not ripple to other windows"
+        )
+        XCTAssertEqual(configStore.current.sidebar.width, 340, accuracy: 0.001)
+
+        let thirdController = makeController(configStore: configStore)
+        thirdController.loadViewIfNeeded()
+        XCTAssertEqual(thirdController.currentSidebarWidth, 340, accuracy: 0.001, "new windows start from the last change")
+    }
+
+    func test_external_config_reload_applies_sidebar_settings_to_every_window() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.ExternalSidebarReload")
+        let configStore = AppConfigStore(fileURL: fileURL)
+        let firstController = makeController(configStore: configStore)
+        let secondController = makeController(configStore: configStore)
+        for controller in [firstController, secondController] {
+            controller.loadViewIfNeeded()
+            controller.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 840)
+            controller.view.layoutSubtreeIfNeeded()
+        }
+
+        var edited = configStore.current
+        edited.sidebar.width = 360
+        edited.sidebar.visibility = .hidden
+        try AppConfigTOML.encode(edited).write(to: fileURL, atomically: true, encoding: .utf8)
+        configStore.reloadFromDisk()
+        waitForMainQueue()
+
+        for controller in [firstController, secondController] {
+            XCTAssertEqual(controller.sidebarVisibilityMode, .hidden)
+            XCTAssertEqual(controller.currentSidebarWidth, 360, accuracy: 0.001)
+        }
+    }
+
+    func test_unrelated_external_config_reload_keeps_per_window_sidebar_state() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.UnrelatedExternalReload")
+        let configStore = AppConfigStore(fileURL: fileURL)
+        let firstController = makeController(configStore: configStore)
+        let secondController = makeController(configStore: configStore)
+        firstController.loadViewIfNeeded()
+        secondController.loadViewIfNeeded()
+
+        firstController.routeToggleSidebar()
+        waitForMainQueue()
+        XCTAssertEqual(firstController.sidebarVisibilityMode, .hidden)
+        XCTAssertEqual(secondController.sidebarVisibilityMode, .pinnedOpen)
+
+        var edited = configStore.current
+        edited.confirmations.confirmBeforeClosingPane.toggle()
+        try AppConfigTOML.encode(edited).write(to: fileURL, atomically: true, encoding: .utf8)
+        configStore.reloadFromDisk()
+        waitForMainQueue()
+
+        XCTAssertEqual(firstController.sidebarVisibilityMode, .hidden)
+        XCTAssertEqual(
+            secondController.sidebarVisibilityMode,
+            .pinnedOpen,
+            "an on-disk edit that leaves the sidebar section alone must not snap windows to the seed"
+        )
+    }
+
     func test_root_controller_restores_persisted_sidebar_width() {
         let defaults = SidebarWidthPreference.userDefaults()
         defaults.set(312, forKey: SidebarWidthPreference.persistenceKey)

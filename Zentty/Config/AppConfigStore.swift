@@ -3,8 +3,17 @@ import OSLog
 
 private let appConfigLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Config")
 
+/// Where a config change originated. In-process updates come from this app
+/// (any window or settings pane calling `update`); external reloads come from
+/// the config file changing on disk.
+enum AppConfigChangeOrigin: Equatable, Sendable {
+    case inProcess
+    case externalReload
+}
+
 final class AppConfigStore: @unchecked Sendable {
     typealias ChangeHandler = @Sendable (AppConfig) -> Void
+    typealias OriginChangeHandler = @Sendable (AppConfig, AppConfigChangeOrigin) -> Void
 
     private enum LoadResult {
         case missing
@@ -81,7 +90,7 @@ final class AppConfigStore: @unchecked Sendable {
     /// don't overwrite a config we couldn't read (e.g. a forward-version file).
     let didLoadFromValidFile: Bool
     private let fileWatcher = FileWatcher()
-    private var changeHandlers: [UUID: ChangeHandler] = [:]
+    private var changeHandlers: [UUID: OriginChangeHandler] = [:]
 
     init(
         fileURL: URL? = nil,
@@ -149,11 +158,20 @@ final class AppConfigStore: @unchecked Sendable {
         updated = updated.normalized()
         try Self.persist(config: updated, to: fileURL, fileManager: .default)
         current = updated
-        notifyChange()
+        notifyChange(origin: .inProcess)
     }
 
     @discardableResult
     func addObserver(_ handler: @escaping ChangeHandler) -> UUID {
+        addObserver(withOrigin: { config, _ in handler(config) })
+    }
+
+    /// Like `addObserver(_:)` but also reports where the change came from, so
+    /// observers can treat an in-app edit (another window persisting its own
+    /// sidebar state, a settings pane) differently from an external edit of the
+    /// config file on disk.
+    @discardableResult
+    func addObserver(withOrigin handler: @escaping OriginChangeHandler) -> UUID {
         let observerID = UUID()
         changeHandlers[observerID] = handler
         return observerID
@@ -175,7 +193,7 @@ final class AppConfigStore: @unchecked Sendable {
             }
 
             current = reloaded
-            notifyChange()
+            notifyChange(origin: .externalReload)
         case .invalid:
             appConfigLogger.error("Ignoring invalid config reload at \(self.fileURL.path, privacy: .public)")
         case .missing:
@@ -183,9 +201,9 @@ final class AppConfigStore: @unchecked Sendable {
         }
     }
 
-    private func notifyChange() {
+    private func notifyChange(origin: AppConfigChangeOrigin) {
         for handler in changeHandlers.values {
-            handler(current)
+            handler(current, origin)
         }
     }
 
