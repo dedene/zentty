@@ -111,8 +111,15 @@ final class WindowChromeTitlebarGestureTests: AppKitTestCase {
         return (window, view, points)
     }
 
-    private func click(_ view: WindowChromeView, at point: NSPoint, in window: NSWindow, clickCount: Int) throws {
-        let hitView = try XCTUnwrap(view.hitTest(point))
+    /// - Returns: the view that received the synthesized mouseDown, so callers can assert
+    ///   which drag-surface subclass actually routed the click.
+    @discardableResult
+    private func click(_ view: WindowChromeView, at point: NSPoint, in window: NSWindow, clickCount: Int) throws -> NSView {
+        // `hitTest(_:)` expects a point in the coordinate system of the receiver's
+        // *superview*, not the receiver itself — convert explicitly rather than relying on
+        // the chrome view's frame origin happening to be .zero inside contentView.
+        let hitTestPoint = view.convert(point, to: view.superview)
+        let hitView = try XCTUnwrap(view.hitTest(hitTestPoint))
         let event = try XCTUnwrap(NSEvent.mouseEvent(
             with: .leftMouseDown,
             location: view.convert(point, to: nil),
@@ -125,30 +132,77 @@ final class WindowChromeTitlebarGestureTests: AppKitTestCase {
             pressure: 1
         ))
         hitView.mouseDown(with: event)
+        return hitView
+    }
+
+    /// Asserts that the 5 click points span exactly 4 distinct drag-surface classes
+    /// (WindowChromeView, WindowChromeDragRegionView, WindowChromeDragLabel — shared by the
+    /// two passive labels — and WindowChromeReviewChipView).
+    ///
+    /// Wrapped in `XCTExpectFailure`: as of this writing the review chip point does NOT hit
+    /// `WindowChromeReviewChipView`. `WindowChromeView.intrinsicWidth(for:)` has no case for
+    /// `WindowChromeReviewChipView`, so it falls through to the generic `view.fittingSize.width`
+    /// default, which is 0 for a manually frame-laid-out view whose frame keeps getting reset
+    /// to `.zero` at the top of every layout pass. The chip's row item is then pruned by the
+    /// `$0.width > 0.5` filter in `makeLayoutPlan`/`RowLayoutPlan`, so the chip container's
+    /// frame never leaves `.zero` — the click point computed from its label lands inside
+    /// `WindowChromeView` itself instead, which still zooms/drags via the same fallback
+    /// `performWindowChromeMouseDown` path. This is a real, deterministic production bug (not a
+    /// harness timing issue — reproduced after repeated forced relayouts), independent of this
+    /// task and out of scope to fix here (no production code changes). See
+    /// `WindowChromeReviewChipView.preferredWidth(for:)` (WindowChromeView.swift ~line 2661),
+    /// which computes a correct width from the chip text but is never called from
+    /// `intrinsicWidth(for:)` — likely the missing wiring. Remove this `XCTExpectFailure` once
+    /// that is fixed.
+    private func assertHitViewsSpanFourDragSurfaceClasses(
+        _ hitTypeNames: Set<String>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTExpectFailure(
+            "review chip row item never gains a nonzero frame — WindowChromeView.intrinsicWidth(for:) has no case for WindowChromeReviewChipView, so it is pruned before layout and its click point falls through to WindowChromeView; see WindowChromeReviewChipView.preferredWidth(for:), which is never called"
+        ) {
+            XCTAssertEqual(
+                hitTypeNames.count, 4,
+                "expected the 5 click points to span 4 distinct drag-surface classes (the two passive labels share a class), got \(hitTypeNames)",
+                file: file,
+                line: line
+            )
+        }
     }
 
     func test_every_drag_surface_zooms_on_double_click() throws {
         let (window, view, points) = try makeChrome()
         window.preference = "Maximize"
 
+        var hitTypeNames = Set<String>()
         for (target, point) in points {
-            try click(view, at: point, in: window, clickCount: 2)
+            let zoomCountBefore = window.zoomCount
+            let hitView = try click(view, at: point, in: window, clickCount: 2)
+            XCTAssertEqual(window.zoomCount, zoomCountBefore + 1, "\(target) should zoom exactly once")
+            hitTypeNames.insert(String(describing: type(of: hitView)))
         }
 
         XCTAssertEqual(window.zoomCount, points.count)
         XCTAssertEqual(window.dragCount, 0)
+        assertHitViewsSpanFourDragSurfaceClasses(hitTypeNames)
     }
 
     func test_every_drag_surface_drags_on_single_click() throws {
         let (window, view, points) = try makeChrome()
         window.preference = "Maximize"
 
-        for (_, point) in points {
-            try click(view, at: point, in: window, clickCount: 1)
+        var hitTypeNames = Set<String>()
+        for (target, point) in points {
+            let dragCountBefore = window.dragCount
+            let hitView = try click(view, at: point, in: window, clickCount: 1)
+            XCTAssertEqual(window.dragCount, dragCountBefore + 1, "\(target) should drag exactly once")
+            hitTypeNames.insert(String(describing: type(of: hitView)))
         }
 
         XCTAssertEqual(window.dragCount, points.count)
         XCTAssertEqual(window.zoomCount, 0)
+        assertHitViewsSpanFourDragSurfaceClasses(hitTypeNames)
     }
 
     func test_double_click_fills_when_preference_is_fill() throws {
@@ -168,6 +222,8 @@ final class WindowChromeTitlebarGestureTests: AppKitTestCase {
         try click(view, at: points[0].1, in: window, clickCount: 2)
 
         XCTAssertEqual(window.miniaturizeCount, 1)
+        XCTAssertEqual(window.zoomCount, 0)
+        XCTAssertEqual(window.dragCount, 0)
     }
 
     func test_double_click_drags_when_preference_is_none() throws {
