@@ -1209,6 +1209,50 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Toggle Sidebar")
     }
 
+    func test_shortcuts_conflict_can_be_reassigned_to_selected_command() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        let pending = KeyboardShortcut(key: .character("1"), modifiers: [.command])
+        shortcutsController.selectCommandForTesting(.selectWorklane1)
+        shortcutsController.attemptShortcutAssignmentForTesting(pending)
+
+        XCTAssertEqual(shortcutsController.conflictTargetTitleForTesting, "Arrange Width: Full Width")
+        XCTAssertTrue(shortcutsController.showsConflictReassignActionForTesting)
+
+        shortcutsController.activateConflictReassignForTesting()
+
+        XCTAssertNil(shortcutsController.conflictTargetTitleForTesting)
+        XCTAssertEqual(shortcutsController.displayString(for: .selectWorklane1), "\u{2318}1")
+        XCTAssertEqual(shortcutsController.displayString(for: .arrangeWidthFull), "Unassigned")
+
+        let bindings = store.current.shortcuts.bindings
+        XCTAssertTrue(
+            bindings.contains(ShortcutBindingOverride(commandID: .arrangeWidthFull, shortcut: nil)),
+            "Expected the conflicting command to be unbound: \(bindings)"
+        )
+        XCTAssertTrue(
+            bindings.contains(ShortcutBindingOverride(commandID: .selectWorklane1, shortcut: pending)),
+            "Expected the pending shortcut to be assigned: \(bindings)"
+        )
+    }
+
     func test_shortcuts_preview_updates_when_selected_command_changes() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
