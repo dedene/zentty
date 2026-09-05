@@ -271,6 +271,155 @@ def --env _zentty_pre_prompt [] {
     _zentty_reset_keyboard_protocol
 }
 
+# --- ssh wrapper (GHOSTTY_SHELL_FEATURES: ssh-env / ssh-terminfo) --------------
+#
+# libghostty advertises the user's shell-integration-features whether or not the
+# integration implements them, so Zentty ships its own wrapper rather than shell
+# out to `ghostty +ssh` (not bundled). Mirrors upstream Ghostty v1.3.1 plus PR
+# #11518 (COLORTERM travels locally + SendEnv, never `-o SetEnv`, so a user's own
+# ssh_config SetEnv survives). See zentty-zsh-integration.zsh for the full notes
+# on the installer riding in `-o RemoteCommand=` ahead of the user's args.
+#
+# Two nu-only divergences, both forced by the interpreter:
+#
+#  1. No ControlMaster. bash/zsh/fish open one for the terminfo probe and reuse it
+#     for the session; here the session must be this command's final expression
+#     (anything after it would drain its output and replace its exit code), which
+#     leaves no place to tear a master down. So the probe is a plain connection
+#     and the first ssh to a new host costs one extra authentication. It also
+#     keeps `complete` safe: with no backgrounded master holding the pipe open,
+#     the probe cannot hang.
+#  2. A custom command's pipeline input is collected by the interpreter before the
+#     body runs (verified on 0.113 — with or without binding `$in`, and for
+#     closures too), so `producer | ssh host cat` delivers the payload correctly
+#     but only once the producer finishes. Streaming would need `ssh` to stay an
+#     external command or an alias, neither of which can carry this logic.
+#     Interactive sessions are unaffected: with no pipeline input the external ssh
+#     inherits the terminal's stdin directly.
+#
+# Unlike bash/zsh/fish this command is defined unconditionally (a nushell `def`
+# inside an `if` is block-scoped and `hide` is parse-time), so with no ssh feature
+# enabled it is a transparent pass-through, matching upstream ghostty.nu.
+#
+# The cache upstream keeps via `ghostty +ssh-cache` lives here in a flat file, one
+# entry per line: `user@host` for a host that has the terminfo, `!user@host` for
+# one whose installer ran and failed. Delete the file, or the line, to try again.
+
+def _zentty_ssh_features [] {
+    $env | get -o GHOSTTY_SHELL_FEATURES | default '' | split row ',' | each {|f| $f | str trim }
+}
+
+def _zentty_ssh_cache_file [] {
+    let state_home = ($env | get -o XDG_STATE_HOME | default '')
+    let root = if $state_home == '' {
+        ($env | get -o HOME | default '' | path join '.local' 'state')
+    } else {
+        $state_home
+    }
+    $root | path join 'zentty' 'ssh_cache'
+}
+
+def _zentty_ssh_cache_has [target: string] {
+    let cache_file = (_zentty_ssh_cache_file)
+    if not ($cache_file | path exists) { return false }
+    # Exact line match only; a substring match would treat bob@host as a hit for b@host.
+    (try { open --raw $cache_file | lines } catch { [] } | any {|line| $line == $target })
+}
+
+def _zentty_ssh_cache_add [target: string] {
+    if (_zentty_ssh_cache_has $target) { return }
+    let cache_file = (_zentty_ssh_cache_file)
+    try { mkdir ($cache_file | path dirname) } catch { }
+    try { $"($target)\n" | save --raw --append $cache_file } catch { }
+}
+
+# Remote installer for xterm-ghostty terminfo. Passed via -o RemoteCommand=, so
+# it must not contain a '%' (OpenSSH percent-expansion) — hence echo, not printf.
+def _zentty_ssh_remote_installer [terminfo_b64: string] {
+    $"infocmp xterm-ghostty >/dev/null 2>&1 && exit 0; command -v tic >/dev/null 2>&1 || exit 1; command -v base64 >/dev/null 2>&1 || exit 1; mkdir -p ~/.terminfo 2>/dev/null && echo '($terminfo_b64)' | base64 -d | tic -x - 2>/dev/null && exit 0; exit 1"
+}
+
+def --wrapped ssh [...args] {
+    let ssh_input = $in
+    let features = (_zentty_ssh_features)
+    mut ssh_env = {}
+    mut ssh_opts = []
+
+    if ('ssh-env' in $features) or ('ssh-terminfo' in $features) {
+        mut ssh_term = 'xterm-256color'
+
+        if ('ssh-env' in $features) {
+            $ssh_env.COLORTERM = 'truecolor'
+            $ssh_opts = ['-o' 'SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION']
+        }
+
+        if ('ssh-terminfo' in $features) {
+            let ssh_config = (^ssh -G ...$args | complete | get stdout | lines | parse '{key} {value}')
+            let ssh_user = ($ssh_config | where key == 'user' | get value | get -o 0 | default '')
+            let ssh_hostname = ($ssh_config | where key == 'hostname' | get value | get -o 0 | default '')
+            # OpenSSH < 8.7 does not report sessiontype; assume a normal session.
+            let ssh_sessiontype = ($ssh_config | where key == 'sessiontype' | get value | get -o 0 | default 'default')
+
+            if $ssh_hostname != '' {
+                let ssh_target = $"($ssh_user)@($ssh_hostname)"
+                if (_zentty_ssh_cache_has $ssh_target) {
+                    $ssh_term = 'xterm-ghostty'
+                } else if (_zentty_ssh_cache_has $"!($ssh_target)") {
+                    # Known to reject the terminfo; don't spend a connection or warn again.
+                } else if $ssh_sessiontype != 'default' {
+                    # -N / -s: no remote command can run, so skip silently.
+                } else if ((which infocmp | length) > 0) {
+                    let ssh_terminfo = (^infocmp -0 -x xterm-ghostty | complete)
+                    let ssh_terminfo_b64 = if ($ssh_terminfo.exit_code == 0 and ($ssh_terminfo.stdout | str trim | is-not-empty)) {
+                        ($ssh_terminfo.stdout | encode base64)
+                    } else {
+                        ''
+                    }
+                    if $ssh_terminfo_b64 != '' {
+                        let install_args = (
+                            $ssh_opts
+                            ++ ['-o' 'RequestTTY=no' '-o' $"RemoteCommand=(_zentty_ssh_remote_installer $ssh_terminfo_b64)"]
+                            ++ $args
+                        )
+                        # Empty input keeps the installer off the terminal's stdin.
+                        let installed = ('' | ^ssh ...$install_args | complete)
+                        if $installed.exit_code == 0 {
+                            $ssh_term = 'xterm-ghostty'
+                            _zentty_ssh_cache_add $ssh_target
+                        } else if $installed.exit_code == 255 {
+                            # ssh itself failed (refusal, auth, network): transient, no cache.
+                            if not ($installed.stderr | str contains 'Cannot execute command-line and remote command') {
+                                print -e $"Warning: Failed to install xterm-ghostty terminfo on ($ssh_hostname)."
+                            }
+                        } else {
+                            # The installer itself ran and failed: no tic/base64 on the
+                            # remote, or a shell that cannot run it. Remember, warn once.
+                            _zentty_ssh_cache_add $"!($ssh_target)"
+                            print -e ('Warning: Could not install xterm-ghostty terminfo on ' + $ssh_hostname
+                                + '; using xterm-256color. Remove the "!' + $ssh_target + '" line from '
+                                + (_zentty_ssh_cache_file) + ' to retry.')
+                        }
+                    } else {
+                        print -e 'Warning: Could not generate xterm-ghostty terminfo data.'
+                    }
+                }
+            }
+        }
+
+        $ssh_env.TERM = $ssh_term
+    }
+
+    # Blocks cannot capture mutable variables; rebind before running. This must stay
+    # the final expression so the session's output streams and its exit code stands.
+    let ssh_final_env = $ssh_env
+    let ssh_final_args = ($ssh_opts ++ $args)
+    if ($ssh_input | describe) == 'nothing' {
+        with-env $ssh_final_env { ^ssh ...$ssh_final_args }
+    } else {
+        $ssh_input | with-env $ssh_final_env { ^ssh ...$ssh_final_args }
+    }
+}
+
 # --- Hook registration (nu native) ---
 mut cfg = ($env.config | default {})
 if not ($cfg | get -o hooks | is-not-empty) {
