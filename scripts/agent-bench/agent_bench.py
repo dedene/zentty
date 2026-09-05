@@ -799,6 +799,56 @@ def source_sort_key(source: str) -> int:
     return {"process": 0, "hook": 1, "terminal": 2}.get(source, 3)
 
 
+
+CLAUDE_CONFIG_PATH = pathlib.Path.home() / ".claude.json"
+BENCH_REPO_MARKER = "/repos/claude-"
+
+
+def ensure_claude_workspace_trust(repo: pathlib.Path, config_path: pathlib.Path = CLAUDE_CONFIG_PATH) -> bool:
+    """Mark the bench's temporary repo as a trusted Claude Code workspace.
+
+    Interactive Claude Code (2.1.261+) skips *all* hook execution while the
+    workspace trust dialog has not been accepted, and it does not show that
+    dialog in the bench's pty. Without this every interactive Claude scenario
+    reports ``missing-hook`` even though the wrapper injected the hooks.
+
+    Only ``hasTrustDialogAccepted`` is written. Stale bench entries (repos
+    that no longer exist on disk) are pruned so ``~/.claude.json`` does not
+    accumulate one project per run. Returns True when the file changed.
+    """
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(config, dict):
+        return False
+    projects = config.setdefault("projects", {})
+    if not isinstance(projects, dict):
+        return False
+
+    changed = False
+    for key in list(projects):
+        if BENCH_REPO_MARKER in key and not pathlib.Path(key).exists():
+            del projects[key]
+            changed = True
+
+    for candidate in {str(repo), str(repo.resolve())}:
+        entry = projects.get(candidate)
+        if not isinstance(entry, dict):
+            entry = {}
+            projects[candidate] = entry
+        if entry.get("hasTrustDialogAccepted") is not True:
+            entry["hasTrustDialogAccepted"] = True
+            changed = True
+
+    if not changed:
+        return False
+    temporary = config_path.with_name(config_path.name + ".agent-bench.tmp")
+    temporary.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    os.replace(temporary, config_path)
+    return True
+
+
 def scenario_requires_task_observation(agent: str, scenario: str) -> bool:
     return scenario == "tasks"
 
@@ -1558,6 +1608,11 @@ class LaunchPlanner:
             {"matcher": matcher, "hooks": [{"type": "command", "command": hook_command, "timeout": 5}]}
             for matcher in ("AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit")
         ]
+        # Mirror AgentLaunchBootstrap.claudePlan: PostToolUse / PostToolUseFailure
+        # are the only signals between an approved tool and the next matched
+        # PreToolUse, so the sidebar can leave "Needs input" once work resumes.
+        for event in ("PostToolUse", "PostToolUseFailure"):
+            settings["hooks"][event] = [{"matcher": "", "hooks": [{"type": "command", "command": hook_command, "timeout": 5}]}]
         planned = ["--session-id", str(uuid.uuid4()).lower(), "--settings", compact_json(settings)] + arguments
         return self._launch_plan(executable, planned, {"ZENTTY_AGENT_TOOL": "claude"}, unset=["CLAUDECODE"])
 
@@ -2387,12 +2442,23 @@ class BenchRunner:
         output_parts: list[str] = []
         completed = PtyResult(0, False, "", terminal_observations=[])
         repeat_count = max(1, profile.repeat_by_scenario.get(scenario, 1))
+        repo = self._make_repo(agent, scenario)
+        if profile.tool == "claude":
+            try:
+                if ensure_claude_workspace_trust(repo):
+                    self.recorder.append(
+                        TraceRecord(kind="note", agent=agent, scenario=scenario, extra={"claude_workspace_trust": str(repo)})
+                    )
+            except OSError as error:
+                self.recorder.append(
+                    TraceRecord(kind="note", agent=agent, scenario=scenario, extra={"claude_workspace_trust_error": str(error)})
+                )
         for iteration in range(repeat_count):
             iteration_transcript_path = transcript_path if repeat_count == 1 else self.run_dir / f"{agent}-{scenario}-{iteration + 1}.terminal.log"
             completed = run_pty(
                 argv,
                 env=env,
-                cwd=self._make_repo(agent, scenario),
+                cwd=repo,
                 inputs=profile.input_by_scenario.get(scenario, []),
                 timeout=self.args.timeout,
                 transcript_path=iteration_transcript_path,

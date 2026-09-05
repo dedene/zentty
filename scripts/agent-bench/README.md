@@ -65,3 +65,17 @@ python3 scripts/agent-bench/agent_bench.py run --agents codex --scenarios approv
 Claude scenarios pass `--setting-sources project,local` so user-level hooks do
 not inject unrelated context into the live model run. The bench still supplies
 its own hook settings through the wrapper bootstrap path.
+
+Interactive Claude Code (2.1.261+) skips every hook while the workspace trust
+dialog has not been accepted, and it never shows that dialog inside the bench
+pty. The bench therefore marks each temporary Claude repo as trusted in
+`~/.claude.json` (`hasTrustDialogAccepted` only) before launching and prunes
+entries for bench repos that no longer exist. Print-mode scenarios (`smoke`,
+`session_capture`) are unaffected.
+
+`approval_then_work` is the regression scenario for the sidebar status: it
+approves a Write, then has Claude continue with Read and Grep before
+finishing. The trace must show `PostToolUse` events between
+`PermissionRequest` and `Stop`; those are the only hooks Claude emits while it
+works through tools outside the PreToolUse matcher, and without them the pane
+stays on "Needs input" after an approval typed as `1`/`y`.

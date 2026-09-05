@@ -1961,6 +1961,26 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].text, "Run npm install?")
     }
 
+    func test_claude_adapter_post_tool_use_sets_running() throws {
+        let json = #"{"hook_event_name": "PostToolUse", "session_id": "cs1", "tool_name": "Read", "tool_use_id": "tu-1", "cwd": "/tmp/project"}"#
+        let payloads = try AgentEventBridge.claudeAdapter(data: json.data(using: .utf8)!, environment: claudeEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads.first?.state, .running)
+        XCTAssertEqual(payloads.first?.interactionKind, PaneAgentInteractionKind.none)
+        XCTAssertEqual(payloads.first?.confidence, .explicit)
+        XCTAssertEqual(payloads.first?.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_claude_adapter_post_tool_use_failure_sets_running() throws {
+        let json = #"{"hook_event_name": "PostToolUseFailure", "session_id": "cs1", "tool_name": "Bash", "tool_use_id": "tu-1", "error": "exit 1"}"#
+        let payloads = try AgentEventBridge.claudeAdapter(data: json.data(using: .utf8)!, environment: claudeEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads.first?.state, .running)
+        XCTAssertEqual(payloads.first?.interactionKind, PaneAgentInteractionKind.none)
+    }
+
     func test_claude_adapter_unknown_event_returns_empty() throws {
         let json = #"{"hook_event_name": "SomeNewEvent"}"#
         let payloads = try AgentEventBridge.claudeAdapter(data: json.data(using: .utf8)!, environment: claudeEnvironment())

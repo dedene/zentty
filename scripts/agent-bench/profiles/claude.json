@@ -1,8 +1,12 @@
 {
   "name": "claude",
   "command": "claude",
-  "real_binary_names": ["claude"],
-  "version_args": ["--version"],
+  "real_binary_names": [
+    "claude"
+  ],
+  "version_args": [
+    "--version"
+  ],
   "launch_args_by_scenario": {
     "smoke": [
       "--setting-sources",
@@ -44,34 +48,80 @@
     "restore_launch": [
       "--resume",
       "237d8c32-2a27-4850-8da8-3a110f13682c"
+    ],
+    "approval_then_work": [
+      "--setting-sources",
+      "project,local",
+      "--permission-mode",
+      "default",
+      "--max-budget-usd",
+      "1.00",
+      "For an integration hook regression test: 1) create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 2) Then, without asking me anything, read README.md with the Read tool. 3) Then search for the word bench in this directory with the Grep tool. 4) Then reply with exactly DONE."
     ]
   },
   "expectations": {
     "smoke": {
-      "required_events": ["SessionStart", "UserPromptSubmit", "Stop"]
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop"
+      ]
     },
     "session_capture": {
-      "required_events": ["SessionStart", "UserPromptSubmit", "Stop"],
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop"
+      ],
       "session_identity": {
         "session_id_pattern": "uuid",
         "tracked_pid": true
       }
     },
     "approval": {
-      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"]
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest"
+      ]
     },
     "stop_race": {
       "synthetic": true,
       "fixture": "claude_stop_then_late_notification.jsonl",
-      "required_events": ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Notification"],
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "Stop",
+        "Notification"
+      ],
       "post_stop_notification_required": true
     },
     "manual_compact": {
-      "required_events": ["SessionStart", "PreCompact"]
+      "required_events": [
+        "SessionStart",
+        "PreCompact"
+      ]
     },
     "restore_launch": {
       "required_events": [],
-      "required_bootstrap_arguments": [["--resume", "237d8c32-2a27-4850-8da8-3a110f13682c"]]
+      "required_bootstrap_arguments": [
+        [
+          "--resume",
+          "237d8c32-2a27-4850-8da8-3a110f13682c"
+        ]
+      ]
+    },
+    "approval_then_work": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "Stop"
+      ]
     }
   },
   "input_by_scenario": {
@@ -88,7 +138,20 @@
         "text": "/compact\r",
         "label": "manual-compact"
       }
+    ],
+    "approval_then_work": [
+      {
+        "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
+        "text": "1\n"
+      }
     ]
   },
-  "skip_patterns": ["login", "auth", "not authenticated", "api key", "subscription", "maximum dollar amount"]
+  "skip_patterns": [
+    "login",
+    "auth",
+    "not authenticated",
+    "api key",
+    "subscription",
+    "maximum dollar amount"
+  ]
 }

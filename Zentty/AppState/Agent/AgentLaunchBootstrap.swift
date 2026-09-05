@@ -834,6 +834,8 @@ enum AgentLaunchBootstrap {
                 "PermissionRequest": claudeHookEntries(command: hookCommand, timeout: 10),
                 "UserPromptSubmit": claudeHookEntries(command: hookCommand, timeout: 10),
                 "PreToolUse": claudePreToolUseHookEntries(command: hookCommand, timeout: 5),
+                "PostToolUse": claudeHookEntries(command: hookCommand, timeout: 5),
+                "PostToolUseFailure": claudeHookEntries(command: hookCommand, timeout: 5),
                 "PreCompact": claudeHookEntries(command: hookCommand, timeout: 10),
                 "PostCompact": claudeHookEntries(command: hookCommand, timeout: 10),
                 "TaskCreated": claudeHookEntries(command: hookCommand, timeout: 5),

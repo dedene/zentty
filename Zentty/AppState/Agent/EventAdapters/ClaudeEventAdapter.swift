@@ -24,6 +24,7 @@ struct ClaudeAdapterInput {
     let transcriptPath: String?
     let toolName: String?
     let toolInput: [String: Any]
+    let toolUseID: String?
     let taskID: String?
     let taskSubject: String?
 }
@@ -46,6 +47,7 @@ extension AgentEventBridge {
             transcriptPath: JSONKeyAccess.firstString(in: json, keys: ["transcript_path", "transcriptPath"]),
             toolName: JSONKeyAccess.firstString(in: json, keys: ["tool_name", "toolName"]),
             toolInput: (json["tool_input"] as? [String: Any]) ?? [:],
+            toolUseID: JSONKeyAccess.firstString(in: json, keys: ["tool_use_id", "toolUseId"]),
             taskID: JSONKeyAccess.firstString(in: json, keys: ["task_id", "taskId"]),
             taskSubject: JSONKeyAccess.firstString(in: json, keys: ["task", "task_subject", "taskSubject", "title"])
         )
@@ -138,7 +140,8 @@ extension AgentEventBridge {
                     pid: existing?.pid,
                     text: message,
                     kind: interaction.interactionKind,
-                    confidence: .explicit
+                    confidence: .explicit,
+                    toolUseID: input.toolUseID
                 )
             }
             return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: interaction.interactionKind, confidence: .explicit, sessionID: input.sessionID)]
@@ -164,7 +167,8 @@ extension AgentEventBridge {
                     pid: existing?.pid,
                     text: message,
                     kind: prompt.interactionKind,
-                    confidence: .explicit
+                    confidence: .explicit,
+                    toolUseID: input.toolUseID
                 )
                 return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: prompt.interactionKind, confidence: .explicit, sessionID: input.sessionID)]
             }
@@ -175,6 +179,28 @@ extension AgentEventBridge {
             return [claudeLifecyclePayload(
                 target: target, state: .running, cwd: input.cwd ?? preToolExisting?.cwd,
                 interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
+                taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
+            )]
+
+        case "PostToolUse", "PostToolUseFailure":
+            // The only hooks Claude Code emits between an approved tool and the
+            // next Bash/Write/Edit call. Without them an approval prompt
+            // answered with `1`/`y` (no Enter) stayed "Needs input" while
+            // Claude worked through Read/Grep/Agent tools (agent-bench
+            // claude/approval_then_work: 11 s of silence after approval).
+            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
+            if claudeShouldKeepPendingInteraction(existing: existing, completedToolUseID: input.toolUseID) {
+                // A sibling tool from the same parallel batch finished while
+                // another tool's permission / question dialog is still open.
+                return []
+            }
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
+            return [claudeLifecyclePayload(
+                target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
+                interactionKind: PaneAgentInteractionKind.none, confidence: .explicit, sessionID: input.sessionID,
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
             )]
 
@@ -285,6 +311,20 @@ extension AgentEventBridge {
     ) throws -> ClaudeHookSessionRecord? {
         guard let sessionID = input.sessionID else { return nil }
         return try sessionStore.lookup(sessionID: sessionID)
+    }
+
+    static func claudeShouldKeepPendingInteraction(
+        existing: ClaudeHookSessionRecord?,
+        completedToolUseID: String?
+    ) -> Bool {
+        guard let existing,
+              existing.structuredInteractionKind?.requiresHumanAttention == true,
+              let pendingToolUseID = existing.lastStructuredInteractionToolUseID,
+              let completedToolUseID = AgentInteractionClassifier.trimmed(completedToolUseID)
+        else {
+            return false
+        }
+        return pendingToolUseID != completedToolUseID
     }
 
     static func claudeDescribePermissionRequest(

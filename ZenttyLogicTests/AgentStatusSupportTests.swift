@@ -2324,6 +2324,14 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNotNil(hooks["PreCompact"])
         XCTAssertNotNil(hooks["PostCompact"])
         XCTAssertNotNil(hooks["TaskCompleted"])
+        // PostToolUse / PostToolUseFailure are the only hooks Claude Code emits
+        // between an approved tool and the next Bash/Write/Edit call; without
+        // them an approval prompt stays "Needs input" while Claude works
+        // through Read/Grep/Agent tools.
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]], "missing \(event) hook")
+            XCTAssertEqual(entries.compactMap { $0["matcher"] as? String }, [""], "\(event) must match every tool")
+        }
     }
 
     func test_agent_launch_bootstrap_preserves_explicit_claude_color_environment() throws {
@@ -8170,7 +8178,7 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_claude_hook_ignores_unknown_events() throws {
         let input = try AgentEventBridge.claudeParseInput(
             Data("""
-            {"hook_event_name":"PostToolUse","session_id":"session-1","message":"tool finished"}
+            {"hook_event_name":"SomeFutureEvent","session_id":"session-1","message":"tool finished"}
             """.utf8)
         )
         let store = try makeClaudeHookSessionStore()

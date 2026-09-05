@@ -240,6 +240,68 @@ class SyntheticScenarioTests(unittest.TestCase):
             ["sessionStart", "subagentStart", "subagentStop", "stop"],
         )
 
+    def test_ensure_claude_workspace_trust_marks_repo_and_prunes_stale_bench_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            config = root / ".claude.json"
+            repo = root / "run" / "repos" / "claude-approval"
+            repo.mkdir(parents=True)
+            stale = str(root / "old-run" / "repos" / "claude-smoke")
+            config.write_text(
+                json.dumps(
+                    {
+                        "projects": {
+                            "/Users/someone/project": {"hasTrustDialogAccepted": True, "lastCost": 1},
+                            stale: {"hasTrustDialogAccepted": True},
+                        },
+                        "other": "kept",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(agent_bench.ensure_claude_workspace_trust(repo, config_path=config))
+            written = json.loads(config.read_text(encoding="utf-8"))
+            self.assertEqual(written["other"], "kept")
+            self.assertEqual(written["projects"]["/Users/someone/project"], {"hasTrustDialogAccepted": True, "lastCost": 1})
+            self.assertNotIn(stale, written["projects"])
+            self.assertTrue(written["projects"][str(repo)]["hasTrustDialogAccepted"])
+            # Second call is a no-op.
+            self.assertFalse(agent_bench.ensure_claude_workspace_trust(repo, config_path=config))
+
+    def test_ensure_claude_workspace_trust_creates_config_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            config = root / ".claude.json"
+            repo = root / "repos" / "claude-smoke"
+            repo.mkdir(parents=True)
+            self.assertTrue(agent_bench.ensure_claude_workspace_trust(repo, config_path=config))
+            written = json.loads(config.read_text(encoding="utf-8"))
+            self.assertTrue(written["projects"][str(repo)]["hasTrustDialogAccepted"])
+
+    def test_claude_plan_mirrors_app_hook_set_including_post_tool_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            plan = agent_bench.LaunchPlanner(
+                profile=agent_bench.load_profiles(ROOT / "profiles")["claude"],
+                scenario="approval_then_work",
+                run_dir=root,
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["hello"],
+                    "environment": {"ZENTTY_REAL_BINARY": "/usr/local/bin/claude", "ZENTTY_CLI_BIN": "/tmp/zentty-bench"},
+                }
+            )
+            arguments = plan["arguments"]
+            hooks = json.loads(arguments[arguments.index("--settings") + 1])["hooks"]
+            for event in ("PostToolUse", "PostToolUseFailure"):
+                self.assertEqual([entry["matcher"] for entry in hooks[event]], [""], event)
+            self.assertEqual(
+                [entry["matcher"] for entry in hooks["PreToolUse"]],
+                ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"],
+            )
+
     def test_stop_race_fixture_contains_late_notification_after_stop(self):
         fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"
         events = []
