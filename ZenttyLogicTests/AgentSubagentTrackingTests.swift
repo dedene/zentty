@@ -229,22 +229,29 @@ final class AgentSubagentTrackingTests: XCTestCase {
     }
 
     func test_claude_hooks_inside_subagent_fill_in_model_from_transcript() throws {
+        // Live Claude 2.1.261 payloads: SubagentStart carries the session
+        // transcript_path and agent_id but no agent_transcript_path, so the
+        // subagent transcript is derived as <session>/subagents/agent-<id>.jsonl.
         let directory = try makeTemporaryDirectory()
-        let transcriptPath = directory.appendingPathComponent("agent-abc.jsonl").path
+        let sessionTranscriptPath = directory.appendingPathComponent("session-1.jsonl").path
+        let subagentsDirectory = directory.appendingPathComponent("session-1/subagents")
+        try FileManager.default.createDirectory(at: subagentsDirectory, withIntermediateDirectories: true)
+        let transcriptPath = subagentsDirectory.appendingPathComponent("agent-abc.jsonl").path
         let sessionStore = try makeClaudeSessionStore()
         let subagentStore = try makeRegistryStore()
 
         let started = try claudePayloads(
-            #"{"hook_event_name":"SubagentStart","session_id":"session-1","agent_id":"abc","agent_type":"Explore","agent_transcript_path":"\#(transcriptPath)"}"#,
+            #"{"hook_event_name":"SubagentStart","session_id":"session-1","transcript_path":"\#(sessionTranscriptPath)","agent_id":"abc","agent_type":"Explore"}"#,
             sessionStore: sessionStore,
             subagentStore: subagentStore
         )
         XCTAssertNil(started.first?.subagents?.entries.first?.model, "transcript does not exist yet at spawn")
+        XCTAssertEqual(started.first?.subagents?.entries.first?.transcriptPath, transcriptPath)
 
         try #"{"type":"assistant","message":{"model":"claude-sonnet-5","role":"assistant"}}"#
             .write(toFile: transcriptPath, atomically: true, encoding: .utf8)
         let toolUse = try claudePayloads(
-            #"{"hook_event_name":"PreToolUse","session_id":"session-1","tool_name":"Read","agent_id":"abc","agent_type":"Explore","agent_transcript_path":"\#(transcriptPath)"}"#,
+            #"{"hook_event_name":"PreToolUse","session_id":"session-1","tool_name":"Read","agent_id":"abc","agent_type":"Explore"}"#,
             sessionStore: sessionStore,
             subagentStore: subagentStore
         )

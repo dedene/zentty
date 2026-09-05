@@ -48,6 +48,12 @@ final class SidebarSubagentBadgeTests: AppKitTestCase {
             row.debugSnapshotForTesting.paneSubagentListTexts,
             [["2 × opus general-purpose", "1 × sonnet codex-review"]]
         )
+        let listView = try XCTUnwrap(row.debugAccessForTesting.paneSubagentRows.first)
+        XCTAssertGreaterThan(listView.bounds.width, 120, "list row must stretch to the pane row width")
+        XCTAssertEqual(listView.bounds.height, 2 * ShellMetrics.sidebarDetailLineHeight, accuracy: 0.5)
+        let statusRow = try XCTUnwrap(row.debugAccessForTesting.paneStatusRows.first)
+        let badgeFrame = try XCTUnwrap(statusRow.subagentBadgeFrame(in: statusRow))
+        XCTAssertGreaterThanOrEqual(badgeFrame.width, SidebarSubagentBadgeMetrics.minimumWidth)
         XCTAssertEqual(
             row.intrinsicContentSize.height,
             collapsedHeight + 2 * ShellMetrics.sidebarDetailLineHeight + ShellMetrics.sidebarRowInterlineSpacing,

@@ -284,7 +284,10 @@ extension AgentEventBridge {
                 try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
-            let entry = claudeSubagentEntry(for: input, sessionTranscriptPath: existing?.transcriptPath)
+            let entry = claudeSubagentEntry(
+                for: input,
+                sessionTranscriptPath: input.transcriptPath ?? existing?.transcriptPath
+            )
             let subagents = try subagentStore.start(key: claudeSubagentKey(target), entry: entry)
             return [claudeLifecyclePayload(
                 target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
