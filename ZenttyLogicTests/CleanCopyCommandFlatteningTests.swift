@@ -123,6 +123,21 @@ final class CleanCopyCommandFlatteningTests: XCTestCase {
         XCTAssertEqual(result.text, "git push origin feature/login-flow --force")
     }
 
+    func test_clean_preserves_short_output_with_path_in_a_wide_pane() {
+        let input = "Loaded configuration from config/server.yaml\n  (waiting for incoming connections)"
+
+        XCTAssertEqual(CleanCopyPipeline.clean(input, columns: 160).text, input)
+    }
+
+    func test_clean_still_flattens_explicit_pipeline_in_a_wide_pane() {
+        let input = "git log --oneline |\n  head -n 5"
+
+        XCTAssertEqual(
+            CleanCopyPipeline.clean(input, columns: 160).text,
+            "git log --oneline | head -n 5"
+        )
+    }
+
     private func padded(_ line: String, width: Int = 100) -> String {
         line + String(repeating: " ", count: max(0, width - line.count))
     }

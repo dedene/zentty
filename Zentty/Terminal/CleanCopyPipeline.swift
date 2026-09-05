@@ -18,8 +18,9 @@ enum CleanCopyPipeline {
     // MARK: - Public API
 
     /// - Parameter columns: the terminal's column count at copy time, when known.
-    ///   Lines that end well short of this width end in a real newline (libghostty
-    ///   already joins rows it soft-wrapped itself), so they are never folded.
+    ///   Short lines are evidence of deliberate newlines when reflowing prose or
+    ///   inferring wrapped commands. Explicit continuations and agent decoration
+    ///   have their own cleanup rules; libghostty already joins its soft wraps.
     static func clean(
         _ input: String,
         options: CleanCopyOptions = Self.options,
@@ -61,7 +62,8 @@ enum CleanCopyPipeline {
         if let flattened = transformMultiLineCommandIfNeeded(
             text,
             options: options,
-            lineShapeEvidence: lineShapeEvidence
+            lineShapeEvidence: lineShapeEvidence,
+            columns: columns
         ) {
             text = flattened
         }
@@ -499,18 +501,21 @@ enum CleanCopyPipeline {
 
     /// The width at which wrapped lines in this selection end. Uses the terminal's
     /// column count when the caller knows it; otherwise the longest line stands in
-    /// for it. Either way a line shorter than the width by more than one long word
-    /// ended in a real newline.
+    /// for it. Short selections must not shrink a known pane width: the unused
+    /// space is evidence that their newlines were deliberate.
     struct WrapWidthEvidence {
         let width: Int?
 
         init(input: String, columns: Int?) {
+            if let columns, columns > 0 {
+                self.width = columns
+                return
+            }
             let longest = input
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .map { $0.trimmingCharacters(in: .whitespaces).count }
                 .max() ?? 0
-            let width = min(columns ?? Int.max, longest)
-            self.width = width > 0 ? width : nil
+            self.width = longest > 0 ? longest : nil
         }
 
         /// The gap tolerated before a line counts as ending short: one long word

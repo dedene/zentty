@@ -1847,6 +1847,9 @@ final class RootViewController: NSViewController {
     }
 
     private func performCleanCopy() {
+        // Resolve the copy recipient so text fields don't inherit the active pane's width.
+        let copyTarget = NSApp.target(forAction: #selector(NSText.copy(_:)))
+        let columns = (copyTarget as? LibghosttyView)?.terminalColumns
         // Suppress callback cleaning — we clean at this call site instead.
         // Safe because ghostty_surface_binding_action is a synchronous C FFI call:
         // the clipboard write callback fires within performBindingAction before
@@ -1855,7 +1858,7 @@ final class RootViewController: NSViewController {
         NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
         CleanCopyPipeline.suppressCallbackCleaning = false
 
-        let result = CleanCopyPipeline.cleanPasteboardInPlace(.general)
+        let result = CleanCopyPipeline.cleanPasteboardInPlace(.general, columns: columns)
         let message = (result?.wasModified == true) ? "Copied (cleaned)" : "Copied"
         showCopyToast(message: message)
     }

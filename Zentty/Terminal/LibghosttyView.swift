@@ -2411,13 +2411,16 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         return SecondaryMouseRouting(button: GHOSTTY_MOUSE_RIGHT, behavesLikePrimarySelection: false)
     }
 
+    var terminalColumns: Int? {
+        (surfaceController as? LibghosttySurface)?.columns
+    }
+
     @IBAction func copy(_ sender: Any?) {
         if CleanCopyPipeline.shouldCleanTerminalCopyAction() {
             CleanCopyPipeline.suppressCallbackCleaning = true
             _ = surfaceController?.performBindingAction(TerminalBindingAction.copyToClipboard)
             CleanCopyPipeline.suppressCallbackCleaning = false
-            let columns = (surfaceController as? LibghosttySurface)?.columns
-            let result = CleanCopyPipeline.cleanPasteboardInPlace(.general, columns: columns)
+            let result = CleanCopyPipeline.cleanPasteboardInPlace(.general, columns: terminalColumns)
             if result?.wasModified == true {
                 NotificationCenter.default.post(name: .cleanCopyDidModifyPasteboard, object: nil)
             }

@@ -22,7 +22,8 @@ extension CleanCopyPipeline {
     static func transformMultiLineCommandIfNeeded(
         _ input: String,
         options: CleanCopyOptions,
-        lineShapeEvidence: PlainProseLineShapeEvidence? = nil
+        lineShapeEvidence: PlainProseLineShapeEvidence? = nil,
+        columns: Int? = nil
     ) -> String? {
         guard options.flattenMultiLineCommands else { return nil }
         guard input.contains("\n") else { return nil }
@@ -41,6 +42,15 @@ extension CleanCopyPipeline {
             options: .regularExpression
         ) != nil
         let hasExplicitLineJoin = hasLineContinuation || hasLineJoinerAtEOL || hasIndentedPipeline
+
+        if let columns, columns > 0, !hasExplicitLineJoin {
+            let wrapWidth = WrapWidthEvidence(input: input, columns: columns)
+            // A path or indentation alone can make terminal output look like a command.
+            // Keep deliberate short rows before this pass can erase their newlines.
+            if lines.dropLast().contains(where: { wrapWidth.endsBeforeWrapEdge(String($0)) }) {
+                return nil
+            }
+        }
 
         if lineShapeEvidence?.hasMultiplePaddedShortRows == true,
            !hasExplicitLineJoin

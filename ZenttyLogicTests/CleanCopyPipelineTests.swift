@@ -625,6 +625,54 @@ final class CleanCopyPipelineTests: XCTestCase {
         )
     }
 
+    func test_pipeline_preserves_short_terminal_output_in_a_wide_pane() {
+        let input = """
+        The service finished checking all configured connections successfully.
+        Another status message follows on its own deliberately separate line.
+        """
+
+        let result = CleanCopyPipeline.clean(input, columns: 160)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+        // The same text close to the edge remains a candidate for prose reflow.
+        XCTAssertEqual(
+            CleanCopyPipeline.clean(input, columns: 80).text,
+            input.replacingOccurrences(of: "\n", with: " ")
+        )
+    }
+
+    func test_pipeline_ignores_invalid_terminal_width() {
+        let input = """
+        The service finished checking all configured connections successfully.
+        Another status message follows on its own deliberately separate line.
+        """
+        for columns in [0, -1] {
+            XCTAssertEqual(
+                CleanCopyPipeline.clean(input, columns: columns),
+                CleanCopyPipeline.clean(input)
+            )
+        }
+    }
+
+    func test_pipeline_still_flattens_explicit_command_continuations_in_a_wide_pane() {
+        let input = "curl https://example.com/api \\\n  --fail \\\n  --silent"
+        XCTAssertEqual(
+            CleanCopyPipeline.clean(input, columns: 160).text,
+            "curl https://example.com/api --fail --silent"
+        )
+    }
+
+    func test_pipeline_still_reflows_agent_message_in_a_wide_pane() {
+        let input = """
+        ⏺ The service finished checking all configured connections successfully
+          and is ready to accept new requests.
+        """
+        XCTAssertEqual(
+            CleanCopyPipeline.clean(input, columns: 160).text,
+            "The service finished checking all configured connections successfully and is ready to accept new requests."
+        )
+    }
+
     func test_pipeline_uses_longest_line_as_wrap_width_when_columns_are_unknown() {
         // Longest line is 62 chars; the other two stop well before that, so
         // both newlines are real even though nothing here looks structured.
