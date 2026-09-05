@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
+require "json"
+
 module ReleaseAutomation
   CHANNELS = %w[stable beta].freeze
   STABLE_VERSION_REGEX = /\A\d+\.\d+\.\d+\z/
   BETA_VERSION_REGEX = /\A\d+\.\d+\.\d+-beta\.\d+\z/
   APPCAST_FILENAME = "appcast.xml"
+  SPARKLE_PACKAGE_IDENTITY = "sparkle"
 
   module_function
 
@@ -124,6 +127,39 @@ module ReleaseAutomation
     %w[SENTRY_URL SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT].select do |name|
       env.fetch(name, "").to_s.strip.empty?
     end
+  end
+
+  # Reads the pinned Sparkle revision from an Xcode workspace Package.resolved.
+  # Returns { location:, revision:, version: } or nil when Sparkle is not pinned.
+  def sparkle_pin(resolved_json)
+    resolved = resolved_json.is_a?(String) ? JSON.parse(resolved_json) : resolved_json
+    pin = Array(resolved["pins"]).find { |entry| entry["identity"].to_s.casecmp?(SPARKLE_PACKAGE_IDENTITY) }
+    return nil unless pin
+
+    state = pin["state"] || {}
+    revision = state["revision"].to_s.strip
+    return nil if revision.empty?
+
+    {
+      location: pin["location"].to_s.strip,
+      revision: revision,
+      version: state["version"].to_s.strip
+    }
+  end
+
+  # candidates: [{ path:, head: }] where head is the checkout's git HEAD (nil if unknown).
+  # Returns the first path whose HEAD matches the pinned revision, or nil.
+  def select_pinned_checkout(candidates, revision:)
+    match = candidates.find { |candidate| candidate[:head].to_s.strip == revision }
+    match && match[:path]
+  end
+
+  def sparkle_tools_dir(project_root:, revision:)
+    File.join(project_root, "build", "sparkle-tools", revision)
+  end
+
+  def sparkle_clone_dir(project_root:, revision:)
+    File.join(project_root, "build", "sparkle-tools", "checkouts", "Sparkle-#{revision}")
   end
 
   def codex_release_notes_command(output_path:, prompt:)

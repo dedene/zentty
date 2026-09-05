@@ -38,6 +38,12 @@ Guidelines:
 - Do not add design docs, specs, or plans to git unless Peter explicitly asks.
 - It is fine to create them locally for discussion or planning, but keep them untracked and ignored by default.
 
+## Dependencies
+
+- `Zentty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` is committed and is the source of truth for dependency versions. Commit it whenever a bump changes it; do not ignore it again.
+- Release builds pass `-disableAutomaticPackageResolution`, so a range change in `project.yml` without a matching resolved-file update fails the release instead of silently picking a new version.
+- The release lane builds `generate_appcast` from the Sparkle revision in `Package.resolved`, never from whatever checkout is newest in DerivedData.
+
 ## Project Generation
 
 - Treat `project.yml` as the source of truth for Xcode project structure and generated build scripts.

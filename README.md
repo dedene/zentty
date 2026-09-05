@@ -89,6 +89,19 @@ If you need to regenerate the Xcode project from [`project.yml`](project.yml):
 bundle exec fastlane mac generate_project
 ```
 
+### Dependencies
+
+Swift package versions are pinned in `Zentty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`, which is committed. The version ranges in `project.yml` say what is allowed; the resolved file says what actually ships. Release builds run with automatic package resolution disabled, so they fail rather than drift when the pins no longer satisfy the ranges.
+
+To bump a dependency, update the range in `project.yml` if needed, then resolve and commit the new pins:
+
+```bash
+xcodebuild -resolvePackageDependencies -project Zentty.xcodeproj -scheme Zentty
+git add Zentty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+```
+
+The release lane builds Sparkle's `generate_appcast` from the pinned Sparkle revision. It reuses a checkout that already sits at that revision (the release build's `build/SourcePackages`, or Xcode's DerivedData) and otherwise clones it into `build/sparkle-tools`. `bundle exec fastlane mac build_generate_appcast` builds the tool on its own.
+
 More detail about the Ghostty bootstrap flow lives in [`docs/ghosttykit-setup.md`](docs/ghosttykit-setup.md).
 
 ## Test

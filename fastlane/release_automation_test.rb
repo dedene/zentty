@@ -133,4 +133,55 @@ assert_match(/Stable releases/, error.message)
 error = assert_raises(ArgumentError) { ReleaseAutomation.validate_version!(channel: "beta", version: "1.2.3") }
 assert_match(/Beta releases/, error.message)
 
+resolved_fixture = <<~JSON
+  {
+    "originHash" : "abc",
+    "pins" : [
+      {
+        "identity" : "sentry-cocoa",
+        "kind" : "remoteSourceControl",
+        "location" : "https://github.com/getsentry/sentry-cocoa",
+        "state" : { "revision" : "1111111111111111111111111111111111111111", "version" : "9.13.0" }
+      },
+      {
+        "identity" : "sparkle",
+        "kind" : "remoteSourceControl",
+        "location" : "https://github.com/sparkle-project/Sparkle",
+        "state" : { "revision" : "6276ba2b404829d139c45ff98427cf90e2efc59b", "version" : "2.9.2" }
+      }
+    ],
+    "version" : 3
+  }
+JSON
+
+sparkle_pin = ReleaseAutomation.sparkle_pin(resolved_fixture)
+assert_equal "https://github.com/sparkle-project/Sparkle", sparkle_pin[:location]
+assert_equal "6276ba2b404829d139c45ff98427cf90e2efc59b", sparkle_pin[:revision]
+assert_equal "2.9.2", sparkle_pin[:version]
+assert_nil ReleaseAutomation.sparkle_pin('{"pins":[],"version":3}')
+assert_nil ReleaseAutomation.sparkle_pin('{"pins":[{"identity":"sparkle","state":{"version":"2.9.2"}}]}')
+assert_raises(JSON::ParserError) { ReleaseAutomation.sparkle_pin("not json") }
+
+checkouts = [
+  { path: "/dd/A/SourcePackages/checkouts/Sparkle", head: "0000000000000000000000000000000000000000" },
+  { path: "/dd/B/SourcePackages/checkouts/Sparkle", head: nil },
+  { path: "/dd/C/SourcePackages/checkouts/Sparkle", head: "6276ba2b404829d139c45ff98427cf90e2efc59b\n" },
+  { path: "/dd/D/SourcePackages/checkouts/Sparkle", head: "6276ba2b404829d139c45ff98427cf90e2efc59b" }
+]
+assert_equal(
+  "/dd/C/SourcePackages/checkouts/Sparkle",
+  ReleaseAutomation.select_pinned_checkout(checkouts, revision: "6276ba2b404829d139c45ff98427cf90e2efc59b")
+)
+assert_nil ReleaseAutomation.select_pinned_checkout(checkouts, revision: "ffffffffffffffffffffffffffffffffffffffff")
+assert_nil ReleaseAutomation.select_pinned_checkout([], revision: "6276ba2b404829d139c45ff98427cf90e2efc59b")
+
+assert_equal(
+  "/repo/build/sparkle-tools/6276ba2b404829d139c45ff98427cf90e2efc59b",
+  ReleaseAutomation.sparkle_tools_dir(project_root: "/repo", revision: "6276ba2b404829d139c45ff98427cf90e2efc59b")
+)
+assert_equal(
+  "/repo/build/sparkle-tools/checkouts/Sparkle-6276ba2b404829d139c45ff98427cf90e2efc59b",
+  ReleaseAutomation.sparkle_clone_dir(project_root: "/repo", revision: "6276ba2b404829d139c45ff98427cf90e2efc59b")
+)
+
 puts "release automation helper tests passed"
