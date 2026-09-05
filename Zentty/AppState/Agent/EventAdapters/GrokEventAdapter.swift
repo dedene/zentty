@@ -17,7 +17,8 @@ extension AgentEventBridge {
     /// the single source of truth so detection logic lives in one place.
     static func grokAdapter(
         data: Data,
-        environment: [String: String]
+        environment: [String: String],
+        subagentStore: AgentSubagentRegistryStore = AgentSubagentRegistryStore()
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
 
@@ -31,6 +32,7 @@ extension AgentEventBridge {
         let cwd = JSONKeyAccess.firstString(in: jsonObject, keys: ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"])
         let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName", "event", "type"])
         let pid = parseAgentPID(from: environment, key: "ZENTTY_GROK_PID")
+        let subagentKey = AgentSubagentRegistryStore.Key(tool: "grok", worklaneID: target.worklaneID, paneID: target.paneID)
 
         // Fast path: if this is already a canonical Agent Status Protocol payload, defer to
         // the shared makePayloads. The tool label resolves to "Grok" either because the hook
@@ -57,9 +59,24 @@ extension AgentEventBridge {
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
 
         case "stop", "turncomplete", "turn_complete":
-            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd)]
+            let subagents = try subagentStore.clear(key: subagentKey)
+            return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd, subagents: subagents)]
+
+        case "subagentstart", "subagent_start":
+            let entry = grokSubagentEntry(from: jsonObject)
+            let subagents = try subagentStore.start(key: subagentKey, entry: entry)
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, subagents: subagents)]
+
+        case "subagentstop", "subagent_stop", "subagentend", "subagent_end":
+            let subagents = try subagentStore.stop(key: subagentKey, subagentID: grokSubagentID(from: jsonObject))
+            return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, subagents: subagents)]
 
         case "sessionend", "session_end", "end":
+            // A child session's teardown carries `subagentType`; only the
+            // parent's end forgets the pane's subagent registry.
+            if JSONKeyAccess.firstString(in: jsonObject, keys: ["subagentType", "subagent_type", "agent_type", "agentType"]) == nil {
+                try subagentStore.remove(key: subagentKey)
+            }
             return [
                 AgentStatusPayload(
                     windowID: target.windowID,
@@ -101,6 +118,27 @@ extension AgentEventBridge {
         default:
             return []
         }
+    }
+}
+
+// MARK: - Grok Subagents
+
+extension AgentEventBridge {
+    static func grokSubagentID(from jsonObject: [String: Any]) -> String? {
+        JSONKeyAccess.firstString(in: jsonObject, keys: [
+            "agent_id", "agentId", "subagent_id", "subagentId", "subagent_session_id", "subagentSessionId",
+            "agent_transcript_path", "agentTranscriptPath",
+        ])
+    }
+
+    static func grokSubagentEntry(from jsonObject: [String: Any]) -> PaneAgentSubagentEntry {
+        PaneAgentSubagentEntry(
+            id: grokSubagentID(from: jsonObject) ?? UUID().uuidString,
+            agentType: JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_type", "agentType", "subagent_type", "subagentType", "agent_name", "agentName"]),
+            model: JSONKeyAccess.firstString(in: jsonObject, keys: ["model", "model_id", "modelId"]),
+            nickname: JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_nickname", "agentNickname", "nickname"]),
+            transcriptPath: JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_transcript_path", "agentTranscriptPath"])
+        )
     }
 }
 

@@ -540,6 +540,7 @@ extension WorklaneStore {
                     sessionID: payload.sessionID,
                     parentSessionID: payload.parentSessionID,
                     taskProgress: payload.taskProgress,
+                    subagents: payload.subagents,
                     artifactKind: payload.artifactKind,
                     artifactLabel: payload.artifactLabel,
                     artifactURL: payload.artifactURL,

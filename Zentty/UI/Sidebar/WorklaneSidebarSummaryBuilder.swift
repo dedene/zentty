@@ -286,6 +286,7 @@ enum WorklaneSidebarSummaryBuilder {
                 isFocused: isFocused,
                 isWorking: statusPresentation.isWorking,
                 taskProgress: statusPresentation.taskProgress,
+                subagents: paneContext.presentation.subagents,
                 serverPorts: serverPorts(for: paneContext.paneID, serverContext: serverContext),
                 isRemotePane: paneContext.presentation.isRemotePane,
                 remotePaneLabel: remotePaneLabel(for: paneContext.presentation)

@@ -54,6 +54,9 @@ struct AgentStatusPayload: Equatable, Sendable {
     let sessionID: String?
     let parentSessionID: String?
     let taskProgress: PaneAgentTaskProgress?
+    /// Authoritative set of live subagents. `nil` leaves the pane's current set
+    /// untouched; an empty summary clears it.
+    let subagents: PaneAgentSubagentSummary?
     let artifactKind: WorklaneArtifactKind?
     let artifactLabel: String?
     let artifactURL: URL?
@@ -137,6 +140,9 @@ struct AgentStatusPayload: Equatable, Sendable {
             userInfo["taskProgressDoneCount"] = NSNumber(value: taskProgress.doneCount)
             userInfo["taskProgressTotalCount"] = NSNumber(value: taskProgress.totalCount)
         }
+        if let subagents, let json = subagents.transportJSON {
+            userInfo["subagents"] = json
+        }
         if let artifactKind {
             userInfo["artifactKind"] = artifactKind.rawValue
         }
@@ -180,6 +186,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         sessionID: String? = nil,
         parentSessionID: String? = nil,
         taskProgress: PaneAgentTaskProgress? = nil,
+        subagents: PaneAgentSubagentSummary? = nil,
         artifactKind: WorklaneArtifactKind?,
         artifactLabel: String?,
         artifactURL: URL?,
@@ -206,6 +213,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.sessionID = sessionID
         self.parentSessionID = parentSessionID
         self.taskProgress = taskProgress
+        self.subagents = subagents
         self.artifactKind = artifactKind
         self.artifactLabel = artifactLabel
         self.artifactURL = artifactURL
@@ -270,11 +278,46 @@ struct AgentStatusPayload: Equatable, Sendable {
             sessionID: userInfo["sessionID"] as? String,
             parentSessionID: userInfo["parentSessionID"] as? String,
             taskProgress: taskProgress,
+            subagents: PaneAgentSubagentSummary(transportJSON: userInfo["subagents"] as? String),
             artifactKind: (userInfo["artifactKind"] as? String).flatMap(WorklaneArtifactKind.init(rawValue:)),
             artifactLabel: userInfo["artifactLabel"] as? String,
             artifactURL: artifactURL,
             agentWorkingDirectory: userInfo["agentWorkingDirectory"] as? String,
             agentTranscriptPath: userInfo["agentTranscriptPath"] as? String,
+            agentLaunchSnapshot: agentLaunchSnapshot
+        )
+    }
+}
+
+extension AgentStatusPayload {
+    /// Copy of the payload carrying an authoritative subagent snapshot.
+    func with(subagents: PaneAgentSubagentSummary?) -> AgentStatusPayload {
+        AgentStatusPayload(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: signalKind,
+            state: state,
+            shellActivityState: shellActivityState,
+            shellCommand: shellCommand,
+            pid: pid,
+            pidEvent: pidEvent,
+            paneContext: paneContext,
+            origin: origin,
+            toolName: toolName,
+            text: text,
+            lifecycleEvent: lifecycleEvent,
+            interactionKind: interactionKind,
+            confidence: confidence,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            taskProgress: taskProgress,
+            subagents: subagents,
+            artifactKind: artifactKind,
+            artifactLabel: artifactLabel,
+            artifactURL: artifactURL,
+            agentWorkingDirectory: agentWorkingDirectory,
+            agentTranscriptPath: agentTranscriptPath,
             agentLaunchSnapshot: agentLaunchSnapshot
         )
     }

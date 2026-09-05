@@ -143,6 +143,8 @@ struct PanePresentationState: Equatable, Sendable {
     var interactionLabel: String?
     var interactionSymbolName: String?
     var taskProgress: PaneAgentTaskProgress? = nil
+    /// Live subagents under this pane's agent session; `nil` or empty hides the badge.
+    var subagents: PaneAgentSubagentSummary? = nil
 
     var hasResolvedIdentity: Bool {
         identityText != nil || contextText != nil || rememberedTitle != nil
@@ -523,7 +525,8 @@ enum PanePresentationNormalizer {
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
             interactionSymbolName: interactionSymbolName,
-            taskProgress: taskProgress
+            taskProgress: taskProgress,
+            subagents: raw.agentStatus?.subagents.flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 

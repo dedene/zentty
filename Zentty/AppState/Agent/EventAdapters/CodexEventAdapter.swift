@@ -6,7 +6,8 @@ extension AgentEventBridge {
     static func codexAdapter(
         data: Data,
         defaultEventName: String?,
-        environment: [String: String]
+        environment: [String: String],
+        subagentStore: AgentSubagentRegistryStore = AgentSubagentRegistryStore()
     ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
         let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
@@ -26,9 +27,31 @@ extension AgentEventBridge {
         let transcriptPath = JSONKeyAccess.firstString(in: jsonObject, keys: ["transcript_path", "transcriptPath"])
         let pid = parseAgentPID(from: environment, key: "ZENTTY_CODEX_PID")
         let toolName = AgentTool.codex.displayName
+        let subagentKey = AgentSubagentRegistryStore.Key(tool: "codex", worklaneID: target.worklaneID, paneID: target.paneID)
 
         switch hookEventName {
+        case "SubagentStart", "SubagentStop":
+            // Sub-threads report their own thread id; attribute the update to
+            // the parent session the pane already knows about.
+            let rootSessionID = try subagentStore.rootSessionID(key: subagentKey) ?? sessionID
+            let subagents: PaneAgentSubagentSummary
+            if hookEventName == "SubagentStart" {
+                subagents = try subagentStore.start(key: subagentKey, entry: codexSubagentEntry(from: jsonObject))
+            } else {
+                subagents = try subagentStore.stop(key: subagentKey, subagentID: codexSubagentID(from: jsonObject))
+            }
+            return [lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: .running,
+                lifecycleEvent: .toolActivity,
+                sessionID: rootSessionID,
+                cwd: cwd,
+                subagents: subagents,
+                transcriptPath: transcriptPath
+            )]
         case "SessionStart":
+            try subagentStore.recordRootSession(key: subagentKey, sessionID: sessionID)
             var payloads: [AgentStatusPayload] = []
             if let pid {
                 payloads.append(pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID))
@@ -67,6 +90,7 @@ extension AgentEventBridge {
             )]
         case "PreToolUse", "PostToolUse":
             if hookEventName == "PreToolUse" {
+                try subagentStore.recordRootSession(key: subagentKey, sessionID: sessionID)
                 let requestedToolName = JSONKeyAccess.firstString(in: jsonObject, keys: ["tool_name", "toolName", "tool"])
                 if codexPermissionRequestIsUserInput(requestedToolName),
                    let prompt = codexQuestionPrompt(from: jsonObject) {
@@ -90,16 +114,27 @@ extension AgentEventBridge {
                     )]
                 }
             }
-            return [lifecyclePayload(
-                target: target,
-                toolName: toolName,
-                state: .running,
-                lifecycleEvent: .toolActivity,
-                sessionID: sessionID,
-                cwd: cwd,
-                transcriptPath: transcriptPath
-            )]
+            return try attachSubagents(
+                to: [lifecyclePayload(
+                    target: target,
+                    toolName: toolName,
+                    state: .running,
+                    lifecycleEvent: .toolActivity,
+                    sessionID: sessionID,
+                    cwd: cwd,
+                    transcriptPath: transcriptPath
+                )],
+                key: subagentKey,
+                subagentStore: subagentStore
+            ) { entry in
+                guard let info = AgentSubagentModelResolver.codexThreadInfo(rolloutPath: entry.transcriptPath),
+                      info.model != nil else {
+                    return nil
+                }
+                return entry.with(model: info.model, nickname: info.nickname)
+            }
         case "UserPromptSubmit":
+            try subagentStore.recordRootSession(key: subagentKey, sessionID: sessionID)
             return [lifecyclePayload(
                 target: target,
                 toolName: toolName,
@@ -133,6 +168,12 @@ extension AgentEventBridge {
                 transcriptPath: transcriptPath
             )]
         case "Stop":
+            // Only the parent's turn end retires the subagent set; a sub-thread
+            // reporting its own Stop must not blank the badge mid-run.
+            let rootSessionID = try subagentStore.rootSessionID(key: subagentKey)
+            let subagents: PaneAgentSubagentSummary? = (rootSessionID == nil || rootSessionID == sessionID)
+                ? try subagentStore.clear(key: subagentKey)
+                : nil
             return [lifecyclePayload(
                 target: target,
                 toolName: toolName,
@@ -140,11 +181,45 @@ extension AgentEventBridge {
                 lifecycleEvent: .turnComplete,
                 sessionID: sessionID,
                 cwd: cwd,
+                subagents: subagents,
                 transcriptPath: transcriptPath
             )]
         default:
             return []
         }
+    }
+
+    // MARK: - Codex Subagents
+
+    static func codexSubagentID(from jsonObject: [String: Any]) -> String? {
+        if let path = JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_transcript_path", "agentTranscriptPath"]) {
+            return codexThreadID(fromRolloutPath: path) ?? path
+        }
+        return JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_id", "agentId", "thread_id", "threadId", "turn_id", "turnId"])
+    }
+
+    /// `rollout-2026-09-05T12-52-37-01a07132-eb9a-7222-ad53-819ccda4db3c.jsonl` → the trailing UUID.
+    static func codexThreadID(fromRolloutPath path: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        let stem = name.hasSuffix(".jsonl") ? String(name.dropLast(".jsonl".count)) : name
+        let parts = stem.split(separator: "-")
+        guard parts.count >= 5 else { return nil }
+        let candidate = parts.suffix(5).joined(separator: "-")
+        return UUID(uuidString: candidate) != nil ? candidate : nil
+    }
+
+    static func codexSubagentEntry(from jsonObject: [String: Any]) -> PaneAgentSubagentEntry {
+        let rolloutPath = JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_transcript_path", "agentTranscriptPath"])
+        let info = AgentSubagentModelResolver.codexThreadInfo(rolloutPath: rolloutPath)
+        let agentType = JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_type", "agentType", "agent_role", "agentRole"])
+            ?? info?.role
+        return PaneAgentSubagentEntry(
+            id: codexSubagentID(from: jsonObject) ?? UUID().uuidString,
+            agentType: agentType,
+            model: info?.model ?? JSONKeyAccess.firstString(in: jsonObject, keys: ["model"]),
+            nickname: JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_nickname", "agentNickname"]) ?? info?.nickname,
+            transcriptPath: rolloutPath
+        )
     }
 
     static func smallHarnessAdapter(
@@ -414,6 +489,8 @@ extension AgentEventBridge {
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-compact": return "PreCompact"
         case "post-compact": return "PostCompact"
+        case "subagent-start": return "SubagentStart"
+        case "subagent-stop": return "SubagentStop"
         case "stop": return "Stop"
         default: return nil
         }

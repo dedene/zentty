@@ -38,6 +38,8 @@ enum GrokHooksInstaller {
         "UserPromptSubmit",
         "Stop",
         "Notification",
+        "SubagentStart",
+        "SubagentStop",
         "BeforeAgent",
         "AfterAgent",
     ]

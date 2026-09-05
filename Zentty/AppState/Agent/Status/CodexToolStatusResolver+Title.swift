@@ -126,7 +126,8 @@ extension CodexToolStatusResolver {
             hasObservedRunning: existingStatus?.hasObservedRunning == true,
             sessionID: existingStatus?.sessionID,
             parentSessionID: existingStatus?.parentSessionID,
-            taskProgress: existingStatus?.taskProgress
+            taskProgress: existingStatus?.taskProgress,
+            subagents: existingStatus?.subagents
         )
         return true
     }
@@ -304,7 +305,8 @@ extension CodexToolStatusResolver {
             hasObservedRunning: true,
             sessionID: working.agentStatus?.sessionID,
             parentSessionID: working.agentStatus?.parentSessionID,
-            taskProgress: working.agentStatus?.taskProgress
+            taskProgress: working.agentStatus?.taskProgress,
+            subagents: working.agentStatus?.subagents
         )
         working.agentStatus = newStatus
         // Keep the reducer in sync with the direct write so the periodic
@@ -371,7 +373,8 @@ extension CodexToolStatusResolver {
             hasObservedRunning: true,
             sessionID: existingStatus.sessionID,
             parentSessionID: existingStatus.parentSessionID,
-            taskProgress: existingStatus.taskProgress
+            taskProgress: existingStatus.taskProgress,
+            subagents: existingStatus.subagents
         )
     }
 

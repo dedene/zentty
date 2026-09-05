@@ -405,6 +405,7 @@ struct PaneAgentStatus: Equatable, Sendable {
     var parentSessionID: String?
     var agentLaunchSnapshot: AgentLaunchSnapshot?
     var taskProgress: PaneAgentTaskProgress?
+    var subagents: PaneAgentSubagentSummary?
 
     init(
         tool: AgentTool,
@@ -424,7 +425,8 @@ struct PaneAgentStatus: Equatable, Sendable {
         sessionID: String? = nil,
         parentSessionID: String? = nil,
         agentLaunchSnapshot: AgentLaunchSnapshot? = nil,
-        taskProgress: PaneAgentTaskProgress? = nil
+        taskProgress: PaneAgentTaskProgress? = nil,
+        subagents: PaneAgentSubagentSummary? = nil
     ) {
         self.tool = tool
         self.state = state
@@ -445,6 +447,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.parentSessionID = parentSessionID
         self.agentLaunchSnapshot = agentLaunchSnapshot
         self.taskProgress = taskProgress
+        self.subagents = subagents
     }
 
     init(
