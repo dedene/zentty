@@ -301,6 +301,91 @@ class SyntheticScenarioTests(unittest.TestCase):
                 [entry["matcher"] for entry in hooks["PreToolUse"]],
                 ["AskUserQuestion", "Bash|Write|Edit|MultiEdit|NotebookEdit"],
             )
+            # Mirror of AgentLaunchBootstrap.claudePlan: the sidebar subagent
+            # badge depends on these two hooks being registered per launch.
+            for event in ("SubagentStart", "SubagentStop"):
+                self.assertEqual([entry["matcher"] for entry in hooks[event]], [""], event)
+
+    def test_codex_plan_registers_and_trusts_subagent_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            plan = agent_bench.LaunchPlanner(
+                profile=agent_bench.load_profiles(ROOT / "profiles")["codex"],
+                scenario="subagents",
+                run_dir=root,
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["exec", "hello"],
+                    "environment": {"ZENTTY_REAL_BINARY": "/usr/local/bin/codex", "ZENTTY_CLI_BIN": "/tmp/zentty-bench"},
+                }
+            )
+            arguments = plan["arguments"]
+            self.assertTrue(any(arg.startswith("hooks.SubagentStart=") and "subagent-start" in arg for arg in arguments))
+            self.assertTrue(any(arg.startswith("hooks.SubagentStop=") and "subagent-stop" in arg for arg in arguments))
+            state = next(arg for arg in arguments if arg.startswith("hooks.state="))
+            self.assertIn("config.toml:subagent_start:0:0", state)
+            self.assertIn("config.toml:subagent_stop:0:0", state)
+
+    def test_subagent_profiles_require_start_stop_pair_and_payload(self):
+        profiles = agent_bench.load_profiles(ROOT / "profiles")
+        for name, start, stop in (("claude", "SubagentStart", "SubagentStop"), ("codex", "subagent-start", "subagent-stop"), ("grok", "subagent_start", "subagent_stop")):
+            expectation = profiles[name].expectations["subagents"]
+            self.assertIn(start, expectation.required_events, name)
+            self.assertIn(stop, expectation.required_events, name)
+            self.assertTrue(expectation.subagent_payload_required, name)
+            self.assertIn("subagents", profiles[name].launch_args_by_scenario, name)
+
+    def test_subagent_trace_extra_resolves_claude_model_from_meta_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = pathlib.Path(tmp) / "agent-abc.jsonl"
+            (pathlib.Path(tmp) / "agent-abc.meta.json").write_text(json.dumps({"agentType": "Explore", "model": "opus"}))
+            payload = json.dumps({"hook_event_name": "SubagentStart", "agent_id": "abc", "agent_type": "Explore", "agent_transcript_path": str(transcript)})
+            extra = agent_bench.subagent_trace_extra("claude", "SubagentStart", payload)
+            self.assertEqual(extra["subagent"]["event"], "start")
+            self.assertEqual(extra["subagent"]["agent_type"], "Explore")
+            self.assertEqual(extra["subagent"]["model"], "opus")
+
+            transcript.write_text('{"type":"assistant","message":{"model":"claude-sonnet-5"}}\n')
+            (pathlib.Path(tmp) / "agent-abc.meta.json").unlink()
+            extra = agent_bench.subagent_trace_extra("claude", None, json.dumps({"hook_event_name": "SubagentStop", "agent_id": "abc", "agent_transcript_path": str(transcript)}))
+            self.assertEqual(extra["subagent"]["event"], "stop")
+            self.assertEqual(extra["subagent"]["model"], "claude-sonnet-5")
+
+    def test_subagent_trace_extra_resolves_codex_model_and_nickname_from_rollout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rollout = pathlib.Path(tmp) / "rollout-x.jsonl"
+            rollout.write_text(
+                json.dumps({"type": "session_meta", "payload": {"source": {"subagent": {"thread_spawn": {"agent_nickname": "Dirac", "agent_role": "worker"}}}}})
+                + "\n"
+                + json.dumps({"type": "turn_context", "payload": {"model": "gpt-6-astra"}})
+                + "\n"
+            )
+            extra = agent_bench.subagent_trace_extra("codex", "subagent-start", json.dumps({"agent_type": "worker", "agent_transcript_path": str(rollout)}))
+            self.assertEqual(extra["subagent"]["model"], "gpt-6-astra")
+            self.assertEqual(extra["subagent"]["nickname"], "Dirac")
+            self.assertIsNone(agent_bench.subagent_trace_extra("codex", "pre-tool-use", "{}"))
+
+    def test_subagent_payload_validation_explains_what_is_missing(self):
+        self.assertEqual(agent_bench.missing_subagent_payload_detail([]), "no SubagentStart hook payload was captured")
+        self.assertEqual(
+            agent_bench.missing_subagent_payload_detail([{"event": "start", "agent_type": "Explore"}]),
+            "SubagentStart captured but no SubagentStop followed",
+        )
+        self.assertEqual(
+            agent_bench.missing_subagent_payload_detail([{"event": "start"}, {"event": "stop"}]),
+            "subagent hooks captured but none named an agent type",
+        )
+        self.assertIsNone(
+            agent_bench.missing_subagent_payload_detail(
+                [{"event": "start", "agent_type": "Explore"}, {"event": "stop", "model": "claude-opus-5"}]
+            )
+        )
+        # Grok names the subagent type but has no transcript sidecar for the model.
+        without_model = [{"event": "start", "agent_type": "general-purpose"}, {"event": "stop"}]
+        self.assertIsNotNone(agent_bench.missing_subagent_payload_detail(without_model))
+        self.assertIsNone(agent_bench.missing_subagent_payload_detail(without_model, model_required=False))
+        self.assertFalse(agent_bench.load_profiles(ROOT / "profiles")["grok"].expectations["subagents"].subagent_model_required)
 
     def test_stop_race_fixture_contains_late_notification_after_stop(self):
         fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"

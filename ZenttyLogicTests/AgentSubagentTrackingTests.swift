@@ -296,8 +296,10 @@ final class AgentSubagentTrackingTests: XCTestCase {
         let subagentStore = try makeRegistryStore()
 
         _ = try codexPayloads(#"{"hook_event_name":"SessionStart","session_id":"root"}"#, subagentStore: subagentStore)
+        // Codex sends the thread id on start but the rollout path only on stop;
+        // both must resolve to the same registry entry.
         let started = try codexPayloads(
-            #"{"hook_event_name":"SubagentStart","session_id":"child-thread","agent_type":"worker","agent_transcript_path":"\#(rolloutPath)"}"#,
+            #"{"hook_event_name":"SubagentStart","session_id":"child-thread","agent_id":"01a07132-eb9a-7222-ad53-819ccda4db3c","agent_type":"worker","model":"gpt-5.6-sol"}"#,
             subagentStore: subagentStore
         )
         let payload = try XCTUnwrap(started.first)
@@ -305,9 +307,30 @@ final class AgentSubagentTrackingTests: XCTestCase {
         XCTAssertEqual(payload.state, .running)
         let entry = try XCTUnwrap(payload.subagents?.entries.first)
         XCTAssertEqual(entry.id, "01a07132-eb9a-7222-ad53-819ccda4db3c")
-        XCTAssertEqual(entry.model, "gpt-5.6-sol")
-        XCTAssertEqual(entry.nickname, "Noether")
-        XCTAssertEqual(entry.agentType, "worker")
+        XCTAssertEqual(entry.model, "gpt-5.6-sol", "payload model is used until the rollout exists")
+        XCTAssertNil(entry.nickname)
+
+        let toolHook = try codexPayloads(
+            #"{"hook_event_name":"PostToolUse","session_id":"root","agent_id":"01a07132-eb9a-7222-ad53-819ccda4db3c"}"#,
+            subagentStore: subagentStore
+        )
+        XCTAssertEqual(toolHook.first?.subagents?.entries.first?.model, "gpt-5.6-sol")
+
+        let stoppedWithPath = try codexPayloads(
+            #"{"hook_event_name":"SubagentStop","session_id":"child-thread","agent_id":"01a07132-eb9a-7222-ad53-819ccda4db3c","agent_transcript_path":"\#(rolloutPath)"}"#,
+            subagentStore: subagentStore
+        )
+        XCTAssertEqual(stoppedWithPath.first?.subagents, .empty)
+
+        let restarted = try codexPayloads(
+            #"{"hook_event_name":"SubagentStart","session_id":"child-thread","agent_type":"worker","agent_transcript_path":"\#(rolloutPath)"}"#,
+            subagentStore: subagentStore
+        )
+        let entryFromRollout = try XCTUnwrap(restarted.first?.subagents?.entries.first)
+        XCTAssertEqual(entryFromRollout.id, "01a07132-eb9a-7222-ad53-819ccda4db3c")
+        XCTAssertEqual(entryFromRollout.model, "gpt-5.6-sol")
+        XCTAssertEqual(entryFromRollout.nickname, "Noether")
+        XCTAssertEqual(entryFromRollout.agentType, "worker")
 
         let childStop = try codexPayloads(#"{"hook_event_name":"Stop","session_id":"child-thread"}"#, subagentStore: subagentStore)
         XCTAssertNil(childStop.first?.subagents, "a sub-thread Stop must not blank the parent's badge")

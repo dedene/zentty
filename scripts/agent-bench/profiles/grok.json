@@ -15,6 +15,11 @@
     "approval": [
       "-p",
       "Use your ask_user_question tool to ask me one short question, then answer it yourself after I reply."
+    ],
+    "subagents": [
+      "--always-approve",
+      "-p",
+      "For an integration hook regression test: use your spawn_subagent tool once to start a subagent whose task is to list the files in the current directory and report back. Wait for it to finish, then reply with exactly DONE."
     ]
   },
   "expectations": {
@@ -34,6 +39,15 @@
     },
     "approval": {
       "required_events": ["session_start", "notification", "agent.needs-input", "stop"],
+      "session_identity": {
+        "session_id_pattern": "uuid",
+        "tracked_pid": false
+      }
+    },
+    "subagents": {
+      "required_events": ["session_start", "subagent_start", "subagent_stop", "stop"],
+      "subagent_payload_required": true,
+      "subagent_model_required": false,
       "session_identity": {
         "session_id_pattern": "uuid",
         "tracked_pid": false

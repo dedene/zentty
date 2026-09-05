@@ -191,11 +191,17 @@ extension AgentEventBridge {
 
     // MARK: - Codex Subagents
 
+    /// Codex 0.153 sends `agent_id` (the sub-thread id) on both hooks but the
+    /// rollout path only on `SubagentStop`, so the id is the stable key and the
+    /// rollout file name is the fallback for older payloads.
     static func codexSubagentID(from jsonObject: [String: Any]) -> String? {
+        if let agentID = JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_id", "agentId", "thread_id", "threadId"]) {
+            return agentID
+        }
         if let path = JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_transcript_path", "agentTranscriptPath"]) {
             return codexThreadID(fromRolloutPath: path) ?? path
         }
-        return JSONKeyAccess.firstString(in: jsonObject, keys: ["agent_id", "agentId", "thread_id", "threadId", "turn_id", "turnId"])
+        return JSONKeyAccess.firstString(in: jsonObject, keys: ["turn_id", "turnId"])
     }
 
     /// `rollout-2026-09-05T12-52-37-01a07132-eb9a-7222-ad53-819ccda4db3c.jsonl` → the trailing UUID.

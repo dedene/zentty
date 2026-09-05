@@ -57,6 +57,18 @@
       "--max-budget-usd",
       "1.00",
       "For an integration hook regression test: 1) create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 2) Then, without asking me anything, read README.md with the Read tool. 3) Then search for the word bench in this directory with the Grep tool. 4) Then reply with exactly DONE."
+    ],
+    "subagents": [
+      "--setting-sources",
+      "project,local",
+      "--print",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-hook-events",
+      "--max-budget-usd",
+      "2.00",
+      "For an integration hook regression test: use the Agent tool once, with subagent_type Explore, to list the files in the current directory. Wait for it to finish, then reply with exactly DONE."
     ]
   },
   "expectations": {
@@ -122,6 +134,16 @@
         "PostToolUse",
         "Stop"
       ]
+    },
+    "subagents": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop"
+      ],
+      "subagent_payload_required": true
     }
   },
   "input_by_scenario": {
