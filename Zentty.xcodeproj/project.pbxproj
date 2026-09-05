@@ -474,6 +474,7 @@
 		C57DE7B45F0BEFFDC8EC7371 /* MenuBarStatusPillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6996377692DF2C92D7428A5 /* MenuBarStatusPillView.swift */; };
 		C5873608D623BCF0F56FADD2 /* HermesEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9BDBFAF4FD6C6BA172731D /* HermesEventAdapter.swift */; };
 		C6172682FC0925AEB869BAE8 /* SettingsDetailContainerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E1D70DC92F5918033D26D /* SettingsDetailContainerViewController.swift */; };
+		C6DC3C8DBF31DE43DBE58445 /* PaneCopyTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5AF078000EB0DB28D1C23F5 /* PaneCopyTargetResolverTests.swift */; };
 		C6FC32D748BD8642629B7321 /* CursorHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40A07AF51FBC28C9CC07ABA /* CursorHooksInstaller.swift */; };
 		C749B84F3DFA56E1241551D1 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A00B46795D7A242D2C9107 /* SettingsWindowController.swift */; };
 		C7E03A7F4908AC8B2713A19B /* SidebarVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163D5C0FE862CC71E8B354E2 /* SidebarVisibilityController.swift */; };
@@ -500,6 +501,7 @@
 		CEDAF9621D24A72064947A90 /* SidebarDropPlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF2752BE0368370555A776C /* SidebarDropPlaceholderView.swift */; };
 		CEE6C654BA6B3D3F6FCFCAE2 /* PaneFocusHistoryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CE6484C3A7D0F443F1FF10 /* PaneFocusHistoryController.swift */; };
 		CF13A269F19FE08C54099974 /* MenuBarStatusPillViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A01AB73197CAAE9E3D77A0 /* MenuBarStatusPillViewTests.swift */; };
+		CFEC25BEE8B4D5F2EAABA355 /* PaneCopyTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1FDC5EDD20974ABB71D7C8E /* PaneCopyTarget.swift */; };
 		D089F5366F16515499AD92E4 /* TmuxFormatRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8595DD2E83A66FAD57B960 /* TmuxFormatRendererTests.swift */; };
 		D11DCA299BC0C937EAED0001 /* PaneSplitBehaviorOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7137F467A63630BC5D08A61 /* PaneSplitBehaviorOptionView.swift */; };
 		D1563C751D1009F259B1BB08 /* PaneLayoutMenuCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F4CE288A07931095E26D13 /* PaneLayoutMenuCoordinator.swift */; };
@@ -560,6 +562,7 @@
 		E6D0CAB78E81B81367E2F583 /* AgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEEE6EDBC73B9A55E684093 /* AgentStatus.swift */; };
 		E6DB3D37929BDB0F6583E0E5 /* OpenWithCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19801FEA1E31AE1665776372 /* OpenWithCatalog.swift */; };
 		E7AF4214CD5B4B304CD0AB12 /* SidebarCreateWorklaneButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE51D9EBCFFBCD584611F064 /* SidebarCreateWorklaneButton.swift */; };
+		E80ADCAAD028AACCF2414C1C /* PaneSSHDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3E291B743D66D2A5474B10 /* PaneSSHDestinationResolver.swift */; };
 		E89B19464162224F2C5AC2BD /* ThemeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51BFAD9337055E61275E0F7D /* ThemeCoordinatorTests.swift */; };
 		E94E1DACAFBCE24E8AA485C5 /* SidebarShimmerColorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7F2B3A458136A7651CA4BA /* SidebarShimmerColorResolver.swift */; };
 		E95C4FC6740D1885397423A2 /* ServerIPCCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0633B563FD38C6FAF61062 /* ServerIPCCommands.swift */; };
@@ -1110,6 +1113,7 @@
 		BFF869D6D306AFE18589C8CF /* WorklaneStoreTeamAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreTeamAnchorTests.swift; sourceTree = "<group>"; };
 		C15A14BDE2EEBB8C5AA0F3DD /* TmuxCompatCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatCLITests.swift; sourceTree = "<group>"; };
 		C18B2FF6F681F4948B49A9FE /* CodexEventAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexEventAdapter.swift; sourceTree = "<group>"; };
+		C1FDC5EDD20974ABB71D7C8E /* PaneCopyTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCopyTarget.swift; sourceTree = "<group>"; };
 		C222FA689B8B7C8E932BE43D /* WindowChromeCenteringInterleavingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeCenteringInterleavingTests.swift; sourceTree = "<group>"; };
 		C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyAdapterTests.swift; sourceTree = "<group>"; };
 		C2DAA76C6247F60AA55ACB5D /* SidebarUpdateRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarUpdateRowTests.swift; sourceTree = "<group>"; };
@@ -1237,6 +1241,7 @@
 		F557AF9F9BF4989153692316 /* SidebarViewChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewChrome.swift; sourceTree = "<group>"; };
 		F564EFD678FB31CE540FBDEE /* AgentEventBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEventBridgeTests.swift; sourceTree = "<group>"; };
 		F56A80724E5ABFBF4B39D945 /* MenuBarStatusPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusPresentation.swift; sourceTree = "<group>"; };
+		F5AF078000EB0DB28D1C23F5 /* PaneCopyTargetResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCopyTargetResolverTests.swift; sourceTree = "<group>"; };
 		F5FB4A13C3399DF51323778E /* WorklanePeekView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekView.swift; sourceTree = "<group>"; };
 		F876089DABC0460791806F3E /* PaneDragHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragHitTesting.swift; sourceTree = "<group>"; };
 		F9FCFF921453188C98C2AC4D /* TmuxCompatPaneContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatPaneContextTests.swift; sourceTree = "<group>"; };
@@ -1256,6 +1261,7 @@
 		FE03606CCDB80BACDE1EB39E /* URLQueryParamRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLQueryParamRules.swift; sourceTree = "<group>"; };
 		FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostViewTests.swift; sourceTree = "<group>"; };
 		FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
+		FF3E291B743D66D2A5474B10 /* PaneSSHDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneSSHDestinationResolver.swift; sourceTree = "<group>"; };
 		FFA39255E836211E35CAFF5F /* WorklaneState+Testing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneState+Testing.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -1366,6 +1372,7 @@
 				E706A2076EAD5DD8C5AD0882 /* NotificationSoundManager.swift */,
 				9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */,
 				E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */,
+				C1FDC5EDD20974ABB71D7C8E /* PaneCopyTarget.swift */,
 				BC039C620770B29A8DC711C1 /* PaneDisplayIdentityResolver.swift */,
 				54894343178398AA618315E4 /* PaneFocusHistory.swift */,
 				41CE6484C3A7D0F443F1FF10 /* PaneFocusHistoryController.swift */,
@@ -1849,6 +1856,7 @@
 				50D5CEB5E915AE3FBE158512 /* LibghosttyView.swift */,
 				E85888C3C5FE4E110531EBC8 /* MarkdownReformatter.swift */,
 				765B5594B1CFDD53C4A7C00B /* MockTerminalAdapter.swift */,
+				FF3E291B743D66D2A5474B10 /* PaneSSHDestinationResolver.swift */,
 				4B681E0E2004A0AECC6C405B /* PaneSSHProcessProbe.swift */,
 				D7B504722337DBCB03722FD8 /* RemoteFileUploadRequest.swift */,
 				457C3E3EB1160148D4CA02E7 /* RemoteImagePasteDecision.swift */,
@@ -2141,6 +2149,7 @@
 				61A8FD7688E72C2B2A8099EE /* PaneCommandExecutorTests.swift */,
 				37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */,
 				D468A4AAC25D668673CC51CE /* PaneContainerViewWorklaneBorderTests.swift */,
+				F5AF078000EB0DB28D1C23F5 /* PaneCopyTargetResolverTests.swift */,
 				9EA2D0CE5BE10DFD7CDB4CBC /* PaneDisplayIdentityResolverTests.swift */,
 				7F6BDCBDE4E090275233D9D3 /* PaneDragHitTestingTests.swift */,
 				286127859CC1D0E1D6E24ECE /* PaneDragPreviewSizingTests.swift */,
@@ -2585,6 +2594,7 @@
 				4B0C3768E3A6A13ACC424E7A /* PaneCommandExecutorTests.swift in Sources */,
 				9305DFB3157057C5F774497D /* PaneContainerViewTests.swift in Sources */,
 				BB1BCADC002057CB2A8211ED /* PaneContainerViewWorklaneBorderTests.swift in Sources */,
+				C6DC3C8DBF31DE43DBE58445 /* PaneCopyTargetResolverTests.swift in Sources */,
 				CD53494A66CC5B4B0CDF23BA /* PaneDisplayIdentityResolverTests.swift in Sources */,
 				81AF86AEEA79AD53667ECBE3 /* PaneDragHitTestingTests.swift in Sources */,
 				A7D1705788C04A62E0EC684C /* PaneDragPreviewSizingTests.swift in Sources */,
@@ -2877,6 +2887,7 @@
 				4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */,
 				C5472B502864FDAF36E08684 /* PaneCommandExecutor.swift in Sources */,
 				3F270AD6399CAA5729853F2D /* PaneContainerView.swift in Sources */,
+				CFEC25BEE8B4D5F2EAABA355 /* PaneCopyTarget.swift in Sources */,
 				48ECF9EAFA83C8B95CB644E3 /* PaneDisplayIdentityResolver.swift in Sources */,
 				624B1BB94834F08B1F75C877 /* PaneDragCoordinator.swift in Sources */,
 				65ADCFA85CAA56E91E14C014 /* PaneDragEdgeScrollDriver.swift in Sources */,
@@ -2899,6 +2910,7 @@
 				4BB0E4171C495664EF0324FE /* PaneNavigationButtons.swift in Sources */,
 				7C269AA7741BA793A8DD4BD7 /* PaneNotificationCoordinator.swift in Sources */,
 				8D4C37D86BAA9B1B23DF164B /* PaneRestorationBuilder.swift in Sources */,
+				E80ADCAAD028AACCF2414C1C /* PaneSSHDestinationResolver.swift in Sources */,
 				A3DF172F7DBD4AD8B215E680 /* PaneSSHProcessProbe.swift in Sources */,
 				731E192A944AF30FB531F314 /* PaneSearchHUDView.swift in Sources */,
 				13A456B3644AB1AA586D10E9 /* PaneShellContext.swift in Sources */,

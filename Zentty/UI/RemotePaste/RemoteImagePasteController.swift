@@ -363,7 +363,7 @@ final class RemoteImagePasteController {
     }
 
     private func remoteImageDestination(from auxiliaryState: PaneAuxiliaryState) -> SSHDestination? {
-        RemoteImagePasteDestination.destination(from: auxiliaryState)
+        PaneSSHDestinationResolver.destination(from: auxiliaryState)
     }
 
     func cancelAll() {

@@ -120,6 +120,7 @@ enum CommandPaletteItemBuilder {
         availableCommandIDs: Set<AppCommandID>,
         shortcutManager: ShortcutManager,
         focusedPanePath: String? = nil,
+        focusedPaneCopyTarget: PaneCopyTarget? = nil,
         focusedBranchName: String? = nil,
         rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
     ) -> [CommandPaletteItem] {
@@ -134,7 +135,7 @@ enum CommandPaletteItemBuilder {
             )
             let subtitle = enrichedSubtitle(
                 for: definition,
-                focusedPanePath: focusedPanePath,
+                focusedPaneCopyTarget: focusedPaneCopyTarget ?? focusedPanePath.map(PaneCopyTarget.path),
                 focusedBranchName: focusedBranchName,
                 rightPaneCommandPresentation: rightPaneCommandPresentation
             )
@@ -400,7 +401,7 @@ enum CommandPaletteItemBuilder {
 
     private static func enrichedSubtitle(
         for definition: AppCommandDefinition,
-        focusedPanePath: String?,
+        focusedPaneCopyTarget: PaneCopyTarget?,
         focusedBranchName: String?,
         rightPaneCommandPresentation: PaneRightCommandPresentation
     ) -> String {
@@ -410,10 +411,10 @@ enum CommandPaletteItemBuilder {
 
         switch definition.id {
         case .copyFocusedPanePath:
-            guard let path = focusedPanePath else {
+            guard let focusedPaneCopyTarget else {
                 return definition.detailDescription
             }
-            return "Copy Path — \(path)"
+            return focusedPaneCopyTarget.commandPaletteSubtitle
         case .openBranchOnRemote:
             guard let focusedBranchName, focusedBranchName.isEmpty == false else {
                 return definition.detailDescription

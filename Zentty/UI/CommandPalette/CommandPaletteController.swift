@@ -32,6 +32,7 @@ final class CommandPaletteController {
         shortcutManager: ShortcutManager,
         availabilityContext: CommandAvailabilityContext,
         focusedPanePath: String?,
+        focusedPaneCopyTarget: PaneCopyTarget? = nil,
         focusedBranchName: String?,
         focusedRestoredCommand: String? = nil,
         worklanes: [WorklaneState] = [],
@@ -56,6 +57,7 @@ final class CommandPaletteController {
             availableCommandIDs: availableIDs,
             shortcutManager: shortcutManager,
             focusedPanePath: focusedPanePath,
+            focusedPaneCopyTarget: focusedPaneCopyTarget,
             focusedBranchName: focusedBranchName,
             rightPaneCommandPresentation: rightPaneCommandPresentation
         )
