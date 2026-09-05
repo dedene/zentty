@@ -1865,12 +1865,10 @@ final class WorklaneStore {
     }
 
     func selectWorklane(atPosition position: Int) {
-        guard position > 0, worklanes.isEmpty == false else {
+        guard worklanes.indices.contains(position - 1) else {
             return
         }
-
-        let index = min(position - 1, worklanes.count - 1)
-        selectWorklane(id: worklanes[index].id)
+        selectWorklane(id: worklanes[position - 1].id)
     }
 
     func selectNextWorklane() {

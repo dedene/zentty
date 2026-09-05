@@ -329,6 +329,18 @@ extension ShortcutPreset {
         .init(commandID: .nextWorklane, key: .tab, modifiers: [.control]),
         .init(commandID: .previousWorklane, key: .tab, modifiers: [.control, .shift]),
 
+        // Ghostty binds ⌘1–⌘8 to goto_tab and ⌘9 to last_tab; worklanes are Zentty's tabs.
+        // ⌘9 maps to worklane 9 (not "last") so every digit means the same thing.
+        .init(commandID: .selectWorklane1, key: .character("1"), modifiers: [.command]),
+        .init(commandID: .selectWorklane2, key: .character("2"), modifiers: [.command]),
+        .init(commandID: .selectWorklane3, key: .character("3"), modifiers: [.command]),
+        .init(commandID: .selectWorklane4, key: .character("4"), modifiers: [.command]),
+        .init(commandID: .selectWorklane5, key: .character("5"), modifiers: [.command]),
+        .init(commandID: .selectWorklane6, key: .character("6"), modifiers: [.command]),
+        .init(commandID: .selectWorklane7, key: .character("7"), modifiers: [.command]),
+        .init(commandID: .selectWorklane8, key: .character("8"), modifiers: [.command]),
+        .init(commandID: .selectWorklane9, key: .character("9"), modifiers: [.command]),
+
         // Panes (Ghostty surfaces and splits)
         .init(commandID: .closeFocusedPane, key: .character("w"), modifiers: [.command]),
         .init(commandID: .restoreClosedPane, key: .character("t"), modifiers: [.command, .shift]),

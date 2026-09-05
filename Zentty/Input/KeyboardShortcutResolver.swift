@@ -100,6 +100,25 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case copyMarkdown = "clipboard.copy_markdown"
     case reloadConfig = "app.reload_config"
     case openBookmarksPopover = "bookmarks.openPopover"
+
+    static let selectWorklaneIDs: [AppCommandID] = [
+        .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4, .selectWorklane5,
+        .selectWorklane6, .selectWorklane7, .selectWorklane8, .selectWorklane9,
+    ]
+
+    static func selectWorklaneID(position: Int) -> AppCommandID? {
+        guard selectWorklaneIDs.indices.contains(position - 1) else {
+            return nil
+        }
+        return selectWorklaneIDs[position - 1]
+    }
+
+    var selectWorklanePosition: Int? {
+        guard let index = Self.selectWorklaneIDs.firstIndex(of: self) else {
+            return nil
+        }
+        return index + 1
+    }
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -188,6 +207,17 @@ struct AppCommandDefinition {
 }
 
 enum AppCommandRegistry {
+    private static let selectWorklaneDefinitions: [AppCommandDefinition] = AppCommandID.selectWorklaneIDs.enumerated().map { index, id in
+        AppCommandDefinition(
+            id: id,
+            title: "Switch to Worklane \(index + 1)",
+            category: .worklanes,
+            defaultShortcut: nil,
+            action: .selectWorklane(position: index + 1),
+            menuItem: nil
+        )
+    }
+
     static let definitions: [AppCommandDefinition] = [
         AppCommandDefinition(
             id: .toggleSidebar,
@@ -288,78 +318,7 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.previousWorklane(_:))
             )
         ),
-        AppCommandDefinition(
-            id: .selectWorklane1,
-            title: "Switch to Worklane 1",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 1),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane2,
-            title: "Switch to Worklane 2",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 2),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane3,
-            title: "Switch to Worklane 3",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 3),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane4,
-            title: "Switch to Worklane 4",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 4),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane5,
-            title: "Switch to Worklane 5",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 5),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane6,
-            title: "Switch to Worklane 6",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 6),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane7,
-            title: "Switch to Worklane 7",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 7),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane8,
-            title: "Switch to Worklane 8",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 8),
-            menuItem: nil
-        ),
-        AppCommandDefinition(
-            id: .selectWorklane9,
-            title: "Switch to Worklane 9",
-            category: .worklanes,
-            defaultShortcut: nil,
-            action: .selectWorklane(position: 9),
-            menuItem: nil
-        ),
+    ] + selectWorklaneDefinitions + [
         AppCommandDefinition(
             id: .worklaneMoveUp,
             title: "Move Worklane Up",
@@ -1168,7 +1127,7 @@ extension AppCommandDefinition {
         case .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4,
              .selectWorklane5, .selectWorklane6, .selectWorklane7, .selectWorklane8,
              .selectWorklane9:
-            "Switch to this numbered worklane, or the last worklane if that position does not exist."
+            "Switch to the worklane at this position in the sidebar."
         case .worklaneMoveUp:
             "Move the active worklane up in the sidebar."
         case .worklaneMoveDown:

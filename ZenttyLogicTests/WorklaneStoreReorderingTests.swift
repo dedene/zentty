@@ -48,7 +48,7 @@ final class WorklaneStoreReorderingTests: XCTestCase {
         XCTAssertEqual(changes, [.worklaneListChanged])
     }
 
-    func test_selectWorklane_atPosition_usesCurrentOrderAndClampsToLast() {
+    func test_selectWorklane_atPosition_usesCurrentOrder() {
         let store = makeStore(activeID: "A")
 
         store.selectWorklane(atPosition: 2)
@@ -57,17 +57,21 @@ final class WorklaneStoreReorderingTests: XCTestCase {
         XCTAssertTrue(store.reorderWorklanes(to: ids("C", "B", "A")))
         store.selectWorklane(atPosition: 1)
         XCTAssertEqual(store.activeWorklaneID, WorklaneID("C"))
-
-        store.selectWorklane(atPosition: 9)
+        store.selectWorklane(atPosition: 3)
         XCTAssertEqual(store.activeWorklaneID, WorklaneID("A"))
     }
 
-    func test_selectWorklane_atInvalidPosition_isANoOp() {
+    func test_selectWorklane_atOutOfRangePosition_isANoOp() {
         let store = makeStore(activeID: "B")
+        var changes: [WorklaneChange] = []
+        store.subscribe { changes.append($0) }
 
         store.selectWorklane(atPosition: 0)
+        store.selectWorklane(atPosition: 4)
+        store.selectWorklane(atPosition: 9)
 
         XCTAssertEqual(store.activeWorklaneID, WorklaneID("B"))
+        XCTAssertTrue(changes.isEmpty)
     }
 
     private func makeStore(activeID: String) -> WorklaneStore {
