@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configStore: configStore
     )
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
+    private var onePasswordPromptFocusCoordinator: OnePasswordPromptFocusCoordinator?
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
     private var taskManagerWindowController: TaskManagerWindowController?
@@ -116,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UNUserNotificationCenter.current().delegate = self
         applyMenuBarStatusConfig(configStore.current)
+        onePasswordPromptFocusCoordinator = makeOnePasswordPromptFocusCoordinator()
+        onePasswordPromptFocusCoordinator?.start()
 
         // Grandfather existing on-disk hook installs into the consent model
         // before any restore spawns agents, so upgrading users are not prompted
@@ -783,6 +786,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 worklaneStore: controller.worklaneStore
             )
         })
+    }
+
+    private func makeOnePasswordPromptFocusCoordinator() -> OnePasswordPromptFocusCoordinator {
+        OnePasswordPromptFocusCoordinator(
+            hooks: .init(
+                isEnabled: { [weak self] in
+                    self?.configStore.current.panes.focusOnOnePasswordPrompt ?? false
+                },
+                sources: { [weak self] in
+                    self?.onePasswordPromptPaneSources() ?? []
+                },
+                isPaneFocused: { [weak self] source in
+                    self?.windowControllers.values
+                        .first(where: { $0.windowID == source.windowID })?
+                        .isPaneFocused(worklaneID: source.worklaneID, paneID: source.paneID) ?? false
+                },
+                reveal: { [weak self] candidate in
+                    self?.revealPaneForOnePasswordPrompt(candidate)
+                }
+            )
+        )
+    }
+
+    private func onePasswordPromptPaneSources() -> [OnePasswordPromptPaneSource] {
+        orderedWindowControllers.flatMap { controller in
+            controller.worklaneStore.worklanes.flatMap { worklane in
+                worklane.paneStripState.panes.map { pane in
+                    OnePasswordPromptPaneSource(
+                        windowID: controller.windowID,
+                        worklaneID: worklane.id,
+                        paneID: pane.id,
+                        rootPID: worklane.auxiliaryStateByPaneID[pane.id]?.raw.paneRootPID
+                    )
+                }
+            }
+        }
+    }
+
+    private func revealPaneForOnePasswordPrompt(_ candidate: OnePasswordPromptCandidate) {
+        guard let controller = windowControllers.values.first(where: { $0.windowID == candidate.source.windowID }),
+              controller.containsPane(worklaneID: candidate.source.worklaneID, paneID: candidate.source.paneID) else {
+            return
+        }
+        controller.revealPaneForOnePasswordPrompt(
+            worklaneID: candidate.source.worklaneID,
+            paneID: candidate.source.paneID,
+            processName: candidate.processName
+        )
     }
 
     private func focusPaneFromMenuBar(windowID: WindowID, worklaneID: WorklaneID, paneID: PaneID) {

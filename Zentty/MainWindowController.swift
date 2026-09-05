@@ -848,12 +848,33 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
     }
 
+    /// Selects a pane without activating Zentty or stealing key status. Used
+    /// when another app (1Password) legitimately holds focus and we only want
+    /// the right pane waiting when the user returns.
+    func revealPaneForOnePasswordPrompt(worklaneID: WorklaneID, paneID: PaneID, processName: String) {
+        if !window.isVisible || window.isMiniaturized {
+            return
+        }
+        if !window.isKeyWindow {
+            window.orderFront(nil)
+        }
+        rootViewController.revealPaneForOnePasswordPrompt(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            processName: processName
+        )
+    }
+
     func containsWorklane(_ worklaneID: WorklaneID) -> Bool {
         rootViewController.containsWorklane(worklaneID)
     }
 
     func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
         rootViewController.containsPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    func isPaneFocused(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
+        rootViewController.isPaneFocused(worklaneID: worklaneID, paneID: paneID)
     }
 
     func containsPane(_ paneID: PaneID) -> Bool {
