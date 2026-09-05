@@ -1641,6 +1641,11 @@ final class RootViewController: NSViewController {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
+        let focusedPaneCopyTarget: PaneCopyTarget? = {
+            guard let paneID = activeWorklane?.paneStripState.focusedPaneID,
+                  let auxiliaryState = activeWorklane?.auxiliaryStateByPaneID[paneID] else { return nil }
+            return PaneCopyTargetResolver.target(for: auxiliaryState)
+        }()
         let focusedRestoredCommand: String? = {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return worklaneStore.restoredRerunnableCommand(for: paneID)
@@ -1668,6 +1673,7 @@ final class RootViewController: NSViewController {
             shortcutManager: shortcutManager,
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
+            focusedPaneCopyTarget: focusedPaneCopyTarget,
             focusedBranchName: focusedBranchName,
             focusedRestoredCommand: focusedRestoredCommand,
             worklanes: worklaneStore.worklanes,
@@ -1830,20 +1836,15 @@ final class RootViewController: NSViewController {
 
     private func copyPath(forPaneID paneID: PaneID) {
         guard
-            let path = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?
-                .path,
-            !path.isEmpty
+            let auxiliaryState = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID],
+            let target = PaneCopyTargetResolver.target(for: auxiliaryState)
         else {
             return
         }
 
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
-        showPathCopiedToast()
-    }
-
-    private func showPathCopiedToast() {
-        showToast(message: "Path copied")
+        NSPasteboard.general.setString(target.pasteboardString, forType: .string)
+        showToast(message: target.copiedToastMessage)
     }
 
     private func performCleanCopy() {
