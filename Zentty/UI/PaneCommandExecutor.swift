@@ -29,7 +29,7 @@ final class PaneCommandExecutor {
     }
 
     struct UIHooks {
-        var presentClosePaneConfirmation: (WorklaneStore.PaneCloseReason, @escaping () -> Void) -> Void
+        var presentClosePaneConfirmation: (PaneCloseConfirmationContext, @escaping () -> Void) -> Void
         var showToast: (String) -> Void
         var requestWindowClose: () -> Void
     }
@@ -150,9 +150,9 @@ final class PaneCommandExecutor {
             let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
             if configStore.current.confirmations.confirmBeforeClosingPane,
                 let focusedPaneID,
-                let reason = worklaneStore.paneCloseConfirmationReason(focusedPaneID)
+                let context = worklaneStore.paneCloseConfirmationContext(focusedPaneID)
             {
-                hooks.presentClosePaneConfirmation(reason) { [weak self] in
+                hooks.presentClosePaneConfirmation(context) { [weak self] in
                     self?.closeFocusedPane()
                 }
             } else {
