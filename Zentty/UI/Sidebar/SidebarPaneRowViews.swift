@@ -1087,7 +1087,6 @@ final class SidebarPaneTextRowView: NSView {
         textColor: NSColor,
         trailingTextColor: NSColor?,
         progressColor: NSColor,
-        subagentBadgeColor: NSColor? = nil,
         isShimmering: Bool,
         shimmerColor: NSColor,
         reducedMotion: Bool
@@ -1095,7 +1094,8 @@ final class SidebarPaneTextRowView: NSView {
         self.textColor = textColor
         self.trailingTextColor = trailingTextColor ?? .clear
         self.reducedMotion = reducedMotion
-        subagentBadgeView.applyFillColor(subagentBadgeColor ?? textColor)
+        // Same tint as the status icon and text so the line reads as one unit.
+        subagentBadgeView.applyFillColor(textColor)
         let dimmedColor = isShimmering
             ? textColor.withAlphaComponent(textColor.alphaComponent * 0.90)
             : textColor

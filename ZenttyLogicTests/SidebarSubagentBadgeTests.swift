@@ -83,7 +83,7 @@ final class SidebarSubagentBadgeTests: AppKitTestCase {
         XCTAssertEqual(row.debugSnapshotForTesting.paneSubagentListTexts, [[]])
     }
 
-    func test_badge_uses_pane_primary_text_color_as_fill() throws {
+    func test_badge_uses_status_color_as_fill_like_the_status_icon() throws {
         let theme = ZenttyTheme.fallback(for: nil)
         let row = makeRow()
         row.configure(with: makeSummary(subagents: threeSubagents), theme: theme, animated: false)
@@ -92,8 +92,9 @@ final class SidebarSubagentBadgeTests: AppKitTestCase {
         let snapshot = row.debugSnapshotForTesting
         XCTAssertEqual(
             snapshot.firstPaneSubagentBadgeFillColor?.srgbClamped,
-            snapshot.firstPanePrimaryTextColor?.srgbClamped
+            snapshot.firstPaneStatusTextColor?.srgbClamped
         )
+        XCTAssertEqual(snapshot.firstPaneStatusTextColor?.srgbClamped, theme.statusRunning.srgbClamped)
     }
 
     // MARK: - Helpers

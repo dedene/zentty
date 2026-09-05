@@ -1102,7 +1102,6 @@ final class SidebarWorklaneRowButton: NSButton {
                 ),
                 trailingTextColor: presentationMode == .adaptive ? trailingColor : nil,
                 progressColor: currentTheme.statusRunning,
-                subagentBadgeColor: primaryColor,
                 isShimmering: paneRow.isWorking && paneRow.attentionState == .running,
                 shimmerColor: SidebarWorklaneRowStyleResolver.shimmerColor(
                     baseTextColor: SidebarWorklaneRowStyleResolver.statusShimmerBaseColor(
