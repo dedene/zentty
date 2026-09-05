@@ -139,6 +139,8 @@ final class WindowChromeTitlebarGestureTests: AppKitTestCase {
     // currently gets a zero width from `intrinsicWidth(for:)` and is pruned from the row
     // layout (pre-existing, tracked separately), so it doesn't reliably hit its own class.
     // These are the classes every other surface is guaranteed to hit today.
+    // TODO: add "WindowChromeReviewChipView" to this set once WindowChromeView.intrinsicWidth(for:)
+    // gives review chips a nonzero width (they are currently pruned from the row layout).
     private let guaranteedDragSurfaceClasses: Set<String> = [
         "WindowChromeView", "WindowChromeDragRegionView", "WindowChromeDragLabel",
     ]
@@ -248,6 +250,14 @@ final class WindowChromeTitlebarGestureTests: AppKitTestCase {
         window.performWindowChromeFill(nil)
 
         XCTAssertEqual(window.zoomCount, 1)
+    }
+
+    func test_zoom_fill_private_selector_still_exists_on_supported_macos() {
+        guard #available(macOS 15, *) else { return }
+        XCTAssertTrue(
+            NSWindow.instancesRespond(to: NSSelectorFromString("_zoomFill:")),
+            "_zoomFill: is gone from AppKit; the Fill titlebar action now silently degrades to Zoom"
+        )
     }
 
     // MARK: - Test helpers

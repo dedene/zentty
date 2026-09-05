@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// The gesture the custom window chrome should perform for a mouse-down.
 ///
@@ -50,13 +51,15 @@ func performWindowChromeMouseDown(_ event: NSEvent, window: NSWindow?) {
     case .windowDrag:
         window.performDrag(with: event)
     case .zoom:
-        window.performZoom(event)
+        window.performZoom(nil)
     case .fill:
-        window.performWindowChromeFill(event)
+        window.performWindowChromeFill(nil)
     case .miniaturize:
-        window.performMiniaturize(event)
+        window.performMiniaturize(nil)
     }
 }
+
+private let logger = Logger(subsystem: "be.zenjoy.zentty", category: "WindowChrome")
 
 extension NSWindow {
     /// The system "Double-click a window's title bar to" setting. `@objc` so tests can
@@ -67,12 +70,14 @@ extension NSWindow {
 
     /// Sequoia's "Fill" titlebar action. AppKit exposes no public API for it; Chromium and
     /// iTerm2 both call the private `_zoomFill:` selector behind `responds(to:)`, falling
-    /// back to a regular zoom, which lands on the same screen frame minus tiling margins.
+    /// back to a regular zoom, which is close but uses the window's standard frame rather
+    /// than filling the display.
     @objc func performWindowChromeFill(_ sender: Any?) {
         let zoomFill = NSSelectorFromString("_zoomFill:")
         if responds(to: zoomFill) {
-            perform(zoomFill, with: sender)
+            perform(zoomFill, with: nil)
         } else {
+            logger.debug("_zoomFill: unavailable; falling back to performZoom for the Fill titlebar action")
             performZoom(sender)
         }
     }
