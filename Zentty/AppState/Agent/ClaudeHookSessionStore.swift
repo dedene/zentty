@@ -14,6 +14,10 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     var lastStructuredInteractionText: String?
     var lastStructuredInteractionKindRawValue: String?
     var lastStructuredInteractionConfidenceRawValue: String?
+    /// `tool_use_id` of the tool call whose PermissionRequest /
+    /// AskUserQuestion prompt is currently open. Lets PostToolUse for a
+    /// sibling tool in the same batch leave the open prompt alone.
+    var lastStructuredInteractionToolUseID: String? = nil
     var lastNotificationText: String?
     var tasksByID: [String: Bool] = [:]
     var updatedAt: TimeInterval
@@ -178,7 +182,8 @@ final class ClaudeHookSessionStore {
         pid: Int32?,
         text: String,
         kind: PaneAgentInteractionKind,
-        confidence: AgentSignalConfidence
+        confidence: AgentSignalConfidence,
+        toolUseID: String? = nil
     ) throws {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else {
@@ -216,6 +221,7 @@ final class ClaudeHookSessionStore {
             record.structuredInteractionText = normalizedOptional(text)
             record.structuredInteractionKind = kind
             record.structuredInteractionConfidence = confidence
+            record.lastStructuredInteractionToolUseID = normalizedOptional(toolUseID)
             record.lastNotificationText = nil
             record.updatedAt = now
             state.sessions[normalizedSessionID] = record
@@ -251,6 +257,7 @@ final class ClaudeHookSessionStore {
             record.structuredInteractionText = nil
             record.structuredInteractionKind = nil
             record.structuredInteractionConfidence = nil
+            record.lastStructuredInteractionToolUseID = nil
             record.lastNotificationText = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionID] = record

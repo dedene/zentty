@@ -165,8 +165,10 @@ enum TerminalMetadataChangeClassifier {
             return volatileAgentStatusTitleSignature(normalized, recognizedTool: .codex)
         case .claudeCode:
             // Claude Code 2.x encodes status in the title glyph: "✳" (U+2733)
-            // on the idle prompt, braille spinner glyphs (U+2800…U+28FF) while
-            // the agent is thinking. After a user interrupt (Escape) the
+            // on the idle prompt (and while a permission / question dialog is
+            // open), spinner glyphs while the agent is working — braille
+            // (U+2800…U+28FF) on older builds, "◐ ◑ ◒ ◓" (U+25D0…U+25D3) on
+            // 2.1+. After a user interrupt (Escape) the
             // spinner is replaced by "✳", with the subject left intact — this
             // is what lets us detect the interrupt when no Stop hook fires.
             if let signature = parseClaudeCodeGlyphTitle(normalized) {
@@ -343,7 +345,8 @@ enum TerminalMetadataChangeClassifier {
         switch first.value {
         case 0x2733:
             phase = .idle
-        case 0x2800...0x28FF:
+        case 0x2800...0x28FF, 0x25D0...0x25D3:
+            // Braille spinner on older builds; "◐ ◑ ◒ ◓" on Claude Code 2.1+.
             phase = .running
         default:
             return nil

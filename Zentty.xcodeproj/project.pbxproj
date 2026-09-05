@@ -533,6 +533,7 @@
 		DE22542885A2BE164FE9090E /* KeyboardShortcutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF1AD0DA5648D1E48300407 /* KeyboardShortcutPreview.swift */; };
 		DF1048E3F1F45A233C595280 /* PaneAgentReducerState+Codex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8552E3232235804F4AB8FB80 /* PaneAgentReducerState+Codex.swift */; };
 		DFC95AFE3D93BC03C215FC0E /* WorkspaceTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E99517E9EAA4D99552859C /* WorkspaceTemplate.swift */; };
+		E04EBA3DB2C42DBD5F114123 /* ClaudeApprovalResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B314CBC82EBD530AEDF0330 /* ClaudeApprovalResumeTests.swift */; };
 		E091B391CA413E9D9C495CB6 /* WorklaneAttentionSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */; };
 		E092E65843424D641089F829 /* MenuBarAgentIconInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBA78773A292B4B9858DD5 /* MenuBarAgentIconInspector.swift */; };
 		E0D0A39516DBC6367F61E913 /* MenuBarStatusKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E6AFBC242DD01217E89E74 /* MenuBarStatusKind.swift */; };
@@ -1004,6 +1005,7 @@
 		97BCD869C25CE3A03966E138 /* MenuBarStatusIconRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusIconRendererTests.swift; sourceTree = "<group>"; };
 		97D22B5BDA360AE3F6A96AE3 /* WorklaneColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneColorTests.swift; sourceTree = "<group>"; };
 		994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadata.swift; sourceTree = "<group>"; };
+		9B314CBC82EBD530AEDF0330 /* ClaudeApprovalResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeApprovalResumeTests.swift; sourceTree = "<group>"; };
 		9B4AE87CC3F4EB591D08B9A7 /* WorkspaceTemplateExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateExporterTests.swift; sourceTree = "<group>"; };
 		9B89A97084B5AF5AFF873E2C /* BookmarkRestoreLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkRestoreLogger.swift; sourceTree = "<group>"; };
 		9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookCanonicalReEmitter.swift; sourceTree = "<group>"; };
@@ -2064,6 +2066,7 @@
 				E33FF8DDD0088600F542E4B1 /* AppMenuBuilderTests.swift */,
 				8BBC344380B6DDA89645BBDD /* AppUpdateStateStoreTests.swift */,
 				0EA071E0AD16A044F7C2F644 /* BookmarkStoreTests.swift */,
+				9B314CBC82EBD530AEDF0330 /* ClaudeApprovalResumeTests.swift */,
 				EDDFDCEF34526A6C5882223E /* ClaudeStopNotificationRaceTests.swift */,
 				41D3D22F3E783C0247024435 /* CleanCopyCommandFlatteningTests.swift */,
 				FD08AC7A7561005FD819D5D4 /* CleanCopyPipelineTests.swift */,
@@ -2502,6 +2505,7 @@
 				6511CF33CD9B8F480EDB6926 /* AppUpdateStateStoreTests.swift in Sources */,
 				ADEC09B96C29BD6B05776B2A /* AppearanceSettingsSectionViewControllerTests.swift in Sources */,
 				105EFDDB2995F6500AE4DF21 /* BookmarkStoreTests.swift in Sources */,
+				E04EBA3DB2C42DBD5F114123 /* ClaudeApprovalResumeTests.swift in Sources */,
 				44A22AB9819823EBE62144BE /* ClaudeStopNotificationRaceTests.swift in Sources */,
 				A1E9D4AC7D56DF6F533F5B0A /* CleanCopyCommandFlatteningTests.swift in Sources */,
 				FDC316FB9C5E49E5F368CCFD /* CleanCopyPipelineTests.swift in Sources */,

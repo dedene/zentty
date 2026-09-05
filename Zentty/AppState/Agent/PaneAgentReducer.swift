@@ -285,6 +285,39 @@ struct PaneAgentReducerState: Equatable, Sendable {
         return true
     }
 
+    /// Claude Code parks its terminal title on the idle glyph "✳" while a
+    /// permission or AskUserQuestion dialog is open and brings the spinner
+    /// back the moment the user answers. That title flip is the earliest
+    /// "resumed" signal Zentty gets: approving with `1` / `y` emits no
+    /// keystroke Zentty recognises, and the next hook (PostToolUse) only
+    /// arrives once the approved tool has finished.
+    @discardableResult
+    mutating func resumeExplicitClaudeCodeSessionFromSpinnerTitle(now: Date = Date()) -> Bool {
+        let candidateSessions = sessionsByID.values.filter { session in
+            session.tool == .claudeCode
+                && session.source == .explicit
+                && session.origin != .shell
+                && (session.state == .needsInput || session.interactionKind.requiresHumanAttention)
+        }
+        guard let sessionID = candidateSessions.sorted(by: Self.preferred(lhs:rhs:)).first?.sessionID,
+              var session = sessionsByID[sessionID]
+        else {
+            return false
+        }
+
+        session.state = .running
+        session.text = nil
+        session.interactionKind = .none
+        session.completionCandidateDeadline = nil
+        session.idleVisibleUntil = nil
+        session.unresolvedStopVisibleUntil = nil
+        session.hasObservedRunning = true
+        session.explicitIdleSince = nil
+        session.updatedAt = now
+        sessionsByID[sessionID] = session
+        return true
+    }
+
     @discardableResult
     mutating func markExplicitClaudeCodeSessionIdleFromIdleTitle(now: Date = Date()) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in
