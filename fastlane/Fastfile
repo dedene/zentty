@@ -14,6 +14,8 @@ PROJECT       = "Zentty.xcodeproj"
 PROJECT_SPEC  = "project.yml"
 APP_TARGET    = "Zentty"
 BUILD_DIR     = "build/release"
+SOURCE_PACKAGES_DIR = "build/SourcePackages"
+PACKAGE_RESOLVED = "#{PROJECT}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 APP_PATH      = "#{BUILD_DIR}/#{APP_NAME}.app"
 PROJECT_ROOT  = File.expand_path("..", __dir__)
 R2_CACHE_MAX  = "public, max-age=31536000, immutable"
@@ -216,6 +218,7 @@ end
 
 def ensure_release_tools_ready!
   hydrate_release_env_from_one_password!
+  sparkle_pin!
   capture_command!("gh", "auth", "status", "--hostname", "github.com", error_message: "gh is not authenticated")
   capture_command!("wrangler", "whoami", error_message: "wrangler is not authenticated")
   UI.user_error!("R2_PUBLIC_BASE_URL must be set") if r2_public_base_url.empty?
@@ -462,6 +465,8 @@ def archive_release!(version:)
     output_name: APP_NAME,
     export_method: "developer-id",
     export_options: "fastlane/ExportOptions.plist",
+    cloned_source_packages_path: project_root_path(SOURCE_PACKAGES_DIR),
+    disable_package_automatic_updates: true,
     xcargs: xcargs_for_release(version: version)
   )
 end
@@ -800,32 +805,72 @@ def stage_release_archive!(zip_path:)
   destination
 end
 
+def sparkle_pin!
+  @sparkle_pin ||= begin
+    resolved_path = project_root_path(PACKAGE_RESOLVED)
+    UI.user_error!("Missing #{PACKAGE_RESOLVED}; the pinned package resolution must be committed") unless File.file?(resolved_path)
+    pin = ReleaseAutomation.sparkle_pin(File.read(resolved_path))
+    UI.user_error!("#{PACKAGE_RESOLVED} does not pin Sparkle") unless pin
+    pin
+  end
+end
+
+def git_head_revision(path)
+  return nil unless File.directory?(path)
+
+  stdout, _, status = run_command("git", "-C", path, "rev-parse", "HEAD")
+  status.success? ? stdout.strip : nil
+end
+
 def sparkle_checkout_path!
+  pin = sparkle_pin!
+  pinned_label = "Sparkle #{pin[:version]} (#{pin[:revision]})"
+
   explicit_path = ENV["SPARKLE_PACKAGE_PATH"].to_s.strip
-  return explicit_path if !explicit_path.empty? && File.directory?(explicit_path)
+  unless explicit_path.empty?
+    head = git_head_revision(explicit_path)
+    UI.user_error!("SPARKLE_PACKAGE_PATH is at #{head || "an unknown revision"}, but #{PACKAGE_RESOLVED} pins #{pinned_label}") unless head == pin[:revision]
+    return explicit_path
+  end
 
-  candidates = Dir[File.join(Dir.home, "Library/Developer/Xcode/DerivedData", "*", "SourcePackages", "checkouts", "Sparkle")]
-  candidates += Dir["/tmp/zentty-agent-*/SourcePackages/checkouts/Sparkle"]
-  checkout = candidates
-    .select { |path| File.directory?(path) }
-    .max_by { |path| File.mtime(path) }
+  candidates = [project_root_path(SOURCE_PACKAGES_DIR, "checkouts", "Sparkle")]
+  candidates += Dir[File.join(Dir.home, "Library/Developer/Xcode/DerivedData", "*", "SourcePackages", "checkouts", "Sparkle")]
+  candidates = candidates.map { |path| { path: path, head: git_head_revision(path) } }
 
-  UI.user_error!("Could not locate Sparkle checkout. Set SPARKLE_PACKAGE_PATH if needed.") unless checkout
+  ReleaseAutomation.select_pinned_checkout(candidates, revision: pin[:revision]) || clone_pinned_sparkle_checkout!(pin)
+end
 
-  checkout
+def clone_pinned_sparkle_checkout!(pin)
+  destination = ReleaseAutomation.sparkle_clone_dir(project_root: PROJECT_ROOT, revision: pin[:revision])
+  return destination if git_head_revision(destination) == pin[:revision]
+
+  UI.user_error!("Package.resolved pins Sparkle without a location") if pin[:location].empty?
+  FileUtils.rm_rf(destination)
+  FileUtils.mkdir_p(File.dirname(destination))
+  UI.message("Cloning Sparkle #{pin[:version]} (#{pin[:revision]}) for generate_appcast...")
+  capture_command!(
+    "git", "clone", "--quiet", "--no-checkout", pin[:location], destination,
+    error_message: "Failed to clone Sparkle from #{pin[:location]}"
+  )
+  capture_command!(
+    "git", "-C", destination, "checkout", "--quiet", "--detach", pin[:revision],
+    error_message: "Failed to check out pinned Sparkle revision #{pin[:revision]}"
+  )
+  destination
 end
 
 def sparkle_generate_appcast_binary!
   explicit_bin = ENV["SPARKLE_GENERATE_APPCAST_BIN"].to_s.strip
   return explicit_bin if !explicit_bin.empty? && File.executable?(explicit_bin)
 
-  checkout = sparkle_checkout_path!
-  build_dir = project_root_path("build", "sparkle-tools")
+  pin = sparkle_pin!
+  build_dir = ReleaseAutomation.sparkle_tools_dir(project_root: PROJECT_ROOT, revision: pin[:revision])
   binary_path = File.join(build_dir, "generate_appcast")
   return binary_path if File.executable?(binary_path)
 
+  checkout = sparkle_checkout_path!
   FileUtils.mkdir_p(build_dir)
-  UI.message("Building Sparkle generate_appcast tool (one-time, may take a minute)...")
+  UI.message("Building Sparkle #{pin[:version]} generate_appcast tool (one-time per pinned revision, may take a minute)...")
   capture_command!(
     xcrun_path, "xcodebuild",
     "-project", File.join(checkout, "Sparkle.xcodeproj"),
@@ -1060,6 +1105,11 @@ platform :mac do
   desc "Notarize the DMG"
   lane :notarize_dmg do
     notarize_release_dmg!
+  end
+
+  desc "Build Sparkle's generate_appcast from the revision pinned in Package.resolved"
+  lane :build_generate_appcast do
+    UI.success("generate_appcast ready -> #{sparkle_generate_appcast_binary!}")
   end
 
   desc "Build GhosttyKit.xcframework from source"
