@@ -150,8 +150,8 @@ final class RootViewController: NSViewController {
         runtimeRegistry: runtimeRegistry,
         canvas: appCanvasView,
         hooks: PaneCommandExecutor.UIHooks(
-            presentClosePaneConfirmation: { [weak self] reason, onConfirm in
-                self?.showClosePaneConfirmation(reason: reason, onConfirm: onConfirm)
+            presentClosePaneConfirmation: { [weak self] context, onConfirm in
+                self?.showClosePaneConfirmation(context: context, onConfirm: onConfirm)
             },
             showToast: { [weak self] message in self?.showToast(message: message) },
             requestWindowClose: { [weak self] in self?.requestContainingWindowClose() }
@@ -801,9 +801,10 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID)
+                let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
             {
-                self.showClosePaneConfirmation(reason: reason) {
+                self.worklaneStore.focusPane(id: paneID)
+                self.showClosePaneConfirmation(context: context) {
                     self.paneCommands.closePane(id: paneID)
                 }
             } else {
@@ -1029,9 +1030,10 @@ final class RootViewController: NSViewController {
         sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-               let reason = self.worklaneStore.worklaneCloseConfirmationReason(worklaneID)
+               let context = self.worklaneStore.worklaneCloseConfirmationContext(worklaneID)
             {
-                self.showCloseWorklaneConfirmation(reason: reason) {
+                self.worklaneStore.selectWorklane(id: worklaneID)
+                self.showCloseWorklaneConfirmation(context: context) {
                     self.closeWorklane(id: worklaneID)
                 }
             } else {
@@ -1048,9 +1050,13 @@ final class RootViewController: NSViewController {
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let reason = self.worklaneStore.paneCloseConfirmationReason(paneID)
+                let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
             {
-                self.showClosePaneConfirmation(reason: reason) {
+                self.worklaneStore.selectWorklaneAndFocusPane(
+                    worklaneID: worklaneID, paneID: paneID)
+                self.showClosePaneConfirmation(context: context) {
+                    // Re-select: the active worklane can change while the
+                    // sheet is up, and closePane(id:) only sees the active one.
                     self.worklaneStore.selectWorklaneAndFocusPane(
                         worklaneID: worklaneID, paneID: paneID)
                     self.paneCommands.closePane(id: paneID)
@@ -1523,55 +1529,31 @@ final class RootViewController: NSViewController {
     private var isShowingCloseConfirmation = false
 
     private func showClosePaneConfirmation(
-        reason: WorklaneStore.PaneCloseReason,
+        context: PaneCloseConfirmationContext,
         onConfirm: @escaping () -> Void
     ) {
-        let informativeText = switch reason {
-        case .runningProcess:
-            "The running process in this pane will be terminated."
-        case .sessionHistory:
-            "This pane's session history will be lost."
-        }
-        showCloseConfirmation(
-            messageText: "Close this pane?",
-            informativeText: informativeText,
-            confirmButtonTitle: "Close Pane",
-            onConfirm: onConfirm
-        )
+        showCloseConfirmation(copy: .pane(context), onConfirm: onConfirm)
     }
 
     private func showCloseWorklaneConfirmation(
-        reason: WorklaneStore.PaneCloseReason,
+        context: WorklaneCloseConfirmationContext,
         onConfirm: @escaping () -> Void
     ) {
-        let informativeText = switch reason {
-        case .runningProcess:
-            "Running processes in this worklane will be terminated."
-        case .sessionHistory:
-            "This worklane's session history will be lost."
-        }
-        showCloseConfirmation(
-            messageText: "Close this worklane?",
-            informativeText: informativeText,
-            confirmButtonTitle: "Close Worklane",
-            onConfirm: onConfirm
-        )
+        showCloseConfirmation(copy: .worklane(context), onConfirm: onConfirm)
     }
 
     private func showCloseConfirmation(
-        messageText: String,
-        informativeText: String,
-        confirmButtonTitle: String,
+        copy: CloseConfirmationCopy,
         onConfirm: @escaping () -> Void
     ) {
         guard !isShowingCloseConfirmation else { return }
         isShowingCloseConfirmation = true
 
         let alert = NSAlert()
-        alert.messageText = messageText
-        alert.informativeText = informativeText
+        alert.messageText = copy.messageText
+        alert.informativeText = copy.informativeText
         alert.alertStyle = .warning
-        alert.addButton(withTitle: confirmButtonTitle)
+        alert.addButton(withTitle: copy.confirmButtonTitle)
         alert.addButton(withTitle: "Cancel")
         let isDark = currentTheme.windowBackground.isDarkThemeColor
         alert.window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
@@ -1650,6 +1632,11 @@ final class RootViewController: NSViewController {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
+        let focusedPaneCopyTarget: PaneCopyTarget? = {
+            guard let paneID = activeWorklane?.paneStripState.focusedPaneID,
+                  let auxiliaryState = activeWorklane?.auxiliaryStateByPaneID[paneID] else { return nil }
+            return PaneCopyTargetResolver.target(for: auxiliaryState)
+        }()
         let focusedRestoredCommand: String? = {
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
             return worklaneStore.restoredRerunnableCommand(for: paneID)
@@ -1677,6 +1664,7 @@ final class RootViewController: NSViewController {
             shortcutManager: shortcutManager,
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
+            focusedPaneCopyTarget: focusedPaneCopyTarget,
             focusedBranchName: focusedBranchName,
             focusedRestoredCommand: focusedRestoredCommand,
             worklanes: worklaneStore.worklanes,
@@ -1839,20 +1827,15 @@ final class RootViewController: NSViewController {
 
     private func copyPath(forPaneID paneID: PaneID) {
         guard
-            let path = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?
-                .path,
-            !path.isEmpty
+            let auxiliaryState = worklaneStore.activeWorklane?.auxiliaryStateByPaneID[paneID],
+            let target = PaneCopyTargetResolver.target(for: auxiliaryState)
         else {
             return
         }
 
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
-        showPathCopiedToast()
-    }
-
-    private func showPathCopiedToast() {
-        showToast(message: "Path copied")
+        NSPasteboard.general.setString(target.pasteboardString, forType: .string)
+        showToast(message: target.copiedToastMessage)
     }
 
     private func performCleanCopy() {

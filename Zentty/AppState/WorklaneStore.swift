@@ -636,7 +636,7 @@ final class WorklaneStore {
         notifyServerDetectionChanged(worklaneID: worklaneID, paneID: nil)
     }
 
-    enum PaneCloseReason {
+    enum PaneCloseReason: Equatable, Sendable {
         case runningProcess
         case sessionHistory
     }
@@ -644,7 +644,7 @@ final class WorklaneStore {
     func paneCloseConfirmationReason(_ paneID: PaneID) -> PaneCloseReason? {
         for worklane in worklanes {
             guard let aux = worklane.auxiliaryStateByPaneID[paneID] else { continue }
-            return quitConfirmationReason(for: aux)
+            return Self.quitConfirmationReason(for: aux)
         }
         return nil
     }
@@ -657,7 +657,7 @@ final class WorklaneStore {
         var hasSessionHistory = false
         for pane in worklane.paneStripState.panes {
             guard let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id],
-                  let reason = quitConfirmationReason(for: auxiliaryState)
+                  let reason = Self.quitConfirmationReason(for: auxiliaryState)
             else {
                 continue
             }
@@ -676,7 +676,7 @@ final class WorklaneStore {
     var anyPaneRequiresQuitConfirmation: Bool {
         worklanes.contains { worklane in
             worklane.auxiliaryStateByPaneID.values.contains {
-                quitConfirmationReason(for: $0) != nil
+                Self.quitConfirmationReason(for: $0) != nil
             }
         }
     }
@@ -697,7 +697,7 @@ final class WorklaneStore {
         }
     }
 
-    private func quitConfirmationReason(for auxiliaryState: PaneAuxiliaryState) -> PaneCloseReason? {
+    nonisolated static func quitConfirmationReason(for auxiliaryState: PaneAuxiliaryState) -> PaneCloseReason? {
         if auxiliaryState.shellActivityState == .commandRunning
             || auxiliaryState.terminalProgress?.state.indicatesActivity == true {
             return .runningProcess

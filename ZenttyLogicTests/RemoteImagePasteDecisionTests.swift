@@ -19,7 +19,7 @@ final class RemoteImagePasteDecisionTests: XCTestCase {
             )
         )
 
-        let destination = try XCTUnwrap(RemoteImagePasteDestination.destination(from: auxiliaryState))
+        let destination = try XCTUnwrap(PaneSSHDestinationResolver.destination(from: auxiliaryState))
         XCTAssertEqual(destination.target, "peter@prod-box")
         XCTAssertEqual(destination.user, "peter")
         XCTAssertEqual(destination.host, "prod-box")
@@ -45,7 +45,7 @@ final class RemoteImagePasteDecisionTests: XCTestCase {
             )
         )
 
-        let destination = try XCTUnwrap(RemoteImagePasteDestination.destination(from: auxiliaryState))
+        let destination = try XCTUnwrap(PaneSSHDestinationResolver.destination(from: auxiliaryState))
 
         XCTAssertEqual(destination.target, "peter@live.example.test")
         XCTAssertEqual(destination.user, "peter")
@@ -67,7 +67,7 @@ final class RemoteImagePasteDecisionTests: XCTestCase {
             )
         )
 
-        let destination = try XCTUnwrap(RemoteImagePasteDestination.destination(from: auxiliaryState))
+        let destination = try XCTUnwrap(PaneSSHDestinationResolver.destination(from: auxiliaryState))
 
         XCTAssertEqual(destination.target, "stale@example.test")
         XCTAssertEqual(destination.user, "stale")
@@ -114,7 +114,7 @@ final class RemoteImagePasteDecisionTests: XCTestCase {
         )
         let paneState = RemoteImagePastePaneState(
             isRemotePane: presentation.isRemotePane,
-            destination: RemoteImagePasteDestination.destination(
+            destination: PaneSSHDestinationResolver.destination(
                 from: PaneAuxiliaryState(raw: raw, presentation: presentation)
             )
         )
