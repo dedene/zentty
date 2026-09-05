@@ -1003,6 +1003,32 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.shortcuts.bindings, [])
     }
 
+    func test_store_reports_change_origin_to_observers() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        let origins = OriginRecorder()
+        _ = store.addObserver(withOrigin: { _, origin in
+            origins.append(origin)
+        })
+
+        try store.update { config in
+            config.sidebar.width = 333
+        }
+
+        var edited = store.current
+        edited.sidebar.width = 351
+        try AppConfigTOML.encode(edited).write(to: fileURL, atomically: true, encoding: .utf8)
+        store.reloadFromDisk()
+
+        XCTAssertEqual(origins.values, [.inProcess, .externalReload])
+        XCTAssertEqual(store.current.sidebar.width, 351)
+    }
+
     func test_store_notifies_multiple_observers_for_updates() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         let store = AppConfigStore(
@@ -1657,5 +1683,22 @@ final class AgentCaffeinationControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(harness.endedTokenIDs, [1])
+    }
+}
+
+private final class OriginRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [AppConfigChangeOrigin] = []
+
+    var values: [AppConfigChangeOrigin] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ origin: AppConfigChangeOrigin) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(origin)
     }
 }

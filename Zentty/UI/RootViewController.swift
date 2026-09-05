@@ -174,6 +174,9 @@ final class RootViewController: NSViewController {
     private var paneLayoutPreferences: PaneLayoutPreferences
     private var shortcutManager: ShortcutManager
     private var lastAppliedAppearanceSettings: AppConfig.Appearance
+    /// The sidebar section of the config as this window last observed it. Used to
+    /// tell a real on-disk sidebar edit apart from an unrelated external change.
+    private var lastObservedConfigSidebar: AppConfig.Sidebar
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
@@ -289,6 +292,7 @@ final class RootViewController: NSViewController {
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.lastAppliedAppearanceSettings = configStore.current.appearance
+        self.lastObservedConfigSidebar = configStore.current.sidebar
         self.currentPaneLayoutContext = initialLayoutContext
         self.isUpdateAvailable = appUpdateStateStore.current.isUpdateAvailable
         self.sidebarMotionCoordinator = SidebarMotionCoordinator(
@@ -378,11 +382,11 @@ final class RootViewController: NSViewController {
         appUpdateObserverID = appUpdateStateStore.addObserver { [weak self] state in
             self?.handleAppUpdateAvailabilityChange(state.isUpdateAvailable)
         }
-        configObserverID = configStore.addObserver { [weak self] config in
+        configObserverID = configStore.addObserver(withOrigin: { [weak self] config, origin in
             DispatchQueue.main.async {
-                self?.applyPersistedConfig(config)
+                self?.applyPersistedConfig(config, origin: origin)
             }
-        }
+        })
         worklaneStore.scrollbackProvider = { [weak self] paneID in
             guard let self else { return nil }
             guard let runtime = self.runtimeRegistry.runtime(for: paneID),
@@ -2637,6 +2641,11 @@ final class RootViewController: NSViewController {
             updateSidebarWidth(width, persist: false)
         }
 
+        /// Mirrors a user drag of the sidebar resize handle: applies and persists.
+        func resizeSidebarAsUserForTesting(_ width: CGFloat) {
+            handleSidebarWidthChange(width)
+        }
+
         func settleSidebarTransitionForTesting() {
             applySidebarMotionState(
                 sidebarMotionCoordinator.currentMotionState,
@@ -2842,7 +2851,7 @@ final class RootViewController: NSViewController {
         appCanvasView.updateShortcutTooltips(shortcutManager)
     }
 
-    private func applyPersistedConfig(_ config: AppConfig) {
+    private func applyPersistedConfig(_ config: AppConfig, origin: AppConfigChangeOrigin) {
         let appearanceDidChange = config.appearance != lastAppliedAppearanceSettings
         lastAppliedAppearanceSettings = config.appearance
         paneLayoutPreferences = config.paneLayout
@@ -2852,11 +2861,20 @@ final class RootViewController: NSViewController {
         preloadOpenWithIcons()
         windowChromeView.apply(panes: config.panes)
         preloadProjectIcons()
-        sidebarMotionCoordinator.applyPersistedSidebarSettings(
-            config.sidebar,
-            availableWidth: resolvedSidebarAvailableWidth()
-        )
-        sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        // Sidebar visibility and width are per-window state. The config store only
+        // holds the most recently changed value so that new windows can seed from
+        // it; a change persisted by another window must not ripple into this one.
+        // An external edit of the sidebar section in the config file is still
+        // applied everywhere; unrelated external edits leave the sidebar alone.
+        let sidebarDidChangeOnDisk = origin == .externalReload && config.sidebar != lastObservedConfigSidebar
+        lastObservedConfigSidebar = config.sidebar
+        if sidebarDidChangeOnDisk {
+            sidebarMotionCoordinator.applyPersistedSidebarSettings(
+                config.sidebar,
+                availableWidth: resolvedSidebarAvailableWidth()
+            )
+            sidebarWidthConstraint?.constant = sidebarMotionCoordinator.currentSidebarWidth
+        }
         syncSidebarVisibilityControls(animated: false)
         applySidebarMotionState(
             sidebarMotionCoordinator.currentMotionState,
