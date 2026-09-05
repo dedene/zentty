@@ -156,6 +156,13 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         return ghostty_surface_mouse_scroll_is_terminal_input(surface)
     }
 
+    /// Current terminal column count, or nil when the surface is gone.
+    nonisolated var columns: Int? {
+        guard let surface else { return nil }
+        let columns = Int(ghostty_surface_size(surface).columns)
+        return columns > 0 ? columns : nil
+    }
+
     var cellWidth: CGFloat {
         guard let surface else { return 0 }
         let size = ghostty_surface_size(surface)

@@ -911,7 +911,7 @@ private func libghosttyConfirmReadClipboardCallback(
 }
 
 private func libghosttyWriteClipboardCallback(
-    _: UnsafeMutableRawPointer?,
+    userdata: UnsafeMutableRawPointer?,
     location: ghostty_clipboard_e,
     content: UnsafePointer<ghostty_clipboard_content_s>?,
     len: Int,
@@ -948,7 +948,10 @@ private func libghosttyWriteClipboardCallback(
     if location == GHOSTTY_CLIPBOARD_STANDARD,
        !CleanCopyPipeline.suppressCallbackCleaning,
        CleanCopyPipeline.isAutoCleanEnabled {
-        CleanCopyPipeline.cleanPasteboardInPlace(pasteboard)
+        let columns = userdata.map {
+            Unmanaged<LibghosttySurface>.fromOpaque($0).takeUnretainedValue().columns
+        } ?? nil
+        CleanCopyPipeline.cleanPasteboardInPlace(pasteboard, columns: columns)
     }
 }
 

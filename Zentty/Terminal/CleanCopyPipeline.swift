@@ -17,11 +17,19 @@ enum CleanCopyPipeline {
 
     // MARK: - Public API
 
-    static func clean(_ input: String, options: CleanCopyOptions = Self.options) -> Result {
+    /// - Parameter columns: the terminal's column count at copy time, when known.
+    ///   Lines that end well short of this width end in a real newline (libghostty
+    ///   already joins rows it soft-wrapped itself), so they are never folded.
+    static func clean(
+        _ input: String,
+        options: CleanCopyOptions = Self.options,
+        columns: Int? = nil
+    ) -> Result {
         let original = input
         var text = input
         text = stripANSIEscapes(text)
         let lineShapeEvidence = PlainProseLineShapeEvidence(input: text)
+        let wrapWidth = WrapWidthEvidence(input: text, columns: columns)
         text = trimTrailingWhitespacePerLine(text)
         text = trimTrailingBlankLines(text)
         // Line-number gutters run before the box pass: a bat gutter (" 1 │ code")
@@ -57,7 +65,11 @@ enum CleanCopyPipeline {
         ) {
             text = flattened
         }
-        if let cleaned = reflowPlainProseSelection(text, lineShapeEvidence: lineShapeEvidence) {
+        if let cleaned = reflowPlainProseSelection(
+            text,
+            lineShapeEvidence: lineShapeEvidence,
+            wrapWidth: wrapWidth
+        ) {
             text = cleaned
         }
         if let dedented = dedentParagraphIndent(text) {
@@ -75,9 +87,9 @@ enum CleanCopyPipeline {
     }
 
     @discardableResult
-    static func cleanPasteboardInPlace(_ pasteboard: NSPasteboard) -> Result? {
+    static func cleanPasteboardInPlace(_ pasteboard: NSPasteboard, columns: Int? = nil) -> Result? {
         guard let raw = pasteboard.string(forType: .string) else { return nil }
-        let result = clean(raw, options: Self.options)
+        let result = clean(raw, options: Self.options, columns: columns)
         if result.wasModified {
             pasteboard.setString(result.text, forType: .string)
         }
@@ -148,8 +160,10 @@ enum CleanCopyPipeline {
 
     static func stripAgentPromptSelection(
         _ input: String,
-        lineShapeEvidence: PlainProseLineShapeEvidence? = nil
+        lineShapeEvidence: PlainProseLineShapeEvidence? = nil,
+        wrapWidth: WrapWidthEvidence? = nil
     ) -> String? {
+        let wrapWidth = wrapWidth ?? WrapWidthEvidence(input: input, columns: nil)
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let nonEmpty = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard let firstLine = nonEmpty.first else { return nil }
@@ -171,7 +185,8 @@ enum CleanCopyPipeline {
             return agentPromptMarkers.contains(first)
         }
         if markerLineCount > 1 {
-            if firstCharacter == "•", let cleaned = reflowSeparatedBulletAgentMessages(lines) {
+            if firstCharacter == "•",
+               let cleaned = reflowSeparatedBulletAgentMessages(lines, wrapWidth: wrapWidth) {
                 return cleaned
             }
             return nil
@@ -213,22 +228,25 @@ enum CleanCopyPipeline {
             return nil
         }
 
-        let flattened = flattenWrappedPromptLines(contentLines)
+        let flattened = flattenWrappedPromptLines(contentLines, wrapWidth: wrapWidth)
         return flattened == input ? nil : flattened
     }
 
     static func reflowPlainProseSelection(
-        _ input: String
+        _ input: String,
+        columns: Int? = nil
     ) -> String? {
         reflowPlainProseSelection(
             input,
-            lineShapeEvidence: PlainProseLineShapeEvidence(input: input)
+            lineShapeEvidence: PlainProseLineShapeEvidence(input: input),
+            wrapWidth: WrapWidthEvidence(input: input, columns: columns)
         )
     }
 
     private static func reflowPlainProseSelection(
         _ input: String,
-        lineShapeEvidence: PlainProseLineShapeEvidence
+        lineShapeEvidence: PlainProseLineShapeEvidence,
+        wrapWidth: WrapWidthEvidence
     ) -> String? {
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let contentLines = trimOuterBlankLines(lines.map { $0.trimmingCharacters(in: .whitespaces) })
@@ -269,11 +287,14 @@ enum CleanCopyPipeline {
             }
         }
 
-        let flattened = flattenWrappedPromptLines(normalizedLines)
+        let flattened = flattenWrappedPromptLines(normalizedLines, wrapWidth: wrapWidth)
         return flattened == input ? nil : flattened
     }
 
-    private static func reflowSeparatedBulletAgentMessages(_ lines: [String]) -> String? {
+    private static func reflowSeparatedBulletAgentMessages(
+        _ lines: [String],
+        wrapWidth: WrapWidthEvidence
+    ) -> String? {
         let contentLines = trimOuterBlankLines(lines.map { $0.trimmingCharacters(in: .whitespaces) })
         guard !contentLines.isEmpty else { return nil }
 
@@ -314,7 +335,7 @@ enum CleanCopyPipeline {
                 return nil
             }
 
-            let flattened = flattenWrappedPromptLines(paragraphLines)
+            let flattened = flattenWrappedPromptLines(paragraphLines, wrapWidth: wrapWidth)
             guard !flattened.isEmpty else { return nil }
             return "• \(flattened)"
         }
@@ -337,6 +358,9 @@ enum CleanCopyPipeline {
         func paragraphHasCandidate() -> Bool {
             guard paragraphLines.count >= 2 else { return false }
             if paragraphLines.allSatisfy(isListItemLine(_:)) {
+                return false
+            }
+            if paragraphLines.allSatisfy(isStructuredRecordLine(_:)) {
                 return false
             }
             if paragraphLines.contains(where: isExplicitLineContinuation(_:)) {
@@ -364,6 +388,18 @@ enum CleanCopyPipeline {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= 60, trimmed.contains(" ") else { return false }
         return trimmed.range(of: #"[A-Za-z]{2,}"#, options: .regularExpression) != nil
+    }
+
+    /// A line that carries its own record structure at column 0: an INI/systemd
+    /// `Key=value`, a `[Section]` header, a `key: value` pair, or a `#` comment.
+    /// Wrapped prose never produces a paragraph where *every* line starts this
+    /// way, so an all-structured paragraph is one line per record, not one
+    /// wrapped sentence — its newlines must survive even when a value is long.
+    private static func isStructuredRecordLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("#") { return true }
+        if trimmed.range(of: #"^\[[^\]]+\]$"#, options: .regularExpression) != nil { return true }
+        return trimmed.range(of: #"^[A-Za-z_][A-Za-z0-9_.-]*\s*(=|:\s)"#, options: .regularExpression) != nil
     }
 
     private static func isExplicitLineContinuation(_ line: String) -> Bool {
@@ -461,6 +497,31 @@ enum CleanCopyPipeline {
         }
     }
 
+    /// The width at which wrapped lines in this selection end. Uses the terminal's
+    /// column count when the caller knows it; otherwise the longest line stands in
+    /// for it. Either way a line shorter than the width by more than one long word
+    /// ended in a real newline.
+    struct WrapWidthEvidence {
+        let width: Int?
+
+        init(input: String, columns: Int?) {
+            let longest = input
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map { $0.trimmingCharacters(in: .whitespaces).count }
+                .max() ?? 0
+            let width = min(columns ?? Int.max, longest)
+            self.width = width > 0 ? width : nil
+        }
+
+        /// The gap tolerated before a line counts as ending short: one long word
+        /// (wrapping leaves at most that much unused), scaled up on wide panes.
+        func endsBeforeWrapEdge(_ line: String) -> Bool {
+            guard let width else { return false }
+            let slack = max(16, width / 4)
+            return line.trimmingCharacters(in: .whitespaces).count < width - slack
+        }
+    }
+
     private static func trimOuterBlankLines(_ lines: [String]) -> [String] {
         guard let firstNonEmpty = lines.firstIndex(where: { !$0.isEmpty }),
               let lastNonEmpty = lines.lastIndex(where: { !$0.isEmpty })
@@ -478,7 +539,10 @@ enum CleanCopyPipeline {
         return ruleCount >= 10 && ruleCount == trimmed.count
     }
 
-    private static func flattenWrappedPromptLines(_ lines: [String]) -> String {
+    private static func flattenWrappedPromptLines(
+        _ lines: [String],
+        wrapWidth: WrapWidthEvidence
+    ) -> String {
         var result = ""
         var paragraphLines: [String] = []
         var pendingBlankLineCount = 0
@@ -489,7 +553,7 @@ enum CleanCopyPipeline {
             if !result.isEmpty, pendingBlankLineCount > 0 {
                 result += String(repeating: "\n", count: pendingBlankLineCount + 1)
             }
-            result += flattenPromptParagraph(paragraphLines)
+            result += flattenPromptParagraph(paragraphLines, wrapWidth: wrapWidth)
             paragraphLines = []
             pendingBlankLineCount = 0
         }
@@ -517,21 +581,27 @@ enum CleanCopyPipeline {
     /// `/` or `~` with the next line, including prose shapes like
     /// `"Save in /tmp/\n  Then run command"`. Path-wrap is far more common in agent
     /// output than this shape, so the trade-off favours the path-wrap case.
-    private static func flattenPromptParagraph(_ lines: [String]) -> String {
+    private static func flattenPromptParagraph(
+        _ lines: [String],
+        wrapWidth: WrapWidthEvidence
+    ) -> String {
         if lines.contains(where: isListItemLine(_:)) {
-            return flattenListParagraph(lines)
+            return flattenListParagraph(lines, wrapWidth: wrapWidth)
         }
 
-        return flattenNonListParagraph(lines)
+        return flattenNonListParagraph(lines, wrapWidth: wrapWidth)
     }
 
-    private static func flattenListParagraph(_ lines: [String]) -> String {
+    private static func flattenListParagraph(
+        _ lines: [String],
+        wrapWidth: WrapWidthEvidence
+    ) -> String {
         var result: [String] = []
         var currentItemLines: [String] = []
 
         func appendCurrentItem() {
             guard !currentItemLines.isEmpty else { return }
-            result.append(flattenNonListParagraph(currentItemLines))
+            result.append(flattenNonListParagraph(currentItemLines, wrapWidth: wrapWidth))
             currentItemLines = []
         }
 
@@ -546,7 +616,29 @@ enum CleanCopyPipeline {
         return result.joined(separator: "\n")
     }
 
-    private static func flattenNonListParagraph(_ lines: [String]) -> String {
+    /// Folds a paragraph, but only across newlines that follow a line reaching the
+    /// wrap width. A line that stops well short of the right edge was ended by the
+    /// program, not by wrapping, so that newline is kept: the paragraph is split
+    /// into runs at such lines and each run is folded on its own.
+    private static func flattenNonListParagraph(
+        _ lines: [String],
+        wrapWidth: WrapWidthEvidence
+    ) -> String {
+        var runs: [[String]] = [[]]
+        for (index, line) in lines.enumerated() {
+            runs[runs.count - 1].append(line)
+            let isLast = index == lines.count - 1
+            if !isLast, !isExplicitLineContinuation(line), wrapWidth.endsBeforeWrapEdge(line) {
+                runs.append([])
+            }
+        }
+        return runs
+            .filter { !$0.isEmpty }
+            .map(foldWrappedRun(_:))
+            .joined(separator: "\n")
+    }
+
+    private static func foldWrappedRun(_ lines: [String]) -> String {
         var result = lines.joined(separator: "\n")
 
         // Hyphen-token boundary: keep wrapped tokens like UUIDs joined without an inserted space.

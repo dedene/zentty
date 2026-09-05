@@ -555,6 +555,105 @@ final class CleanCopyPipelineTests: XCTestCase {
         XCTAssertTrue(result.wasModified)
     }
 
+    func test_pipeline_keeps_systemd_unit_lines_intact() {
+        let input = """
+        # /etc/systemd/system/tailscale-local-lan-route.service
+        [Unit]
+        Description=Prefer local HQ LAN over overlapping Tailscale route
+        After=network-online.target tailscaled.service
+        Wants=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=-/usr/sbin/ip rule add to 10.0.0.0/24 priority 2500 lookup main
+        ExecStop=-/usr/sbin/ip rule del to 10.0.0.0/24 priority 2500 lookup main
+        RemainAfterExit=yes
+
+        [Install]
+        WantedBy=multi-user.target
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
+    func test_pipeline_keeps_key_colon_value_block_lines_intact() {
+        let input = """
+        name: tailscale-local-lan-route
+        description: Prefer the local HQ LAN over the overlapping Tailscale route
+        command: /usr/sbin/ip rule add to 10.0.0.0/24 priority 2500 lookup main
+        enabled: true
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
+    func test_pipeline_still_reflows_prose_whose_first_line_has_an_equals_sign() {
+        // Only the first line looks like an assignment; the wrapped continuation
+        // lines do not, so this is still prose and must still fold.
+        let input = """
+        Set DEBUG=1 in the environment before starting the service so the route helper
+        prints every rule it adds and removes to the journal.
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(
+            result.text,
+            "Set DEBUG=1 in the environment before starting the service so the route helper prints every rule it adds and removes to the journal."
+        )
+    }
+
+    func test_pipeline_keeps_newline_after_line_that_ends_short_of_the_pane_width() {
+        // 80-column pane. "Summary:" stops far short of the edge, so that newline was
+        // typed by the program; the two following lines reach the edge, so they fold.
+        let input = """
+        Summary:
+        The route helper adds a policy rule so the local HQ LAN wins over the wider
+        Tailscale route, and removes it again when the unit is stopped or the host
+        reboots.
+        """
+
+        let result = CleanCopyPipeline.clean(input, columns: 80)
+        XCTAssertEqual(
+            result.text,
+            "Summary:\n"
+                + "The route helper adds a policy rule so the local HQ LAN wins over the wider "
+                + "Tailscale route, and removes it again when the unit is stopped or the host reboots."
+        )
+    }
+
+    func test_pipeline_uses_longest_line_as_wrap_width_when_columns_are_unknown() {
+        // Longest line is 62 chars; the other two stop well before that, so
+        // both newlines are real even though nothing here looks structured.
+        let input = """
+        Ran the migration on staging
+        Done in 4.2s
+        Another command output line that is fairly long for a terminal
+        """
+
+        let result = CleanCopyPipeline.clean(input)
+        XCTAssertEqual(result.text, input)
+        XCTAssertFalse(result.wasModified)
+    }
+
+    func test_pipeline_does_not_treat_terminal_soft_wrapped_long_line_as_short() {
+        // libghostty joins rows it soft-wrapped itself, so a copied line can exceed
+        // the column count. Such lines must still count as reaching the edge.
+        let input = """
+        This line was soft-wrapped by the terminal and copied back as one long line over
+        the pane width.
+        """
+
+        let result = CleanCopyPipeline.clean(input, columns: 40)
+        XCTAssertEqual(
+            result.text,
+            "This line was soft-wrapped by the terminal and copied back as one long line over the pane width."
+        )
+    }
+
     func test_pipeline_reflows_wrapped_single_command_with_continuation_lines() {
         let input = """
         curl https://example.com/api \\

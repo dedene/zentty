@@ -2416,7 +2416,8 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             CleanCopyPipeline.suppressCallbackCleaning = true
             _ = surfaceController?.performBindingAction(TerminalBindingAction.copyToClipboard)
             CleanCopyPipeline.suppressCallbackCleaning = false
-            let result = CleanCopyPipeline.cleanPasteboardInPlace(.general)
+            let columns = (surfaceController as? LibghosttySurface)?.columns
+            let result = CleanCopyPipeline.cleanPasteboardInPlace(.general, columns: columns)
             if result?.wasModified == true {
                 NotificationCenter.default.post(name: .cleanCopyDidModifyPasteboard, object: nil)
             }
