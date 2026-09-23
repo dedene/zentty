@@ -200,6 +200,10 @@ struct PaneRawState: Equatable, Sendable {
     var wantsReadyStatus = false
     var showsReadyStatus = false
     var codexCurrentRunHasObservedActivity = false
+    /// Claude Code keeps a static "✳" title under a terminal multiplexer
+    /// (`TMUX`, which agent teams injects), so "✳" only means idle once the
+    /// title has been seen animating.
+    var claudeCodeTitleHasObservedSpinner = false
     var codexTitleIdleSuppressionUntil: Date?
     var codexInterruptSuppressionUntil: Date?
     var codexTranscriptContext: PaneCodexTranscriptContext?
@@ -224,6 +228,7 @@ struct PaneRawState: Equatable, Sendable {
         gitContext: PaneGitContext? = nil,
         wantsReadyStatus: Bool = false,
         showsReadyStatus: Bool = false,
+        claudeCodeTitleHasObservedSpinner: Bool = false,
         codexTitleIdleSuppressionUntil: Date? = nil,
         codexInterruptSuppressionUntil: Date? = nil,
         codexTranscriptContext: PaneCodexTranscriptContext? = nil,
@@ -248,6 +253,7 @@ struct PaneRawState: Equatable, Sendable {
         self.wantsReadyStatus = wantsReadyStatus
         self.showsReadyStatus = showsReadyStatus
         self.codexCurrentRunHasObservedActivity = false
+        self.claudeCodeTitleHasObservedSpinner = claudeCodeTitleHasObservedSpinner
         self.codexTitleIdleSuppressionUntil = codexTitleIdleSuppressionUntil
         self.codexInterruptSuppressionUntil = codexInterruptSuppressionUntil
         self.codexTranscriptContext = codexTranscriptContext

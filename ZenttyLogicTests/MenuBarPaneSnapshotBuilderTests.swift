@@ -128,7 +128,7 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
 
     func test_snapshots_use_normalized_presentation_state_over_stale_running_status() {
         let paneID = PaneID("pn-claude-interrupted")
-        let worklane = WorklaneState(
+        var worklane = WorklaneState(
             id: WorklaneID("wl-main"),
             title: nil,
             paneStripState: PaneStripState(
@@ -150,6 +150,15 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
                 )
             ]
         )
+        if var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] {
+            auxiliaryState.raw.claudeCodeTitleHasObservedSpinner = true
+            auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+                paneTitle: "Claude Code",
+                raw: auxiliaryState.raw,
+                previous: nil
+            )
+            worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        }
         let store = WorklaneStore(windowID: windowID, worklanes: [worklane])
         let source = MenuBarWorklaneSource(
             windowID: windowID,
