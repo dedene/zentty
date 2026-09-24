@@ -2312,6 +2312,37 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(posted[1].agentWorkingDirectory, "/tmp/project")
     }
 
+    func test_agent_launch_bootstrap_passes_claude_remote_control_through_without_settings() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-rc-runtime")
+
+        for arguments in [["rc"], ["remote-control", "--name", "demo"]] {
+            let request = AgentIPCRequest(
+                kind: .bootstrap,
+                arguments: arguments,
+                standardInput: nil,
+                environment: [
+                    "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                    "ZENTTY_CLI_BIN": "/tmp/zentty",
+                ],
+                expectsResponse: true,
+                tool: .claude
+            )
+
+            let plan = try AgentLaunchBootstrap.makePlan(
+                request: request,
+                target: AgentIPCTarget(
+                    windowID: WindowID("window-main"),
+                    worklaneID: WorklaneID("worklane-main"),
+                    paneID: PaneID("pane-main")
+                ),
+                runtimeDirectoryURL: runtimeDirectory
+            )
+
+            XCTAssertEqual(plan.arguments, arguments)
+            XCTAssertEqual(plan.unsetEnvironment, ["CLAUDECODE"])
+        }
+    }
+
     func test_agent_launch_bootstrap_builds_claude_plan_with_session_id_and_settings() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-runtime")
         let request = AgentIPCRequest(

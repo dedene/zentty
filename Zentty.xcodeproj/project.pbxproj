@@ -367,6 +367,7 @@
 		8E2852FEAFC265DC3EC050BF /* AgentInteractionClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290AC219C812A96036CA9061 /* AgentInteractionClassifier.swift */; };
 		8E623004017C62D5D5F9C94B /* WorklaneDestinationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5489AD4C2AF3E168C216B4 /* WorklaneDestinationCatalog.swift */; };
 		8E847756B23CB6F02E3897BD /* PaneAgentReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */; };
+		8EA1DD62A5C348364EE62B33 /* ClaudeLaunchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58AC2A95BE8E8EC8B8337D3 /* ClaudeLaunchPolicy.swift */; };
 		91C2DF0BCAC0ECC16E0B6B77 /* CommandAvailabilityResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28121A25243C98C3BFB947A /* CommandAvailabilityResolverTests.swift */; };
 		91D58FB97C55D4130A171673 /* HostedTestDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B910DF7E780597C84A68B0A3 /* HostedTestDisplayTests.swift */; };
 		9263FA45E8BE705162E5B7A5 /* ProcessCWDResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D36140C30599601062D9BF /* ProcessCWDResolver.swift */; };
@@ -519,6 +520,7 @@
 		C9ED7FA8D89698D7E7644E36 /* LibghosttySelectionAutoscrollController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4069DF835DCBC34EAFA18963 /* LibghosttySelectionAutoscrollController.swift */; };
 		C9F0082D206C318AE7D98831 /* WorklaneStoreServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 630B5B3D8685C9D8A186AC9B /* WorklaneStoreServerTests.swift */; };
 		C9F8CE96C0B0E64D7F39EF5F /* DroidEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C60A209D61BAD91EDFF14CF /* DroidEventAdapter.swift */; };
+		CA4CA851114B1D8028BC25BC /* ClaudeLaunchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58AC2A95BE8E8EC8B8337D3 /* ClaudeLaunchPolicy.swift */; };
 		CB0C2CB05FF50159D35A04D9 /* CloseConfirmationSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BE40F31B76E5EA4A9A830CB /* CloseConfirmationSelection.swift */; };
 		CB79F077F87E4A504CBEA9B9 /* RootViewControllerUpdateIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC28F1EA0D7841668F8DA676 /* RootViewControllerUpdateIntegrationTests.swift */; };
 		CBA82B1C9557F98AD04A8672 /* SidebarPaneRowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9407DEA6B0DE6363B46DE0A /* SidebarPaneRowViews.swift */; };
@@ -1195,6 +1197,7 @@
 		C50002F61829616FFF47B943 /* ZenttyLogicTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZenttyLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C551F8BB4DD16E95F8BDEFA2 /* BookmarksPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksPopoverView.swift; sourceTree = "<group>"; };
 		C5551B42A588FBACB056D7DF /* RemoteImagePasteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImagePasteController.swift; sourceTree = "<group>"; };
+		C58AC2A95BE8E8EC8B8337D3 /* ClaudeLaunchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeLaunchPolicy.swift; sourceTree = "<group>"; };
 		C59013577D95CD9373F8802A /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutWindowController.swift; sourceTree = "<group>"; };
 		C5A65B5FE282DD307A732E81 /* PaneIPCHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneIPCHandler.swift; sourceTree = "<group>"; };
 		C675B0F7ABA617674B6D9A82 /* OpenCodeThemeSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeThemeSyncTests.swift; sourceTree = "<group>"; };
@@ -1745,6 +1748,7 @@
 				4A6979D10B68F312A3007DEC /* AmpResumeArgumentSanitizer.swift */,
 				2BB9E2045365716D8206DB7F /* AppSideCanonicalReEmitting.swift */,
 				C344F4EE24498B605D2794B3 /* ClaudeHookSessionStore.swift */,
+				C58AC2A95BE8E8EC8B8337D3 /* ClaudeLaunchPolicy.swift */,
 				9108D5844FE620ED92B7B5BC /* CodexTranscriptQuestionExtractor.swift */,
 				D40A07AF51FBC28C9CC07ABA /* CursorHooksInstaller.swift */,
 				1D52E538B9FCEBF92768A1EA /* DevinConfigWriteBack.swift */,
@@ -2906,6 +2910,7 @@
 				A61BC15810CD2E6564730F28 /* ClaudeEventAdapter+Interactions.swift in Sources */,
 				D737EBF7DF106CC48AC0E1CE /* ClaudeEventAdapter.swift in Sources */,
 				720727A2DA0A0EA0C32EC86E /* ClaudeHookSessionStore.swift in Sources */,
+				8EA1DD62A5C348364EE62B33 /* ClaudeLaunchPolicy.swift in Sources */,
 				0AA879EAFB09310C3F6B58C3 /* CleanCopyChromeDecoration.swift in Sources */,
 				080A2341A895C8E1BA3C4619 /* CleanCopyCommandFlattening.swift in Sources */,
 				BE895FEB672BF0DB2319F51B /* CleanCopyOptions.swift in Sources */,
@@ -3283,6 +3288,7 @@
 				A4A53654BC7A3139C0256836 /* AgyCanonicalReEmitter.swift in Sources */,
 				C8AC887AB1E462D59D6619FF /* AgyHooksInstaller.swift in Sources */,
 				F8250CEECD7700EA54A9687B /* AmpPluginInstaller.swift in Sources */,
+				CA4CA851114B1D8028BC25BC /* ClaudeLaunchPolicy.swift in Sources */,
 				BF98C820ECF82C8A5810259F /* CursorHooksInstaller.swift in Sources */,
 				B890BDFC9B4E95300EFC5DC3 /* DevinConfigWriteBack.swift in Sources */,
 				DB99D15DBBA9E04854EE979F /* DroidHooksInstaller.swift in Sources */,
