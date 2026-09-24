@@ -34,6 +34,29 @@ By default, `notify` also adds the item to Zentty's notification inbox and uses 
 
 `notify` is intentionally pane-local. It fails when required pane routing variables such as `ZENTTY_PANE_TOKEN`, `ZENTTY_WORKLANE_ID`, or `ZENTTY_PANE_ID` are missing.
 
+## Automatic Pane Titles
+
+Automatic pane titles are off by default. Enable them for a Claude Code or Codex session launched inside Zentty:
+
+```sh
+ZENTTY_AUTO_PANE_TITLES=1 claude
+ZENTTY_AUTO_PANE_TITLES=1 codex
+```
+
+Only the exact value `1` enables title reminders. These commands set the variable for the launched session and its hooks; they do not change global or project settings. Without it, title hooks stay silent while agent status events still reach Zentty.
+
+When enabled, Claude Code and Codex receive a pane-title reminder on every `UserPromptSubmit` and `SessionStart` (including `resume` and `compact`). The hook returns `hookSpecificOutput.additionalContext` on stdout while forwarding the original status event to Zentty. It asks the owning agent to name its pane `Project — current task`, using the current project or working-folder name and a short task description, and refresh it when the task or project changes during a run. Existing titles, including manual names, are replaced.
+
+The agent runs the pane-local command with one safely quoted title argument:
+
+```sh
+"$ZENTTY_CLI_BIN" pane rename -- 'demo — Fix task status' >/dev/null 2>&1 || true
+```
+
+No pane or worklane selector is needed. Rename failures do not block the task. Hooks carrying a subagent ID receive no reminder. The reminder also tells delegated agents not to rename their parent's pane. No prompt text or paths are interpolated into the hook output, and no user instruction or hook configuration files are rewritten for titles.
+
+After compaction, context is restored through `SessionStart` with `source: "compact"`; `PostCompact` itself does not support adding context. Stop, tool, and subagent hooks produce no title output. These event/output contracts are documented in the [Claude hook reference](https://code.claude.com/docs/en/hooks#sessionstart) and [Codex hook reference](https://learn.chatgpt.com/docs/hooks#sessionstart). The title is applied when the agent follows the reminder and runs the command.
+
 ## Claude Code
 
 Register the same command for these Claude hook events:

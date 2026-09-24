@@ -328,6 +328,194 @@ final class ZenttyCLIDiscoveryTests: XCTestCase {
         )
     }
 
+    func test_real_cli_agent_hooks_forward_status_without_title_context_unless_explicitly_enabled() throws {
+        let disabledValues: [String?] = [nil, "", "0", "false", "true", "invalid", "01", "1 "]
+        for adapter in ["claude", "codex"] {
+            for event in ["SessionStart", "UserPromptSubmit"] {
+                for value in disabledValues {
+                    let stdout = try runAgentHook(
+                        arguments: ["--adapter=\(adapter)"],
+                        payload: #"{"hook_event_name":"\#(event)"}"#,
+                        autoPaneTitles: value
+                    )
+                    XCTAssertEqual(stdout, "", "\(adapter) \(event) must stay silent for \(value ?? "<unset>")")
+                }
+            }
+        }
+    }
+
+    func test_real_cli_agent_hooks_opt_in_to_pane_title_context_for_every_prompt_and_session_source() throws {
+        for adapter in ["claude", "codex"] {
+            let payloads: [[String: Any]] = ["startup", "resume", "clear", "compact"].map {
+                ["hook_event_name": "SessionStart", "source": $0]
+            } + [
+                ["hook_event_name": "UserPromptSubmit", "prompt": "Fix invoice totals"],
+                ["hook_event_name": "UserPromptSubmit", "prompt": "Now inspect the login form"],
+            ]
+            for payload in payloads {
+                let payloadData = try JSONSerialization.data(withJSONObject: payload)
+                let stdout = try runAgentHook(
+                    arguments: ["--adapter=\(adapter)"],
+                    payload: String(decoding: payloadData, as: UTF8.self),
+                    autoPaneTitles: "1"
+                )
+                let output = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any]
+                )
+                XCTAssertEqual(Set(output.keys), ["hookSpecificOutput"])
+                let specific = try XCTUnwrap(output["hookSpecificOutput"] as? [String: String])
+                XCTAssertEqual(Set(specific.keys), ["hookEventName", "additionalContext"])
+                XCTAssertEqual(specific["hookEventName"], payload["hook_event_name"] as? String)
+                let context = try XCTUnwrap(specific["additionalContext"])
+                XCTAssertTrue(context.contains("Project — current task"))
+                XCTAssertTrue(context.contains("project name as the prefix"))
+                XCTAssertTrue(context.contains("working-folder name"))
+                XCTAssertTrue(context.contains("at the start of this run"))
+                XCTAssertTrue(context.contains("meaningfully changes during the run"))
+                XCTAssertTrue(context.contains("including a manually renamed title"))
+                XCTAssertTrue(context.contains(#""$ZENTTY_CLI_BIN" pane rename -- '"#))
+                XCTAssertTrue(context.contains("safely shell-quoted literal title"))
+                XCTAssertTrue(context.contains("delegated subagents must not rename"))
+                XCTAssertTrue(context.contains("|| true"))
+            }
+        }
+    }
+
+    func test_real_cli_agent_hooks_do_not_emit_title_context_for_tools_stop_or_subagents() throws {
+        let silentEvents = [
+            "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
+            "PreCompact", "PostCompact", "Stop", "SessionEnd", "Notification",
+            "SubagentStart", "SubagentStop",
+        ]
+        for adapter in ["claude", "codex"] {
+            for event in silentEvents {
+                let stdout = try runAgentHook(
+                    arguments: ["--adapter=\(adapter)", "session-start"],
+                    payload: #"{"hook_event_name":"\#(event)"}"#
+                )
+                XCTAssertEqual(stdout, "", "\(adapter) \(event) must remain silent")
+            }
+            for event in ["SessionStart", "UserPromptSubmit"] {
+                for agentKey in ["agent_id", "agentId"] {
+                    let stdout = try runAgentHook(
+                        arguments: ["--adapter=\(adapter)"],
+                        payload: #"{"hook_event_name":"\#(event)","\#(agentKey)":"child-1"}"#
+                    )
+                    XCTAssertEqual(stdout, "", "A subagent must not receive its parent's title reminder")
+                }
+            }
+        }
+    }
+
+    func test_real_cli_agent_hook_title_context_does_not_copy_untrusted_payload_text() throws {
+        let marker = "untrusted-'\"-$(echo injected)-`echo injected`\n"
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": marker,
+            "cwd": "/projects/" + marker,
+        ])
+        let stdout = try runAgentHook(
+            arguments: ["--adapter=codex", "prompt-submit"],
+            payload: String(decoding: payload, as: UTF8.self)
+        )
+        XCTAssertFalse(stdout.contains("untrusted"))
+        XCTAssertFalse(stdout.contains("echo injected"))
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: Data(stdout.utf8)))
+
+        for malformed in ["{", "[]", #"{"source":"startup"}"#] {
+            XCTAssertEqual(try runAgentHook(arguments: ["--adapter=claude"], payload: malformed), "")
+        }
+        XCTAssertEqual(
+            try runAgentHook(arguments: ["--adapter=unknown"], payload: #"{"hook_event_name":"SessionStart"}"#),
+            ""
+        )
+    }
+
+    func test_real_cli_agent_hook_title_context_survives_unavailable_app_socket() throws {
+        let stdout = try runAgentHook(
+            arguments: ["--adapter=claude"],
+            payload: #"{"hook_event_name":"SessionStart","source":"resume"}"#,
+            socketAvailable: false
+        )
+        let output = try JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any]
+        XCTAssertNotNil(output?["hookSpecificOutput"])
+    }
+
+    func test_real_cli_pane_rename_accepts_literal_title_and_defaults_to_own_pane() throws {
+        let server = try RequestCaptureServer(response: AgentIPCResponse(id: "rename", ok: true, result: nil))
+        defer { server.invalidate() }
+        let title = "demo — Fix 'quotes', \"totals\" & $values"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["pane", "rename", "--", title]
+        process.environment = [
+            "ZENTTY_INSTANCE_SOCKET": server.socketPath,
+            "ZENTTY_WORKLANE_ID": "worklane-main",
+            "ZENTTY_PANE_ID": "pane-main",
+            "ZENTTY_PANE_TOKEN": "token-main",
+        ]
+        process.standardOutput = Pipe()
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "pane-rename")
+        XCTAssertEqual(request.arguments, ["--title", title])
+        XCTAssertEqual(request.environment["ZENTTY_PANE_ID"], "pane-main")
+        XCTAssertEqual(request.environment["ZENTTY_PANE_TOKEN"], "token-main")
+        XCTAssertEqual(stderrPipe.fileHandleForReading.readDataToEndOfFile(), Data())
+    }
+
+    private func runAgentHook(
+        arguments: [String],
+        payload: String,
+        socketAvailable: Bool = true,
+        autoPaneTitles: String? = "1"
+    ) throws -> String {
+        let server = socketAvailable
+            ? try RequestCaptureServer(response: AgentIPCResponse(id: "hook", ok: true, result: nil))
+            : nil
+        defer { server?.invalidate() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["ipc", "agent-event"] + arguments
+        process.environment = [
+            "ZENTTY_INSTANCE_SOCKET": server?.socketPath ?? "/tmp/zentty-absent-\(UUID().uuidString).sock",
+            "ZENTTY_WORKLANE_ID": "worklane-main",
+            "ZENTTY_PANE_ID": "pane-main",
+            "ZENTTY_PANE_TOKEN": "token-main",
+        ]
+        process.environment?["ZENTTY_AUTO_PANE_TITLES"] = autoPaneTitles
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(payload.utf8))
+        try stdinPipe.fileHandleForWriting.close()
+
+        if let server {
+            let request = try server.receiveOneRequest()
+            XCTAssertEqual(request.kind, .ipc)
+            XCTAssertEqual(request.subcommand, "agent-event")
+            XCTAssertEqual(request.arguments, arguments)
+            XCTAssertEqual(request.standardInput, payload)
+            XCTAssertEqual(request.environment["ZENTTY_PANE_ID"], "pane-main")
+            XCTAssertFalse(request.expectsResponse)
+        }
+        let stdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(stderrPipe.fileHandleForReading.readDataToEndOfFile(), Data())
+        return String(decoding: stdout, as: UTF8.self)
+    }
+
     private func builtCLIPath() throws -> String {
         if let builtProductsDir = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"] {
             return URL(fileURLWithPath: builtProductsDir, isDirectory: true)
@@ -444,7 +632,9 @@ private final class RequestCaptureServer {
             do {
                 let requestData = try Self.readLine(from: clientFD)
                 capturedRequest = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
-                try Self.write(response: response, to: clientFD)
+                if capturedRequest?.expectsResponse == true {
+                    try Self.write(response: response, to: clientFD)
+                }
             } catch {
             }
 

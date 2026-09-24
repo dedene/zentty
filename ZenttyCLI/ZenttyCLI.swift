@@ -1520,6 +1520,17 @@ struct IPCCommand: ParsableCommand {
         let stdinAttached = isatty(STDIN_FILENO) == 0
         ipcCLILogger.debug("ipc \(localSubcommand, privacy: .public) reading stdin: attached=\(stdinAttached, privacy: .public) bytes=\(stdinLength)")
 
+        if localSubcommand == "agent-event",
+           let response = AgentPaneTitleHook.response(
+               arguments: localArguments,
+               standardInput: stdinPayload,
+               environment: environment
+           ) {
+            // Hook stdout is agent context, not an IPC reply. Emit it even if
+            // the app socket has gone away; status delivery remains best effort.
+            print(response)
+        }
+
         let request = AgentIPCRequest(
             kind: .ipc,
             arguments: localArguments,

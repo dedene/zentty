@@ -54,3 +54,49 @@ enum HookCanonicalReEmitterRegistry {
         return name.isEmpty ? nil : name
     }
 }
+
+/// Context returned to the owning agent through its command hook's stdout.
+/// Kept separate from IPC status events: only these two lifecycle hooks accept
+/// context in both Claude and Codex, including SessionStart(source: compact).
+enum AgentPaneTitleHook {
+    static func response(arguments: [String], standardInput: String?, environment: [String: String]) -> String? {
+        guard environment["ZENTTY_AUTO_PANE_TITLES"] == "1",
+              arguments.contains("--adapter=claude") || arguments.contains("--adapter=codex"),
+              let standardInput,
+              let data = standardInput.data(using: .utf8),
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let event = payload["hook_event_name"] as? String,
+              event == "SessionStart" || event == "UserPromptSubmit",
+              JSONKeyAccess.firstString(in: payload, keys: ["agent_id", "agentId"]) == nil else {
+            return nil
+        }
+
+        // Do not interpolate prompts or paths into instructions or shell code.
+        // The agent already has its current task and project in context.
+        let context = """
+        Zentty pane title: at the start of this run, once the current task is known, \
+        rename your own pane to "Project — current task". Use the actual current \
+        project name as the prefix, or the working-folder name if no project is known, \
+        and a concise task description (about 3–8 words). Replace any existing title, \
+        including a manually renamed title. Refresh it when the task, topic, or project \
+        meaningfully changes during the run, and after resuming or compacting context. \
+        Run `"$ZENTTY_CLI_BIN" pane rename -- 'Project — current task' >/dev/null 2>&1 || true`, \
+        replacing the example with one safely shell-quoted literal title argument \
+        (escape embedded quotes; never interpolate raw user text into shell code). \
+        Omit pane/worklane selectors so the command targets only your own pane. \
+        Do this without asking for confirmation; a rename failure must not interrupt \
+        the user's task. Only the top-level agent that owns this pane should rename it; \
+        delegated subagents must not rename their parent's pane.
+        """
+        let output: [String: Any] = [
+            "hookSpecificOutput": [
+                "hookEventName": event,
+                "additionalContext": context,
+            ],
+        ]
+        guard let outputData = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(data: outputData, encoding: .utf8)
+    }
+}
