@@ -128,8 +128,7 @@ struct AgentToolLauncher {
             if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1" {
                 return "ZENTTY_CLAUDE_HOOKS_DISABLED=1"
             }
-            let passthroughSubcommands: Set<String> = ["mcp", "config", "api-key"]
-            if let subcommand = arguments.first, passthroughSubcommands.contains(subcommand) {
+            if let subcommand = ClaudeLaunchPolicy.passthroughSubcommand(in: arguments) {
                 return "claude passthrough subcommand: \(subcommand)"
             }
             return nil

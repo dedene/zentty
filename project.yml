@@ -58,6 +58,7 @@ targets:
       - path: Zentty/AppState/Agent/AgentManifest.swift
       - path: Zentty/AppState/Agent/AgentManifestRegistry.swift
       - path: Zentty/AppState/Agent/AgentTool.swift
+      - path: Zentty/AppState/Agent/ClaudeLaunchPolicy.swift
       - path: Zentty/AppState/Agent/AmpPluginInstaller.swift
       - path: Zentty/AppState/Agent/CursorHooksInstaller.swift
       - path: Zentty/AppState/Agent/DevinConfigWriteBack.swift

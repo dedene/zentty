@@ -860,9 +860,8 @@ enum AgentLaunchBootstrap {
         arguments: [String],
         environment: [String: String]
     ) throws -> AgentLaunchPlan {
-        let passthroughCommands: Set<String> = ["mcp", "config", "api-key"]
         if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1"
-            || passthroughCommands.contains(arguments.first ?? "") {
+            || ClaudeLaunchPolicy.passthroughSubcommand(in: arguments) != nil {
             return directPlan(
                 executablePath: executablePath,
                 arguments: arguments,
