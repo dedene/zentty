@@ -65,6 +65,7 @@ extension WorklaneStore {
                 auxiliaryState: previousAuxiliaryState
             )
             worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
+            trackClaudeCodeTitleSpinner(paneID: paneID, metadata: metadata, in: &worklane)
             worklanes[worklaneIndex] = worklane
             handleVolatileAgentTitleUpdate(
                 worklaneID: worklane.id,
@@ -75,6 +76,7 @@ extension WorklaneStore {
         }
 
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].metadata = metadata
+        trackClaudeCodeTitleSpinner(paneID: paneID, metadata: metadata, in: &worklane)
         if Self.metadataIndicatesCodexCurrentRunActivity(metadata) {
             markCodexCurrentRunActivityIfNeeded(for: paneID, in: &worklane)
         }
@@ -691,6 +693,26 @@ extension WorklaneStore {
         codexResolver.titleIdleSuppressionIsActive(raw, now: now)
     }
 
+    private func trackClaudeCodeTitleSpinner(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        let phase = TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: .claudeCode
+        )?.phase
+        switch phase {
+        case .running:
+            worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
+                .raw.claudeCodeTitleHasObservedSpinner = true
+        case nil:
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasObservedSpinner = false
+        case .idle, .starting, .needsInput:
+            break
+        }
+    }
+
     /// When a Claude Code session is blocked on a permission / question prompt
     /// and the terminal title flips from the idle glyph "✳" (which Claude shows
     /// while the dialog is open) to a spinner glyph, the user has answered and
@@ -788,6 +810,7 @@ extension WorklaneStore {
             ),
             signature.phase == .idle,
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            auxiliaryState.raw.claudeCodeTitleHasObservedSpinner,
             let existingStatus = auxiliaryState.agentStatus,
             existingStatus.tool == .claudeCode,
             existingStatus.hasObservedRunning,

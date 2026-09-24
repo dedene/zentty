@@ -1093,7 +1093,8 @@ final class PanePresentationStateTests: XCTestCase {
                 workingDirectory: "/tmp/project",
                 repositoryRoot: "/tmp/project",
                 reference: .branch("main")
-            )
+            ),
+            claudeCodeTitleHasObservedSpinner: true
         )
 
         let presentation = PanePresentationNormalizer.normalize(
@@ -1131,7 +1132,8 @@ final class PanePresentationStateTests: XCTestCase {
                 workingDirectory: "/tmp/project",
                 repositoryRoot: "/tmp/project",
                 reference: .branch("main")
-            )
+            ),
+            claudeCodeTitleHasObservedSpinner: true
         )
 
         let presentation = PanePresentationNormalizer.normalize(
@@ -1141,6 +1143,43 @@ final class PanePresentationStateTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.runtimePhase, .idle)
+    }
+
+    func test_normalize_keeps_running_when_claude_code_title_is_static_idle_glyph() {
+        // Under TMUX (agent teams) Claude Code never animates its title, so a
+        // static "✳" must not override the running hook state.
+        let raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            ),
+            claudeCodeTitleHasObservedSpinner: false
+        )
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .running)
     }
 
     func test_normalize_keeps_running_when_claude_code_title_shows_spinner_glyph() {

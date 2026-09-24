@@ -7269,6 +7269,75 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_claude_code_static_idle_glyph_title_does_not_interrupt_running_session() throws {
+        // Under TMUX (agent teams) Claude Code pins its title to "✳ subject"
+        // for the whole session, so the glyph carries no interrupt signal.
+        let scheduler = ManualReadyStatusScheduler()
+        var now = Date(timeIntervalSince1970: 100)
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 0,
+            currentDateProvider: { now },
+            readyStatusScheduler: scheduler.schedule
+        )
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "✳ Claude Code",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "claude-session",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project/src",
+                processName: "claude",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state,
+            .running
+        )
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase,
+            .running
+        )
+    }
+
     func test_claude_code_natural_stop_hook_still_surfaces_agent_ready() throws {
         // Regression guard: the interrupt suppression must NOT strip the
         // "Agent ready" label when Claude Code completes naturally via the
