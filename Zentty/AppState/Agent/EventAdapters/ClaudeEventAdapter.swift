@@ -44,6 +44,7 @@ struct ClaudeAdapterInput {
     let isInterrupt: Bool
     /// `SessionStart` only: `startup`, `resume`, `clear` or `compact`.
     let source: String?
+    let model: String?
 
     init(
         hookEventName: String,
@@ -62,7 +63,8 @@ struct ClaudeAdapterInput {
         agentType: String? = nil,
         agentTranscriptPath: String? = nil,
         isInterrupt: Bool = false,
-        source: String? = nil
+        source: String? = nil,
+        model: String? = nil
     ) {
         self.hookEventName = hookEventName
         self.sessionID = sessionID
@@ -81,6 +83,7 @@ struct ClaudeAdapterInput {
         self.agentTranscriptPath = agentTranscriptPath
         self.isInterrupt = isInterrupt
         self.source = source
+        self.model = model
     }
 }
 
@@ -110,7 +113,8 @@ extension AgentEventBridge {
             agentType: JSONKeyAccess.firstString(in: json, keys: ["agent_type", "agentType", "agent_name", "agentName"]),
             agentTranscriptPath: JSONKeyAccess.firstString(in: json, keys: ["agent_transcript_path", "agentTranscriptPath"]),
             isInterrupt: claudeParseBool(in: json, keys: ["is_interrupt", "isInterrupt"]),
-            source: JSONKeyAccess.firstString(in: json, keys: ["source"])
+            source: JSONKeyAccess.firstString(in: json, keys: ["source"]),
+            model: JSONKeyAccess.firstString(in: json, keys: hookEventName == "PostModelSwitch" ? ["to_model"] : ["model"])
         )
     }
 
@@ -141,7 +145,19 @@ extension AgentEventBridge {
             sessionStore: sessionStore,
             subagentStore: subagentStore
         )
-        return try claudeAttachSubagents(to: payloads, input: input, subagentStore: subagentStore)
+        let decorated = try claudeAttachSubagents(to: payloads, input: input, subagentStore: subagentStore)
+        guard input.agentID == nil, input.hookEventName != "SubagentStart", input.hookEventName != "SubagentStop" else {
+            return decorated
+        }
+        return decorated.map { payload in
+            var copy = payload
+            copy.carriesRootMetadata = true
+            copy.agentModel = input.model
+            copy.agentMetadataPID = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID")
+            copy.agentTranscriptPath = input.transcriptPath
+            copy.isClaudeRemoteControlActive = AgentInteractionClassifier.trimmed(environment["CLAUDE_CODE_BRIDGE_SESSION_ID"]) != nil
+            return copy
+        }
     }
 
     private static func claudeMakeLifecyclePayloads(
@@ -153,6 +169,15 @@ extension AgentEventBridge {
         let toolName = AgentTool.claudeCode.displayName
 
         switch input.hookEventName {
+        case "PostModelSwitch":
+            guard input.agentID == nil else { return [] }
+            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            return [AgentStatusPayload(
+                windowID: target.windowID, worklaneID: target.worklaneID, paneID: target.paneID,
+                signalKind: .agentMetadata, state: nil, origin: .explicitHook,
+                toolName: toolName, text: nil, sessionID: input.sessionID,
+                artifactKind: nil, artifactLabel: nil, artifactURL: nil
+            )]
         case "SessionStart":
             let target = try currentTarget(from: environment)
             let pid = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID")

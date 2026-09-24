@@ -43,7 +43,144 @@ struct ListeningSocket: Equatable, Sendable {
     let port: Int
 }
 
+struct PaneForegroundAgent: Equatable, Sendable {
+    let tool: AgentTool
+    let pid: Int32
+    /// Includes launchers such as Codex's Node process, but not its children.
+    let launchPIDs: Set<Int32>
+
+    func owns(tool: AgentTool, pid: Int32?) -> Bool {
+        self.tool == tool && (pid.map(launchPIDs.contains) ?? true)
+    }
+}
+
+struct PaneForegroundAgentSnapshot: Equatable, Sendable {
+    let agent: PaneForegroundAgent?
+    let foregroundPIDs: Set<Int32>
+}
+
+struct PaneForegroundProcessInfo {
+    let parentPID: Int32
+    let processGroupID: Int32
+    let foregroundProcessGroupID: Int32
+    let terminalDevice: UInt32
+    let name: String
+    var executablePath: String? = nil
+
+    var recognizedAgentTool: AgentTool? {
+        if let tool = AgentTool.resolveKnown(named: name) { return tool }
+        // Claude's native installer names the actual executable by version;
+        // macOS reports that basename instead of the `claude` symlink.
+        guard Self.isVersionName(name), let executablePath else { return nil }
+        let executable = URL(fileURLWithPath: executablePath).standardizedFileURL
+        let directory = Array(executable.deletingLastPathComponent().pathComponents.suffix(4))
+        guard executable.lastPathComponent == name,
+              directory == [".local", "share", "claude", "versions"] else { return nil }
+        return .claudeCode
+    }
+
+    static func isVersionName(_ name: String) -> Bool {
+        name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil
+    }
+}
+
+/// A fresh probe is shared by a sweep. Process reads are cached across panes;
+/// a missing snapshot means inspection failed, not that the agent exited.
+final class PaneForegroundAgentProbe {
+    private let treePIDs: (Int32) -> [Int32]
+    private let processInfo: (Int32) -> PaneForegroundProcessInfo?
+    private var infoByPID: [Int32: PaneForegroundProcessInfo] = [:]
+    private var missingPIDs: Set<Int32> = []
+
+    init(
+        treePIDs: @escaping (Int32) -> [Int32] = { DarwinProcessProbe().treePIDs(rootPID: $0) },
+        processInfo: @escaping (Int32) -> PaneForegroundProcessInfo? = DarwinProcessInspector.foregroundInfo
+    ) {
+        self.treePIDs = treePIDs
+        self.processInfo = processInfo
+    }
+
+    func scan(rootPID: Int32) -> PaneForegroundAgentSnapshot? {
+        guard let root = info(rootPID), root.foregroundProcessGroupID > 0 else { return nil }
+        let pids = treePIDs(rootPID)
+        let listedPIDs = Set(pids)
+        guard listedPIDs.contains(rootPID) else { return nil }
+        // A process can exit or become unreadable between listing the tree
+        // and inspecting it. Missing children cannot prove the job is empty.
+        guard pids.allSatisfy({ pid in
+            guard let process = info(pid) else { return false }
+            return !PaneForegroundProcessInfo.isVersionName(process.name) || process.executablePath != nil
+        }) else { return nil }
+        let foregroundPIDs = Set(pids.filter { pid in
+            guard let process = info(pid) else { return false }
+            return process.terminalDevice == root.terminalDevice
+                && process.processGroupID == root.foregroundProcessGroupID
+        })
+        var candidates: [PaneForegroundAgent] = []
+        for pid in foregroundPIDs {
+            guard let process = info(pid), let tool = process.recognizedAgentTool else { continue }
+            var launchPIDs: Set<Int32> = [pid]
+            var ancestor = process.parentPID
+            var visited: Set<Int32> = [pid]
+            var hasAgentAncestor = false
+            var reachedRoot = pid == rootPID
+            while !reachedRoot {
+                guard ancestor > 0, listedPIDs.contains(ancestor),
+                      visited.insert(ancestor).inserted, let parent = info(ancestor) else { return nil }
+                if foregroundPIDs.contains(ancestor) {
+                    launchPIDs.insert(ancestor)
+                    if parent.recognizedAgentTool != nil { hasAgentAncestor = true }
+                }
+                reachedRoot = ancestor == rootPID
+                ancestor = parent.parentPID
+            }
+            guard !hasAgentAncestor else { continue }
+            candidates.append(PaneForegroundAgent(tool: tool, pid: pid, launchPIDs: launchPIDs))
+        }
+        // Two sibling agents in a pipeline have no single pane owner.
+        guard candidates.count <= 1 else { return nil }
+        return PaneForegroundAgentSnapshot(agent: candidates.first, foregroundPIDs: foregroundPIDs)
+    }
+
+    private func info(_ pid: Int32) -> PaneForegroundProcessInfo? {
+        if let cached = infoByPID[pid] { return cached }
+        if missingPIDs.contains(pid) { return nil }
+        guard let value = processInfo(pid) else { missingPIDs.insert(pid); return nil }
+        infoByPID[pid] = value
+        return value
+    }
+}
+
 struct DarwinProcessInspector: ProcessInspecting {
+    static func foregroundInfo(_ pid: Int32) -> PaneForegroundProcessInfo? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let size = MemoryLayout<proc_bsdinfo>.size
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(size)) == Int32(size) else { return nil }
+        var name = withUnsafeBytes(of: info.pbi_name) { bytes in
+            String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        if name.isEmpty {
+            name = withUnsafeBytes(of: info.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        }
+        return PaneForegroundProcessInfo(
+            parentPID: Int32(info.pbi_ppid), processGroupID: Int32(info.pbi_pgid),
+            foregroundProcessGroupID: Int32(bitPattern: info.e_tpgid), terminalDevice: info.e_tdev,
+            name: name,
+            executablePath: PaneForegroundProcessInfo.isVersionName(name) ? executablePath(of: pid) : nil
+        )
+    }
+
+    static func executablePath(of pid: Int32) -> String? {
+        guard pid > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let result = buffer.withUnsafeMutableBufferPointer { pointer in
+            proc_pidpath(pid, pointer.baseAddress, UInt32(pointer.count))
+        }
+        guard result > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
     func listeningTCPSockets() -> [ListeningSocket] {
         processIDs().flatMap(listeningTCPSockets(for:))
     }

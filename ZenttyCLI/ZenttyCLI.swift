@@ -1472,6 +1472,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_INSTANCE_ID",
         "ZENTTY_AMP_PID",
         "ZENTTY_CLAUDE_PID",
+        "CLAUDE_CODE_BRIDGE_SESSION_ID",
         "ZENTTY_CODEX_PID",
         "ZENTTY_COPILOT_PID",
         "ZENTTY_GEMINI_PID",

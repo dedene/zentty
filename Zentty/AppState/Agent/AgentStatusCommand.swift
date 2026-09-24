@@ -119,6 +119,8 @@ struct AgentSignalCommand {
         let confidence = options["confidence"].flatMap(AgentSignalConfidence.init(rawValue:))
 
         switch kind {
+        case .agentMetadata:
+            throw AgentStatusPayloadError.invalidArguments("Agent metadata is supplied by agent hooks.")
         case .lifecycle:
             guard let verb = positionals.first else {
                 throw AgentStatusPayloadError.missingState
@@ -313,6 +315,8 @@ struct AgentSignalCommand {
 
     private static func defaultOrigin(for kind: AgentSignalKind) -> AgentSignalOrigin {
         switch kind {
+        case .agentMetadata:
+            return .explicitHook
         case .lifecycle:
             return .compatibility
         case .shellState:

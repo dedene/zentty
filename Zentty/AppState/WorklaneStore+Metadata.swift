@@ -1005,6 +1005,14 @@ extension WorklaneStore {
 
         clearExpiredCodexTitleIdleSuppression(for: paneID, in: &worklane)
         clearExpiredCodexInterruptSuppression(for: paneID, in: &worklane)
+        if let snapshot = worklane.auxiliaryStateByPaneID[paneID]?.raw.foregroundAgentSnapshot {
+            if worklane.auxiliaryStateByPaneID[paneID]?.raw.shellContext?.scope == .remote
+                || worklane.auxiliaryStateByPaneID[paneID]?.raw.foregroundSSHDestination != nil {
+                worklane.auxiliaryStateByPaneID[paneID]?.raw.foregroundAgentSnapshot = nil
+            } else {
+                worklane.auxiliaryStateByPaneID[paneID]?.raw.reconcileForegroundAgent(snapshot)
+            }
+        }
         let previousPresentation = worklane.auxiliaryStateByPaneID[paneID]?.presentation
         let raw = worklane.auxiliaryStateByPaneID[paneID]?.raw ?? PaneRawState()
         let presentation = PanePresentationNormalizer.normalize(

@@ -891,6 +891,7 @@ enum AgentLaunchBootstrap {
                 "PostToolUseFailure": claudeHookEntries(command: hookCommand, timeout: 5),
                 "PreCompact": claudeHookEntries(command: hookCommand, timeout: 10),
                 "PostCompact": claudeHookEntries(command: hookCommand, timeout: 10),
+                "PostModelSwitch": claudeHookEntries(command: hookCommand, timeout: 5),
                 "TaskCreated": claudeHookEntries(command: hookCommand, timeout: 5),
                 "TaskCompleted": claudeHookEntries(command: hookCommand, timeout: 5),
                 "SubagentStart": claudeHookEntries(command: hookCommand, timeout: 5),
