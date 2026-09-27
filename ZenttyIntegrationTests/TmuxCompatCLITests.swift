@@ -146,6 +146,200 @@ final class TmuxCompatCLITests: XCTestCase {
         )
     }
 
+    func test_real_cli_split_bare_invocation_defaults_to_right() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "split-test", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["split"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "split")
+        XCTAssertTrue(request.expectsResponse)
+        XCTAssertEqual(request.arguments, ["right"])
+    }
+
+    func test_real_cli_hsplit_forwards_command_with_right_direction() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "split-test", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["hsplit", "--", "echo", "hi"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "split")
+        XCTAssertTrue(request.expectsResponse)
+        XCTAssertEqual(
+            request.arguments,
+            ["right", "--command-json", #"["echo","hi"]"#]
+        )
+    }
+
+    func test_real_cli_vsplit_forwards_command_with_down_direction() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "split-test", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["vsplit", "--", "echo", "hi"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "split")
+        XCTAssertTrue(request.expectsResponse)
+        XCTAssertEqual(
+            request.arguments,
+            ["down", "--command-json", #"["echo","hi"]"#]
+        )
+    }
+
+    func test_real_cli_split_selectors_before_boundary_stay_outer_and_command_tokens_stay_opaque() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "split-test", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = [
+            "split", "left",
+            "--ratio", "60",
+            "--pane-index", "2",
+            "--",
+            "--help", "--", "--equal", "--model", "gpt-5.2",
+            "--pane-id", "not-a-selector", "", "it's ok",
+        ]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "split")
+        XCTAssertTrue(request.expectsResponse)
+        XCTAssertEqual(
+            request.arguments,
+            [
+                "left",
+                "--ratio", "60",
+                "--pane-index", "2",
+                "--command-json",
+                #"["--help","--","--equal","--model","gpt-5.2","--pane-id","not-a-selector","","it's ok"]"#,
+            ]
+        )
+    }
+
+    func test_real_cli_split_empty_tail_omits_command_json() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(id: "split-test", ok: true, result: nil)
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["split", "right", "--"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        process.environment = environment
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(request.kind, .pane)
+        XCTAssertEqual(request.subcommand, "split")
+        XCTAssertTrue(request.expectsResponse)
+        XCTAssertEqual(request.arguments, ["right"])
+    }
+
+    func test_real_cli_split_invalid_forms_fail_before_ipc() throws {
+        let cases: [(arguments: [String], fragment: String)] = [
+            (["split", "--", "claude"], "Specify a split direction before '--'."),
+            (["split", "--"], "Specify a split direction before '--'."),
+            (["split", "right", "claude"], "Unexpected argument 'claude'"),
+        ]
+        for testCase in cases {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+            process.arguments = testCase.arguments
+
+            var environment = ProcessInfo.processInfo.environment
+            environment.removeValue(forKey: "ZENTTY_INSTANCE_SOCKET")
+            process.environment = environment
+            process.standardOutput = Pipe()
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            XCTAssertNotEqual(
+                process.terminationStatus,
+                0,
+                "\(testCase.arguments.joined(separator: " ")) should fail validation"
+            )
+            let stderr = String(
+                data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            XCTAssertTrue(
+                stderr.contains(testCase.fragment),
+                "Expected '\(testCase.fragment)' in stderr for \(testCase.arguments), got: \(stderr)"
+            )
+        }
+    }
+
     func test_real_cli_tmux_compat_forwards_subcommand_and_args() throws {
         let server = try TmuxCaptureServer(
             response: AgentIPCResponse(

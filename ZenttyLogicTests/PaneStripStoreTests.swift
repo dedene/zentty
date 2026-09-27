@@ -2774,6 +2774,68 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(changes, [.paneStructure(teamWorklaneID)])
     }
 
+    func test_horizontal_split_adds_command_and_inherits_working_directory() throws {
+        let layoutContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(layoutContext: layoutContext)
+        let sourcePaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(
+            paneID: sourcePaneID,
+            metadata: TerminalMetadata(currentWorkingDirectory: "/tmp/project")
+        )
+
+        let sourceRequest = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+        let newPaneID = try XCTUnwrap(store.splitWithLayout(
+            placement: .afterFocused,
+            isHorizontal: true,
+            layout: .golden,
+            availableWidth: layoutContext.viewportWidth,
+            leadingVisibleInset: layoutContext.leadingVisibleInset,
+            availableSize: CGSize(width: layoutContext.viewportWidth, height: 800),
+            minimumSizeByPaneID: [:],
+            sessionRequest: TerminalSessionRequest(command: "npm run dev")
+        ))
+
+        let panes = try XCTUnwrap(store.activeWorklane?.paneStripState.panes)
+        let newPane = try XCTUnwrap(panes.first { $0.id == newPaneID })
+        let sourcePane = try XCTUnwrap(panes.first { $0.id == sourcePaneID })
+        XCTAssertEqual(newPane.sessionRequest.command, "npm run dev")
+        XCTAssertEqual(sourcePane.sessionRequest, sourceRequest)
+        XCTAssertEqual(newPane.sessionRequest.workingDirectory, "/tmp/project")
+    }
+
+    func test_vertical_split_attaches_command_only_to_new_pane() throws {
+        let layoutContext = PaneLayoutPreferences.default.makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(layoutContext: layoutContext)
+        store.updatePaneViewportHeight(640)
+        let sourcePaneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let sourceRequest = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPane?.sessionRequest)
+
+        let newPaneID = try XCTUnwrap(store.splitWithLayout(
+            placement: .afterFocused,
+            isHorizontal: false,
+            layout: .equal,
+            availableWidth: layoutContext.viewportWidth,
+            leadingVisibleInset: layoutContext.leadingVisibleInset,
+            availableSize: CGSize(width: layoutContext.viewportWidth, height: 640),
+            minimumSizeByPaneID: [:],
+            sessionRequest: TerminalSessionRequest(command: "python3 -m http.server 8000")
+        ))
+
+        let panes = try XCTUnwrap(store.activeWorklane?.paneStripState.panes)
+        let newPane = try XCTUnwrap(panes.first { $0.id == newPaneID })
+        let sourcePane = try XCTUnwrap(panes.first { $0.id == sourcePaneID })
+        XCTAssertEqual(newPane.sessionRequest.command, "python3 -m http.server 8000")
+        XCTAssertEqual(sourcePane.sessionRequest, sourceRequest)
+    }
+
     func test_splitWithLayoutInWorklaneRefusesMissingTargetPane() {
         let teamWorklaneID = WorklaneID("team")
         let store = WorklaneStore(

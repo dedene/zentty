@@ -25,6 +25,43 @@ final class PaneCommandExecutorTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 2)
     }
 
+    func test_split_startup_command_reconstructs_quoted_tokens() throws {
+        let command = try parseSplitStartupCommand(from: [
+            "down", "--golden", "--command-json", #"["codex","--model","gpt 5","it's ok",""]"#,
+        ])
+
+        XCTAssertEqual(command, "codex --model 'gpt 5' 'it'\"'\"'s ok' ''")
+    }
+
+    func test_split_startup_command_without_tokens_is_nil() throws {
+        XCTAssertNil(try parseSplitStartupCommand(from: ["right"]))
+        XCTAssertNil(try parseSplitStartupCommand(from: ["right", "--command-json", "[]"]))
+    }
+
+    func test_split_startup_command_missing_value_throws() {
+        XCTAssertThrowsError(try parseSplitStartupCommand(from: ["right", "--command-json"])) { error in
+            guard case SplitIPCError.missingValue("--command-json") = error else {
+                return XCTFail("expected missing --command-json value, got \(error)")
+            }
+        }
+    }
+
+    func test_split_startup_command_malformed_json_throws() {
+        XCTAssertThrowsError(
+            try parseSplitStartupCommand(from: ["right", "--command-json", "not-json"])
+        ) { error in
+            guard case SplitIPCError.invalidCommandJSON = error else {
+                return XCTFail("expected invalidCommandJSON, got \(error)")
+            }
+        }
+    }
+
+    func test_split_startup_command_newline_tokens_throw() {
+        XCTAssertThrowsError(try parseSplitStartupCommand(from: [
+            "right", "--command-json", #"["echo","a\nb"]"#,
+        ]))
+    }
+
     func test_apply_grid_creates_grid_panes() throws {
         let store = makeStore()
         let canvas = StubCanvas()

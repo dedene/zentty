@@ -284,6 +284,32 @@ private struct PaneGridIPCOptions {
     }
 }
 
+enum SplitIPCError: LocalizedError {
+    case missingValue(String)
+    case invalidCommandJSON
+
+    var errorDescription: String? {
+        switch self {
+        case .missingValue(let option):
+            return "Missing value for \(option)."
+        case .invalidCommandJSON:
+            return "Invalid split command payload."
+        }
+    }
+}
+
+func parseSplitStartupCommand(from arguments: [String]) throws -> String? {
+    guard let jsonIndex = arguments.firstIndex(of: "--command-json") else { return nil }
+    let valueIndex = jsonIndex + 1
+    guard arguments.indices.contains(valueIndex) else {
+        throw SplitIPCError.missingValue("--command-json")
+    }
+    guard let tokens = try? JSONDecoder().decode([String].self, from: Data(arguments[valueIndex].utf8)) else {
+        throw SplitIPCError.invalidCommandJSON
+    }
+    return tokens.isEmpty ? nil : try GridLaunchCommandBuilder.command(from: tokens)
+}
+
 enum PaneNotificationIPCError: LocalizedError {
     case missingValue(String)
     case missingTitle
@@ -425,7 +451,7 @@ enum PaneIPCHandler {
 
         switch subcommand {
         case .split:
-            return handleSplit(arguments: request.arguments, windowController: windowController)
+            return try handleSplit(arguments: request.arguments, windowController: windowController)
         case .grid:
             return try handleGrid(
                 arguments: request.arguments,
@@ -725,7 +751,7 @@ enum PaneIPCHandler {
     private static func handleSplit(
         arguments: [String],
         windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
+    ) throws -> AgentIPCResponseResult {
         let direction = arguments.first ?? "right"
         let placement: PanePlacement
         let isHorizontal: Bool
@@ -747,14 +773,20 @@ enum PaneIPCHandler {
         }
 
         let layout = parseSplitLayout(from: arguments)
+        let startupCommand = try parseSplitStartupCommand(from: arguments)
 
-        if layout == .none {
+        if layout == .none, startupCommand == nil {
             let command: PaneCommand = isHorizontal
                 ? (placement == .afterFocused ? .splitAfterFocusedPane : .splitBeforeFocusedPane)
                 : (placement == .afterFocused ? .splitVertically : .splitVerticallyBefore)
             windowController.handlePaneIPCCommand(command)
         } else {
-            windowController.splitWithLayout(placement: placement, isHorizontal: isHorizontal, layout: layout)
+            windowController.splitWithLayout(
+                placement: placement,
+                isHorizontal: isHorizontal,
+                layout: layout,
+                sessionRequest: startupCommand.map { TerminalSessionRequest(command: $0) }
+            )
         }
 
         return AgentIPCResponseResult()

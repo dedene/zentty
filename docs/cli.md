@@ -83,9 +83,9 @@ zentty select pane --pane-index 2 --shell --include-control-token
 Split a pane in a direction. `hsplit` is an alias for `split right`; `vsplit` is an alias for `split down`.
 
 ```bash
-zentty split [right|left|up|down] [--equal|--golden|--ratio <ratio>] [selectors]
-zentty hsplit [--equal|--golden|--ratio <ratio>] [selectors]
-zentty vsplit [--equal|--golden|--ratio <ratio>] [selectors]
+zentty split [right|left|up|down] [--equal|--golden|--ratio <ratio>] [selectors] [-- <command> ...]
+zentty hsplit [--equal|--golden|--ratio <ratio>] [selectors] [-- <command> ...]
+zentty vsplit [--equal|--golden|--ratio <ratio>] [selectors] [-- <command> ...]
 ```
 
 Options:
@@ -94,6 +94,17 @@ Options:
 - `--golden`: split using the golden ratio, with the focused pane around 62%.
 - `--ratio <ratio>`: set the focused pane percentage, for example `60`.
 
+To run a program in the new pane, put `--` before the program name and its
+arguments, for example `zentty split right -- claude`. With `split`, always
+write the direction before `--`. With `hsplit` or `vsplit`, omit the direction:
+`zentty hsplit -- claude`.
+
+Put Zentty options, such as `--equal` or `--pane-index 2`, before `--`.
+Everything after it is passed to the program, not treated as a Zentty option.
+
+If you leave out the program (`zentty split right --`), the new pane opens a
+normal shell.
+
 Examples:
 
 ```bash
@@ -101,6 +112,10 @@ zentty split right
 zentty split down --equal
 zentty hsplit --ratio 70
 zentty vsplit --pane-index 2
+zentty split right -- claude
+zentty split down --equal -- codex --model gpt-5.2
+zentty hsplit --pane-index 2 -- npm run dev
+zentty vsplit -- python3 -m http.server 8000
 ```
 
 ## Grid
