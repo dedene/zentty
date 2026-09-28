@@ -69,7 +69,8 @@ final class ClaudeDaemonPaneRoutingTests: XCTestCase {
         let plan = try AgentLaunchBootstrap.makePlan(
             request: request,
             target: target,
-            runtimeDirectoryURL: runtimeDirectoryURL
+            runtimeDirectoryURL: runtimeDirectoryURL,
+            claudeSessionStore: sessionStore
         )
 
         guard let sessionIDIndex = plan.arguments.firstIndex(of: "--session-id"),

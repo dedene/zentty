@@ -22,7 +22,8 @@ enum AgentLaunchBootstrap {
         bundle: Bundle = .main,
         fileManager: FileManager = .default,
         appConfigProvider: () -> AppConfig = loadAppConfig,
-        integrationDecision: AgentIntegrationDecision = .proceed
+        integrationDecision: AgentIntegrationDecision = .proceed,
+        claudeSessionStore: ClaudeHookSessionStore = ClaudeHookSessionStore()
     ) throws -> AgentLaunchPlan {
         guard request.version == AgentIPCProtocol.version else {
             throw AgentIPCError.invalidMessage
@@ -68,7 +69,8 @@ enum AgentLaunchBootstrap {
                 executablePath: executablePath,
                 arguments: request.arguments,
                 environment: environment,
-                target: target
+                target: target,
+                sessionStore: claudeSessionStore
             )
         case .codex:
             return try codexPlan(
