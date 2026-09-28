@@ -67,7 +67,8 @@ enum AgentLaunchBootstrap {
             return try claudePlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
-                environment: environment
+                environment: environment,
+                target: target
             )
         case .codex:
             return try codexPlan(
@@ -858,7 +859,9 @@ enum AgentLaunchBootstrap {
     private static func claudePlan(
         executablePath: String,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        target: AgentIPCTarget,
+        sessionStore: ClaudeHookSessionStore = ClaudeHookSessionStore()
     ) throws -> AgentLaunchPlan {
         if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1"
             || ClaudeLaunchPolicy.passthroughSubcommand(in: arguments) != nil {
@@ -911,7 +914,26 @@ enum AgentLaunchBootstrap {
         if shouldReuseSession {
             plannedArguments.insert(contentsOf: ["--settings", settingsJSON], at: 0)
         } else {
-            plannedArguments.insert(contentsOf: ["--session-id", UUID().uuidString.lowercased(), "--settings", settingsJSON], at: 0)
+            let sessionID = UUID().uuidString.lowercased()
+            // Seed the pane mapping for this session BEFORE Claude ever starts,
+            // using the pane Zentty itself resolved this launch against — not
+            // the environment the eventual hook process will run under. A
+            // background/daemon-launched session's hook events arrive in a
+            // process that inherited whichever pane originally started the
+            // shared `claude daemon run`, so trusting that process's own
+            // ZENTTY_PANE_ID at SessionStart misattributes every subsequent
+            // status update to the daemon-starter pane instead of this one
+            // (upstream: dedene/zentty#121). SessionStart resolves its target
+            // through `claudeResolvedTarget`, which checks this seed first.
+            try? sessionStore.upsert(
+                sessionID: sessionID,
+                windowID: target.windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                cwd: environment["PWD"]?.nilIfBlank,
+                pid: nil
+            )
+            plannedArguments.insert(contentsOf: ["--session-id", sessionID, "--settings", settingsJSON], at: 0)
         }
 
         var setEnvironment = claudeColorEnvironment(from: environment)
