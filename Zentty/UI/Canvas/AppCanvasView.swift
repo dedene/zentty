@@ -317,9 +317,13 @@ final class PaneBorderContextInsetView: NSView {
 final class AppCanvasView: NSView {
     var leadingVisibleInset: CGFloat {
         get { paneStripView.leadingVisibleInset }
-        set { paneStripView.setLeadingVisibleInset(newValue, animated: false) }
+        set {
+            paneStripView.setLeadingVisibleInset(newValue, animated: false)
+            layoutOverlayContainer()
+        }
     }
     let paneStripView: PaneStripView
+    let quickActionOverlayContainer = QuickActionOverlayContainerView()
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     init(
@@ -349,6 +353,7 @@ final class AppCanvasView: NSView {
 
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneStripView)
+        addSubview(quickActionOverlayContainer)
 
         NSLayoutConstraint.activate([
             paneStripView.topAnchor.constraint(equalTo: topAnchor),
@@ -359,6 +364,19 @@ final class AppCanvasView: NSView {
 
         paneStripView.apply(theme: currentTheme, animated: false)
         paneStripView.setLeadingVisibleInset(0, animated: false)
+    }
+
+    override func layout() {
+        super.layout()
+        layoutOverlayContainer()
+    }
+
+    private func layoutOverlayContainer() {
+        let inset = min(max(0, leadingVisibleInset), bounds.width)
+        quickActionOverlayContainer.frame = NSRect(
+            x: bounds.minX + inset, y: bounds.minY,
+            width: bounds.width - inset, height: bounds.height
+        )
     }
 
     func render(
@@ -380,6 +398,7 @@ final class AppCanvasView: NSView {
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         apply(theme: theme, animated: animated)
+        defer { layoutOverlayContainer() }
         if let leadingVisibleInset,
            abs(paneStripView.leadingVisibleInset - leadingVisibleInset) > 0.001 {
             paneStripView.transition(
@@ -462,6 +481,7 @@ final class AppCanvasView: NSView {
             duration: duration,
             timingFunction: timingFunction
         )
+        layoutOverlayContainer()
     }
 
     func updateMetadata(for paneID: PaneID, metadata: TerminalMetadata) {
@@ -497,5 +517,13 @@ final class AppCanvasView: NSView {
             self.layer?.backgroundColor = NSColor.clear.cgColor
             self.layer?.borderColor = NSColor.clear.cgColor
         }
+    }
+}
+
+/// Empty space around quick actions remains interactive for the worklane below.
+final class QuickActionOverlayContainerView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
     }
 }

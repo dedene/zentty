@@ -263,6 +263,7 @@ final class RootViewController: NSViewController {
     var onShowSettingsSectionRequested: ((SettingsSection) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
+    var onToggleQuickActionOverlayRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -1307,6 +1308,17 @@ final class RootViewController: NSViewController {
         _ = updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
         updateWindowChromeLeadingControlsInset()
+    }
+
+    func quickActionOverlayAnchor(for paneID: PaneID, placement: PaneOverlayIPCOptions.Placement) -> NSView? {
+        switch placement {
+        case .worklane: appCanvasView.quickActionOverlayContainer
+        case .pane: appCanvasView.paneStripView.quickActionOverlayAnchor(for: paneID)
+        }
+    }
+
+    func restoreTerminalFocusAfterOverlay() {
+        appCanvasView.focusCurrentPaneIfNeeded()
     }
 
     func activateWindowBindingsIfNeeded() {
@@ -3207,6 +3219,15 @@ extension RootViewController: AppActionRouterEnvironment {
 
     func routeShowCommandPalette() {
         showCommandPalette()
+    }
+
+    var isWorklanePeekActive: Bool {
+        peekController.phase != .idle
+    }
+
+    func routeToggleQuickActionOverlay() {
+        guard !isWorklanePeekActive else { return }
+        onToggleQuickActionOverlayRequested?()
     }
 
     func routeShowTaskManager() {

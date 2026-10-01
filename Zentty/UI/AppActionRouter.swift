@@ -29,6 +29,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeNavigateBack()
     func routeNavigateForward()
     func routeShowCommandPalette()
+    func routeToggleQuickActionOverlay()
     func routeShowTaskManager()
     func routeOpenWithSelectedApp()
     func routeOpenSelectedServer()
@@ -99,6 +100,8 @@ struct AppActionRouter {
             environment.routeNavigateForward()
         case .showCommandPalette:
             environment.routeShowCommandPalette()
+        case .toggleQuickActionOverlay:
+            environment.routeToggleQuickActionOverlay()
         case .showTaskManager:
             environment.routeShowTaskManager()
         case .openWithSelectedApp:

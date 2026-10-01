@@ -33,6 +33,7 @@ final class AppActionRouterTests: XCTestCase {
             (.navigateBack, "routeNavigateBack"),
             (.navigateForward, "routeNavigateForward"),
             (.showCommandPalette, "routeShowCommandPalette"),
+            (.toggleQuickActionOverlay, "routeToggleQuickActionOverlay"),
             (.showTaskManager, "routeShowTaskManager"),
             (.openWithSelectedApp, "routeOpenWithSelectedApp"),
             (.openSelectedServer, "routeOpenSelectedServer"),
@@ -117,6 +118,7 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     func routeNavigateBack() { calls.append("routeNavigateBack") }
     func routeNavigateForward() { calls.append("routeNavigateForward") }
     func routeShowCommandPalette() { calls.append("routeShowCommandPalette") }
+    func routeToggleQuickActionOverlay() { calls.append("routeToggleQuickActionOverlay") }
     func routeShowTaskManager() { calls.append("routeShowTaskManager") }
     func routeOpenWithSelectedApp() { calls.append("routeOpenWithSelectedApp") }
     func routeOpenSelectedServer() { calls.append("routeOpenSelectedServer") }

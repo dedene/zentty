@@ -1,4 +1,7 @@
 import AppKit
+import os
+
+private let quickActionOverlayLogger = Logger(subsystem: "be.zenjoy.zentty", category: "QuickActionOverlay")
 
 enum ServerMenuOrdering {
     static func sortedForDisplay(_ servers: [DetectedServer]) -> [DetectedServer] {
@@ -187,6 +190,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var isApplicationActive = true
     private var isWindowKey = true
     private var shouldBypassNextCloseConfirmation = false
+    private let overlayAdapterFactory: (PaneID) -> any TerminalAdapter
+    private var overlaySessions: [String: TerminalOverlaySession] = [:]
+    private var overlayActiveWorklaneID: WorklaneID?
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
@@ -210,7 +216,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         paneLayoutDefaults: UserDefaults = .standard,
         windowIndex: Int = 0,
         initialPaneLayoutFrame: NSRect? = nil,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        initialWorkspaceState: WindowWorkspaceState? = nil,
+        overlayAdapterFactory: @escaping (PaneID) -> any TerminalAdapter = { LibghosttyAdapter(paneID: $0) }
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.MainWindowController"),
@@ -270,6 +277,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             window.setFrameAutosaveName(Self.windowFrameAutosaveName(forWindowIndex: windowIndex))
         }
 
+        self.overlayAdapterFactory = overlayAdapterFactory
         self.rootViewController = rootViewController
         self.windowID = windowID
         self.windowOrder = windowIndex
@@ -319,8 +327,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
+        rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
+            self?.toggleQuickActionOverlay(nil)
+        }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
             self?.refreshWindowTitle()
+            self?.syncOverlayVisibility()
             self?.onWorkspaceStateDidChange?()
         }
         // Restored workspaces set their state before this closure exists, so
@@ -402,6 +414,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        for overlay in Array(overlaySessions.values) {
+            overlay.close(restoringFocus: false)
+        }
         rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)
@@ -1208,6 +1223,156 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func focusPane(id: PaneID, in worklaneID: WorklaneID) {
         rootViewController.paneCommands.focusPaneByID(id, in: worklaneID)
+    }
+
+    @discardableResult
+    func openOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> String {
+        guard let worklaneID = worklaneID(containing: paneID),
+              let worklane = rootViewController.worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
+              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+            throw TerminalOverlayError.paneNotFound
+        }
+        guard !overlaySessions.values.contains(where: {
+            $0.placement == options.placement &&
+                (options.placement == .worklane ? $0.worklaneID == worklaneID : $0.paneID == paneID)
+        }) else { throw TerminalOverlayError.alreadyOpen }
+        let directory = options.workingDirectory
+            ?? worklane.auxiliaryStateByPaneID[paneID]?.shellContext?.path
+            ?? pane.sessionRequest.workingDirectory
+        if let directory {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                throw TerminalOverlayError.invalidWorkingDirectory(directory)
+            }
+        }
+        let overlay = TerminalOverlaySession(
+            paneID: paneID,
+            worklaneID: worklaneID,
+            command: options.command,
+            workingDirectory: directory,
+            wait: options.wait,
+            sizePercent: options.sizePercent,
+            placement: options.placement,
+            adapterFactory: overlayAdapterFactory
+        )
+        overlay.isPresented = options.follow || worklaneID == rootViewController.worklaneStore.activeWorklaneID
+        let overlayID = overlay.id
+        overlay.onClose = { [weak self] in
+            self?.overlaySessions.removeValue(forKey: overlayID)
+        }
+        overlay.onRestoreFocus = { [weak self] in
+            self?.rootViewController.restoreTerminalFocusAfterOverlay()
+        }
+        overlaySessions[overlay.id] = overlay
+        if options.follow {
+            focusPane(id: paneID, in: worklaneID)
+        }
+        syncOverlayVisibility()
+        try overlay.start()
+        // Ghostty's view becomes focusable after its surface starts.
+        if options.follow || worklaneID == rootViewController.worklaneStore.activeWorklaneID {
+            syncOverlayVisibility(focusing: overlay.id)
+        }
+        return overlay.id
+    }
+
+    @objc
+    func toggleQuickActionOverlay(_ sender: Any?) {
+        guard !rootViewController.isWorklanePeekActive else { return }
+        guard let paneID = rootViewController.focusedPaneID() else { return }
+        if let overlay = overlay(on: paneID) {
+            if overlay.isPresented {
+                overlay.hide()
+            } else {
+                overlay.isPresented = true
+                syncOverlayVisibility(focusing: overlay.id)
+            }
+            return
+        }
+        let options = PaneOverlayIPCOptions(
+            command: "", workingDirectory: nil, wait: false,
+            follow: false, notify: false, sizePercent: 100
+        )
+        do {
+            try openOverlay(on: paneID, options: options)
+        } catch {
+            quickActionOverlayLogger.error("Could not open quick action overlay: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
+        }
+    }
+
+    func showOverlay(on paneID: PaneID) throws {
+        guard let overlay = overlay(on: paneID) else { throw TerminalOverlayError.notOpen }
+        focusPane(id: paneID, in: overlay.worklaneID)
+        overlay.isPresented = true
+        syncOverlayVisibility(focusing: overlay.id)
+    }
+
+    func closeOverlay(on paneID: PaneID) throws {
+        guard let overlay = overlay(on: paneID) else { throw TerminalOverlayError.notOpen }
+        overlay.close()
+    }
+
+    func overlayListJSON(on paneID: PaneID? = nil) throws -> String {
+        struct Entry: Encodable {
+            let id: String
+            let paneID: String
+            let worklaneID: String
+            let placement: String
+            let exitCode: Int?
+        }
+        let owner = paneID.flatMap { worklaneID(containing: $0) }
+        let entries = overlaySessions.values.filter {
+            guard let paneID else { return true }
+            return $0.placement == .pane ? $0.paneID == paneID : $0.worklaneID == owner
+        }.map {
+            Entry(id: $0.id, paneID: $0.paneID.rawValue,
+                  worklaneID: $0.worklaneID.rawValue,
+                  placement: $0.placement.rawValue, exitCode: $0.exitCode)
+        }.sorted { $0.id < $1.id }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return String(decoding: try encoder.encode(entries), as: UTF8.self) + "\n"
+    }
+
+    private func overlay(on paneID: PaneID) -> TerminalOverlaySession? {
+        let owner = worklaneID(containing: paneID)
+        return overlaySessions.values.first { $0.placement == .pane && $0.paneID == paneID }
+            ?? overlaySessions.values.first { $0.placement == .worklane && $0.worklaneID == owner }
+    }
+
+    private func syncOverlayVisibility(focusing overlayID: String? = nil) {
+        let activeWorklaneID = rootViewController.worklaneStore.activeWorklaneID
+        let switchedWorklanes = overlayActiveWorklaneID != activeWorklaneID
+        overlayActiveWorklaneID = activeWorklaneID
+        guard !overlaySessions.isEmpty else { return }
+        for overlay in Array(overlaySessions.values) {
+            if overlay.placement == .worklane {
+                guard let worklane = rootViewController.worklaneStore.worklanes.first(where: { $0.id == overlay.worklaneID }) else {
+                    overlay.close()
+                    continue
+                }
+                if !worklane.paneStripState.panes.contains(where: { $0.id == overlay.paneID }),
+                   let replacement = worklane.paneStripState.focusedPaneID {
+                    overlay.paneID = replacement
+                }
+            } else {
+                guard let owner = worklaneID(containing: overlay.paneID) else {
+                    overlay.close()
+                    continue
+                }
+                overlay.worklaneID = owner
+            }
+            if switchedWorklanes && overlay.worklaneID != activeWorklaneID {
+                overlay.hide(restoringFocus: false)
+            }
+            let visible = overlay.isPresented && overlay.worklaneID == activeWorklaneID
+            let anchor = (visible
+                ? rootViewController.quickActionOverlayAnchor(for: overlay.paneID, placement: overlay.placement)
+                : nil) ?? rootViewController.quickActionOverlayAnchor(for: overlay.paneID, placement: .worklane)
+            overlay.setVisible(visible, anchor: anchor, focus: overlay.id == overlayID)
+        }
     }
 
     func closePane(id: PaneID) {
@@ -2047,6 +2212,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 artifactURL: nil
             )
         )
+    }
+
+    func overlaySessionForTesting(on paneID: PaneID) -> TerminalOverlaySession? {
+        overlay(on: paneID)
     }
 
     var rootViewControllerForTesting: RootViewController {

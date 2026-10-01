@@ -111,6 +111,10 @@ enum WorklaneRenameIPCParser {
 enum PaneIPCSubcommand: String {
     case split
     case grid
+    case overlayOpen = "overlay-open"
+    case overlayList = "overlay-list"
+    case overlayShow = "overlay-show"
+    case overlayClose = "overlay-close"
     case list
     case focus
     case close
@@ -405,21 +409,36 @@ enum PaneIPCHandler {
     ) throws -> AgentIPCResponseResult {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
               let resolved = resolveTarget(target, appDelegate: appDelegate) else {
-            if subcommand == .notify {
+            if subcommand == .notify || subcommand == .overlayOpen
+                || subcommand == .overlayList || subcommand == .overlayShow
+                || subcommand == .overlayClose {
                 throw PaneRoutingError.paneNotFound
             }
             return AgentIPCResponseResult()
         }
         let windowController = resolved.windowController
         let target = resolved.target
+        return try dispatch(subcommand: subcommand, request: request, target: target,
+                            windowController: windowController, appDelegate: appDelegate)
+    }
 
+    @MainActor
+    static func dispatch(
+        subcommand: PaneIPCSubcommand,
+        request: AgentIPCRequest,
+        target: AgentIPCTarget,
+        windowController: MainWindowController,
+        appDelegate: AppDelegate
+    ) throws -> AgentIPCResponseResult {
         if subcommand == .notify,
            !windowController.containsPane(worklaneID: target.worklaneID, paneID: target.paneID) {
             throw PaneRoutingError.paneNotFound
         }
 
         if subcommand != .list && subcommand != .worklaneColor && subcommand != .worklaneRename
-            && subcommand != .paneRename && subcommand != .notify && subcommand != .theme {
+            && subcommand != .paneRename && subcommand != .notify && subcommand != .theme
+            && subcommand != .overlayOpen && subcommand != .overlayList
+            && subcommand != .overlayShow && subcommand != .overlayClose {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -433,6 +452,30 @@ enum PaneIPCHandler {
                 windowController: windowController,
                 appDelegate: appDelegate
             )
+        case .overlayOpen:
+            let options = try PaneOverlayIPCOptions.parse(arguments: request.arguments)
+            let id = try windowController.openOverlay(on: target.paneID, options: options)
+            if options.notify, let windowID = target.windowID {
+                appDelegate.deliverPaneNotification(PaneNotificationRequest(
+                    title: "Quick action opened",
+                    subtitle: nil,
+                    body: "Open the overlay to view its output.",
+                    includeInbox: true,
+                    isSilent: false,
+                    windowID: windowID,
+                    worklaneID: target.worklaneID,
+                    paneID: target.paneID
+                ))
+            }
+            return AgentIPCResponseResult(stdout: "\(id)\n")
+        case .overlayList:
+            return AgentIPCResponseResult(stdout: try windowController.overlayListJSON(on: target.paneID))
+        case .overlayShow:
+            try windowController.showOverlay(on: target.paneID)
+            return AgentIPCResponseResult()
+        case .overlayClose:
+            try windowController.closeOverlay(on: target.paneID)
+            return AgentIPCResponseResult()
         case .list:
             return handleList(target: target, windowController: windowController)
         case .focus:

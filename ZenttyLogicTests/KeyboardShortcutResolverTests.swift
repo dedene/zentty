@@ -495,6 +495,24 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.duplicateFocusedPane))
     }
 
+    func test_overlay_shortcut_is_opt_in_and_remapping_releases_control_backtick() {
+        let backtick = KeyboardShortcut(key: .character("`"), modifiers: [.control])
+        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick))
+        for preset in ShortcutPreset.allCases {
+            let shortcuts = AppConfig.Shortcuts(bindings: ShortcutPresetResolver().resolve(preset))
+            XCTAssertNil(ShortcutManager(shortcuts: shortcuts).shortcut(for: .toggleQuickActionOverlay))
+            XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: shortcuts))
+        }
+        let optIn = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: backtick)])
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(backtick, shortcuts: optIn), .toggleQuickActionOverlay)
+        let remappedKey = KeyboardShortcut(key: .character("o"), modifiers: [.command, .control])
+        let remapped = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: remappedKey)])
+        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: remapped))
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(remappedKey, shortcuts: remapped), .toggleQuickActionOverlay)
+        let unbound = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: nil)])
+        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: unbound))
+    }
+
     func test_resolves_remapped_shortcuts_from_overrides() {
         let shortcuts = AppConfig.Shortcuts(
             bindings: [

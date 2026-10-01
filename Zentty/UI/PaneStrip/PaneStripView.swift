@@ -2132,6 +2132,10 @@ final class PaneStripView: NSView {
         paneViews[paneID]?.frame
     }
 
+    func quickActionOverlayAnchor(for paneID: PaneID) -> NSView? {
+        paneViews[paneID]
+    }
+
     /// Convert a pane's current frame into the coordinate system of `target`,
     /// which must share an ancestor with this view. Returns `nil` if the pane
     /// isn't currently mounted. Used by the Worklane Peek overlay to track
