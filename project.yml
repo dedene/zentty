@@ -79,6 +79,7 @@ targets:
       - path: Zentty/Servers/ServerOutputURLDetector.swift
       - path: Zentty/Servers/ServerURLNormalizer.swift
       - path: Zentty/Servers/ServerWatchRunner.swift
+      - path: Zentty/Support/SubprocessRunner.swift
       - path: Zentty/UI/Theme/WorklaneColor.swift
     dependencies:
       - package: ArgumentParser

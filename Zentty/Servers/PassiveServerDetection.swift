@@ -12,6 +12,53 @@ struct PassiveServerDetectionResult: Equatable, Sendable {
     let dockerServers: [DetectedServer]
 }
 
+/// One passive-detection scan across every worklane context. Docker is
+/// queried at most once per round (through the shared poller) and the
+/// container list is then filtered per context.
+struct PassiveServerDetectionRound: Sendable {
+    let results: [PassiveServerDetectionResult]
+    /// `nil` when docker was not polled this round.
+    let dockerOutcome: DockerContainerPollOutcome?
+
+    /// `false` when docker was not polled this round, the poll timed out or was
+    /// skipped: previously detected docker servers stay as they are.
+    var appliesDockerResults: Bool {
+        switch dockerOutcome {
+        case .containers, .unavailable:
+            true
+        case .failed, .skipped, nil:
+            false
+        }
+    }
+
+    /// Blocks on the listener scan and docker; call it off the main thread.
+    /// Pass `dockerPoller: nil` for a round without docker discovery.
+    static func scan(
+        contexts: [PassiveServerDetectionContext],
+        scanner: ServerListenerScanner,
+        dockerDiscovery: DockerServerDiscovery,
+        dockerPoller: DockerContainerPoller?
+    ) -> PassiveServerDetectionRound {
+        let outcome = dockerPoller?.poll()
+        let containers: [DockerContainer]
+        switch outcome {
+        case .containers(let polled):
+            containers = polled
+        case .unavailable, .failed, .skipped, nil:
+            containers = []
+        }
+
+        let results = contexts.map { context in
+            PassiveServerDetectionResult(
+                worklaneID: context.worklaneID,
+                scannerServers: scanner.scan(context: context.scanner),
+                dockerServers: dockerDiscovery.servers(from: containers, context: context.docker)
+            )
+        }
+        return PassiveServerDetectionRound(results: results, dockerOutcome: outcome)
+    }
+}
+
 struct PassiveServerDetectionResultTracker: Sendable {
     private var scannerSignaturesByWorklane: [WorklaneID: [PassiveServerDetectionServerSignature]] = [:]
     private var dockerSignaturesByWorklane: [WorklaneID: [PassiveServerDetectionServerSignature]] = [:]
@@ -150,14 +197,27 @@ struct PassiveServerDetectionSnapshot: Equatable, Sendable {
 
 struct PassiveServerDetectionDockerCadence: Equatable, Sendable {
     private let pollEveryRunningScanCount: Int
+    private let maximumInFlightRetries: Int
     private var scanCountSinceLastDiscovery = 0
     private var hasDiscovered = false
+    private var inFlightRetryCount = 0
+    /// A docker poll lost to another round's in-flight query. That round may
+    /// belong to a cancelled loop that never applies its result, so this loop
+    /// asks again on its next scan instead of waiting for the regular cadence.
+    private(set) var needsDockerRetry = false
 
-    init(pollEveryRunningScanCount: Int = 3) {
+    init(pollEveryRunningScanCount: Int = 3, maximumInFlightRetries: Int = 3) {
         self.pollEveryRunningScanCount = max(1, pollEveryRunningScanCount)
+        self.maximumInFlightRetries = max(0, maximumInFlightRetries)
     }
 
     mutating func shouldDiscoverDocker() -> Bool {
+        if needsDockerRetry {
+            needsDockerRetry = false
+            scanCountSinceLastDiscovery = 0
+            return true
+        }
+
         guard hasDiscovered else {
             hasDiscovered = true
             scanCountSinceLastDiscovery = 0
@@ -171,6 +231,24 @@ struct PassiveServerDetectionDockerCadence: Equatable, Sendable {
 
         scanCountSinceLastDiscovery = 0
         return true
+    }
+
+    /// Records a round's docker outcome (`nil` when docker was not polled).
+    /// Consecutive in-flight skips are retried at most `maximumInFlightRetries`
+    /// times, so a loop kept alive for a retry can never spin forever.
+    mutating func recordDockerOutcome(_ outcome: DockerContainerPollOutcome?) {
+        switch outcome {
+        case .skipped(.queryInFlight):
+            needsDockerRetry = inFlightRetryCount < maximumInFlightRetries
+            if needsDockerRetry {
+                inFlightRetryCount += 1
+            }
+        case .some:
+            inFlightRetryCount = 0
+            needsDockerRetry = false
+        case nil:
+            break
+        }
     }
 }
 

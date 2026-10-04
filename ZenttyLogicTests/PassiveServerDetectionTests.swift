@@ -112,6 +112,61 @@ final class PassiveServerDetectionTests: XCTestCase {
         XCTAssertFalse(cadence.shouldDiscoverDocker())
     }
 
+    func test_dockerCadenceRetriesOnNextScanAfterLosingToAnInFlightQuery() {
+        var cadence = PassiveServerDetectionDockerCadence(pollEveryRunningScanCount: 3)
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+
+        cadence.recordDockerOutcome(.skipped(.queryInFlight))
+
+        XCTAssertTrue(cadence.needsDockerRetry, "the loop must stay alive for the retry")
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(.containers([]))
+        XCTAssertFalse(cadence.needsDockerRetry)
+
+        // Back on the regular cadence, counted from the retry.
+        XCTAssertFalse(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(nil)
+        XCTAssertFalse(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(nil)
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+    }
+
+    func test_dockerCadenceBoundsConsecutiveInFlightRetries() {
+        var cadence = PassiveServerDetectionDockerCadence(pollEveryRunningScanCount: 3, maximumInFlightRetries: 2)
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+
+        cadence.recordDockerOutcome(.skipped(.queryInFlight))
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(.skipped(.queryInFlight))
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(.skipped(.queryInFlight))
+
+        XCTAssertFalse(cadence.needsDockerRetry, "retries must stop after the maximum")
+        XCTAssertFalse(cadence.shouldDiscoverDocker())
+
+        // An answer resets the budget for the next time a poll loses a race.
+        XCTAssertFalse(cadence.shouldDiscoverDocker())
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(.unavailable)
+        XCTAssertFalse(cadence.shouldDiscoverDocker())
+        XCTAssertFalse(cadence.shouldDiscoverDocker())
+        XCTAssertTrue(cadence.shouldDiscoverDocker())
+        cadence.recordDockerOutcome(.skipped(.queryInFlight))
+        XCTAssertTrue(cadence.needsDockerRetry)
+    }
+
+    func test_dockerCadenceDoesNotRetryOtherOutcomes() {
+        for outcome: DockerContainerPollOutcome in [.skipped(.backingOff), .failed, .unavailable, .containers([])] {
+            var cadence = PassiveServerDetectionDockerCadence(pollEveryRunningScanCount: 3)
+            XCTAssertTrue(cadence.shouldDiscoverDocker())
+
+            cadence.recordDockerOutcome(outcome)
+
+            XCTAssertFalse(cadence.needsDockerRetry, "\(outcome)")
+            XCTAssertFalse(cadence.shouldDiscoverDocker(), "\(outcome)")
+        }
+    }
+
     func test_resultTrackerAppliesInitialEmptyScannerResult() {
         var tracker = PassiveServerDetectionResultTracker()
 
