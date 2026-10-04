@@ -1188,26 +1188,19 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
     ) async -> String? {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = ["git"] + arguments
-                process.currentDirectoryURL = URL(
-                    fileURLWithPath: currentDirectoryPath, isDirectory: true)
-
-                let stdout = Pipe()
-                process.standardOutput = stdout
-                process.standardError = Pipe()
-
                 do {
-                    try process.run()
-                    process.waitUntilExit()
-                    guard process.terminationStatus == 0 else {
+                    let result = try SubprocessRunner.run(
+                        executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                        arguments: ["git"] + arguments,
+                        currentDirectoryURL: URL(fileURLWithPath: currentDirectoryPath, isDirectory: true),
+                        timeout: 5
+                    )
+                    guard result.terminationStatus == 0 else {
                         continuation.resume(returning: nil)
                         return
                     }
 
-                    let output = String(
-                        decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    let output = String(decoding: result.stdout, as: UTF8.self)
                     continuation.resume(returning: WorklaneContextFormatter.trimmed(output))
                 } catch {
                     continuation.resume(returning: nil)

@@ -473,20 +473,18 @@ struct AgentToolLauncher {
     }
 
     private func runMiseWhich(binaryName: String) -> ProcessOutput {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["mise", "which", binaryName]
-        process.environment = environment
-        process.standardInput = Pipe()
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try SubprocessRunner.run(
+                executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                arguments: ["mise", "which", binaryName],
+                environment: environment,
+                timeout: 10
+            )
+            return ProcessOutput(
+                exitCode: result.terminationStatus,
+                stdout: String(data: result.stdout, encoding: .utf8) ?? "",
+                stderr: String(data: result.stderr, encoding: .utf8) ?? ""
+            )
         } catch {
             return ProcessOutput(
                 exitCode: 127,
@@ -494,12 +492,6 @@ struct AgentToolLauncher {
                 stderr: "mise which \(binaryName) failed: \(error.localizedDescription)"
             )
         }
-
-        return ProcessOutput(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        )
     }
 
     private func failLaunch(with diagnostic: LaunchFailureDiagnostic) -> Never {
