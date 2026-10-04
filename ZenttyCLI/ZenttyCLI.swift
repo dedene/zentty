@@ -281,26 +281,44 @@ struct SplitLayoutOptions: ParsableArguments {
     }
 }
 
+struct SplitStartupCommandOptions: ParsableArguments {
+    @Argument(parsing: .postTerminator, help: "Optional command to run in the new pane. Place it after '--'.")
+    var command: [String] = []
+
+    func commandArguments() throws -> [String] {
+        guard !command.isEmpty else { return [] }
+        let data = try JSONEncoder().encode(command)
+        return ["--command-json", String(decoding: data, as: UTF8.self)]
+    }
+}
+
 struct SplitCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "split",
-        abstract: "Split the focused pane."
+        abstract: "Split the focused pane.",
+        discussion: "Specify a direction before '--'."
     )
 
     @Argument(help: "Direction: right (default), left, up, down.")
-    var direction: String = "right"
+    var direction: String?
 
     @OptionGroup var layout: SplitLayoutOptions
     @OptionGroup var target: PaneTargetOptions
+    @OptionGroup var startup: SplitStartupCommandOptions
 
     mutating func run() throws {
+        // An empty post-terminator array cannot distinguish no boundary from a bare '--'.
+        if direction == nil, CommandLine.arguments.contains("--") {
+            throw ValidationError("Specify a split direction before '--'.")
+        }
+        let direction = direction ?? "right"
         let validDirections = ["right", "left", "up", "down"]
         guard validDirections.contains(direction) else {
             throw ValidationError("Invalid direction '\(direction)'. Use: \(validDirections.joined(separator: ", "))")
         }
         _ = try PaneIPC.send(
             subcommand: "split",
-            arguments: [direction] + layout.layoutArguments() + target.selectorArguments()
+            arguments: try [direction] + layout.layoutArguments() + target.selectorArguments() + startup.commandArguments()
         )
     }
 }
@@ -313,11 +331,12 @@ struct HSplitCommand: ParsableCommand {
 
     @OptionGroup var layout: SplitLayoutOptions
     @OptionGroup var target: PaneTargetOptions
+    @OptionGroup var startup: SplitStartupCommandOptions
 
     mutating func run() throws {
         _ = try PaneIPC.send(
             subcommand: "split",
-            arguments: ["right"] + layout.layoutArguments() + target.selectorArguments()
+            arguments: try ["right"] + layout.layoutArguments() + target.selectorArguments() + startup.commandArguments()
         )
     }
 }
@@ -330,11 +349,12 @@ struct VSplitCommand: ParsableCommand {
 
     @OptionGroup var layout: SplitLayoutOptions
     @OptionGroup var target: PaneTargetOptions
+    @OptionGroup var startup: SplitStartupCommandOptions
 
     mutating func run() throws {
         _ = try PaneIPC.send(
             subcommand: "split",
-            arguments: ["down"] + layout.layoutArguments() + target.selectorArguments()
+            arguments: try ["down"] + layout.layoutArguments() + target.selectorArguments() + startup.commandArguments()
         )
     }
 }
