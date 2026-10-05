@@ -152,10 +152,6 @@ fi
 git -C "${SOURCE_DIR}" fetch --tags --prune --force origin
 git -C "${SOURCE_DIR}" checkout --force --detach "${revision}"
 
-# Link matches use viewport rows; smooth-scroll rendering includes guard rows.
-git -C "${SOURCE_DIR}" apply --check "${SCRIPT_DIR}/patches/ghostty-hyperlink-underline.patch"
-git -C "${SOURCE_DIR}" apply "${SCRIPT_DIR}/patches/ghostty-hyperlink-underline.patch"
-
 # Ghostty uses kCVPixelFormatType_30RGB_r210 (macOS 14+ CoreVideo constant); patch to the
 # equivalent raw FourCC so GhosttyKit compiles with a macOS 13 minimum target.
 pixel_format_file="${SOURCE_DIR}/pkg/macos/video/pixel_format.zig"
