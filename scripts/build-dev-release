@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+#
+# Build a local release candidate of Zentty from the current checkout and
+# install it as "Zentty Dev.app", next to the production Zentty.app.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+DEV_BUNDLE_ID="be.zenjoy.zentty.dev"
+DEV_APP_NAME="Zentty Dev"
+TEAM_ID="25TVW8MSGJ"
+INSTALL_DIR="${ZENTTY_DEV_INSTALL_DIR:-/Applications}"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+usage() {
+  cat <<USAGE
+Usage: scripts/build-dev-release [options] [-- extra xcodebuild args]
+
+Builds a Release configuration of the current checkout as "${DEV_APP_NAME}"
+(bundle id ${DEV_BUNDLE_ID}, no Sparkle feed, no error reporting) and installs
+it to \${ZENTTY_DEV_INSTALL_DIR:-/Applications}/${DEV_APP_NAME}.app.
+
+Options:
+  --adhoc        Sign ad hoc even if a Developer ID identity is available.
+  --no-install   Build only and print the built app path.
+  --open         Launch ${DEV_APP_NAME} after installing (default: only if it
+                 was running before).
+  --fetch        Run 'git fetch origin main' before the origin/main check.
+  -h, --help     Show this help.
+
+Anything after '--' is passed to xcodebuild.
+
+Signing: with a "Developer ID Application ... (${TEAM_ID})" identity in the
+keychain the project's signing is kept, so macOS privacy permissions persist
+across rebuilds. Otherwise the build is signed ad hoc and permission prompts
+reappear on every build. Notarization is never attempted.
+USAGE
+}
+
+log() { echo "==> $*"; }
+warn() { echo "warning: $*" >&2; }
+die() { echo "error: $*" >&2; exit 1; }
+
+force_adhoc=0
+do_install=1
+force_open=0
+do_fetch=0
+extra_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --adhoc) force_adhoc=1 ;;
+    --no-install) do_install=0 ;;
+    --open) force_open=1 ;;
+    --fetch) do_fetch=1 ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; extra_args=("$@"); break ;;
+    *) usage >&2; die "unknown option: $1" ;;
+  esac
+  shift
+done
+
+cd "${REPO_ROOT}"
+
+for cmd in xcodebuild git ditto osascript lsappinfo; do
+  command -v "${cmd}" >/dev/null 2>&1 || die "missing required command: ${cmd}"
+done
+PLISTBUDDY="/usr/libexec/PlistBuddy"
+[[ -x "${PLISTBUDDY}" ]] || die "missing ${PLISTBUDDY}"
+
+# --- Preflight ---------------------------------------------------------------
+
+if [[ ! -d "${REPO_ROOT}/FrameworksLocal/GhosttyKit.xcframework" ]]; then
+  die "FrameworksLocal/GhosttyKit.xcframework is missing. Run scripts/build_ghosttykit.sh first."
+fi
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+commit="$(git rev-parse --short HEAD)"
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  dirty="dirty"
+else
+  dirty="clean"
+fi
+log "Branch ${branch} @ ${commit} (tree ${dirty})"
+
+if [[ "${do_fetch}" -eq 1 ]]; then
+  git fetch origin main || warn "git fetch origin main failed; using the existing origin/main ref"
+fi
+if origin_main="$(git rev-parse --verify --quiet refs/remotes/origin/main)"; then
+  if [[ "${origin_main}" != "$(git rev-parse HEAD)" ]]; then
+    warn "HEAD (${commit}) is not origin/main ($(git rev-parse --short "${origin_main}")). Fine for testing a branch, but this is not the main release candidate."
+  fi
+else
+  warn "no origin/main ref found; skipping the main comparison"
+fi
+
+build_number="$(git rev-list --count HEAD)"
+
+# --- Signing -----------------------------------------------------------------
+
+signing_args=()
+if [[ "${force_adhoc}" -eq 0 ]] \
+  && security find-identity -v -p codesigning 2>/dev/null \
+    | grep -q "Developer ID Application: .*(${TEAM_ID})"; then
+  log "Signing with the project's Developer ID identity (stable code identity)"
+else
+  if [[ "${force_adhoc}" -eq 1 ]]; then
+    log "Signing ad hoc (--adhoc)"
+  else
+    warn "no Developer ID Application identity for team ${TEAM_ID} found; signing ad hoc."
+  fi
+  warn "ad hoc signatures change every build, so macOS permission prompts will reappear."
+  signing_args=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=)
+fi
+
+# --- Build -------------------------------------------------------------------
+
+xcb_args=(
+  -project Zentty.xcodeproj
+  -scheme Zentty
+  -configuration Release
+  -destination 'platform=macOS'
+  -disableAutomaticPackageResolution
+  ZENTTY_BUILD_FLAVOR=dev
+  ZENTTY_BUNDLE_ID_SUFFIX=.dev
+  "ZENTTY_DISPLAY_NAME=${DEV_APP_NAME}"
+  ZENTTY_APP_ICON_NAME=AppIconDev
+  SPARKLE_FEED_URL=
+  SPARKLE_PUBLIC_ED_KEY=
+  GLITCHTIP_DSN=
+  "CURRENT_PROJECT_VERSION=${build_number}"
+  OTHER_CODE_SIGN_FLAGS=--timestamp=none
+)
+if [[ ${#signing_args[@]} -gt 0 ]]; then
+  xcb_args+=("${signing_args[@]}")
+fi
+if [[ ${#extra_args[@]} -gt 0 ]]; then
+  xcb_args+=("${extra_args[@]}")
+fi
+
+LOG_DIR="$(mktemp -d)"
+LOG_FILE="${LOG_DIR}/xcodebuild.log"
+log "Building (build ${build_number}); full log: ${LOG_FILE}"
+
+set +e
+if command -v xcbeautify >/dev/null 2>&1; then
+  xcodebuild "${xcb_args[@]}" build 2>&1 | tee "${LOG_FILE}" | xcbeautify
+  build_status="${PIPESTATUS[0]}"
+else
+  xcodebuild "${xcb_args[@]}" build >"${LOG_FILE}" 2>&1
+  build_status=$?
+fi
+set -e
+
+if [[ "${build_status}" -ne 0 ]]; then
+  echo "--- last 40 lines of ${LOG_FILE} ---" >&2
+  tail -n 40 "${LOG_FILE}" >&2
+  die "xcodebuild failed (exit ${build_status}); full log: ${LOG_FILE}"
+fi
+
+# Locate the product from the Zentty target's build settings (same args).
+settings="$(xcodebuild "${xcb_args[@]}" -showBuildSettings 2>/dev/null)" \
+  || die "xcodebuild -showBuildSettings failed"
+target_dir="$(awk '
+  /^Build settings for action .* and target / { in_zentty = ($0 ~ /and target Zentty:$/) }
+  in_zentty && /^ *TARGET_BUILD_DIR = / { sub(/^ *TARGET_BUILD_DIR = /, ""); print; exit }
+' <<<"${settings}")"
+product_name="$(awk '
+  /^Build settings for action .* and target / { in_zentty = ($0 ~ /and target Zentty:$/) }
+  in_zentty && /^ *FULL_PRODUCT_NAME = / { sub(/^ *FULL_PRODUCT_NAME = /, ""); print; exit }
+' <<<"${settings}")"
+[[ -n "${target_dir}" && -n "${product_name}" ]] \
+  || die "could not find TARGET_BUILD_DIR/FULL_PRODUCT_NAME for target Zentty in build settings"
+
+built_app="${target_dir}/${product_name}"
+[[ -d "${built_app}" ]] || die "built app not found at ${built_app}"
+log "Built ${built_app}"
+
+# --- Verify built product ----------------------------------------------------
+
+info_plist="${built_app}/Contents/Info.plist"
+plist_get() { "${PLISTBUDDY}" -c "Print :$1" "${info_plist}" 2>/dev/null || true; }
+
+bundle_id="$(plist_get CFBundleIdentifier)"
+flavor="$(plist_get ZenttyBuildFlavor)"
+feed_url="$(plist_get SUFeedURL)"
+[[ "${bundle_id}" == "${DEV_BUNDLE_ID}" ]] \
+  || die "built CFBundleIdentifier is '${bundle_id}', expected '${DEV_BUNDLE_ID}'"
+[[ "${flavor}" == "dev" ]] \
+  || die "built ZenttyBuildFlavor is '${flavor}', expected 'dev'"
+[[ -z "${feed_url}" ]] \
+  || die "built SUFeedURL is '${feed_url}'; a dev build must never point at a Sparkle feed"
+log "Verified bundle id ${bundle_id}, flavor ${flavor}, no Sparkle feed"
+
+if [[ "${do_install}" -eq 0 ]]; then
+  echo "${built_app}"
+  exit 0
+fi
+
+# --- Install -----------------------------------------------------------------
+
+dest="${INSTALL_DIR}/${DEV_APP_NAME}.app"
+staging="${INSTALL_DIR}/.${DEV_APP_NAME}.app.new.$$"
+
+is_running() {
+  [[ -n "$(lsappinfo find "bundleid=${DEV_BUNDLE_ID}" 2>/dev/null)" ]]
+}
+
+was_running=0
+if is_running; then
+  was_running=1
+  log "${DEV_APP_NAME} is running; asking it to quit"
+  osascript -e "tell application id \"${DEV_BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+  for _ in $(seq 1 40); do
+    is_running || break
+    sleep 0.5
+  done
+  if is_running; then
+    die "${DEV_APP_NAME} did not quit within 20s. Quit it manually and re-run (nothing was replaced)."
+  fi
+fi
+
+mkdir -p "${INSTALL_DIR}"
+rm -rf "${staging}"
+log "Copying to ${dest}"
+ditto "${built_app}" "${staging}" || { rm -rf "${staging}"; die "ditto failed"; }
+
+if [[ -e "${dest}" ]]; then
+  if command -v trash >/dev/null 2>&1; then
+    trash "${dest}" || { rm -rf "${staging}"; die "could not move the old ${dest} to the trash"; }
+  else
+    rm -rf "${dest}"
+  fi
+fi
+mv "${staging}" "${dest}"
+
+"${LSREGISTER}" -f "${dest}" || warn "lsregister failed; Finder/Dock may show a stale name or icon"
+
+log "Verifying signature"
+codesign --verify --deep --strict "${dest}" || die "codesign verification failed for ${dest}"
+
+log "Installed ${dest}"
+
+if [[ "${was_running}" -eq 1 || "${force_open}" -eq 1 ]]; then
+  log "Launching ${DEV_APP_NAME}"
+  open "${dest}"
+fi

@@ -43,6 +43,26 @@ Regenerate the Xcode project when needed:
 bundle exec fastlane mac generate_project
 ```
 
+## Test-driving a dev build
+
+To try the current checkout as a release candidate without touching your everyday Zentty:
+
+```bash
+scripts/build-dev-release
+```
+
+The script builds the Release configuration and installs it as `Zentty Dev.app` next to `/Applications/Zentty.app` (override the folder with `ZENTTY_DEV_INSTALL_DIR`). If Zentty Dev is already running, it asks it to quit, replaces the bundle and relaunches it. Use `--adhoc` to skip the Developer ID identity, `--no-install` to only build, and `--help` for the rest. It needs `FrameworksLocal/GhosttyKit.xcframework`, so run `scripts/build_ghosttykit.sh` first on a fresh clone.
+
+Zentty Dev is a separate app:
+
+- Bundle id `be.zenjoy.zentty.dev`, so macOS treats it as its own app for permissions and defaults.
+- Settings live in `~/.config/zentty-dev`. On first launch it copies `~/.config/zentty/config.toml` and `bookmarks.json` once; after that the two diverge.
+- Its Application Support and Caches folders are named "Zentty Dev", and session restore is separate.
+- No Sparkle feed and no error reporting, so it never updates itself into the production app.
+- The icon carries an orange DEV badge.
+
+Known limitation: agents that write persistent global hook files (Cursor, Droid, Grok, Kimi, Hermes, Vibe, Amp, agy) record the CLI path of whichever Zentty launched them last. Events still reach the right app, but the recorded path may point at the other one.
+
 ## Code Signing
 
 `project.yml` commits `DEVELOPMENT_TEAM: 25TVW8MSGJ`, which is Zenjoy's Apple Developer team. The team ID itself is not a secret — it ships inside every signed macOS binary — but only Zenjoy can sign with it. External contributors building locally should override it with their own Apple Developer team:
