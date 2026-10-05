@@ -4,20 +4,30 @@ import Foundation
 
 /// Manages installation and preview of custom notification sounds.
 /// Custom sounds are converted via afconvert into the app's Library/Sounds directory
-/// as "zentty-custom-<uuid>.caf" (the internal name stored in AppConfig).
+/// as "<flavor prefix><uuid>.caf" (the internal name stored in AppConfig), e.g.
+/// "zentty-custom-<uuid>.caf" for production.
 /// A fresh file name is minted on every install so macOS never serves a stale cached
 /// sound for a reused name; older custom files are pruned once the new one is committed.
 /// The original display name is persisted separately for UI.
 enum NotificationSoundManager {
     typealias SoundConverter = (_ source: URL, _ destination: URL) throws -> Void
 
-    /// All custom sound files share this prefix so they can be recognised and pruned.
-    static let customFilePrefix = "zentty-custom-"
+    /// Prefix this build mints and prunes. ~/Library/Sounds is shared by every flavor,
+    /// so each one only ever deletes files carrying its own prefix.
+    static let customFilePrefix = ZenttyBuildFlavor.current.customSoundFilePrefix
     static let customFileExtension = "caf"
 
-    /// True when `name` denotes one of our installed custom sound files.
+    /// Every flavor's prefix. Dev's seeded config may reference production's file,
+    /// which Dev must still recognise and play (but never prune).
+    static let recognizedCustomFilePrefixes = [
+        ZenttyBuildFlavor.production.customSoundFilePrefix,
+        ZenttyBuildFlavor.dev.customSoundFilePrefix,
+    ]
+
+    /// True when `name` denotes an installed custom sound file of any flavor.
     static func isCustomSoundName(_ name: String) -> Bool {
-        name.hasPrefix(customFilePrefix) && name.hasSuffix(".\(customFileExtension)")
+        name.hasSuffix(".\(customFileExtension)")
+            && recognizedCustomFilePrefixes.contains { name.hasPrefix($0) }
     }
 
     private static func makeCustomFileName() -> String {
@@ -162,15 +172,17 @@ enum NotificationSoundManager {
         try? FileManager.default.removeItem(at: transaction.temporaryDirectory)
     }
 
-    /// Removes every installed custom sound file except `keepName` (pass nil to remove all).
-    /// Used to clear the previous selection on a fresh install and when the user switches
-    /// back to a system or default sound.
-    static func pruneCustomSounds(keeping keepName: String?) {
+    /// Removes every custom sound file this flavor owns (`ownedPrefix`) except `keepName`
+    /// (pass nil to remove all). Used to clear the previous selection on a fresh install and
+    /// when the user switches back to a system or default sound. Files with another flavor's
+    /// prefix are left alone.
+    static func pruneCustomSounds(keeping keepName: String?, ownedPrefix: String = customFilePrefix) {
         let dir = soundsDirectory
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
             return
         }
-        for entry in entries where isCustomSoundName(entry) && entry != keepName {
+        for entry in entries
+        where entry.hasPrefix(ownedPrefix) && entry.hasSuffix(".\(customFileExtension)") && entry != keepName {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(entry))
         }
     }

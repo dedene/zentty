@@ -65,6 +65,7 @@ final class ZenttyBuildFlavorTests: XCTestCase {
         XCTAssertEqual(flavor.ghosttyTempFilePrefix + "local-overrides.conf", "zentty-ghostty-local-overrides.conf")
         XCTAssertEqual(flavor.agentWrappersDirectoryName, "agent-wrappers")
         XCTAssertEqual(flavor.selectionPasteboardName, "be.zenjoy.zentty.selection")
+        XCTAssertEqual(flavor.customSoundFilePrefix, "zentty-custom-")
 
         let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
         XCTAssertEqual(
@@ -85,6 +86,7 @@ final class ZenttyBuildFlavorTests: XCTestCase {
         XCTAssertEqual(flavor.ghosttyTempFilePrefix, "zentty-dev-ghostty-")
         XCTAssertEqual(flavor.agentWrappersDirectoryName, "agent-wrappers-dev")
         XCTAssertEqual(flavor.selectionPasteboardName, "be.zenjoy.zentty.dev.selection")
+        XCTAssertEqual(flavor.customSoundFilePrefix, "zentty-dev-custom-")
 
         let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
         XCTAssertEqual(
@@ -113,6 +115,35 @@ final class ZenttyBuildFlavorTests: XCTestCase {
             try String(contentsOf: dev.appendingPathComponent("config.toml"), encoding: .utf8),
             "[appearance]\n"
         )
+    }
+
+    func test_seed_copies_symlinked_production_files_as_regular_files() throws {
+        // Dotfile setups symlink config.toml; Dev must get its own copy, never the link,
+        // because persist/BookmarkStore write through symlinks.
+        let dotfiles = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        try FileManager.default.createDirectory(at: dotfiles, withIntermediateDirectories: true)
+        let realConfig = dotfiles.appendingPathComponent("config.toml")
+        try "[appearance]\n".write(to: realConfig, atomically: true, encoding: .utf8)
+        let production = try makeProductionDirectory(files: [:])
+        try FileManager.default.createSymbolicLink(
+            at: production.appendingPathComponent("config.toml"),
+            withDestinationURL: realConfig
+        )
+        let dev = temporaryDirectoryURL.appendingPathComponent("zentty-dev", isDirectory: true)
+
+        let copied = AppConfigStore.seedDevConfigIfNeeded(productionDirectoryURL: production, devDirectoryURL: dev)
+
+        XCTAssertEqual(copied, ["config.toml"])
+        let devConfig = dev.appendingPathComponent("config.toml")
+        let attributes = try FileManager.default.attributesOfItem(atPath: devConfig.path)
+        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeRegular)
+        XCTAssertEqual(try String(contentsOf: devConfig, encoding: .utf8), "[appearance]\n")
+
+        // Write the way persist does (through any symlink) and confirm prod is untouched.
+        let writeTarget = FileManager.default.resolvingSymlinkTarget(at: devConfig)
+        try "dev-only".write(to: writeTarget, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try String(contentsOf: realConfig, encoding: .utf8), "[appearance]\n")
+        XCTAssertEqual(try String(contentsOf: devConfig, encoding: .utf8), "dev-only")
     }
 
     func test_seed_is_noop_when_dev_config_already_exists() throws {

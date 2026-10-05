@@ -156,7 +156,8 @@ final class AppConfigStore: @unchecked Sendable {
 
     /// One-time, best-effort seeding of the Dev config dir from production.
     /// No-op once `config.toml` exists in `devDirectoryURL` (it is created on
-    /// first load either way). Never overwrites. Returns the copied names.
+    /// first load either way). Never overwrites. Seeded files are always regular
+    /// files, even when the production file is a symlink. Returns the copied names.
     @discardableResult
     static func seedDevConfigIfNeeded(
         productionDirectoryURL: URL,
@@ -174,7 +175,11 @@ final class AppConfigStore: @unchecked Sendable {
                   !fileManager.fileExists(atPath: destinationURL.path) else { continue }
             do {
                 try fileManager.createDirectory(at: devDirectoryURL, withIntermediateDirectories: true)
-                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+                // Copy contents, not the item: production's file may be a symlink into
+                // a dotfiles repo, and persist/BookmarkStore write through symlinks, so
+                // a copied link would make Dev write into production's real file.
+                let data = try Data(contentsOf: sourceURL)
+                try data.write(to: destinationURL, options: .withoutOverwriting)
                 copied.append(name)
             } catch {
                 appConfigLogger.error("Failed to seed \(name, privacy: .public) from production config: \(error.localizedDescription, privacy: .public)")

@@ -74,6 +74,15 @@ enum ZenttyBuildFlavor: String, Equatable, Sendable {
         }
     }
 
+    /// Prefix for custom notification sounds minted into the shared
+    /// ~/Library/Sounds. Each flavor only prunes files with its own prefix.
+    var customSoundFilePrefix: String {
+        switch self {
+        case .production: "zentty-custom-"
+        case .dev: "zentty-dev-custom-"
+        }
+    }
+
     var selectionPasteboardName: String {
         switch self {
         case .production: "be.zenjoy.zentty.selection"

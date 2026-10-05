@@ -3539,7 +3539,8 @@ private extension RootViewController {
     private func presentBookmarkPersistError(_ error: Error) {
         let alert = NSAlert()
         alert.messageText = "Couldn't save bookmarks"
-        alert.informativeText = "Zentty couldn't write to ~/.config/zentty/bookmarks.json: \(error.localizedDescription)"
+        let bookmarksPath = (AppConfigStore.bookmarksFileURL().path as NSString).abbreviatingWithTildeInPath
+        alert.informativeText = "Zentty couldn't write to \(bookmarksPath): \(error.localizedDescription)"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         if let window = view.window {
