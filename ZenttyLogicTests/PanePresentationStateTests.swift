@@ -3,11 +3,20 @@ import XCTest
 @testable import Zentty
 
 final class PanePresentationStateTests: XCTestCase {
-    func test_normalize_prefers_meaningful_title_and_canonical_branch_context() {
+    private func makeRepositoryFixture() throws -> String {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("zentty-presentation-" + UUID().uuidString)
+        let project = root.appendingPathComponent("nimbu")
+        try FileManager.default.createDirectory(at: project.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return project.path
+    }
+
+    func test_normalize_prefers_meaningful_title_and_canonical_branch_context() throws {
+        let projectPath = try makeRepositoryFixture()
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "Test session setup",
-                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                currentWorkingDirectory: projectPath,
                 processName: "claude",
                 gitBranch: "wrong-branch"
             ),
@@ -22,8 +31,8 @@ final class PanePresentationStateTests: XCTestCase {
             terminalProgress: nil,
             reviewState: nil,
             gitContext: PaneGitContext(
-                workingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
-                repositoryRoot: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                workingDirectory: projectPath,
+                repositoryRoot: projectPath,
                 reference: .branch("main")
             )
         )
@@ -43,10 +52,11 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertTrue(presentation.isWorking)
     }
 
-    func test_normalize_preserves_remembered_title_across_idle_and_metadata_loss() {
+    func test_normalize_preserves_remembered_title_across_idle_and_metadata_loss() throws {
+        let projectPath = try makeRepositoryFixture()
         var previous = PanePresentationState()
-        previous.cwd = "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu"
-        previous.repoRoot = "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu"
+        previous.cwd = projectPath
+        previous.repoRoot = projectPath
         previous.branch = "main"
         previous.branchDisplayText = "main"
         previous.lookupBranch = "main"
@@ -60,7 +70,7 @@ final class PanePresentationStateTests: XCTestCase {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: nil,
-                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                currentWorkingDirectory: projectPath,
                 processName: "claude",
                 gitBranch: nil
             ),
@@ -76,8 +86,8 @@ final class PanePresentationStateTests: XCTestCase {
             terminalProgress: nil,
             reviewState: nil,
             gitContext: PaneGitContext(
-                workingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
-                repositoryRoot: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                workingDirectory: projectPath,
+                repositoryRoot: projectPath,
                 reference: .branch("main")
             )
         )
@@ -97,11 +107,12 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertFalse(presentation.isWorking)
     }
 
-    func test_normalize_uses_short_sha_for_detached_head_and_hides_starting_status() {
+    func test_normalize_uses_short_sha_for_detached_head_and_hides_starting_status() throws {
+        let projectPath = try makeRepositoryFixture()
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "/Users/peter",
-                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                currentWorkingDirectory: projectPath,
                 processName: "claude",
                 gitBranch: "wrong-branch"
             ),
@@ -116,8 +127,8 @@ final class PanePresentationStateTests: XCTestCase {
             terminalProgress: nil,
             reviewState: nil,
             gitContext: PaneGitContext(
-                workingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
-                repositoryRoot: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                workingDirectory: projectPath,
+                repositoryRoot: projectPath,
                 reference: .detached("a1b2c3d")
             )
         )
