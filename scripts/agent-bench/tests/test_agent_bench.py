@@ -419,6 +419,77 @@ class SyntheticScenarioTests(unittest.TestCase):
             ["Stop kept the daemon starter's ZENTTY_CLAUDE_PID"],
         )
 
+    def test_claude_attach_plan_launches_as_given_and_announces_the_session(self):
+        # Transcribed from AgentLaunchBootstrap.claudeAttachPlan.
+        with tempfile.TemporaryDirectory() as tmp:
+            planner = agent_bench.LaunchPlanner(
+                profile=agent_bench.load_profiles(ROOT / "profiles")["claude"],
+                scenario="background_routing",
+                run_dir=pathlib.Path(tmp),
+                resources_dir=None,
+            )
+
+            def plan(arguments):
+                return planner.plan(
+                    {
+                        "arguments": arguments,
+                        "environment": {"ZENTTY_REAL_BINARY": "/usr/local/bin/claude", "ZENTTY_CLI_BIN": "/tmp/zentty-bench"},
+                    }
+                )
+
+            attached = plan(["attach", "6E811AE4"])
+            self.assertEqual(attached["arguments"], ["attach", "6E811AE4"])
+            self.assertEqual(
+                attached["preLaunchActions"],
+                [
+                    {
+                        "subcommand": "agent-event",
+                        "arguments": ["--adapter=claude"],
+                        "standardInput": '{"hook_event_name":"ZenttyAttach","session_id":"6e811ae4"}',
+                    }
+                ],
+            )
+            self.assertEqual(plan(["attach"])["preLaunchActions"], [])
+            self.assertEqual(plan(["attach", "--help"])["preLaunchActions"], [])
+
+    def test_attach_announcement_violations_checks_pane_session_and_pid(self):
+        def announcement(pane="pane-c", session="6e811ae4", pid="4242"):
+            environment = {"ZENTTY_PANE_ID": pane, "ZENTTY_WORKLANE_ID": "wl-c"}
+            if pid:
+                environment["ZENTTY_CLAUDE_PID"] = pid
+            return agent_bench.TraceRecord(
+                kind="hook",
+                event_name="ZenttyAttach",
+                standard_input=json.dumps({"hook_event_name": "ZenttyAttach", "session_id": session}),
+                environment=environment,
+            )
+
+        def violations(records):
+            return agent_bench.attach_announcement_violations(
+                records, session_id="6e811ae4", expected_pane="pane-c", expected_worklane="wl-c"
+            )
+
+        self.assertEqual(violations([announcement()]), [])
+        self.assertEqual(violations([]), ["expected one ZenttyAttach from `claude attach`, captured 0"])
+        self.assertEqual(violations([announcement(pane="pane-a")]), ["ZenttyAttach came from pane 'pane-a', expected 'pane-c'"])
+        self.assertEqual(violations([announcement(session="deadbeef")]), ["ZenttyAttach did not name session 6e811ae4"])
+        self.assertEqual(violations([announcement(pid=None)]), ["ZenttyAttach carried no attach client pid"])
+        # The announcement comes from the attaching pane by design.
+        self.assertEqual(
+            agent_bench.daemon_routing_violations(
+                [
+                    agent_bench.TraceRecord(
+                        kind="hook", event_name="Stop", environment={"ZENTTY_PANE_ID": "pane-b", "ZENTTY_WORKLANE_ID": "wl-b"}
+                    ),
+                    announcement(),
+                ],
+                expected_pane="pane-b",
+                expected_worklane="wl-b",
+                starter_claude_pid="999999",
+            ),
+            [],
+        )
+
     def test_codex_plan_registers_and_trusts_subagent_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

@@ -134,6 +134,11 @@ identity, then launches `claude --bg` through the wrapper as the bench pane.
 Every captured hook must carry the bench pane and worklane, and none may keep
 the starter's `ZENTTY_CLAUDE_PID`; a violation reports `wrong-pane-routing`.
 
+It then runs `claude attach <id>` through the wrapper from a third pane. The
+attach client fires no hooks, so the wrapper must send one `ZenttyAttach`
+event naming the session, from the attaching pane and with the client's pid.
+That event is what lets the app move the session to the attaching pane.
+
 It starts and stops the per-user Claude daemon, so it is not part of any
 default sweep and skips (`scenario-skip`) when a daemon or background session
 is already running. It makes two short model calls. Run it on its own:

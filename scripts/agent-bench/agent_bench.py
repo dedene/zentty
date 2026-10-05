@@ -2274,6 +2274,20 @@ class LaunchPlanner:
         return True
 
     def _plan_claude(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        if arguments[:1] == ["attach"]:
+            # Mirror AgentLaunchBootstrap.claudeAttachPlan: the attach client
+            # launches as given and the wrapper announces the re-home first.
+            session_id = arguments[1].strip().lower() if len(arguments) > 1 else ""
+            prelaunch = []
+            if len(session_id) >= 8 and not session_id.startswith("-"):
+                prelaunch.append(
+                    {
+                        "subcommand": "agent-event",
+                        "arguments": ["--adapter=claude"],
+                        "standardInput": compact_json({"hook_event_name": CLAUDE_ATTACH_EVENT, "session_id": session_id}),
+                    }
+                )
+            return self._launch_plan(executable, arguments, {}, unset=["CLAUDECODE"], prelaunch=prelaunch)
         hook_command = claude_hook_command(cli_path, environment)
         settings = {"hooks": {}}
         # Mirror AgentLaunchBootstrap.claudePlan event-for-event, timeouts
@@ -3233,6 +3247,9 @@ DAEMON_STARTER_PANE_ID = "agent-bench-daemon-starter-pane"
 DAEMON_STARTER_WORKLANE_ID = "agent-bench-daemon-starter-worklane"
 # Not a live process: the hook CLI must drop it instead of tracking it.
 DAEMON_STARTER_CLAUDE_PID = "999999"
+DAEMON_ATTACH_PANE_ID = "agent-bench-attach-pane"
+DAEMON_ATTACH_WORKLANE_ID = "agent-bench-attach-worklane"
+CLAUDE_ATTACH_EVENT = "ZenttyAttach"
 DAEMON_STARTER_PROMPT = "Reply with exactly: ZENTTY_AGENT_BENCH_DAEMON_STARTED"
 CLAUDE_DAEMON_PROCESS_PATTERN = re.compile(r"(?:^|/)claude (?:daemon run|bg-pty-host|bg-spare)(?:\s|$)")
 BACKGROUNDED_SESSION_PATTERN = re.compile(r"backgrounded\s+\S\s+([0-9a-f]{8})\b")
@@ -3278,7 +3295,7 @@ def daemon_routing_violations(
     starter_claude_pid: str,
 ) -> list[str]:
     violations: list[str] = []
-    hooks = [record for record in records if record.kind == "hook"]
+    hooks = [record for record in records if record.kind == "hook" and record.event_name != CLAUDE_ATTACH_EVENT]
     if not hooks:
         return ["no hook events captured"]
     for record in hooks:
@@ -3292,6 +3309,27 @@ def daemon_routing_violations(
             violations.append(f"{label} routed to worklane {worklane!r}, expected {expected_worklane!r}")
         elif environment.get("ZENTTY_CLAUDE_PID") == starter_claude_pid:
             violations.append(f"{label} kept the daemon starter's ZENTTY_CLAUDE_PID")
+    return violations
+
+
+def attach_announcement_violations(
+    records: list[TraceRecord],
+    session_id: str,
+    expected_pane: str,
+    expected_worklane: str,
+) -> list[str]:
+    announcements = [record for record in records if record.kind == "hook" and record.event_name == CLAUDE_ATTACH_EVENT]
+    if len(announcements) != 1:
+        return [f"expected one {CLAUDE_ATTACH_EVENT} from `claude attach`, captured {len(announcements)}"]
+    record = announcements[0]
+    environment = record.environment or {}
+    violations: list[str] = []
+    if parse_json_object(record.standard_input).get("session_id") != session_id:
+        violations.append(f"{CLAUDE_ATTACH_EVENT} did not name session {session_id}")
+    if environment.get("ZENTTY_PANE_ID") != expected_pane or environment.get("ZENTTY_WORKLANE_ID") != expected_worklane:
+        violations.append(f"{CLAUDE_ATTACH_EVENT} came from pane {environment.get('ZENTTY_PANE_ID')!r}, expected {expected_pane!r}")
+    if parse_positive_int(environment.get("ZENTTY_CLAUDE_PID")) is None:
+        violations.append(f"{CLAUDE_ATTACH_EVENT} carried no attach client pid")
     return violations
 
 
@@ -3600,6 +3638,7 @@ class BenchRunner:
         starter_env["ZENTTY_PANE_TOKEN"] = "agent-bench-daemon-starter-token"
         starter_env["ZENTTY_CLAUDE_PID"] = DAEMON_STARTER_CLAUDE_PID
         session_ids: list[str] = []
+        launched_ids: list[str] = []
         observations: list[TerminalObservation] = []
         try:
             starter = run_pty(
@@ -3632,6 +3671,30 @@ class BenchRunner:
                 if not validate_scenario(agent, expectation, self.recorder.records(), agent_tool=profile.tool).missing_events:
                     break
                 time.sleep(0.5)
+
+            # Phase 3: `claude attach` from a third pane. The client fires no
+            # hooks; the wrapper has to announce the re-home itself.
+            launched_ids = backgrounded_session_ids(launched.output)
+            if launched_ids:
+                attach_env = dict(env)
+                attach_env["ZENTTY_PANE_ID"] = DAEMON_ATTACH_PANE_ID
+                attach_env["ZENTTY_WORKLANE_ID"] = DAEMON_ATTACH_WORKLANE_ID
+                attached = run_pty(
+                    [command, "attach", launched_ids[0]],
+                    env=attach_env,
+                    cwd=repo,
+                    inputs=[],
+                    timeout=min(self.args.timeout, 60),
+                    transcript_path=self.run_dir / f"{agent}-{scenario}-attach.terminal.log",
+                    # Detaching (Ctrl-C twice) drops into the agents view
+                    # instead of exiting, so end the client once it has
+                    # attached and the announcement is on record.
+                    completion_predicate=lambda output, _observations: (
+                        "ZENTTY_AGENT_BENCH_OK" in output
+                        and any(record.event_name == CLAUDE_ATTACH_EVENT for record in self.recorder.records())
+                    ),
+                )
+                observations.extend(attached.terminal_observations)
         finally:
             for session_id in session_ids:
                 subprocess.run(
@@ -3654,6 +3717,13 @@ class BenchRunner:
                 expected_worklane=env["ZENTTY_WORKLANE_ID"],
                 starter_claude_pid=DAEMON_STARTER_CLAUDE_PID,
             )
+            if not violations:
+                violations = attach_announcement_violations(
+                    records,
+                    session_id=(launched_ids or [""])[0],
+                    expected_pane=DAEMON_ATTACH_PANE_ID,
+                    expected_worklane=DAEMON_ATTACH_WORKLANE_ID,
+                )
             if violations:
                 result.passed = False
                 result.status = "fail"

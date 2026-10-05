@@ -93,18 +93,179 @@ final class ClaudeDaemonPaneRoutingTests: XCTestCase {
         XCTAssertTrue(AgentHookProcessLineage.isAncestor(getppid()), "real lookup resolves this process's parent")
     }
 
-    private func claudeHookCommands(launchEnvironment: [String: String]) throws -> [String] {
+    // MARK: - claude attach
+
+    private static let sessionID = "6e811ae4-adf7-4055-a72c-c4a76db690a2"
+    private static let paneA = ["ZENTTY_WORKLANE_ID": "worklane-a", "ZENTTY_PANE_ID": "pane-a"]
+    private static let paneB = ["ZENTTY_WORKLANE_ID": "worklane-b", "ZENTTY_PANE_ID": "pane-b", "ZENTTY_CLAUDE_PID": "4242"]
+
+    func test_attach_launches_the_client_as_given_and_announces_the_session() throws {
+        let plan = try claudePlan(arguments: ["attach", "6E811AE4"], launchEnvironment: [
+            "ZENTTY_CLI_BIN": "/tmp/zentty",
+            "ZENTTY_WORKLANE_ID": "worklane-b",
+            "ZENTTY_PANE_ID": "pane-b",
+            "ZENTTY_PANE_TOKEN": "token-b",
+        ])
+
+        XCTAssertEqual(plan.arguments, ["attach", "6E811AE4"], "the attach client takes no --session-id or --settings")
+        XCTAssertEqual(plan.preLaunchActions.count, 1)
+        let action = try XCTUnwrap(plan.preLaunchActions.first)
+        XCTAssertEqual(action.subcommand, "agent-event")
+        XCTAssertEqual(action.arguments, ["--adapter=claude"])
+        let input = try AgentEventBridge.claudeParseInput(Data(XCTUnwrap(action.standardInput).utf8))
+        XCTAssertEqual(input.hookEventName, ClaudeLaunchPolicy.attachEventName)
+        XCTAssertEqual(input.sessionID, "6e811ae4")
+    }
+
+    func test_attach_without_a_usable_id_announces_nothing() throws {
+        for arguments in [["attach"], ["attach", "--help"], ["attach", "6e81"]] {
+            let plan = try claudePlan(arguments: arguments, launchEnvironment: ["ZENTTY_CLI_BIN": "/tmp/zentty"])
+            XCTAssertEqual(plan.arguments, arguments)
+            XCTAssertTrue(plan.preLaunchActions.isEmpty, "\(arguments)")
+        }
+    }
+
+    func test_attached_session_reports_to_the_attaching_pane_until_the_client_exits() throws {
+        var clientIsAlive = true
+        let sessionStore = makeSessionStore { _ in clientIsAlive }
+        let subagentStore = makeSubagentStore()
+        func send(_ event: String, sessionID: String = Self.sessionID, source: String? = nil, from environment: [String: String]) throws -> [AgentStatusPayload] {
+            var payload = ["hook_event_name": event, "session_id": sessionID]
+            payload["source"] = source
+            return try AgentEventBridge.claudeAdapter(
+                data: JSONSerialization.data(withJSONObject: payload),
+                environment: environment,
+                sessionStore: sessionStore,
+                subagentStore: subagentStore
+            )
+        }
+
+        // Launched with `claude --bg` from pane A; its hooks always name pane A.
+        _ = try send("SessionStart", source: "startup", from: Self.paneA)
+        XCTAssertEqual(try send("Stop", from: Self.paneA).map(\.paneID), [PaneID("pane-a")])
+
+        // `claude attach 6e811ae4` in pane B.
+        let attached = try send(ClaudeLaunchPolicy.attachEventName, sessionID: "6e811ae4", from: Self.paneB)
+        XCTAssertEqual(attached.map(\.paneID), [PaneID("pane-a"), PaneID("pane-a"), PaneID("pane-b")])
+        XCTAssertTrue(attached[0].clearsStatus, "pane A drops the status it can no longer update")
+        XCTAssertEqual(attached[1].pidEvent, .clear)
+        XCTAssertEqual(attached[2].pidEvent, .attach)
+        XCTAssertEqual(attached[2].pid, 4242, "pane B tracks the attach client")
+        XCTAssertEqual(attached[2].sessionID, Self.sessionID)
+
+        XCTAssertEqual(try send("Stop", from: Self.paneA).map(\.paneID), [PaneID("pane-b")])
+        // A resume, clear or compaction while attached must not bounce it back.
+        let restarted = try send("SessionStart", source: "compact", from: Self.paneA)
+        XCTAssertEqual(restarted.map(\.paneID), [PaneID("pane-b")])
+        XCTAssertEqual(restarted.first?.pid, 4242)
+        XCTAssertEqual(try send("UserPromptSubmit", from: Self.paneA).map(\.paneID), [PaneID("pane-b")])
+
+        // Detach: the client exits without any hook.
+        clientIsAlive = false
+        XCTAssertEqual(try send("Stop", from: Self.paneA).map(\.paneID), [PaneID("pane-a")])
+        let record = try XCTUnwrap(sessionStore.lookup(sessionID: Self.sessionID))
+        XCTAssertNil(record.attachment)
+        XCTAssertNil(record.pid, "the attach client's pid does not outlive the attachment")
+    }
+
+    func test_attach_from_the_launch_pane_tracks_the_client_without_clearing_it() throws {
+        let sessionStore = makeSessionStore { _ in true }
+        let subagentStore = makeSubagentStore()
+        var paneA = Self.paneA
+        _ = try AgentEventBridge.claudeAdapter(
+            data: JSONSerialization.data(withJSONObject: ["hook_event_name": "SessionStart", "session_id": Self.sessionID]),
+            environment: paneA,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+
+        paneA["ZENTTY_CLAUDE_PID"] = "4242"
+        let attached = try AgentEventBridge.claudeAdapter(
+            data: JSONSerialization.data(withJSONObject: ["hook_event_name": ClaudeLaunchPolicy.attachEventName, "session_id": "6e811ae4"]),
+            environment: paneA,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+        XCTAssertEqual(attached.map(\.pidEvent), [.attach])
+        XCTAssertEqual(attached.first?.paneID, PaneID("pane-a"))
+    }
+
+    func test_attach_to_a_session_zentty_never_saw_changes_nothing() throws {
+        let sessionStore = makeSessionStore { _ in true }
+        let payloads = try AgentEventBridge.claudeAdapter(
+            data: JSONSerialization.data(withJSONObject: ["hook_event_name": ClaudeLaunchPolicy.attachEventName, "session_id": "0badc0de"]),
+            environment: Self.paneB,
+            sessionStore: sessionStore,
+            subagentStore: makeSubagentStore()
+        )
+        XCTAssertTrue(payloads.isEmpty)
+        XCTAssertNil(try sessionStore.lookup(sessionID: "0badc0de"))
+    }
+
+    func test_attach_announcement_is_handled_the_way_the_wrapper_sends_it() throws {
+        // Same entry point and arguments as the wrapper's pre-launch action,
+        // against the adapter's default (per-test-process) stores.
+        let sessionID = UUID().uuidString.lowercased()
+        func run(_ payload: [String: String], environment: [String: String]) throws -> [AgentStatusPayload] {
+            var posted: [AgentStatusPayload] = []
+            let exitCode = AgentEventBridge.run(
+                arguments: ["zentty", "agent-event", "--adapter=claude"],
+                environment: environment,
+                inputData: try JSONSerialization.data(withJSONObject: payload),
+                post: { posted.append($0) },
+                writeError: { XCTFail("\($0)") }
+            )
+            XCTAssertEqual(exitCode, EXIT_SUCCESS)
+            return posted
+        }
+
+        _ = try run(["hook_event_name": "SessionStart", "session_id": sessionID], environment: Self.paneA)
+        var paneB = Self.paneB
+        paneB["ZENTTY_CLAUDE_PID"] = "\(getpid())"
+        let attached = try run(
+            ["hook_event_name": ClaudeLaunchPolicy.attachEventName, "session_id": String(sessionID.prefix(8))],
+            environment: paneB
+        )
+        XCTAssertEqual(attached.last?.paneID, PaneID("pane-b"))
+        XCTAssertEqual(attached.last?.pid, getpid())
+        XCTAssertEqual(try run(["hook_event_name": "Stop", "session_id": sessionID], environment: Self.paneA).map(\.paneID), [PaneID("pane-b")])
+        _ = try run(["hook_event_name": "SessionEnd", "session_id": sessionID], environment: Self.paneA)
+    }
+
+    func test_session_records_written_before_attach_existed_still_decode() throws {
+        let stateURL = directory.appendingPathComponent("legacy-sessions.json", isDirectory: false)
+        try #"{"version":1,"sessions":{"s1":{"sessionID":"s1","worklaneIDRawValue":"worklane-a","paneIDRawValue":"pane-a","preToolUseSlotsByAgentID":{},"tasks":[],"updatedAt":1}}}"#
+            .write(to: stateURL, atomically: true, encoding: .utf8)
+        let record = try XCTUnwrap(ClaudeHookSessionStore(stateURL: stateURL).lookup(sessionID: "s1"))
+        XCTAssertEqual(record.paneID, PaneID("pane-a"))
+        XCTAssertNil(record.attachment)
+    }
+
+    private func makeSessionStore(isProcessAlive: @escaping (Int32) -> Bool) -> ClaudeHookSessionStore {
+        ClaudeHookSessionStore(
+            stateURL: directory.appendingPathComponent("sessions-\(UUID().uuidString).json", isDirectory: false),
+            isProcessAlive: isProcessAlive
+        )
+    }
+
+    private func makeSubagentStore() -> AgentSubagentRegistryStore {
+        AgentSubagentRegistryStore(
+            stateURL: directory.appendingPathComponent("subagents-\(UUID().uuidString).json", isDirectory: false)
+        )
+    }
+
+    private func claudePlan(arguments: [String], launchEnvironment: [String: String]) throws -> AgentLaunchPlan {
         var environment = launchEnvironment
         environment["ZENTTY_REAL_BINARY"] = "/usr/bin/true"
         let request = AgentIPCRequest(
             kind: .bootstrap,
-            arguments: [],
+            arguments: arguments,
             standardInput: nil,
             environment: environment,
             expectsResponse: true,
             tool: .claude
         )
-        let plan = try AgentLaunchBootstrap.makePlan(
+        return try AgentLaunchBootstrap.makePlan(
             request: request,
             target: AgentIPCTarget(
                 windowID: nil,
@@ -113,6 +274,10 @@ final class ClaudeDaemonPaneRoutingTests: XCTestCase {
             ),
             runtimeDirectoryURL: directory.appendingPathComponent("runtime", isDirectory: true)
         )
+    }
+
+    private func claudeHookCommands(launchEnvironment: [String: String]) throws -> [String] {
+        let plan = try claudePlan(arguments: [], launchEnvironment: launchEnvironment)
         let settingsIndex = try XCTUnwrap(plan.arguments.firstIndex(of: "--settings"))
         let settings = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(plan.arguments[settingsIndex + 1].utf8)) as? [String: Any]

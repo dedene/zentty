@@ -869,6 +869,10 @@ enum AgentLaunchBootstrap {
             )
         }
 
+        if ClaudeLaunchPolicy.isAttach(arguments) {
+            return try claudeAttachPlan(executablePath: executablePath, arguments: arguments)
+        }
+
         guard let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank else {
             return directPlan(
                 executablePath: executablePath,
@@ -923,6 +927,35 @@ enum AgentLaunchBootstrap {
             setEnvironment: setEnvironment,
             unsetEnvironment: ["CLAUDECODE"],
             preLaunchActions: []
+        )
+    }
+
+    /// `claude attach <id>` shows a background session in this pane. The
+    /// session's hooks still carry the pane that launched it, so the wrapper
+    /// tells the app to re-home the session here before it execs the client.
+    /// The client's pid (the wrapper's own, kept across exec) marks how long
+    /// the attachment lasts.
+    private static func claudeAttachPlan(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> AgentLaunchPlan {
+        var preLaunchActions: [AgentLaunchAction] = []
+        if let sessionID = ClaudeLaunchPolicy.attachedSessionID(in: arguments) {
+            preLaunchActions.append(AgentLaunchAction(
+                subcommand: "agent-event",
+                arguments: ["--adapter=claude"],
+                standardInput: try compactJSONString([
+                    "hook_event_name": ClaudeLaunchPolicy.attachEventName,
+                    "session_id": sessionID,
+                ])
+            ))
+        }
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [:],
+            unsetEnvironment: ["CLAUDECODE"],
+            preLaunchActions: preLaunchActions
         )
     }
 
