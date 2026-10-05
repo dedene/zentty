@@ -3689,6 +3689,108 @@ class AppPathResolutionTests(unittest.TestCase):
                 agent_bench.latest_derived_data_zentty_app = old_latest
 
 
+class SigningModeTests(unittest.TestCase):
+    FIND_IDENTITY_OUTPUT = """
+  1) C89AB0992D86540C963777EF2C1D2F37E40AD88E "Apple Distribution: Example University (V8FJHNS4MP)"
+  2) 84A5E223A8D636075A5B0698C585D54D9BCA117B "Apple Development: Jane Doe (A4BAMPA583)"
+  3) AB3F8610298D19FADC70AC8378BE8FB912F4F5B1 "Developer ID Application: Example BV (25TVW8MSGJ)"
+  4) 1111111111111111111111111111111111111111 "Mac Developer: Jane Doe (5V995VZ66W)"
+     4 valid identities found
+"""
+
+    def test_development_identity_hashes_skip_distribution_and_developer_id(self):
+        self.assertEqual(
+            agent_bench.parse_development_identity_hashes(self.FIND_IDENTITY_OUTPUT),
+            ["84A5E223A8D636075A5B0698C585D54D9BCA117B", "1111111111111111111111111111111111111111"],
+        )
+
+    def test_certificate_pems_are_keyed_by_sha1_hash(self):
+        output = (
+            "SHA-256 hash: AAAA\nSHA-1 hash: " + "A" * 40 + "\nkeychain: \"login\"\n"
+            "-----BEGIN CERTIFICATE-----\nfirst\n-----END CERTIFICATE-----\n"
+            "SHA-256 hash: BBBB\nSHA-1 hash: " + "B" * 40 + "\n"
+            "-----BEGIN CERTIFICATE-----\nsecond\n-----END CERTIFICATE-----\n"
+        )
+
+        pems = agent_bench.parse_certificate_pems(output)
+
+        self.assertEqual(set(pems), {"A" * 40, "B" * 40})
+        self.assertIn("second", pems["B" * 40])
+        self.assertNotIn("second", pems["A" * 40])
+
+    def test_certificate_without_pem_does_not_borrow_the_next_entry(self):
+        output = (
+            "SHA-1 hash: " + "A" * 40 + "\nkeychain: \"login\"\n"
+            "SHA-1 hash: " + "B" * 40 + "\n"
+            "-----BEGIN CERTIFICATE-----\nsecond\n-----END CERTIFICATE-----\n"
+        )
+
+        self.assertEqual(list(agent_bench.parse_certificate_pems(output)), ["B" * 40])
+
+    def test_subject_team_id_reads_libressl_and_openssl3_formats(self):
+        libressl = "subject= /UID=7NUVSU7UDW/CN=Apple Development: Jane Doe (A4BAMPA583)/OU=25TVW8MSGJ/O=Example BV/C=US"
+        openssl3 = "subject=UID = 7NUVSU7UDW, CN = Apple Development: Jane Doe (A4BAMPA583), OU = 25TVW8MSGJ, O = Example BV, C = US"
+
+        self.assertEqual(agent_bench.parse_subject_team_id(libressl), "25TVW8MSGJ")
+        self.assertEqual(agent_bench.parse_subject_team_id(openssl3), "25TVW8MSGJ")
+        self.assertIsNone(agent_bench.parse_subject_team_id("subject= /CN=No Team"))
+
+    def test_auto_signing_falls_back_to_ad_hoc_only_when_identity_is_known_missing(self):
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "25TVW8MSGJ", detector=lambda _: False), "ad-hoc")
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "25TVW8MSGJ", detector=lambda _: True), "team")
+        # Keychain inspection failed: keep the default build rather than guess.
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "25TVW8MSGJ", detector=lambda _: None), "team")
+
+    def test_auto_signing_without_team_skips_detection(self):
+        def detector(_):
+            raise AssertionError("detector should not run without a team")
+
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "", detector=detector), "team")
+
+    def test_explicit_signing_mode_wins(self):
+        def detector(_):
+            raise AssertionError("detector should not run for an explicit mode")
+
+        self.assertEqual(agent_bench.resolve_signing_mode("ad-hoc", "25TVW8MSGJ", detector=detector), "ad-hoc")
+        self.assertEqual(agent_bench.resolve_signing_mode("team", "25TVW8MSGJ", detector=detector), "team")
+
+    def test_build_passes_ad_hoc_overrides_when_team_identity_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": None,
+                    "no_build": False,
+                    "signing": "auto",
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "smoke",
+                },
+            )()
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                stdout = "DEVELOPMENT_TEAM = 25TVW8MSGJ\nBUILT_PRODUCTS_DIR = /tmp/build\nFULL_PRODUCT_NAME = Zentty.app\n"
+                return mock.Mock(stdout=stdout if "-showBuildSettings" in command else "")
+
+            runner = agent_bench.BenchRunner(args)
+            try:
+                with mock.patch.object(agent_bench.subprocess, "run", side_effect=fake_run), \
+                     mock.patch.object(agent_bench, "has_development_identity_for_team", return_value=False), \
+                     mock.patch("sys.stderr"):
+                    app_path = runner._resolve_app_path()
+            finally:
+                runner._cleanup_socket_dir()
+
+        self.assertEqual(app_path, pathlib.Path("/tmp/build/Zentty.app"))
+        build = next(command for command in calls if "build" in command)
+        self.assertEqual(build[-len(agent_bench.AD_HOC_SIGNING_OVERRIDES):], list(agent_bench.AD_HOC_SIGNING_OVERRIDES))
+
+
 class BenchRunnerExecutionTests(unittest.TestCase):
     def test_variant_pinned_kimi_profile_sets_explicit_real_binary_override(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -34,6 +34,10 @@ Useful options:
 - `--scenarios smoke` runs only smoke coverage.
 - `--strict` treats missing binaries/auth as failures instead of skips.
 - `--no-build --app-path /Applications/Zentty.app` uses an existing app bundle.
+- `--signing auto|team|ad-hoc` controls how the bench build is signed. `auto`
+  (the default) signs with the project's development team when the keychain
+  has an Apple Development identity for it, and falls back to ad-hoc signing
+  otherwise, so contributors outside the team can build without a certificate.
 - `--run-dir /tmp/zentty-agent-bench` writes traces to a fixed location.
 
 Each run writes `trace.jsonl`, per-agent terminal logs, `summary.json`, and
