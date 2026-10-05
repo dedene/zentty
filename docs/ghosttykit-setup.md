@@ -107,4 +107,6 @@ The downstream audit range should stay small:
 git log --oneline <upstream_revision>..zentty/smooth-scroll
 ```
 
-It should contain only Zentty's smooth-scroll patch stack and any direct conflict-resolution commits.
+It should contain only Zentty's smooth-scroll patch stack, the embedder-vsync patch, and any direct conflict-resolution commits.
+
+The embedder-vsync patch (`feat(zentty): let the embedder drive vsync instead of CVDisplayLink`) adds the `vsync_request_cb` runtime callback and `ghostty_surface_vsync_tick`. On macOS 14+ Zentty sets the callback and drives each surface from an `NSView.displayLink` (`LibghosttyVsyncDriver`), so libghostty never creates a CVDisplayLink. CoreVideo stops running CVDisplayLinks from its display-reconfiguration callback on the main thread, and that stop can hang forever (issue #131, ghostty-org/ghostty#14150). Keep this patch when rebasing until upstream stops using CVDisplayLink.

@@ -788,7 +788,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             confirm_read_clipboard_cb: libghosttyConfirmReadClipboardCallback,
             write_clipboard_cb: libghosttyWriteClipboardCallback,
             close_surface_cb: libghosttyCloseSurfaceCallback,
-            vsync_request_cb: nil
+            vsync_request_cb: LibghosttyVsyncDriver.isSupported ? libghosttyVsyncRequestCallback : nil
         )
     }
 
@@ -864,6 +864,15 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return
         }
     }
+}
+
+private func libghosttyVsyncRequestCallback(userdata: UnsafeMutableRawPointer?, active: Bool) {
+    guard let userdata else {
+        return
+    }
+
+    let owner = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue()
+    owner.vsyncDriver?.requestFromRenderer(active)
 }
 
 private struct LibghosttyClipboardContent {
