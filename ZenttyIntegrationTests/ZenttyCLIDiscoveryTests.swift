@@ -328,6 +328,54 @@ final class ZenttyCLIDiscoveryTests: XCTestCase {
         )
     }
 
+    // Regression: `SOCK=$(ls .../zentty.sock)` under a colorizing `ls` alias
+    // wraps the path in ANSI escapes. The CLI used to report only
+    // "No such file or directory", hiding which path it tried.
+    func test_real_cli_connect_failure_names_the_socket_path_with_escapes_visible() throws {
+        // Short on purpose: sun_path caps at 104 bytes, and the escapes must fit.
+        let missingSocketPath = "/tmp/zentty-missing-\(UUID().uuidString.prefix(8))/zentty.sock"
+        let cases: [(socketPath: String, expectedFragments: [String])] = [
+            (missingSocketPath, ["'\(missingSocketPath)'", "No such file or directory"]),
+            (
+                "\u{1B}[01;35m\(missingSocketPath)\u{1B}[0m=",
+                [
+                    "'\\u{1B}[01;35m\(missingSocketPath)\\u{1B}[0m='",
+                    "No such file or directory",
+                    "control characters",
+                ]
+            ),
+        ]
+
+        for testCase in cases {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+            process.arguments = ["list", "panes", "--json"]
+
+            var environment = ProcessInfo.processInfo.environment
+            for key in ["ZENTTY_WINDOW_ID", "ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID", "ZENTTY_PANE_TOKEN"] {
+                environment.removeValue(forKey: key)
+            }
+            environment["ZENTTY_INSTANCE_SOCKET"] = testCase.socketPath
+            process.environment = environment
+            process.standardOutput = Pipe()
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            XCTAssertNotEqual(process.terminationStatus, 0)
+            let stderr = String(
+                data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            XCTAssertFalse(stderr.contains("\u{1B}"), "Raw escape leaked into stderr: \(stderr)")
+            for fragment in testCase.expectedFragments {
+                XCTAssertTrue(stderr.contains(fragment), "Expected \(fragment) in: \(stderr)")
+            }
+        }
+    }
+
     private func builtCLIPath() throws -> String {
         if let builtProductsDir = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"] {
             return URL(fileURLWithPath: builtProductsDir, isDirectory: true)
