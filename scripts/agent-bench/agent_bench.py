@@ -4052,7 +4052,6 @@ class BenchRunner:
                     "Pass --app-path to a fresh build product or run without --no-build."
                 )
             raise SystemExit("--no-build requires --app-path when build/Debug/Zentty.app is absent")
-        subprocess.run(["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-destination", "platform=macOS", "build"], cwd=REPO_ROOT, check=True)
         settings = subprocess.run(
             ["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-showBuildSettings"],
             cwd=REPO_ROOT,
@@ -4061,6 +4060,21 @@ class BenchRunner:
             stdout=subprocess.PIPE,
         ).stdout
         values = parse_build_settings(settings)
+        team_id = values.get("DEVELOPMENT_TEAM", "")
+        requested_signing = getattr(self.args, "signing", "auto")
+        signing = resolve_signing_mode(requested_signing, team_id)
+        if signing == "ad-hoc" and requested_signing == "auto":
+            print(
+                f"agent-bench: no Apple Development identity for team {team_id}; building with ad-hoc signing "
+                "(pass --signing team to force team signing)",
+                file=sys.stderr,
+            )
+        subprocess.run(
+            ["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-destination", "platform=macOS", "build"]
+            + xcodebuild_signing_overrides(signing),
+            cwd=REPO_ROOT,
+            check=True,
+        )
         return pathlib.Path(values["BUILT_PRODUCTS_DIR"]) / values.get("FULL_PRODUCT_NAME", "Zentty.app")
 
     def _base_environment(self, resources_dir: pathlib.Path) -> dict[str, str]:
@@ -4449,6 +4463,96 @@ def parse_build_settings(output: str) -> dict[str, str]:
             continue
         values[key] = value
     return values
+
+
+SIGNING_MODES = ("auto", "team", "ad-hoc")
+# Debug builds sign automatically with the project's DEVELOPMENT_TEAM, which
+# needs that team's development certificate. Contributors outside the team
+# fall back to ad-hoc signing; the app has no entitlements that need a profile.
+AD_HOC_SIGNING_OVERRIDES = (
+    "CODE_SIGN_IDENTITY=-",
+    "CODE_SIGN_STYLE=Manual",
+    "DEVELOPMENT_TEAM=",
+    "PROVISIONING_PROFILE_SPECIFIER=",
+)
+DEVELOPMENT_IDENTITY_PREFIXES = ("Apple Development:", "Mac Developer:")
+CODESIGNING_IDENTITY_PATTERN = re.compile(r'^\s*\d+\)\s+([0-9A-F]{40})\s+"(.*)"\s*$')
+CERTIFICATE_PEM_PATTERN = re.compile(
+    r"SHA-1 hash: ([0-9A-F]{40})\s(?:(?!SHA-1 hash:).)*?(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
+    re.S,
+)
+SUBJECT_TEAM_ID_PATTERN = re.compile(r"(?:^|[/,])\s*OU\s*=\s*([A-Z0-9]+)")
+
+
+def parse_development_identity_hashes(find_identity_output: str) -> list[str]:
+    """SHA-1 hashes of valid development identities from `security find-identity -v`."""
+    hashes = []
+    for line in find_identity_output.splitlines():
+        match = CODESIGNING_IDENTITY_PATTERN.match(line)
+        if match and match.group(2).startswith(DEVELOPMENT_IDENTITY_PREFIXES):
+            hashes.append(match.group(1))
+    return hashes
+
+
+def parse_certificate_pems(find_certificate_output: str) -> dict[str, str]:
+    """SHA-1 hash -> PEM from `security find-certificate -a -Z -p`."""
+    return {match.group(1): match.group(2) for match in CERTIFICATE_PEM_PATTERN.finditer(find_certificate_output)}
+
+
+def parse_subject_team_id(subject: str) -> str | None:
+    """Team ID (the OU component) from an `openssl x509 -noout -subject` line."""
+    match = SUBJECT_TEAM_ID_PATTERN.search(subject)
+    return match.group(1) if match else None
+
+
+def has_development_identity_for_team(team_id: str) -> bool | None:
+    """Whether the keychain holds a usable development identity for team_id.
+
+    Identity names carry the member ID, not the team ID, so the team comes
+    from each certificate's subject OU. Returns None when the keychain can't
+    be inspected, so callers keep the default signing.
+    """
+    try:
+        identities = subprocess.run(
+            ["security", "find-identity", "-v", "-p", "codesigning"],
+            check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout
+        hashes = parse_development_identity_hashes(identities)
+        if not hashes:
+            return False
+        certificates = parse_certificate_pems(
+            subprocess.run(
+                ["security", "find-certificate", "-a", "-Z", "-p"],
+                check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            ).stdout
+        )
+        for identity_hash in hashes:
+            pem = certificates.get(identity_hash)
+            if pem is None:
+                continue
+            subject = subprocess.run(
+                ["openssl", "x509", "-noout", "-subject"],
+                input=pem, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            ).stdout
+            if parse_subject_team_id(subject) == team_id:
+                return True
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return False
+
+
+def resolve_signing_mode(requested: str, team_id: str, detector=None) -> str:
+    """Pick "team" or "ad-hoc" signing for the bench build."""
+    if requested != "auto":
+        return requested
+    if not team_id:
+        return "team"
+    detector = detector or has_development_identity_for_team
+    return "ad-hoc" if detector(team_id) is False else "team"
+
+
+def xcodebuild_signing_overrides(mode: str) -> list[str]:
+    return list(AD_HOC_SIGNING_OVERRIDES) if mode == "ad-hoc" else []
 
 
 def app_has_agent_bench_resources(app_path: pathlib.Path) -> bool:
@@ -5114,11 +5218,19 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--strict", action="store_true", help="Treat skips as failures.")
     run.add_argument("--no-build", action="store_true", help="Do not build Zentty first.")
     run.add_argument("--app-path", help="Path to Zentty.app to use.")
+    run.add_argument(
+        "--signing",
+        choices=SIGNING_MODES,
+        default="auto",
+        help="Code signing for the bench build: auto falls back to ad-hoc when the keychain has no "
+        "development identity for the project's team.",
+    )
     run.add_argument("--run-dir", help="Directory for traces and reports.")
 
     self_test = sub.add_parser("self-test", help="Exercise the capture server without model calls.")
     self_test.add_argument("--no-build", action="store_true")
     self_test.add_argument("--app-path")
+    self_test.add_argument("--signing", choices=SIGNING_MODES, default="auto")
     self_test.add_argument("--run-dir")
     self_test.add_argument("--agents", default="codex")
     self_test.add_argument("--scenarios", default="smoke")
