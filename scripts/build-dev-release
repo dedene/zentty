@@ -17,6 +17,7 @@ INSTALL_DIR="${ZENTTY_DEV_INSTALL_DIR:-/Applications}"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 GHOSTTYKIT_REL="FrameworksLocal/GhosttyKit.xcframework"
 GHOSTTYKIT_STAMP_REL="FrameworksLocal/.ghosttykit-inputs"
+OWNER_MARKER="zentty-dev-release-owner"
 
 usage() {
   cat <<USAGE
@@ -197,6 +198,7 @@ prepare_ref_worktree() {
     git -C "${REPO_ROOT}" worktree add --detach "${wt}" "${sha}" \
       || die "git worktree add failed for ${wt}. If git says it is already registered, run 'git worktree prune' and re-run."
     wt="$(abs_dir "${wt}")"
+    touch "$(cd "${wt}" && abs_dir "$(git rev-parse --git-dir)")/${OWNER_MARKER}"
   else
     [[ -d "${wt}" ]] || die "${wt} exists but is not a directory"
     wt="$(abs_dir "${wt}")"
@@ -210,6 +212,13 @@ prepare_ref_worktree() {
       || die "${wt} is the main checkout, not a dev worktree. Point ZENTTY_DEV_WORKTREE elsewhere."
     [[ "${wt}" != "$(abs_dir "${REPO_ROOT}")" ]] \
       || die "run this from another checkout: ${wt} is the dev worktree itself."
+    # Only ever move a worktree this script created: it is always detached and
+    # carries a marker in its private git dir. Anything else is someone's work.
+    if git -C "${wt}" symbolic-ref -q HEAD >/dev/null; then
+      die "${wt} has branch $(git -C "${wt}" symbolic-ref --short HEAD) checked out, so it is not the dev worktree. Point ZENTTY_DEV_WORKTREE elsewhere."
+    fi
+    [[ -e "$(cd "${wt}" && abs_dir "$(git rev-parse --git-dir)")/${OWNER_MARKER}" ]] \
+      || die "${wt} was not created by this script (no ${OWNER_MARKER} marker). Move it away or point ZENTTY_DEV_WORKTREE elsewhere."
     if [[ -n "$(git -C "${wt}" status --porcelain --untracked-files=no)" ]]; then
       die "the dev worktree ${wt} has local modifications. This script owns it; discard them (git -C '${wt}' checkout -- .) and re-run."
     fi
