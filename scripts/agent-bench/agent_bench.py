@@ -2268,7 +2268,7 @@ class LaunchPlanner:
         return True
 
     def _plan_claude(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        hook_command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
+        hook_command = claude_hook_command(cli_path, environment)
         settings = {"hooks": {}}
         # Mirror AgentLaunchBootstrap.claudePlan event-for-event, timeouts
         # included: SessionEnd is short so a hung IPC cannot hold the exit,
@@ -4783,6 +4783,31 @@ def sanitized_amp_resume_arguments(arguments: list[str]) -> list[str]:
 
 def amp_option_name(argument: str) -> str:
     return argument.split("=", 1)[0] if argument.startswith("--") else argument
+
+
+CLAUDE_HOOK_ROUTING_KEYS = (
+    "ZENTTY_INSTANCE_SOCKET",
+    "ZENTTY_INSTANCE_ID",
+    "ZENTTY_WINDOW_ID",
+    "ZENTTY_WORKLANE_ID",
+    "ZENTTY_PANE_ID",
+    "ZENTTY_PANE_TOKEN",
+)
+
+
+def claude_hook_command(cli_path: str, environment: dict[str, Any]) -> str:
+    # Mirror AgentLaunchBootstrap.claudeHookCommand: the command carries the
+    # launch pane's routing so a daemon-run session does not use the daemon's.
+    command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
+
+    def value(key: str) -> str:
+        return str(environment.get(key) or "").strip()
+
+    if not all(value(key) for key in ("ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID", "ZENTTY_PANE_TOKEN")):
+        return command
+    unset = [f"-u {key}" for key in CLAUDE_HOOK_ROUTING_KEYS if not value(key)]
+    assignments = [f'{key}="{shell_escape_double_quoted(value(key))}"' for key in CLAUDE_HOOK_ROUTING_KEYS if value(key)]
+    return " ".join(["/usr/bin/env", *unset, *assignments, command])
 
 
 def shell_escape_double_quoted(value: str) -> str:

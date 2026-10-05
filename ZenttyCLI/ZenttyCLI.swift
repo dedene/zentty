@@ -1497,7 +1497,10 @@ struct IPCCommand: ParsableCommand {
         guard Self.supportedSubcommands.contains(localSubcommand) else {
             throw ValidationError("Unsupported ipc subcommand: \(localSubcommand)")
         }
-        let environment = ProcessInfo.processInfo.environment
+        let environment = AgentHookProcessLineage.droppingInheritedPID(
+            key: "ZENTTY_CLAUDE_PID",
+            from: ProcessInfo.processInfo.environment
+        )
         // Devin writes in-session settings changes into the disposable
         // --config overlay; sync them back to the real config on every hook
         // event, before the socket guards — persistence must work even when

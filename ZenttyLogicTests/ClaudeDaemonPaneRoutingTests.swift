@@ -2,131 +2,137 @@ import Foundation
 import XCTest
 @testable import Zentty
 
-/// Reproduces dedene/zentty#121: "Claude Code background sessions report
-/// status to the wrong pane, or not at all".
-///
-/// Claude Code runs background/agent-mode sessions under a single shared
-/// per-user daemon (`claude daemon run`), started lazily by whichever pane
-/// first needs it. The daemon inherits that pane's environment — including
-/// `ZENTTY_PANE_ID` / `ZENTTY_WORKLANE_ID` — and every subsequent Claude
-/// session launched through the same daemon has its hook events run in a
-/// process carrying that SAME inherited pane identity, regardless of which
-/// pane actually started the session.
-///
-/// `AgentLaunchBootstrap.claudePlan` seeds the session→pane mapping in
-/// `ClaudeHookSessionStore` at launch time, using the pane Zentty itself
-/// resolved the launch against — not the environment the eventual hook
-/// process happens to run under. `SessionStart` then resolves its target via
-/// `claudeResolvedTarget`, which checks that seed before falling back to the
-/// hook process's own environment. This test drives both halves through the
-/// real code path with a hook environment that deliberately mismatches the
-/// launch pane, the way a daemon-inherited environment would.
+/// dedene/zentty#121: Claude Code runs background sessions (`claude --bg`,
+/// `claude agents`) under one shared per-user daemon. The daemon is started by
+/// whichever pane first needs it and keeps that pane's `ZENTTY_*` environment,
+/// so every background session's hooks run with the daemon starter's routing
+/// variables and its `ZENTTY_CLAUDE_PID`, whichever pane launched the session.
+/// `claude --bg` also discards an injected `--session-id`, so the session id
+/// cannot tie the hooks back to the launch. The per-launch `--settings` does
+/// reach the daemon session, so the hook command itself carries the routing.
 final class ClaudeDaemonPaneRoutingTests: XCTestCase {
-
-    private var sessionStore: ClaudeHookSessionStore!
-    private var subagentStore: AgentSubagentRegistryStore!
-    private var runtimeDirectoryURL: URL!
+    private var directory: URL!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("zentty-claude-daemon-pane-routing-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        sessionStore = ClaudeHookSessionStore(
-            stateURL: directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
-        )
-        subagentStore = AgentSubagentRegistryStore(
-            stateURL: directory.appendingPathComponent("agent-subagent-sessions.json", isDirectory: false),
-            transcriptModificationDate: { _ in nil }
-        )
-        runtimeDirectoryURL = directory.appendingPathComponent("runtime", isDirectory: true)
+        self.directory = directory
         addTeardownBlock {
             try? FileManager.default.removeItem(at: directory)
         }
     }
 
-    func test_fresh_session_launched_in_pane_b_is_not_misattributed_to_daemon_starter_pane_a() throws {
-        let worklaneID = WorklaneID("worklane-1")
-        let paneB = PaneID("pane-b")
-        let target = AgentIPCTarget(windowID: nil, worklaneID: worklaneID, paneID: paneB)
+    func test_hook_command_overrides_a_daemon_inherited_environment_with_the_launch_pane() throws {
+        // A stand-in for the zentty CLI that reports the routing it was run with.
+        let cliURL = directory.appendingPathComponent("zentty cli", isDirectory: false)
+        try """
+        #!/bin/sh
+        echo "$ZENTTY_INSTANCE_SOCKET|${ZENTTY_WINDOW_ID-unset}|$ZENTTY_WORKLANE_ID|$ZENTTY_PANE_ID|$ZENTTY_PANE_TOKEN|$*"
+        """.write(to: cliURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
 
-        // Launch a fresh Claude session in pane B. `AgentLaunchBootstrap`
-        // resolves `target` from Zentty's own topology, independent of
-        // whatever environment the eventual hook subprocess inherits.
+        let commands = try claudeHookCommands(launchEnvironment: [
+            "ZENTTY_CLI_BIN": cliURL.path,
+            "ZENTTY_INSTANCE_SOCKET": "/tmp/zentty run/b.sock",
+            "ZENTTY_WORKLANE_ID": "worklane-b",
+            "ZENTTY_PANE_ID": "pane-b",
+            "ZENTTY_PANE_TOKEN": "token-b",
+        ])
+        XCTAssertEqual(Set(commands).count, 1, "every Claude hook carries the same routing")
+
+        // The hook runs under the daemon, whose environment names pane A.
+        let output = try runShell(XCTUnwrap(commands.first), environment: [
+            "ZENTTY_INSTANCE_SOCKET": "/tmp/a.sock",
+            "ZENTTY_WINDOW_ID": "window-a",
+            "ZENTTY_WORKLANE_ID": "worklane-a",
+            "ZENTTY_PANE_ID": "pane-a",
+            "ZENTTY_PANE_TOKEN": "token-a",
+        ])
+
+        // The launch had no window id; pane A's must not leak in, since the
+        // pane token is derived from the window id too.
+        XCTAssertEqual(
+            output,
+            "/tmp/zentty run/b.sock|unset|worklane-b|pane-b|token-b|ipc agent-event --adapter=claude"
+        )
+    }
+
+    func test_hook_command_stays_plain_without_launch_routing() throws {
+        let commands = try claudeHookCommands(launchEnvironment: [
+            "ZENTTY_CLI_BIN": "/usr/local/bin/zentty",
+            "ZENTTY_WORKLANE_ID": "worklane-b",
+            "ZENTTY_PANE_ID": "pane-b",
+        ])
+
+        XCTAssertEqual(Set(commands), [#""/usr/local/bin/zentty" ipc agent-event --adapter=claude"#])
+    }
+
+    func test_inherited_agent_pid_is_dropped_unless_it_is_an_ancestor_of_the_hook() {
+        let environment = ["ZENTTY_CLAUDE_PID": "4242", "ZENTTY_PANE_ID": "pane-b"]
+
+        XCTAssertEqual(
+            AgentHookProcessLineage.droppingInheritedPID(key: "ZENTTY_CLAUDE_PID", from: environment, isAncestor: { $0 == 4242 }),
+            environment
+        )
+        XCTAssertEqual(
+            AgentHookProcessLineage.droppingInheritedPID(key: "ZENTTY_CLAUDE_PID", from: environment, isAncestor: { _ in false }),
+            ["ZENTTY_PANE_ID": "pane-b"]
+        )
+    }
+
+    func test_ancestor_lookup_walks_the_parent_chain() {
+        // hook (30) <- sh (20) <- claude (10) <- shell (5) <- launchd (1)
+        let parents: [Int32: Int32] = [30: 20, 20: 10, 10: 5, 5: 1]
+        let parent: (Int32) -> Int32? = { parents[$0] }
+
+        XCTAssertTrue(AgentHookProcessLineage.isAncestor(10, of: 30, parent: parent))
+        XCTAssertFalse(AgentHookProcessLineage.isAncestor(4242, of: 30, parent: parent), "the daemon starter's Claude is not an ancestor")
+        XCTAssertFalse(AgentHookProcessLineage.isAncestor(30, of: 30, parent: parent))
+        XCTAssertTrue(AgentHookProcessLineage.isAncestor(getppid()), "real lookup resolves this process's parent")
+    }
+
+    private func claudeHookCommands(launchEnvironment: [String: String]) throws -> [String] {
+        var environment = launchEnvironment
+        environment["ZENTTY_REAL_BINARY"] = "/usr/bin/true"
         let request = AgentIPCRequest(
             kind: .bootstrap,
             arguments: [],
             standardInput: nil,
-            environment: [
-                "ZENTTY_REAL_BINARY": "/usr/bin/true",
-                "ZENTTY_CLI_BIN": "/usr/local/bin/zentty",
-                "ZENTTY_PANE_ID": paneB.rawValue,
-                "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
-            ],
+            environment: environment,
             expectsResponse: true,
             tool: .claude
         )
         let plan = try AgentLaunchBootstrap.makePlan(
             request: request,
-            target: target,
-            runtimeDirectoryURL: runtimeDirectoryURL,
-            claudeSessionStore: sessionStore
+            target: AgentIPCTarget(
+                windowID: nil,
+                worklaneID: WorklaneID(environment["ZENTTY_WORKLANE_ID"] ?? ""),
+                paneID: PaneID(environment["ZENTTY_PANE_ID"] ?? "")
+            ),
+            runtimeDirectoryURL: directory.appendingPathComponent("runtime", isDirectory: true)
         )
-
-        guard let sessionIDIndex = plan.arguments.firstIndex(of: "--session-id"),
-              sessionIDIndex + 1 < plan.arguments.count else {
-            return XCTFail("claudePlan did not insert --session-id for a fresh launch: \(plan.arguments)")
-        }
-        let sessionID = plan.arguments[sessionIDIndex + 1]
-
-        // The seed must already exist before any hook fires.
-        let seeded = try sessionStore.lookup(sessionID: sessionID)
-        XCTAssertEqual(seeded?.paneID, paneB, "launch-time seed must record the pane the session actually launched in")
-        XCTAssertEqual(seeded?.worklaneID, worklaneID)
-
-        // Now simulate the SessionStart hook firing inside the shared Claude
-        // daemon, whose process environment was captured from pane A — a
-        // DIFFERENT pane than the one this session actually launched in.
-        let daemonInheritedEnvironment = [
-            "ZENTTY_PANE_ID": "pane-a",
-            "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
-        ]
-        let payloads = try AgentEventBridge.claudeMakePayloads(
-            from: AgentEventBridge.claudeParseInput(Data(
-                #"{"hook_event_name":"SessionStart","session_id":"\#(sessionID)","source":"startup"}"#.utf8
-            )),
-            environment: daemonInheritedEnvironment,
-            sessionStore: sessionStore,
-            subagentStore: subagentStore
+        let settingsIndex = try XCTUnwrap(plan.arguments.firstIndex(of: "--settings"))
+        let settings = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(plan.arguments[settingsIndex + 1].utf8)) as? [String: Any]
         )
-
-        // The record must still point at pane B — the daemon's own
-        // environment must never overwrite the launch-time seed.
-        let afterSessionStart = try sessionStore.lookup(sessionID: sessionID)
-        XCTAssertEqual(afterSessionStart?.paneID, paneB, "SessionStart must not let the daemon-inherited environment overwrite the seeded pane")
-
-        // Any status payload SessionStart happens to emit (e.g. the pid
-        // attach event) must also target pane B, not the daemon-starter's
-        // pane A.
-        for payload in payloads {
-            XCTAssertEqual(payload.paneID, paneB, "SessionStart payload must be attributed to the launch pane, not the daemon-inherited one")
+        let hooks = try XCTUnwrap(settings["hooks"] as? [String: [[String: Any]]])
+        return hooks.values.flatMap { $0 }.flatMap { entry in
+            (entry["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
         }
+    }
 
-        // A later hook event (e.g. Notification) for the same session must
-        // resolve to pane B too, purely from the session_id in its payload —
-        // this already worked pre-fix via `claudeResolvedTarget`; asserting
-        // it here guards against a regression in the seed itself.
-        let notificationPayloads = try AgentEventBridge.claudeMakePayloads(
-            from: AgentEventBridge.claudeParseInput(Data(
-                #"{"hook_event_name":"Notification","session_id":"\#(sessionID)","message":"Claude needs your permission to run ls"}"#.utf8
-            )),
-            environment: daemonInheritedEnvironment,
-            sessionStore: sessionStore,
-            subagentStore: subagentStore
-        )
-        XCTAssertFalse(notificationPayloads.isEmpty)
-        for payload in notificationPayloads {
-            XCTAssertEqual(payload.paneID, paneB)
-        }
+    private func runShell(_ command: String, environment: [String: String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

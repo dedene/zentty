@@ -350,6 +350,26 @@ class SyntheticScenarioTests(unittest.TestCase):
             settings = json.loads(arguments[arguments.index("--settings") + 1])
         self.assertEqual(settings, {"hooks": swift_plan})
 
+    def test_claude_hook_command_carries_launch_routing(self):
+        # Transcribed from AgentLaunchBootstrap.claudeHookCommand; the Swift
+        # side wins when the two disagree.
+        command = agent_bench.claude_hook_command(
+            "/tmp/zentty-bench",
+            {
+                "ZENTTY_INSTANCE_SOCKET": "/tmp/run/zentty.sock",
+                "ZENTTY_WORKLANE_ID": "wl-1",
+                "ZENTTY_PANE_ID": "pane-b",
+                "ZENTTY_PANE_TOKEN": "token-b",
+            },
+        )
+        self.assertEqual(
+            command,
+            "/usr/bin/env -u ZENTTY_INSTANCE_ID -u ZENTTY_WINDOW_ID"
+            ' ZENTTY_INSTANCE_SOCKET="/tmp/run/zentty.sock" ZENTTY_WORKLANE_ID="wl-1"'
+            ' ZENTTY_PANE_ID="pane-b" ZENTTY_PANE_TOKEN="token-b"'
+            ' "/tmp/zentty-bench" ipc agent-event --adapter=claude',
+        )
+
     def test_codex_plan_registers_and_trusts_subagent_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

@@ -22,8 +22,7 @@ enum AgentLaunchBootstrap {
         bundle: Bundle = .main,
         fileManager: FileManager = .default,
         appConfigProvider: () -> AppConfig = loadAppConfig,
-        integrationDecision: AgentIntegrationDecision = .proceed,
-        claudeSessionStore: ClaudeHookSessionStore = ClaudeHookSessionStore()
+        integrationDecision: AgentIntegrationDecision = .proceed
     ) throws -> AgentLaunchPlan {
         guard request.version == AgentIPCProtocol.version else {
             throw AgentIPCError.invalidMessage
@@ -68,9 +67,7 @@ enum AgentLaunchBootstrap {
             return try claudePlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
-                environment: environment,
-                target: target,
-                sessionStore: claudeSessionStore
+                environment: environment
             )
         case .codex:
             return try codexPlan(
@@ -861,9 +858,7 @@ enum AgentLaunchBootstrap {
     private static func claudePlan(
         executablePath: String,
         arguments: [String],
-        environment: [String: String],
-        target: AgentIPCTarget,
-        sessionStore: ClaudeHookSessionStore = ClaudeHookSessionStore()
+        environment: [String: String]
     ) throws -> AgentLaunchPlan {
         if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1"
             || ClaudeLaunchPolicy.passthroughSubcommand(in: arguments) != nil {
@@ -882,7 +877,7 @@ enum AgentLaunchBootstrap {
             )
         }
 
-        let hookCommand = "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=claude"
+        let hookCommand = claudeHookCommand(cliPath: cliPath, environment: environment)
         let settingsJSON = try compactJSONString([
             "hooks": [
                 "SessionStart": claudeSessionStartHookEntries(command: hookCommand, timeout: 10),
@@ -916,26 +911,7 @@ enum AgentLaunchBootstrap {
         if shouldReuseSession {
             plannedArguments.insert(contentsOf: ["--settings", settingsJSON], at: 0)
         } else {
-            let sessionID = UUID().uuidString.lowercased()
-            // Seed the pane mapping for this session BEFORE Claude ever starts,
-            // using the pane Zentty itself resolved this launch against — not
-            // the environment the eventual hook process will run under. A
-            // background/daemon-launched session's hook events arrive in a
-            // process that inherited whichever pane originally started the
-            // shared `claude daemon run`, so trusting that process's own
-            // ZENTTY_PANE_ID at SessionStart misattributes every subsequent
-            // status update to the daemon-starter pane instead of this one
-            // (upstream: dedene/zentty#121). SessionStart resolves its target
-            // through `claudeResolvedTarget`, which checks this seed first.
-            try? sessionStore.upsert(
-                sessionID: sessionID,
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                cwd: environment["PWD"]?.nilIfBlank,
-                pid: nil
-            )
-            plannedArguments.insert(contentsOf: ["--session-id", sessionID, "--settings", settingsJSON], at: 0)
+            plannedArguments.insert(contentsOf: ["--session-id", UUID().uuidString.lowercased(), "--settings", settingsJSON], at: 0)
         }
 
         var setEnvironment = claudeColorEnvironment(from: environment)
@@ -2170,6 +2146,37 @@ enum AgentLaunchBootstrap {
         case .amp, .codex, .copilot, .cursor, .droid, .gemini, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe, .devin, .manifest:
             return []
         }
+    }
+
+    private static let claudeHookRoutingKeys = [
+        "ZENTTY_INSTANCE_SOCKET",
+        "ZENTTY_INSTANCE_ID",
+        "ZENTTY_WINDOW_ID",
+        "ZENTTY_WORKLANE_ID",
+        "ZENTTY_PANE_ID",
+        "ZENTTY_PANE_TOKEN",
+    ]
+
+    /// Claude runs background sessions (`claude --bg`, `claude agents`) under a
+    /// shared per-user daemon, so their hooks inherit the routing variables of
+    /// whichever pane started that daemon. The per-launch `--settings` does
+    /// reach those sessions, so the command carries this launch's routing
+    /// itself instead of relying on the hook's environment (dedene/zentty#121).
+    static func claudeHookCommand(cliPath: String, environment: [String: String]) -> String {
+        let command = "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=claude"
+        let required = ["ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID", "ZENTTY_PANE_TOKEN"]
+        guard required.allSatisfy({ environment[$0]?.nilIfBlank != nil }) else {
+            return command
+        }
+        // A variable this launch does not have must not leak in from the
+        // daemon either: the pane token is derived from the full set.
+        let unset = claudeHookRoutingKeys
+            .filter { environment[$0]?.nilIfBlank == nil }
+            .map { "-u \($0)" }
+        let set = claudeHookRoutingKeys.compactMap { key in
+            environment[key]?.nilIfBlank.map { "\(key)=\"\(shellEscapedDoubleQuoted($0))\"" }
+        }
+        return (["/usr/bin/env"] + unset + set + [command]).joined(separator: " ")
     }
 
     private static func claudeSessionStartHookEntries(command: String, timeout: Int) -> [[String: Any]] {

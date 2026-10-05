@@ -154,15 +154,7 @@ extension AgentEventBridge {
 
         switch input.hookEventName {
         case "SessionStart":
-            // Prefer a pane already seeded at launch time (see
-            // `AgentLaunchBootstrap.claudePlan`) over this hook process's own
-            // environment: for a background/daemon-launched session, that
-            // environment was inherited from whichever pane first started the
-            // shared `claude daemon run` and does not identify this pane
-            // (upstream: dedene/zentty#121). Falls back to the environment for
-            // a resumed session with no pre-launch seed, matching every other
-            // event's resolution via `claudeResolvedTarget`.
-            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            let target = try currentTarget(from: environment)
             let pid = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID")
             let startsFresh = claudeSessionStartResetsSubagents(source: input.source)
             if startsFresh {
