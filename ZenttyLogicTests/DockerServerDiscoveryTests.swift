@@ -7,24 +7,12 @@ final class DockerServerDiscoveryTests: XCTestCase {
     private let paneB = PaneID("pane-b")
     private let date = Date(timeIntervalSince1970: 2_000)
 
-    func test_skips_when_docker_is_not_responsive() throws {
-        let date = date
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(isResponsive: false, containers: [webContainer()]),
-            currentDate: { date }
-        )
-
-        XCTAssertTrue(discovery.discover(context: context()).isEmpty)
-    }
-
     func test_discovers_compose_web_service_published_port() throws {
         let date = date
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(isResponsive: true, containers: [webContainer()]),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [webContainer()]
 
-        let servers = discovery.discover(context: context())
+        let servers = discovery.servers(from: containers, context: context())
 
         XCTAssertEqual(servers.count, 1)
         XCTAssertEqual(servers[0].origin, "http://localhost:5173")
@@ -35,45 +23,33 @@ final class DockerServerDiscoveryTests: XCTestCase {
 
     func test_ignores_postgres_and_redis_ports() throws {
         let date = date
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(
-                isResponsive: true,
-                containers: [
-                    dbContainer(name: "postgres", image: "postgres:16", hostPort: 5432, containerPort: 5432),
-                    dbContainer(name: "redis", image: "redis:7", hostPort: 6379, containerPort: 6379),
-                ]
-            ),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [
+            dbContainer(name: "postgres", image: "postgres:16", hostPort: 5432, containerPort: 5432),
+            dbContainer(name: "redis", image: "redis:7", hostPort: 6379, containerPort: 6379),
+        ]
 
-        XCTAssertTrue(discovery.discover(context: context()).isEmpty)
+        XCTAssertTrue(discovery.servers(from: containers, context: context()).isEmpty)
     }
 
     func test_matches_compose_project_path_to_worklane_path() throws {
         let date = date
         let matching = webContainer(projectPath: "/tmp/project")
         let unrelated = webContainer(id: "other", projectPath: "/tmp/other", hostPort: 3001)
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(isResponsive: true, containers: [matching, unrelated]),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [matching, unrelated]
 
-        let servers = discovery.discover(context: context())
+        let servers = discovery.servers(from: containers, context: context())
 
         XCTAssertEqual(servers.map(\.origin), ["http://localhost:5173"])
     }
 
     func test_unrelated_compose_path_is_not_included_by_generic_npm_run_command() throws {
         let date = date
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(
-                isResponsive: true,
-                containers: [webContainer(projectPath: "/tmp/other")]
-            ),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [webContainer(projectPath: "/tmp/other")]
 
-        let servers = discovery.discover(context: DockerDiscoveryContext(
+        let servers = discovery.servers(from: containers, context: DockerDiscoveryContext(
             worklaneID: worklaneID,
             focusedPaneID: paneA,
             panes: [
@@ -86,12 +62,10 @@ final class DockerServerDiscoveryTests: XCTestCase {
 
     func test_assigns_matching_container_to_focused_or_recent_pane_for_path() throws {
         let date = date
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(isResponsive: true, containers: [webContainer(projectPath: "/tmp/project")]),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [webContainer(projectPath: "/tmp/project")]
 
-        let servers = discovery.discover(context: DockerDiscoveryContext(
+        let servers = discovery.servers(from: containers, context: DockerDiscoveryContext(
             worklaneID: worklaneID,
             focusedPaneID: paneB,
             panes: [
@@ -105,15 +79,10 @@ final class DockerServerDiscoveryTests: XCTestCase {
 
     func test_assigns_matching_container_to_deepest_pane_for_nested_path() throws {
         let date = date
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(
-                isResponsive: true,
-                containers: [webContainer(projectPath: "/tmp/project/frontend")]
-            ),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [webContainer(projectPath: "/tmp/project/frontend")]
 
-        let servers = discovery.discover(context: DockerDiscoveryContext(
+        let servers = discovery.servers(from: containers, context: DockerDiscoveryContext(
             worklaneID: worklaneID,
             focusedPaneID: nil,
             panes: [
@@ -141,23 +110,21 @@ final class DockerServerDiscoveryTests: XCTestCase {
                 DockerPublishedPort(hostIP: "0.0.0.0", hostPort: 9229, containerPort: 9229, protocolName: "tcp"),
             ]
         )
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(isResponsive: true, containers: [container]),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [container]
 
-        let servers = discovery.discover(context: context())
+        let servers = discovery.servers(from: containers, context: context())
 
         XCTAssertEqual(servers.map(\.origin), ["http://localhost:5173"])
     }
 
-    func test_cli_inspector_returns_not_responsive_without_existing_docker_socket() {
+    func test_cli_inspector_reports_no_socket_without_existing_docker_socket() {
         let inspector = DockerCLIInspector(
             dockerExecutableURL: URL(fileURLWithPath: "/path/that/must/not/be/launched"),
             socketExists: { _ in false }
         )
 
-        XCTAssertFalse(inspector.isDockerResponsive())
+        XCTAssertFalse(inspector.hasDockerSocket())
     }
 
     func test_dip_command_or_config_enables_docker_discovery() throws {
@@ -172,12 +139,10 @@ final class DockerServerDiscoveryTests: XCTestCase {
                 DockerPublishedPort(hostIP: "0.0.0.0", hostPort: 3000, containerPort: 3000, protocolName: "tcp")
             ]
         )
-        let discovery = DockerServerDiscovery(
-            dockerInspector: FakeDockerInspector(isResponsive: true, containers: [container]),
-            currentDate: { date }
-        )
+        let discovery = DockerServerDiscovery(currentDate: { date })
+        let containers = [container]
 
-        let servers = discovery.discover(context: DockerDiscoveryContext(
+        let servers = discovery.servers(from: containers, context: DockerDiscoveryContext(
             worklaneID: worklaneID,
             focusedPaneID: paneA,
             panes: [
@@ -239,19 +204,6 @@ final class DockerServerDiscoveryTests: XCTestCase {
                 DockerPublishedPort(hostIP: "0.0.0.0", hostPort: hostPort, containerPort: containerPort, protocolName: "tcp")
             ]
         )
-    }
-}
-
-private struct FakeDockerInspector: DockerInspecting {
-    let isResponsive: Bool
-    let containers: [DockerContainer]
-
-    func isDockerResponsive() -> Bool {
-        isResponsive
-    }
-
-    func runningContainers() throws -> [DockerContainer] {
-        containers
     }
 }
 

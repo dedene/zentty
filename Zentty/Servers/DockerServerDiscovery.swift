@@ -1,7 +1,9 @@
 import Foundation
 
 protocol DockerInspecting: Sendable {
-    func isDockerResponsive() -> Bool
+    /// Cheap presence check that must not launch docker.
+    func hasDockerSocket() -> Bool
+    /// Throws `DockerCLIError`; any other error is treated like a timeout.
     func runningContainers() throws -> [DockerContainer]
 }
 
@@ -33,31 +35,20 @@ struct DockerPaneContext: Equatable, Sendable {
     let recentCommandLines: [String]
 }
 
+/// Maps running containers to the web servers relevant to one worklane. It
+/// never queries docker itself: `DockerContainerPoller` does that once per
+/// passive-detection round for every worklane.
 struct DockerServerDiscovery: Sendable {
-    private let dockerInspector: any DockerInspecting
     private let currentDate: @Sendable () -> Date
 
-    init(
-        dockerInspector: any DockerInspecting = DockerCLIInspector(),
-        currentDate: @escaping @Sendable () -> Date = Date.init
-    ) {
-        self.dockerInspector = dockerInspector
+    init(currentDate: @escaping @Sendable () -> Date = Date.init) {
         self.currentDate = currentDate
     }
 
-    func discover(context: DockerDiscoveryContext) -> [DetectedServer] {
-        guard dockerInspector.isDockerResponsive() else {
-            return []
-        }
-
-        let containers: [DockerContainer]
-        do {
-            containers = try dockerInspector.runningContainers()
-        } catch {
-            return []
-        }
-
-        return containers.flatMap { container in
+    /// Pure per-worklane filtering of an already queried container list, so one
+    /// docker query can serve every worklane in a passive-detection round.
+    func servers(from containers: [DockerContainer], context: DockerDiscoveryContext) -> [DetectedServer] {
+        containers.flatMap { container in
             detectedServers(from: container, context: context)
         }
     }
@@ -234,46 +225,48 @@ struct DockerServerDiscovery: Sendable {
     }
 }
 
+enum DockerCLIError: Error, Equatable, Sendable {
+    /// docker did not answer within the command timeout: its state is unknown.
+    case timedOut(subcommand: String)
+    /// docker ran and exited non-zero, e.g. the daemon is not running or
+    /// `docker` is not on PATH (`env` exits 127). `message` is the first
+    /// stderr line.
+    case commandFailed(subcommand: String, status: Int32, message: String)
+    /// The executable could not be launched at all.
+    case launchFailed(subcommand: String, reason: String)
+
+    /// A definitive failure means there are no docker servers to show; only a
+    /// timeout leaves docker's state unknown.
+    var isDefinitive: Bool {
+        if case .timedOut = self {
+            return false
+        }
+        return true
+    }
+}
+
 struct DockerCLIInspector: DockerInspecting {
+    /// One compact JSON object per container, with only the fields
+    /// `container(from:)` reads, in the same nested shape as `docker inspect`.
+    static let inspectFormat = #"{"Id":{{json .Id}},"Name":{{json .Name}},"Config":{"Image":{{json .Config.Image}},"Labels":{{json .Config.Labels}},"Cmd":{{json .Config.Cmd}},"Entrypoint":{{json .Config.Entrypoint}}},"NetworkSettings":{"Ports":{{json .NetworkSettings.Ports}}}}"#
+
     private let dockerExecutableURL: URL
     private let socketExists: @Sendable (String) -> Bool
+    private let commandTimeout: TimeInterval
 
     init(
         dockerExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/env"),
-        socketExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        socketExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        commandTimeout: TimeInterval = 2
     ) {
         self.dockerExecutableURL = dockerExecutableURL
         self.socketExists = socketExists
+        self.commandTimeout = commandTimeout
     }
 
-    func isDockerResponsive() -> Bool {
-        guard hasExistingDockerSocket() else {
-            return false
-        }
-
-        return (try? runDocker(arguments: ["docker", "version", "--format", "{{.Server.Version}}"], timeout: 1)) != nil
-    }
-
-    func runningContainers() throws -> [DockerContainer] {
-        let idsOutput = try runDocker(arguments: ["docker", "ps", "-q"], timeout: 2)
-        let ids = idsOutput
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard !ids.isEmpty else {
-            return []
-        }
-
-        let inspectOutput = try runDocker(arguments: ["docker", "inspect"] + ids, timeout: 2)
-        guard let data = inspectOutput.data(using: .utf8),
-              let rawContainers = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return []
-        }
-
-        return rawContainers.map(Self.container(from:))
-    }
-
-    private func hasExistingDockerSocket() -> Bool {
+    /// Socket presence only: the `docker ps` that follows is bounded by
+    /// `commandTimeout`, so a dead daemon surfaces there as a thrown error.
+    func hasDockerSocket() -> Bool {
         let fileManager = FileManager.default
         let socketPaths = [
             "/var/run/docker.sock",
@@ -287,32 +280,65 @@ struct DockerCLIInspector: DockerInspecting {
         return socketPaths.contains(where: socketExists)
     }
 
-    private func runDocker(arguments: [String], timeout: TimeInterval) throws -> String {
-        let process = Process()
-        process.executableURL = dockerExecutableURL
-        process.arguments = arguments
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-
-        let semaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            semaphore.signal()
+    func runningContainers() throws -> [DockerContainer] {
+        let ps = try runDocker("ps", arguments: ["-q"])
+        guard ps.terminationStatus == 0 else {
+            throw Self.commandFailed("ps", ps)
+        }
+        let ids = String(decoding: ps.stdout, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard !ids.isEmpty else {
+            return []
         }
 
-        try process.run()
-        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            throw CocoaError(.executableLoad)
+        let inspect = try runDocker("inspect", arguments: ["--format", Self.inspectFormat] + ids)
+        // A container that stopped between `ps` and `inspect` makes docker
+        // exit non-zero while still printing the others.
+        guard inspect.terminationStatus == 0
+            || String(decoding: inspect.stderr, as: UTF8.self).lowercased().contains("no such object") else {
+            throw Self.commandFailed("inspect", inspect)
         }
 
-        guard process.terminationStatus == 0 else {
-            throw CocoaError(.executableLoad)
-        }
+        return Self.containers(fromInspectOutput: inspect.stdout)
+    }
 
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+    /// Parses `inspectFormat` output line by line; a malformed line is skipped
+    /// rather than failing the whole poll.
+    static func containers(fromInspectOutput output: Data) -> [DockerContainer] {
+        output
+            .split(separator: UInt8(ascii: "\n"))
+            .compactMap { line -> DockerContainer? in
+                guard let raw = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else {
+                    return nil
+                }
+                return container(from: raw)
+            }
+    }
+
+    private func runDocker(_ subcommand: String, arguments: [String]) throws -> SubprocessResult {
+        do {
+            return try SubprocessRunner.run(
+                executableURL: dockerExecutableURL,
+                arguments: ["docker", subcommand] + arguments,
+                timeout: commandTimeout
+            )
+        } catch SubprocessError.timedOut {
+            throw DockerCLIError.timedOut(subcommand: subcommand)
+        } catch {
+            throw DockerCLIError.launchFailed(subcommand: subcommand, reason: String(describing: error))
+        }
+    }
+
+    private static func commandFailed(_ subcommand: String, _ result: SubprocessResult) -> DockerCLIError {
+        let message = String(decoding: result.stderr, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+            .map { String($0.prefix(200)) } ?? ""
+        return .commandFailed(subcommand: subcommand, status: result.terminationStatus, message: message)
     }
 
     private static func container(from raw: [String: Any]) -> DockerContainer {

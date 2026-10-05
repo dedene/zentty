@@ -11,6 +11,7 @@ final class WindowServerCommandService {
     private let serverOpenService: ServerOpening
     private let serverListenerScanner: ServerListenerScanner
     private let dockerServerDiscovery: DockerServerDiscovery
+    private let dockerContainerPoller: DockerContainerPoller
     private let serverProcessTerminator: ServerProcessTerminator
     private var passiveServerDetectionTask: Task<Void, Never>?
 
@@ -20,6 +21,7 @@ final class WindowServerCommandService {
         serverOpenService: ServerOpening,
         serverListenerScanner: ServerListenerScanner,
         dockerServerDiscovery: DockerServerDiscovery,
+        dockerContainerPoller: DockerContainerPoller = .shared,
         serverProcessTerminator: ServerProcessTerminator = ServerProcessTerminator()
     ) {
         self.worklaneStore = worklaneStore
@@ -27,6 +29,7 @@ final class WindowServerCommandService {
         self.serverOpenService = serverOpenService
         self.serverListenerScanner = serverListenerScanner
         self.dockerServerDiscovery = dockerServerDiscovery
+        self.dockerContainerPoller = dockerContainerPoller
         self.serverProcessTerminator = serverProcessTerminator
     }
 
@@ -135,7 +138,8 @@ final class WindowServerCommandService {
 
         let scanner = serverListenerScanner
         let dockerDiscovery = dockerServerDiscovery
-        passiveServerDetectionTask = Task { [weak self, snapshot, scanner, dockerDiscovery] in
+        let dockerPoller = dockerContainerPoller
+        passiveServerDetectionTask = Task { [weak self, snapshot, scanner, dockerDiscovery, dockerPoller] in
             try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.initialDelayNanoseconds)
             guard !Task.isCancelled else {
                 return
@@ -148,15 +152,18 @@ final class WindowServerCommandService {
             while !Task.isCancelled {
                 let shouldDiscoverDocker = dockerCadence.shouldDiscoverDocker()
                 let scanStartedAt = Date()
-                let results = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery, shouldDiscoverDocker] in
-                    contexts.map { context in
-                        PassiveServerDetectionResult(
-                            worklaneID: context.worklaneID,
-                            scannerServers: scanner.scan(context: context.scanner),
-                            dockerServers: shouldDiscoverDocker ? dockerDiscovery.discover(context: context.docker) : []
-                        )
-                    }
+                // Not cancelled with this loop, so rounds from a rescheduled loop
+                // can overlap; the shared poller keeps docker single-flight.
+                let round = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery, dockerPoller, shouldDiscoverDocker] in
+                    PassiveServerDetectionRound.scan(
+                        contexts: contexts,
+                        scanner: scanner,
+                        dockerDiscovery: dockerDiscovery,
+                        dockerPoller: shouldDiscoverDocker ? dockerPoller : nil
+                    )
                 }.value
+                let results = round.results
+                dockerCadence.recordDockerOutcome(round.dockerOutcome)
 
                 guard !Task.isCancelled, let self else {
                     return
@@ -172,6 +179,7 @@ final class WindowServerCommandService {
                         "scannerServerCount": scannerServerCount,
                         "dockerServerCount": dockerServerCount,
                         "dockerEnabled": shouldDiscoverDocker,
+                        "dockerOutcome": round.dockerOutcome?.breadcrumbValue ?? "notPolled",
                         "durationMs": Int(Date().timeIntervalSince(scanStartedAt) * 1000),
                     ]
                 )
@@ -190,7 +198,7 @@ final class WindowServerCommandService {
                             servers: result.scannerServers
                         )
                     }
-                    if shouldDiscoverDocker,
+                    if round.appliesDockerResults,
                            resultTracker.shouldApplyDockerResult(
                                worklaneID: result.worklaneID,
                                servers: result.dockerServers
@@ -215,7 +223,10 @@ final class WindowServerCommandService {
 
                 let nextSnapshot = PassiveServerDetectionSnapshot(worklanes: self.worklaneStore.worklanes)
                 self.clearPassiveServersForWorklanesWithoutContexts(nextSnapshot)
-                guard nextSnapshot.shouldContinuePolling, !nextSnapshot.contexts.isEmpty else {
+                // A docker poll that lost to an in-flight query keeps the loop
+                // alive (bounded) until it gets an answer of its own.
+                guard nextSnapshot.shouldContinuePolling || dockerCadence.needsDockerRetry,
+                      !nextSnapshot.contexts.isEmpty else {
                     return
                 }
 
