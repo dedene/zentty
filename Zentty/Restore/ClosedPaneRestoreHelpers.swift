@@ -52,7 +52,7 @@ enum ClosedPaneCWDResolver {
 
 @MainActor
 enum ClosedPaneScrollbackArchive {
-    static let directoryName = "Zentty/restore-output"
+    static let directoryName = "\(ZenttyBuildFlavor.current.libraryFolderName)/restore-output"
     static let maxAgeSeconds: TimeInterval = 24 * 60 * 60
 
     static func write(scrollback: String, entryID: UUID, fileManager: FileManager = .default) -> URL? {

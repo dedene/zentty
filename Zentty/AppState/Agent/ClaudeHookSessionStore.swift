@@ -287,7 +287,7 @@ final class ClaudeHookSessionStore {
         let stateURL: URL
         if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             stateURL = appSupportDirectory
-                .appendingPathComponent("Zentty", isDirectory: true)
+                .appendingPathComponent(ZenttyBuildFlavor.current.libraryFolderName, isDirectory: true)
                 .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
         } else {
             stateURL = fileManager.temporaryDirectory.appendingPathComponent("zentty-claude-hook-sessions.json")

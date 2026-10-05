@@ -132,18 +132,55 @@ final class AppConfigStore: @unchecked Sendable {
         fileWatcher.watch(directoryURL: watchDirectoryURL)
     }
 
-    static func defaultFileURL(homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        homeDirectoryURL
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("zentty", isDirectory: true)
+    static func defaultFileURL(
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        flavor: ZenttyBuildFlavor = .current
+    ) -> URL {
+        flavor.configDirectoryURL(homeDirectoryURL: homeDirectoryURL)
             .appendingPathComponent("config.toml", isDirectory: false)
     }
 
-    static func bookmarksFileURL(homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        homeDirectoryURL
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("zentty", isDirectory: true)
+    static func bookmarksFileURL(
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        flavor: ZenttyBuildFlavor = .current
+    ) -> URL {
+        flavor.configDirectoryURL(homeDirectoryURL: homeDirectoryURL)
             .appendingPathComponent("bookmarks.json", isDirectory: false)
+    }
+
+    /// Files a fresh Zentty Dev install copies from the production config dir
+    /// so it starts with the user's settings. Restore snapshots and
+    /// tmux-compat state are deliberately excluded: they describe the other
+    /// app's live panes.
+    static let devSeedFileNames = ["config.toml", "bookmarks.json"]
+
+    /// One-time, best-effort seeding of the Dev config dir from production.
+    /// No-op once `config.toml` exists in `devDirectoryURL` (it is created on
+    /// first load either way). Never overwrites. Returns the copied names.
+    @discardableResult
+    static func seedDevConfigIfNeeded(
+        productionDirectoryURL: URL,
+        devDirectoryURL: URL,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        let devConfigURL = devDirectoryURL.appendingPathComponent("config.toml", isDirectory: false)
+        guard !fileManager.fileExists(atPath: devConfigURL.path) else { return [] }
+
+        var copied: [String] = []
+        for name in devSeedFileNames {
+            let sourceURL = productionDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            let destinationURL = devDirectoryURL.appendingPathComponent(name, isDirectory: false)
+            guard fileManager.fileExists(atPath: sourceURL.path),
+                  !fileManager.fileExists(atPath: destinationURL.path) else { continue }
+            do {
+                try fileManager.createDirectory(at: devDirectoryURL, withIntermediateDirectories: true)
+                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+                copied.append(name)
+            } catch {
+                appConfigLogger.error("Failed to seed \(name, privacy: .public) from production config: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return copied
     }
 
     static func temporaryFileURL(prefix: String) -> URL {

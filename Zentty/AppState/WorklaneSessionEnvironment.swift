@@ -201,9 +201,8 @@ enum WorklaneSessionEnvironment {
     }
 
     private static func defaultTmuxCompatTracePath() -> String {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("zentty", isDirectory: true)
+        ZenttyBuildFlavor.current
+            .configDirectoryURL(homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser)
             .appendingPathComponent("tmux-compat-trace.jsonl", isDirectory: false)
             .path
     }
