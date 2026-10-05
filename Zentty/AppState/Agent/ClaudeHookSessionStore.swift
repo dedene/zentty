@@ -48,6 +48,9 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     var lastNotificationText: String?
     var tasks: [ClaudeTaskRecord] = []
     var updatedAt: TimeInterval
+    /// Set while a `claude attach` client shows this session in another pane.
+    /// The pane fields above then name the attached pane.
+    var attachment: ClaudeHookSessionAttachment? = nil
 
     var windowID: WindowID? {
         windowIDRawValue.map(WindowID.init)
@@ -102,6 +105,22 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
 
 /// The tool call a PreToolUse announced, kept until the PermissionRequest
 /// that may follow claims it.
+/// A background session opened with `claude attach` reports to the attaching
+/// pane for as long as the attach client lives, then goes back home.
+struct ClaudeHookSessionAttachment: Codable, Equatable {
+    var clientPID: Int32
+    var homeWindowIDRawValue: String?
+    var homeWorklaneIDRawValue: String
+    var homePaneIDRawValue: String
+    var homePID: Int32?
+}
+
+struct ClaudeHookSessionAttachResult {
+    let record: ClaudeHookSessionRecord
+    /// The pane the session reported to until now, when it is a different one.
+    let previousTarget: (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID)?
+}
+
 struct ClaudePreToolUseSlot: Codable, Equatable {
     /// Announcements per agent context beyond this are not recorded: the
     /// prompt inherits the oldest matching entry, so it is the newest that
@@ -135,6 +154,7 @@ extension ClaudeHookSessionRecord {
         case tasks
         case tasksByID
         case updatedAt
+        case attachment
     }
 
     /// Records written by an older build lack the newer keys. Synthesized
@@ -179,6 +199,7 @@ extension ClaudeHookSessionRecord {
                 .map { ClaudeTaskRecord(id: $0.key, subject: "", status: $0.value ? .done : .pending) }
         }
         updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+        attachment = try? container.decodeIfPresent(ClaudeHookSessionAttachment.self, forKey: .attachment)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -202,6 +223,7 @@ extension ClaudeHookSessionRecord {
         try container.encodeIfPresent(lastNotificationText, forKey: .lastNotificationText)
         try container.encode(tasks, forKey: .tasks)
         try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
     }
 }
 
@@ -217,14 +239,17 @@ final class ClaudeHookSessionStore {
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+    private let isProcessAlive: (Int32) -> Bool
 
     init(
         stateURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        isProcessAlive: @escaping (Int32) -> Bool = ClaudeHookSessionStore.processIsAlive
     ) {
         self.stateURL = stateURL
         self.lockURL = stateURL.appendingPathExtension("lock")
         self.fileManager = fileManager
+        self.isProcessAlive = isProcessAlive
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -272,8 +297,79 @@ final class ClaudeHookSessionStore {
 
     func lookup(sessionID: String) throws -> ClaudeHookSessionRecord? {
         try withLockedState { state in
-            state.sessions[normalized(sessionID)]
+            let key = normalized(sessionID)
+            guard var record = state.sessions[key] else {
+                return nil
+            }
+            if returnHomeIfDetached(&record) {
+                state.sessions[key] = record
+            }
+            return record
         }
+    }
+
+    /// Re-homes the one session whose id starts with `sessionIDPrefix` to the
+    /// pane running `claude attach`. Returns `nil` when no single session
+    /// matches: one launched outside Zentty has no record and no hooks.
+    func attach(
+        sessionIDPrefix: String,
+        windowID: WindowID?,
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        clientPID: Int32
+    ) throws -> ClaudeHookSessionAttachResult? {
+        let prefix = normalized(sessionIDPrefix).lowercased()
+        guard prefix.count >= ClaudeLaunchPolicy.minimumAttachIDLength else {
+            return nil
+        }
+
+        return try withLockedState { state in
+            let matchingKeys = state.sessions.keys.filter { $0.lowercased().hasPrefix(prefix) }
+            guard matchingKeys.count == 1, let key = matchingKeys.first, var record = state.sessions[key] else {
+                return nil
+            }
+            _ = returnHomeIfDetached(&record)
+
+            let previousTarget = (windowID: record.windowID, worklaneID: record.worklaneID, paneID: record.paneID)
+            let movesPane = previousTarget.worklaneID != worklaneID || previousTarget.paneID != paneID
+            // A second attach while the first client still runs keeps the
+            // original home.
+            record.attachment = ClaudeHookSessionAttachment(
+                clientPID: clientPID,
+                homeWindowIDRawValue: record.attachment?.homeWindowIDRawValue ?? record.windowIDRawValue,
+                homeWorklaneIDRawValue: record.attachment?.homeWorklaneIDRawValue ?? record.worklaneIDRawValue,
+                homePaneIDRawValue: record.attachment?.homePaneIDRawValue ?? record.paneIDRawValue,
+                homePID: record.attachment.map(\.homePID) ?? record.pid
+            )
+            record.windowIDRawValue = windowID?.rawValue
+            record.worklaneIDRawValue = worklaneID.rawValue
+            record.paneIDRawValue = paneID.rawValue
+            record.pid = clientPID
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[key] = record
+            return ClaudeHookSessionAttachResult(record: record, previousTarget: movesPane ? previousTarget : nil)
+        }
+    }
+
+    /// Once the attach client is gone the session reports to its launch pane
+    /// again. Checked on read because detaching fires no hook.
+    private func returnHomeIfDetached(_ record: inout ClaudeHookSessionRecord) -> Bool {
+        guard let attachment = record.attachment, !isProcessAlive(attachment.clientPID) else {
+            return false
+        }
+        record.windowIDRawValue = attachment.homeWindowIDRawValue
+        record.worklaneIDRawValue = attachment.homeWorklaneIDRawValue
+        record.paneIDRawValue = attachment.homePaneIDRawValue
+        record.pid = attachment.homePID
+        record.attachment = nil
+        return true
+    }
+
+    static func processIsAlive(_ pid: Int32) -> Bool {
+        guard pid > 0 else {
+            return false
+        }
+        return kill(pid, 0) == 0 || errno == EPERM
     }
 
     func upsert(

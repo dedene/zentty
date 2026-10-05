@@ -869,6 +869,10 @@ enum AgentLaunchBootstrap {
             )
         }
 
+        if ClaudeLaunchPolicy.isAttach(arguments) {
+            return try claudeAttachPlan(executablePath: executablePath, arguments: arguments)
+        }
+
         guard let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank else {
             return directPlan(
                 executablePath: executablePath,
@@ -877,7 +881,7 @@ enum AgentLaunchBootstrap {
             )
         }
 
-        let hookCommand = "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=claude"
+        let hookCommand = claudeHookCommand(cliPath: cliPath, environment: environment)
         let settingsJSON = try compactJSONString([
             "hooks": [
                 "SessionStart": claudeSessionStartHookEntries(command: hookCommand, timeout: 10),
@@ -923,6 +927,35 @@ enum AgentLaunchBootstrap {
             setEnvironment: setEnvironment,
             unsetEnvironment: ["CLAUDECODE"],
             preLaunchActions: []
+        )
+    }
+
+    /// `claude attach <id>` shows a background session in this pane. The
+    /// session's hooks still carry the pane that launched it, so the wrapper
+    /// tells the app to re-home the session here before it execs the client.
+    /// The client's pid (the wrapper's own, kept across exec) marks how long
+    /// the attachment lasts.
+    private static func claudeAttachPlan(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> AgentLaunchPlan {
+        var preLaunchActions: [AgentLaunchAction] = []
+        if let sessionID = ClaudeLaunchPolicy.attachedSessionID(in: arguments) {
+            preLaunchActions.append(AgentLaunchAction(
+                subcommand: "agent-event",
+                arguments: ["--adapter=claude"],
+                standardInput: try compactJSONString([
+                    "hook_event_name": ClaudeLaunchPolicy.attachEventName,
+                    "session_id": sessionID,
+                ])
+            ))
+        }
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [:],
+            unsetEnvironment: ["CLAUDECODE"],
+            preLaunchActions: preLaunchActions
         )
     }
 
@@ -2146,6 +2179,37 @@ enum AgentLaunchBootstrap {
         case .amp, .codex, .copilot, .cursor, .droid, .gemini, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe, .devin, .manifest:
             return []
         }
+    }
+
+    private static let claudeHookRoutingKeys = [
+        "ZENTTY_INSTANCE_SOCKET",
+        "ZENTTY_INSTANCE_ID",
+        "ZENTTY_WINDOW_ID",
+        "ZENTTY_WORKLANE_ID",
+        "ZENTTY_PANE_ID",
+        "ZENTTY_PANE_TOKEN",
+    ]
+
+    /// Claude runs background sessions (`claude --bg`, `claude agents`) under a
+    /// shared per-user daemon, so their hooks inherit the routing variables of
+    /// whichever pane started that daemon. The per-launch `--settings` does
+    /// reach those sessions, so the command carries this launch's routing
+    /// itself instead of relying on the hook's environment (dedene/zentty#121).
+    static func claudeHookCommand(cliPath: String, environment: [String: String]) -> String {
+        let command = "\"\(shellEscapedDoubleQuoted(cliPath))\" ipc agent-event --adapter=claude"
+        let required = ["ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID", "ZENTTY_PANE_TOKEN"]
+        guard required.allSatisfy({ environment[$0]?.nilIfBlank != nil }) else {
+            return command
+        }
+        // A variable this launch does not have must not leak in from the
+        // daemon either: the pane token is derived from the full set.
+        let unset = claudeHookRoutingKeys
+            .filter { environment[$0]?.nilIfBlank == nil }
+            .map { "-u \($0)" }
+        let set = claudeHookRoutingKeys.compactMap { key in
+            environment[key]?.nilIfBlank.map { "\(key)=\"\(shellEscapedDoubleQuoted($0))\"" }
+        }
+        return (["/usr/bin/env"] + unset + set + [command]).joined(separator: " ")
     }
 
     private static func claudeSessionStartHookEntries(command: String, timeout: Int) -> [[String: Any]] {

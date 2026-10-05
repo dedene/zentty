@@ -54,6 +54,7 @@ targets:
     platform: macOS
     sources:
       - path: ZenttyCLI
+      - path: Zentty/AppState/Agent/AgentHookProcessLineage.swift
       - path: Zentty/AppState/Agent/AgentIPCProtocol.swift
       - path: Zentty/AppState/Agent/AgentManifest.swift
       - path: Zentty/AppState/Agent/AgentManifestRegistry.swift
