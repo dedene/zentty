@@ -54,6 +54,7 @@ hook, and terminal observations.
     `missing-scripted-input`.
   - resume failures: `resume-no-session`, `resume-no-marker`,
     `resume-not-found`.
+  - routing failures: `wrong-pane-routing`.
   - process outcomes: `process-timeout`, `agent-refusal`.
   - skips: `auth-skip`, `binary-skip`, `missing-wrapper`, `scenario-skip`
     (each is a skip in normal mode and a failure under `--strict`).
@@ -124,3 +125,19 @@ events pass.
 e.g. Claude's `tasks` sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` because the
 TaskCreate/TaskUpdate tools are gated on it and `--setting-sources
 project,local` skips user-level settings that would otherwise enable them.
+
+`background_routing` (Claude only, `daemon_pane_routing: true`) guards the
+shared-daemon bug from dedene/zentty#121. Claude runs `claude --bg` sessions
+under one per-user daemon that keeps the environment of whichever pane started
+it. The scenario starts that daemon with the real binary under a foreign pane
+identity, then launches `claude --bg` through the wrapper as the bench pane.
+Every captured hook must carry the bench pane and worklane, and none may keep
+the starter's `ZENTTY_CLAUDE_PID`; a violation reports `wrong-pane-routing`.
+
+It starts and stops the per-user Claude daemon, so it is not part of any
+default sweep and skips (`scenario-skip`) when a daemon or background session
+is already running. It makes two short model calls. Run it on its own:
+
+```sh
+python3 scripts/agent-bench/agent_bench.py run --agents claude --scenarios background_routing
+```

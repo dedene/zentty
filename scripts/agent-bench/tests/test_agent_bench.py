@@ -370,6 +370,55 @@ class SyntheticScenarioTests(unittest.TestCase):
             ' "/tmp/zentty-bench" ipc agent-event --adapter=claude',
         )
 
+    def test_claude_background_routing_scenario_is_declared(self):
+        profile = agent_bench.load_profiles(agent_bench.BENCH_ROOT / "profiles")["claude"]
+        self.assertTrue(profile.expectations["background_routing"].daemon_pane_routing)
+        self.assertIn("--bg", profile.launch_args_by_scenario["background_routing"])
+
+    def test_parse_claude_daemon_pids_matches_only_daemon_processes(self):
+        ps_output = "\n".join(
+            [
+                "  101 /Users/me/.local/bin/claude daemon run --origin transient",
+                "  102 claude bg-pty-host --bg-pty-host /tmp/x.pty.sock 200 50",
+                "  103 claude bg-spare --bg-spare /tmp/x.claim.sock",
+                "  104 /Users/me/.local/bin/claude --session-id abc",
+                "  105 /Applications/Claude.app/Contents/MacOS/Claude",
+                "  106 vim claude daemon run notes.md",
+            ]
+        )
+        self.assertEqual(agent_bench.parse_claude_daemon_pids(ps_output), {101, 102, 103})
+
+    def test_backgrounded_session_ids_reads_ansi_coloured_output(self):
+        output = "backgrounded \u00b7 \x1b[36m6e811ae4\x1b[39m\r\n  claude attach 6e811ae4\r\n"
+        self.assertEqual(agent_bench.backgrounded_session_ids(output), ["6e811ae4"])
+
+    def test_daemon_routing_violations_flags_the_daemon_starters_identity(self):
+        def hook(event, pane, worklane="wl-b", pid=None):
+            environment = {"ZENTTY_PANE_ID": pane, "ZENTTY_WORKLANE_ID": worklane}
+            if pid:
+                environment["ZENTTY_CLAUDE_PID"] = pid
+            return agent_bench.TraceRecord(kind="hook", event_name=event, environment=environment)
+
+        def violations(records):
+            return agent_bench.daemon_routing_violations(
+                records, expected_pane="pane-b", expected_worklane="wl-b", starter_claude_pid="999999"
+            )
+
+        self.assertEqual(violations([hook("SessionStart", "pane-b"), hook("Stop", "pane-b")]), [])
+        self.assertEqual(violations([]), ["no hook events captured"])
+        self.assertEqual(
+            violations([hook("SessionStart", "pane-a")]),
+            ["SessionStart routed to pane 'pane-a', expected 'pane-b'"],
+        )
+        self.assertEqual(
+            violations([hook("Stop", "pane-b", worklane="wl-a")]),
+            ["Stop routed to worklane 'wl-a', expected 'wl-b'"],
+        )
+        self.assertEqual(
+            violations([hook("Stop", "pane-b", pid="999999")]),
+            ["Stop kept the daemon starter's ZENTTY_CLAUDE_PID"],
+        )
+
     def test_codex_plan_registers_and_trusts_subagent_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

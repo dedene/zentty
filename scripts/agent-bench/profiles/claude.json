@@ -8,6 +8,12 @@
     "--version"
   ],
   "launch_args_by_scenario": {
+    "background_routing": [
+      "--setting-sources",
+      "project,local",
+      "--bg",
+      "Reply with exactly: ZENTTY_AGENT_BENCH_OK"
+    ],
     "smoke": [
       "--setting-sources",
       "project,local",
@@ -105,6 +111,14 @@
     ]
   },
   "expectations": {
+    "background_routing": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop"
+      ],
+      "daemon_pane_routing": true
+    },
     "smoke": {
       "required_events": [
         "SessionStart",

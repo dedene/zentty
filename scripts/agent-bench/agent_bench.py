@@ -15,6 +15,7 @@ import select
 import shlex
 import struct
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -145,6 +146,11 @@ class ScenarioExpectation:
     # home, phase 2 simulates a restart and resumes it by id, asserting the
     # session is found. This is the regression guard for the overlay bug class.
     resume_roundtrip: bool = False
+    # Claude only: start the shared background daemon under a different pane's
+    # identity, then launch `claude --bg` through the wrapper and require every
+    # captured hook to carry the launching pane (dedene/zentty#121). Starts and
+    # stops the per-user Claude daemon, so it skips when one is already running.
+    daemon_pane_routing: bool = False
 
 
 @dataclasses.dataclass
@@ -3127,6 +3133,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 event_order=parse_event_order(profile_path.name, name, value.get("event_order")),
                 subagent_nested_required=bool(value.get("subagent_nested_required", False)),
                 resume_roundtrip=bool(value.get("resume_roundtrip", False)),
+                daemon_pane_routing=bool(value.get("daemon_pane_routing", False)),
             )
         profile = AgentProfile(
             name=raw["name"],
@@ -3220,6 +3227,72 @@ def materialize_manifest_wrappers(
             script_path.chmod(0o755)
         directories[tool_id] = directory
     return directories
+
+
+DAEMON_STARTER_PANE_ID = "agent-bench-daemon-starter-pane"
+DAEMON_STARTER_WORKLANE_ID = "agent-bench-daemon-starter-worklane"
+# Not a live process: the hook CLI must drop it instead of tracking it.
+DAEMON_STARTER_CLAUDE_PID = "999999"
+DAEMON_STARTER_PROMPT = "Reply with exactly: ZENTTY_AGENT_BENCH_DAEMON_STARTED"
+CLAUDE_DAEMON_PROCESS_PATTERN = re.compile(r"(?:^|/)claude (?:daemon run|bg-pty-host|bg-spare)(?:\s|$)")
+BACKGROUNDED_SESSION_PATTERN = re.compile(r"backgrounded\s+\S\s+([0-9a-f]{8})\b")
+
+
+def parse_claude_daemon_pids(ps_output: str) -> set[int]:
+    pids: set[int] = set()
+    for line in ps_output.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if pid.isdigit() and CLAUDE_DAEMON_PROCESS_PATTERN.search(command.strip()):
+            pids.add(int(pid))
+    return pids
+
+
+def claude_daemon_pids() -> set[int]:
+    result = subprocess.run(["ps", "-axo", "pid=,command="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    return parse_claude_daemon_pids(result.stdout)
+
+
+def stop_claude_daemon_processes(excluding: set[int], grace: float = 10.0) -> None:
+    # A transient daemon exits on its own once its last session stops, but it
+    # can leave pre-warmed spare hosts behind. Only processes that appeared
+    # during the scenario are signalled.
+    for signal_number in (None, signal.SIGTERM, signal.SIGKILL):
+        for pid in claude_daemon_pids() - excluding if signal_number else ():
+            try:
+                os.kill(pid, signal_number)
+            except OSError:
+                pass
+        deadline = time.time() + grace
+        while time.time() < deadline and claude_daemon_pids() - excluding:
+            time.sleep(0.5)
+
+
+def backgrounded_session_ids(output: str) -> list[str]:
+    return BACKGROUNDED_SESSION_PATTERN.findall(ANSI_ESCAPE_PATTERN.sub("", output))
+
+
+def daemon_routing_violations(
+    records: list[TraceRecord],
+    expected_pane: str,
+    expected_worklane: str,
+    starter_claude_pid: str,
+) -> list[str]:
+    violations: list[str] = []
+    hooks = [record for record in records if record.kind == "hook"]
+    if not hooks:
+        return ["no hook events captured"]
+    for record in hooks:
+        environment = record.environment or {}
+        label = record.event_name or "hook"
+        pane = environment.get("ZENTTY_PANE_ID")
+        worklane = environment.get("ZENTTY_WORKLANE_ID")
+        if pane != expected_pane:
+            violations.append(f"{label} routed to pane {pane!r}, expected {expected_pane!r}")
+        elif worklane != expected_worklane:
+            violations.append(f"{label} routed to worklane {worklane!r}, expected {expected_worklane!r}")
+        elif environment.get("ZENTTY_CLAUDE_PID") == starter_claude_pid:
+            violations.append(f"{label} kept the daemon starter's ZENTTY_CLAUDE_PID")
+    return violations
 
 
 def missing_manifest_wrapper(wrapper_dir: pathlib.Path | None, profile: AgentProfile) -> str | None:
@@ -3378,6 +3451,8 @@ class BenchRunner:
             return self._run_synthetic_scenario(agent, scenario, env)
         if profile.expectations[scenario].resume_roundtrip:
             return self._run_resume_roundtrip_scenario(agent, scenario, env)
+        if profile.expectations[scenario].daemon_pane_routing:
+            return self._run_daemon_pane_routing_scenario(agent, scenario, env)
         if profile.tool in self.manifests:
             missing = missing_manifest_wrapper(self.manifest_wrapper_dirs.get(profile.tool), profile)
         else:
@@ -3482,6 +3557,109 @@ class BenchRunner:
             agent_tool=profile.tool,
         )
         return self._finalize_result(result, self.recorder.records(), observations)
+
+    def _run_daemon_pane_routing_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
+        # Regression guard for dedene/zentty#121. Claude runs background
+        # sessions under one per-user daemon that keeps the environment of
+        # whichever pane started it. Phase 1 starts that daemon with the real
+        # binary under a foreign pane identity. Phase 2 launches `claude --bg`
+        # through the wrapper as the bench pane. Every hook the capture server
+        # then sees must carry the bench pane, not the daemon's.
+        env = dict(env)
+        profile = self.profiles[agent]
+        expectation = profile.expectations[scenario]
+        if profile.tool != "claude":
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "daemon_pane_routing is only defined for claude", "scenario-skip"), [], []
+            )
+        if missing := missing_agent_wrapper_resource(self._resolved_app_path, profile):
+            return self._finalize_result(self._skip_or_fail(agent, scenario, missing, "missing-wrapper"), [], [])
+        command, skip_message = resolve_agent_binary(profile, env["PATH"])
+        real_command, real_skip_message = resolve_agent_binary(profile, filtered_inherited_path(env["PATH"]))
+        if not command or not real_command:
+            detail = skip_message or real_skip_message or "claude binary not found"
+            return self._finalize_result(self._skip_or_fail(agent, scenario, detail, "binary-skip"), [], [])
+        preexisting = claude_daemon_pids()
+        if preexisting:
+            detail = "a Claude background daemon or session is already running; refusing to share or stop it"
+            return self._finalize_result(self._skip_or_fail(agent, scenario, detail, "scenario-skip"), [], [])
+
+        version = run_version(command, profile.version_args, env)
+        self.recorder.append(TraceRecord(kind="version", agent=agent, scenario=scenario, extra={"version": version}))
+        repo = self._make_repo(agent, scenario)
+        try:
+            ensure_claude_workspace_trust(repo)
+        except OSError as error:
+            self.recorder.append(
+                TraceRecord(kind="note", agent=agent, scenario=scenario, extra={"claude_workspace_trust_error": str(error)})
+            )
+
+        starter_env = dict(env)
+        starter_env["ZENTTY_PANE_ID"] = DAEMON_STARTER_PANE_ID
+        starter_env["ZENTTY_WORKLANE_ID"] = DAEMON_STARTER_WORKLANE_ID
+        starter_env["ZENTTY_PANE_TOKEN"] = "agent-bench-daemon-starter-token"
+        starter_env["ZENTTY_CLAUDE_PID"] = DAEMON_STARTER_CLAUDE_PID
+        session_ids: list[str] = []
+        observations: list[TerminalObservation] = []
+        try:
+            starter = run_pty(
+                [real_command, "--setting-sources", "project,local", "--bg", DAEMON_STARTER_PROMPT],
+                env=starter_env,
+                cwd=repo,
+                inputs=[],
+                timeout=self.args.timeout,
+                transcript_path=self.run_dir / f"{agent}-{scenario}-daemon-starter.terminal.log",
+            )
+            session_ids.extend(backgrounded_session_ids(starter.output))
+            if starter.timed_out or not session_ids:
+                skip = matches_any(starter.output, profile.skip_patterns)
+                detail = "could not start the Claude daemon with `claude --bg`"
+                kind = "auth-skip" if skip else "process-timeout" if starter.timed_out else "scenario-skip"
+                return self._finalize_result(self._skip_or_fail(agent, scenario, detail, kind), [], [])
+
+            launched = run_pty(
+                [command] + profile.launch_args_by_scenario.get(scenario, []),
+                env=env,
+                cwd=repo,
+                inputs=[],
+                timeout=self.args.timeout,
+                transcript_path=self.run_dir / f"{agent}-{scenario}.terminal.log",
+            )
+            observations.extend(launched.terminal_observations)
+            session_ids.extend(backgrounded_session_ids(launched.output))
+            deadline = time.time() + self.args.timeout
+            while time.time() < deadline:
+                if not validate_scenario(agent, expectation, self.recorder.records(), agent_tool=profile.tool).missing_events:
+                    break
+                time.sleep(0.5)
+        finally:
+            for session_id in session_ids:
+                subprocess.run(
+                    [real_command, "stop", session_id],
+                    env=starter_env,
+                    cwd=repo,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=30,
+                    check=False,
+                )
+            stop_claude_daemon_processes(excluding=preexisting)
+
+        records = [record for record in self.recorder.records() if record.agent == agent and record.scenario == scenario]
+        result = validate_scenario(agent, expectation, records, agent_tool=profile.tool)
+        if result.passed:
+            violations = daemon_routing_violations(
+                records,
+                expected_pane=env["ZENTTY_PANE_ID"],
+                expected_worklane=env["ZENTTY_WORKLANE_ID"],
+                starter_claude_pid=DAEMON_STARTER_CLAUDE_PID,
+            )
+            if violations:
+                result.passed = False
+                result.status = "fail"
+                result.result_kind = "wrong-pane-routing"
+                result.detail = "; ".join(violations[:3])
+        return self._finalize_result(result, records, observations)
 
     def _run_synthetic_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
         # Synthetic scenarios bypass the agent binary entirely. They pipe a
