@@ -45,23 +45,35 @@ bundle exec fastlane mac generate_project
 
 ## Test-driving a dev build
 
-To try the current checkout as a release candidate without touching your everyday Zentty:
+To try the latest `main` as a release candidate without touching your everyday Zentty:
 
 ```bash
-scripts/build-dev-release
+scripts/build-dev-release --main
 ```
 
-The script builds the Release configuration and installs it as `Zentty Dev.app` next to `/Applications/Zentty.app` (override the folder with `ZENTTY_DEV_INSTALL_DIR`). If Zentty Dev is already running, it asks it to quit, replaces the bundle and relaunches it. Use `--adhoc` to skip the Developer ID identity, `--no-install` to only build, and `--help` for the rest. It needs `FrameworksLocal/GhosttyKit.xcframework`, so run `scripts/build_ghosttykit.sh` first on a fresh clone.
+`--main` fetches `origin/main` and builds it in a worktree the script owns, `.worktrees/dev-release` under the main repo (override with `ZENTTY_DEV_WORKTREE`). Your own checkout and its branch stay as they are. `--ref <ref>` does the same for any branch, tag or commit. The worktree is created on first use and moved to the requested commit on later runs; the script refuses to touch it if it has local changes. GhosttyKit is copied into it from the checkout you run the script from, so that checkout needs a `FrameworksLocal/GhosttyKit.xcframework` built for the same `scripts/ghosttykit.lock` (otherwise the script stops and tells you).
+
+Without `--main` or `--ref`, the script builds the current checkout as is.
+
+Either way it builds the Release configuration and installs it as `Zentty Dev.app` next to `/Applications/Zentty.app` (override the folder with `ZENTTY_DEV_INSTALL_DIR`). If Zentty Dev is running, it asks it to quit, swaps in the new bundle and relaunches it. Use `--adhoc` to skip the Developer ID identity, `--no-install` to only build, and `--help` for the rest. On a fresh clone, run `scripts/build_ghosttykit.sh` first.
+
+Run it from production Zentty or another terminal, not from a Zentty Dev pane: installing quits Zentty Dev, and the script refuses to start there unless you pass `--no-install`.
 
 Zentty Dev is a separate app:
 
 - Bundle id `be.zenjoy.zentty.dev`, so macOS treats it as its own app for permissions and defaults.
-- Settings live in `~/.config/zentty-dev`. On first launch it copies `~/.config/zentty/config.toml` and `bookmarks.json` once; after that the two diverge.
+- Settings live in `~/.config/zentty-dev`. When `~/.config/zentty-dev/config.toml` doesn't exist yet, it copies `config.toml` and `bookmarks.json` from `~/.config/zentty`; after that the two diverge. To start over from your production settings, delete `~/.config/zentty-dev` and relaunch.
 - Its Application Support and Caches folders are named "Zentty Dev", and session restore is separate.
 - No Sparkle feed and no error reporting, so it never updates itself into the production app.
 - The icon carries an orange DEV badge.
 
-Known limitation: agents that write persistent global hook files (Cursor, Droid, Grok, Kimi, Hermes, Vibe, Amp, agy) record the CLI path of whichever Zentty launched them last. Events still reach the right app, but the recorded path may point at the other one.
+Some things are shared on purpose:
+
+- `~/.config/ghostty/config.ghostty`, if you use the shared Ghostty config mode.
+- User agent manifests in `~/.config/zentty/agents`.
+- The runtime dir `~/.config/zentty/run`. Each running instance has its own socket there, so the two apps don't collide.
+
+Known limitation: agents that write persistent global hook files (Cursor, Droid, Grok, Kimi, Hermes, Vibe, Amp, agy) record the CLI path of whichever Zentty launched them last, so the path may point at the other app's `zentty` CLI. Events are routed by the pane's socket environment, so they normally still reach the right app. If the two builds' IPC protocols differ, though, a hook that runs through the other app's CLI can fail.
 
 ## Code Signing
 
