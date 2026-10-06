@@ -2665,7 +2665,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "FRAMEWORK_PATH=\"${PROJECT_DIR}/FrameworksLocal/GhosttyKit.xcframework\"\nif [ ! -d \"$FRAMEWORK_PATH\" ]; then\n  echo \"error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first.\"\n  exit 1\nfi\n";
+			shellScript = "FRAMEWORK_PATH=\"${PROJECT_DIR}/FrameworksLocal/GhosttyKit.xcframework\"\nif [ ! -d \"$FRAMEWORK_PATH\" ]; then\n  echo \"error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first.\"\n  exit 1\nfi\n# build_ghosttykit.sh stamps the lock fingerprint it built for. A\n# mismatch means FrameworksLocal holds a GhosttyKit for another\n# revision; frameworks from before the stamp existed only warn.\nWANTED=\"$(\"${PROJECT_DIR}/scripts/ghosttykit-inputs\" \"${PROJECT_DIR}\")\"\nSTAMP_PATH=\"$FRAMEWORK_PATH/.ghosttykit-inputs\"\nif [ ! -f \"$STAMP_PATH\" ]; then\n  echo \"warning: GhosttyKit.xcframework has no build stamp, so it can't be checked against scripts/ghosttykit.lock. Run scripts/build_ghosttykit.sh to rebuild and stamp it.\"\nelif [ \"$(cat \"$STAMP_PATH\")\" != \"$WANTED\" ]; then\n  echo \"error: GhosttyKit.xcframework was built for a different scripts/ghosttykit.lock (or scripts/patches). Run scripts/build_ghosttykit.sh to rebuild it.\"\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

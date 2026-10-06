@@ -33,6 +33,15 @@ After the framework build succeeds, confirm the app builds:
 xcodebuild -project Zentty.xcodeproj -scheme Zentty -destination 'platform=macOS' build
 ```
 
+## Lock Stamp
+
+`scripts/build_ghosttykit.sh` writes `FrameworksLocal/GhosttyKit.xcframework/.ghosttykit-inputs`, a fingerprint of `scripts/ghosttykit.lock` plus any `scripts/patches/ghostty-*.patch` (computed by `scripts/ghosttykit-inputs`). The stamp lives inside the xcframework so it travels with every copy, including the `wtp` post-create hook.
+
+The app's "Verify GhosttyKit" build phase compares the stamp with the checkout's lock:
+
+- `error: GhosttyKit.xcframework was built for a different scripts/ghosttykit.lock`: the framework is for another revision. Run `./scripts/build_ghosttykit.sh` in that checkout.
+- `warning: GhosttyKit.xcframework has no build stamp`: the framework predates the stamp and can't be checked. Rebuild it when convenient.
+
 ## Recovery Steps
 
 If the locked Zig version is missing (currently `0.16.0`):

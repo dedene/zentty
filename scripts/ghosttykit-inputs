@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# Print the fingerprint of what decides which GhosttyKit a checkout needs: the
+# pinned revision in scripts/ghosttykit.lock and any patches build_ghosttykit.sh
+# applies on top of it.
+#
+# build_ghosttykit.sh stores it in GhosttyKit.xcframework/.ghosttykit-inputs and
+# the "Verify GhosttyKit" build phase compares the two, so a framework built for
+# a different lock fails the build instead of being linked silently.
+#
+# Usage: scripts/ghosttykit-inputs [repo-root]
+
+set -euo pipefail
+
+root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+{
+  cat "${root}/scripts/ghosttykit.lock" 2>/dev/null || true
+  cat "${root}"/scripts/patches/ghostty-*.patch 2>/dev/null || true
+} | shasum -a 256 | awk '{print $1}'

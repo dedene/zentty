@@ -173,6 +173,11 @@ fi
 mkdir -p "${ARTIFACT_DEST}"
 rsync -a --delete "${ARTIFACT_SOURCE}/" "${ARTIFACT_DEST}/"
 
+# Record which lock this framework was built for. The "Verify GhosttyKit" build
+# phase fails when it no longer matches scripts/ghosttykit.lock. Kept inside the
+# xcframework so it travels with every copy of it (wtp hook, cp -R, ditto).
+"${SCRIPT_DIR}/ghosttykit-inputs" "${REPO_ROOT}" > "${ARTIFACT_DEST}/.ghosttykit-inputs"
+
 echo "Built GhosttyKit.xcframework"
 echo "Revision: ${revision}"
 echo "Zig: $("${ZIG_COMMAND}" version)"
