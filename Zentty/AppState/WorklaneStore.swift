@@ -489,6 +489,7 @@ final class WorklaneStore {
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklanes: [WorklaneState] = [],
+        initialWorkingDirectory: String? = nil,
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
@@ -532,6 +533,7 @@ final class WorklaneStore {
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
                 windowID: windowID,
+                workingDirectory: initialWorkingDirectory ?? Self.defaultWorkingDirectory(),
                 layoutContext: layoutContext,
                 processEnvironment: processEnvironment,
                 runtimeIdentity: runtimeIdentity,
@@ -2323,6 +2325,7 @@ final class WorklaneStore {
 
     private static func defaultWorklanes(
         windowID: WindowID,
+        workingDirectory: String,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String],
         runtimeIdentity: WorklaneRuntimeIdentity,
@@ -2334,7 +2337,7 @@ final class WorklaneStore {
                 title: nil,
                 windowID: windowID,
                 layoutContext: layoutContext,
-                workingDirectory: Self.defaultWorkingDirectory(),
+                workingDirectory: workingDirectory,
                 surfaceContext: .window,
                 processEnvironment: processEnvironment,
                 runtimeIdentity: runtimeIdentity,
