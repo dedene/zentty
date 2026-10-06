@@ -22,7 +22,7 @@ Pane and layout commands accept these selector flags unless noted otherwise:
 - `--worklane-id <worklane-id>`: target a specific worklane.
 - `--pane-id <pane-id>`: target a specific pane by ID.
 - `--pane-index <pane-index>`: target a specific 1-based pane index within the selected worklane.
-- `--pane-token <pane-token>`: authorize out-of-pane control.
+- `--pane-token <pane-token>`: authorize out-of-pane control. The token only authenticates; it does not pick the pane. Outside the target pane, also pass `--pane-id` (or `--worklane-id` / `--window-id`) to say which pane you mean.
 
 Discovery commands accept:
 
@@ -147,7 +147,7 @@ Options:
 - `--worklane-id <worklane-id|new>`: target an existing worklane, or use `new` to create a new worklane for the grid.
 - `--pane-id <pane-id>`: select the source pane by ID.
 - `--pane-index <pane-index>`: select the source pane by 1-based index within the selected worklane.
-- `--pane-token <pane-token>`: authorize out-of-pane control.
+- `--pane-token <pane-token>`: authorize out-of-pane control. Pair it with `--pane-id` (or `--worklane-id` / `--window-id`) when running outside the source pane.
 
 When `--window-id new` or `--worklane-id new` is used, Zentty still uses the selected source pane as the context for the new grid. A new worklane inherits the source pane's working directory and local Ghostty configuration where possible. A new window inherits the source pane's working directory.
 
