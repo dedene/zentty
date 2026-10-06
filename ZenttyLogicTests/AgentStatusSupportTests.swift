@@ -6864,25 +6864,27 @@ final class AgentStatusSupportTests: XCTestCase {
             ).first
         )
 
-        XCTAssertEqual(
-            payload,
-            AgentStatusPayload(
-                worklaneID: WorklaneID("worklane-main"),
-                paneID: PaneID("worklane-main-shell"),
-                signalKind: .lifecycle,
-                state: .needsInput,
-                origin: .explicitHook,
-                toolName: "Claude Code",
-                text: "Claude is waiting for your input",
-                lifecycleEvent: .update,
-                interactionKind: .genericInput,
-                confidence: .strong,
-                sessionID: "session-1",
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil
-            )
+        var expected = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .needsInput,
+            origin: .explicitHook,
+            toolName: "Claude Code",
+            text: "Claude is waiting for your input",
+            lifecycleEvent: .update,
+            interactionKind: .genericInput,
+            confidence: .strong,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
         )
+        // Root Claude hooks attach pane metadata; no bridge session means
+        // Remote Control is reported as disconnected rather than unknown.
+        expected.isClaudeRemoteControlActive = false
+        expected.carriesRootMetadata = true
+        XCTAssertEqual(payload, expected)
     }
 
     func test_claude_parse_input_preserves_transcript_path() throws {
@@ -7305,26 +7307,26 @@ final class AgentStatusSupportTests: XCTestCase {
             sessionStore: store
         )
 
-        XCTAssertEqual(
-            payloads,
-            [
-                AgentStatusPayload(
-                    worklaneID: WorklaneID("worklane-main"),
-                    paneID: PaneID("worklane-main-shell"),
-                    signalKind: .pid,
-                    state: nil,
-                    pid: 4242,
-                    pidEvent: .attach,
-                    origin: .explicitHook,
-                    toolName: "Claude Code",
-                    text: nil,
-                    sessionID: "session-1",
-                    artifactKind: nil,
-                    artifactLabel: nil,
-                    artifactURL: nil
-                ),
-            ]
+        var expectedAttach = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .pid,
+            state: nil,
+            pid: 4242,
+            pidEvent: .attach,
+            origin: .explicitHook,
+            toolName: "Claude Code",
+            text: nil,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentTranscriptPath: "/tmp/claude/session-1.jsonl"
         )
+        expectedAttach.agentMetadataPID = 4242
+        expectedAttach.isClaudeRemoteControlActive = false
+        expectedAttach.carriesRootMetadata = true
+        XCTAssertEqual(payloads, [expectedAttach])
 
         let record = try XCTUnwrap(store.lookup(sessionID: "session-1"))
         XCTAssertEqual(record.worklaneID, WorklaneID("worklane-main"))
@@ -7748,42 +7750,45 @@ final class AgentStatusSupportTests: XCTestCase {
             subagentStore: try makeSubagentRegistryStore()
         )
 
-        XCTAssertEqual(
-            payloads,
-            [
-                AgentStatusPayload(
-                    worklaneID: WorklaneID("worklane-main"),
-                    paneID: PaneID("worklane-main-shell"),
-                    signalKind: .pid,
-                    state: nil,
-                    pid: 4242,
-                    pidEvent: .attach,
-                    origin: .explicitHook,
-                    toolName: "Codex",
-                    text: nil,
-                    sessionID: "session-1",
-                    artifactKind: nil,
-                    artifactLabel: nil,
-                    artifactURL: nil
-                ),
-                AgentStatusPayload(
-                    worklaneID: WorklaneID("worklane-main"),
-                    paneID: PaneID("worklane-main-shell"),
-                    signalKind: .lifecycle,
-                    state: .starting,
-                    origin: .explicitHook,
-                    toolName: "Codex",
-                    text: nil,
-                    lifecycleEvent: .update,
-                    confidence: .explicit,
-                    sessionID: "session-1",
-                    artifactKind: nil,
-                    artifactLabel: nil,
-                    artifactURL: nil,
-                    agentWorkingDirectory: "/tmp/project"
-                ),
-            ]
+        var expectedAttach = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .pid,
+            state: nil,
+            pid: 4242,
+            pidEvent: .attach,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
         )
+        expectedAttach.agentMetadataPID = 4242
+        expectedAttach.carriesRootMetadata = true
+
+        var expectedStarting = AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            signalKind: .lifecycle,
+            state: .starting,
+            origin: .explicitHook,
+            toolName: "Codex",
+            text: nil,
+            lifecycleEvent: .update,
+            confidence: .explicit,
+            sessionID: "session-1",
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil,
+            agentWorkingDirectory: "/tmp/project"
+        )
+        expectedStarting.agentMetadataPID = 4242
+        expectedStarting.carriesRootMetadata = true
+
+        // Codex never reports Claude Remote Control, so it stays unknown (nil).
+        XCTAssertEqual(payloads, [expectedAttach, expectedStarting])
     }
 
     func test_codex_hook_stop_maps_to_idle_payload() throws {

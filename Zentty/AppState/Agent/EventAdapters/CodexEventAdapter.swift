@@ -9,6 +9,33 @@ extension AgentEventBridge {
         environment: [String: String],
         subagentStore: AgentSubagentRegistryStore = AgentSubagentRegistryStore()
     ) throws -> [AgentStatusPayload] {
+        let json = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
+        let event = JSONKeyAccess.firstString(in: json, keys: ["hook_event_name", "hookEventName"])
+            ?? codexMappedEvent(defaultEventName)
+        let sessionID = JSONKeyAccess.firstString(in: json, keys: ["session_id", "sessionId"])
+        let target = currentTargetIfAvailable(from: environment)
+        let rootSessionID = try target.flatMap {
+            try subagentStore.rootSessionID(key: .init(tool: "codex", worklaneID: $0.worklaneID, paneID: $0.paneID))
+        }
+        let payloads = try codexLifecyclePayloads(data: data, defaultEventName: defaultEventName, environment: environment, subagentStore: subagentStore)
+        guard event != "SubagentStart", event != "SubagentStop",
+              JSONKeyAccess.firstString(in: json, keys: ["agent_id", "agentId"]) == nil,
+              event == "SessionStart" || rootSessionID == nil || rootSessionID == sessionID else { return payloads }
+        return payloads.map { payload in
+            var copy = payload
+            copy.carriesRootMetadata = true
+            copy.agentModel = JSONKeyAccess.firstString(in: json, keys: ["model"])
+            copy.agentMetadataPID = parseAgentPID(from: environment, key: "ZENTTY_CODEX_PID")
+            return copy
+        }
+    }
+
+    private static func codexLifecyclePayloads(
+        data: Data,
+        defaultEventName: String?,
+        environment: [String: String],
+        subagentStore: AgentSubagentRegistryStore = AgentSubagentRegistryStore()
+    ) throws -> [AgentStatusPayload] {
         let jsonObject = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
         let hookEventName = JSONKeyAccess.firstString(in: jsonObject, keys: ["hook_event_name", "hookEventName"])
             ?? codexMappedEvent(defaultEventName)

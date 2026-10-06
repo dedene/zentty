@@ -23,6 +23,8 @@ enum AgentStatusPayloadError: Error {
 
 enum AgentSignalKind: String, Equatable, Sendable {
     case lifecycle
+    /// Observational facts only; never starts, completes, or clears a run.
+    case agentMetadata = "agent-metadata"
     case shellState = "shell-state"
     case pid
     case paneRootPID = "pane-root-pid"
@@ -61,8 +63,13 @@ struct AgentStatusPayload: Equatable, Sendable {
     let artifactLabel: String?
     let artifactURL: URL?
     let agentWorkingDirectory: String?
-    let agentTranscriptPath: String?
+    var agentTranscriptPath: String?
     let agentLaunchSnapshot: AgentLaunchSnapshot?
+    var agentModel: String? = nil
+    var agentMetadataPID: Int32? = nil
+    var isClaudeRemoteControlActive: Bool? = nil
+    /// Only root hooks may attach pane metadata. Child hooks share the pane.
+    var carriesRootMetadata = false
 
     var clearsStatus: Bool {
         signalKind == .lifecycle && state == nil
@@ -166,6 +173,10 @@ struct AgentStatusPayload: Equatable, Sendable {
            let json = String(data: data, encoding: .utf8) {
             userInfo["agentLaunchSnapshot"] = json
         }
+        if carriesRootMetadata { userInfo["carriesRootMetadata"] = true }
+        if let agentModel { userInfo["agentModel"] = agentModel }
+        if let agentMetadataPID { userInfo["agentMetadataPID"] = NSNumber(value: agentMetadataPID) }
+        if let isClaudeRemoteControlActive { userInfo["isClaudeRemoteControlActive"] = isClaudeRemoteControlActive }
         return userInfo
     }
 
@@ -291,13 +302,17 @@ struct AgentStatusPayload: Equatable, Sendable {
             agentTranscriptPath: userInfo["agentTranscriptPath"] as? String,
             agentLaunchSnapshot: agentLaunchSnapshot
         )
+        agentModel = userInfo["agentModel"] as? String
+        agentMetadataPID = (userInfo["agentMetadataPID"] as? NSNumber)?.int32Value
+        isClaudeRemoteControlActive = userInfo["isClaudeRemoteControlActive"] as? Bool
+        carriesRootMetadata = userInfo["carriesRootMetadata"] as? Bool ?? false
     }
 }
 
 extension AgentStatusPayload {
     /// Copy of the payload carrying an authoritative subagent snapshot.
     func with(subagents: PaneAgentSubagentSummary?) -> AgentStatusPayload {
-        AgentStatusPayload(
+        var copy = AgentStatusPayload(
             windowID: windowID,
             worklaneID: worklaneID,
             paneID: paneID,
@@ -325,6 +340,11 @@ extension AgentStatusPayload {
             agentTranscriptPath: agentTranscriptPath,
             agentLaunchSnapshot: agentLaunchSnapshot
         )
+        copy.agentModel = agentModel
+        copy.agentMetadataPID = agentMetadataPID
+        copy.isClaudeRemoteControlActive = isClaudeRemoteControlActive
+        copy.carriesRootMetadata = carriesRootMetadata
+        return copy
     }
 }
 
