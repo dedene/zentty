@@ -153,6 +153,17 @@ targets:
             echo "error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first."
             exit 1
           fi
+          # build_ghosttykit.sh stamps the lock fingerprint it built for. A
+          # mismatch means FrameworksLocal holds a GhosttyKit for another
+          # revision; frameworks from before the stamp existed only warn.
+          WANTED="$("${PROJECT_DIR}/scripts/ghosttykit-inputs" "${PROJECT_DIR}")"
+          STAMP_PATH="$FRAMEWORK_PATH/.ghosttykit-inputs"
+          if [ ! -f "$STAMP_PATH" ]; then
+            echo "warning: GhosttyKit.xcframework has no build stamp, so it can't be checked against scripts/ghosttykit.lock. Run scripts/build_ghosttykit.sh to rebuild and stamp it."
+          elif [ "$(cat "$STAMP_PATH")" != "$WANTED" ]; then
+            echo "error: GhosttyKit.xcframework was built for a different scripts/ghosttykit.lock (or scripts/patches). Run scripts/build_ghosttykit.sh to rebuild it."
+            exit 1
+          fi
         basedOnDependencyAnalysis: false
     postBuildScripts:
       - name: Copy Agent Shell Resources
