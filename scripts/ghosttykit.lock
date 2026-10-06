@@ -2,6 +2,6 @@ repo=https://github.com/dedene/ghostty.git
 revision=a9de107b4217ff3b7faa40f0ff6f5cd4afb122f6
 upstream_repo=https://github.com/ghostty-org/ghostty.git
 upstream_revision=35a81a980bb9fce09a1ea762a68b55f8eb3477ed
-patch_branch=zentty/smooth-scroll-tip
+patch_branch=zentty/smooth-scroll
 build_target=universal
 zig_version=0.16.0
