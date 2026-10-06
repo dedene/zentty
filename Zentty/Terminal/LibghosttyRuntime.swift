@@ -787,7 +787,8 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             read_clipboard_cb: libghosttyReadClipboardCallback,
             confirm_read_clipboard_cb: libghosttyConfirmReadClipboardCallback,
             write_clipboard_cb: libghosttyWriteClipboardCallback,
-            close_surface_cb: libghosttyCloseSurfaceCallback
+            close_surface_cb: libghosttyCloseSurfaceCallback,
+            vsync_request_cb: LibghosttyVsyncDriver.isSupported ? libghosttyVsyncRequestCallback : nil
         )
     }
 
@@ -865,49 +866,164 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
     }
 }
 
+private func libghosttyVsyncRequestCallback(userdata: UnsafeMutableRawPointer?, active: Bool) {
+    guard let userdata else {
+        return
+    }
+
+    let owner = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue()
+    owner.vsyncDriver?.requestFromRenderer(active)
+}
+
+private struct LibghosttyClipboardContent {
+    let mime: String
+    let data: Data
+}
+
 private func libghosttyReadClipboardCallback(
     userdata: UnsafeMutableRawPointer?,
     location: ghostty_clipboard_e,
-    state: UnsafeMutableRawPointer?
-) -> Bool {
+    state: UnsafeMutableRawPointer?,
+    mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+    mimesLen: Int,
+    list: Bool
+) -> ghostty_clipboard_read_result_e {
     guard
         let userdata,
         let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
-        let pasteboard = NSPasteboard.ghostty(location),
-        let content = TerminalClipboard.pastedContent(from: pasteboard)
+        let pasteboard = NSPasteboard.ghostty(location)
     else {
-        return false
+        return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
     }
 
-    let string: String
-    switch content {
-    case .text(let text):
-        string = text
-    case .filePath(let path):
-        string = path
+    // libghostty names exactly the representations it wants; text-like types
+    // always arrive as "text/plain". Only read those.
+    var contents: [LibghosttyClipboardContent] = []
+    var seen = Set<String>()
+    for index in 0..<(mimes == nil ? 0 : mimesLen) {
+        guard let pointer = mimes?[index] else {
+            continue
+        }
+        let mime = String(cString: pointer)
+        guard seen.insert(mime).inserted,
+              let data = pasteboard.libghosttyData(forMime: mime) else {
+            continue
+        }
+        contents.append(LibghosttyClipboardContent(mime: mime, data: data))
     }
 
-    string.withCString { pointer in
-        ghostty_surface_complete_clipboard_request(surface, pointer, state, false)
+    let available = list ? pasteboard.libghosttyAvailableMimes() : []
+    if contents.isEmpty && !list {
+        return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
     }
-    return true
+
+    completeLibghosttyClipboardRequest(
+        surface,
+        contents: contents,
+        available: available,
+        state: state,
+        confirmed: false
+    )
+    return GHOSTTY_CLIPBOARD_READ_STARTED
 }
 
 private func libghosttyConfirmReadClipboardCallback(
     userdata: UnsafeMutableRawPointer?,
-    string: UnsafePointer<CChar>?,
+    confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
     state: UnsafeMutableRawPointer?,
     _: ghostty_clipboard_request_e
 ) {
     guard
         let userdata,
-        let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface,
-        let string
+        let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface
     else {
         return
     }
+    guard let confirm = confirm?.pointee else {
+        ghostty_surface_deny_clipboard_request(surface, state)
+        return
+    }
 
-    ghostty_surface_complete_clipboard_request(surface, string, state, true)
+    var contents: [LibghosttyClipboardContent] = []
+    for index in 0..<(confirm.contents == nil ? 0 : confirm.contents_len) {
+        guard let content = confirm.contents?[index], let mime = content.mime else {
+            continue
+        }
+        contents.append(LibghosttyClipboardContent(mime: String(cString: mime), data: content.dataValue))
+    }
+
+    var available: [String] = []
+    for index in 0..<(confirm.available == nil ? 0 : confirm.available_len) {
+        if let pointer = confirm.available?[index] {
+            available.append(String(cString: pointer))
+        }
+    }
+
+    // Zentty has no clipboard confirmation UI; it approves what libghostty
+    // would have shown, as it did before libghostty passed structured contents.
+    completeLibghosttyClipboardRequest(
+        surface,
+        contents: contents,
+        available: available,
+        state: state,
+        confirmed: true
+    )
+}
+
+private func completeLibghosttyClipboardRequest(
+    _ surface: ghostty_surface_t,
+    contents: [LibghosttyClipboardContent],
+    available: [String],
+    state: UnsafeMutableRawPointer?,
+    confirmed: Bool
+) {
+    // libghostty copies what it needs during the call, so C copies only have to
+    // live until it returns.
+    var cStrings: [UnsafeMutablePointer<CChar>] = []
+    var cBuffers: [UnsafeMutableRawPointer] = []
+    defer {
+        cStrings.forEach { free($0) }
+        cBuffers.forEach { $0.deallocate() }
+    }
+
+    var cContents: [ghostty_clipboard_content_s] = []
+    for content in contents {
+        guard let mime = strdup(content.mime) else {
+            continue
+        }
+        cStrings.append(mime)
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: max(content.data.count, 1), alignment: 1)
+        cBuffers.append(buffer)
+        content.data.copyBytes(to: buffer.assumingMemoryBound(to: UInt8.self), count: content.data.count)
+        cContents.append(ghostty_clipboard_content_s(
+            mime: mime,
+            data: buffer.assumingMemoryBound(to: CChar.self),
+            len: content.data.count
+        ))
+    }
+
+    var cAvailable: [UnsafePointer<CChar>?] = []
+    for mime in available {
+        guard let pointer = strdup(mime) else {
+            continue
+        }
+        cStrings.append(pointer)
+        cAvailable.append(UnsafePointer(pointer))
+    }
+
+    cContents.withUnsafeBufferPointer { contentsBuffer in
+        cAvailable.withUnsafeBufferPointer { availableBuffer in
+            var complete = ghostty_clipboard_complete_s(
+                contents: contentsBuffer.baseAddress,
+                contents_len: contentsBuffer.count,
+                available: availableBuffer.baseAddress,
+                available_len: availableBuffer.count,
+                confirmed: confirmed,
+                remember: false
+            )
+            ghostty_surface_complete_clipboard_request(surface, &complete, state)
+        }
+    }
 }
 
 private func libghosttyWriteClipboardCallback(
@@ -921,15 +1037,12 @@ private func libghosttyWriteClipboardCallback(
         return
     }
 
-    let entries = (0..<len).compactMap { index -> (mime: String, data: String)? in
-        guard
-            let mime = content[index].mime,
-            let data = content[index].data
-        else {
+    let entries = (0..<len).compactMap { index -> LibghosttyClipboardContent? in
+        guard let mime = content[index].mime else {
             return nil
         }
 
-        return (String(cString: mime), String(cString: data))
+        return LibghosttyClipboardContent(mime: String(cString: mime), data: content[index].dataValue)
     }
     guard entries.isEmpty == false else {
         return
@@ -942,7 +1055,11 @@ private func libghosttyWriteClipboardCallback(
         guard let type = NSPasteboard.PasteboardType(mimeType: entry.mime) else {
             continue
         }
-        pasteboard.setString(entry.data, forType: type)
+        if type == .string {
+            pasteboard.setString(String(decoding: entry.data, as: UTF8.self), forType: type)
+        } else {
+            pasteboard.setData(entry.data, forType: type)
+        }
     }
 
     if location == GHOSTTY_CLIPBOARD_STANDARD,
@@ -974,7 +1091,53 @@ private extension NSPasteboard.PasteboardType {
     }
 }
 
+private extension ghostty_clipboard_content_s {
+    /// libghostty's clipboard data is binary-safe and sized by `len`; it is
+    /// not necessarily null-terminated.
+    var dataValue: Data {
+        guard let data, len > 0 else {
+            return Data()
+        }
+        return Data(bytes: data, count: len)
+    }
+}
+
 private extension NSPasteboard {
+    /// The representation libghostty asked for, or nil when the pasteboard
+    /// cannot serve it. "text/plain" keeps Zentty's paste semantics: file URLs
+    /// become escaped paths and images are saved to a temp file path.
+    func libghosttyData(forMime mime: String) -> Data? {
+        if mime == "text/plain" {
+            guard let content = TerminalClipboard.pastedContent(from: self) else {
+                return nil
+            }
+            switch content {
+            case .text(let text), .filePath(let text):
+                return Data(text.utf8)
+            }
+        }
+
+        guard let type = NSPasteboard.PasteboardType(mimeType: mime) else {
+            return nil
+        }
+        return data(forType: type)
+    }
+
+    func libghosttyAvailableMimes() -> [String] {
+        var mimes: [String] = []
+        for type in types ?? [] {
+            let mime: String? = if type == .string {
+                "text/plain"
+            } else {
+                UTType(type.rawValue)?.preferredMIMEType
+            }
+            if let mime, !mimes.contains(mime) {
+                mimes.append(mime)
+            }
+        }
+        return mimes
+    }
+
     static var zenttySelection: NSPasteboard {
         NSPasteboard(name: .init("be.zenjoy.zentty.selection"))
     }

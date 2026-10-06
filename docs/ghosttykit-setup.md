@@ -89,14 +89,10 @@ Then update `scripts/ghosttykit.lock`:
 - `upstream_revision` is the official Ghostty commit used as the base.
 - `repo` stays `https://github.com/dedene/ghostty.git`.
 
-The build also applies `scripts/patches/ghostty-hyperlink-underline.patch` to the locked revision. It converts rendered rows (which include smooth-scroll guard rows) to viewport rows before looking up hyperlink underlines. The patch includes a Ghostty regression test for regex URLs and OSC 8 links with zero, positive, and negative scroll offsets.
-
-When updating the fork, either keep this patch applicable or incorporate the fix and tests into the fork and remove the local patch and its build steps. The build checks patch applicability before applying it.
-
-To run the regression in the patched Ghostty source checkout:
+Smooth-scroll guard rows are captured as `RenderState` overscan rows (upstream #14400), so render row `y` is viewport row `y - viewportStart()`. The fork maps cursor, preedit and hyperlink coordinates accordingly; link underlines used to need a separate build-time patch for this. To run the fork's smooth-scroll regressions, including the link mapping:
 
 ```bash
-zig build test -Dtest-filter='smooth scroll hyperlink' -Demit-macos-app=false
+zig build test -Dtest-filter='smooth scroll' -Demit-macos-app=false
 ```
 
 To reproduce visually, run `scripts/repro-hyperlink-underline` inside Zentty. It prints ordinary URLs and OSC 8 links into scrollback. Scroll by a fraction of a text row, then hold Cmd while hovering each link. The underline must follow the link's text row; repeat with smooth scrolling disabled for comparison.
@@ -107,4 +103,6 @@ The downstream audit range should stay small:
 git log --oneline <upstream_revision>..zentty/smooth-scroll
 ```
 
-It should contain only Zentty's smooth-scroll patch stack and any direct conflict-resolution commits.
+It should contain only Zentty's smooth-scroll patch stack, the embedder-vsync patch, and any direct conflict-resolution commits.
+
+The embedder-vsync patch (`feat(zentty): let the embedder drive vsync instead of CVDisplayLink`) adds the `vsync_request_cb` runtime callback and `ghostty_surface_vsync_tick`. On macOS 14+ Zentty sets the callback and drives each surface from an `NSView.displayLink` (`LibghosttyVsyncDriver`), so libghostty never creates a CVDisplayLink. CoreVideo stops running CVDisplayLinks from its display-reconfiguration callback on the main thread, and that stop can hang forever (issue #131, ghostty-org/ghostty#14150). Keep this patch when rebasing until upstream stops using CVDisplayLink.
