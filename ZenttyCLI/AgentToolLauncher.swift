@@ -367,7 +367,13 @@ struct AgentToolLauncher {
 
         let cliDirectory = environment["ZENTTY_CLI_BIN"]
             .map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
-        let excludedDirectories = Set(wrapperDirectories + [cliDirectory].compactMap { $0 })
+        // Manifest wrappers re-export their own dir on every hop, so it is
+        // still present when a helper process stripped the markers above.
+        let manifestWrapperDirectory = environment["ZENTTY_AGENT_WRAPPER_DIR"]?.nonEmpty
+        let excludedDirectories = Set(
+            (wrapperDirectories + [cliDirectory, manifestWrapperDirectory].compactMap { $0 })
+                .map(Self.normalizedDirectory)
+        )
 
         if tool == .kimi {
             let pin = KimiVariant(rawPin: environment["ZENTTY_KIMI_VARIANT"])
@@ -418,7 +424,9 @@ struct AgentToolLauncher {
         var seen = Set<String>()
 
         for entry in environmentPathEntries(forKeys: ["PATH"]) {
-            guard !excludedDirectories.contains(entry) else {
+            let directory = Self.normalizedDirectory(entry)
+            guard !excludedDirectories.contains(directory),
+                  !Self.isBundledWrapperDirectory(directory) else {
                 continue
             }
             for wrappedToolName in wrappedToolNames {
@@ -436,6 +444,24 @@ struct AgentToolLauncher {
                 }
             }
         }
+    }
+
+    private static func normalizedDirectory(_ path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+    }
+
+    /// Recognizes a bundled `Resources/bin/<tool>/` wrapper dir by its
+    /// `../shared/zentty-agent-wrapper` sibling, independent of the ZENTTY_*
+    /// markers. A helper process that inherits PATH but not those markers
+    /// would otherwise resolve the wrapper as the real binary and re-exec it
+    /// forever (#129). Also covers other Zentty installs on PATH.
+    private static func isBundledWrapperDirectory(_ directory: String) -> Bool {
+        let sharedWrapper = URL(fileURLWithPath: directory, isDirectory: true)
+            .deletingLastPathComponent()
+            .appendingPathComponent("shared", isDirectory: true)
+            .appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+            .path
+        return FileManager.default.isExecutableFile(atPath: sharedWrapper)
     }
 
     private func resolveMiseShimIfNeeded(_ executablePath: String) -> Result<String, LaunchFailureDiagnostic>? {
