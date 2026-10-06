@@ -129,6 +129,15 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
+        # Lets `open -a Zentty <dir>`, Finder's "Open With" and a folder dropped
+        # on the Dock icon open a window there. Alternate rank keeps Finder the
+        # default folder handler.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Folder
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.folder
         GlitchTipDSN: $(GLITCHTIP_DSN)
         NSLocalNetworkUsageDescription: A program running within Zentty would like to access devices on your local network.
         NSMicrophoneUsageDescription: A program running within Zentty would like to use your microphone.

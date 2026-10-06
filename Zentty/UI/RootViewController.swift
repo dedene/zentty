@@ -282,7 +282,8 @@ final class RootViewController: NSViewController {
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         initialLayoutContext: PaneLayoutContext = .fallback,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        initialWorkspaceState: WindowWorkspaceState? = nil,
+        initialWorkingDirectory: String? = nil
     ) {
         self.windowID = windowID
         self.runtimeRegistry = runtimeRegistry
@@ -317,6 +318,7 @@ final class RootViewController: NSViewController {
         self.worklaneStore = WorklaneStore(
             windowID: windowID,
             worklanes: initialWorkspaceState?.worklanes ?? [],
+            initialWorkingDirectory: initialWorkingDirectory,
             layoutContext: initialLayoutContext,
             activeWorklaneID: initialWorkspaceState?.activeWorklaneID,
             gitContextResolver: gitContextResolver,
@@ -480,7 +482,8 @@ final class RootViewController: NSViewController {
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
         initialLayoutContext: PaneLayoutContext = .fallback,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        initialWorkspaceState: WindowWorkspaceState? = nil,
+        initialWorkingDirectory: String? = nil
     ) {
         self.init(
             windowID: windowID,
@@ -501,7 +504,8 @@ final class RootViewController: NSViewController {
             reviewStateResolver: reviewStateResolver,
             gitContextResolver: gitContextResolver,
             initialLayoutContext: initialLayoutContext,
-            initialWorkspaceState: initialWorkspaceState
+            initialWorkspaceState: initialWorkspaceState,
+            initialWorkingDirectory: initialWorkingDirectory
         )
     }
 

@@ -210,7 +210,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         paneLayoutDefaults: UserDefaults = .standard,
         windowIndex: Int = 0,
         initialPaneLayoutFrame: NSRect? = nil,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        initialWorkspaceState: WindowWorkspaceState? = nil,
+        initialWorkingDirectory: String? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.MainWindowController"),
@@ -234,7 +235,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
             initialLayoutContext: initialLayoutContext,
-            initialWorkspaceState: initialWorkspaceState
+            initialWorkspaceState: initialWorkspaceState,
+            initialWorkingDirectory: initialWorkingDirectory
         )
         _ = rootViewController.view
         let window = ProxyAwareWindow(
