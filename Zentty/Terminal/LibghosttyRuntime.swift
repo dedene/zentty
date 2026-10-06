@@ -261,6 +261,7 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         guard initResult == GHOSTTY_SUCCESS else {
             throw Error.initializationFailed(initResult)
         }
+        Self.normalizeLocaleAfterGhosttyInit()
 
         guard let config = ghostty_config_new() else {
             throw Error.configCreationFailed
@@ -814,6 +815,14 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
             return
         }
         ghostty_app_keyboard_changed(app)
+    }
+
+    /// ghostty_init runs setlocale(LC_ALL, "") with the user's locale. With a
+    /// comma-decimal LC_NUMERIC (nl_BE, de_DE, fr_FR, ...) AppKit resolves
+    /// SF Symbols as empty 2x2pt images for the rest of the process. The
+    /// terminal only needs LC_CTYPE for UTF-8, so put numerics back to "C".
+    static func normalizeLocaleAfterGhosttyInit() {
+        setlocale(LC_NUMERIC, "C")
     }
 
     private static func configureLogLevelIfNeeded() {
