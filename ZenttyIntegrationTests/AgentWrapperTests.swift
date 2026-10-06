@@ -142,6 +142,103 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertEqual(try harness.readLines(named: "real-args.log"), ["--yolo"])
     }
 
+    // Regression for #129: a helper process (e.g. `codex app-server` spawned by
+    // a plugin) can inherit PATH with the wrapper dirs but lose the ZENTTY_*
+    // exclusion markers. The launcher must not pick its own wrapper as the
+    // real binary, or it re-execs itself forever at 100% CPU.
+    func test_real_cli_launch_skips_bundled_wrapper_dir_when_exclusion_markers_are_stripped() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["codex", "zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "codex",
+            script: """
+            #!/bin/bash
+            printf '%s\\n' "$@" >> "$REAL_ARGS_LOG"
+            """
+        )
+
+        let result = try harness.run(
+            tool: "codex",
+            arguments: ["--version"],
+            extraEnvironment: ["ZENTTY_CLI_BIN": try builtCLIPath()],
+            removingEnvironmentKeys: Self.strippedHelperEnvironmentKeys,
+            pathOverride: [
+                harness.wrapperBinURL.appendingPathComponent("codex", isDirectory: true).path,
+                harness.realBinURL.path,
+                "/usr/bin",
+                "/bin",
+            ],
+            timeout: 10
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readLines(named: "real-args.log"), ["--version"])
+    }
+
+    func test_real_cli_launch_skips_manifest_wrapper_dir_when_exclusion_markers_are_stripped() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "loopcheck-agent",
+            script: """
+            #!/bin/bash
+            printf '%s\\n' "$@" >> "$REAL_ARGS_LOG"
+            """
+        )
+        let manifestDirectory = harness.rootURL.appendingPathComponent("manifests", isDirectory: true)
+        try FileManager.default.createDirectory(at: manifestDirectory, withIntermediateDirectories: true)
+        try """
+        {"schemaVersion": 1, "id": "loopcheck", "displayName": "Loop Check",
+         "binaries": ["loopcheck-agent"], "family": "canonical"}
+        """.write(
+            to: manifestDirectory.appendingPathComponent("loopcheck.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let wrapperDirectories = try AgentManifestWrapperMaterializer.materialize(
+            manifests: [AgentManifest(
+                schemaVersion: 1,
+                id: "loopcheck",
+                displayName: "Loop Check",
+                binaries: ["loopcheck-agent"],
+                family: .canonical
+            )],
+            rootURL: harness.rootURL.appendingPathComponent("agent-wrappers", isDirectory: true),
+            sharedWrapperPath: harness.wrapperBinURL
+                .appendingPathComponent("shared/zentty-agent-wrapper", isDirectory: false)
+                .path
+        )
+        defer { AgentManifestWrapperMaterializer.resetMaterializedDirectories() }
+        let wrapperDirectory = try XCTUnwrap(wrapperDirectories.first)
+
+        let result = try harness.run(
+            tool: "loopcheck",
+            arguments: ["--version"],
+            extraEnvironment: [
+                "ZENTTY_CLI_BIN": try builtCLIPath(),
+                "ZENTTY_AGENT_MANIFEST_DIRS": manifestDirectory.path,
+            ],
+            removingEnvironmentKeys: Self.strippedHelperEnvironmentKeys,
+            pathOverride: [wrapperDirectory, harness.realBinURL.path, "/usr/bin", "/bin"],
+            executableOverride: URL(fileURLWithPath: wrapperDirectory)
+                .appendingPathComponent("loopcheck-agent", isDirectory: false),
+            timeout: 10
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readLines(named: "real-args.log"), ["--version"])
+    }
+
+    private static let strippedHelperEnvironmentKeys = [
+        "ZENTTY_ALL_WRAPPER_BIN_DIRS",
+        "ZENTTY_WRAPPER_BIN_DIRS",
+        "ZENTTY_WRAPPER_BIN_DIR",
+        "ZENTTY_AGENT_WRAPPER_DIR",
+        "ZENTTY_REAL_BINARY",
+        "ZENTTY_INSTANCE_SOCKET",
+        "ZENTTY_PANE_TOKEN",
+        "ZENTTY_WORKLANE_ID",
+        "ZENTTY_PANE_ID",
+    ]
+
     func test_wrapper_falls_back_to_real_binary_when_ipc_peer_closes_before_bootstrap_write() throws {
         let harness = try WrapperHarness(copyingScriptsNamed: ["codex", "zentty-agent-wrapper"])
         try harness.installRealBinary(
@@ -1439,11 +1536,15 @@ private final class WrapperHarness {
         tool: String,
         arguments: [String],
         stdin: String? = nil,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        removingEnvironmentKeys: [String] = [],
+        pathOverride: [String]? = nil,
+        executableOverride: URL? = nil,
+        timeout: TimeInterval? = nil
     ) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [executableURL(for: tool).path] + arguments
+        process.arguments = [(executableOverride ?? executableURL(for: tool)).path] + arguments
 
         var environment = ProcessInfo.processInfo.environment
         let wrapperPaths = publicWrapperDirectories.map(\.path)
@@ -1459,6 +1560,10 @@ private final class WrapperHarness {
         environment["CLI_ENV_LOG"] = logDirectoryURL.appendingPathComponent("cli-env.log", isDirectory: false).path
         environment["CLI_STDIN_LOG"] = logDirectoryURL.appendingPathComponent("cli-stdin.log", isDirectory: false).path
         extraEnvironment.forEach { environment[$0.key] = $0.value }
+        removingEnvironmentKeys.forEach { environment.removeValue(forKey: $0) }
+        if let pathOverride {
+            environment["PATH"] = pathOverride.joined(separator: ":")
+        }
         process.environment = environment
 
         let stdout = Pipe()
@@ -1473,6 +1578,17 @@ private final class WrapperHarness {
             stdinPipe.fileHandleForWriting.write(Data(stdin.utf8))
         }
         try? stdinPipe.fileHandleForWriting.close()
+        if let timeout {
+            // A wrapper that re-execs itself keeps the same pid, so killing it
+            // breaks the loop and lets the test fail instead of hanging.
+            let deadline = Date().addingTimeInterval(timeout)
+            while process.isRunning, Date() < deadline {
+                usleep(20_000)
+            }
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
         process.waitUntilExit()
 
         let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
