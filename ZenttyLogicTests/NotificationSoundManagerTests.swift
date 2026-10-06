@@ -241,6 +241,38 @@ final class NotificationSoundManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: keeper.path))
     }
 
+    func test_isCustomSoundName_recognizesEveryFlavorPrefix() {
+        // Dev's seeded config may point at production's sound file; Dev must still play it.
+        XCTAssertTrue(NotificationSoundManager.isCustomSoundName("zentty-custom-abc.caf"))
+        XCTAssertTrue(NotificationSoundManager.isCustomSoundName("zentty-dev-custom-abc.caf"))
+        XCTAssertFalse(NotificationSoundManager.isCustomSoundName("zentty-dev-custom-abc.mp3"))
+    }
+
+    func test_pruneCustomSounds_onlyRemovesOwnFlavorFiles() throws {
+        let productionNames = ["zentty-custom-a.caf", "zentty-custom-b.caf"]
+        let devNames = ["zentty-dev-custom-a.caf", "zentty-dev-custom-b.caf"]
+        for name in productionNames + devNames {
+            try Data("x".utf8).write(to: tempSoundsDir.appendingPathComponent(name))
+        }
+
+        // Dev pruning (e.g. after picking a system sound) must leave production's files.
+        NotificationSoundManager.pruneCustomSounds(
+            keeping: nil,
+            ownedPrefix: ZenttyBuildFlavor.dev.customSoundFilePrefix
+        )
+        XCTAssertEqual(try customSoundFiles(), productionNames)
+
+        // And production pruning must leave Dev's files.
+        for name in devNames {
+            try Data("x".utf8).write(to: tempSoundsDir.appendingPathComponent(name))
+        }
+        NotificationSoundManager.pruneCustomSounds(
+            keeping: "zentty-custom-b.caf",
+            ownedPrefix: ZenttyBuildFlavor.production.customSoundFilePrefix
+        )
+        XCTAssertEqual(try customSoundFiles(), ["zentty-custom-b.caf"] + devNames)
+    }
+
     func test_installCustomSound_rejectsConvertedSoundLongerThanThirtySecondsWhenSourceDurationIsUnreadable() throws {
         let source = tempSoundsDir.appendingPathComponent("SourceWithUnreadableDuration.zenttytest")
         try Data("not actually audio but converter accepts it".utf8).write(to: source)

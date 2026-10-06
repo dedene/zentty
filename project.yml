@@ -128,7 +128,10 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        CFBundleIconFile: AppIcon
+        CFBundleIconFile: $(ZENTTY_APP_ICON_NAME)
+        CFBundleName: $(ZENTTY_DISPLAY_NAME)
+        CFBundleDisplayName: $(ZENTTY_DISPLAY_NAME)
+        ZenttyBuildFlavor: $(ZENTTY_BUILD_FLAVOR)
         # Lets `open -a Zentty <dir>`, Finder's "Open With" and a folder dropped
         # on the Dock icon open a window there. Alternate rank keeps Finder the
         # default folder handler.
@@ -203,7 +206,13 @@ targets:
         basedOnDependencyAnalysis: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
+        # Build flavor seam: scripts/build-dev-release overrides these to
+        # produce "Zentty Dev" (be.zenjoy.zentty.dev) with its own state dirs.
+        ZENTTY_BUILD_FLAVOR: production
+        ZENTTY_BUNDLE_ID_SUFFIX: ""
+        ZENTTY_DISPLAY_NAME: Zentty
+        ZENTTY_APP_ICON_NAME: AppIcon
+        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty$(ZENTTY_BUNDLE_ID_SUFFIX)
         CURRENT_PROJECT_VERSION: 931
         MARKETING_VERSION: 0.3.4
         VERSIONING_SYSTEM: apple-generic
@@ -211,7 +220,7 @@ targets:
         SPARKLE_FEED_URL: ""
         SPARKLE_PUBLIC_ED_KEY: ""
         GLITCHTIP_DSN: ""
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: $(ZENTTY_APP_ICON_NAME)
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Zentty/Zentty.entitlements
         SWIFT_EMIT_LOC_STRINGS: YES

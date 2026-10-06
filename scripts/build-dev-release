@@ -1,0 +1,433 @@
+#!/usr/bin/env bash
+#
+# Build a local release candidate of Zentty and install it as "Zentty Dev.app",
+# next to the production Zentty.app. By default it builds the current checkout;
+# with --ref/--main it builds that commit in a dedicated, script-owned worktree
+# so the invoking checkout is never touched.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+DEV_BUNDLE_ID="be.zenjoy.zentty.dev"
+DEV_APP_NAME="Zentty Dev"
+TEAM_ID="25TVW8MSGJ"
+INSTALL_DIR="${ZENTTY_DEV_INSTALL_DIR:-/Applications}"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+GHOSTTYKIT_REL="FrameworksLocal/GhosttyKit.xcframework"
+GHOSTTYKIT_STAMP_REL="FrameworksLocal/.ghosttykit-inputs"
+OWNER_MARKER="zentty-dev-release-owner"
+
+usage() {
+  cat <<USAGE
+Usage: scripts/build-dev-release [options] [-- extra xcodebuild args]
+
+Builds a Release configuration as "${DEV_APP_NAME}" (bundle id ${DEV_BUNDLE_ID},
+no Sparkle feed, no error reporting) and installs it to
+\${ZENTTY_DEV_INSTALL_DIR:-/Applications}/${DEV_APP_NAME}.app.
+
+By default it builds the current checkout. With --ref or --main it builds that
+commit in a dedicated worktree instead and leaves this checkout alone:
+\${ZENTTY_DEV_WORKTREE:-<main repo>/.worktrees/dev-release}.
+
+Options:
+  --main         Build the latest main (same as --fetch --ref origin/main).
+  --ref <ref>    Build <ref> (branch, tag or commit) in the dedicated worktree.
+  --fetch        Run 'git fetch origin main' first.
+  --adhoc        Sign ad hoc even if a Developer ID identity is available.
+  --no-install   Build only and print the built app path.
+  --open         Launch ${DEV_APP_NAME} after installing (default: only if it
+                 was running before).
+  -h, --help     Show this help.
+
+Anything after '--' is passed to xcodebuild.
+
+Signing: with a "Developer ID Application ... (${TEAM_ID})" identity in the
+keychain the project's signing is kept, so macOS privacy permissions persist
+across rebuilds. Otherwise the build is signed ad hoc and permission prompts
+reappear on every build. Notarization is never attempted.
+
+Installing quits a running ${DEV_APP_NAME}, so run this from production Zentty
+or another terminal, not from a ${DEV_APP_NAME} pane (--no-install is fine there).
+USAGE
+}
+
+log() { echo "==> $*"; }
+warn() { echo "warning: $*" >&2; }
+die() { echo "error: $*" >&2; exit 1; }
+
+force_adhoc=0
+do_install=1
+force_open=0
+do_fetch=0
+build_ref=""
+extra_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --adhoc) force_adhoc=1 ;;
+    --no-install) do_install=0 ;;
+    --open) force_open=1 ;;
+    --fetch) do_fetch=1 ;;
+    --main) do_fetch=1; build_ref="origin/main" ;;
+    --ref)
+      [[ $# -ge 2 && -n "$2" ]] || die "--ref needs a git ref"
+      build_ref="$2"
+      shift
+      ;;
+    --ref=*)
+      build_ref="${1#--ref=}"
+      [[ -n "${build_ref}" ]] || die "--ref needs a git ref"
+      ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; extra_args=("$@"); break ;;
+    *) usage >&2; die "unknown option: $1" ;;
+  esac
+  shift
+done
+
+# Shells inside Zentty Dev inherit its bundle id. Installing would quit the app
+# hosting this very script, so stop before spending minutes on a build.
+if [[ "${do_install}" -eq 1 && "${__CFBundleIdentifier:-}" == "${DEV_BUNDLE_ID}" ]]; then
+  die "this shell runs inside ${DEV_APP_NAME}, which the install step has to quit. Run it from production Zentty or another terminal (or pass --no-install)."
+fi
+
+for cmd in xcodebuild git ditto osascript lsappinfo shasum; do
+  command -v "${cmd}" >/dev/null 2>&1 || die "missing required command: ${cmd}"
+done
+PLISTBUDDY="/usr/libexec/PlistBuddy"
+[[ -x "${PLISTBUDDY}" ]] || die "missing ${PLISTBUDDY}"
+
+# --- Cleanup -----------------------------------------------------------------
+
+LOG_DIR=""
+staging=""
+on_exit() {
+  local status=$?
+  if [[ -n "${staging}" && -e "${staging}" ]]; then
+    rm -rf "${staging}"
+  fi
+  # Keep the log on failure: its path was printed and it is the only evidence.
+  if [[ "${status}" -eq 0 && -n "${LOG_DIR}" ]]; then
+    rm -rf "${LOG_DIR}"
+  fi
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# --- Source tree -------------------------------------------------------------
+
+if [[ "${do_fetch}" -eq 1 ]]; then
+  git -C "${REPO_ROOT}" fetch origin main \
+    || warn "git fetch origin main failed; using the existing origin/main ref"
+fi
+
+# Fingerprint of what decides which GhosttyKit a tree needs: the pinned
+# revision and the patches build_ghosttykit.sh applies on top of it.
+ghosttykit_inputs() {
+  local root="$1"
+  {
+    cat "${root}/scripts/ghosttykit.lock" 2>/dev/null || true
+    cat "${root}"/scripts/patches/ghostty-*.patch 2>/dev/null || true
+  } | shasum -a 256 | awk '{print $1}'
+}
+
+# FrameworksLocal/ is gitignored, so a fresh worktree has no GhosttyKit. Copy it
+# from the invoking checkout (a copy, never a symlink: Xcode does not build
+# against a symlinked xcframework). The project's "Verify GhosttyKit" phase only
+# checks that the folder exists, so nothing else would notice a framework built
+# for a different ghosttykit.lock. Each copy records the lock and patches it was
+# taken for; when the built ref pins something else, the copy is refreshed, and
+# if the invoking checkout pins something else too there is nothing safe to copy.
+sync_ghosttykit() {
+  local tree="$1"
+  local dest="${tree}/${GHOSTTYKIT_REL}"
+  local stamp="${tree}/${GHOSTTYKIT_STAMP_REL}"
+  local source="${REPO_ROOT}/${GHOSTTYKIT_REL}"
+  local wanted have
+
+  wanted="$(ghosttykit_inputs "${tree}")"
+  have="$(cat "${stamp}" 2>/dev/null || true)"
+  if [[ -d "${dest}" && ! -L "${dest}" && "${have}" == "${wanted}" ]]; then
+    log "GhosttyKit in the dev worktree matches its ghosttykit.lock"
+    return
+  fi
+
+  [[ -d "${source}" ]] \
+    || die "${source} is missing, so there is no GhosttyKit to copy into the dev worktree. Run scripts/build_ghosttykit.sh in ${REPO_ROOT} first."
+  if [[ "$(ghosttykit_inputs "${REPO_ROOT}")" != "${wanted}" ]]; then
+    die "${build_label} pins a different GhosttyKit (scripts/ghosttykit.lock or scripts/patches) than ${REPO_ROOT}, so that checkout's GhosttyKit can't be reused. Bring that checkout up to ${build_label}, run scripts/build_ghosttykit.sh there, and re-run."
+  fi
+  source="$(cd "${source}" && pwd -P)"
+
+  log "Copying GhosttyKit from ${REPO_ROOT} into the dev worktree"
+  mkdir -p "${tree}/FrameworksLocal"
+  rm -rf "${dest}" "${stamp}"
+  ditto "${source}" "${dest}" || die "copying GhosttyKit into ${tree} failed"
+  printf '%s\n' "${wanted}" >"${stamp}"
+}
+
+abs_dir() { (cd "$1" && pwd -P); }
+
+# Without the flavor build settings the xcodebuild overrides are silently
+# ignored and the result is a production-identity Zentty.
+no_flavor_seam() {
+  die "$1 predates the dev build flavor: its Zentty.xcodeproj has no ZENTTY_BUNDLE_ID_SUFFIX, so it would build as production Zentty. Build a ref that includes the dev flavor."
+}
+
+prepare_ref_worktree() {
+  local common_dir wt sha
+
+  common_dir="$(cd "${REPO_ROOT}" && abs_dir "$(git rev-parse --git-common-dir)")"
+  wt="${ZENTTY_DEV_WORKTREE:-$(dirname "${common_dir}")/.worktrees/dev-release}"
+  case "${wt}" in
+    /*) ;;
+    *) wt="${PWD}/${wt}" ;;
+  esac
+
+  sha="$(git -C "${REPO_ROOT}" rev-parse --verify --quiet "${build_ref}^{commit}")" \
+    || die "unknown git ref: ${build_ref}"
+  # Checked again in the preflight; doing it here skips the worktree setup.
+  git -C "${REPO_ROOT}" grep -q "ZENTTY_BUNDLE_ID_SUFFIX" "${sha}" -- Zentty.xcodeproj/project.pbxproj \
+    || no_flavor_seam "${build_ref} ($(git -C "${REPO_ROOT}" rev-parse --short "${sha}"))"
+
+  if [[ ! -e "${wt}" ]]; then
+    log "Creating dev worktree ${wt}"
+    git -C "${REPO_ROOT}" worktree add --detach "${wt}" "${sha}" \
+      || die "git worktree add failed for ${wt}. If git says it is already registered, run 'git worktree prune' and re-run."
+    wt="$(abs_dir "${wt}")"
+    touch "$(cd "${wt}" && abs_dir "$(git rev-parse --git-dir)")/${OWNER_MARKER}"
+  else
+    [[ -d "${wt}" ]] || die "${wt} exists but is not a directory"
+    wt="$(abs_dir "${wt}")"
+    # It must be a linked worktree of this repo rooted exactly here, and not
+    # the checkout running this script: its HEAD is about to be moved.
+    [[ "$(git -C "${wt}" rev-parse --show-toplevel 2>/dev/null)" == "${wt}" ]] \
+      || die "${wt} is not a git worktree. Move it away or set ZENTTY_DEV_WORKTREE."
+    [[ "$(cd "${wt}" && abs_dir "$(git rev-parse --git-common-dir)")" == "${common_dir}" ]] \
+      || die "${wt} belongs to another repository. Move it away or set ZENTTY_DEV_WORKTREE."
+    [[ "$(cd "${wt}" && abs_dir "$(git rev-parse --git-dir)")" != "${common_dir}" ]] \
+      || die "${wt} is the main checkout, not a dev worktree. Point ZENTTY_DEV_WORKTREE elsewhere."
+    [[ "${wt}" != "$(abs_dir "${REPO_ROOT}")" ]] \
+      || die "run this from another checkout: ${wt} is the dev worktree itself."
+    # Only ever move a worktree this script created: it is always detached and
+    # carries a marker in its private git dir. Anything else is someone's work.
+    if git -C "${wt}" symbolic-ref -q HEAD >/dev/null; then
+      die "${wt} has branch $(git -C "${wt}" symbolic-ref --short HEAD) checked out, so it is not the dev worktree. Point ZENTTY_DEV_WORKTREE elsewhere."
+    fi
+    [[ -e "$(cd "${wt}" && abs_dir "$(git rev-parse --git-dir)")/${OWNER_MARKER}" ]] \
+      || die "${wt} was not created by this script (no ${OWNER_MARKER} marker). Move it away or point ZENTTY_DEV_WORKTREE elsewhere."
+    if [[ -n "$(git -C "${wt}" status --porcelain --untracked-files=no)" ]]; then
+      die "the dev worktree ${wt} has local modifications. This script owns it; discard them (git -C '${wt}' checkout -- .) and re-run."
+    fi
+    git -C "${wt}" checkout --detach --quiet "${sha}" \
+      || die "could not check out ${build_ref} in ${wt}"
+  fi
+
+  build_root="${wt}"
+}
+
+build_root="${REPO_ROOT}"
+build_label=""
+if [[ -n "${build_ref}" ]]; then
+  build_label="${build_ref}"
+  prepare_ref_worktree
+  sync_ghosttykit "${build_root}"
+fi
+
+cd "${build_root}"
+
+# --- Preflight ---------------------------------------------------------------
+
+if [[ ! -d "${build_root}/${GHOSTTYKIT_REL}" ]]; then
+  die "${GHOSTTYKIT_REL} is missing. Run scripts/build_ghosttykit.sh first."
+fi
+
+commit="$(git rev-parse --short HEAD)"
+[[ -n "${build_label}" ]] || build_label="$(git rev-parse --abbrev-ref HEAD)"
+
+grep -q "ZENTTY_BUNDLE_ID_SUFFIX" Zentty.xcodeproj/project.pbxproj \
+  || no_flavor_seam "${build_label} (${commit})"
+
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  dirty="dirty"
+else
+  dirty="clean"
+fi
+if [[ -n "${build_ref}" ]]; then
+  log "Building ${build_label} @ ${commit} (tree ${dirty}) in ${build_root}"
+else
+  log "Branch ${build_label} @ ${commit} (tree ${dirty})"
+fi
+
+if origin_main="$(git rev-parse --verify --quiet refs/remotes/origin/main)"; then
+  if [[ "${origin_main}" != "$(git rev-parse HEAD)" ]]; then
+    warn "HEAD (${commit}) is not origin/main ($(git rev-parse --short "${origin_main}")). Fine for testing a branch, but this is not the main release candidate."
+  fi
+else
+  warn "no origin/main ref found; skipping the main comparison"
+fi
+
+build_number="$(git rev-list --count HEAD)"
+
+# --- Signing -----------------------------------------------------------------
+
+signing_args=()
+if [[ "${force_adhoc}" -eq 0 ]] \
+  && security find-identity -v -p codesigning 2>/dev/null \
+    | grep -q "Developer ID Application: .*(${TEAM_ID})"; then
+  log "Signing with the project's Developer ID identity (stable code identity)"
+else
+  if [[ "${force_adhoc}" -eq 1 ]]; then
+    log "Signing ad hoc (--adhoc)"
+  else
+    warn "no Developer ID Application identity for team ${TEAM_ID} found; signing ad hoc."
+  fi
+  warn "ad hoc signatures change every build, so macOS permission prompts will reappear."
+  signing_args=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=)
+fi
+
+# --- Build -------------------------------------------------------------------
+
+xcb_args=(
+  -project Zentty.xcodeproj
+  -scheme Zentty
+  -configuration Release
+  -destination 'platform=macOS'
+  -disableAutomaticPackageResolution
+  ZENTTY_BUILD_FLAVOR=dev
+  ZENTTY_BUNDLE_ID_SUFFIX=.dev
+  "ZENTTY_DISPLAY_NAME=${DEV_APP_NAME}"
+  ZENTTY_APP_ICON_NAME=AppIconDev
+  SPARKLE_FEED_URL=
+  SPARKLE_PUBLIC_ED_KEY=
+  GLITCHTIP_DSN=
+  "CURRENT_PROJECT_VERSION=${build_number}"
+  OTHER_CODE_SIGN_FLAGS=--timestamp=none
+)
+if [[ ${#signing_args[@]} -gt 0 ]]; then
+  xcb_args+=("${signing_args[@]}")
+fi
+if [[ ${#extra_args[@]} -gt 0 ]]; then
+  xcb_args+=("${extra_args[@]}")
+fi
+
+LOG_DIR="$(mktemp -d)"
+LOG_FILE="${LOG_DIR}/xcodebuild.log"
+log "Building (build ${build_number}); full log: ${LOG_FILE}"
+
+set +e
+if command -v xcbeautify >/dev/null 2>&1; then
+  xcodebuild "${xcb_args[@]}" build 2>&1 | tee "${LOG_FILE}" | xcbeautify
+  build_status="${PIPESTATUS[0]}"
+else
+  xcodebuild "${xcb_args[@]}" build >"${LOG_FILE}" 2>&1
+  build_status=$?
+fi
+set -e
+
+if [[ "${build_status}" -ne 0 ]]; then
+  echo "--- last 40 lines of ${LOG_FILE} ---" >&2
+  tail -n 40 "${LOG_FILE}" >&2
+  die "xcodebuild failed (exit ${build_status}); full log: ${LOG_FILE}"
+fi
+
+# Locate the product from the Zentty target's build settings (same args).
+settings="$(xcodebuild "${xcb_args[@]}" -showBuildSettings 2>/dev/null)" \
+  || die "xcodebuild -showBuildSettings failed"
+target_dir="$(awk '
+  /^Build settings for action .* and target / { in_zentty = ($0 ~ /and target Zentty:$/) }
+  in_zentty && /^ *TARGET_BUILD_DIR = / { sub(/^ *TARGET_BUILD_DIR = /, ""); print; exit }
+' <<<"${settings}")"
+product_name="$(awk '
+  /^Build settings for action .* and target / { in_zentty = ($0 ~ /and target Zentty:$/) }
+  in_zentty && /^ *FULL_PRODUCT_NAME = / { sub(/^ *FULL_PRODUCT_NAME = /, ""); print; exit }
+' <<<"${settings}")"
+[[ -n "${target_dir}" && -n "${product_name}" ]] \
+  || die "could not find TARGET_BUILD_DIR/FULL_PRODUCT_NAME for target Zentty in build settings"
+
+built_app="${target_dir}/${product_name}"
+[[ -d "${built_app}" ]] || die "built app not found at ${built_app}"
+log "Built ${built_app}"
+
+# --- Verify built product ----------------------------------------------------
+
+info_plist="${built_app}/Contents/Info.plist"
+plist_get() { "${PLISTBUDDY}" -c "Print :$1" "${info_plist}" 2>/dev/null || true; }
+
+flavor_hint="Does ${build_label} (${commit}) have the dev build flavor settings in project.yml? Nothing was installed."
+bundle_id="$(plist_get CFBundleIdentifier)"
+flavor="$(plist_get ZenttyBuildFlavor)"
+feed_url="$(plist_get SUFeedURL)"
+[[ "${bundle_id}" == "${DEV_BUNDLE_ID}" ]] \
+  || die "built CFBundleIdentifier is '${bundle_id}', expected '${DEV_BUNDLE_ID}'. ${flavor_hint}"
+[[ "${flavor}" == "dev" ]] \
+  || die "built ZenttyBuildFlavor is '${flavor}', expected 'dev'. ${flavor_hint}"
+[[ -z "${feed_url}" ]] \
+  || die "built SUFeedURL is '${feed_url}'; a dev build must never point at a Sparkle feed. Nothing was installed."
+log "Verified bundle id ${bundle_id}, flavor ${flavor}, no Sparkle feed"
+
+if [[ "${do_install}" -eq 0 ]]; then
+  echo "${built_app}"
+  exit 0
+fi
+
+# --- Install -----------------------------------------------------------------
+
+dest="${INSTALL_DIR}/${DEV_APP_NAME}.app"
+
+# Copy before quitting. Staging sits next to the destination, so the swap
+# below is a rename and the running app is down only for a moment.
+mkdir -p "${INSTALL_DIR}"
+staging="${INSTALL_DIR}/.${DEV_APP_NAME}.app.new.$$"
+rm -rf "${staging}"
+log "Copying to ${staging}"
+ditto "${built_app}" "${staging}" || die "ditto failed"
+
+is_running() {
+  [[ -n "$(lsappinfo find "bundleid=${DEV_BUNDLE_ID}" 2>/dev/null)" ]]
+}
+
+was_running=0
+if is_running; then
+  was_running=1
+  log "${DEV_APP_NAME} is running; asking it to quit"
+  # Bound the Apple event: if the app defers the quit behind a confirmation
+  # sheet, AppleScript would otherwise wait two minutes for the reply.
+  osascript \
+    -e 'with timeout of 5 seconds' \
+    -e "tell application id \"${DEV_BUNDLE_ID}\" to quit" \
+    -e 'end timeout' >/dev/null 2>&1 || true
+  for _ in $(seq 1 40); do
+    is_running || break
+    sleep 0.5
+  done
+  if is_running; then
+    die "${DEV_APP_NAME} did not quit within 20s (a quit confirmation may be waiting). Quit it manually and re-run; nothing was replaced."
+  fi
+fi
+
+log "Installing ${dest}"
+if [[ -e "${dest}" ]]; then
+  if command -v trash >/dev/null 2>&1; then
+    trash "${dest}" || die "could not move the old ${dest} to the trash"
+  else
+    rm -rf "${dest}"
+  fi
+fi
+mv "${staging}" "${dest}"
+staging=""
+
+"${LSREGISTER}" -f "${dest}" || warn "lsregister failed; Finder/Dock may show a stale name or icon"
+
+log "Verifying signature"
+codesign --verify --deep --strict "${dest}" || die "codesign verification failed for ${dest}"
+
+log "Installed ${dest}"
+
+if [[ "${was_running}" -eq 1 || "${force_open}" -eq 1 ]]; then
+  log "Launching ${DEV_APP_NAME}"
+  open "${dest}"
+fi

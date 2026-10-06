@@ -246,7 +246,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
 
-        window.title = "Zentty"
+        window.title = ZenttyBuildFlavor.currentDisplayName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
@@ -1184,7 +1184,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// label windows usefully. Chrome stays unaffected: titleVisibility
     /// remains hidden.
     private func refreshWindowTitle() {
-        let title = rootViewController.activeWorklaneTitle ?? "Zentty"
+        let title = rootViewController.activeWorklaneTitle ?? ZenttyBuildFlavor.currentDisplayName
         if window.title != title {
             window.title = title
         }

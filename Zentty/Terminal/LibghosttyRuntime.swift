@@ -365,11 +365,11 @@ final class LibghosttyRuntime: LibghosttyRuntimeProviding {
         ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
     }
 
-    private static let localOverridePath = NSTemporaryDirectory() + "zentty-ghostty-local-overrides.conf"
-    private static let concreteThemeOverridePath = NSTemporaryDirectory() + "zentty-ghostty-concrete-theme-override.conf"
-    private static let builtInThemeOverridePath = NSTemporaryDirectory() + "zentty-ghostty-built-in-theme-override.conf"
-    private static let transparentOverridePath = NSTemporaryDirectory() + "zentty-ghostty-transparent-override.conf"
-    private static let paddingPolicyOverridePath = NSTemporaryDirectory() + "zentty-ghostty-padding-policy-override.conf"
+    private static let localOverridePath = NSTemporaryDirectory() + ZenttyBuildFlavor.current.ghosttyTempFilePrefix + "local-overrides.conf"
+    private static let concreteThemeOverridePath = NSTemporaryDirectory() + ZenttyBuildFlavor.current.ghosttyTempFilePrefix + "concrete-theme-override.conf"
+    private static let builtInThemeOverridePath = NSTemporaryDirectory() + ZenttyBuildFlavor.current.ghosttyTempFilePrefix + "built-in-theme-override.conf"
+    private static let transparentOverridePath = NSTemporaryDirectory() + ZenttyBuildFlavor.current.ghosttyTempFilePrefix + "transparent-override.conf"
+    private static let paddingPolicyOverridePath = NSTemporaryDirectory() + ZenttyBuildFlavor.current.ghosttyTempFilePrefix + "padding-policy-override.conf"
 
     private static let defaultWindowPadding = 10
     private static let minimumWindowPadding = 6
@@ -1148,7 +1148,7 @@ private extension NSPasteboard {
     }
 
     static var zenttySelection: NSPasteboard {
-        NSPasteboard(name: .init("be.zenjoy.zentty.selection"))
+        NSPasteboard(name: .init(ZenttyBuildFlavor.current.selectionPasteboardName))
     }
 
     static func ghostty(_ clipboard: ghostty_clipboard_e) -> NSPasteboard? {
