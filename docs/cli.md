@@ -4,6 +4,16 @@ Zentty includes an embedded `zentty` CLI for scripting windows, worklanes, and p
 
 Most commands must run inside a Zentty pane because they use pane environment variables such as `ZENTTY_INSTANCE_SOCKET`, `ZENTTY_WINDOW_ID`, `ZENTTY_WORKLANE_ID`, `ZENTTY_PANE_ID`, and `ZENTTY_PANE_TOKEN`. Commands that target another pane can use selector flags when a control token is available.
 
+## Open a Folder From Outside Zentty
+
+To open a new window at a directory from a script, a URL handler, or another app, hand the folder to Zentty through LaunchServices:
+
+```bash
+open -a Zentty ~/Development/my-project
+```
+
+This reaches the running instance, or launches Zentty first if it is not running. Finder's "Open With" and dropping a folder on the Dock icon do the same. A file opens its parent folder.
+
 ## Common Selectors
 
 Pane and layout commands accept these selector flags unless noted otherwise:

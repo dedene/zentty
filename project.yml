@@ -129,6 +129,15 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
+        # Lets `open -a Zentty <dir>`, Finder's "Open With" and a folder dropped
+        # on the Dock icon open a window there. Alternate rank keeps Finder the
+        # default folder handler.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Folder
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.folder
         GlitchTipDSN: $(GLITCHTIP_DSN)
         NSLocalNetworkUsageDescription: A program running within Zentty would like to access devices on your local network.
         NSMicrophoneUsageDescription: A program running within Zentty would like to use your microphone.
@@ -142,6 +151,17 @@ targets:
           FRAMEWORK_PATH="${PROJECT_DIR}/FrameworksLocal/GhosttyKit.xcframework"
           if [ ! -d "$FRAMEWORK_PATH" ]; then
             echo "error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first."
+            exit 1
+          fi
+          # build_ghosttykit.sh stamps the lock fingerprint it built for. A
+          # mismatch means FrameworksLocal holds a GhosttyKit for another
+          # revision; frameworks from before the stamp existed only warn.
+          WANTED="$("${PROJECT_DIR}/scripts/ghosttykit-inputs" "${PROJECT_DIR}")"
+          STAMP_PATH="$FRAMEWORK_PATH/.ghosttykit-inputs"
+          if [ ! -f "$STAMP_PATH" ]; then
+            echo "warning: GhosttyKit.xcframework has no build stamp, so it can't be checked against scripts/ghosttykit.lock. Run scripts/build_ghosttykit.sh to rebuild and stamp it."
+          elif [ "$(cat "$STAMP_PATH")" != "$WANTED" ]; then
+            echo "error: GhosttyKit.xcframework was built for a different scripts/ghosttykit.lock (or scripts/patches). Run scripts/build_ghosttykit.sh to rebuild it."
             exit 1
           fi
         basedOnDependencyAnalysis: false

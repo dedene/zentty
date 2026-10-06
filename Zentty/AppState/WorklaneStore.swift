@@ -400,6 +400,13 @@ final class WorklaneStore {
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
+    let foregroundAgentResolver: ((Int32) -> PaneForegroundAgentSnapshot?)?
+    /// Resolving the foreground agent walks the pane's whole process tree, so a
+    /// burst of hooks from one turn would repeat it on the main actor. The probe
+    /// cache is reused for `foregroundAgentContextTTL`, and any payload the cache
+    /// would reject forces a fresh scan before it is dropped.
+    var cachedForegroundAgentContext: (context: AgentSessionSweepContext, stamp: Date)?
+    let foregroundAgentContextTTL: TimeInterval
     private let scheduleReadyStatusTask: ReadyStatusScheduler
     let codexQuestionResolver: CodexQuestionResolver
     let codexResolver: CodexToolStatusResolver
@@ -482,6 +489,7 @@ final class WorklaneStore {
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         worklanes: [WorklaneState] = [],
+        initialWorkingDirectory: String? = nil,
         layoutContext: PaneLayoutContext = .fallback,
         activeWorklaneID: WorklaneID? = nil,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
@@ -489,6 +497,8 @@ final class WorklaneStore {
         readyStatusDebounceInterval: TimeInterval = 0.25,
         nonRepositoryRetryInterval: TimeInterval = 5,
         currentDateProvider: @escaping @MainActor () -> Date = Date.init,
+        foregroundAgentResolver: ((Int32) -> PaneForegroundAgentSnapshot?)? = nil,
+        foregroundAgentContextTTL: TimeInterval = 1,
         readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
         codexQuestionResolver: @escaping CodexQuestionResolver = { request in
             CodexTranscriptQuestionExtractor.question(fromTranscriptPath: request.transcriptPath)
@@ -509,6 +519,8 @@ final class WorklaneStore {
         self.readyStatusDebounceInterval = readyStatusDebounceInterval
         self.nonRepositoryRetryInterval = nonRepositoryRetryInterval
         self.currentDateProvider = currentDateProvider
+        self.foregroundAgentResolver = foregroundAgentResolver
+        self.foregroundAgentContextTTL = foregroundAgentContextTTL
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.codexQuestionResolver = codexQuestionResolver
         self.codexResolver = CodexToolStatusResolver(now: currentDateProvider)
@@ -521,6 +533,7 @@ final class WorklaneStore {
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
                 windowID: windowID,
+                workingDirectory: initialWorkingDirectory ?? Self.defaultWorkingDirectory(),
                 layoutContext: layoutContext,
                 processEnvironment: processEnvironment,
                 runtimeIdentity: runtimeIdentity,
@@ -2312,6 +2325,7 @@ final class WorklaneStore {
 
     private static func defaultWorklanes(
         windowID: WindowID,
+        workingDirectory: String,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String],
         runtimeIdentity: WorklaneRuntimeIdentity,
@@ -2323,7 +2337,7 @@ final class WorklaneStore {
                 title: nil,
                 windowID: windowID,
                 layoutContext: layoutContext,
-                workingDirectory: Self.defaultWorkingDirectory(),
+                workingDirectory: workingDirectory,
                 surfaceContext: .window,
                 processEnvironment: processEnvironment,
                 runtimeIdentity: runtimeIdentity,

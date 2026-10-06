@@ -136,6 +136,7 @@ final class LibghosttySurfaceActionCoalescer {
 final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading {
     nonisolated(unsafe) var surface: ghostty_surface_t?
     nonisolated(unsafe) private let actionCoalescer = LibghosttySurfaceActionCoalescer()
+    nonisolated let vsyncDriver: LibghosttyVsyncDriver?
     nonisolated let paneID: PaneID
     nonisolated let diagnostics: TerminalDiagnostics
     private var metadata = TerminalMetadata()
@@ -189,6 +190,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         self.diagnostics = diagnostics
         self.metadataDidChange = metadataDidChange
         self.eventDidOccur = eventDidOccur
+        // Must exist before the surface: libghostty's renderer thread can ask
+        // for vsync ticks as soon as it starts.
+        self.vsyncDriver = LibghosttyVsyncDriver.isSupported
+            ? LibghosttyVsyncDriver(view: hostView)
+            : nil
 
         var config = configTemplate ?? ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -257,6 +263,9 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
 
         self.surface = surface
         self.hostView = hostView
+        vsyncDriver?.attach {
+            ghostty_surface_vsync_tick(surface)
+        }
         metadata.currentWorkingDirectory = request.workingDirectory
         let initialViewportSize = hostView.normalizedBackingViewportSize
         var initialViewportContext = hostView.viewportDiagnosticsContextForSurface
@@ -275,12 +284,16 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
 
     func close() {
         guard let surface else { return }
+        vsyncDriver?.invalidate()
         ghostty_surface_request_close(surface)
         ghostty_surface_free(surface)
         self.surface = nil
     }
 
     deinit {
+        MainActorShim.assumeIsolated {
+            vsyncDriver?.invalidate()
+        }
         if let surface {
             ghostty_surface_free(surface)
         }
