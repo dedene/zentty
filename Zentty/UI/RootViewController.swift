@@ -9,21 +9,27 @@ enum FocusedTerminalInterruptBridge {
         activeWorklane: WorklaneState?,
         isFocusedPaneTerminalFocused: Bool
     ) -> PaneID? {
-        let matchesInterrupt = TerminalInterruptKeyRecognizer.matchesUserInterrupt(event)
-            || TerminalInterruptKeyRecognizer.matchesKimiInterruptEscape(event)
-        guard matchesInterrupt,
+        let isEscape = TerminalInterruptKeyRecognizer.matchesAgentInterruptEscape(event)
+        guard isEscape || TerminalInterruptKeyRecognizer.matchesUserInterrupt(event),
               isFocusedPaneTerminalFocused,
               let activeWorklane,
               let paneID = activeWorklane.paneStripState.focusedPaneID,
               let status = activeWorklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
-              status.tool == .kimi,
               status.source == .explicit,
               status.state == .running || status.state == .starting
         else {
             return nil
         }
 
-        return paneID
+        switch status.tool {
+        case .kimi:
+            return paneID
+        case .claudeCode:
+            // Ctrl-C already reaches the store from the terminal view itself.
+            return isEscape ? paneID : nil
+        default:
+            return nil
+        }
     }
 }
 

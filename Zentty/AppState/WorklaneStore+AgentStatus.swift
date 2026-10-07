@@ -207,6 +207,12 @@ extension WorklaneStore {
                 )
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
                 suppressReadyAfterRecompute = true
+            } else if worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasAnimated == false,
+                      beginClaudeCodeInterruptGrace(paneID: paneID, in: &worklane) {
+                // Escape mid-response fires no hook, and a static title (under
+                // a multiplexer) never shows the interrupt. An animated title
+                // flips to "✳" on its own, so it is left to the title.
+                suppressReadyAfterRecompute = true
             }
         case .commandFinished:
             worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
@@ -809,6 +815,10 @@ extension WorklaneStore {
         )
 
         recomputePresentation(for: payload.paneID, in: &worklane)
+        if payload.signalKind == .lifecycle, payload.lifecycleEvent == .interrupt {
+            // Roll back the "Agent ready" the idle transition requested.
+            clearReadyStatusIfNeeded(for: payload.paneID, in: &worklane)
+        }
         let forceGitContextRefreshOnCompletion = agentCompletionRequiresGitContextRefresh(
             previousWorklane: previousWorklane,
             nextWorklane: worklane,

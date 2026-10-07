@@ -122,10 +122,11 @@ enum TerminalInterruptKeyRecognizer {
         return event.keyCode == UInt16(kVK_ANSI_C)
     }
 
-    // Bare Escape is only meaningful as an interrupt inside a Kimi session —
-    // most other TUIs (vim, fzf, lazygit, …) use Escape for navigation. Callers
-    // MUST gate this recognizer on Kimi context before emitting `.userInterrupted`.
-    static func matchesKimiInterruptEscape(_ event: NSEvent) -> Bool {
+    // Bare Escape is only meaningful as an interrupt inside a running Kimi or
+    // Claude Code session — most other TUIs (vim, fzf, lazygit, …) use Escape
+    // for navigation. Callers MUST gate this recognizer on that agent context
+    // before emitting `.userInterrupted`.
+    static func matchesAgentInterruptEscape(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown, !event.isARepeat else {
             return false
         }

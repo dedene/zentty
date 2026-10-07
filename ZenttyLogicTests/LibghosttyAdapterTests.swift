@@ -424,7 +424,7 @@ final class LibghosttyAdapterTests: AppKitTestCase {
 
     func test_escape_does_not_emit_user_interrupt_through_generic_terminal_path() throws {
         // Escape is too broadly used in TUIs (vim, fzf, lazygit, …) to classify
-        // as a universal interrupt. The Kimi-scoped path handles Escape via
+        // as a universal interrupt. The agent-scoped path (Kimi, Claude Code) handles Escape via
         // FocusedTerminalInterruptBridge; the generic terminal stream stays quiet.
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)

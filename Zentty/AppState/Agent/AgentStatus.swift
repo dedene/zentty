@@ -121,6 +121,9 @@ enum AgentLifecycleEvent: String, Equatable, Sendable {
     case stopCandidate = "stop-candidate"
     case toolActivity = "tool-activity"
     case turnComplete = "turn-complete"
+    /// The user stopped the turn (Escape / Ctrl-C): idle, but not a
+    /// completion, so no "Agent ready".
+    case interrupt
 }
 
 enum PaneAgentState: String, Equatable, Sendable {

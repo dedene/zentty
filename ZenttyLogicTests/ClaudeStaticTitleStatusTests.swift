@@ -99,7 +99,99 @@ final class ClaudeStaticTitleStatusTests: XCTestCase {
         XCTAssertNotEqual(auxiliaryState.presentation.statusText, "Agent ready")
     }
 
+    // MARK: - Interrupts under a static title
+
+    func test_escape_on_a_static_title_ends_the_turn_without_agent_ready() throws {
+        let store = makeStore()
+        let paneID = try startStaticTitleTurn(store)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+        // A short grace lets a hook that follows a non-interrupting Escape win.
+        assertWorking(store, paneID: paneID)
+
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+        runPendingTasks()
+
+        assertInterrupted(store, paneID: paneID)
+    }
+
+    func test_hook_after_a_non_interrupting_escape_keeps_the_turn_running() throws {
+        let store = makeStore()
+        let paneID = try startStaticTitleTurn(store)
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+        now = now.addingTimeInterval(1)
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .running))
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+        runPendingTasks()
+
+        assertWorking(store, paneID: paneID)
+    }
+
+    func test_escape_on_an_animated_title_is_left_to_the_title() throws {
+        let store = makeStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .running))
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "◐ Sleep 6"))
+
+        store.handleTerminalEvent(paneID: paneID, event: .userInterrupted)
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+        runPendingTasks()
+
+        assertWorking(store, paneID: paneID)
+    }
+
+    func test_interrupt_hook_on_a_static_title_ends_the_turn_without_agent_ready() throws {
+        let store = makeStore()
+        let paneID = try startStaticTitleTurn(store)
+
+        store.applyAgentStatusPayload(
+            claudePayload(store, paneID: paneID, state: .idle, lifecycleEvent: .interrupt)
+        )
+
+        assertInterrupted(store, paneID: paneID)
+    }
+
+    func test_turn_after_an_interrupt_still_completes_with_agent_ready() throws {
+        let store = makeStore()
+        let paneID = try startStaticTitleTurn(store)
+        store.applyAgentStatusPayload(
+            claudePayload(store, paneID: paneID, state: .idle, lifecycleEvent: .interrupt)
+        )
+
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .running))
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .idle))
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
     // MARK: - Helpers
+
+    private func startStaticTitleTurn(_ store: WorklaneStore) throws -> PaneID {
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "✳ Claude Code"))
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .running))
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "✳ Lighthouse keeper story"))
+        assertWorking(store, paneID: paneID)
+        return paneID
+    }
+
+    private func assertInterrupted(
+        _ store: WorklaneStore,
+        paneID: PaneID,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let auxiliaryState = store.activeWorklane?.auxiliaryStateByPaneID[paneID]
+        XCTAssertEqual(auxiliaryState?.agentStatus?.state, .idle, file: file, line: line)
+        XCTAssertEqual(auxiliaryState?.presentation.runtimePhase, .idle, file: file, line: line)
+        XCTAssertEqual(auxiliaryState?.raw.wantsReadyStatus, false, file: file, line: line)
+        XCTAssertEqual(auxiliaryState?.raw.showsReadyStatus, false, file: file, line: line)
+        XCTAssertNotEqual(auxiliaryState?.presentation.statusText, "Agent ready", file: file, line: line)
+    }
 
     private func makeStore() -> WorklaneStore {
         let store = WorklaneStore(
@@ -147,7 +239,8 @@ final class ClaudeStaticTitleStatusTests: XCTestCase {
         _ store: WorklaneStore,
         paneID: PaneID,
         state: PaneAgentState,
-        sessionID: String = "claude-session"
+        sessionID: String = "claude-session",
+        lifecycleEvent: AgentLifecycleEvent? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             worklaneID: store.activeWorklaneID,
@@ -157,6 +250,7 @@ final class ClaudeStaticTitleStatusTests: XCTestCase {
             origin: .explicitHook,
             toolName: "Claude Code",
             text: nil,
+            lifecycleEvent: lifecycleEvent,
             confidence: .explicit,
             sessionID: sessionID,
             artifactKind: nil,

@@ -367,23 +367,23 @@ extension AgentEventBridge {
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             if input.hookEventName == "PostToolUseFailure", input.isInterrupt {
                 // The user pressed Escape / Ctrl-C during the tool. Claude is
-                // back at its prompt and no Stop hook will follow; an animated
-                // terminal title ("✳") already drove the pane to idle, so
-                // forcing `.running` here would stick until the next prompt.
-                // A static title (under a multiplexer) drives nothing, and the
-                // pane stays running until the next hook.
+                // back at its prompt and no Stop hook will follow. An animated
+                // title ("✳") may already have driven the pane idle, but a
+                // static one (under a multiplexer) drives nothing, so say idle
+                // here, marked as an interrupt so no "Agent ready" follows.
                 if let sessionID = input.sessionID {
                     try sessionStore.clearInteractionContext(sessionID: sessionID, keepsPreToolUseSlots: true)
                 }
-                guard existing?.structuredInteractionKind != nil else {
-                    return []
-                }
                 // Escape on an open permission / question dialog: the title
                 // already showed "✳" while the dialog was up, so nothing else
-                // moves the pane off needsInput. Say idle explicitly.
+                // moves the pane off needsInput. A subagent's tool, though, can
+                // be interrupted while the parent keeps working.
+                guard existing?.structuredInteractionKind != nil || input.agentID == nil else {
+                    return []
+                }
                 let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
                 return [claudeLifecyclePayload(
-                    target: target, state: .idle,
+                    target: target, state: .idle, lifecycleEvent: .interrupt,
                     interactionKind: PaneAgentInteractionKind.none, confidence: .explicit,
                     sessionID: input.sessionID, subagents: subagents
                 )]
