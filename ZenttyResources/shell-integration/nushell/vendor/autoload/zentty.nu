@@ -197,6 +197,35 @@ def _zentty_report_directory_change [] {
     _zentty_reset_title_to_cwd
 }
 
+# `mise run` / `mise x` build their child PATH as [entries before mise's first
+# shims dir] + [tool dirs] + [the rest], so a project's tool dir lands ahead of
+# the wrappers and the agent starts unwrapped (#142). Marking that boundary
+# right after the wrappers keeps them first. The system shims dir only serves
+# as the marker while it does not exist, so command lookup is unchanged.
+def _zentty_mise_shims_marker [] {
+    let data_dir = ($env | get -o MISE_SYSTEM_DATA_DIR | default '')
+    let marker = ((if $data_dir == '' { '/usr/local/share/mise' } else { $data_dir }) | path join shims)
+    if ($marker | path exists) { '' } else { $marker }
+}
+
+# A user shims dir already on PATH is a boundary of its own.
+def _zentty_path_needs_mise_shims_boundary [entries: list] {
+    let shims_dir = ($env | get -o MISE_SHIMS_DIR | default '')
+    let data_dir = ($env | get -o MISE_DATA_DIR | default '')
+    let xdg_data_home = ($env | get -o XDG_DATA_HOME | default '')
+    let user_shims = if $shims_dir != '' {
+        $shims_dir
+    } else if $data_dir != '' {
+        $data_dir | path join shims
+    } else if $xdg_data_home != '' {
+        $xdg_data_home | path join mise shims
+    } else {
+        $env.HOME | path join .local share mise shims
+    }
+    if ($entries | any { |e| $e == $user_shims }) { return false }
+    $entries | any { |e| _zentty_is_executable ($e | path join mise) }
+}
+
 def --env _zentty_ensure_wrapper_path [] {
     mut wrapper_dirs = []
     if ($env | get -o ZENTTY_ALL_WRAPPER_BIN_DIRS | default '') != '' {
@@ -212,9 +241,10 @@ def --env _zentty_ensure_wrapper_path [] {
         $tmux_shim_enabled = true
     }
     if ($wrapper_dirs | is-empty) and $tmux_shim_dir == '' { return }
+    let mise_marker = (_zentty_mise_shims_marker)
 
     let path_entries = ($env.PATH | default [])
-    let cleaned_path = ($path_entries | where { |e| not ($wrapper_dirs | any { |w| $e == $w }) and $e != $tmux_shim_dir })
+    let cleaned_path = ($path_entries | where { |e| not ($wrapper_dirs | any { |w| $e == $w }) and $e != $tmux_shim_dir and ($mise_marker == '' or $e != $mise_marker) })
 
     mut enabled = []
     for wrapper in $wrapper_dirs {
@@ -232,7 +262,11 @@ def --env _zentty_ensure_wrapper_path [] {
 
     mut next_path = []
     if $tmux_shim_enabled { $next_path = ($next_path | append $tmux_shim_dir) }
-    $next_path = ($next_path | append $enabled | append $cleaned_path)
+    $next_path = ($next_path | append $enabled)
+    if ($enabled | is-not-empty) and $mise_marker != '' and (_zentty_path_needs_mise_shims_boundary $cleaned_path) {
+        $next_path = ($next_path | append $mise_marker)
+    }
+    $next_path = ($next_path | append $cleaned_path)
     $env.PATH = $next_path
 
     if ($enabled | is-not-empty) {

@@ -98,6 +98,39 @@ function _zentty_real_binary_candidates
     _zentty_wrapper_binary_candidates $argv[1]
 end
 
+# `mise run` / `mise x` build their child PATH as [entries before mise's first
+# shims dir] + [tool dirs] + [the rest], so a project's tool dir lands ahead of
+# the wrappers and the agent starts unwrapped (#142). Marking that boundary
+# right after the wrappers keeps them first. The system shims dir only serves
+# as the marker while it does not exist, so command lookup is unchanged.
+function _zentty_mise_shims_marker
+    set -l data_dir /usr/local/share/mise
+    if set -q MISE_SYSTEM_DATA_DIR; and test -n "$MISE_SYSTEM_DATA_DIR"
+        set data_dir $MISE_SYSTEM_DATA_DIR
+    end
+    test -e "$data_dir/shims"; or echo "$data_dir/shims"
+end
+
+# A user shims dir already on PATH is a boundary of its own.
+function _zentty_path_needs_mise_shims_boundary
+    set -l user_shims
+    if set -q MISE_SHIMS_DIR; and test -n "$MISE_SHIMS_DIR"
+        set user_shims $MISE_SHIMS_DIR
+    else if set -q MISE_DATA_DIR; and test -n "$MISE_DATA_DIR"
+        set user_shims $MISE_DATA_DIR/shims
+    else if set -q XDG_DATA_HOME; and test -n "$XDG_DATA_HOME"
+        set user_shims $XDG_DATA_HOME/mise/shims
+    else
+        set user_shims $HOME/.local/share/mise/shims
+    end
+    set -l has_mise 1
+    for entry in $argv
+        test "$entry" = "$user_shims"; and return 1
+        test -x "$entry/mise"; and set has_mise 0
+    end
+    return $has_mise
+end
+
 function _zentty_ensure_wrapper_path
     set -l wrapper_dirs
     set -l raw_wrapper_dirs ""
@@ -119,6 +152,7 @@ function _zentty_ensure_wrapper_path
     if test -z "$wrapper_dirs" -a -z "$tmux_shim_dir"
         return 0
     end
+    set -l mise_marker (_zentty_mise_shims_marker)
 
     set -l cleaned_path
     for entry in $PATH
@@ -130,6 +164,9 @@ function _zentty_ensure_wrapper_path
             end
         end
         if test "$entry" = "$tmux_shim_dir"
+            set skip 1
+        end
+        if test -n "$mise_marker" -a "$entry" = "$mise_marker"
             set skip 1
         end
         if test $skip -eq 0
@@ -169,7 +206,12 @@ function _zentty_ensure_wrapper_path
     if test $tmux_shim_enabled -eq 1
         set -a next_path $tmux_shim_dir
     end
-    set -a next_path $enabled_wrappers $cleaned_path
+    set -a next_path $enabled_wrappers
+    if test (count $enabled_wrappers) -gt 0 -a -n "$mise_marker"
+        and _zentty_path_needs_mise_shims_boundary $cleaned_path
+        set -a next_path $mise_marker
+    end
+    set -a next_path $cleaned_path
 
     set -g PATH $next_path
     if test (count $enabled_wrappers) -gt 0
