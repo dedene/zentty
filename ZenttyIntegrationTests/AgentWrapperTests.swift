@@ -662,6 +662,39 @@ final class AgentWrapperTests: XCTestCase {
         XCTAssertTrue(try harness.readArgumentCalls(named: "cli-args.log").isEmpty)
     }
 
+    // Regression for #141: the launcher's `--session-id` / `--settings` must
+    // not land in front of a management subcommand.
+    func test_real_cli_launch_passes_claude_subcommand_to_real_binary_unchanged() throws {
+        let harness = try WrapperHarness(copyingScriptsNamed: ["claude", "zentty-agent-wrapper"])
+        try harness.installRealBinary(
+            named: "claude",
+            script: """
+            #!/bin/bash
+            printf '%s\\n' "$@" >> "$REAL_ARGS_LOG"
+            """
+        )
+        // Any bootstrap attempt would reach this peer; passthrough never does.
+        let server = try ClosingIPCServer()
+        defer { server.invalidate() }
+
+        let result = try harness.run(
+            tool: "claude",
+            arguments: ["plugin", "test", "/tmp/plugin"],
+            extraEnvironment: [
+                "ZENTTY_CLI_BIN": try builtCLIPath(),
+                "ZENTTY_INSTANCE_SOCKET": server.socketPath,
+                "ZENTTY_PANE_TOKEN": harness.paneToken,
+                "ZENTTY_WORKLANE_ID": "worklane-main",
+                "ZENTTY_PANE_ID": "pane-main",
+            ],
+            timeout: 10
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "\(result.stderr)\n\(result.stdout)")
+        XCTAssertEqual(try harness.readLines(named: "real-args.log"), ["plugin", "test", "/tmp/plugin"])
+        XCTAssertFalse(server.waitForPeerToClose(timeout: 0.2), "passthrough must not bootstrap over IPC")
+    }
+
     func test_tool_wrappers_delegate_to_launch_command_when_cli_is_available() throws {
         for tool in ["amp", "claude", "codex", "copilot", "cursor-agent", "droid", "gemini", "grok", "kimi", "kimi-cli", "opencode", "pi", "agy"] {
             let harness = try WrapperHarness(copyingScriptsNamed: [tool, "zentty-agent-wrapper"])
