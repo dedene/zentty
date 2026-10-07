@@ -861,7 +861,7 @@ enum AgentLaunchBootstrap {
         environment: [String: String]
     ) throws -> AgentLaunchPlan {
         if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1"
-            || ClaudeLaunchPolicy.passthroughSubcommand(in: arguments) != nil {
+            || ClaudeLaunchPolicy.passthroughReason(in: arguments) != nil {
             return directPlan(
                 executablePath: executablePath,
                 arguments: arguments,

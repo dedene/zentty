@@ -2312,10 +2312,38 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(posted[1].agentWorkingDirectory, "/tmp/project")
     }
 
-    func test_agent_launch_bootstrap_passes_claude_remote_control_through_without_settings() throws {
+    func test_claude_passthrough_policy_matches_claude_cli_help_snapshot() {
+        // Snapshot of `claude --help` verified 2026-10-07 against Claude Code
+        // 2.1.292 (dedene/zentty#141).
+        for subcommand in [
+            "auth", "auto-mode", "doctor", "gateway", "import", "install", "logs",
+            "mcp", "plugin", "plugins", "purge", "respawn", "rm", "setup-token",
+            "stop", "kill", "update", "upgrade", "remote-control", "rc",
+        ] {
+            XCTAssertEqual(ClaudeLaunchPolicy.passthroughSubcommand(in: [subcommand]), subcommand)
+        }
+        for flag in ["--help", "-h", "--version", "-v"] {
+            XCTAssertEqual(ClaudeLaunchPolicy.passthroughReason(in: ["--model", "opus", flag]), "claude early-exit flag: \(flag)")
+        }
+        // `agents` must keep the hooks plan: it forwards `--settings` to the
+        // background sessions it dispatches (dedene/zentty#121).
+        for arguments in [
+            ["agents"], ["ultrareview"], ["attach", "6e811ae4"], ["hello"],
+            ["explain", "plugin", "install"], ["--resume", "abc"],
+            ["-p", "--", "--help"], ["--verbose"],
+        ] {
+            XCTAssertNil(ClaudeLaunchPolicy.passthroughReason(in: arguments), "\(arguments)")
+        }
+    }
+
+    func test_agent_launch_bootstrap_passes_claude_management_commands_through_without_settings() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-rc-runtime")
 
-        for arguments in [["rc"], ["remote-control", "--name", "demo"]] {
+        for arguments in [
+            ["rc"], ["remote-control", "--name", "demo"],
+            ["plugin", "test", "/tmp/plugin"], ["doctor"], ["logs", "6e811ae4"],
+            ["stop", "6e811ae4"], ["--version"], ["attach", "6e811ae4", "--help"],
+        ] {
             let request = AgentIPCRequest(
                 kind: .bootstrap,
                 arguments: arguments,
@@ -2340,7 +2368,36 @@ final class AgentStatusSupportTests: XCTestCase {
 
             XCTAssertEqual(plan.arguments, arguments)
             XCTAssertEqual(plan.unsetEnvironment, ["CLAUDECODE"])
+            XCTAssertTrue(plan.preLaunchActions.isEmpty, "\(arguments)")
         }
+    }
+
+    func test_agent_launch_bootstrap_keeps_claude_settings_for_agents_view() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-agents-runtime")
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["agents"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ],
+            expectsResponse: true,
+            tool: .claude
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertTrue(plan.arguments.contains("--settings"))
+        XCTAssertEqual(plan.arguments.last, "agents")
     }
 
     func test_agent_launch_bootstrap_builds_claude_plan_with_session_id_and_settings() throws {
