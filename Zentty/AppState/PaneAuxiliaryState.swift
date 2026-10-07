@@ -249,6 +249,12 @@ struct PaneRawState: Equatable, Sendable {
     var wantsReadyStatus = false
     var showsReadyStatus = false
     var codexCurrentRunHasObservedActivity = false
+    /// Whether the terminal title has shown a Claude Code spinner since it
+    /// last stopped being a Claude Code title. Claude Code writes a static
+    /// "✳ <subject>" title under a terminal multiplexer (`TMUX`, which agent
+    /// teams injects, `STY` or `ZELLIJ`), so "✳" only means the turn ended
+    /// once the title is known to animate.
+    var claudeCodeTitleHasAnimated = false
     var codexTitleIdleSuppressionUntil: Date?
     var codexInterruptSuppressionUntil: Date?
     var codexTranscriptContext: PaneCodexTranscriptContext?

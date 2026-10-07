@@ -44,6 +44,7 @@ extension WorklaneStore {
             metadataChangeKind: metadataChangeKind,
             auxiliaryState: previousAuxiliaryState
         )
+        trackClaudeCodeTitleAnimation(paneID: paneID, metadata: metadata, in: &worklane)
 
         // Volatile-title fast path. When the classifier recognizes a pure
         // supported-agent title tick (phase+subject signature unchanged, only
@@ -691,6 +692,24 @@ extension WorklaneStore {
         codexResolver.titleIdleSuppressionIsActive(raw, now: now)
     }
 
+    private func trackClaudeCodeTitleAnimation(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        switch TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: .claudeCode
+        )?.phase {
+        case .running:
+            worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].raw.claudeCodeTitleHasAnimated = true
+        case nil:
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasAnimated = false
+        case .idle, .starting, .needsInput:
+            break
+        }
+    }
+
     /// When a Claude Code session is blocked on a permission / question prompt
     /// and the terminal title flips from the idle glyph "✳" (which Claude shows
     /// while the dialog is open) to a spinner glyph, the user has answered and
@@ -788,6 +807,7 @@ extension WorklaneStore {
             ),
             signature.phase == .idle,
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
+            auxiliaryState.raw.claudeCodeTitleHasAnimated,
             let existingStatus = auxiliaryState.agentStatus,
             existingStatus.tool == .claudeCode,
             existingStatus.hasObservedRunning,
