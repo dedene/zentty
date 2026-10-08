@@ -367,9 +367,11 @@ extension AgentEventBridge {
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             if input.hookEventName == "PostToolUseFailure", input.isInterrupt {
                 // The user pressed Escape / Ctrl-C during the tool. Claude is
-                // back at its prompt and no Stop hook will follow; the terminal
-                // title ("✳") already drove the pane to idle, so forcing
-                // `.running` here would stick until the next prompt.
+                // back at its prompt and no Stop hook will follow; an animated
+                // terminal title ("✳") already drove the pane to idle, so
+                // forcing `.running` here would stick until the next prompt.
+                // A static title (under a multiplexer) drives nothing, and the
+                // pane stays running until the next hook.
                 if let sessionID = input.sessionID {
                     try sessionStore.clearInteractionContext(sessionID: sessionID, keepsPreToolUseSlots: true)
                 }
