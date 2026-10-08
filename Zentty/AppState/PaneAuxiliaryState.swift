@@ -126,6 +126,8 @@ struct PanePresentationState: Equatable, Sendable {
     var remotePathLabel: String? = nil
     var remoteLocationLabel: String? = nil
     var recognizedTool: AgentTool?
+    var agentModel: String? = nil
+    var isClaudeRemoteControlActive = false
     var runtimePhase: PanePresentationPhase = .idle
     var statusText: String?
     var pullRequest: WorklanePullRequestSummary?
@@ -138,6 +140,7 @@ struct PanePresentationState: Equatable, Sendable {
     var updatedAt: Date = .distantPast
     var isWorking = false
     var isReady = false
+    var isCheckBack = false
     var statusSymbolName: String?
     var interactionKind: PaneInteractionKind?
     var interactionLabel: String?
@@ -181,12 +184,59 @@ struct PaneCodexTranscriptContext: Equatable, Sendable {
     var path: String
 }
 
+/// Per-root-session facts survive idle status hiding without altering its clocks.
+struct PaneAgentMetadata: Equatable, Sendable {
+    var tool: AgentTool
+    var sessionID: String?
+    var pid: Int32?
+    var model: String?
+    var transcriptPath: String?
+    var isClaudeRemoteControlActive = false
+    var modelWasReportedByHook = false
+    var transcriptModelOffset: UInt64 = 0
+    var transcriptStamp: AgentMetadataFileStamp?
+    var remoteControlStamp: AgentMetadataFileStamp?
+    var hasObservedLocalRemoteControlRecord = false
+
+    mutating func refresh(isProcessAlive: (Int32) -> Bool, homeDirectory: String = NSHomeDirectory(), localRuntimeFilesAvailable: Bool = true) -> Bool {
+        // SSH hooks carry remote PIDs and paths; local lookups would compare
+        // them to unrelated processes and could erase valid remote metadata.
+        guard localRuntimeFilesAvailable else { return true }
+        if let pid, !isProcessAlive(pid) { return false }
+        if !modelWasReportedByHook || tool == .codex, let transcriptPath {
+            let stamp = AgentRootMetadataResolver.stamp(path: transcriptPath)
+            if stamp != transcriptStamp {
+                transcriptStamp = stamp
+                if let current = AgentRootMetadataResolver.currentModel(tool: tool, transcriptPath: transcriptPath, afterOffset: transcriptModelOffset) {
+                    model = current
+                }
+            }
+        }
+        if tool == .claudeCode, let pid, let sessionID {
+            let path = AgentRootMetadataResolver.claudeSessionPath(pid: pid, homeDirectory: homeDirectory)
+            let stamp = AgentRootMetadataResolver.stamp(path: path)
+            if stamp != remoteControlStamp || stamp == nil {
+                remoteControlStamp = stamp
+                if let active = AgentRootMetadataResolver.claudeRemoteControlState(path: path, pid: pid, sessionID: sessionID) {
+                    hasObservedLocalRemoteControlRecord = true
+                    isClaudeRemoteControlActive = active
+                } else if hasObservedLocalRemoteControlRecord {
+                    isClaudeRemoteControlActive = false
+                }
+            }
+        }
+        return true
+    }
+}
+
 struct PaneRawState: Equatable, Sendable {
     var metadata: TerminalMetadata?
     var shellContext: PaneShellContext?
     var paneRootPID: Int32? = nil
     var foregroundSSHDestination: SSHDestination? = nil
     var agentStatus: PaneAgentStatus?
+    var agentMetadata: PaneAgentMetadata? = nil
+    var foregroundAgentSnapshot: PaneForegroundAgentSnapshot? = nil
     var agentReducerState: PaneAgentReducerState = .init()
     var shellActivityState: PaneShellActivityState = .unknown
     var hasCommandHistory = false
@@ -199,7 +249,14 @@ struct PaneRawState: Equatable, Sendable {
     var gitContext: PaneGitContext?
     var wantsReadyStatus = false
     var showsReadyStatus = false
+    var checkBackReminder: PaneCheckBackReminder?
     var codexCurrentRunHasObservedActivity = false
+    /// Whether the terminal title has shown a Claude Code spinner since it
+    /// last stopped being a Claude Code title. Claude Code writes a static
+    /// "✳ <subject>" title under a terminal multiplexer (`TMUX`, which agent
+    /// teams injects, `STY` or `ZELLIJ`), so "✳" only means the turn ended
+    /// once the title is known to animate.
+    var claudeCodeTitleHasAnimated = false
     var codexTitleIdleSuppressionUntil: Date?
     var codexInterruptSuppressionUntil: Date?
     var codexTranscriptContext: PaneCodexTranscriptContext?
@@ -260,6 +317,123 @@ struct PaneRawState: Equatable, Sendable {
             return false
         }
         return now < deadline
+    }
+
+    mutating func reconcileForegroundAgent(_ snapshot: PaneForegroundAgentSnapshot) {
+        var owner = snapshot.agent
+        // Some CLIs run entirely as `node` or `python`; their hook PID still
+        // establishes ownership when it belongs to the foreground job.
+        let storedTool = agentMetadata?.tool ?? agentStatus?.tool
+        let storedPID = agentMetadata?.pid ?? agentStatus?.trackedPID
+        if owner == nil, let storedTool, let storedPID, snapshot.foregroundPIDs.contains(storedPID) {
+            owner = PaneForegroundAgent(tool: storedTool, pid: storedPID, launchPIDs: [storedPID])
+        }
+        let previousOwner = foregroundAgentSnapshot?.agent
+        let changedOwner: Bool
+        if let previousOwner, let owner {
+            changedOwner = previousOwner.tool != owner.tool
+                || (previousOwner.launchPIDs.isDisjoint(with: owner.launchPIDs))
+        } else {
+            changedOwner = previousOwner != nil && owner == nil
+        }
+        let mismatchedStatus: Bool
+        let statusHasWrongTool: Bool
+        if let owner {
+            mismatchedStatus = storedTool.map { owner.owns(tool: $0, pid: storedPID) != true } ?? false
+            statusHasWrongTool = agentStatus.map { $0.tool != owner.tool } ?? false
+        } else {
+            // An unnamed foreground job (`node`, `python`, a script) is unknown
+            // ownership, not an empty pane. Only a stored PID that has left the
+            // foreground proves the stored agent is gone.
+            mismatchedStatus = storedPID.map { !snapshot.foregroundPIDs.contains($0) } ?? false
+            statusHasWrongTool = false
+        }
+        if changedOwner || mismatchedStatus || statusHasWrongTool {
+            let matchingMetadata = agentMetadata.flatMap { metadata in
+                owner?.owns(tool: metadata.tool, pid: metadata.pid) == true ? metadata : nil
+            }
+            retireAgentSession()
+            agentMetadata = matchingMetadata
+        }
+        foregroundAgentSnapshot = PaneForegroundAgentSnapshot(agent: owner, foregroundPIDs: snapshot.foregroundPIDs)
+    }
+
+    mutating func retireAgentSession() {
+        agentMetadata = nil
+        agentStatus = nil
+        agentReducerState = .init()
+        wantsReadyStatus = false
+        showsReadyStatus = false
+        checkBackReminder = nil
+        terminalProgress = nil
+        codexCurrentRunHasObservedActivity = false
+        codexTitleIdleSuppressionUntil = nil
+        codexInterruptSuppressionUntil = nil
+        codexTranscriptContext = nil
+        lastDesktopNotificationText = nil
+        lastDesktopNotificationDate = nil
+    }
+
+    func acceptsForegroundAgentPayload(_ payload: AgentStatusPayload) -> Bool {
+        guard payload.signalKind == .lifecycle || payload.signalKind == .pid || payload.signalKind == .agentMetadata,
+              let snapshot = foregroundAgentSnapshot else { return true }
+        let pid = payload.agentMetadataPID ?? payload.pid
+        guard let owner = snapshot.agent else {
+            // No named owner: hooks without a PID (node/python-hosted agents,
+            // `zentty ipc agent-signal`) are accepted. A PID outside the
+            // foreground job is a late hook from an agent that already exited.
+            return pid.map(snapshot.foregroundPIDs.contains) ?? true
+        }
+        guard let tool = AgentTool.resolve(named: payload.toolName) else { return true }
+        return owner.owns(tool: tool, pid: pid)
+    }
+
+    mutating func observeAgentMetadata(_ payload: AgentStatusPayload) {
+        let tool = AgentTool.resolve(named: payload.toolName)
+        let sessionID = AgentInteractionClassifier.trimmed(payload.sessionID)
+        if payload.clearsStatus || (payload.signalKind == .pid && payload.pidEvent == .clear) {
+            if payload.origin == .explicitHook, !payload.carriesRootMetadata { return }
+            if (tool == nil || tool == agentMetadata?.tool),
+               (sessionID == nil || sessionID == agentMetadata?.sessionID) {
+                agentMetadata = nil
+            }
+            return
+        }
+        guard payload.carriesRootMetadata, let tool else { return }
+        let pid = payload.agentMetadataPID ?? (payload.signalKind == .pid ? payload.pid : nil)
+        let startsSession = payload.state == .starting || (payload.signalKind == .pid && payload.pidEvent == .attach)
+        let sameSession = agentMetadata?.tool == tool
+            && (sessionID == nil || agentMetadata?.sessionID == sessionID)
+            && (pid == nil || agentMetadata?.pid == nil || agentMetadata?.pid == pid)
+
+        if startsSession, agentMetadata != nil, !sameSession {
+            retireAgentSession()
+        }
+
+        // A late child hook or model switch cannot replace or revive a root.
+        if payload.signalKind == .agentMetadata, !sameSession { return }
+        if agentMetadata != nil, !sameSession, !startsSession { return }
+        var metadata = sameSession ? agentMetadata! : PaneAgentMetadata(tool: tool, sessionID: sessionID, pid: pid)
+        metadata.sessionID = sessionID ?? metadata.sessionID
+        metadata.pid = pid ?? metadata.pid
+        metadata.transcriptPath = payload.agentTranscriptPath ?? metadata.transcriptPath
+        if let reportedModel = payload.agentModel {
+            let model = AgentRootMetadataResolver.normalizedModel(reportedModel)
+            metadata.model = model
+            metadata.modelWasReportedByHook = model != nil
+            // A resumed rollout can end with the old model. Only newer turns
+            // may replace the explicit selection reported by this hook. An
+            // explicit default/auto selection clears the old value and lets
+            // a later response reveal the actual model; omission changes none.
+            metadata.transcriptModelOffset = metadata.transcriptPath.flatMap { AgentRootMetadataResolver.stamp(path: $0)?.size } ?? 0
+            metadata.transcriptStamp = nil
+        }
+        if let active = payload.isClaudeRemoteControlActive, tool == .claudeCode {
+            metadata.isClaudeRemoteControlActive = active
+            // The next sweep must validate the hook hint against the live record.
+            metadata.remoteControlStamp = nil
+        }
+        agentMetadata = metadata
     }
 }
 
@@ -364,8 +538,16 @@ enum PanePresentationNormalizer {
             .compactMap(WorklaneContextFormatter.trimmed)
             .joined(separator: " · ")
             .nilIfEmpty
-        let recognizedTool =
-            raw.agentStatus?.tool ?? AgentToolRecognizer.recognize(metadata: raw.metadata)
+        let recognizedTool: AgentTool?
+        if let owner = raw.foregroundAgentSnapshot?.agent {
+            recognizedTool = owner.tool
+        } else {
+            // With the shell itself in the foreground no agent is running, so
+            // a title left behind by an exited agent must not name the pane.
+            let shellOwnsForeground = raw.paneRootPID.map { raw.foregroundAgentSnapshot?.foregroundPIDs.contains($0) == true } ?? false
+            recognizedTool = raw.agentStatus?.tool ?? raw.agentMetadata?.tool
+                ?? (shellOwnsForeground ? nil : AgentToolRecognizer.recognize(metadata: raw.metadata))
+        }
         let sshConnectionLabel = inferredSSHConnectionLabel(
             metadata: raw.metadata,
             shellContext: raw.shellContext,
@@ -425,12 +607,18 @@ enum PanePresentationNormalizer {
             (recognizedTool == .codex
                 ? TerminalMetadataChangeClassifier.codexTaskProgress(for: raw.metadata?.title)
                 : nil) ?? raw.agentStatus?.taskProgress
+        // Mutually exclusive with `isReady` below, so a mark always shows.
+        let isCheckBack = raw.checkBackReminder != nil
+            && runtimePhase == .idle
+            && recognizedTool != nil
+            && !(showsReadyStatus && incompleteTaskProgress(taskProgress) == nil)
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
             taskProgress: taskProgress,
             hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
+            isCheckBack: isCheckBack,
             suppressIdleLabel: codexBackgroundWait,
             explicitStatusText: raw.agentStatus?.text,
             notificationText: raw.lastDesktopNotificationText,
@@ -458,6 +646,7 @@ enum PanePresentationNormalizer {
             for: runtimePhase,
             statusText: statusText,
             showsReadyStatus: showsReadyStatus,
+            isCheckBack: isCheckBack,
             taskProgress: taskProgress
         )
         let pullRequest = derivePullRequest(
@@ -511,6 +700,8 @@ enum PanePresentationNormalizer {
             remotePathLabel: remotePathLabel,
             remoteLocationLabel: remoteLocationLabel,
             recognizedTool: recognizedTool,
+            agentModel: raw.agentMetadata?.tool == recognizedTool ? raw.agentMetadata?.model : nil,
+            isClaudeRemoteControlActive: recognizedTool == .claudeCode && raw.agentMetadata?.isClaudeRemoteControlActive == true,
             runtimePhase: runtimePhase,
             statusText: statusText,
             pullRequest: pullRequest,
@@ -521,6 +712,7 @@ enum PanePresentationNormalizer {
             updatedAt: updatedAt,
             isWorking: runtimePhase == .running,
             isReady: isReady,
+            isCheckBack: isCheckBack,
             statusSymbolName: statusSymbolName,
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
@@ -723,6 +915,7 @@ enum PanePresentationNormalizer {
         taskProgress: PaneAgentTaskProgress?,
         hasObservedRunning: Bool,
         showsReadyStatus: Bool,
+        isCheckBack: Bool,
         suppressIdleLabel: Bool = false,
         explicitStatusText: String? = nil,
         notificationText: String? = nil,
@@ -731,6 +924,7 @@ enum PanePresentationNormalizer {
     ) -> String? {
         switch phase {
         case .idle:
+            if isCheckBack { return PaneCheckBackReminder.statusText }
             if let taskProgress = incompleteTaskProgress(taskProgress) {
                 return idleStatusText(taskProgress: taskProgress)
             }
@@ -782,12 +976,17 @@ enum PanePresentationNormalizer {
         for phase: PanePresentationPhase,
         statusText: String?,
         showsReadyStatus: Bool,
+        isCheckBack: Bool,
         taskProgress: PaneAgentTaskProgress?
     ) -> String? {
         guard
             phase == .idle
         else {
             return nil
+        }
+
+        if isCheckBack {
+            return PaneCheckBackReminder.statusSymbolName
         }
 
         if showsReadyStatus, incompleteTaskProgress(taskProgress) == nil {
@@ -1188,26 +1387,19 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
     ) async -> String? {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = ["git"] + arguments
-                process.currentDirectoryURL = URL(
-                    fileURLWithPath: currentDirectoryPath, isDirectory: true)
-
-                let stdout = Pipe()
-                process.standardOutput = stdout
-                process.standardError = Pipe()
-
                 do {
-                    try process.run()
-                    process.waitUntilExit()
-                    guard process.terminationStatus == 0 else {
+                    let result = try SubprocessRunner.run(
+                        executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                        arguments: ["git"] + arguments,
+                        currentDirectoryURL: URL(fileURLWithPath: currentDirectoryPath, isDirectory: true),
+                        timeout: 5
+                    )
+                    guard result.terminationStatus == 0 else {
                         continuation.resume(returning: nil)
                         return
                     }
 
-                    let output = String(
-                        decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    let output = String(decoding: result.stdout, as: UTF8.self)
                     continuation.resume(returning: WorklaneContextFormatter.trimmed(output))
                 } catch {
                     continuation.resume(returning: nil)

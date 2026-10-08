@@ -23,6 +23,22 @@ _zentty_print_tty() {
     builtin print -rn -u "$_zentty_tty_fd" -- "$1"
 }
 
+# `mise run` / `mise x` build their child PATH as [entries before mise's first
+# shims dir] + [tool dirs] + [the rest], so a project's tool dir lands ahead of
+# the wrappers and the agent starts unwrapped (#142). Marking that boundary
+# right after the wrappers keeps them first. The system shims dir only serves
+# as the marker while it does not exist, so command lookup is unchanged.
+# A user shims dir already on PATH is a boundary of its own.
+_zentty_path_needs_mise_shims_boundary() {
+    local user_shims="${MISE_SHIMS_DIR:-${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims}"
+    local entry has_mise=0
+    for entry in "$@"; do
+        [[ "$entry" == "$user_shims" ]] && return 1
+        [[ -x "$entry/mise" ]] && has_mise=1
+    done
+    (( has_mise ))
+}
+
 _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
     local tmux_shim_dir="${ZENTTY_TMUX_SHIM_DIR:-}"
@@ -33,12 +49,15 @@ _zentty_ensure_wrapper_path() {
     [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0
     local -a wrappers cleaned_path enabled_wrappers next_path wrapper_bins real_bins
     local wrapper entry tool_name binary_name
+    local mise_marker="${MISE_SYSTEM_DATA_DIR:-/usr/local/share/mise}/shims"
+    [[ ! -e "$mise_marker" ]] || mise_marker=""
     wrappers=()
     [[ -z "$wrapper_dirs" ]] || wrappers=("${(@s/:/)wrapper_dirs}")
     cleaned_path=()
     for entry in "${path[@]}"; do
         (( ${wrappers[(I)$entry]} == 0 )) || continue
         [[ -z "$tmux_shim_dir" || "$entry" != "$tmux_shim_dir" ]] || continue
+        [[ -z "$mise_marker" || "$entry" != "$mise_marker" ]] || continue
         cleaned_path+=("$entry")
     done
     for wrapper in "${wrappers[@]}"; do
@@ -65,7 +84,12 @@ _zentty_ensure_wrapper_path() {
     if (( tmux_shim_enabled )); then
         next_path+=("$tmux_shim_dir")
     fi
-    next_path+=("${enabled_wrappers[@]}" "${cleaned_path[@]}")
+    next_path+=("${enabled_wrappers[@]}")
+    if (( ${#enabled_wrappers[@]} > 0 )) && [[ -n "$mise_marker" ]] \
+        && _zentty_path_needs_mise_shims_boundary "${cleaned_path[@]}"; then
+        next_path+=("$mise_marker")
+    fi
+    next_path+=("${cleaned_path[@]}")
     typeset -gU path
     path=("${next_path[@]}")
     if (( ${#enabled_wrappers[@]} > 0 )); then

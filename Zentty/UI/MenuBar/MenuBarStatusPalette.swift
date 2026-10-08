@@ -42,6 +42,8 @@ enum MenuBarStatusPalette {
             return Hex(dark: 0xFF7A6E, light: 0xC5372C)
         case .ready:
             return Hex(dark: 0x5AB0FF, light: 0x0A66D6)
+        case .checkBack:
+            return Hex(dark: 0xDA8CF7, light: 0x8E3BB0)
         case .idle:
             return Hex(dark: 0xA4A4AA, light: 0x6B6B70)
         }
@@ -58,6 +60,8 @@ enum MenuBarStatusPalette {
             return Hex(dark: 0xFF5A50, light: 0xFF463C)
         case .ready:
             return Hex(dark: 0x288CFF, light: 0x007AFF)
+        case .checkBack:
+            return Hex(dark: 0xBF5AF2, light: 0xAF52DE)
         case .idle:
             return Hex(dark: 0x969E9E, light: 0x787880)
         }

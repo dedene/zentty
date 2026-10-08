@@ -119,6 +119,9 @@ struct TmuxCompatCommand: ParsableCommand {
                 tmuxCompatCLILogger.warning(
                     "tmux \(localSubcommand, privacy: .public) IPC failed: \(error.localizedDescription, privacy: .public)"
                 )
+                FileHandle.standardError.write(Data(
+                    "zentty tmux \(localSubcommand): \(error.localizedDescription)\n".utf8
+                ))
                 throw ExitCode(1)
             }
         }

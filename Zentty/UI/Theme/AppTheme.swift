@@ -80,6 +80,7 @@ struct ZenttyTheme: Equatable {
     let statusNeedsInput: NSColor
     let statusStopped: NSColor
     let statusReady: NSColor
+    let statusCheckBack: NSColor
     let statusIdle: NSColor
     let openWithChromeBackground: NSColor
     let openWithChromeBorder: NSColor
@@ -151,7 +152,8 @@ struct ZenttyTheme: Equatable {
             lhs.commandPaletteRowHoverBackground, lhs.commandPaletteRowSelectedBackground,
             lhs.commandPaletteSeparator, lhs.commandPaletteBackdrop,
             lhs.underlapShadow,
-            lhs.statusRunning, lhs.statusNeedsInput, lhs.statusStopped, lhs.statusReady, lhs.statusIdle,
+            lhs.statusRunning, lhs.statusNeedsInput, lhs.statusStopped, lhs.statusReady, lhs.statusCheckBack,
+            lhs.statusIdle,
         ].map(\.themeToken) == [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
             rhs.topChromeBackground, rhs.topChromeBorder, rhs.canvasBackground, rhs.canvasBorder,
@@ -180,7 +182,8 @@ struct ZenttyTheme: Equatable {
             rhs.commandPaletteRowHoverBackground, rhs.commandPaletteRowSelectedBackground,
             rhs.commandPaletteSeparator, rhs.commandPaletteBackdrop,
             rhs.underlapShadow,
-            rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusIdle,
+            rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusCheckBack,
+            rhs.statusIdle,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
             && lhs.sidebarGlassOpacity == rhs.sidebarGlassOpacity
@@ -312,10 +315,13 @@ struct ZenttyTheme: Equatable {
             ?? foreground.mixed(towards: NSColor(srgbRed: 1.0, green: 0.30, blue: 0.30, alpha: 1), amount: 0.82)
         let paletteGreen = ((isDark ? palette[10] : palette[2]) ?? palette[2])?.srgbClamped
             ?? foreground.mixed(towards: NSColor(srgbRed: 0.30, green: 0.85, blue: 0.40, alpha: 1), amount: 0.82)
+        let paletteMagenta = ((isDark ? palette[13] : palette[5]) ?? palette[5])?.srgbClamped
+            ?? foreground.mixed(towards: NSColor(srgbRed: 0.80, green: 0.45, blue: 0.95, alpha: 1), amount: 0.82)
         statusRunning = paletteBlue
         statusNeedsInput = paletteYellow
         statusStopped = paletteRed
         statusReady = paletteGreen
+        statusCheckBack = paletteMagenta
         statusIdle = accent.withAlphaComponent(isDark ? 0.54 : 0.48)
 
         // Selected-row chrome. `.subtle` keeps the historical recessed fill

@@ -128,10 +128,7 @@ struct AgentToolLauncher {
             if environment["ZENTTY_CLAUDE_HOOKS_DISABLED"] == "1" {
                 return "ZENTTY_CLAUDE_HOOKS_DISABLED=1"
             }
-            if let subcommand = ClaudeLaunchPolicy.passthroughSubcommand(in: arguments) {
-                return "claude passthrough subcommand: \(subcommand)"
-            }
-            return nil
+            return ClaudeLaunchPolicy.passthroughReason(in: arguments)
         case .copilot:
             if environment["ZENTTY_COPILOT_HOOKS_DISABLED"] == "1" {
                 return "ZENTTY_COPILOT_HOOKS_DISABLED=1"
@@ -367,7 +364,13 @@ struct AgentToolLauncher {
 
         let cliDirectory = environment["ZENTTY_CLI_BIN"]
             .map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
-        let excludedDirectories = Set(wrapperDirectories + [cliDirectory].compactMap { $0 })
+        // Manifest wrappers re-export their own dir on every hop, so it is
+        // still present when a helper process stripped the markers above.
+        let manifestWrapperDirectory = environment["ZENTTY_AGENT_WRAPPER_DIR"]?.nonEmpty
+        let excludedDirectories = Set(
+            (wrapperDirectories + [cliDirectory, manifestWrapperDirectory].compactMap { $0 })
+                .map(Self.normalizedDirectory)
+        )
 
         if tool == .kimi {
             let pin = KimiVariant(rawPin: environment["ZENTTY_KIMI_VARIANT"])
@@ -418,7 +421,9 @@ struct AgentToolLauncher {
         var seen = Set<String>()
 
         for entry in environmentPathEntries(forKeys: ["PATH"]) {
-            guard !excludedDirectories.contains(entry) else {
+            let directory = Self.normalizedDirectory(entry)
+            guard !excludedDirectories.contains(directory),
+                  !Self.isBundledWrapperDirectory(directory) else {
                 continue
             }
             for wrappedToolName in wrappedToolNames {
@@ -436,6 +441,24 @@ struct AgentToolLauncher {
                 }
             }
         }
+    }
+
+    private static func normalizedDirectory(_ path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+    }
+
+    /// Recognizes a bundled `Resources/bin/<tool>/` wrapper dir by its
+    /// `../shared/zentty-agent-wrapper` sibling, independent of the ZENTTY_*
+    /// markers. A helper process that inherits PATH but not those markers
+    /// would otherwise resolve the wrapper as the real binary and re-exec it
+    /// forever (#129). Also covers other Zentty installs on PATH.
+    private static func isBundledWrapperDirectory(_ directory: String) -> Bool {
+        let sharedWrapper = URL(fileURLWithPath: directory, isDirectory: true)
+            .deletingLastPathComponent()
+            .appendingPathComponent("shared", isDirectory: true)
+            .appendingPathComponent("zentty-agent-wrapper", isDirectory: false)
+            .path
+        return FileManager.default.isExecutableFile(atPath: sharedWrapper)
     }
 
     private func resolveMiseShimIfNeeded(_ executablePath: String) -> Result<String, LaunchFailureDiagnostic>? {
@@ -473,20 +496,18 @@ struct AgentToolLauncher {
     }
 
     private func runMiseWhich(binaryName: String) -> ProcessOutput {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["mise", "which", binaryName]
-        process.environment = environment
-        process.standardInput = Pipe()
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try SubprocessRunner.run(
+                executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                arguments: ["mise", "which", binaryName],
+                environment: environment,
+                timeout: 10
+            )
+            return ProcessOutput(
+                exitCode: result.terminationStatus,
+                stdout: String(data: result.stdout, encoding: .utf8) ?? "",
+                stderr: String(data: result.stderr, encoding: .utf8) ?? ""
+            )
         } catch {
             return ProcessOutput(
                 exitCode: 127,
@@ -494,12 +515,6 @@ struct AgentToolLauncher {
                 stderr: "mise which \(binaryName) failed: \(error.localizedDescription)"
             )
         }
-
-        return ProcessOutput(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        )
     }
 
     private func failLaunch(with diagnostic: LaunchFailureDiagnostic) -> Never {

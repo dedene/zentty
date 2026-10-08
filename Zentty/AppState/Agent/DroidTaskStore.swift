@@ -39,7 +39,7 @@ final class DroidTaskStore {
         let stateURL: URL
         if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             stateURL = appSupportDirectory
-                .appendingPathComponent("Zentty", isDirectory: true)
+                .appendingPathComponent(ZenttyBuildFlavor.current.libraryFolderName, isDirectory: true)
                 .appendingPathComponent("droid-task-sessions.json", isDirectory: false)
         } else {
             stateURL = fileManager.temporaryDirectory.appendingPathComponent("zentty-droid-task-sessions.json")
@@ -63,7 +63,7 @@ final class DroidTaskStore {
         let stateURL: URL
         if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             stateURL = appSupportDirectory
-                .appendingPathComponent("Zentty", isDirectory: true)
+                .appendingPathComponent(ZenttyBuildFlavor.current.libraryFolderName, isDirectory: true)
                 .appendingPathComponent("small-harness-task-sessions.json", isDirectory: false)
         } else {
             stateURL = fileManager.temporaryDirectory.appendingPathComponent("zentty-small-harness-task-sessions.json")
@@ -277,7 +277,7 @@ final class CursorTaskStore {
         let stateURL: URL
         if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             stateURL = appSupportDirectory
-                .appendingPathComponent("Zentty", isDirectory: true)
+                .appendingPathComponent(ZenttyBuildFlavor.current.libraryFolderName, isDirectory: true)
                 .appendingPathComponent("cursor-task-sessions.json", isDirectory: false)
         } else {
             stateURL = fileManager.temporaryDirectory.appendingPathComponent("zentty-cursor-task-sessions.json")

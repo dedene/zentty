@@ -40,6 +40,9 @@ def capture_command!(*args, chdir: PROJECT_ROOT, error_message: nil)
 
   message = error_message || "Command failed: #{args.join(" ")}"
   message += "\n#{stderr.strip}" unless stderr.strip.empty?
+  # xcodebuild reports compile/config errors on stdout, not stderr.
+  stdout_errors = stdout.lines.grep(/(^|: )error: /).map(&:strip).uniq
+  message += "\n#{stdout_errors.join("\n")}" unless stdout_errors.empty?
   UI.user_error!(message)
 end
 
@@ -879,6 +882,8 @@ def sparkle_generate_appcast_binary!
     "CONFIGURATION_BUILD_DIR=#{build_dir}",
     "CODE_SIGNING_ALLOWED=NO",
     "CODE_SIGNING_REQUIRED=NO",
+    # Sparkle's project targets 10.13; Xcode 27 only accepts 12.0+.
+    "MACOSX_DEPLOYMENT_TARGET=13.0",
     "build",
     chdir: checkout,
     error_message: "Failed to build Sparkle generate_appcast tool"

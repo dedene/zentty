@@ -2,10 +2,50 @@ import Darwin
 import Foundation
 
 enum AgentIPCClientError: Error {
-    case invalidSocketPath
+    case invalidSocketPath(String)
+    case connectFailed(socketPath: String, code: POSIXErrorCode)
     case requestTooLarge
     case invalidResponse
     case responseError(AgentIPCResponseError)
+}
+
+extension AgentIPCClientError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidSocketPath(let socketPath):
+            return "Zentty instance socket path is too long for a Unix socket: "
+                + Self.describe(socketPath: socketPath)
+        case .connectFailed(let socketPath, let code):
+            return "Cannot connect to Zentty instance socket "
+                + Self.describe(socketPath: socketPath)
+                + ": \(String(cString: strerror(code.rawValue)))"
+        case .requestTooLarge:
+            return "Zentty instance response exceeded the size limit."
+        case .invalidResponse:
+            return "Zentty instance closed the connection without a valid response."
+        case .responseError(let error):
+            return error.message
+        }
+    }
+
+    // Quote the path and make control characters visible: a socket path
+    // captured from colorized `ls` output carries ANSI escapes that would
+    // otherwise render invisibly and leave only a bare "No such file".
+    private static func describe(socketPath: String) -> String {
+        var hasControlCharacters = false
+        let visible = socketPath.unicodeScalars.map { scalar -> String in
+            guard scalar.properties.generalCategory == .control else {
+                return String(scalar)
+            }
+            hasControlCharacters = true
+            return scalar.escaped(asASCII: true)
+        }.joined()
+        guard hasControlCharacters else {
+            return "'\(visible)'"
+        }
+        return "'\(visible)' (path contains control characters; "
+            + "was ZENTTY_INSTANCE_SOCKET captured from colorized ls output?)"
+    }
 }
 
 enum AgentIPCClient {
@@ -83,7 +123,7 @@ enum AgentIPCClient {
         address.sun_family = sa_family_t(AF_UNIX)
         let utf8Path = socketPath.utf8CString
         guard utf8Path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
-            throw AgentIPCClientError.invalidSocketPath
+            throw AgentIPCClientError.invalidSocketPath(socketPath)
         }
 
         _ = withUnsafeMutablePointer(to: &address.sun_path.0) { pointer in
@@ -102,7 +142,10 @@ enum AgentIPCClient {
             }
         }
         guard result == 0 else {
-            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            throw AgentIPCClientError.connectFailed(
+                socketPath: socketPath,
+                code: POSIXErrorCode(rawValue: errno) ?? .EIO
+            )
         }
     }
 

@@ -15,6 +15,7 @@ import select
 import shlex
 import struct
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -145,6 +146,11 @@ class ScenarioExpectation:
     # home, phase 2 simulates a restart and resumes it by id, asserting the
     # session is found. This is the regression guard for the overlay bug class.
     resume_roundtrip: bool = False
+    # Claude only: start the shared background daemon under a different pane's
+    # identity, then launch `claude --bg` through the wrapper and require every
+    # captured hook to carry the launching pane (dedene/zentty#121). Starts and
+    # stops the per-user Claude daemon, so it skips when one is already running.
+    daemon_pane_routing: bool = False
 
 
 @dataclasses.dataclass
@@ -2268,7 +2274,21 @@ class LaunchPlanner:
         return True
 
     def _plan_claude(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        hook_command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
+        if arguments[:1] == ["attach"]:
+            # Mirror AgentLaunchBootstrap.claudeAttachPlan: the attach client
+            # launches as given and the wrapper announces the re-home first.
+            session_id = arguments[1].strip().lower() if len(arguments) > 1 else ""
+            prelaunch = []
+            if len(session_id) >= 8 and not session_id.startswith("-"):
+                prelaunch.append(
+                    {
+                        "subcommand": "agent-event",
+                        "arguments": ["--adapter=claude"],
+                        "standardInput": compact_json({"hook_event_name": CLAUDE_ATTACH_EVENT, "session_id": session_id}),
+                    }
+                )
+            return self._launch_plan(executable, arguments, {}, unset=["CLAUDECODE"], prelaunch=prelaunch)
+        hook_command = claude_hook_command(cli_path, environment)
         settings = {"hooks": {}}
         # Mirror AgentLaunchBootstrap.claudePlan event-for-event, timeouts
         # included: SessionEnd is short so a hung IPC cannot hold the exit,
@@ -3127,6 +3147,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 event_order=parse_event_order(profile_path.name, name, value.get("event_order")),
                 subagent_nested_required=bool(value.get("subagent_nested_required", False)),
                 resume_roundtrip=bool(value.get("resume_roundtrip", False)),
+                daemon_pane_routing=bool(value.get("daemon_pane_routing", False)),
             )
         profile = AgentProfile(
             name=raw["name"],
@@ -3220,6 +3241,96 @@ def materialize_manifest_wrappers(
             script_path.chmod(0o755)
         directories[tool_id] = directory
     return directories
+
+
+DAEMON_STARTER_PANE_ID = "agent-bench-daemon-starter-pane"
+DAEMON_STARTER_WORKLANE_ID = "agent-bench-daemon-starter-worklane"
+# Not a live process: the hook CLI must drop it instead of tracking it.
+DAEMON_STARTER_CLAUDE_PID = "999999"
+DAEMON_ATTACH_PANE_ID = "agent-bench-attach-pane"
+DAEMON_ATTACH_WORKLANE_ID = "agent-bench-attach-worklane"
+CLAUDE_ATTACH_EVENT = "ZenttyAttach"
+DAEMON_STARTER_PROMPT = "Reply with exactly: ZENTTY_AGENT_BENCH_DAEMON_STARTED"
+CLAUDE_DAEMON_PROCESS_PATTERN = re.compile(r"(?:^|/)claude (?:daemon run|bg-pty-host|bg-spare)(?:\s|$)")
+BACKGROUNDED_SESSION_PATTERN = re.compile(r"backgrounded\s+\S\s+([0-9a-f]{8})\b")
+
+
+def parse_claude_daemon_pids(ps_output: str) -> set[int]:
+    pids: set[int] = set()
+    for line in ps_output.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if pid.isdigit() and CLAUDE_DAEMON_PROCESS_PATTERN.search(command.strip()):
+            pids.add(int(pid))
+    return pids
+
+
+def claude_daemon_pids() -> set[int]:
+    result = subprocess.run(["ps", "-axo", "pid=,command="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    return parse_claude_daemon_pids(result.stdout)
+
+
+def stop_claude_daemon_processes(excluding: set[int], grace: float = 10.0) -> None:
+    # A transient daemon exits on its own once its last session stops, but it
+    # can leave pre-warmed spare hosts behind. Only processes that appeared
+    # during the scenario are signalled.
+    for signal_number in (None, signal.SIGTERM, signal.SIGKILL):
+        for pid in claude_daemon_pids() - excluding if signal_number else ():
+            try:
+                os.kill(pid, signal_number)
+            except OSError:
+                pass
+        deadline = time.time() + grace
+        while time.time() < deadline and claude_daemon_pids() - excluding:
+            time.sleep(0.5)
+
+
+def backgrounded_session_ids(output: str) -> list[str]:
+    return BACKGROUNDED_SESSION_PATTERN.findall(ANSI_ESCAPE_PATTERN.sub("", output))
+
+
+def daemon_routing_violations(
+    records: list[TraceRecord],
+    expected_pane: str,
+    expected_worklane: str,
+    starter_claude_pid: str,
+) -> list[str]:
+    violations: list[str] = []
+    hooks = [record for record in records if record.kind == "hook" and record.event_name != CLAUDE_ATTACH_EVENT]
+    if not hooks:
+        return ["no hook events captured"]
+    for record in hooks:
+        environment = record.environment or {}
+        label = record.event_name or "hook"
+        pane = environment.get("ZENTTY_PANE_ID")
+        worklane = environment.get("ZENTTY_WORKLANE_ID")
+        if pane != expected_pane:
+            violations.append(f"{label} routed to pane {pane!r}, expected {expected_pane!r}")
+        elif worklane != expected_worklane:
+            violations.append(f"{label} routed to worklane {worklane!r}, expected {expected_worklane!r}")
+        elif environment.get("ZENTTY_CLAUDE_PID") == starter_claude_pid:
+            violations.append(f"{label} kept the daemon starter's ZENTTY_CLAUDE_PID")
+    return violations
+
+
+def attach_announcement_violations(
+    records: list[TraceRecord],
+    session_id: str,
+    expected_pane: str,
+    expected_worklane: str,
+) -> list[str]:
+    announcements = [record for record in records if record.kind == "hook" and record.event_name == CLAUDE_ATTACH_EVENT]
+    if len(announcements) != 1:
+        return [f"expected one {CLAUDE_ATTACH_EVENT} from `claude attach`, captured {len(announcements)}"]
+    record = announcements[0]
+    environment = record.environment or {}
+    violations: list[str] = []
+    if parse_json_object(record.standard_input).get("session_id") != session_id:
+        violations.append(f"{CLAUDE_ATTACH_EVENT} did not name session {session_id}")
+    if environment.get("ZENTTY_PANE_ID") != expected_pane or environment.get("ZENTTY_WORKLANE_ID") != expected_worklane:
+        violations.append(f"{CLAUDE_ATTACH_EVENT} came from pane {environment.get('ZENTTY_PANE_ID')!r}, expected {expected_pane!r}")
+    if parse_positive_int(environment.get("ZENTTY_CLAUDE_PID")) is None:
+        violations.append(f"{CLAUDE_ATTACH_EVENT} carried no attach client pid")
+    return violations
 
 
 def missing_manifest_wrapper(wrapper_dir: pathlib.Path | None, profile: AgentProfile) -> str | None:
@@ -3378,6 +3489,8 @@ class BenchRunner:
             return self._run_synthetic_scenario(agent, scenario, env)
         if profile.expectations[scenario].resume_roundtrip:
             return self._run_resume_roundtrip_scenario(agent, scenario, env)
+        if profile.expectations[scenario].daemon_pane_routing:
+            return self._run_daemon_pane_routing_scenario(agent, scenario, env)
         if profile.tool in self.manifests:
             missing = missing_manifest_wrapper(self.manifest_wrapper_dirs.get(profile.tool), profile)
         else:
@@ -3482,6 +3595,141 @@ class BenchRunner:
             agent_tool=profile.tool,
         )
         return self._finalize_result(result, self.recorder.records(), observations)
+
+    def _run_daemon_pane_routing_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
+        # Regression guard for dedene/zentty#121. Claude runs background
+        # sessions under one per-user daemon that keeps the environment of
+        # whichever pane started it. Phase 1 starts that daemon with the real
+        # binary under a foreign pane identity. Phase 2 launches `claude --bg`
+        # through the wrapper as the bench pane. Every hook the capture server
+        # then sees must carry the bench pane, not the daemon's.
+        env = dict(env)
+        profile = self.profiles[agent]
+        expectation = profile.expectations[scenario]
+        if profile.tool != "claude":
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "daemon_pane_routing is only defined for claude", "scenario-skip"), [], []
+            )
+        if missing := missing_agent_wrapper_resource(self._resolved_app_path, profile):
+            return self._finalize_result(self._skip_or_fail(agent, scenario, missing, "missing-wrapper"), [], [])
+        command, skip_message = resolve_agent_binary(profile, env["PATH"])
+        real_command, real_skip_message = resolve_agent_binary(profile, filtered_inherited_path(env["PATH"]))
+        if not command or not real_command:
+            detail = skip_message or real_skip_message or "claude binary not found"
+            return self._finalize_result(self._skip_or_fail(agent, scenario, detail, "binary-skip"), [], [])
+        preexisting = claude_daemon_pids()
+        if preexisting:
+            detail = "a Claude background daemon or session is already running; refusing to share or stop it"
+            return self._finalize_result(self._skip_or_fail(agent, scenario, detail, "scenario-skip"), [], [])
+
+        version = run_version(command, profile.version_args, env)
+        self.recorder.append(TraceRecord(kind="version", agent=agent, scenario=scenario, extra={"version": version}))
+        repo = self._make_repo(agent, scenario)
+        try:
+            ensure_claude_workspace_trust(repo)
+        except OSError as error:
+            self.recorder.append(
+                TraceRecord(kind="note", agent=agent, scenario=scenario, extra={"claude_workspace_trust_error": str(error)})
+            )
+
+        starter_env = dict(env)
+        starter_env["ZENTTY_PANE_ID"] = DAEMON_STARTER_PANE_ID
+        starter_env["ZENTTY_WORKLANE_ID"] = DAEMON_STARTER_WORKLANE_ID
+        starter_env["ZENTTY_PANE_TOKEN"] = "agent-bench-daemon-starter-token"
+        starter_env["ZENTTY_CLAUDE_PID"] = DAEMON_STARTER_CLAUDE_PID
+        session_ids: list[str] = []
+        launched_ids: list[str] = []
+        observations: list[TerminalObservation] = []
+        try:
+            starter = run_pty(
+                [real_command, "--setting-sources", "project,local", "--bg", DAEMON_STARTER_PROMPT],
+                env=starter_env,
+                cwd=repo,
+                inputs=[],
+                timeout=self.args.timeout,
+                transcript_path=self.run_dir / f"{agent}-{scenario}-daemon-starter.terminal.log",
+            )
+            session_ids.extend(backgrounded_session_ids(starter.output))
+            if starter.timed_out or not session_ids:
+                skip = matches_any(starter.output, profile.skip_patterns)
+                detail = "could not start the Claude daemon with `claude --bg`"
+                kind = "auth-skip" if skip else "process-timeout" if starter.timed_out else "scenario-skip"
+                return self._finalize_result(self._skip_or_fail(agent, scenario, detail, kind), [], [])
+
+            launched = run_pty(
+                [command] + profile.launch_args_by_scenario.get(scenario, []),
+                env=env,
+                cwd=repo,
+                inputs=[],
+                timeout=self.args.timeout,
+                transcript_path=self.run_dir / f"{agent}-{scenario}.terminal.log",
+            )
+            observations.extend(launched.terminal_observations)
+            session_ids.extend(backgrounded_session_ids(launched.output))
+            deadline = time.time() + self.args.timeout
+            while time.time() < deadline:
+                if not validate_scenario(agent, expectation, self.recorder.records(), agent_tool=profile.tool).missing_events:
+                    break
+                time.sleep(0.5)
+
+            # Phase 3: `claude attach` from a third pane. The client fires no
+            # hooks; the wrapper has to announce the re-home itself.
+            launched_ids = backgrounded_session_ids(launched.output)
+            if launched_ids:
+                attach_env = dict(env)
+                attach_env["ZENTTY_PANE_ID"] = DAEMON_ATTACH_PANE_ID
+                attach_env["ZENTTY_WORKLANE_ID"] = DAEMON_ATTACH_WORKLANE_ID
+                attached = run_pty(
+                    [command, "attach", launched_ids[0]],
+                    env=attach_env,
+                    cwd=repo,
+                    inputs=[],
+                    timeout=min(self.args.timeout, 60),
+                    transcript_path=self.run_dir / f"{agent}-{scenario}-attach.terminal.log",
+                    # Detaching (Ctrl-C twice) drops into the agents view
+                    # instead of exiting, so end the client once it has
+                    # attached and the announcement is on record.
+                    completion_predicate=lambda output, _observations: (
+                        "ZENTTY_AGENT_BENCH_OK" in output
+                        and any(record.event_name == CLAUDE_ATTACH_EVENT for record in self.recorder.records())
+                    ),
+                )
+                observations.extend(attached.terminal_observations)
+        finally:
+            for session_id in session_ids:
+                subprocess.run(
+                    [real_command, "stop", session_id],
+                    env=starter_env,
+                    cwd=repo,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=30,
+                    check=False,
+                )
+            stop_claude_daemon_processes(excluding=preexisting)
+
+        records = [record for record in self.recorder.records() if record.agent == agent and record.scenario == scenario]
+        result = validate_scenario(agent, expectation, records, agent_tool=profile.tool)
+        if result.passed:
+            violations = daemon_routing_violations(
+                records,
+                expected_pane=env["ZENTTY_PANE_ID"],
+                expected_worklane=env["ZENTTY_WORKLANE_ID"],
+                starter_claude_pid=DAEMON_STARTER_CLAUDE_PID,
+            )
+            if not violations:
+                violations = attach_announcement_violations(
+                    records,
+                    session_id=(launched_ids or [""])[0],
+                    expected_pane=DAEMON_ATTACH_PANE_ID,
+                    expected_worklane=DAEMON_ATTACH_WORKLANE_ID,
+                )
+            if violations:
+                result.passed = False
+                result.status = "fail"
+                result.result_kind = "wrong-pane-routing"
+                result.detail = "; ".join(violations[:3])
+        return self._finalize_result(result, records, observations)
 
     def _run_synthetic_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
         # Synthetic scenarios bypass the agent binary entirely. They pipe a
@@ -3804,7 +4052,6 @@ class BenchRunner:
                     "Pass --app-path to a fresh build product or run without --no-build."
                 )
             raise SystemExit("--no-build requires --app-path when build/Debug/Zentty.app is absent")
-        subprocess.run(["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-destination", "platform=macOS", "build"], cwd=REPO_ROOT, check=True)
         settings = subprocess.run(
             ["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-showBuildSettings"],
             cwd=REPO_ROOT,
@@ -3813,6 +4060,21 @@ class BenchRunner:
             stdout=subprocess.PIPE,
         ).stdout
         values = parse_build_settings(settings)
+        team_id = values.get("DEVELOPMENT_TEAM", "")
+        requested_signing = getattr(self.args, "signing", "auto")
+        signing = resolve_signing_mode(requested_signing, team_id)
+        if signing == "ad-hoc" and requested_signing == "auto":
+            print(
+                f"agent-bench: no Apple Development identity for team {team_id}; building with ad-hoc signing "
+                "(pass --signing team to force team signing)",
+                file=sys.stderr,
+            )
+        subprocess.run(
+            ["xcodebuild", "-project", "Zentty.xcodeproj", "-scheme", "Zentty", "-destination", "platform=macOS", "build"]
+            + xcodebuild_signing_overrides(signing),
+            cwd=REPO_ROOT,
+            check=True,
+        )
         return pathlib.Path(values["BUILT_PRODUCTS_DIR"]) / values.get("FULL_PRODUCT_NAME", "Zentty.app")
 
     def _base_environment(self, resources_dir: pathlib.Path) -> dict[str, str]:
@@ -4201,6 +4463,96 @@ def parse_build_settings(output: str) -> dict[str, str]:
             continue
         values[key] = value
     return values
+
+
+SIGNING_MODES = ("auto", "team", "ad-hoc")
+# Debug builds sign automatically with the project's DEVELOPMENT_TEAM, which
+# needs that team's development certificate. Contributors outside the team
+# fall back to ad-hoc signing; the app has no entitlements that need a profile.
+AD_HOC_SIGNING_OVERRIDES = (
+    "CODE_SIGN_IDENTITY=-",
+    "CODE_SIGN_STYLE=Manual",
+    "DEVELOPMENT_TEAM=",
+    "PROVISIONING_PROFILE_SPECIFIER=",
+)
+DEVELOPMENT_IDENTITY_PREFIXES = ("Apple Development:", "Mac Developer:")
+CODESIGNING_IDENTITY_PATTERN = re.compile(r'^\s*\d+\)\s+([0-9A-F]{40})\s+"(.*)"\s*$')
+CERTIFICATE_PEM_PATTERN = re.compile(
+    r"SHA-1 hash: ([0-9A-F]{40})\s(?:(?!SHA-1 hash:).)*?(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
+    re.S,
+)
+SUBJECT_TEAM_ID_PATTERN = re.compile(r"(?:^|[/,])\s*OU\s*=\s*([A-Z0-9]+)")
+
+
+def parse_development_identity_hashes(find_identity_output: str) -> list[str]:
+    """SHA-1 hashes of valid development identities from `security find-identity -v`."""
+    hashes = []
+    for line in find_identity_output.splitlines():
+        match = CODESIGNING_IDENTITY_PATTERN.match(line)
+        if match and match.group(2).startswith(DEVELOPMENT_IDENTITY_PREFIXES):
+            hashes.append(match.group(1))
+    return hashes
+
+
+def parse_certificate_pems(find_certificate_output: str) -> dict[str, str]:
+    """SHA-1 hash -> PEM from `security find-certificate -a -Z -p`."""
+    return {match.group(1): match.group(2) for match in CERTIFICATE_PEM_PATTERN.finditer(find_certificate_output)}
+
+
+def parse_subject_team_id(subject: str) -> str | None:
+    """Team ID (the OU component) from an `openssl x509 -noout -subject` line."""
+    match = SUBJECT_TEAM_ID_PATTERN.search(subject)
+    return match.group(1) if match else None
+
+
+def has_development_identity_for_team(team_id: str) -> bool | None:
+    """Whether the keychain holds a usable development identity for team_id.
+
+    Identity names carry the member ID, not the team ID, so the team comes
+    from each certificate's subject OU. Returns None when the keychain can't
+    be inspected, so callers keep the default signing.
+    """
+    try:
+        identities = subprocess.run(
+            ["security", "find-identity", "-v", "-p", "codesigning"],
+            check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout
+        hashes = parse_development_identity_hashes(identities)
+        if not hashes:
+            return False
+        certificates = parse_certificate_pems(
+            subprocess.run(
+                ["security", "find-certificate", "-a", "-Z", "-p"],
+                check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            ).stdout
+        )
+        for identity_hash in hashes:
+            pem = certificates.get(identity_hash)
+            if pem is None:
+                continue
+            subject = subprocess.run(
+                ["openssl", "x509", "-noout", "-subject"],
+                input=pem, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            ).stdout
+            if parse_subject_team_id(subject) == team_id:
+                return True
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return False
+
+
+def resolve_signing_mode(requested: str, team_id: str, detector=None) -> str:
+    """Pick "team" or "ad-hoc" signing for the bench build."""
+    if requested != "auto":
+        return requested
+    if not team_id:
+        return "team"
+    detector = detector or has_development_identity_for_team
+    return "ad-hoc" if detector(team_id) is False else "team"
+
+
+def xcodebuild_signing_overrides(mode: str) -> list[str]:
+    return list(AD_HOC_SIGNING_OVERRIDES) if mode == "ad-hoc" else []
 
 
 def app_has_agent_bench_resources(app_path: pathlib.Path) -> bool:
@@ -4785,6 +5137,31 @@ def amp_option_name(argument: str) -> str:
     return argument.split("=", 1)[0] if argument.startswith("--") else argument
 
 
+CLAUDE_HOOK_ROUTING_KEYS = (
+    "ZENTTY_INSTANCE_SOCKET",
+    "ZENTTY_INSTANCE_ID",
+    "ZENTTY_WINDOW_ID",
+    "ZENTTY_WORKLANE_ID",
+    "ZENTTY_PANE_ID",
+    "ZENTTY_PANE_TOKEN",
+)
+
+
+def claude_hook_command(cli_path: str, environment: dict[str, Any]) -> str:
+    # Mirror AgentLaunchBootstrap.claudeHookCommand: the command carries the
+    # launch pane's routing so a daemon-run session does not use the daemon's.
+    command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=claude'
+
+    def value(key: str) -> str:
+        return str(environment.get(key) or "").strip()
+
+    if not all(value(key) for key in ("ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID", "ZENTTY_PANE_TOKEN")):
+        return command
+    unset = [f"-u {key}" for key in CLAUDE_HOOK_ROUTING_KEYS if not value(key)]
+    assignments = [f'{key}="{shell_escape_double_quoted(value(key))}"' for key in CLAUDE_HOOK_ROUTING_KEYS if value(key)]
+    return " ".join(["/usr/bin/env", *unset, *assignments, command])
+
+
 def shell_escape_double_quoted(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
 
@@ -4841,11 +5218,19 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--strict", action="store_true", help="Treat skips as failures.")
     run.add_argument("--no-build", action="store_true", help="Do not build Zentty first.")
     run.add_argument("--app-path", help="Path to Zentty.app to use.")
+    run.add_argument(
+        "--signing",
+        choices=SIGNING_MODES,
+        default="auto",
+        help="Code signing for the bench build: auto falls back to ad-hoc when the keychain has no "
+        "development identity for the project's team.",
+    )
     run.add_argument("--run-dir", help="Directory for traces and reports.")
 
     self_test = sub.add_parser("self-test", help="Exercise the capture server without model calls.")
     self_test.add_argument("--no-build", action="store_true")
     self_test.add_argument("--app-path")
+    self_test.add_argument("--signing", choices=SIGNING_MODES, default="auto")
     self_test.add_argument("--run-dir")
     self_test.add_argument("--agents", default="codex")
     self_test.add_argument("--scenarios", default="smoke")

@@ -479,4 +479,24 @@ final class LibghosttyRuntimeTests: XCTestCase {
 
         XCTAssertNil(contents)
     }
+
+    func testNormalizeLocaleAfterGhosttyInit_keepsCommaDecimalLocaleFromBreakingSFSymbols() throws {
+        let previousLocale = String(cString: setlocale(LC_ALL, nil))
+        addTeardownBlock { _ = setlocale(LC_ALL, previousLocale) }
+        // ghostty_init calls setlocale(LC_ALL, "") with the user's locale.
+        // nl_BE uses a comma decimal separator.
+        guard setlocale(LC_ALL, "nl_BE.UTF-8") != nil else {
+            throw XCTSkip("nl_BE.UTF-8 locale is not installed")
+        }
+
+        LibghosttyRuntime.normalizeLocaleAfterGhosttyInit()
+
+        XCTAssertEqual(String(cString: localeconv().pointee.decimal_point), ".")
+        XCTAssertEqual(String(cString: setlocale(LC_CTYPE, nil)), "nl_BE.UTF-8")
+        // A comma-decimal LC_NUMERIC makes AppKit resolve SF Symbols as
+        // 2x2pt empty images; use a symbol nothing else in the suite loads,
+        // because AppKit caches symbol images by name for the process.
+        let image = try XCTUnwrap(NSImage(systemSymbolName: "tortoise.fill", accessibilityDescription: nil))
+        XCTAssertGreaterThan(image.size.width, 8)
+    }
 }

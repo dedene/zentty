@@ -39,6 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingSnapshotSaveTask: Task<Void, Never>?
     private var snapshotSaveGeneration: UInt64 = 0
     private var isLaunchingWorkspace = false
+    private var hasFinishedLaunching = false
+    /// Folders LaunchServices asked us to open before launch finished. A cold
+    /// `open -a Zentty <dir>` delivers them ahead of
+    /// `applicationDidFinishLaunching`, which opens them once windows can exist.
+    private var pendingExternalOpenDirectories: [String] = []
     private let isSessionRestoreEnabled: Bool
     private let restoreErrorReporter: ((String) -> Void)?
 
@@ -193,19 +198,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
 
-                let windowController = makeWindowController()
-                windowController.showWindow(nil)
+                showDefaultLaunchWindowIfNeeded()
             }
         } else {
-            let windowController = makeWindowController()
-            windowController.showWindow(nil)
+            showDefaultLaunchWindowIfNeeded()
         }
+
+        // Folders from a cold `open -a Zentty <dir>` open after any restored
+        // workspace so the requested window ends up in front.
+        hasFinishedLaunching = true
+        let externalDirectories = pendingExternalOpenDirectories
+        pendingExternalOpenDirectories = []
+        openWindows(atDirectories: externalDirectories)
 
         if !Self.isHostedTestMode {
             NSApp.activate(ignoringOtherApps: true)
         }
         if isSessionRestoreEnabled {
             scheduleWorkspaceSnapshotSave()
+        }
+    }
+
+    /// The home-directory window a launch opens when nothing was restored.
+    /// Skipped when the launch came from opening a folder: that folder's
+    /// window takes its place instead of appearing next to a stray one.
+    private func showDefaultLaunchWindowIfNeeded() {
+        guard pendingExternalOpenDirectories.isEmpty else {
+            return
+        }
+        let windowController = makeWindowController()
+        windowController.showWindow(nil)
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard shouldOpenMainWindow else {
+            return
+        }
+        let directories = ExternalOpenDirectories.resolve(urls)
+        guard !directories.isEmpty else {
+            return
+        }
+        guard hasFinishedLaunching else {
+            pendingExternalOpenDirectories.append(contentsOf: directories)
+            return
+        }
+        openWindows(atDirectories: directories)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openWindows(atDirectories directories: [String]) {
+        for directory in directories {
+            let windowController = makeWindowController(initialWorkingDirectory: directory)
+            windowController.showWindow(nil)
         }
     }
 
@@ -431,10 +475,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func makeWindowController() -> MainWindowController {
+    private func makeWindowController(initialWorkingDirectory: String? = nil) -> MainWindowController {
         let controller = makeWindowController(
             windowID: makeWindowID(),
-            initialWorkspaceState: nil
+            initialWorkspaceState: nil,
+            initialWorkingDirectory: initialWorkingDirectory
         )
         scheduleWorkspaceSnapshotSave()
         return controller
@@ -443,6 +488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeWindowController(
         windowID: WindowID,
         initialWorkspaceState: WindowWorkspaceState?,
+        initialWorkingDirectory: String? = nil,
         runtimeRegistry: PaneRuntimeRegistry? = nil,
         initialPaneLayoutFrame: NSRect? = nil
     ) -> MainWindowController {
@@ -456,7 +502,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notificationStore: notificationStore,
             windowIndex: index,
             initialPaneLayoutFrame: initialPaneLayoutFrame,
-            initialWorkspaceState: initialWorkspaceState
+            initialWorkspaceState: initialWorkspaceState,
+            initialWorkingDirectory: initialWorkingDirectory
         )
         let id = ObjectIdentifier(controller)
         windowControllers[id] = controller

@@ -217,6 +217,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         windowIndex: Int = 0,
         initialPaneLayoutFrame: NSRect? = nil,
         initialWorkspaceState: WindowWorkspaceState? = nil,
+        initialWorkingDirectory: String? = nil,
         overlayAdapterFactory: @escaping (PaneID) -> any TerminalAdapter = { LibghosttyAdapter(paneID: $0) }
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
@@ -241,7 +242,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
             initialLayoutContext: initialLayoutContext,
-            initialWorkspaceState: initialWorkspaceState
+            initialWorkspaceState: initialWorkspaceState,
+            initialWorkingDirectory: initialWorkingDirectory
         )
         _ = rootViewController.view
         let window = ProxyAwareWindow(
@@ -251,7 +253,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
 
-        window.title = "Zentty"
+        window.title = ZenttyBuildFlavor.currentDisplayName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
@@ -752,6 +754,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func toggleFocusedPaneUnread(_ sender: Any?) {
+        handle(.toggleFocusedPaneUnread)
+    }
+
+    @objc
     func cleanCopy(_ sender: Any?) {
         handle(.cleanCopy)
     }
@@ -1197,7 +1204,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// label windows usefully. Chrome stays unaffected: titleVisibility
     /// remains hidden.
     private func refreshWindowTitle() {
-        let title = rootViewController.activeWorklaneTitle ?? "Zentty"
+        let title = rootViewController.activeWorklaneTitle ?? ZenttyBuildFlavor.currentDisplayName
         if window.title != title {
             window.title = title
         }
@@ -2280,6 +2287,10 @@ extension MainWindowController: NSMenuItemValidation {
                 return rootViewController.focusedTerminalHasSelection
             case .movePaneToNewWindow:
                 return canMovePaneToNewWindow(paneID: representedPaneID(from: menuItem))
+            case .toggleFocusedPaneUnread:
+                let toggle = rootViewController.focusedPaneUnreadToggle
+                menuItem.title = (toggle ?? .markUnread).title
+                return toggle != nil
             default:
                 return rootViewController.isCommandAvailable(commandID)
             }

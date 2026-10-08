@@ -44,6 +44,7 @@ extension WorklaneStore {
             metadataChangeKind: metadataChangeKind,
             auxiliaryState: previousAuxiliaryState
         )
+        trackClaudeCodeTitleAnimation(paneID: paneID, metadata: metadata, in: &worklane)
 
         // Volatile-title fast path. When the classifier recognizes a pure
         // supported-agent title tick (phase+subject signature unchanged, only
@@ -691,6 +692,24 @@ extension WorklaneStore {
         codexResolver.titleIdleSuppressionIsActive(raw, now: now)
     }
 
+    private func trackClaudeCodeTitleAnimation(
+        paneID: PaneID,
+        metadata: TerminalMetadata,
+        in worklane: inout WorklaneState
+    ) {
+        switch TerminalMetadataChangeClassifier.diagnosticAgentStatusTitleSignature(
+            metadata.title,
+            recognizedTool: .claudeCode
+        )?.phase {
+        case .running:
+            worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].raw.claudeCodeTitleHasAnimated = true
+        case nil:
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasAnimated = false
+        case .idle, .starting, .needsInput:
+            break
+        }
+    }
+
     /// When a Claude Code session is blocked on a permission / question prompt
     /// and the terminal title flips from the idle glyph "✳" (which Claude shows
     /// while the dialog is open) to a spinner glyph, the user has answered and
@@ -787,6 +806,20 @@ extension WorklaneStore {
                 recognizedTool: .claudeCode
             ),
             signature.phase == .idle,
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasAnimated == true
+        else {
+            return false
+        }
+
+        return beginClaudeCodeInterruptGrace(paneID: paneID, in: &worklane)
+    }
+
+    /// Ends a running Claude Code turn the user interrupted once the stop
+    /// grace window expires, unless a hook in the meantime shows Claude still
+    /// working. The resulting idle does not surface "Agent ready".
+    @discardableResult
+    func beginClaudeCodeInterruptGrace(paneID: PaneID, in worklane: inout WorklaneState) -> Bool {
+        guard
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
             let existingStatus = auxiliaryState.agentStatus,
             existingStatus.tool == .claudeCode,
@@ -1005,6 +1038,14 @@ extension WorklaneStore {
 
         clearExpiredCodexTitleIdleSuppression(for: paneID, in: &worklane)
         clearExpiredCodexInterruptSuppression(for: paneID, in: &worklane)
+        if let snapshot = worklane.auxiliaryStateByPaneID[paneID]?.raw.foregroundAgentSnapshot {
+            if worklane.auxiliaryStateByPaneID[paneID]?.raw.shellContext?.scope == .remote
+                || worklane.auxiliaryStateByPaneID[paneID]?.raw.foregroundSSHDestination != nil {
+                worklane.auxiliaryStateByPaneID[paneID]?.raw.foregroundAgentSnapshot = nil
+            } else {
+                worklane.auxiliaryStateByPaneID[paneID]?.raw.reconcileForegroundAgent(snapshot)
+            }
+        }
         let previousPresentation = worklane.auxiliaryStateByPaneID[paneID]?.presentation
         let raw = worklane.auxiliaryStateByPaneID[paneID]?.raw ?? PaneRawState()
         let presentation = PanePresentationNormalizer.normalize(
@@ -1016,6 +1057,7 @@ extension WorklaneStore {
                 : nil
         )
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].presentation = presentation
+        dropSpentCheckBackReminder(for: paneID, in: &worklane)
 
         // Bridge: when the presentation phase resolves to an active state
         // (.running, .needsInput) but the raw agentStatus hasn't recorded

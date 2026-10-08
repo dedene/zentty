@@ -293,10 +293,11 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertEqual(record.lastStructuredInteractionToolName, "Bash")
     }
 
-    func test_interrupted_post_tool_use_failure_emits_no_payload() throws {
-        // Escape during a long Bash: Claude redraws the idle "✳" title at once
-        // and no Stop hook follows. The late PostToolUseFailure carries
-        // is_interrupt and must not push the pane back to running.
+    func test_interrupted_post_tool_use_failure_ends_the_turn_as_an_interrupt() throws {
+        // Escape during a long Bash: no Stop hook follows, and under a
+        // terminal multiplexer the title stays "✳" the whole time, so this
+        // late PostToolUseFailure is the only sign the turn ended. It must
+        // say idle, marked as an interrupt so no "Agent ready" follows.
         var reducer = PaneAgentReducerState()
         let base = Date(timeIntervalSince1970: 8_000)
 
@@ -306,12 +307,33 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertEqual(reducer.reducedStatus(now: base + 2)?.state, .running)
 
         let payloads = try makePayloads(#"{"hook_event_name":"PostToolUseFailure","session_id":"s8","tool_name":"Bash","tool_use_id":"tu-bash","error":"interrupted","is_interrupt":true,"duration_ms":4200}"#)
-        XCTAssertTrue(payloads.isEmpty, "an interrupted tool with no open prompt must leave the pane state to title-based idle detection")
+        XCTAssertEqual(payloads.map(\.state), [.idle])
+        XCTAssertEqual(payloads.first?.lifecycleEvent, .interrupt)
+        XCTAssertEqual(payloads.first?.interactionKind, PaneAgentInteractionKind.none)
+        for payload in payloads {
+            reducer.apply(payload, now: base + 5)
+        }
+        XCTAssertEqual(reducer.reducedStatus(now: base + 6)?.state, .idle)
         XCTAssertNil(try sessionStore.lookup(sessionID: "s8")?.structuredInteractionKind)
 
         // A non-interrupt failure still resumes.
         let failure = try makePayloads(#"{"hook_event_name":"PostToolUseFailure","session_id":"s8","tool_name":"Bash","tool_use_id":"tu-bash","error":"exit 2","is_interrupt":false}"#)
         XCTAssertEqual(failure.first?.state, .running)
+    }
+
+    func test_interrupted_subagent_tool_does_not_end_the_parent_turn() throws {
+        // A background subagent's tool can be interrupted while the parent
+        // keeps working; only the root agent's interrupt ends the turn.
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 8_050)
+
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"s8s"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"s8s"}"#, into: &reducer, at: base + 0.1)
+        try replay(#"{"hook_event_name":"PreToolUse","session_id":"s8s","tool_name":"Bash","tool_use_id":"tu-sub","agent_id":"agent-1"}"#, into: &reducer, at: base + 1)
+
+        let payloads = try makePayloads(#"{"hook_event_name":"PostToolUseFailure","session_id":"s8s","tool_name":"Bash","tool_use_id":"tu-sub","agent_id":"agent-1","error":"interrupted","is_interrupt":true}"#)
+        XCTAssertTrue(payloads.isEmpty)
+        XCTAssertEqual(reducer.reducedStatus(now: base + 2)?.state, .running)
     }
 
     func test_interrupt_on_open_permission_prompt_emits_explicit_idle() throws {
@@ -330,6 +352,7 @@ final class ClaudeApprovalResumeTests: XCTestCase {
 
         let payloads = try makePayloads(#"{"hook_event_name":"PostToolUseFailure","session_id":"s8b","tool_name":"Bash","tool_use_id":"tu-bash","error":"interrupted","is_interrupt":true}"#)
         XCTAssertEqual(payloads.map(\.state), [.idle])
+        XCTAssertEqual(payloads.first?.lifecycleEvent, .interrupt)
         XCTAssertEqual(payloads.first?.interactionKind, PaneAgentInteractionKind.none)
         XCTAssertEqual(payloads.first?.confidence, .explicit)
         for payload in payloads {

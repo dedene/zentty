@@ -54,6 +54,7 @@ targets:
     platform: macOS
     sources:
       - path: ZenttyCLI
+      - path: Zentty/AppState/Agent/AgentHookProcessLineage.swift
       - path: Zentty/AppState/Agent/AgentIPCProtocol.swift
       - path: Zentty/AppState/Agent/AgentManifest.swift
       - path: Zentty/AppState/Agent/AgentManifestRegistry.swift
@@ -79,6 +80,7 @@ targets:
       - path: Zentty/Servers/ServerOutputURLDetector.swift
       - path: Zentty/Servers/ServerURLNormalizer.swift
       - path: Zentty/Servers/ServerWatchRunner.swift
+      - path: Zentty/Support/SubprocessRunner.swift
       - path: Zentty/UI/Theme/WorklaneColor.swift
     dependencies:
       - package: ArgumentParser
@@ -126,7 +128,19 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        CFBundleIconFile: AppIcon
+        CFBundleIconFile: $(ZENTTY_APP_ICON_NAME)
+        CFBundleName: $(ZENTTY_DISPLAY_NAME)
+        CFBundleDisplayName: $(ZENTTY_DISPLAY_NAME)
+        ZenttyBuildFlavor: $(ZENTTY_BUILD_FLAVOR)
+        # Lets `open -a Zentty <dir>`, Finder's "Open With" and a folder dropped
+        # on the Dock icon open a window there. Alternate rank keeps Finder the
+        # default folder handler.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Folder
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.folder
         GlitchTipDSN: $(GLITCHTIP_DSN)
         NSLocalNetworkUsageDescription: A program running within Zentty would like to access devices on your local network.
         NSMicrophoneUsageDescription: A program running within Zentty would like to use your microphone.
@@ -140,6 +154,17 @@ targets:
           FRAMEWORK_PATH="${PROJECT_DIR}/FrameworksLocal/GhosttyKit.xcframework"
           if [ ! -d "$FRAMEWORK_PATH" ]; then
             echo "error: GhosttyKit.xcframework not found. Run scripts/build_ghosttykit.sh first."
+            exit 1
+          fi
+          # build_ghosttykit.sh stamps the lock fingerprint it built for. A
+          # mismatch means FrameworksLocal holds a GhosttyKit for another
+          # revision; frameworks from before the stamp existed only warn.
+          WANTED="$("${PROJECT_DIR}/scripts/ghosttykit-inputs" "${PROJECT_DIR}")"
+          STAMP_PATH="$FRAMEWORK_PATH/.ghosttykit-inputs"
+          if [ ! -f "$STAMP_PATH" ]; then
+            echo "warning: GhosttyKit.xcframework has no build stamp, so it can't be checked against scripts/ghosttykit.lock. Run scripts/build_ghosttykit.sh to rebuild and stamp it."
+          elif [ "$(cat "$STAMP_PATH")" != "$WANTED" ]; then
+            echo "error: GhosttyKit.xcframework was built for a different scripts/ghosttykit.lock (or scripts/patches). Run scripts/build_ghosttykit.sh to rebuild it."
             exit 1
           fi
         basedOnDependencyAnalysis: false
@@ -181,15 +206,21 @@ targets:
         basedOnDependencyAnalysis: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty
-        CURRENT_PROJECT_VERSION: 931
-        MARKETING_VERSION: 0.3.4
+        # Build flavor seam: scripts/build-dev-release overrides these to
+        # produce "Zentty Dev" (be.zenjoy.zentty.dev) with its own state dirs.
+        ZENTTY_BUILD_FLAVOR: production
+        ZENTTY_BUNDLE_ID_SUFFIX: ""
+        ZENTTY_DISPLAY_NAME: Zentty
+        ZENTTY_APP_ICON_NAME: AppIcon
+        PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty$(ZENTTY_BUNDLE_ID_SUFFIX)
+        CURRENT_PROJECT_VERSION: 973
+        MARKETING_VERSION: 0.3.5
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
         SPARKLE_FEED_URL: ""
         SPARKLE_PUBLIC_ED_KEY: ""
         GLITCHTIP_DSN: ""
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: $(ZENTTY_APP_ICON_NAME)
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Zentty/Zentty.entitlements
         SWIFT_EMIT_LOC_STRINGS: YES

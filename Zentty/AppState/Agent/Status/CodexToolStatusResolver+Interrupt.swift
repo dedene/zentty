@@ -149,7 +149,7 @@ extension CodexToolStatusResolver {
         switch payload.signalKind {
         case .lifecycle:
             return payload.state == .idle || payload.clearsStatus
-        case .pid, .paneRootPID, .shellState, .paneContext:
+        case .agentMetadata, .pid, .paneRootPID, .shellState, .paneContext:
             return false
         }
     }
@@ -183,7 +183,7 @@ extension CodexToolStatusResolver {
                 return false
             }
             return state == .starting || state == .running || state == .needsInput
-        case .shellState, .paneRootPID, .paneContext:
+        case .agentMetadata, .shellState, .paneRootPID, .paneContext:
             return false
         }
     }
@@ -205,7 +205,7 @@ extension CodexToolStatusResolver {
             return payload.pidEvent == .attach
         case .shellState:
             return payload.shellActivityState == .commandRunning
-        case .paneRootPID, .paneContext:
+        case .agentMetadata, .paneRootPID, .paneContext:
             return false
         }
     }

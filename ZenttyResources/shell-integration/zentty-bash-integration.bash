@@ -18,6 +18,22 @@ _zentty_print_tty() {
     { printf '%s' "$sequence" > "$tty_path"; } 2>/dev/null || true
 }
 
+# `mise run` / `mise x` build their child PATH as [entries before mise's first
+# shims dir] + [tool dirs] + [the rest], so a project's tool dir lands ahead of
+# the wrappers and the agent starts unwrapped (#142). Marking that boundary
+# right after the wrappers keeps them first. The system shims dir only serves
+# as the marker while it does not exist, so command lookup is unchanged.
+# A user shims dir already on PATH is a boundary of its own.
+_zentty_path_needs_mise_shims_boundary() {
+    local user_shims="${MISE_SHIMS_DIR:-${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims}"
+    local entry has_mise=0
+    for entry in "$@"; do
+        [[ "$entry" == "$user_shims" ]] && return 1
+        [[ -x "$entry/mise" ]] && has_mise=1
+    done
+    (( has_mise ))
+}
+
 _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
     local tmux_shim_dir="${ZENTTY_TMUX_SHIM_DIR:-}"
@@ -27,8 +43,10 @@ _zentty_ensure_wrapper_path() {
     fi
     [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0
 
-    local -a wrappers entries cleaned_path next_path wrapper_bins real_bins
+    local -a wrappers entries cleaned_path enabled_wrappers next_path wrapper_bins real_bins
     local wrapper entry tool_name binary_name
+    local mise_marker="${MISE_SYSTEM_DATA_DIR:-/usr/local/share/mise}/shims"
+    [[ ! -e "$mise_marker" ]] || mise_marker=""
     wrappers=()
     if [[ -n "$wrapper_dirs" ]]; then
         IFS=: read -r -a wrappers <<< "$wrapper_dirs"
@@ -43,13 +61,11 @@ _zentty_ensure_wrapper_path() {
             fi
         done
         [[ -n "$tmux_shim_dir" && "$entry" == "$tmux_shim_dir" ]] && continue
+        [[ -n "$mise_marker" && "$entry" == "$mise_marker" ]] && continue
         cleaned_path+=("$entry")
     done
 
-    next_path=()
-    if (( tmux_shim_enabled )); then
-        next_path+=("$tmux_shim_dir")
-    fi
+    enabled_wrappers=()
     for wrapper in "${wrappers[@]}"; do
         [[ -n "$wrapper" ]] || continue
         tool_name="${wrapper##*/}"
@@ -67,26 +83,35 @@ _zentty_ensure_wrapper_path() {
         for entry in "${cleaned_path[@]}"; do
             for binary_name in "${real_bins[@]}"; do
                 if [[ -x "${entry}/${binary_name}" ]]; then
-                    next_path+=("$wrapper")
+                    enabled_wrappers+=("$wrapper")
                     break 2
                 fi
             done
         done
     done
+
+    next_path=()
+    if (( tmux_shim_enabled )); then
+        next_path+=("$tmux_shim_dir")
+    fi
+    if (( ${#enabled_wrappers[@]} > 0 )); then
+        next_path+=("${enabled_wrappers[@]}")
+        if [[ -n "$mise_marker" ]] && (( ${#cleaned_path[@]} > 0 )) \
+            && _zentty_path_needs_mise_shims_boundary "${cleaned_path[@]}"; then
+            next_path+=("$mise_marker")
+        fi
+    fi
     next_path+=("${cleaned_path[@]}")
 
     PATH="$(
         local IFS=:
         printf '%s' "${next_path[*]}"
     )"
-    local active_wrapper_count=$(( ${#next_path[@]} - ${#cleaned_path[@]} - tmux_shim_enabled ))
-    if (( active_wrapper_count > 0 )); then
-        local active_wrapper_start=$tmux_shim_enabled
-        local -a active_wrappers=("${next_path[@]:${active_wrapper_start}:${active_wrapper_count}}")
-        ZENTTY_WRAPPER_BIN_DIR="${active_wrappers[0]}"
+    if (( ${#enabled_wrappers[@]} > 0 )); then
+        ZENTTY_WRAPPER_BIN_DIR="${enabled_wrappers[0]}"
         ZENTTY_WRAPPER_BIN_DIRS="$(
             local IFS=:
-            printf '%s' "${active_wrappers[*]}"
+            printf '%s' "${enabled_wrappers[*]}"
         )"
         export ZENTTY_WRAPPER_BIN_DIR ZENTTY_WRAPPER_BIN_DIRS
     else

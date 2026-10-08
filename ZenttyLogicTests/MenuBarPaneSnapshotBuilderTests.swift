@@ -126,9 +126,9 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(snapshots[0].statusLabel, "Idle")
     }
 
-    func test_snapshots_use_normalized_presentation_state_over_stale_running_status() {
+    func test_snapshots_use_normalized_presentation_state_over_stale_running_status() throws {
         let paneID = PaneID("pn-claude-interrupted")
-        let worklane = WorklaneState(
+        var worklane = WorklaneState(
             id: WorklaneID("wl-main"),
             title: nil,
             paneStripState: PaneStripState(
@@ -150,6 +150,14 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
                 )
             ]
         )
+        var auxiliaryState = try XCTUnwrap(worklane.auxiliaryStateByPaneID[paneID])
+        auxiliaryState.raw.claudeCodeTitleHasAnimated = true
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Claude Code",
+            raw: auxiliaryState.raw,
+            previous: nil
+        )
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         let store = WorklaneStore(windowID: windowID, worklanes: [worklane])
         let source = MenuBarWorklaneSource(
             windowID: windowID,

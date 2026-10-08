@@ -45,6 +45,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case findPrevious = "pane.search.previous"
     case copyFocusedPanePath = "pane.copy_path"
     case jumpToLatestNotification = "notifications.jump_latest"
+    case toggleFocusedPaneUnread = "pane.toggle_unread"
     case duplicateFocusedPane = "pane.duplicate"
     case movePaneToNewWindow = "pane.move_to_new_window"
     case splitHorizontally = "pane.split.horizontal"
@@ -147,6 +148,7 @@ enum AppAction: Equatable, Sendable {
     case copyRaw
     case copyMarkdown
     case jumpToLatestNotification
+    case toggleFocusedPaneUnread
     case pane(PaneCommand)
     case moveFocusedPaneToNewWindow
     case navigateBack
@@ -452,6 +454,18 @@ enum AppCommandRegistry {
             defaultShortcut: .init(key: .character("u"), modifiers: [.command, .shift]),
             action: .jumpToLatestNotification,
             menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .toggleFocusedPaneUnread,
+            title: PaneUnreadToggle.markUnread.title,
+            category: .notifications,
+            defaultShortcut: .init(key: .character("u"), modifiers: [.command]),
+            action: .toggleFocusedPaneUnread,
+            menuItem: AppCommandMenuItem(
+                section: .navigation,
+                title: PaneUnreadToggle.markUnread.title,
+                selector: #selector(MainWindowController.toggleFocusedPaneUnread(_:))
+            )
         ),
         AppCommandDefinition(
             id: .duplicateFocusedPane,
@@ -1045,6 +1059,8 @@ enum AppCommandRegistry {
             .command(.navigateBack),
             .command(.navigateForward),
             .separator,
+            .command(.toggleFocusedPaneUnread),
+            .separator,
             .command(.focusPreviousPane),
             .command(.focusNextPane),
             .command(.focusLeftPane),
@@ -1167,6 +1183,8 @@ extension AppCommandDefinition {
             "Copy the selected text exactly as it appears, without any cleanup."
         case .jumpToLatestNotification:
             "Go to the most recent notification, or the next waiting agent pane."
+        case .toggleFocusedPaneUnread:
+            "Mark the focused agent pane as Check back until you visit it again, or mark it as read."
         case .duplicateFocusedPane:
             "Duplicate the focused pane in a new column, keeping its working directory."
         case .movePaneToNewWindow:
@@ -1280,6 +1298,10 @@ extension AppCommandDefinition {
                 .lowercased()
         case .refreshPullRequestStatus:
             [title, detailDescription, "refresh pull request pr status checks review ci reload"]
+                .joined(separator: " ")
+                .lowercased()
+        case .toggleFocusedPaneUnread:
+            [title, detailDescription, PaneUnreadToggle.markRead.title, "unread read remind later revisit flag"]
                 .joined(separator: " ")
                 .lowercased()
         default:

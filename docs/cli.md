@@ -4,6 +4,16 @@ Zentty includes an embedded `zentty` CLI for scripting windows, worklanes, and p
 
 Most commands must run inside a Zentty pane because they use pane environment variables such as `ZENTTY_INSTANCE_SOCKET`, `ZENTTY_WINDOW_ID`, `ZENTTY_WORKLANE_ID`, `ZENTTY_PANE_ID`, and `ZENTTY_PANE_TOKEN`. Commands that target another pane can use selector flags when a control token is available.
 
+## Open a Folder From Outside Zentty
+
+To open a new window at a directory from a script, a URL handler, or another app, hand the folder to Zentty through LaunchServices:
+
+```bash
+open -a Zentty ~/Development/my-project
+```
+
+This reaches the running instance, or launches Zentty first if it is not running. Finder's "Open With" and dropping a folder on the Dock icon do the same. A file opens its parent folder.
+
 ## Common Selectors
 
 Pane and layout commands accept these selector flags unless noted otherwise:
@@ -12,7 +22,7 @@ Pane and layout commands accept these selector flags unless noted otherwise:
 - `--worklane-id <worklane-id>`: target a specific worklane.
 - `--pane-id <pane-id>`: target a specific pane by ID.
 - `--pane-index <pane-index>`: target a specific 1-based pane index within the selected worklane.
-- `--pane-token <pane-token>`: authorize out-of-pane control.
+- `--pane-token <pane-token>`: authorize out-of-pane control. The token only authenticates; it does not pick the pane. Outside the target pane, also pass `--pane-id` (or `--worklane-id` / `--window-id`) to say which pane you mean.
 
 Discovery commands accept:
 
@@ -83,9 +93,9 @@ zentty select pane --pane-index 2 --shell --include-control-token
 Split a pane in a direction. `hsplit` is an alias for `split right`; `vsplit` is an alias for `split down`.
 
 ```bash
-zentty split [right|left|up|down] [--equal|--golden|--ratio <ratio>] [selectors]
-zentty hsplit [--equal|--golden|--ratio <ratio>] [selectors]
-zentty vsplit [--equal|--golden|--ratio <ratio>] [selectors]
+zentty split [right|left|up|down] [--equal|--golden|--ratio <ratio>] [selectors] [-- <command> ...]
+zentty hsplit [--equal|--golden|--ratio <ratio>] [selectors] [-- <command> ...]
+zentty vsplit [--equal|--golden|--ratio <ratio>] [selectors] [-- <command> ...]
 ```
 
 Options:
@@ -94,6 +104,17 @@ Options:
 - `--golden`: split using the golden ratio, with the focused pane around 62%.
 - `--ratio <ratio>`: set the focused pane percentage, for example `60`.
 
+To run a program in the new pane, put `--` before the program name and its
+arguments, for example `zentty split right -- claude`. With `split`, always
+write the direction before `--`. With `hsplit` or `vsplit`, omit the direction:
+`zentty hsplit -- claude`.
+
+Put Zentty options, such as `--equal` or `--pane-index 2`, before `--`.
+Everything after it is passed to the program, not treated as a Zentty option.
+
+If you leave out the program (`zentty split right --`), the new pane opens a
+normal shell.
+
 Examples:
 
 ```bash
@@ -101,6 +122,10 @@ zentty split right
 zentty split down --equal
 zentty hsplit --ratio 70
 zentty vsplit --pane-index 2
+zentty split right -- claude
+zentty split down --equal -- codex --model gpt-5.2
+zentty hsplit --pane-index 2 -- npm run dev
+zentty vsplit -- python3 -m http.server 8000
 ```
 
 ## Grid
@@ -122,7 +147,7 @@ Options:
 - `--worklane-id <worklane-id|new>`: target an existing worklane, or use `new` to create a new worklane for the grid.
 - `--pane-id <pane-id>`: select the source pane by ID.
 - `--pane-index <pane-index>`: select the source pane by 1-based index within the selected worklane.
-- `--pane-token <pane-token>`: authorize out-of-pane control.
+- `--pane-token <pane-token>`: authorize out-of-pane control. Pair it with `--pane-id` (or `--worklane-id` / `--window-id`) when running outside the source pane.
 
 When `--window-id new` or `--worklane-id new` is used, Zentty still uses the selected source pane as the context for the new grid. A new worklane inherits the source pane's working directory and local Ghostty configuration where possible. A new window inherits the source pane's working directory.
 

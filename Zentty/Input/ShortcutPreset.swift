@@ -259,6 +259,7 @@ extension ShortcutPreset {
         .init(commandID: .navigateBack, keyCode: UInt16(kVK_ANSI_LeftBracket), keyKind: .character, modifiers: [.command]),
         .init(commandID: .navigateForward, keyCode: UInt16(kVK_ANSI_RightBracket), keyKind: .character, modifiers: [.command]),
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_J), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .toggleFocusedPaneUnread, keyCode: UInt16(kVK_ANSI_U), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_Comma), keyKind: .character, modifiers: [.command]),
     ]
 
@@ -314,6 +315,7 @@ extension ShortcutPreset {
         .init(commandID: .navigateForward, keyCode: UInt16(kVK_ANSI_Period), keyKind: .character, modifiers: [.command]),
         .init(commandID: .copyFocusedPanePath, keyCode: UInt16(kVK_ANSI_L), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_Semicolon), keyKind: .character, modifiers: [.command, .shift]),
+        .init(commandID: .toggleFocusedPaneUnread, keyCode: UInt16(kVK_ANSI_U), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_O), keyKind: .character, modifiers: [.command]),
     ]
 
@@ -374,6 +376,7 @@ extension ShortcutPreset {
         .init(commandID: .copyFocusedPanePath, key: .character("c"), modifiers: [.command, .shift]),
         .init(commandID: .cleanCopy, key: .character("c"), modifiers: [.command, .control]),
         .init(commandID: .jumpToLatestNotification, key: .character("u"), modifiers: [.command, .shift]),
+        .init(commandID: .toggleFocusedPaneUnread, key: .character("u"), modifiers: [.command]),
         // Number-row entries use physical key codes for the same reason the
         // worklane digits above do.
         .init(commandID: .arrangeHeightFull, keyCode: UInt16(kVK_ANSI_1), keyKind: .character, modifiers: [.command, .option]),

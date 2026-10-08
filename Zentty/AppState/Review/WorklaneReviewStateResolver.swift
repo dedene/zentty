@@ -32,6 +32,9 @@ protocol WorklaneReviewCommandRunning: Sendable {
 }
 
 struct DefaultWorklaneReviewCommandRunner: WorklaneReviewCommandRunning {
+    /// `gh` talks to the network; bound it so a hung call cannot pin a worker thread.
+    private static let commandTimeout: TimeInterval = 30
+
     private let environment: [String: String]
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -54,31 +57,25 @@ struct DefaultWorklaneReviewCommandRunner: WorklaneReviewCommandRunning {
                     return
                 }
 
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executablePath)
-                process.arguments = Array(arguments.dropFirst())
-                process.currentDirectoryURL = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
-                process.environment = Self.subprocessEnvironment(from: environment)
-
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-
                 do {
-                    try process.run()
-                    process.waitUntilExit()
+                    let result = try SubprocessRunner.run(
+                        executableURL: URL(fileURLWithPath: executablePath),
+                        arguments: Array(arguments.dropFirst()),
+                        environment: Self.subprocessEnvironment(from: environment),
+                        currentDirectoryURL: URL(fileURLWithPath: currentDirectoryPath, isDirectory: true),
+                        timeout: Self.commandTimeout
+                    )
                     continuation.resume(returning: WorklaneReviewCommandResult(
-                        terminationStatus: process.terminationStatus,
-                        stdout: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-                        stderr: stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        terminationStatus: result.terminationStatus,
+                        stdout: result.stdout,
+                        stderr: result.stderr
                     ))
                 } catch {
-                    reviewLogger.debug("Review command failed: \(error.localizedDescription)")
+                    reviewLogger.debug("Review command failed: \(String(describing: error))")
                     continuation.resume(returning: WorklaneReviewCommandResult(
                         terminationStatus: -1,
                         stdout: Data(),
-                        stderr: Data(error.localizedDescription.utf8)
+                        stderr: Data(String(describing: error).utf8)
                     ))
                 }
             }

@@ -16,6 +16,8 @@ struct CommandAvailabilityContext: Equatable {
     /// true even before (or when) a remote/PR lookup has populated the branch URL, so a refresh can
     /// be triggered precisely when the automatic lookup failed or has not run yet.
     let activeWorklaneHasReviewLookup: Bool
+    /// What Mark as Unread would do for the focused pane; `nil` hides it.
+    let focusedPaneUnreadToggle: PaneUnreadToggle?
 
     init(
         worklaneCount: Int,
@@ -28,7 +30,8 @@ struct CommandAvailabilityContext: Equatable {
         activeWorklaneHasBranchURL: Bool,
         focusedPaneCanOpenWithPrimary: Bool = false,
         activeWorklaneHasPrimaryServer: Bool = false,
-        activeWorklaneHasReviewLookup: Bool = false
+        activeWorklaneHasReviewLookup: Bool = false,
+        focusedPaneUnreadToggle: PaneUnreadToggle? = nil
     ) {
         self.worklaneCount = worklaneCount
         self.activePaneCount = activePaneCount
@@ -41,6 +44,7 @@ struct CommandAvailabilityContext: Equatable {
         self.focusedPaneCanOpenWithPrimary = focusedPaneCanOpenWithPrimary
         self.activeWorklaneHasPrimaryServer = activeWorklaneHasPrimaryServer
         self.activeWorklaneHasReviewLookup = activeWorklaneHasReviewLookup
+        self.focusedPaneUnreadToggle = focusedPaneUnreadToggle
     }
 }
 
@@ -114,6 +118,8 @@ enum CommandAvailabilityResolver {
             return context.activeWorklaneHasBranchURL
         case .refreshPullRequestStatus:
             return context.activeWorklaneHasReviewLookup
+        case .toggleFocusedPaneUnread:
+            return context.focusedPaneUnreadToggle != nil
         case .findNext, .findPrevious:
             return context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch
         case .focusPreviousPane, .focusNextPane:

@@ -661,22 +661,11 @@ private enum HermesProcessResolver {
         DarwinProcessProbe().treePIDs(rootPID: rootPID)
             .filter { $0 != rootPID }
             .first { pid in
-                guard let executablePath = executablePath(pid: pid) else {
+                guard let executablePath = DarwinProcessInspector.executablePath(of: pid) else {
                     return false
                 }
                 return isHermesExecutablePath(executablePath)
             }
-    }
-
-    private static func executablePath(pid: Int32) -> String? {
-        var buffer = [CChar](repeating: 0, count: 4096)
-        let result = buffer.withUnsafeMutableBufferPointer { pointer in
-            proc_pidpath(pid, pointer.baseAddress, UInt32(pointer.count))
-        }
-        guard result > 0 else {
-            return nil
-        }
-        return String(cString: buffer)
     }
 
     private static func isHermesExecutablePath(_ path: String) -> Bool {

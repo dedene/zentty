@@ -59,7 +59,8 @@ final class CommandPaletteController {
             focusedPanePath: focusedPanePath,
             focusedPaneCopyTarget: focusedPaneCopyTarget,
             focusedBranchName: focusedBranchName,
-            rightPaneCommandPresentation: rightPaneCommandPresentation
+            rightPaneCommandPresentation: rightPaneCommandPresentation,
+            focusedPaneUnreadToggle: availabilityContext.focusedPaneUnreadToggle
         )
         let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
             targets: openWithTargets,

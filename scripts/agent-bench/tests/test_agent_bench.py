@@ -350,6 +350,146 @@ class SyntheticScenarioTests(unittest.TestCase):
             settings = json.loads(arguments[arguments.index("--settings") + 1])
         self.assertEqual(settings, {"hooks": swift_plan})
 
+    def test_claude_hook_command_carries_launch_routing(self):
+        # Transcribed from AgentLaunchBootstrap.claudeHookCommand; the Swift
+        # side wins when the two disagree.
+        command = agent_bench.claude_hook_command(
+            "/tmp/zentty-bench",
+            {
+                "ZENTTY_INSTANCE_SOCKET": "/tmp/run/zentty.sock",
+                "ZENTTY_WORKLANE_ID": "wl-1",
+                "ZENTTY_PANE_ID": "pane-b",
+                "ZENTTY_PANE_TOKEN": "token-b",
+            },
+        )
+        self.assertEqual(
+            command,
+            "/usr/bin/env -u ZENTTY_INSTANCE_ID -u ZENTTY_WINDOW_ID"
+            ' ZENTTY_INSTANCE_SOCKET="/tmp/run/zentty.sock" ZENTTY_WORKLANE_ID="wl-1"'
+            ' ZENTTY_PANE_ID="pane-b" ZENTTY_PANE_TOKEN="token-b"'
+            ' "/tmp/zentty-bench" ipc agent-event --adapter=claude',
+        )
+
+    def test_claude_background_routing_scenario_is_declared(self):
+        profile = agent_bench.load_profiles(agent_bench.BENCH_ROOT / "profiles")["claude"]
+        self.assertTrue(profile.expectations["background_routing"].daemon_pane_routing)
+        self.assertIn("--bg", profile.launch_args_by_scenario["background_routing"])
+
+    def test_parse_claude_daemon_pids_matches_only_daemon_processes(self):
+        ps_output = "\n".join(
+            [
+                "  101 /Users/me/.local/bin/claude daemon run --origin transient",
+                "  102 claude bg-pty-host --bg-pty-host /tmp/x.pty.sock 200 50",
+                "  103 claude bg-spare --bg-spare /tmp/x.claim.sock",
+                "  104 /Users/me/.local/bin/claude --session-id abc",
+                "  105 /Applications/Claude.app/Contents/MacOS/Claude",
+                "  106 vim claude daemon run notes.md",
+            ]
+        )
+        self.assertEqual(agent_bench.parse_claude_daemon_pids(ps_output), {101, 102, 103})
+
+    def test_backgrounded_session_ids_reads_ansi_coloured_output(self):
+        output = "backgrounded \u00b7 \x1b[36m6e811ae4\x1b[39m\r\n  claude attach 6e811ae4\r\n"
+        self.assertEqual(agent_bench.backgrounded_session_ids(output), ["6e811ae4"])
+
+    def test_daemon_routing_violations_flags_the_daemon_starters_identity(self):
+        def hook(event, pane, worklane="wl-b", pid=None):
+            environment = {"ZENTTY_PANE_ID": pane, "ZENTTY_WORKLANE_ID": worklane}
+            if pid:
+                environment["ZENTTY_CLAUDE_PID"] = pid
+            return agent_bench.TraceRecord(kind="hook", event_name=event, environment=environment)
+
+        def violations(records):
+            return agent_bench.daemon_routing_violations(
+                records, expected_pane="pane-b", expected_worklane="wl-b", starter_claude_pid="999999"
+            )
+
+        self.assertEqual(violations([hook("SessionStart", "pane-b"), hook("Stop", "pane-b")]), [])
+        self.assertEqual(violations([]), ["no hook events captured"])
+        self.assertEqual(
+            violations([hook("SessionStart", "pane-a")]),
+            ["SessionStart routed to pane 'pane-a', expected 'pane-b'"],
+        )
+        self.assertEqual(
+            violations([hook("Stop", "pane-b", worklane="wl-a")]),
+            ["Stop routed to worklane 'wl-a', expected 'wl-b'"],
+        )
+        self.assertEqual(
+            violations([hook("Stop", "pane-b", pid="999999")]),
+            ["Stop kept the daemon starter's ZENTTY_CLAUDE_PID"],
+        )
+
+    def test_claude_attach_plan_launches_as_given_and_announces_the_session(self):
+        # Transcribed from AgentLaunchBootstrap.claudeAttachPlan.
+        with tempfile.TemporaryDirectory() as tmp:
+            planner = agent_bench.LaunchPlanner(
+                profile=agent_bench.load_profiles(ROOT / "profiles")["claude"],
+                scenario="background_routing",
+                run_dir=pathlib.Path(tmp),
+                resources_dir=None,
+            )
+
+            def plan(arguments):
+                return planner.plan(
+                    {
+                        "arguments": arguments,
+                        "environment": {"ZENTTY_REAL_BINARY": "/usr/local/bin/claude", "ZENTTY_CLI_BIN": "/tmp/zentty-bench"},
+                    }
+                )
+
+            attached = plan(["attach", "6E811AE4"])
+            self.assertEqual(attached["arguments"], ["attach", "6E811AE4"])
+            self.assertEqual(
+                attached["preLaunchActions"],
+                [
+                    {
+                        "subcommand": "agent-event",
+                        "arguments": ["--adapter=claude"],
+                        "standardInput": '{"hook_event_name":"ZenttyAttach","session_id":"6e811ae4"}',
+                    }
+                ],
+            )
+            self.assertEqual(plan(["attach"])["preLaunchActions"], [])
+            self.assertEqual(plan(["attach", "--help"])["preLaunchActions"], [])
+
+    def test_attach_announcement_violations_checks_pane_session_and_pid(self):
+        def announcement(pane="pane-c", session="6e811ae4", pid="4242"):
+            environment = {"ZENTTY_PANE_ID": pane, "ZENTTY_WORKLANE_ID": "wl-c"}
+            if pid:
+                environment["ZENTTY_CLAUDE_PID"] = pid
+            return agent_bench.TraceRecord(
+                kind="hook",
+                event_name="ZenttyAttach",
+                standard_input=json.dumps({"hook_event_name": "ZenttyAttach", "session_id": session}),
+                environment=environment,
+            )
+
+        def violations(records):
+            return agent_bench.attach_announcement_violations(
+                records, session_id="6e811ae4", expected_pane="pane-c", expected_worklane="wl-c"
+            )
+
+        self.assertEqual(violations([announcement()]), [])
+        self.assertEqual(violations([]), ["expected one ZenttyAttach from `claude attach`, captured 0"])
+        self.assertEqual(violations([announcement(pane="pane-a")]), ["ZenttyAttach came from pane 'pane-a', expected 'pane-c'"])
+        self.assertEqual(violations([announcement(session="deadbeef")]), ["ZenttyAttach did not name session 6e811ae4"])
+        self.assertEqual(violations([announcement(pid=None)]), ["ZenttyAttach carried no attach client pid"])
+        # The announcement comes from the attaching pane by design.
+        self.assertEqual(
+            agent_bench.daemon_routing_violations(
+                [
+                    agent_bench.TraceRecord(
+                        kind="hook", event_name="Stop", environment={"ZENTTY_PANE_ID": "pane-b", "ZENTTY_WORKLANE_ID": "wl-b"}
+                    ),
+                    announcement(),
+                ],
+                expected_pane="pane-b",
+                expected_worklane="wl-b",
+                starter_claude_pid="999999",
+            ),
+            [],
+        )
+
     def test_codex_plan_registers_and_trusts_subagent_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -3687,6 +3827,108 @@ class AppPathResolutionTests(unittest.TestCase):
                 runner._cleanup_socket_dir()
                 agent_bench.REPO_ROOT = old_repo_root
                 agent_bench.latest_derived_data_zentty_app = old_latest
+
+
+class SigningModeTests(unittest.TestCase):
+    FIND_IDENTITY_OUTPUT = """
+  1) C89AB0992D86540C963777EF2C1D2F37E40AD88E "Apple Distribution: Example University (V8FJHNS4MP)"
+  2) 84A5E223A8D636075A5B0698C585D54D9BCA117B "Apple Development: Jane Doe (A4BAMPA583)"
+  3) AB3F8610298D19FADC70AC8378BE8FB912F4F5B1 "Developer ID Application: Example BV (25TVW8MSGJ)"
+  4) 1111111111111111111111111111111111111111 "Mac Developer: Jane Doe (5V995VZ66W)"
+     4 valid identities found
+"""
+
+    def test_development_identity_hashes_skip_distribution_and_developer_id(self):
+        self.assertEqual(
+            agent_bench.parse_development_identity_hashes(self.FIND_IDENTITY_OUTPUT),
+            ["84A5E223A8D636075A5B0698C585D54D9BCA117B", "1111111111111111111111111111111111111111"],
+        )
+
+    def test_certificate_pems_are_keyed_by_sha1_hash(self):
+        output = (
+            "SHA-256 hash: AAAA\nSHA-1 hash: " + "A" * 40 + "\nkeychain: \"login\"\n"
+            "-----BEGIN CERTIFICATE-----\nfirst\n-----END CERTIFICATE-----\n"
+            "SHA-256 hash: BBBB\nSHA-1 hash: " + "B" * 40 + "\n"
+            "-----BEGIN CERTIFICATE-----\nsecond\n-----END CERTIFICATE-----\n"
+        )
+
+        pems = agent_bench.parse_certificate_pems(output)
+
+        self.assertEqual(set(pems), {"A" * 40, "B" * 40})
+        self.assertIn("second", pems["B" * 40])
+        self.assertNotIn("second", pems["A" * 40])
+
+    def test_certificate_without_pem_does_not_borrow_the_next_entry(self):
+        output = (
+            "SHA-1 hash: " + "A" * 40 + "\nkeychain: \"login\"\n"
+            "SHA-1 hash: " + "B" * 40 + "\n"
+            "-----BEGIN CERTIFICATE-----\nsecond\n-----END CERTIFICATE-----\n"
+        )
+
+        self.assertEqual(list(agent_bench.parse_certificate_pems(output)), ["B" * 40])
+
+    def test_subject_team_id_reads_libressl_and_openssl3_formats(self):
+        libressl = "subject= /UID=7NUVSU7UDW/CN=Apple Development: Jane Doe (A4BAMPA583)/OU=25TVW8MSGJ/O=Example BV/C=US"
+        openssl3 = "subject=UID = 7NUVSU7UDW, CN = Apple Development: Jane Doe (A4BAMPA583), OU = 25TVW8MSGJ, O = Example BV, C = US"
+
+        self.assertEqual(agent_bench.parse_subject_team_id(libressl), "25TVW8MSGJ")
+        self.assertEqual(agent_bench.parse_subject_team_id(openssl3), "25TVW8MSGJ")
+        self.assertIsNone(agent_bench.parse_subject_team_id("subject= /CN=No Team"))
+
+    def test_auto_signing_falls_back_to_ad_hoc_only_when_identity_is_known_missing(self):
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "25TVW8MSGJ", detector=lambda _: False), "ad-hoc")
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "25TVW8MSGJ", detector=lambda _: True), "team")
+        # Keychain inspection failed: keep the default build rather than guess.
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "25TVW8MSGJ", detector=lambda _: None), "team")
+
+    def test_auto_signing_without_team_skips_detection(self):
+        def detector(_):
+            raise AssertionError("detector should not run without a team")
+
+        self.assertEqual(agent_bench.resolve_signing_mode("auto", "", detector=detector), "team")
+
+    def test_explicit_signing_mode_wins(self):
+        def detector(_):
+            raise AssertionError("detector should not run for an explicit mode")
+
+        self.assertEqual(agent_bench.resolve_signing_mode("ad-hoc", "25TVW8MSGJ", detector=detector), "ad-hoc")
+        self.assertEqual(agent_bench.resolve_signing_mode("team", "25TVW8MSGJ", detector=detector), "team")
+
+    def test_build_passes_ad_hoc_overrides_when_team_identity_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = type(
+                "Args",
+                (),
+                {
+                    "run_dir": tmp,
+                    "app_path": None,
+                    "no_build": False,
+                    "signing": "auto",
+                    "timeout": 30,
+                    "strict": False,
+                    "agents": "codex",
+                    "scenarios": "smoke",
+                },
+            )()
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                stdout = "DEVELOPMENT_TEAM = 25TVW8MSGJ\nBUILT_PRODUCTS_DIR = /tmp/build\nFULL_PRODUCT_NAME = Zentty.app\n"
+                return mock.Mock(stdout=stdout if "-showBuildSettings" in command else "")
+
+            runner = agent_bench.BenchRunner(args)
+            try:
+                with mock.patch.object(agent_bench.subprocess, "run", side_effect=fake_run), \
+                     mock.patch.object(agent_bench, "has_development_identity_for_team", return_value=False), \
+                     mock.patch("sys.stderr"):
+                    app_path = runner._resolve_app_path()
+            finally:
+                runner._cleanup_socket_dir()
+
+        self.assertEqual(app_path, pathlib.Path("/tmp/build/Zentty.app"))
+        build = next(command for command in calls if "build" in command)
+        self.assertEqual(build[-len(agent_bench.AD_HOC_SIGNING_OVERRIDES):], list(agent_bench.AD_HOC_SIGNING_OVERRIDES))
 
 
 class BenchRunnerExecutionTests(unittest.TestCase):

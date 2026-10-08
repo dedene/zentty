@@ -28,7 +28,7 @@ final class AboutViewController: NSViewController {
     private lazy var licensesButton = AboutViewController.makeActionButton(title: "Licenses", target: self, action: #selector(handleLicenses(_:)))
 
     private let iconView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "Zentty")
+    private let titleLabel = NSTextField(labelWithString: ZenttyBuildFlavor.currentDisplayName)
     private let subtitleLabel = NSTextField(
         wrappingLabelWithString: "Zentty is a Ghostty-based native macOS terminal for agent-native development."
     )

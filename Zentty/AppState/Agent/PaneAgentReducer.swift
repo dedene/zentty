@@ -62,7 +62,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             applyPID(payload, now: now)
         case .shellState:
             applyShellState(payload, now: now)
-        case .paneRootPID:
+        case .agentMetadata, .paneRootPID:
             break
         case .paneContext:
             break

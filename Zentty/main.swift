@@ -3,6 +3,15 @@ import Foundation
 
 let isHostedTestMode = CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
     || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+if !isHostedTestMode, ZenttyBuildFlavor.current == .dev {
+    // Zentty Dev keeps its own config dir; on first launch it starts from a
+    // copy of the production settings instead of defaults.
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    AppConfigStore.seedDevConfigIfNeeded(
+        productionDirectoryURL: ZenttyBuildFlavor.production.configDirectoryURL(homeDirectoryURL: home),
+        devDirectoryURL: ZenttyBuildFlavor.dev.configDirectoryURL(homeDirectoryURL: home)
+    )
+}
 let configStore = AppConfigStore()
 
 if !isHostedTestMode {
@@ -18,7 +27,7 @@ if !isHostedTestMode {
     // runtime root because the bundled bin/ tree only covers builtin tools.
     let manifestWrapperRoot = ZenttyRuntimePaths
         .currentRootURL(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
-        .appendingPathComponent("agent-wrappers", isDirectory: true)
+        .appendingPathComponent(ZenttyBuildFlavor.current.agentWrappersDirectoryName, isDirectory: true)
     if let supportDirectory = AgentStatusHelper.wrapperSupportDirectoryPath(in: .main) {
         do {
             _ = try AgentManifestWrapperMaterializer.materialize(

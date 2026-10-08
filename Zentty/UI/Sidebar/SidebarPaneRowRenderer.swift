@@ -28,6 +28,7 @@ final class SidebarPaneRowRenderer {
         var onForceAddPaneRightRequested: ((PaneID) -> Void)?
         var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
         var onRunRestoredCommandRequested: ((PaneID) -> Void)?
+        var onToggleUnreadRequested: ((PaneID) -> Void)?
         var onWorklaneColorChanged: ((WorklaneColor?) -> Void)?
         var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
         var bookmarkOriginID: UUID?
@@ -41,6 +42,7 @@ final class SidebarPaneRowRenderer {
         var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
         var onServerPortSelected: ((String) -> Void)?
         var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+        var unreadToggleProvider: ((PaneID) -> PaneUnreadToggle?)?
         var onToggleSubagentDetails: ((PaneID) -> Void)?
         var onToggleTaskListDetails: ((PaneID) -> Void)?
     }
@@ -154,6 +156,7 @@ final class SidebarPaneRowRenderer {
             button.onForceAddPaneRight = callbacks.onForceAddPaneRightRequested
             button.onMovePaneToNewWindow = callbacks.onMovePaneToNewWindowRequested
             button.onRunRestoredCommand = callbacks.onRunRestoredCommandRequested
+            button.onToggleUnread = callbacks.onToggleUnreadRequested
             button.onPickWorklaneColor = { _, color in
                 callbacks.onWorklaneColorChanged?(color)
             }
@@ -172,6 +175,7 @@ final class SidebarPaneRowRenderer {
             button.rightPaneCommandPresentationProvider = callbacks.rightPaneCommandPresentationProvider
             button.moveToWorklaneCatalogProvider = callbacks.moveToWorklaneCatalogProvider
             button.restoredRerunnableCommandProvider = callbacks.restoredRerunnableCommandProvider
+            button.unreadToggleProvider = callbacks.unreadToggleProvider
         }
     }
 

@@ -121,6 +121,9 @@ enum AgentLifecycleEvent: String, Equatable, Sendable {
     case stopCandidate = "stop-candidate"
     case toolActivity = "tool-activity"
     case turnComplete = "turn-complete"
+    /// The user stopped the turn (Escape / Ctrl-C): idle, but not a
+    /// completion, so no "Agent ready".
+    case interrupt
 }
 
 enum PaneAgentState: String, Equatable, Sendable {
@@ -170,6 +173,8 @@ enum WorklaneAttentionState: String, Equatable, Sendable {
     case needsInput
     case unresolvedStop
     case ready
+    /// Manually marked unread ("Check back") idle agent pane.
+    case checkBack
     case running
 }
 
@@ -421,7 +426,7 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
         switch state {
         case .needsInput, .unresolvedStop:
             return true
-        case .ready, .running:
+        case .ready, .checkBack, .running:
             return false
         }
     }

@@ -171,7 +171,10 @@ final class WorklaneAttentionNotificationCoordinator {
                 )
                 nextSeenActiveViews[key] = isActivelyViewed
 
+                // A "Check back" mark owns its own lifecycle: the store clears
+                // it on the next visit, which resolves the entry below.
                 if isActivelyViewed,
+                   attention.state != .checkBack,
                    lastSeenStates[key] == attention.state,
                    lastSeenActiveViews[key] == false {
                     cancelPendingSystemNotification(for: key)
@@ -610,7 +613,9 @@ final class WorklaneAttentionNotificationCoordinator {
         activeWorklaneID: WorklaneID,
         windowIsKey: Bool
     ) -> Bool {
-        isNotificationWorthy(attention.state)
+        // The user set "Check back" themselves; a banner or sound would only echo it.
+        attention.state != .checkBack
+            && isNotificationWorthy(attention.state)
             && !isPaneActivelyViewed(
                 paneID: attention.paneID,
                 in: worklane,
@@ -665,7 +670,7 @@ final class WorklaneAttentionNotificationCoordinator {
             }
 
             return "Agent stopped early."
-        case .ready:
+        case .ready, .checkBack:
             if let remotePrimaryText {
                 return remotePrimaryText
             }
@@ -693,7 +698,7 @@ final class WorklaneAttentionNotificationCoordinator {
 
     private func isNotificationWorthy(_ state: WorklaneAttentionState) -> Bool {
         switch state {
-        case .needsInput, .ready, .unresolvedStop:
+        case .needsInput, .ready, .checkBack, .unresolvedStop:
             return true
         case .running:
             return false
@@ -711,6 +716,8 @@ final class WorklaneAttentionNotificationCoordinator {
             return attention.interactionLabel ?? "Needs input"
         case .ready:
             return "Agent ready"
+        case .checkBack:
+            return PaneCheckBackReminder.statusText
         case .unresolvedStop:
             return "Stopped early"
         case .running:

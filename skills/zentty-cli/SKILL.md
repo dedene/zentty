@@ -51,6 +51,12 @@ Use `--include-control-token` only when you need to control a pane from outside 
 "$ZENTTY" list panes --worklane-id "$ZENTTY_WORKLANE_ID" --include-control-token --json
 ```
 
+The token only authenticates. From outside the pane, pass the target too:
+
+```bash
+"$ZENTTY" pane focus --pane-id "$PANE_ID" --pane-token "$PANE_TOKEN"
+```
+
 ## Layout And Pane Control
 
 Common pane actions:

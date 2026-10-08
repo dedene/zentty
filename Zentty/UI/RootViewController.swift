@@ -283,7 +283,8 @@ final class RootViewController: NSViewController {
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         initialLayoutContext: PaneLayoutContext = .fallback,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        initialWorkspaceState: WindowWorkspaceState? = nil,
+        initialWorkingDirectory: String? = nil
     ) {
         self.windowID = windowID
         self.runtimeRegistry = runtimeRegistry
@@ -318,6 +319,7 @@ final class RootViewController: NSViewController {
         self.worklaneStore = WorklaneStore(
             windowID: windowID,
             worklanes: initialWorkspaceState?.worklanes ?? [],
+            initialWorkingDirectory: initialWorkingDirectory,
             layoutContext: initialLayoutContext,
             activeWorklaneID: initialWorkspaceState?.activeWorklaneID,
             gitContextResolver: gitContextResolver,
@@ -481,7 +483,8 @@ final class RootViewController: NSViewController {
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
         initialLayoutContext: PaneLayoutContext = .fallback,
-        initialWorkspaceState: WindowWorkspaceState? = nil
+        initialWorkspaceState: WindowWorkspaceState? = nil,
+        initialWorkingDirectory: String? = nil
     ) {
         self.init(
             windowID: windowID,
@@ -502,7 +505,8 @@ final class RootViewController: NSViewController {
             reviewStateResolver: reviewStateResolver,
             gitContextResolver: gitContextResolver,
             initialLayoutContext: initialLayoutContext,
-            initialWorkspaceState: initialWorkspaceState
+            initialWorkspaceState: initialWorkspaceState,
+            initialWorkingDirectory: initialWorkingDirectory
         )
     }
 
@@ -1117,6 +1121,14 @@ final class RootViewController: NSViewController {
         }
         sidebarView.restoredRerunnableCommandProvider = { [weak self] paneID in
             self?.worklaneStore.restoredRerunnableCommand(for: paneID)
+        }
+        sidebarView.unreadToggleProvider = { [weak self] paneID in
+            self?.worklaneStore.unreadToggle(for: paneID)
+        }
+        // Deliberately does not focus the pane: marking from the sidebar must
+        // not count as visiting it.
+        sidebarView.onToggleUnreadRequested = { [weak self] paneID in
+            self?.worklaneStore.toggleUnread(paneID: paneID)
         }
         sidebarView.onMovePaneToNewWindowRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
@@ -1986,8 +1998,13 @@ final class RootViewController: NSViewController {
             activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL,
             focusedPaneCanOpenWithPrimary: focusedOpenWithContext != nil && primaryOpenWithTarget != nil,
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
-            activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup
+            activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
+            focusedPaneUnreadToggle: focusedPaneUnreadToggle
         )
+    }
+
+    var focusedPaneUnreadToggle: PaneUnreadToggle? {
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.unreadToggle(for:))
     }
 
     private var activeWorklaneHasReviewLookup: Bool {
@@ -3201,6 +3218,11 @@ extension RootViewController: AppActionRouterEnvironment {
         }
     }
 
+    func routeToggleFocusedPaneUnread() {
+        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else { return }
+        worklaneStore.toggleUnread(paneID: paneID)
+    }
+
     func routePaneCommand(_ command: PaneCommand) {
         paneCommands.handlePaneCommand(command)
     }
@@ -3556,7 +3578,8 @@ private extension RootViewController {
     private func presentBookmarkPersistError(_ error: Error) {
         let alert = NSAlert()
         alert.messageText = "Couldn't save bookmarks"
-        alert.informativeText = "Zentty couldn't write to ~/.config/zentty/bookmarks.json: \(error.localizedDescription)"
+        let bookmarksPath = (AppConfigStore.bookmarksFileURL().path as NSString).abbreviatingWithTildeInPath
+        alert.informativeText = "Zentty couldn't write to \(bookmarksPath): \(error.localizedDescription)"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         if let window = view.window {

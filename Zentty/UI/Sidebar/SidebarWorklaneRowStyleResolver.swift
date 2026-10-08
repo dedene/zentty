@@ -253,6 +253,8 @@ enum SidebarWorklaneRowStyleResolver {
             return theme.statusStopped
         case .ready:
             return theme.statusReady
+        case .checkBack:
+            return theme.statusCheckBack
         case nil:
             return theme.secondaryText
         }

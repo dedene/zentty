@@ -44,6 +44,7 @@ struct ClaudeAdapterInput {
     let isInterrupt: Bool
     /// `SessionStart` only: `startup`, `resume`, `clear` or `compact`.
     let source: String?
+    let model: String?
 
     init(
         hookEventName: String,
@@ -62,7 +63,8 @@ struct ClaudeAdapterInput {
         agentType: String? = nil,
         agentTranscriptPath: String? = nil,
         isInterrupt: Bool = false,
-        source: String? = nil
+        source: String? = nil,
+        model: String? = nil
     ) {
         self.hookEventName = hookEventName
         self.sessionID = sessionID
@@ -81,6 +83,7 @@ struct ClaudeAdapterInput {
         self.agentTranscriptPath = agentTranscriptPath
         self.isInterrupt = isInterrupt
         self.source = source
+        self.model = model
     }
 }
 
@@ -110,7 +113,8 @@ extension AgentEventBridge {
             agentType: JSONKeyAccess.firstString(in: json, keys: ["agent_type", "agentType", "agent_name", "agentName"]),
             agentTranscriptPath: JSONKeyAccess.firstString(in: json, keys: ["agent_transcript_path", "agentTranscriptPath"]),
             isInterrupt: claudeParseBool(in: json, keys: ["is_interrupt", "isInterrupt"]),
-            source: JSONKeyAccess.firstString(in: json, keys: ["source"])
+            source: JSONKeyAccess.firstString(in: json, keys: ["source"]),
+            model: JSONKeyAccess.firstString(in: json, keys: hookEventName == "PostModelSwitch" ? ["to_model"] : ["model"])
         )
     }
 
@@ -141,7 +145,19 @@ extension AgentEventBridge {
             sessionStore: sessionStore,
             subagentStore: subagentStore
         )
-        return try claudeAttachSubagents(to: payloads, input: input, subagentStore: subagentStore)
+        let decorated = try claudeAttachSubagents(to: payloads, input: input, subagentStore: subagentStore)
+        guard input.agentID == nil, input.hookEventName != "SubagentStart", input.hookEventName != "SubagentStop" else {
+            return decorated
+        }
+        return decorated.map { payload in
+            var copy = payload
+            copy.carriesRootMetadata = true
+            copy.agentModel = input.model
+            copy.agentMetadataPID = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID")
+            copy.agentTranscriptPath = input.transcriptPath
+            copy.isClaudeRemoteControlActive = AgentInteractionClassifier.trimmed(environment["CLAUDE_CODE_BRIDGE_SESSION_ID"]) != nil
+            return copy
+        }
     }
 
     private static func claudeMakeLifecyclePayloads(
@@ -153,9 +169,25 @@ extension AgentEventBridge {
         let toolName = AgentTool.claudeCode.displayName
 
         switch input.hookEventName {
+        case "PostModelSwitch":
+            guard input.agentID == nil else { return [] }
+            let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            return [AgentStatusPayload(
+                windowID: target.windowID, worklaneID: target.worklaneID, paneID: target.paneID,
+                signalKind: .agentMetadata, state: nil, origin: .explicitHook,
+                toolName: toolName, text: nil, sessionID: input.sessionID,
+                artifactKind: nil, artifactLabel: nil, artifactURL: nil
+            )]
         case "SessionStart":
-            let target = try currentTarget(from: environment)
-            let pid = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID")
+            var target = try currentTarget(from: environment)
+            var pid = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID")
+            // The hook names the pane that launched the session. While a
+            // `claude attach` client shows it elsewhere, a resume, clear or
+            // compaction must not pull it back.
+            if let record = try claudeLookupRecord(for: input, sessionStore: sessionStore), record.attachment != nil {
+                target = (record.windowID, record.worklaneID, record.paneID)
+                pid = record.pid
+            }
             let startsFresh = claudeSessionStartResetsSubagents(source: input.source)
             if startsFresh {
                 // A killed session never sent SubagentStop for its children;
@@ -335,21 +367,23 @@ extension AgentEventBridge {
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             if input.hookEventName == "PostToolUseFailure", input.isInterrupt {
                 // The user pressed Escape / Ctrl-C during the tool. Claude is
-                // back at its prompt and no Stop hook will follow; the terminal
-                // title ("✳") already drove the pane to idle, so forcing
-                // `.running` here would stick until the next prompt.
+                // back at its prompt and no Stop hook will follow. An animated
+                // title ("✳") may already have driven the pane idle, but a
+                // static one (under a multiplexer) drives nothing, so say idle
+                // here, marked as an interrupt so no "Agent ready" follows.
                 if let sessionID = input.sessionID {
                     try sessionStore.clearInteractionContext(sessionID: sessionID, keepsPreToolUseSlots: true)
                 }
-                guard existing?.structuredInteractionKind != nil else {
-                    return []
-                }
                 // Escape on an open permission / question dialog: the title
                 // already showed "✳" while the dialog was up, so nothing else
-                // moves the pane off needsInput. Say idle explicitly.
+                // moves the pane off needsInput. A subagent's tool, though, can
+                // be interrupted while the parent keeps working.
+                guard existing?.structuredInteractionKind != nil || input.agentID == nil else {
+                    return []
+                }
                 let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
                 return [claudeLifecyclePayload(
-                    target: target, state: .idle,
+                    target: target, state: .idle, lifecycleEvent: .interrupt,
                     interactionKind: PaneAgentInteractionKind.none, confidence: .explicit,
                     sessionID: input.sessionID, subagents: subagents
                 )]
@@ -499,14 +533,25 @@ extension AgentEventBridge {
             guard let record else { return [] }
             let target = (record.windowID, record.worklaneID, record.paneID)
             try subagentStore.remove(key: claudeSubagentKey((record.windowID, record.worklaneID, record.paneID)))
-            return [
-                AgentStatusPayload(
-                    windowID: target.0, worklaneID: target.1, paneID: target.2,
-                    state: nil, origin: .explicitHook, toolName: toolName, text: nil,
-                    sessionID: record.sessionID, artifactKind: nil, artifactLabel: nil, artifactURL: nil
-                ),
-                pidPayload(target: target, toolName: toolName, pid: nil, event: .clear, sessionID: record.sessionID),
-            ]
+            return claudeClearPayloads(target: target, sessionID: record.sessionID)
+
+        case ClaudeLaunchPolicy.attachEventName:
+            // Sent by the wrapper right before it execs `claude attach <id>`,
+            // from the attaching pane and with the client's own pid.
+            let target = try currentTarget(from: environment)
+            guard let sessionIDPrefix = input.sessionID,
+                  let pid = parseAgentPID(from: environment, key: "ZENTTY_CLAUDE_PID"),
+                  let attached = try sessionStore.attach(
+                      sessionIDPrefix: sessionIDPrefix,
+                      windowID: target.windowID,
+                      worklaneID: target.worklaneID,
+                      paneID: target.paneID,
+                      clientPID: pid
+                  ) else { return [] }
+            let sessionID = attached.record.sessionID
+            // The pane it left would otherwise keep its last status forever.
+            let cleared = attached.previousTarget.map { claudeClearPayloads(target: $0, sessionID: sessionID) } ?? []
+            return cleared + [pidPayload(target: target, toolName: toolName, pid: pid, event: .attach, sessionID: sessionID)]
 
         default:
             return []
@@ -569,7 +614,7 @@ extension AgentEventBridge {
         subagentStore: AgentSubagentRegistryStore
     ) throws -> [AgentStatusPayload] {
         switch input.hookEventName {
-        case "SubagentStart", "SubagentStop", "Stop", "SessionEnd", "SessionStart":
+        case "SubagentStart", "SubagentStop", "Stop", "SessionEnd", "SessionStart", ClaudeLaunchPolicy.attachEventName:
             return payloads
         default:
             break
@@ -646,6 +691,20 @@ extension AgentEventBridge {
             return (record.windowID, record.worklaneID, record.paneID)
         }
         return try currentTarget(from: environment)
+    }
+
+    static func claudeClearPayloads(
+        target: (windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID),
+        sessionID: String
+    ) -> [AgentStatusPayload] {
+        [
+            AgentStatusPayload(
+                windowID: target.windowID, worklaneID: target.worklaneID, paneID: target.paneID,
+                state: nil, origin: .explicitHook, toolName: AgentTool.claudeCode.displayName, text: nil,
+                sessionID: sessionID, artifactKind: nil, artifactLabel: nil, artifactURL: nil
+            ),
+            pidPayload(target: target, toolName: AgentTool.claudeCode.displayName, pid: nil, event: .clear, sessionID: sessionID),
+        ]
     }
 
     static func claudeLookupRecord(

@@ -3,11 +3,20 @@ import XCTest
 @testable import Zentty
 
 final class PanePresentationStateTests: XCTestCase {
-    func test_normalize_prefers_meaningful_title_and_canonical_branch_context() {
+    private func makeRepositoryFixture() throws -> String {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("zentty-presentation-" + UUID().uuidString)
+        let project = root.appendingPathComponent("nimbu")
+        try FileManager.default.createDirectory(at: project.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return project.path
+    }
+
+    func test_normalize_prefers_meaningful_title_and_canonical_branch_context() throws {
+        let projectPath = try makeRepositoryFixture()
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "Test session setup",
-                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                currentWorkingDirectory: projectPath,
                 processName: "claude",
                 gitBranch: "wrong-branch"
             ),
@@ -22,8 +31,8 @@ final class PanePresentationStateTests: XCTestCase {
             terminalProgress: nil,
             reviewState: nil,
             gitContext: PaneGitContext(
-                workingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
-                repositoryRoot: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                workingDirectory: projectPath,
+                repositoryRoot: projectPath,
                 reference: .branch("main")
             )
         )
@@ -43,10 +52,11 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertTrue(presentation.isWorking)
     }
 
-    func test_normalize_preserves_remembered_title_across_idle_and_metadata_loss() {
+    func test_normalize_preserves_remembered_title_across_idle_and_metadata_loss() throws {
+        let projectPath = try makeRepositoryFixture()
         var previous = PanePresentationState()
-        previous.cwd = "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu"
-        previous.repoRoot = "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu"
+        previous.cwd = projectPath
+        previous.repoRoot = projectPath
         previous.branch = "main"
         previous.branchDisplayText = "main"
         previous.lookupBranch = "main"
@@ -60,7 +70,7 @@ final class PanePresentationStateTests: XCTestCase {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: nil,
-                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                currentWorkingDirectory: projectPath,
                 processName: "claude",
                 gitBranch: nil
             ),
@@ -76,8 +86,8 @@ final class PanePresentationStateTests: XCTestCase {
             terminalProgress: nil,
             reviewState: nil,
             gitContext: PaneGitContext(
-                workingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
-                repositoryRoot: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                workingDirectory: projectPath,
+                repositoryRoot: projectPath,
                 reference: .branch("main")
             )
         )
@@ -97,11 +107,12 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertFalse(presentation.isWorking)
     }
 
-    func test_normalize_uses_short_sha_for_detached_head_and_hides_starting_status() {
+    func test_normalize_uses_short_sha_for_detached_head_and_hides_starting_status() throws {
+        let projectPath = try makeRepositoryFixture()
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "/Users/peter",
-                currentWorkingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                currentWorkingDirectory: projectPath,
                 processName: "claude",
                 gitBranch: "wrong-branch"
             ),
@@ -116,8 +127,8 @@ final class PanePresentationStateTests: XCTestCase {
             terminalProgress: nil,
             reviewState: nil,
             gitContext: PaneGitContext(
-                workingDirectory: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
-                repositoryRoot: "/Users/peter/Development/Zenjoy/Nimbu/Rails/nimbu",
+                workingDirectory: projectPath,
+                repositoryRoot: projectPath,
                 reference: .detached("a1b2c3d")
             )
         )
@@ -1072,7 +1083,7 @@ final class PanePresentationStateTests: XCTestCase {
     // MARK: - Claude Code title-based idle override
 
     func test_normalize_clears_running_when_claude_code_title_indicates_interrupted() {
-        let raw = PaneRawState(
+        var raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "Interrupted · What should Claude do instead?",
                 currentWorkingDirectory: "/tmp/project",
@@ -1095,6 +1106,7 @@ final class PanePresentationStateTests: XCTestCase {
                 reference: .branch("main")
             )
         )
+        raw.claudeCodeTitleHasAnimated = true
 
         let presentation = PanePresentationNormalizer.normalize(
             paneTitle: "shell",
@@ -1110,6 +1122,44 @@ final class PanePresentationStateTests: XCTestCase {
         // the start of the title when the agent is not thinking. Pressing
         // Escape mid-stream does NOT fire a Stop hook, so this title flip is
         // the only idle signal Zentty receives for a user interrupt.
+        var raw = PaneRawState(
+            metadata: TerminalMetadata(
+                title: "✳ Deep ocean fish story",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "claude",
+                gitBranch: "main"
+            ),
+            shellContext: nil,
+            agentStatus: PaneAgentStatus(
+                tool: .claudeCode,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(timeIntervalSince1970: 10)
+            ),
+            terminalProgress: nil,
+            reviewState: nil,
+            gitContext: PaneGitContext(
+                workingDirectory: "/tmp/project",
+                repositoryRoot: "/tmp/project",
+                reference: .branch("main")
+            )
+        )
+        raw.claudeCodeTitleHasAnimated = true
+
+        let presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "shell",
+            raw: raw,
+            previous: nil
+        )
+
+        XCTAssertEqual(presentation.runtimePhase, .idle)
+    }
+
+    func test_normalize_keeps_running_when_claude_code_title_is_static_idle_glyph() {
+        // Under TMUX, STY or ZELLIJ (agent teams injects TMUX) Claude Code
+        // never animates its title: it stays "✳ subject" through the whole
+        // turn, so the glyph says nothing about whether the turn is over.
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "✳ Deep ocean fish story",
@@ -1140,7 +1190,8 @@ final class PanePresentationStateTests: XCTestCase {
             previous: nil
         )
 
-        XCTAssertEqual(presentation.runtimePhase, .idle)
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertTrue(presentation.isWorking)
     }
 
     func test_normalize_keeps_running_when_claude_code_title_shows_spinner_glyph() {

@@ -101,6 +101,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
     var onServerPortSelected: ((String) -> Void)?
     var onRunRestoredCommand: ((PaneID) -> Void)?
+    var onToggleUnreadRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
@@ -109,6 +110,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+    var unreadToggleProvider: ((PaneID) -> PaneUnreadToggle?)?
     var isOnlyWorklane = false {
         didSet {
             paneRowRenderer.setOnlyWorklane(isOnlyWorklane)
@@ -858,6 +860,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 onRunRestoredCommandRequested: { [weak self] paneID in
                     self?.onRunRestoredCommand?(paneID)
                 },
+                onToggleUnreadRequested: { [weak self] paneID in
+                    self?.onToggleUnreadRequested?(paneID)
+                },
                 onWorklaneColorChanged: { [weak self] color in
                     guard let self, let worklaneID = self.worklaneID else { return }
                     self.onWorklaneColorChanged?(worklaneID, color)
@@ -887,6 +892,7 @@ final class SidebarWorklaneRowButton: NSButton {
                     self?.onServerPortSelected?(serverID)
                 },
                 restoredRerunnableCommandProvider: restoredRerunnableCommandProvider,
+                unreadToggleProvider: unreadToggleProvider,
                 onToggleSubagentDetails: { [weak self] paneID in
                     self?.toggleSubagentDetails(for: paneID)
                 },

@@ -203,6 +203,7 @@ final class AppDelegateTests: XCTestCase {
             [
                 "Navigate Back",
                 "Navigate Forward",
+                "Mark as Unread",
                 "Focus Previous Pane",
                 "Focus Next Pane",
                 "Focus Left Pane",
@@ -220,6 +221,7 @@ final class AppDelegateTests: XCTestCase {
         let requiredActions: [Selector] = [
             #selector(MainWindowController.navigateBack(_:)),
             #selector(MainWindowController.navigateForward(_:)),
+            #selector(MainWindowController.toggleFocusedPaneUnread(_:)),
             #selector(MainWindowController.focusPreviousPane(_:)),
             #selector(MainWindowController.focusNextPane(_:)),
             #selector(MainWindowController.focusLeftPane(_:)),

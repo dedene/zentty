@@ -69,51 +69,27 @@ enum KimiVariantProbe {
             return cached
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["--help"]
         var probeEnvironment = environment
         probeEnvironment["NO_COLOR"] = "1"
         probeEnvironment["TERM"] = "dumb"
-        process.environment = probeEnvironment
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let outputBuffer = KimiProbeOutputBuffer()
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            outputBuffer.append(handle.availableData)
-        }
-        defer {
-            pipe.fileHandleForReading.readabilityHandler = nil
-        }
 
         do {
-            let semaphore = DispatchSemaphore(value: 0)
-            process.terminationHandler = { _ in
-                semaphore.signal()
-            }
-            try process.run()
-            let timedOut = semaphore.wait(timeout: .now() + .seconds(10)) == .timedOut
-            if timedOut {
-                process.terminate()
-                process.waitUntilExit()
-                kimiInstallerLogger.warning("Kimi variant probe timed out for \(executablePath, privacy: .public)")
-                return nil
-            }
+            let result = try SubprocessRunner.run(
+                executableURL: URL(fileURLWithPath: executablePath),
+                arguments: ["--help"],
+                environment: probeEnvironment,
+                timeout: 10
+            )
 
-            guard process.terminationStatus == 0 else {
+            guard result.terminationStatus == 0 else {
                 kimiInstallerLogger.warning(
-                    "Kimi variant probe exited with status \(process.terminationStatus, privacy: .public) for \(executablePath, privacy: .public)"
+                    "Kimi variant probe exited with status \(result.terminationStatus, privacy: .public) for \(executablePath, privacy: .public)"
                 )
                 return nil
             }
 
-            pipe.fileHandleForReading.readabilityHandler = nil
-            outputBuffer.append(pipe.fileHandleForReading.readDataToEndOfFile())
-            let data = outputBuffer.contents()
-
-            guard let output = String(data: data, encoding: .utf8) else {
+            // The output is only pattern-matched, so stdout and stderr can be joined.
+            guard let output = String(data: result.stdout + result.stderr, encoding: .utf8) else {
                 kimiInstallerLogger.warning("Kimi variant probe returned undecodable output for \(executablePath, privacy: .public)")
                 return nil
             }
@@ -121,9 +97,12 @@ enum KimiVariantProbe {
             let variant: KimiVariant = isModernHelpOutput(output) ? .modern : .legacy
             cache.store(variant, for: executablePath)
             return variant
+        } catch SubprocessError.timedOut {
+            kimiInstallerLogger.warning("Kimi variant probe timed out for \(executablePath, privacy: .public)")
+            return nil
         } catch {
             kimiInstallerLogger.warning(
-                "Kimi variant probe failed for \(executablePath, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "Kimi variant probe failed for \(executablePath, privacy: .public): \(String(describing: error), privacy: .public)"
             )
             return nil
         }
@@ -168,24 +147,6 @@ enum KimiVariantProbe {
             lock.lock()
             values[key] = value
             lock.unlock()
-        }
-    }
-
-    private final class KimiProbeOutputBuffer: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data = Data()
-
-        func append(_ chunk: Data) {
-            guard !chunk.isEmpty else { return }
-            lock.lock()
-            data.append(chunk)
-            lock.unlock()
-        }
-
-        func contents() -> Data {
-            lock.lock()
-            defer { lock.unlock() }
-            return data
         }
     }
 }
