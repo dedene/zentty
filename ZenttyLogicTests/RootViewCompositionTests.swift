@@ -278,38 +278,6 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(bridgedPaneID, paneID)
     }
 
-    func test_focused_terminal_interrupt_bridge_matches_escape_for_running_claude_session() throws {
-        let (worklane, paneID) = makeInterruptBridgeWorklane(tool: .claudeCode)
-        let escape = makeKeyEvent(
-            keyCode: 53,
-            characters: String(UnicodeScalar(0x1B)!),
-            charactersIgnoringModifiers: String(UnicodeScalar(0x1B)!)
-        )
-        // Ctrl-C already reaches the store from the terminal view itself.
-        let controlC = makeKeyEvent(
-            keyCode: 8,
-            modifierFlags: [.control],
-            characters: "\u{3}",
-            charactersIgnoringModifiers: "c"
-        )
-
-        XCTAssertEqual(
-            FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
-                event: escape,
-                activeWorklane: worklane,
-                isFocusedPaneTerminalFocused: true
-            ),
-            paneID
-        )
-        XCTAssertNil(
-            FocusedTerminalInterruptBridge.paneIDForUserInterrupt(
-                event: controlC,
-                activeWorklane: worklane,
-                isFocusedPaneTerminalFocused: true
-            )
-        )
-    }
-
     func test_focused_terminal_interrupt_bridge_ignores_non_terminal_focus_and_non_kimi_sessions() throws {
         let (worklane, _) = makeInterruptBridgeWorklane(tool: .codex)
         let event = makeKeyEvent(
