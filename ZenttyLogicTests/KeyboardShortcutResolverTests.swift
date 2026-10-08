@@ -800,6 +800,7 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             .copyFocusedPanePath: .init(key: .character("c"), modifiers: [.command, .shift]),
             .cleanCopy: .init(key: .character("c"), modifiers: [.command, .control]),
             .jumpToLatestNotification: .init(key: .character("u"), modifiers: [.command, .shift]),
+            .toggleFocusedPaneUnread: .init(key: .character("u"), modifiers: [.command]),
             .arrangeHeightFull: .init(key: .character("1"), modifiers: [.command, .option]),
             .arrangeHeightTwoPerColumn: .init(key: .character("2"), modifiers: [.command, .option]),
             .arrangeHeightThreePerColumn: .init(key: .character("3"), modifiers: [.command, .option]),

@@ -28,6 +28,7 @@ final class AppActionRouterTests: XCTestCase {
             (.copyRaw, "routeCopyRaw"),
             (.copyMarkdown, "routeCopyMarkdown"),
             (.jumpToLatestNotification, "routeJumpToLatestNotification"),
+            (.toggleFocusedPaneUnread, "routeToggleFocusedPaneUnread"),
             (.pane(.resetLayout), "routePaneCommand"),
             (.moveFocusedPaneToNewWindow, "routeMoveFocusedPaneToNewWindow"),
             (.navigateBack, "routeNavigateBack"),
@@ -109,6 +110,7 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     func routeCopyRaw() { calls.append("routeCopyRaw") }
     func routeCopyMarkdown() { calls.append("routeCopyMarkdown") }
     func routeJumpToLatestNotification() { calls.append("routeJumpToLatestNotification") }
+    func routeToggleFocusedPaneUnread() { calls.append("routeToggleFocusedPaneUnread") }
     func routePaneCommand(_ command: PaneCommand) {
         calls.append("routePaneCommand")
         lastPaneCommand = command

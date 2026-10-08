@@ -822,6 +822,9 @@ enum WorklaneSidebarSummaryBuilder {
         if presentation.isReady {
             return .ready
         }
+        if presentation.isCheckBack {
+            return .checkBack
+        }
 
         switch presentation.runtimePhase {
         case .idle, .starting:
@@ -1116,6 +1119,8 @@ enum WorklaneSidebarSummaryBuilder {
             return "exclamationmark.circle"
         case .ready:
             return "checkmark.circle.fill"
+        case .checkBack:
+            return PaneCheckBackReminder.statusSymbolName
         }
     }
 
@@ -1147,6 +1152,8 @@ enum WorklaneSidebarSummaryBuilder {
             return "Stopped early"
         case .ready:
             return "Agent ready"
+        case .checkBack:
+            return PaneCheckBackReminder.statusText
         case .running:
             return "Running"
         }

@@ -13,13 +13,14 @@ enum MenuBarStatusKind: String, CaseIterable, Equatable, Sendable {
     case needsInput
     case stoppedEarly
     case ready
+    case checkBack
     case idle
 
     /// Resolve the status kind from the two fields the snapshot already carries.
     ///
     /// `fleetState` is authoritative for everything except distinguishing
-    /// "ready" from "idle": both are `.idle`, separated only by the pane's
-    /// `attentionState == .ready`.
+    /// "ready" and "check back" from "idle": all are `.idle`, separated only by
+    /// the pane's `attentionState`.
     static func resolve(
         fleetState: MenuBarFleetState,
         attentionState: WorklaneAttentionState?
@@ -34,7 +35,14 @@ enum MenuBarStatusKind: String, CaseIterable, Equatable, Sendable {
         case .stopped:
             return .stoppedEarly
         case .idle:
-            return attentionState == .ready ? .ready : .idle
+            switch attentionState {
+            case .ready:
+                return .ready
+            case .checkBack:
+                return .checkBack
+            default:
+                return .idle
+            }
         }
     }
 

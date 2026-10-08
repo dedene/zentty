@@ -106,6 +106,9 @@ enum WorklaneAttentionSummaryBuilder {
         if presentation.isReady {
             return .ready
         }
+        if presentation.isCheckBack {
+            return .checkBack
+        }
 
         switch presentation.runtimePhase {
         case .idle, .starting:
@@ -143,10 +146,12 @@ private extension WorklaneAttentionState {
     var priority: Int {
         switch self {
         case .needsInput:
-            return 4
+            return 5
         case .unresolvedStop:
-            return 3
+            return 4
         case .ready:
+            return 3
+        case .checkBack:
             return 2
         case .running:
             return 1

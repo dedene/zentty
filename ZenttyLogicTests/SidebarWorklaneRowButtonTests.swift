@@ -453,6 +453,53 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(requestedPaneID, paneID)
     }
 
+    func test_paneRowContextMenu_offersUnreadToggleAndInvokesPaneCallback() throws {
+        let row = makeRow(width: 320, height: 110)
+        let paneID = PaneID("worklane-main-pane")
+        var toggle: PaneUnreadToggle = .markUnread
+        var requestedPaneID: PaneID?
+        row.unreadToggleProvider = { $0 == paneID ? toggle : nil }
+        row.onToggleUnreadRequested = { requestedPaneID = $0 }
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
+        XCTAssertEqual(menu.items[0].title, "Mark as Unread")
+        XCTAssertNotNil(menu.items[0].image)
+        XCTAssertTrue(menu.items[1].isSeparatorItem)
+
+        NSApp.sendAction(try XCTUnwrap(menu.items[0].action), to: menu.items[0].target, from: menu.items[0])
+        XCTAssertEqual(requestedPaneID, paneID)
+
+        toggle = .markRead
+        let readMenu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
+        XCTAssertEqual(readMenu.items[0].title, "Mark as Read")
+    }
+
+    func test_paneRowContextMenu_hidesUnreadToggleWhenUnavailable() throws {
+        let row = makeRow(width: 320, height: 110)
+        row.unreadToggleProvider = { _ in nil }
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
+
+        XCTAssertNil(menu.item(withTitle: "Mark as Unread"))
+        XCTAssertNil(menu.item(withTitle: "Mark as Read"))
+    }
+
     func test_paneRowContextMenu_showsClosePaneOnlyWhenMultiplePanesExist() throws {
         let row = makeRow(width: 320, height: 170)
         row.configure(
@@ -1277,6 +1324,37 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertNotEqual(
             readyRow.debugSnapshotForTesting.statusTextColor.srgbClamped,
             stoppedRow.debugSnapshotForTesting.statusTextColor.srgbClamped)
+    }
+
+    func test_worklane_row_uses_check_back_color_distinct_from_ready() {
+        let row = makeRow(width: 320, height: 110)
+        let theme = ZenttyTheme.fallback(for: nil)
+
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [
+                    WorklaneSidebarPaneRow(
+                        paneID: PaneID("worklane-main-check-back"),
+                        primaryText: "Claude Code",
+                        trailingText: "main",
+                        detailText: nil,
+                        statusText: "Check back",
+                        statusSymbolName: "checkmark.circle.fill",
+                        attentionState: .checkBack,
+                        isFocused: false,
+                        isWorking: false
+                    )
+                ]
+            ),
+            theme: theme,
+            animated: false
+        )
+
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Check back"])
+        XCTAssertEqual(
+            row.debugSnapshotForTesting.statusTextColor.srgbClamped, theme.statusCheckBack.srgbClamped)
+        XCTAssertNotEqual(theme.statusCheckBack.srgbClamped, theme.statusReady.srgbClamped)
     }
 
     func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_width_is_tight() throws {

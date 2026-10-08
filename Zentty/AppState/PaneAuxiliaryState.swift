@@ -140,6 +140,7 @@ struct PanePresentationState: Equatable, Sendable {
     var updatedAt: Date = .distantPast
     var isWorking = false
     var isReady = false
+    var isCheckBack = false
     var statusSymbolName: String?
     var interactionKind: PaneInteractionKind?
     var interactionLabel: String?
@@ -248,6 +249,7 @@ struct PaneRawState: Equatable, Sendable {
     var gitContext: PaneGitContext?
     var wantsReadyStatus = false
     var showsReadyStatus = false
+    var checkBackReminder: PaneCheckBackReminder?
     var codexCurrentRunHasObservedActivity = false
     /// Whether the terminal title has shown a Claude Code spinner since it
     /// last stopped being a Claude Code title. Claude Code writes a static
@@ -362,6 +364,7 @@ struct PaneRawState: Equatable, Sendable {
         agentReducerState = .init()
         wantsReadyStatus = false
         showsReadyStatus = false
+        checkBackReminder = nil
         terminalProgress = nil
         codexCurrentRunHasObservedActivity = false
         codexTitleIdleSuppressionUntil = nil
@@ -604,12 +607,18 @@ enum PanePresentationNormalizer {
             (recognizedTool == .codex
                 ? TerminalMetadataChangeClassifier.codexTaskProgress(for: raw.metadata?.title)
                 : nil) ?? raw.agentStatus?.taskProgress
+        // Mutually exclusive with `isReady` below, so a mark always shows.
+        let isCheckBack = raw.checkBackReminder != nil
+            && runtimePhase == .idle
+            && recognizedTool != nil
+            && !(showsReadyStatus && incompleteTaskProgress(taskProgress) == nil)
         let statusText = visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
             taskProgress: taskProgress,
             hasObservedRunning: hasObservedRunning,
             showsReadyStatus: showsReadyStatus,
+            isCheckBack: isCheckBack,
             suppressIdleLabel: codexBackgroundWait,
             explicitStatusText: raw.agentStatus?.text,
             notificationText: raw.lastDesktopNotificationText,
@@ -637,6 +646,7 @@ enum PanePresentationNormalizer {
             for: runtimePhase,
             statusText: statusText,
             showsReadyStatus: showsReadyStatus,
+            isCheckBack: isCheckBack,
             taskProgress: taskProgress
         )
         let pullRequest = derivePullRequest(
@@ -702,6 +712,7 @@ enum PanePresentationNormalizer {
             updatedAt: updatedAt,
             isWorking: runtimePhase == .running,
             isReady: isReady,
+            isCheckBack: isCheckBack,
             statusSymbolName: statusSymbolName,
             interactionKind: interactionKind,
             interactionLabel: interactionLabel,
@@ -904,6 +915,7 @@ enum PanePresentationNormalizer {
         taskProgress: PaneAgentTaskProgress?,
         hasObservedRunning: Bool,
         showsReadyStatus: Bool,
+        isCheckBack: Bool,
         suppressIdleLabel: Bool = false,
         explicitStatusText: String? = nil,
         notificationText: String? = nil,
@@ -912,6 +924,7 @@ enum PanePresentationNormalizer {
     ) -> String? {
         switch phase {
         case .idle:
+            if isCheckBack { return PaneCheckBackReminder.statusText }
             if let taskProgress = incompleteTaskProgress(taskProgress) {
                 return idleStatusText(taskProgress: taskProgress)
             }
@@ -963,12 +976,17 @@ enum PanePresentationNormalizer {
         for phase: PanePresentationPhase,
         statusText: String?,
         showsReadyStatus: Bool,
+        isCheckBack: Bool,
         taskProgress: PaneAgentTaskProgress?
     ) -> String? {
         guard
             phase == .idle
         else {
             return nil
+        }
+
+        if isCheckBack {
+            return PaneCheckBackReminder.statusSymbolName
         }
 
         if showsReadyStatus, incompleteTaskProgress(taskProgress) == nil {

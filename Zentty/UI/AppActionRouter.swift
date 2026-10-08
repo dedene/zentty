@@ -24,6 +24,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeCopyRaw()
     func routeCopyMarkdown()
     func routeJumpToLatestNotification()
+    func routeToggleFocusedPaneUnread()
     func routePaneCommand(_ command: PaneCommand)
     func routeMoveFocusedPaneToNewWindow()
     func routeNavigateBack()
@@ -89,6 +90,8 @@ struct AppActionRouter {
             environment.routeCopyMarkdown()
         case .jumpToLatestNotification:
             environment.routeJumpToLatestNotification()
+        case .toggleFocusedPaneUnread:
+            environment.routeToggleFocusedPaneUnread()
         case .pane(let command):
             environment.routePaneCommand(command)
         case .moveFocusedPaneToNewWindow:

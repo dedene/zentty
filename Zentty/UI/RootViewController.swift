@@ -1121,6 +1121,14 @@ final class RootViewController: NSViewController {
         sidebarView.restoredRerunnableCommandProvider = { [weak self] paneID in
             self?.worklaneStore.restoredRerunnableCommand(for: paneID)
         }
+        sidebarView.unreadToggleProvider = { [weak self] paneID in
+            self?.worklaneStore.unreadToggle(for: paneID)
+        }
+        // Deliberately does not focus the pane: marking from the sidebar must
+        // not count as visiting it.
+        sidebarView.onToggleUnreadRequested = { [weak self] paneID in
+            self?.worklaneStore.toggleUnread(paneID: paneID)
+        }
         sidebarView.onMovePaneToNewWindowRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.onMovePaneToNewWindowRequested?(paneID)
@@ -1978,8 +1986,13 @@ final class RootViewController: NSViewController {
             activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL,
             focusedPaneCanOpenWithPrimary: focusedOpenWithContext != nil && primaryOpenWithTarget != nil,
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
-            activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup
+            activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
+            focusedPaneUnreadToggle: focusedPaneUnreadToggle
         )
+    }
+
+    var focusedPaneUnreadToggle: PaneUnreadToggle? {
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.unreadToggle(for:))
     }
 
     private var activeWorklaneHasReviewLookup: Bool {
@@ -3191,6 +3204,11 @@ extension RootViewController: AppActionRouterEnvironment {
         } else {
             NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
         }
+    }
+
+    func routeToggleFocusedPaneUnread() {
+        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else { return }
+        worklaneStore.toggleUnread(paneID: paneID)
     }
 
     func routePaneCommand(_ command: PaneCommand) {

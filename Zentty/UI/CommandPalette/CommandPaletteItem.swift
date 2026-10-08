@@ -122,7 +122,8 @@ enum CommandPaletteItemBuilder {
         focusedPanePath: String? = nil,
         focusedPaneCopyTarget: PaneCopyTarget? = nil,
         focusedBranchName: String? = nil,
-        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
+        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane,
+        focusedPaneUnreadToggle: PaneUnreadToggle? = nil
     ) -> [CommandPaletteItem] {
         AppCommandRegistry.definitions.compactMap { definition in
             guard availableCommandIDs.contains(definition.id) else {
@@ -131,7 +132,8 @@ enum CommandPaletteItemBuilder {
 
             let title = title(
                 for: definition,
-                rightPaneCommandPresentation: rightPaneCommandPresentation
+                rightPaneCommandPresentation: rightPaneCommandPresentation,
+                focusedPaneUnreadToggle: focusedPaneUnreadToggle
             )
             let subtitle = enrichedSubtitle(
                 for: definition,
@@ -150,7 +152,8 @@ enum CommandPaletteItemBuilder {
                 searchText: searchText(for: definition, title: title, subtitle: subtitle),
                 iconSystemName: iconSystemName(
                     for: definition.id,
-                    rightPaneCommandPresentation: rightPaneCommandPresentation
+                    rightPaneCommandPresentation: rightPaneCommandPresentation,
+                    focusedPaneUnreadToggle: focusedPaneUnreadToggle
                 ),
                 family: nil,
                 familySearchText: nil,
@@ -427,11 +430,17 @@ enum CommandPaletteItemBuilder {
 
     private static func title(
         for definition: AppCommandDefinition,
-        rightPaneCommandPresentation: PaneRightCommandPresentation
+        rightPaneCommandPresentation: PaneRightCommandPresentation,
+        focusedPaneUnreadToggle: PaneUnreadToggle?
     ) -> String {
-        definition.id == .splitHorizontally
-            ? rightPaneCommandPresentation.primaryTitle
-            : definition.title
+        switch definition.id {
+        case .splitHorizontally:
+            rightPaneCommandPresentation.primaryTitle
+        case .toggleFocusedPaneUnread:
+            (focusedPaneUnreadToggle ?? .markUnread).title
+        default:
+            definition.title
+        }
     }
 
     private static func searchText(
@@ -472,9 +481,12 @@ enum CommandPaletteItemBuilder {
 
     private static func iconSystemName(
         for commandID: AppCommandID,
-        rightPaneCommandPresentation: PaneRightCommandPresentation
+        rightPaneCommandPresentation: PaneRightCommandPresentation,
+        focusedPaneUnreadToggle: PaneUnreadToggle?
     ) -> String {
         switch commandID {
+        case .toggleFocusedPaneUnread:
+            (focusedPaneUnreadToggle ?? .markUnread).symbolName
         case .newWorklane:
             "plus.square.on.square"
         case .splitHorizontally:
