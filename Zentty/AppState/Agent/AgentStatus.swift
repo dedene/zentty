@@ -173,6 +173,8 @@ enum WorklaneAttentionState: String, Equatable, Sendable {
     case needsInput
     case unresolvedStop
     case ready
+    /// Manually marked unread ("Check back") idle agent pane.
+    case checkBack
     case running
 }
 
@@ -424,7 +426,7 @@ struct WorklaneAttentionSummary: Equatable, Sendable {
         switch state {
         case .needsInput, .unresolvedStop:
             return true
-        case .ready, .running:
+        case .ready, .checkBack, .running:
             return false
         }
     }

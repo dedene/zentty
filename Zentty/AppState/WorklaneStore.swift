@@ -2455,6 +2455,9 @@ final class WorklaneStore {
     /// Internal — called by WorklaneStore extension files to dispatch change notifications.
     /// Not intended for use outside WorklaneStore and its extensions.
     func notify(_ change: WorklaneChange) {
+        if change.mayMoveFocus {
+            reconcileCheckBackVisits()
+        }
         guard suppressionDepth == 0 else {
             return
         }

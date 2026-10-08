@@ -207,6 +207,7 @@ final class SidebarView: NSView {
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
     var onServerPortSelected: ((WorklaneID, String) -> Void)?
     var onRunRestoredCommandRequested: ((WorklaneID, PaneID) -> Void)?
+    var onToggleUnreadRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
@@ -222,6 +223,7 @@ final class SidebarView: NSView {
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+    var unreadToggleProvider: ((PaneID) -> PaneUnreadToggle?)?
     var agentListsProvider: (() -> AppConfig.AgentLists)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -692,6 +694,9 @@ final class SidebarView: NSView {
         button.restoredRerunnableCommandProvider = { [weak self] paneID in
             self?.restoredRerunnableCommandProvider?(paneID)
         }
+        button.unreadToggleProvider = { [weak self] paneID in
+            self?.unreadToggleProvider?(paneID)
+        }
         button.agentListsProvider = { [weak self] in
             self?.agentListsProvider?() ?? .default
         }
@@ -703,6 +708,9 @@ final class SidebarView: NSView {
         }
         button.onRunRestoredCommand = { [weak self] paneID in
             self?.onRunRestoredCommandRequested?(worklaneID, paneID)
+        }
+        button.onToggleUnreadRequested = { [weak self] paneID in
+            self?.onToggleUnreadRequested?(paneID)
         }
         button.onWorklaneColorChanged = { [weak self] id, color in
             self?.onWorklaneColorChanged?(id, color)

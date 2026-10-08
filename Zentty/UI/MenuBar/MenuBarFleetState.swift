@@ -119,7 +119,7 @@ enum MenuBarFleetState: Equatable, Sendable, CaseIterable {
                 metadata: metadata,
                 paneTitle: paneTitle
             ) ? .compacting : .active
-        case .ready:
+        case .ready, .checkBack:
             return .idle
         case nil:
             guard paneRow.isWorking else {

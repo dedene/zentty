@@ -739,6 +739,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func toggleFocusedPaneUnread(_ sender: Any?) {
+        handle(.toggleFocusedPaneUnread)
+    }
+
+    @objc
     func cleanCopy(_ sender: Any?) {
         handle(.cleanCopy)
     }
@@ -2113,6 +2118,10 @@ extension MainWindowController: NSMenuItemValidation {
                 return rootViewController.focusedTerminalHasSelection
             case .movePaneToNewWindow:
                 return canMovePaneToNewWindow(paneID: representedPaneID(from: menuItem))
+            case .toggleFocusedPaneUnread:
+                let toggle = rootViewController.focusedPaneUnreadToggle
+                menuItem.title = (toggle ?? .markUnread).title
+                return toggle != nil
             default:
                 return rootViewController.isCommandAvailable(commandID)
             }

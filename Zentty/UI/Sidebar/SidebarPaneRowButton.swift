@@ -69,11 +69,13 @@ struct SidebarWorklaneContextMenuContext {
     var moveToWorklaneCatalog: WorklaneDestinationCatalog?
     var paneID: PaneID?
     var restoredRerunnableCommand: String? = nil
+    var unreadToggle: PaneUnreadToggle? = nil
 }
 
 struct SidebarWorklaneContextMenuActions {
     var target: AnyObject
     var runRestoredCommandAction: Selector?
+    var toggleUnreadAction: Selector? = nil
     var renamePaneAction: Selector?
     var renameWorklaneAction: Selector
     var closeWorklaneAction: Selector
@@ -188,6 +190,21 @@ enum SidebarWorklaneContextMenu {
             )
             item.toolTip = restoredCommand
             menu.addItem(item)
+            menu.addItem(.separator())
+        }
+
+        if case .paneRow = context.origin,
+           let unreadToggle = context.unreadToggle,
+           let toggleUnreadAction = actions.toggleUnreadAction
+        {
+            menu.addItem(
+                SidebarContextMenu.item(
+                    title: unreadToggle.title,
+                    action: toggleUnreadAction,
+                    target: actions.target,
+                    symbolName: unreadToggle.symbolName
+                )
+            )
             menu.addItem(.separator())
         }
 
@@ -546,6 +563,7 @@ final class SidebarPaneRowButton: NSButton {
     var onForceAddPaneRight: ((PaneID) -> Void)?
     var onMovePaneToNewWindow: ((PaneID) -> Void)?
     var onRunRestoredCommand: ((PaneID) -> Void)?
+    var onToggleUnread: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
     var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
     var bookmarkOriginID: UUID?
@@ -561,6 +579,7 @@ final class SidebarPaneRowButton: NSButton {
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+    var unreadToggleProvider: ((PaneID) -> PaneUnreadToggle?)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -863,11 +882,13 @@ final class SidebarPaneRowButton: NSButton {
                 rightPaneCommandPresentation: rightPaneCommandPresentationProvider?() ?? .addsToWorklane,
                 moveToWorklaneCatalog: moveToWorklaneCatalogProvider?(paneID),
                 paneID: paneID,
-                restoredRerunnableCommand: restoredRerunnableCommandProvider?(paneID)
+                restoredRerunnableCommand: restoredRerunnableCommandProvider?(paneID),
+                unreadToggle: unreadToggleProvider?(paneID)
             ),
             actions: SidebarWorklaneContextMenuActions(
                 target: self,
                 runRestoredCommandAction: #selector(handleRunRestoredCommand),
+                toggleUnreadAction: #selector(handleToggleUnread),
                 renamePaneAction: #selector(handleRenamePane),
                 renameWorklaneAction: #selector(handleRenameWorklane),
                 closeWorklaneAction: #selector(handleCloseWorklane),
@@ -948,5 +969,9 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleRunRestoredCommand() {
         onRunRestoredCommand?(paneID)
+    }
+
+    @objc private func handleToggleUnread() {
+        onToggleUnread?(paneID)
     }
 }

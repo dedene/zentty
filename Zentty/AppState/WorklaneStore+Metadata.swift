@@ -1057,6 +1057,7 @@ extension WorklaneStore {
                 : nil
         )
         worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].presentation = presentation
+        dropSpentCheckBackReminder(for: paneID, in: &worklane)
 
         // Bridge: when the presentation phase resolves to an active state
         // (.running, .needsInput) but the raw agentStatus hasn't recorded

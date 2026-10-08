@@ -10911,7 +10911,7 @@ final class AgentStatusSupportTests: XCTestCase {
             return .needsInput
         case .unresolvedStop:
             return .unresolvedStop
-        case .ready:
+        case .ready, .checkBack:
             return .idle
         case .running:
             return .running
@@ -10929,6 +10929,8 @@ final class AgentStatusSupportTests: XCTestCase {
             return "Stopped early"
         case .ready:
             return "Agent ready"
+        case .checkBack:
+            return "Check back"
         case .running:
             return "Running"
         }
