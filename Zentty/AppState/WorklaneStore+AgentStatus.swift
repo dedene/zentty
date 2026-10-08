@@ -90,7 +90,18 @@ extension WorklaneStore {
         case .progressReport(let report):
             let now = currentDateProvider()
             if report.state == .remove {
+                let wasBusy = worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress?.state.indicatesActivity == true
                 worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+                // Claude Code clears its OSC 9;4 progress the moment a turn
+                // ends, interrupts included, while Escape that only closes an
+                // overlay (`/btw`) leaves it alone. Under a static title this
+                // is the only interrupt signal; an animated title flips to
+                // "✳" on its own, so it is left to the title.
+                if wasBusy,
+                   worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasAnimated == false,
+                   beginClaudeCodeInterruptGrace(paneID: paneID, in: &worklane) {
+                    suppressReadyAfterRecompute = true
+                }
             } else {
                 let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
                 let showsReadyStatus = worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
@@ -809,6 +820,10 @@ extension WorklaneStore {
         )
 
         recomputePresentation(for: payload.paneID, in: &worklane)
+        if payload.signalKind == .lifecycle, payload.lifecycleEvent == .interrupt {
+            // Roll back the "Agent ready" the idle transition requested.
+            clearReadyStatusIfNeeded(for: payload.paneID, in: &worklane)
+        }
         let forceGitContextRefreshOnCompletion = agentCompletionRequiresGitContextRefresh(
             previousWorklane: previousWorklane,
             nextWorklane: worklane,

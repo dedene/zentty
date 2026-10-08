@@ -806,8 +806,21 @@ extension WorklaneStore {
                 recognizedTool: .claudeCode
             ),
             signature.phase == .idle,
+            worklane.auxiliaryStateByPaneID[paneID]?.raw.claudeCodeTitleHasAnimated == true
+        else {
+            return false
+        }
+
+        return beginClaudeCodeInterruptGrace(paneID: paneID, in: &worklane)
+    }
+
+    /// Ends a running Claude Code turn the user interrupted once the stop
+    /// grace window expires, unless a hook in the meantime shows Claude still
+    /// working. The resulting idle does not surface "Agent ready".
+    @discardableResult
+    func beginClaudeCodeInterruptGrace(paneID: PaneID, in worklane: inout WorklaneState) -> Bool {
+        guard
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
-            auxiliaryState.raw.claudeCodeTitleHasAnimated,
             let existingStatus = auxiliaryState.agentStatus,
             existingStatus.tool == .claudeCode,
             existingStatus.hasObservedRunning,
