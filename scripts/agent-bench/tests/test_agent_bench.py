@@ -158,6 +158,56 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertEqual(profiles["kimi"].kimi_variant, "legacy")
         self.assertEqual(profiles["kimi-code"].tool, "kimi")
         self.assertEqual(profiles["kimi-code"].kimi_variant, "modern")
+        self.assertEqual(profiles["opencode"].opencode_generation, "v1")
+        self.assertEqual(profiles["opencode-v2"].tool, "opencode")
+        self.assertEqual(profiles["opencode-v2"].opencode_generation, "v2")
+        self.assertNotIn("tasks", profiles["opencode-v2"].launch_args_by_scenario)
+
+    def test_parse_opencode_generation_reads_v1_and_styled_v2_versions(self):
+        self.assertEqual(agent_bench.parse_opencode_generation("1.18.35\n"), "v1")
+        self.assertEqual(agent_bench.parse_opencode_generation("\x1b[1mopencode\x1b[0m v2.0.26\n"), "v2")
+        self.assertIsNone(agent_bench.parse_opencode_generation("Error: postinstall script was not run"))
+
+    def test_opencode_standalone_arguments_mirror_bootstrap(self):
+        cases = [
+            ([], ["--standalone"]),
+            (["run", "hi"], ["run", "--standalone", "hi"]),
+            (["--session", "ses_x"], ["--standalone", "--session", "ses_x"]),
+            (["--prompt", "run"], ["--standalone", "--prompt", "run"]),
+            (["mini"], ["mini", "--standalone"]),
+            (["auth", "login"], ["auth", "login"]),
+            (["--server", "http://127.0.0.1:1"], ["--server", "http://127.0.0.1:1"]),
+            (["run", "--standalone", "hi"], ["run", "--standalone", "hi"]),
+            (["--version"], ["--version"]),
+        ]
+        for arguments, expected in cases:
+            self.assertEqual(agent_bench.opencode_standalone_arguments(arguments), expected, arguments)
+
+    def test_resolve_agent_binary_picks_pinned_opencode_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            v1 = first / "opencode"
+            v2 = second / "opencode"
+            for binary in (v1, v2):
+                binary.write_text("#!/bin/sh\n", encoding="utf-8")
+                binary.chmod(0o755)
+            profiles = agent_bench.load_profiles(ROOT / "profiles")
+            path_value = os.pathsep.join([str(first), str(second)])
+            probe = lambda path: "v2" if pathlib.Path(path) == v2 else "v1"
+
+            resolved_v2, skip_v2 = agent_bench.resolve_agent_binary(profiles["opencode-v2"], path_value, variant_probe=probe)
+            resolved_v1, _ = agent_bench.resolve_agent_binary(profiles["opencode"], path_value, variant_probe=probe)
+            missing, skip = agent_bench.resolve_agent_binary(profiles["opencode-v2"], str(first), variant_probe=probe)
+
+        self.assertEqual(resolved_v2, str(v2))
+        self.assertIsNone(skip_v2)
+        self.assertEqual(resolved_v1, str(v1))
+        self.assertIsNone(missing)
+        self.assertEqual(skip, "no opencode v2 binary found")
 
     def test_post_stop_notification_detector_flags_late_notification(self):
         records = [
@@ -206,8 +256,12 @@ class SyntheticScenarioTests(unittest.TestCase):
             profiles["opencode"].expectations["manual_compact"].required_events,
             ["session.start", "agent.compacting"],
         )
-        self.assertIn("manual_compact", profiles["opencode"].input_by_scenario)
-        self.assertEqual(profiles["opencode"].input_by_scenario["manual_compact"][0]["text"], "/compact\r")
+        # /compact on the empty home screen has no session to compact, and an
+        # Enter sent in the same write is swallowed by the autocomplete popup:
+        # seed a session first, then type the command and submit separately.
+        for name in ("opencode", "opencode-v2"):
+            texts = [step["text"] for step in profiles[name].input_by_scenario["manual_compact"]]
+            self.assertEqual(texts, ["Reply with the single word OK\r", "/compact", "\r"], name)
 
     def test_cursor_profile_defines_session_capture_restore_and_interactive_completion(self):
         profile_dir = ROOT / "profiles"
@@ -3234,6 +3288,7 @@ class ProfileTests(unittest.TestCase):
                 "kimi-code",
                 "omp",
                 "opencode",
+                "opencode-v2",
                 "pi",
                 "small-harness",
                 "vibe",
