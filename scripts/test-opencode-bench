@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+#
+# test-opencode-bench — regression gate for the OpenCode integration, v1 and v2.
+#
+# OpenCode ships two incompatible CLIs under the same `opencode` name:
+#   * v1 — npm `opencode-ai` (prints `1.18.x`), profile `opencode`
+#   * v2 — npm `@opencode/cli` (prints `opencode v2.x`), profile `opencode-v2`
+# Each profile probes `--version` and only drives a matching binary. v2 runs
+# isolated (overlay data/state/cache, free model), so it never touches the
+# v1 install's opencode.db or the shared v2 background service.
+#
+# When no v2 binary is on PATH, the gate installs `@opencode/cli` into
+# $ZENTTY_OPENCODE_V2_PREFIX (default: $TMPDIR/zentty-opencode-v2-bench) and
+# runs its postinstall explicitly (npm 12 blocks install scripts by default).
+#
+# Re-run this after:
+#   * any opencode v1 or v2 CLI bump (the upstream side of the contract)
+#   * changes to AgentLaunchBootstrap.openCodeFamilyPlan / OpenCodeGeneration
+#   * changes to either plugin under ZenttyResources/opencode/
+#   * changes to scripts/agent-bench/profiles/opencode*.json
+#
+# Usage:
+#   scripts/test-opencode-bench                  # both generations, builds first
+#   scripts/test-opencode-bench --no-build       # reuse last build
+#   scripts/test-opencode-bench --agents opencode-v2 --scenarios smoke
+#
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+NO_BUILD=0
+AGENTS="opencode,opencode-v2"
+SCENARIOS=""
+# v2 removed the todowrite tool, so it has no `tasks` scenario; under --strict
+# an undefined scenario fails, hence per-generation defaults.
+V1_SCENARIOS="smoke,session_capture,approval,restore_launch,manual_compact,tasks"
+V2_SCENARIOS="smoke,session_capture,approval,restore_launch,manual_compact"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-build) NO_BUILD=1; shift ;;
+    --agents) AGENTS="$2"; shift 2 ;;
+    --agents=*) AGENTS="${1#--agents=}"; shift ;;
+    --scenarios) SCENARIOS="$2"; shift 2 ;;
+    --scenarios=*) SCENARIOS="${1#--scenarios=}"; shift ;;
+    -h|--help)
+      sed -n '2,26p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+has_opencode_v2() {
+  local entry
+  local IFS=:
+  for entry in $PATH; do
+    for name in opencode opencode2; do
+      [[ -x "$entry/$name" ]] || continue
+      if "$entry/$name" --version 2>/dev/null | grep -Eq 'v?[2-9][0-9]*\.[0-9]+'; then
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+if [[ ",$AGENTS," == *",opencode-v2,"* ]] && ! has_opencode_v2; then
+  prefix="${ZENTTY_OPENCODE_V2_PREFIX:-${TMPDIR:-/tmp}/zentty-opencode-v2-bench}"
+  if [[ ! -x "$prefix/node_modules/.bin/opencode" ]] || ! "$prefix/node_modules/.bin/opencode" --version >/dev/null 2>&1; then
+    echo "==> Installing @opencode/cli into $prefix"
+    mkdir -p "$prefix"
+    npm install --prefix "$prefix" --no-save @opencode/cli@latest >/dev/null
+    (cd "$prefix/node_modules/@opencode/cli" && node postinstall.mjs)
+  fi
+  export PATH="$prefix/node_modules/.bin:$PATH"
+fi
+
+status=0
+IFS=, read -r -a agent_list <<< "$AGENTS"
+for agent in "${agent_list[@]}"; do
+  scenarios="$SCENARIOS"
+  if [[ -z "$scenarios" ]]; then
+    [[ "$agent" == "opencode-v2" ]] && scenarios="$V2_SCENARIOS" || scenarios="$V1_SCENARIOS"
+  fi
+  BENCH_ARGS=(run --agents "$agent" --scenarios "$scenarios" --strict)
+  if [[ $NO_BUILD -eq 1 ]]; then
+    BENCH_ARGS+=(--no-build)
+  fi
+  echo "==> Running agent-bench ($agent) against scenarios: $scenarios"
+  python3 scripts/agent-bench/agent_bench.py "${BENCH_ARGS[@]}" || status=$?
+  # Only the first invocation needs to build.
+  NO_BUILD=1
+done
+exit $status

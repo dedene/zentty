@@ -75,6 +75,13 @@ Re-run after:
 - any change to the shared opencode-family plan (`openCodeFamilyPlan`) or the shared plugin `zentty-opencode-zentty.js`,
 - any change to `ZenttyResources/agents/kilo.json` or `scripts/agent-bench/profiles/kilo.json`.
 
+For the opencode integration, the gate is `scripts/test-opencode-bench`. OpenCode ships two incompatible CLIs as `opencode`: v1 (npm `opencode-ai`, profile `opencode`) and v2 (npm `@opencode/cli`, profile `opencode-v2`). Each profile picks its binary by probing `--version`. v2 runs plugins in a shared background service by default, so Zentty launches it `--standalone` with the plugin from `ZenttyResources/opencode/v2-plugins/`. Both profiles pin a free model (`ZENTTY_BENCH_OPENCODE_MODEL` overrides), so results don't depend on your last TUI model. The v2 bench also runs isolated (overlay data/state/cache), and the gate installs `@opencode/cli` into a temp prefix when no v2 is on PATH.
+
+Re-run after:
+- any opencode v1 or v2 CLI version bump,
+- any change to `openCodeFamilyPlan`, `OpenCodeGeneration`, or either opencode plugin,
+- any change to `scripts/agent-bench/profiles/opencode*.json`.
+
 For the generic manifest seam, the gate is `scripts/test-generic-agent-bench`. It runs `smoke,session_capture,approval,restore_launch` against the `generic-canonical` fixture agent — a bash script that emits canonical events with no model auth required.
 
 Re-run after:

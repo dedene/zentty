@@ -1,8 +1,9 @@
 {
-  "name": "opencode",
+  "name": "opencode-v2",
+  "tool": "opencode",
   "command": "opencode",
-  "real_binary_names": ["opencode"],
-  "opencode_generation": "v1",
+  "real_binary_names": ["opencode", "opencode2"],
+  "opencode_generation": "v2",
   "version_args": ["--version"],
   "launch_args_by_scenario": {
     "smoke": [
@@ -18,10 +19,6 @@
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
     ],
     "manual_compact": [],
-    "tasks": [
-      "run",
-      "Use your task list tool (todowrite) to create a task list with these exact three tasks: Review directory, Identify main language, Suggest one improvement. Mark Review directory completed. Mark Identify main language in progress. Leave Suggest one improvement pending. Then run this exact shell command: printf ZENTTY_AGENT_BENCH_TASKS_OK"
-    ],
     "restore_launch": [
       "--session",
       "ses_ZenttyBenchRestore"
@@ -39,19 +36,10 @@
       }
     },
     "approval": {
-      "required_events": ["session.start", "agent.needs-input"]
+      "required_events": ["session.start", "agent.needs-input", "agent.input-resolved"]
     },
     "manual_compact": {
       "required_events": ["session.start", "agent.compacting"]
-    },
-    "tasks": {
-      "required_events": ["session.start", "agent.running", "agent.idle"],
-      "expected_task_progress": {"done": 1, "total": 3},
-      "expected_task_items": [
-        {"title": "Review directory", "status": "completed"},
-        {"title": "Identify main language", "status": "in_progress"},
-        {"title": "Suggest one improvement", "status": "pending"}
-      ]
     },
     "restore_launch": {
       "required_events": [],
@@ -59,16 +47,6 @@
     }
   },
   "input_by_scenario": {
-    "approval": [
-      {
-        "after": 10,
-        "text": "y\n"
-      },
-      {
-        "after": 45,
-        "text": "\u0003"
-      }
-    ],
     "manual_compact": [
       {
         "after": 8,

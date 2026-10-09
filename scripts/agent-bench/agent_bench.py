@@ -28,7 +28,7 @@ from collections import Counter
 from typing import Any
 
 
-SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "devin", "droid", "gemini", "generic-canonical", "grok", "hermes", "kilo", "kimi", "kimi-code", "omp", "opencode", "pi", "small-harness", "vibe")
+SUPPORTED_AGENTS = ("agy", "amp", "claude", "codex", "copilot", "cursor", "devin", "droid", "gemini", "generic-canonical", "grok", "hermes", "kilo", "kimi", "kimi-code", "omp", "opencode", "opencode-v2", "pi", "small-harness", "vibe")
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 DEFAULT_RUNS_DIR = REPO_ROOT / ".agent-bench-runs"
@@ -102,6 +102,11 @@ REFUSAL_PATTERNS = [
 OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 KIMI_VARIANT_PROBE_CACHE: dict[str, str] = {}
+OPENCODE_GENERATION_PROBE_CACHE: dict[str, str] = {}
+# Free OpenCode Zen model the opencode bench pins (override with
+# ZENTTY_BENCH_OPENCODE_MODEL). Without it, v1 falls back to the user's most
+# recent TUI model, which may be one their auth cannot use.
+OPENCODE_BENCH_MODEL = "opencode/big-pickle"
 
 
 @dataclasses.dataclass
@@ -167,6 +172,7 @@ class AgentProfile:
     skip_patterns: list[str] = dataclasses.field(default_factory=list)
     tool: str = ""
     kimi_variant: str | None = None
+    opencode_generation: str | None = None
 
     def __post_init__(self) -> None:
         if not self.tool:
@@ -2580,7 +2586,10 @@ class LaunchPlanner:
         return probe_kimi_variant(executable) or "legacy"
 
     def _plan_opencode(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
-        return self._plan_opencode_family(
+        generation = self.profile.opencode_generation or probe_opencode_generation(executable) or "v1"
+        if generation == "v2":
+            return self._plan_opencode_v2(executable, arguments, environment, cli_path)
+        plan = self._plan_opencode_family(
             tool_id="opencode",
             display_name="OpenCode",
             env_prefix="OPENCODE",
@@ -2590,6 +2599,40 @@ class LaunchPlanner:
             environment=environment,
             cli_path=cli_path,
         )
+        self._pin_opencode_bench_model()
+        return plan
+
+    def _pin_opencode_bench_model(self) -> None:
+        config_file = self._overlay_dir("opencode") / "config" / "opencode.json"
+        config = read_json_object(config_file)
+        config.setdefault("model", os.environ.get("ZENTTY_BENCH_OPENCODE_MODEL") or OPENCODE_BENCH_MODEL)
+        write_json(config_file, config)
+
+    def _plan_opencode_v2(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        """OpenCode v2 (`@opencode/cli`): the v2 plugin, a `--standalone`
+        private server (mirrors AgentLaunchBootstrap), and bench-only
+        isolation. v2 shares v1's data paths (`opencode.db`) and keeps a
+        background service in its state dir, so data/state/cache live in the
+        overlay and the bench never migrates or reuses the user's install.
+        With no auth there, the pinned free model is what makes it run."""
+        plan = self._plan_opencode_family(
+            tool_id="opencode",
+            display_name="OpenCode",
+            env_prefix="OPENCODE",
+            config_dir_name="opencode",
+            executable=executable,
+            arguments=opencode_standalone_arguments(arguments),
+            environment=environment,
+            cli_path=cli_path,
+            plugin_dir_name="v2-plugins",
+        )
+        self._pin_opencode_bench_model()
+        overlay_root = self._overlay_dir("opencode")
+        for variable, leaf in (("XDG_DATA_HOME", "data"), ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")):
+            directory = overlay_root / "xdg" / leaf
+            directory.mkdir(parents=True, exist_ok=True)
+            plan["setEnvironment"][variable] = str(directory)
+        return plan
 
     def _plan_opencode_family(
         self,
@@ -2601,6 +2644,7 @@ class LaunchPlanner:
         arguments: list[str],
         environment: dict[str, Any],
         cli_path: str,
+        plugin_dir_name: str = "plugins",
     ) -> dict[str, Any]:
         """Shared plan for every `opencode-plugin` family manifest (opencode,
         kilo, …). Mirrors AgentLaunchBootstrap.openCodeFamilyPlan: the overlay
@@ -2614,7 +2658,7 @@ class LaunchPlanner:
         source = pathlib.Path(source_path) if source_path else None
         if source:
             copy_directory_contents(source, overlay)
-        plugin = self.resources_dir / "opencode" / "plugins" / "zentty-opencode-zentty.js" if self.resources_dir else None
+        plugin = self.resources_dir / "opencode" / plugin_dir_name / "zentty-opencode-zentty.js" if self.resources_dir else None
         if plugin and plugin.exists():
             plugins = overlay / "plugins"
             plugins.mkdir(parents=True, exist_ok=True)
@@ -3162,6 +3206,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
             skip_patterns=list(raw.get("skip_patterns", [])),
             tool=str(raw.get("tool") or raw["name"]),
             kimi_variant=raw.get("kimi_variant") if raw.get("kimi_variant") in ("legacy", "modern") else None,
+            opencode_generation=raw.get("opencode_generation") if raw.get("opencode_generation") in ("v1", "v2") else None,
         )
         profiles[profile.name] = profile
     return profiles
@@ -3501,7 +3546,7 @@ class BenchRunner:
                 [],
                 [],
             )
-        if profile.tool == "kimi" and profile.kimi_variant in ("legacy", "modern"):
+        if profile_pins_binary_variant(profile):
             names = list(dict.fromkeys([profile.command] + profile.real_binary_names))
             wrapper_candidates = all_which_candidates(names, env["PATH"])
             command = wrapper_candidates[0] if wrapper_candidates else None
@@ -3509,9 +3554,10 @@ class BenchRunner:
                 return self._finalize_result(self._skip_or_fail(agent, scenario, f"none of {', '.join(names)} found", "binary-skip"), [], [])
             real_command, real_skip_message = resolve_agent_binary(profile, filtered_inherited_path(env["PATH"]))
             if not real_command:
-                return self._finalize_result(self._skip_or_fail(agent, scenario, real_skip_message or "kimi binary not found", "binary-skip"), [], [])
+                return self._finalize_result(self._skip_or_fail(agent, scenario, real_skip_message or f"{profile.tool} binary not found", "binary-skip"), [], [])
             env["PATH"] = prioritize_path_entry_after_zentty_resources(env["PATH"], str(pathlib.Path(real_command).parent))
-            env["ZENTTY_KIMI_VARIANT"] = profile.kimi_variant
+            if profile.tool == "kimi":
+                env["ZENTTY_KIMI_VARIANT"] = profile.kimi_variant
             env["ZENTTY_REAL_BINARY"] = real_command
         else:
             command, skip_message = resolve_agent_binary(profile, env["PATH"])
@@ -4393,9 +4439,25 @@ def resolve_agent_binary(
             if probe(candidate) == profile.kimi_variant:
                 return candidate, None
         return None, f"no {profile.kimi_variant} kimi binary found"
+    if profile.tool == "opencode" and profile.opencode_generation in ("v1", "v2"):
+        probe = variant_probe or probe_opencode_generation
+        for candidate in candidates:
+            if probe(candidate) == profile.opencode_generation:
+                return candidate, None
+        return None, f"no opencode {profile.opencode_generation} binary found"
     if candidates:
         return candidates[0], None
     return None, f"none of {', '.join(names)} found"
+
+
+def profile_pins_binary_variant(profile: AgentProfile) -> bool:
+    """Profiles that share a binary name with an incompatible sibling (kimi
+    legacy/modern, opencode v1/v2) pick the real binary by probing it."""
+    if profile.tool == "kimi":
+        return profile.kimi_variant in ("legacy", "modern")
+    if profile.tool == "opencode":
+        return profile.opencode_generation in ("v1", "v2")
+    return False
 
 
 def all_which_candidates(names: list[str], path_value: str) -> list[str]:
@@ -4446,6 +4508,72 @@ def probe_kimi_variant(executable: str) -> str | None:
 
 def is_modern_kimi_help_output(help_text: str) -> bool:
     return "--config-file" not in strip_ansi_sequences(help_text)
+
+
+def probe_opencode_generation(executable: str) -> str | None:
+    """Mirror of OpenCodeGenerationProbe: v1 prints `1.18.35`, v2 prints
+    `opencode v2.0.26`. Unprobeable binaries (e.g. a skipped postinstall
+    placeholder) return None so a pinned profile skips them."""
+    cached = OPENCODE_GENERATION_PROBE_CACHE.get(executable)
+    if cached:
+        return cached
+    env = os.environ.copy()
+    env["NO_COLOR"] = "1"
+    env["TERM"] = "dumb"
+    try:
+        result = subprocess.run(
+            [executable, "--version"],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+    except Exception:
+        return None
+    generation = parse_opencode_generation(result.stdout) if result.returncode == 0 else None
+    if generation:
+        OPENCODE_GENERATION_PROBE_CACHE[executable] = generation
+    return generation
+
+
+def parse_opencode_generation(version_output: str) -> str | None:
+    match = re.search(r"(\d+)\.\d+", strip_ansi_sequences(version_output))
+    if not match:
+        return None
+    return "v2" if int(match.group(1)) >= 2 else "v1"
+
+
+OPENCODE_V2_SUBCOMMANDS = {
+    "upgrade", "update", "uninstall", "acp", "api", "debug", "auth", "mcp", "plugin",
+    "models", "stats", "mini", "run", "session", "service", "reload", "pair", "serve",
+}
+OPENCODE_V2_SESSION_SUBCOMMANDS = {"run", "mini"}
+OPENCODE_V2_ROOT_FLAGS_WITH_VALUE = {"--session", "-s", "--prompt", "--server", "--log-level", "--completions"}
+
+
+def opencode_standalone_arguments(arguments: list[str]) -> list[str]:
+    """Mirror of OpenCodeGeneration.standaloneArguments: v2 session launches get
+    a private `--standalone` server so the plugin runs with the pane's env
+    instead of inside the shared background service."""
+    if any(arg in ("--standalone", "--server") or arg.startswith("--server=") for arg in arguments):
+        return list(arguments)
+    if any(arg in ("--help", "-h", "--version", "-v") for arg in arguments):
+        return list(arguments)
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            break
+        if argument.startswith("-"):
+            index += 2 if argument in OPENCODE_V2_ROOT_FLAGS_WITH_VALUE else 1
+            continue
+        if argument not in OPENCODE_V2_SUBCOMMANDS:
+            break
+        if argument not in OPENCODE_V2_SESSION_SUBCOMMANDS:
+            return list(arguments)
+        return arguments[: index + 1] + ["--standalone"] + arguments[index + 1 :]
+    return ["--standalone"] + list(arguments)
 
 
 def strip_ansi_sequences(text: str) -> str:
