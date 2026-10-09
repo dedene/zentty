@@ -126,6 +126,15 @@ assert_equal(
   ["codex", "exec", "--ephemeral", "--output-last-message", "/tmp/release-notes.md", "Draft notes"],
   ReleaseAutomation.codex_release_notes_command(output_path: "/tmp/release-notes.md", prompt: "Draft notes")
 )
+assert_equal(["cursor", "--classic", "--wait"], ReleaseAutomation.release_notes_editor_command("cursor --wait"))
+assert_equal(
+  ["/usr/local/bin/cursor", "--classic", "--wait"],
+  ReleaseAutomation.release_notes_editor_command("/usr/local/bin/cursor --wait")
+)
+assert_equal(["cursor", "--wait", "--classic"], ReleaseAutomation.release_notes_editor_command("cursor --wait --classic"))
+assert_equal(["code", "--wait"], ReleaseAutomation.release_notes_editor_command("code --wait"))
+assert_equal(["vi"], ReleaseAutomation.release_notes_editor_command(nil))
+assert_equal(["vi"], ReleaseAutomation.release_notes_editor_command("  "))
 
 error = assert_raises(ArgumentError) { ReleaseAutomation.validate_version!(channel: "stable", version: "1.2.3-beta.1") }
 assert_match(/Stable releases/, error.message)

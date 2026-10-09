@@ -714,7 +714,7 @@ def edit_text_in_editor!(initial_text, path_hint:)
     file.write(initial_text)
     file.flush
 
-    editor = Shellwords.split(ENV.fetch("EDITOR", "vi"))
+    editor = ReleaseAutomation.release_notes_editor_command(ENV["EDITOR"])
     UI.message("Opening #{path_hint} in #{editor.first}")
     UI.message("Waiting for #{editor.first} to close...")
     sh(*editor, file.path)

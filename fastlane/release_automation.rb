@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "shellwords"
 
 module ReleaseAutomation
   CHANNELS = %w[stable beta].freeze
@@ -164,5 +165,14 @@ module ReleaseAutomation
 
   def codex_release_notes_command(output_path:, prompt:)
     ["codex", "exec", "--ephemeral", "--output-last-message", output_path, prompt]
+  end
+
+  # Cursor 3 opens files from the CLI in its Agents window, where `--wait`
+  # never returns. `--classic` forces a regular editor window.
+  def release_notes_editor_command(editor_env)
+    editor = Shellwords.split(editor_env.to_s.strip.empty? ? "vi" : editor_env)
+    return editor unless File.basename(editor.first) == "cursor" && !editor.include?("--classic")
+
+    [editor.first, "--classic", *editor.drop(1)]
   end
 end
