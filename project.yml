@@ -213,7 +213,7 @@ targets:
         ZENTTY_DISPLAY_NAME: Zentty
         ZENTTY_APP_ICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty$(ZENTTY_BUNDLE_ID_SUFFIX)
-        CURRENT_PROJECT_VERSION: 990
+        CURRENT_PROJECT_VERSION: 991
         MARKETING_VERSION: 0.3.7
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
