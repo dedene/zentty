@@ -59,6 +59,8 @@
 		13F377DF3A4216C68CAFA429 /* ScrollSwitchGestureHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA40FC14CFDB525CB2065ECC /* ScrollSwitchGestureHandlerTests.swift */; };
 		140DAA27ABE4C02EC389E2BB /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 480D9AE00FE2456441DDE19F /* TaskManagerWindowController.swift */; };
 		14192E7073143E85E7A14BE9 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECBF42F4F7C6419804A6596F /* SidebarView.swift */; };
+		1473B82FF74979BB1E17E8ED /* OpenCodeGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DFA87180028DF1155F1F7A /* OpenCodeGenerationTests.swift */; };
+		147AD5C88EB02C00517B2AB5 /* OpenCodeGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3EB312272B1560710B4C35 /* OpenCodeGeneration.swift */; };
 		14D00EA39B1EAE388A237025 /* TerminalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C8698CDC6B6D23FD3F2310 /* TerminalDiagnostics.swift */; };
 		15B1CD25199B045107EB9EAA /* AboutMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9964E75CAB137C49B15001 /* AboutMetadataTests.swift */; };
 		166BEE11322EC8809FACB201 /* AppCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4740E3F7FBB64DB5815643 /* AppCanvasView.swift */; };
@@ -798,6 +800,7 @@
 		1B5FBD6A49E1AC7F9DB7BB3C /* LicensesWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensesWindowController.swift; sourceTree = "<group>"; };
 		1BCA77C435DCC7E4F338789C /* DroidTaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DroidTaskStore.swift; sourceTree = "<group>"; };
 		1CF5DDE2F06EB5CBE4C2E0B9 /* WorklaneState+Testing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneState+Testing.swift"; sourceTree = "<group>"; };
+		1D3EB312272B1560710B4C35 /* OpenCodeGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeGeneration.swift; sourceTree = "<group>"; };
 		1D52E538B9FCEBF92768A1EA /* DevinConfigWriteBack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevinConfigWriteBack.swift; sourceTree = "<group>"; };
 		1D603FA3B4BCDFE0AC7C4342 /* SidebarBookmarkRowAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBookmarkRowAction.swift; sourceTree = "<group>"; };
 		1ED8CC8942CC80500B98FD3D /* ProcessInspectionUnixSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessInspectionUnixSocketTests.swift; sourceTree = "<group>"; };
@@ -979,6 +982,7 @@
 		610F72178BDBE4CFF98801C7 /* PaneAgentTaskItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAgentTaskItems.swift; sourceTree = "<group>"; };
 		61A8FD7688E72C2B2A8099EE /* PaneCommandExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommandExecutorTests.swift; sourceTree = "<group>"; };
 		61F7BA09CEEB123D53CB10C4 /* ServerRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerRegistry.swift; sourceTree = "<group>"; };
+		62DFA87180028DF1155F1F7A /* OpenCodeGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeGenerationTests.swift; sourceTree = "<group>"; };
 		630B5B3D8685C9D8A186AC9B /* WorklaneStoreServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreServerTests.swift; sourceTree = "<group>"; };
 		63590216920018B71F1ACB7A /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		63B1DE306FB0DE066A552C2D /* AgentsSettingsSectionViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsSettingsSectionViewControllerTests.swift; sourceTree = "<group>"; };
@@ -1817,6 +1821,7 @@
 				24AFCE0DB1F7E072081C9D41 /* JSONCRelaxedParse.swift */,
 				D58B814CCB50A93D946D971E /* JSONKeyAccess.swift */,
 				1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */,
+				1D3EB312272B1560710B4C35 /* OpenCodeGeneration.swift */,
 				898B152AC508F23715DB2518 /* OpenCodeLiveThemeSync.swift */,
 				14B5D7C3DB0445971F90C314 /* OpenCodeOverlayLayout.swift */,
 				D52DE33FBF1E4C9F22B1E569 /* OpenCodeThemeSync.swift */,
@@ -2316,6 +2321,7 @@
 				859E02462A30A35800CA0123 /* NotificationStoreTests.swift */,
 				60F71980F96DC3B2B50A8482 /* OnePasswordPromptAttributorTests.swift */,
 				4C571DADB3493CD047A35125 /* OnePasswordPromptFocusCoordinatorTests.swift */,
+				62DFA87180028DF1155F1F7A /* OpenCodeGenerationTests.swift */,
 				11E538276A60D58C85CD53E0 /* OpenCodeLiveThemeSyncTests.swift */,
 				C675B0F7ABA617674B6D9A82 /* OpenCodeThemeSyncTests.swift */,
 				572BB2FACCFA8A236D880F28 /* OpenWithCatalogTests.swift */,
@@ -2790,6 +2796,7 @@
 				F326460BA08B4AB927FD355F /* NotificationStoreTests.swift in Sources */,
 				D40E4EAA6007BCDC4EAE77EC /* OnePasswordPromptAttributorTests.swift in Sources */,
 				CF27B265338D61CF4BC44777 /* OnePasswordPromptFocusCoordinatorTests.swift in Sources */,
+				1473B82FF74979BB1E17E8ED /* OpenCodeGenerationTests.swift in Sources */,
 				03C2B5400305B015742248E2 /* OpenCodeLiveThemeSyncTests.swift in Sources */,
 				D5977945BCFB04E468408EC3 /* OpenCodeThemeSyncTests.swift in Sources */,
 				F246DE4E17B65DFEA465BF98 /* OpenWithCatalogTests.swift in Sources */,
@@ -3109,6 +3116,7 @@
 				7C7C9956FEE2B693F3D176C7 /* OnePasswordPromptAttributor.swift in Sources */,
 				2B3520C9D571691FB2D09616 /* OnePasswordPromptDarwinProcessProvider.swift in Sources */,
 				7050E94B6C4AEDD28D22A2E3 /* OnePasswordPromptFocusCoordinator.swift in Sources */,
+				147AD5C88EB02C00517B2AB5 /* OpenCodeGeneration.swift in Sources */,
 				AA1411A91AE771850C12A19B /* OpenCodeLiveThemeSync.swift in Sources */,
 				7DD2CFCE524E07DC28C237AA /* OpenCodeOverlayLayout.swift in Sources */,
 				E63C4CB2283E7156688DB16C /* OpenCodeThemeSync.swift in Sources */,

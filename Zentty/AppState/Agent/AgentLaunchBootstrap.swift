@@ -129,18 +129,26 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager
             )
         case .opencode:
+            let openCodeExecutablePath = resolvedSiblingExecutablePath(
+                executablePath,
+                binaryNames: ["opencode"],
+                siblingName: ".opencode",
+                fileManager: fileManager
+            )
+            let generation = OpenCodeGenerationProbe.generation(
+                executablePath: openCodeExecutablePath,
+                environment: environment
+            )
             return try openCodeFamilyPlan(
                 toolID: AgentBootstrapTool.opencode.id,
                 displayName: "OpenCode",
                 envPrefix: "OPENCODE",
                 configDirName: "opencode",
-                executablePath: resolvedSiblingExecutablePath(
-                    executablePath,
-                    binaryNames: ["opencode"],
-                    siblingName: ".opencode",
-                    fileManager: fileManager
-                ),
-                arguments: request.arguments,
+                executablePath: openCodeExecutablePath,
+                arguments: generation == .v2
+                    ? OpenCodeGeneration.standaloneArguments(request.arguments)
+                    : request.arguments,
+                pluginResourceDirectoryName: generation.pluginResourceDirectoryName,
                 environment: environment,
                 target: target,
                 runtimeDirectoryURL: runtimeDirectoryURL,
@@ -1235,6 +1243,7 @@ enum AgentLaunchBootstrap {
         configDirName: String,
         executablePath: String,
         arguments: [String],
+        pluginResourceDirectoryName: String = OpenCodeGeneration.v1.pluginResourceDirectoryName,
         environment: [String: String],
         target: AgentIPCTarget,
         runtimeDirectoryURL: URL,
@@ -1257,7 +1266,7 @@ enum AgentLaunchBootstrap {
 
         if let pluginURL = bundle.resourceURL?
             .appendingPathComponent("opencode", isDirectory: true)
-            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(pluginResourceDirectoryName, isDirectory: true)
             .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
            fileManager.isReadableFile(atPath: pluginURL.path) {
             let overlayDirectoryURL = try prepareToolDirectory(
