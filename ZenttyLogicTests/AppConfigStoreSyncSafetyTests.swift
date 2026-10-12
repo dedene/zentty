@@ -165,6 +165,25 @@ final class AppConfigStoreSyncSafetyTests: XCTestCase {
         XCTAssertNil(AppConfigTOML.decode("[sidebar]\nwidth = wide\n"))
     }
 
+    // MARK: - Portability
+
+    func test_custom_app_paths_under_home_are_written_with_tilde_and_read_back_absolute() throws {
+        let homeApp = (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Foo.app")
+        var config = AppConfig.default
+        config.openWith.customApps = [OpenWithCustomApp(id: "custom:foo", name: "Foo", appPath: homeApp)]
+        config.serverDetection.customBrowsers = [
+            ServerBrowserCustomApp(id: "custom:bar", name: "Bar", appPath: "/Applications/Bar.app", bundleIdentifier: nil),
+        ]
+
+        let encoded = AppConfigTOML.encode(config)
+
+        XCTAssertTrue(encoded.contains("path = \"~/Applications/Foo.app\""), encoded)
+        XCTAssertTrue(encoded.contains("path = \"/Applications/Bar.app\""), encoded)
+        let decoded = try XCTUnwrap(AppConfigTOML.decode(encoded))
+        XCTAssertEqual(decoded.openWith.customApps.first?.appPath, homeApp)
+        XCTAssertEqual(decoded.serverDetection.customBrowsers.first?.appPath, "/Applications/Bar.app")
+    }
+
     // MARK: - Helpers
 
     private func makeStore(fileURL: URL) -> AppConfigStore {

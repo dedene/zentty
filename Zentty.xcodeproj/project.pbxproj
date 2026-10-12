@@ -221,6 +221,7 @@
 		50105B75C1AE56AC0B15C8BC /* ExternalOpenDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCFB3084B38247D19A4B9381 /* ExternalOpenDirectories.swift */; };
 		50126121E0F0273501829F97 /* CommandTooltipFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0529815FA8F05D8F52601625 /* CommandTooltipFormatter.swift */; };
 		505E896AF0143A27234A8FD0 /* GhosttyAppearanceSettingsCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F616D86BF9A658C1E1A9D7 /* GhosttyAppearanceSettingsCoordinator.swift */; };
+		50DC61F1C7A18B48624D8E83 /* NotificationSoundManager+SharedCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC4ADDC4B7DF5E375DC95F8 /* NotificationSoundManager+SharedCopy.swift */; };
 		50E494B39C06F67983331C3B /* AgentIntegrationGrandfatherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B1B5C7232C6BA07C385B052 /* AgentIntegrationGrandfatherTests.swift */; };
 		52278F4B3EDD364F309993FF /* AgentIPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D33B3653DD17B96C1CA6222 /* AgentIPC.swift */; };
 		522D0127F4CB6736F0E2AABF /* ServerRelevanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B65C78F4319054821F694BC9 /* ServerRelevanceTests.swift */; };
@@ -485,6 +486,7 @@
 		B3EDFD781B2ECD9598AD51ED /* WorklaneRenameIPCParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A86E5437CA5FE9BF64605D3 /* WorklaneRenameIPCParserTests.swift */; };
 		B4C1005AD0D618DCB0A4C13D /* MoveToWorklaneMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88AFF05A04C7107BED6423F8 /* MoveToWorklaneMenuBuilderTests.swift */; };
 		B78B6869AC1BB4C5B6AA60E4 /* RemoteFileUploadRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B504722337DBCB03722FD8 /* RemoteFileUploadRequest.swift */; };
+		B7D3E61DD2D9EC4E02E8A86F /* NotificationSoundSharingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ABE727DDE802F760725A780 /* NotificationSoundSharingTests.swift */; };
 		B7EDD5E8FF2844DE47EF5D21 /* WorklanePeekKeyMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F1AF8D07B9B05151774B4F /* WorklanePeekKeyMonitorTests.swift */; };
 		B890BDFC9B4E95300EFC5DC3 /* DevinConfigWriteBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D52E538B9FCEBF92768A1EA /* DevinConfigWriteBack.swift */; };
 		B891884A0BB67B8A6BEE5C36 /* ServerWatchRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60B3AD9AA8F799603B573B28 /* ServerWatchRunner.swift */; };
@@ -754,6 +756,7 @@
 		08CB7FE3B87F05DE3D6B4426 /* ThemeCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalogService.swift; sourceTree = "<group>"; };
 		08F65940ED0F93690BAF103D /* SidebarSubagentBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSubagentBadgeTests.swift; sourceTree = "<group>"; };
 		0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreColorTests.swift; sourceTree = "<group>"; };
+		0ABE727DDE802F760725A780 /* NotificationSoundSharingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSharingTests.swift; sourceTree = "<group>"; };
 		0AD3FFBDDBB1362295BD5207 /* SettingsFormBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFormBuilder.swift; sourceTree = "<group>"; };
 		0AF5B9241156382C39C53043 /* WorklaneStoreCodexWriteBackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreCodexWriteBackTests.swift; sourceTree = "<group>"; };
 		0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteBackdropView.swift; sourceTree = "<group>"; };
@@ -1388,6 +1391,7 @@
 		FA47D32BA165D8930DF1C3D6 /* PaneDragSidebarEdgeScrollDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragSidebarEdgeScrollDriver.swift; sourceTree = "<group>"; };
 		FA659CF430F18149B5025C7E /* AboutWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutWindowControllerTests.swift; sourceTree = "<group>"; };
 		FA88E1E64FB65E4B800852D7 /* GeneralSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsSectionViewController.swift; sourceTree = "<group>"; };
+		FAC4ADDC4B7DF5E375DC95F8 /* NotificationSoundManager+SharedCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundManager+SharedCopy.swift"; sourceTree = "<group>"; };
 		FB5154316309F374526C5D5C /* SidebarWorklaneRowButtonColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButtonColorTests.swift; sourceTree = "<group>"; };
 		FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneColor.swift; sourceTree = "<group>"; };
 		FC4C8BA27DE89609B50C437C /* TerminalOpenURLResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOpenURLResolver.swift; sourceTree = "<group>"; };
@@ -1513,6 +1517,7 @@
 				AAE5397C365594A855625BE1 /* CloseConfirmationContext.swift */,
 				6BE40F31B76E5EA4A9A830CB /* CloseConfirmationSelection.swift */,
 				E706A2076EAD5DD8C5AD0882 /* NotificationSoundManager.swift */,
+				FAC4ADDC4B7DF5E375DC95F8 /* NotificationSoundManager+SharedCopy.swift */,
 				9E06B6AF9A2D4A3F2872F62E /* NotificationStore.swift */,
 				E101FFDD49FF6625AC16DDED /* PaneAuxiliaryState.swift */,
 				C87618B1A31450033E24677E /* PaneCheckBack.swift */,
@@ -2335,6 +2340,7 @@
 				88AFF05A04C7107BED6423F8 /* MoveToWorklaneMenuBuilderTests.swift */,
 				C771F4DD0F6077D2E72754D0 /* NotificationPopoverViewModelTests.swift */,
 				9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */,
+				0ABE727DDE802F760725A780 /* NotificationSoundSharingTests.swift */,
 				859E02462A30A35800CA0123 /* NotificationStoreTests.swift */,
 				60F71980F96DC3B2B50A8482 /* OnePasswordPromptAttributorTests.swift */,
 				4C571DADB3493CD047A35125 /* OnePasswordPromptFocusCoordinatorTests.swift */,
@@ -2813,6 +2819,7 @@
 				B4C1005AD0D618DCB0A4C13D /* MoveToWorklaneMenuBuilderTests.swift in Sources */,
 				D4A63F03ECDA1CF35971F9DE /* NotificationPopoverViewModelTests.swift in Sources */,
 				5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */,
+				B7D3E61DD2D9EC4E02E8A86F /* NotificationSoundSharingTests.swift in Sources */,
 				F326460BA08B4AB927FD355F /* NotificationStoreTests.swift in Sources */,
 				D40E4EAA6007BCDC4EAE77EC /* OnePasswordPromptAttributorTests.swift in Sources */,
 				CF27B265338D61CF4BC44777 /* OnePasswordPromptFocusCoordinatorTests.swift in Sources */,
@@ -3133,6 +3140,7 @@
 				F12EB9E3A329F13DDB765ADC /* NotificationChromeCoordinator.swift in Sources */,
 				FA750A3CFFC86E664AAA4A00 /* NotificationInboxButton.swift in Sources */,
 				C9042A63C4AF443C0A4C8A55 /* NotificationPopoverView.swift in Sources */,
+				50DC61F1C7A18B48624D8E83 /* NotificationSoundManager+SharedCopy.swift in Sources */,
 				EE2D32723FAD470779B8D7F9 /* NotificationSoundManager.swift in Sources */,
 				AF800D9AC1461F47A82F6214 /* NotificationStore.swift in Sources */,
 				22A5ED0A03EBCBB3248944C3 /* NotificationsSettingsSectionViewController.swift in Sources */,

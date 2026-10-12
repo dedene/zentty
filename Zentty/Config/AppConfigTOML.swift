@@ -110,7 +110,7 @@ enum AppConfigTOML {
                 lines.append("[[open_with.custom_apps]]")
                 lines.append("id = \(encode(string: app.id))")
                 lines.append("name = \(encode(string: app.name))")
-                lines.append("path = \(encode(string: app.appPath))")
+                lines.append("path = \(encode(string: portablePath(app.appPath)))")
                 lines.append("")
             }
 
@@ -132,7 +132,7 @@ enum AppConfigTOML {
                 lines.append("[[server_detection.custom_browsers]]")
                 lines.append("id = \(encode(string: browser.id))")
                 lines.append("name = \(encode(string: browser.name))")
-                lines.append("path = \(encode(string: browser.appPath))")
+                lines.append("path = \(encode(string: portablePath(browser.appPath)))")
                 if let bundleIdentifier = browser.bundleIdentifier, !bundleIdentifier.isEmpty {
                     lines.append("bundle_identifier = \(encode(string: bundleIdentifier))")
                 }
@@ -707,7 +707,7 @@ enum AppConfigTOML {
             guard let decoded = decodeString(assignment.value) else {
                 return false
             }
-            app.appPath = decoded
+            app.appPath = (decoded as NSString).expandingTildeInPath
         default:
             return true
         }
@@ -734,7 +734,7 @@ enum AppConfigTOML {
             guard let decoded = decodeString(assignment.value) else {
                 return false
             }
-            browser.appPath = decoded
+            browser.appPath = (decoded as NSString).expandingTildeInPath
         case "bundle_identifier":
             guard let decoded = decodeString(assignment.value) else {
                 return false
@@ -1025,6 +1025,12 @@ enum AppConfigTOML {
         case "false": return false
         default: return nil
         }
+    }
+
+    /// App paths under the home folder are written as `~/…` so config.toml
+    /// still works on a Mac with a different user name; decode expands them.
+    private static func portablePath(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
     }
 
     private static func parseAssignment(_ line: String) -> (key: String, value: String)? {
