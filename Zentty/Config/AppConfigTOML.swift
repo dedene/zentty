@@ -994,11 +994,12 @@ enum AppConfigTOML {
     ) -> AssignmentResult {
         // key = agent id (`AgentBootstrapTool.id`); value = quoted state.
         guard let raw = decodeString(assignment.value) else { return false }
-        // Unknown/future state values are skipped (not stored) so an older app
-        // reading a newer config never discards the whole file; recognized
-        // values are stored under the raw agent key, which keeps the section
-        // forward-compatible with agents this build doesn't know yet.
-        guard let state = AgentIntegrationState(rawValue: raw) else { return true }
+        // Unknown/future state values are kept as preserved lines (not modeled)
+        // so an older app reading a newer config neither discards the whole
+        // file nor drops the value on save; recognized values are stored under
+        // the raw agent key, which keeps the section forward-compatible with
+        // agents this build doesn't know yet.
+        guard let state = AgentIntegrationState(rawValue: raw) else { return .unknownKey }
         config.agentIntegrations.states[assignment.key] = state
         return true
     }

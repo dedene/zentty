@@ -27,6 +27,9 @@ final class BookmarkStore {
     /// Bytes last read from or written to disk, so the watcher can tell the
     /// store's own saves apart from a sync or an external edit.
     private var lastKnownData: Data?
+    /// The file on disk couldn't be read at the last reload. The next save
+    /// moves it aside first so a broken hand edit isn't lost.
+    private var diskFileIsUnreadable = false
 
     init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
@@ -57,11 +60,13 @@ final class BookmarkStore {
     }
 
     /// Picks up a bookmarks.json that changed on disk (another Mac via sync, a
-    /// hand edit). An unreadable file is ignored so a half-written or broken
-    /// edit doesn't wipe the list; a deleted file empties it.
+    /// hand edit). Also runs before every change so a save never writes from a
+    /// stale list. An unreadable file is ignored so a broken edit doesn't wipe
+    /// the list (the next save sets it aside); a deleted file empties it.
     func reloadFromDisk() {
         guard fileManager.fileExists(atPath: fileURL.path) else {
             lastKnownData = nil
+            diskFileIsUnreadable = false
             guard !templates.isEmpty else { return }
             templates = []
             notifyObservers()
@@ -73,10 +78,12 @@ final class BookmarkStore {
         do {
             let bundle = try decoder.decode(WorkspaceTemplateBundle.self, from: data)
             lastKnownData = data
+            diskFileIsUnreadable = false
             guard bundle.templates != templates else { return }
             templates = bundle.templates
             notifyObservers()
         } catch {
+            diskFileIsUnreadable = true
             bookmarkStoreLogger.error(
                 "Ignoring unreadable bookmarks change at \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
@@ -99,6 +106,7 @@ final class BookmarkStore {
     }
 
     func upsert(_ template: WorkspaceTemplate) {
+        reloadFromDisk()
         var updated = template
         updated.updatedAt = Date()
         if let index = templates.firstIndex(where: { $0.id == updated.id }) {
@@ -110,6 +118,7 @@ final class BookmarkStore {
     }
 
     func delete(id: UUID) {
+        reloadFromDisk()
         guard templates.contains(where: { $0.id == id }) else {
             return
         }
@@ -118,6 +127,7 @@ final class BookmarkStore {
     }
 
     func rename(id: UUID, to name: String) {
+        reloadFromDisk()
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               let index = templates.firstIndex(where: { $0.id == id }) else {
@@ -129,6 +139,7 @@ final class BookmarkStore {
     }
 
     func setPinned(id: UUID, pinned: Bool) {
+        reloadFromDisk()
         guard let index = templates.firstIndex(where: { $0.id == id }),
               templates[index].pinned != pinned else {
             return
@@ -139,6 +150,7 @@ final class BookmarkStore {
     }
 
     func recordUse(id: UUID) {
+        reloadFromDisk()
         guard let index = templates.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -147,6 +159,7 @@ final class BookmarkStore {
     }
 
     func duplicate(id: UUID) -> WorkspaceTemplate? {
+        reloadFromDisk()
         guard let original = template(withID: id) else {
             return nil
         }
@@ -186,6 +199,10 @@ final class BookmarkStore {
     }
 
     private func persist() {
+        if diskFileIsUnreadable {
+            Self.preserveCorruptFile(at: fileURL, fileManager: fileManager, error: CocoaError(.fileReadCorruptFile))
+            diskFileIsUnreadable = false
+        }
         let bundle = WorkspaceTemplateBundle(savedAt: Date(), templates: templates)
         do {
             // Write through a symlinked bookmarks.json so dotfile setups keep their link

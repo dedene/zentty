@@ -68,6 +68,18 @@ final class NotificationSoundSharingTests: XCTestCase {
         XCTAssertNotNil(NotificationSoundManager.urlForPreview(soundName: name))
     }
 
+    func test_installing_a_synced_sound_prunes_this_macs_previous_custom_sound() throws {
+        let previous = "\(NotificationSoundManager.customFilePrefix)\(UUID().uuidString).caf"
+        try Data("old".utf8).write(to: librarySoundsURL.appendingPathComponent(previous))
+        let synced = "\(NotificationSoundManager.customFilePrefix)\(UUID().uuidString).caf"
+        try FileManager.default.createDirectory(at: sharedSoundsURL, withIntermediateDirectories: true)
+        try Data("synced".utf8).write(to: sharedSoundsURL.appendingPathComponent(synced))
+
+        NotificationSoundManager.installSharedSoundIfMissing(named: synced)
+
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: librarySoundsURL.path), [synced])
+    }
+
     func test_system_sounds_and_unknown_names_are_left_alone() {
         XCTAssertFalse(NotificationSoundManager.installSharedSoundIfMissing(named: "Glass"))
         XCTAssertFalse(NotificationSoundManager.installSharedSoundIfMissing(named: "zentty-custom-missing.caf"))

@@ -52,7 +52,10 @@ struct AppConfigPreservedTOML: Equatable, Sendable {
 
         for var block in Self.blocks(of: encodedLines) {
             if let header = block.first, let extras = pendingExtras.removeValue(forKey: header) {
-                block.append(contentsOf: extras)
+                // A key this build now writes itself (e.g. an agent state set
+                // after an unknown value was read) wins over the preserved line.
+                let encodedKeys = Set(block.dropFirst().compactMap(Self.key(of:)))
+                block.append(contentsOf: extras.filter { Self.key(of: $0).map { !encodedKeys.contains($0) } ?? true })
             }
             blocks.append(block)
         }
@@ -69,6 +72,11 @@ struct AppConfigPreservedTOML: Equatable, Sendable {
             merged.append(contentsOf: block)
         }
         return merged
+    }
+
+    private static func key(of line: String) -> String? {
+        guard let separatorIndex = line.firstIndex(of: "=") else { return nil }
+        return line[..<separatorIndex].trimmingCharacters(in: .whitespaces)
     }
 
     /// Splits encoded lines into blocks that each start at a header, with

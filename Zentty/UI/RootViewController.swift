@@ -139,7 +139,8 @@ final class RootViewController: NSViewController {
         // Shared by every window, so the alert can't belong to this one (it
         // may have closed by the time a later save fails).
         store.onPersistError = { error in
-            RootViewController.presentBookmarkPersistError(error, in: NSApp.keyWindow)
+            // Not keyWindow: that's often the bookmarks popover, which closes.
+            RootViewController.presentBookmarkPersistError(error, in: NSApp.mainWindow ?? NSApp.keyWindow)
         }
         return store
     }()

@@ -24,7 +24,7 @@ Share `~/.config/zentty` and add this to its `.stignore`:
 run
 ```
 
-Zentty 0.3.7 and earlier kept session state in the same folder. If one of your Macs still runs such a version, ignore these too:
+Zentty 0.3.7 and earlier kept session state in the same folder. Newer versions copy it out once and leave the old files in place, so add these too:
 
 ```
 restore-snapshot.json
@@ -32,6 +32,8 @@ restore-lifecycle.json
 tmux-compat-store.json
 tmux-compat-trace.jsonl
 ```
+
+Once every Mac runs a newer version, you can delete those four files from `~/.config/zentty`.
 
 Don't sync the open windows and worklanes themselves. They belong to the Mac they run on, and each Mac restores its own session.
 
@@ -41,7 +43,7 @@ Don't sync the open windows and worklanes themselves. They belong to the Mac the
 - **bookmarks.json** reloads live too.
 - **agents/** is read at launch. Restart Zentty after changing it.
 
-If `config.toml` contains a line Zentty can't read, Zentty logs it and won't save over the file until you fix it. In the meantime it runs on its last good settings, or on defaults if the file was already broken at launch. Zentty also keeps sections and keys it doesn't recognize when it saves, so a Mac on an older version doesn't strip settings a newer version added.
+If `config.toml` contains a line Zentty can't read, Zentty logs it and won't save over the file until you fix it. In the meantime it runs on its last good settings, or on defaults if the file was already broken at launch. Zentty also keeps sections and keys it doesn't recognize when it saves, so a Mac on an older version doesn't strip settings a newer version added. This works from the version after 0.3.7 onward; 0.3.7 and earlier treat an unknown section as a broken file and reset it to defaults on their next save, so keep shared Macs on the same version. Keys inside individual open-with apps, browsers and shortcut bindings aren't covered.
 
 ## Bookmarks
 

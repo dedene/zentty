@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let sharedSoundLogger = Logger(subsystem: "be.zenjoy.zentty", category: "NotificationSound")
 
 /// config.toml stores a custom sound by file name, but macOS only plays it
 /// from ~/Library/Sounds, which isn't synced. Each install also keeps a copy
@@ -31,6 +34,9 @@ extension NotificationSoundManager {
             }
             try fileManager.copyItem(at: soundsDirectory.appendingPathComponent(name), to: destinationURL)
         } catch {
+            sharedSoundLogger.warning(
+                "Couldn't keep a shared copy of \(name, privacy: .public) in \(sharedDirectory.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             return
         }
         removeCustomSoundFiles(in: sharedDirectory, keeping: name, ownedPrefix: customFilePrefix)
@@ -51,8 +57,15 @@ extension NotificationSoundManager {
         do {
             try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
             try fileManager.copyItem(at: sharedURL, to: installedURL)
+            // The synced selection replaced this Mac's previous custom sound.
+            if name.hasPrefix(customFilePrefix) {
+                removeCustomSoundFiles(in: soundsDirectory, keeping: name, ownedPrefix: customFilePrefix)
+            }
             return true
         } catch {
+            sharedSoundLogger.warning(
+                "Couldn't install shared sound \(name, privacy: .public) into \(soundsDirectory.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             return false
         }
     }

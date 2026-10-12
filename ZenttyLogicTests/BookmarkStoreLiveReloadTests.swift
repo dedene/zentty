@@ -27,8 +27,8 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
     func test_external_write_reloads_templates_and_notifies_observers() throws {
         let store = BookmarkStore(fileURL: fileURL)
         let reloaded = expectation(description: "external bookmarks write picked up")
-        _ = store.addObserver {
-            if store.templates.map(\.name) == ["From other Mac"] {
+        _ = store.addObserver { [weak store] in
+            if store?.templates.map(\.name) == ["From other Mac"] {
                 reloaded.fulfill()
             }
         }
@@ -40,8 +40,8 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
 
     func test_save_after_external_write_keeps_both_bookmarks() throws {
         let store = BookmarkStore(fileURL: fileURL)
+        // No reloadFromDisk(): the save must not wait for the debounced watcher.
         try writeBundle(names: ["From other Mac"])
-        store.reloadFromDisk()
 
         store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
 
@@ -82,6 +82,22 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
 
         XCTAssertEqual(store.templates.map(\.name), ["Local"])
         XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "{ half a sync")
+    }
+
+    func test_save_over_an_unreadable_file_sets_the_broken_file_aside_first() throws {
+        let store = BookmarkStore(fileURL: fileURL)
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+
+        store.upsert(WorkspaceTemplate(name: "Another", kind: .bookmark))
+
+        XCTAssertEqual(Set(BookmarkStore(fileURL: fileURL).templates.map(\.name)), ["Local", "Another"])
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectoryURL.path)
+        let backup = try XCTUnwrap(siblings.first { $0.contains(".corrupt-") }, "\(siblings)")
+        XCTAssertEqual(
+            try String(contentsOf: temporaryDirectoryURL.appendingPathComponent(backup), encoding: .utf8),
+            "{ broken hand edit"
+        )
     }
 
     private func writeBundle(names: [String]) throws {

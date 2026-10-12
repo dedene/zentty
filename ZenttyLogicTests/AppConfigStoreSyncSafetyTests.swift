@@ -83,6 +83,49 @@ final class AppConfigStoreSyncSafetyTests: XCTestCase {
         XCTAssertTrue(persisted.contains("width = 310"), persisted)
     }
 
+    func test_update_is_based_on_the_file_on_disk_not_the_last_watcher_reload() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = makeStore(fileURL: fileURL)
+        // A synced edit lands; save before the debounced watcher has run.
+        try "[panes]\nshow_labels = false\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        try store.update { $0.sidebar.width = 333 }
+
+        let decoded = try XCTUnwrap(AppConfigTOML.decode(try String(contentsOf: fileURL, encoding: .utf8)))
+        XCTAssertFalse(decoded.panes.showLabels, "the synced change must survive the save")
+        XCTAssertEqual(decoded.sidebar.width, 333)
+    }
+
+    func test_update_right_after_a_broken_edit_does_not_overwrite_it() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = makeStore(fileURL: fileURL)
+        let brokenEdit = "[sidebar]\nwidth = \n"
+        try brokenEdit.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        try store.update { $0.sidebar.width = 333 }
+
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), brokenEdit)
+        XCTAssertTrue(store.isWriteProtected)
+    }
+
+    func test_own_save_is_not_mistaken_for_an_external_edit() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = makeStore(fileURL: fileURL)
+        let origins = OriginRecorder()
+        _ = store.addObserver(withOrigin: { _, origin in origins.append(origin) })
+
+        // localThemeName is kept in memory but never written back to the file.
+        try store.update { $0.appearance.localThemeName = "TokyoNight" }
+        try store.update { $0.sidebar.width = 333 }
+
+        let settled = expectation(description: "watcher debounce elapsed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { settled.fulfill() }
+        wait(for: [settled], timeout: 2)
+
+        XCTAssertEqual(store.current.appearance.localThemeName, "TokyoNight")
+        XCTAssertEqual(origins.values, [.inProcess, .inProcess])
+    }
+
     // MARK: - Forward compatibility
 
     func test_unknown_section_loads_and_survives_a_save() throws {
@@ -151,6 +194,21 @@ final class AppConfigStoreSyncSafetyTests: XCTestCase {
         XCTAssertEqual(AppConfigTOML.decode(encoded), config, "re-decoding must be stable")
     }
 
+    func test_unknown_agent_state_value_survives_and_a_later_known_value_replaces_it() throws {
+        let config = try XCTUnwrap(AppConfigTOML.decode("""
+        [agent_integrations.states]
+        claude = "future_state"
+        """))
+
+        XCTAssertTrue(AppConfigTOML.encode(config).contains("claude = \"future_state\""))
+
+        var updated = config
+        updated.agentIntegrations.states["claude"] = .on
+        let encoded = AppConfigTOML.encode(updated)
+        XCTAssertEqual(encoded.components(separatedBy: "claude = ").count, 2, encoded)
+        XCTAssertTrue(encoded.contains("claude = \"on\""), encoded)
+    }
+
     func test_retired_keys_are_read_but_not_preserved() throws {
         let source = """
         [appearance]
@@ -199,5 +257,22 @@ final class AppConfigStoreSyncSafetyTests: XCTestCase {
         let suiteName = "ZenttyTests.AppConfigSyncSafety.\(suffix).\(UUID().uuidString)"
         defaultsSuiteNames.append(suiteName)
         return UserDefaults(suiteName: suiteName)!
+    }
+}
+
+private final class OriginRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [AppConfigChangeOrigin] = []
+
+    var values: [AppConfigChangeOrigin] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ origin: AppConfigChangeOrigin) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(origin)
     }
 }
