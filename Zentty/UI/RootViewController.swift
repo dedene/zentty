@@ -135,9 +135,11 @@ final class RootViewController: NSViewController {
     private var bookmarksPopover: NSPopover?
     private var bookmarksPopoverObserverToken: NSObjectProtocol?
     private lazy var bookmarkStore: BookmarkStore = {
-        let store = BookmarkStore(fileURL: AppConfigStore.bookmarksFileURL())
-        store.onPersistError = { [weak self] error in
-            self?.presentBookmarkPersistError(error)
+        let store = BookmarkStore.shared
+        // Shared by every window, so the alert can't belong to this one (it
+        // may have closed by the time a later save fails).
+        store.onPersistError = { error in
+            RootViewController.presentBookmarkPersistError(error, in: NSApp.keyWindow)
         }
         return store
     }()
@@ -3554,14 +3556,14 @@ private extension RootViewController {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
-    private func presentBookmarkPersistError(_ error: Error) {
+    private static func presentBookmarkPersistError(_ error: Error, in window: NSWindow?) {
         let alert = NSAlert()
         alert.messageText = "Couldn't save bookmarks"
         let bookmarksPath = (AppConfigStore.bookmarksFileURL().path as NSString).abbreviatingWithTildeInPath
         alert.informativeText = "Zentty couldn't write to \(bookmarksPath): \(error.localizedDescription)"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-        if let window = view.window {
+        if let window {
             alert.beginSheetModal(for: window)
         } else {
             alert.runModal()

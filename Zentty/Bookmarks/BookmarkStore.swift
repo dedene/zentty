@@ -5,6 +5,11 @@ private let bookmarkStoreLogger = Logger(subsystem: "be.zenjoy.zentty", category
 
 @MainActor
 final class BookmarkStore {
+    /// The app's one store for the user's bookmarks.json. Every window shares
+    /// it: per-window copies each rewrote the whole file from a stale list and
+    /// erased bookmarks saved in other windows.
+    static let shared = BookmarkStore(fileURL: AppConfigStore.bookmarksFileURL())
+
     private(set) var templates: [WorkspaceTemplate]
 
     /// Invoked when persisting changes to disk fails. RootViewController wires
@@ -18,6 +23,10 @@ final class BookmarkStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var observers: [UUID: () -> Void] = [:]
+    private let fileWatcher = DirectoryChangeWatcher(label: "com.zentty.bookmarks-watcher")
+    /// Bytes last read from or written to disk, so the watcher can tell the
+    /// store's own saves apart from a sync or an external edit.
+    private var lastKnownData: Data?
 
     init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
@@ -32,7 +41,46 @@ final class BookmarkStore {
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
 
-        self.templates = Self.load(from: fileURL, fileManager: fileManager, decoder: decoder)
+        let loaded = Self.load(from: fileURL, fileManager: fileManager, decoder: decoder)
+        self.templates = loaded.templates
+        self.lastKnownData = loaded.data
+
+        fileWatcher.onChange = { [weak self] in
+            Task { @MainActor in
+                self?.reloadFromDisk()
+            }
+        }
+        fileWatcher.watch(directoryURLs: [
+            fileURL.deletingLastPathComponent(),
+            fileManager.resolvingSymlinkTarget(at: fileURL).deletingLastPathComponent(),
+        ])
+    }
+
+    /// Picks up a bookmarks.json that changed on disk (another Mac via sync, a
+    /// hand edit). An unreadable file is ignored so a half-written or broken
+    /// edit doesn't wipe the list; a deleted file empties it.
+    func reloadFromDisk() {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            lastKnownData = nil
+            guard !templates.isEmpty else { return }
+            templates = []
+            notifyObservers()
+            return
+        }
+        guard let data = try? Data(contentsOf: fileURL), data != lastKnownData else {
+            return
+        }
+        do {
+            let bundle = try decoder.decode(WorkspaceTemplateBundle.self, from: data)
+            lastKnownData = data
+            guard bundle.templates != templates else { return }
+            templates = bundle.templates
+            notifyObservers()
+        } catch {
+            bookmarkStoreLogger.error(
+                "Ignoring unreadable bookmarks change at \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     @discardableResult
@@ -128,6 +176,10 @@ final class BookmarkStore {
 
     private func persistAndNotify() {
         persist()
+        notifyObservers()
+    }
+
+    private func notifyObservers() {
         for handler in observers.values {
             handler()
         }
@@ -145,6 +197,7 @@ final class BookmarkStore {
             )
             let data = try encoder.encode(bundle)
             try data.write(to: targetURL, options: .atomic)
+            lastKnownData = data
         } catch {
             bookmarkStoreLogger.error(
                 "Failed to persist bookmarks to \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
@@ -157,9 +210,9 @@ final class BookmarkStore {
         from url: URL,
         fileManager: FileManager,
         decoder: JSONDecoder
-    ) -> [WorkspaceTemplate] {
+    ) -> (templates: [WorkspaceTemplate], data: Data?) {
         guard fileManager.fileExists(atPath: url.path) else {
-            return []
+            return ([], nil)
         }
         do {
             let data = try Data(contentsOf: url)
@@ -169,10 +222,10 @@ final class BookmarkStore {
                     "Bookmarks file at \(url.path, privacy: .public) has schemaVersion \(bundle.schemaVersion), newer than current \(WorkspaceTemplateBundle.currentSchemaVersion). Loading anyway; saves may drop unknown fields."
                 )
             }
-            return bundle.templates
+            return (bundle.templates, data)
         } catch {
             preserveCorruptFile(at: url, fileManager: fileManager, error: error)
-            return []
+            return ([], nil)
         }
     }
 
