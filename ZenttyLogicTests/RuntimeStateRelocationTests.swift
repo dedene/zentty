@@ -3,7 +3,8 @@ import XCTest
 
 /// Restore snapshots and tmux-compat state describe one Mac's live session.
 /// They moved out of ~/.config/zentty so that folder can be synced between
-/// Macs without dragging that state along.
+/// Macs without dragging that state along. The move must stay safe while
+/// older Zentty builds still run against the old files.
 final class RuntimeStateRelocationTests: XCTestCase {
     private var temporaryDirectoryURL: URL!
     private var configDirectoryURL: URL!
@@ -37,52 +38,69 @@ final class RuntimeStateRelocationTests: XCTestCase {
         )
     }
 
-    func test_moves_runtime_state_and_leaves_settings_in_place() throws {
+    func test_copies_session_state_once_and_leaves_the_old_files_for_older_builds() throws {
         try write("config.toml", "[sidebar]\n", in: configDirectoryURL)
-        try write("bookmarks.json", "{}", in: configDirectoryURL)
         for name in RuntimeStateRelocation.fileNames {
             try write(name, name, in: configDirectoryURL)
         }
 
-        let moved = RuntimeStateRelocation.migrateIfNeeded(
-            from: configDirectoryURL,
-            to: stateDirectoryURL
-        )
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
 
-        XCTAssertEqual(Set(moved), Set(RuntimeStateRelocation.fileNames))
-        XCTAssertEqual(try contents(of: configDirectoryURL), ["bookmarks.json", "config.toml"])
+        XCTAssertEqual(Set(copied), Set(RuntimeStateRelocation.fileNames))
         for name in RuntimeStateRelocation.fileNames {
             XCTAssertEqual(try read(name, in: stateDirectoryURL), name)
+            XCTAssertEqual(try read(name, in: configDirectoryURL), name, "an older build may still be using \(name)")
         }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stateDirectoryURL.appendingPathComponent("config.toml").path))
     }
 
-    func test_newer_file_in_old_location_replaces_older_state() throws {
-        // An older build ran in between and wrote the old location again.
-        try write("restore-snapshot.json", "stale", in: stateDirectoryURL)
-        try setModificationDate(Date(timeIntervalSinceNow: -3600), of: "restore-snapshot.json", in: stateDirectoryURL)
-        try write("restore-snapshot.json", "fresh", in: configDirectoryURL)
-
+    func test_later_writes_by_an_older_build_are_never_pulled_in() throws {
+        try write("restore-snapshot.json", "first", in: configDirectoryURL)
         RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+        try write("restore-snapshot.json", "own session", in: stateDirectoryURL)
 
-        XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "fresh")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: configDirectoryURL.appendingPathComponent("restore-snapshot.json").path))
+        // Another worktree build on 0.3.7 keeps writing the old location.
+        try write("restore-snapshot.json", "other instance", in: configDirectoryURL)
+        try write("tmux-compat-store.json", "other instance", in: configDirectoryURL)
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(copied, [])
+        XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "own session")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stateDirectoryURL.appendingPathComponent("tmux-compat-store.json").path))
     }
 
-    func test_older_file_in_old_location_is_dropped_without_touching_newer_state() throws {
-        try write("restore-snapshot.json", "old", in: configDirectoryURL)
-        try setModificationDate(Date(timeIntervalSinceNow: -3600), of: "restore-snapshot.json", in: configDirectoryURL)
+    func test_existing_state_is_never_replaced_and_restore_files_move_as_a_pair() throws {
         try write("restore-snapshot.json", "current", in: stateDirectoryURL)
+        try write("restore-snapshot.json", "old", in: configDirectoryURL)
+        try write("restore-lifecycle.json", "old", in: configDirectoryURL)
 
-        let moved = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
 
-        XCTAssertEqual(moved, [])
+        XCTAssertEqual(copied, [])
         XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "current")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: configDirectoryURL.appendingPathComponent("restore-snapshot.json").path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: stateDirectoryURL.appendingPathComponent("restore-lifecycle.json").path),
+            "a lifecycle file without its own snapshot could fake a crash recovery"
+        )
     }
 
-    func test_nothing_to_move_is_a_no_op() throws {
+    func test_a_failed_copy_is_retried_on_the_next_launch() throws {
+        try write("restore-snapshot.json", "session", in: configDirectoryURL)
+        // A regular file where the state directory should be makes every copy fail.
+        try Data().write(to: stateDirectoryURL)
+
         XCTAssertEqual(RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL), [])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: stateDirectoryURL.path))
+
+        try FileManager.default.removeItem(at: stateDirectoryURL)
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(copied, ["restore-snapshot.json"])
+        XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "session")
+    }
+
+    func test_nothing_to_copy_only_marks_the_relocation_done() throws {
+        XCTAssertEqual(RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL), [])
+        XCTAssertEqual(try contents(of: stateDirectoryURL), [RuntimeStateRelocation.markerFileName])
     }
 
     func test_tmux_compat_store_lives_in_the_state_directory() {
@@ -103,13 +121,6 @@ final class RuntimeStateRelocationTests: XCTestCase {
 
     private func read(_ name: String, in directory: URL) throws -> String {
         try String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8)
-    }
-
-    private func setModificationDate(_ date: Date, of name: String, in directory: URL) throws {
-        try FileManager.default.setAttributes(
-            [.modificationDate: date],
-            ofItemAtPath: directory.appendingPathComponent(name).path
-        )
     }
 
     private func contents(of directory: URL) throws -> [String] {

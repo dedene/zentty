@@ -14,7 +14,7 @@ if !isHostedTestMode, ZenttyBuildFlavor.current == .dev {
 }
 if !isHostedTestMode {
     // Restore snapshots and tmux-compat state used to live in the config dir;
-    // move them out so ~/.config/zentty can be synced between Macs.
+    // copy them out once so ~/.config/zentty can be synced between Macs.
     let home = FileManager.default.homeDirectoryForCurrentUser
     RuntimeStateRelocation.migrateIfNeeded(
         from: ZenttyBuildFlavor.current.configDirectoryURL(homeDirectoryURL: home),
