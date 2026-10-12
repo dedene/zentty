@@ -56,6 +56,8 @@ Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Dev
 
 See [Zentty CLI](docs/cli.md) for command-line usage.
 
+See [Configuration and Syncing](docs/configuration.md) for where settings live and how to share them between Macs.
+
 ## Agent Skill
 
 Agents can install the Zentty CLI skill to discover pane-aware commands while running inside Zentty:
