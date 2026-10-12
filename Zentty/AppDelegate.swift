@@ -15,6 +15,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
+    /// The real config file means the real app: its restore state lives with
+    /// the other per-Mac state. A config store pointed elsewhere (tests, tools)
+    /// keeps restore state beside it, so it never touches the user's session.
+    private static func sessionStateDirectoryURL(for configStore: AppConfigStore) -> URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard configStore.fileURL == AppConfigStore.defaultFileURL(homeDirectoryURL: home) else {
+            return configStore.fileURL.deletingLastPathComponent()
+        }
+        return ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
+    }
+
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
@@ -63,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.appUpdateController = appUpdateController
             ?? makeDefaultAppUpdateController(configStore: configStore)
         let resolvedSessionRestoreStore = sessionRestoreStore
-            ?? SessionRestoreStore(configDirectoryURL: configStore.fileURL.deletingLastPathComponent())
+            ?? SessionRestoreStore(stateDirectoryURL: Self.sessionStateDirectoryURL(for: configStore))
         self.sessionRestoreStore = resolvedSessionRestoreStore
         self.sessionRestorePersistence = SessionRestoreSnapshotPersistence(store: resolvedSessionRestoreStore)
         self.windowFrameDefaults = windowFrameDefaults

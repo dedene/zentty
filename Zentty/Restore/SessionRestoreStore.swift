@@ -34,10 +34,10 @@ final class SessionRestoreStore {
         self.fileManager = fileManager
     }
 
-    convenience init(configDirectoryURL: URL) {
+    convenience init(stateDirectoryURL: URL) {
         self.init(
-            snapshotURL: configDirectoryURL.appendingPathComponent("restore-snapshot.json"),
-            lifecycleURL: configDirectoryURL.appendingPathComponent("restore-lifecycle.json")
+            snapshotURL: stateDirectoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: stateDirectoryURL.appendingPathComponent("restore-lifecycle.json")
         )
     }
 

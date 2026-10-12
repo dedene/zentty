@@ -39,8 +39,8 @@ enum ZenttyBuildFlavor: String, Equatable, Sendable {
         return name
     }
 
-    /// `~/.config/<name>`: config.toml, bookmarks.json, restore snapshots,
-    /// tmux-compat state.
+    /// `~/.config/<name>`: config.toml and bookmarks.json, the files worth
+    /// syncing between Macs. Per-Mac session state lives in `stateDirectoryURL`.
     var configDirectoryName: String {
         switch self {
         case .production: "zentty"
@@ -94,5 +94,15 @@ enum ZenttyBuildFlavor: String, Equatable, Sendable {
         homeDirectoryURL
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent(configDirectoryName, isDirectory: true)
+    }
+
+    /// `~/Library/Application Support/<libraryFolderName>`: state that belongs
+    /// to this Mac's running sessions (restore snapshot, tmux-compat state,
+    /// agent session stores) and must not be synced with the config dir.
+    func stateDirectoryURL(homeDirectoryURL: URL) -> URL {
+        homeDirectoryURL
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent(libraryFolderName, isDirectory: true)
     }
 }
