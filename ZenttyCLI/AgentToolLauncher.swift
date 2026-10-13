@@ -222,6 +222,20 @@ struct AgentToolLauncher {
                 return "devin early-exit flag: \(flag)"
             }
             return nil
+        case .muse:
+            if environment["ZENTTY_MUSE_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_MUSE_HOOKS_DISABLED=1"
+            }
+            // Only the TUI, `resume` and `exec` run sessions (and fire hooks);
+            // every management subcommand passes straight through.
+            if let subcommand = arguments.first, !subcommand.hasPrefix("-"),
+               Self.musePassthroughSubcommands.contains(subcommand) {
+                return "muse passthrough subcommand: \(subcommand)"
+            }
+            if let flag = arguments.first(where: { Self.museEarlyExitFlags.contains(Self.optionName($0)) }) {
+                return "muse early-exit flag: \(flag)"
+            }
+            return nil
         case .smallHarness:
             if environment["ZENTTY_SMALL_HARNESS_HOOKS_DISABLED"] == "1" {
                 return "ZENTTY_SMALL_HARNESS_HOOKS_DISABLED=1"
@@ -327,6 +341,16 @@ struct AgentToolLauncher {
     ]
 
     static let devinEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-V",
+    ]
+
+    static let musePassthroughSubcommands: Set<String> = [
+        "config", "export", "trace", "model-profile", "skills", "voice",
+        "plugins", "sandbox", "schema", "serve", "session-message", "mcp",
+        "auth", "login", "logout", "init", "help",
+    ]
+
+    static let museEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-V",
     ]
 
@@ -582,6 +606,8 @@ struct AgentToolLauncher {
             return "Mistral Vibe"
         case .devin:
             return "Devin"
+        case .muse:
+            return "Muse Code"
         case .smallHarness:
             return "Small Harness"
         case .manifest(let id):
@@ -617,6 +643,7 @@ struct AgentToolLauncher {
             "ZENTTY_HERMES_HOOKS_DISABLED",
             "ZENTTY_VIBE_HOOKS_DISABLED",
             "ZENTTY_DEVIN_HOOKS_DISABLED",
+            "ZENTTY_MUSE_HOOKS_DISABLED",
             "ZENTTY_SMALL_HARNESS_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
@@ -625,6 +652,7 @@ struct AgentToolLauncher {
             "HERMES_HOME",
             "KIMI_CODE_HOME",
             "KIMI_SHARE_DIR",
+            "TBH_MANAGED_HOOKS_PATH",
             "XDG_CONFIG_HOME",
             "XDG_STATE_HOME",
             "OPENCODE_CONFIG",
@@ -689,6 +717,14 @@ struct AgentToolLauncher {
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
         case .smallHarness:
             return EnvironmentPatch(set: [:], unset: ["SMALL_HARNESS_MANAGED_HOOKS_FILE", "SMALL_HARNESS_MANAGED_HOOKS_JSON"])
+        case .muse:
+            // A bypassed launch inside a Zentty-launched muse would otherwise
+            // inherit the parent's managed-hooks overlay; a user-set path stays.
+            if let inherited = environment["TBH_MANAGED_HOOKS_PATH"]?.nonEmpty,
+               ZenttyRuntimePaths.isRuntimeOverlayPath(inherited) {
+                return EnvironmentPatch(set: [:], unset: ["TBH_MANAGED_HOOKS_PATH"])
+            }
+            return EnvironmentPatch()
         case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe, .devin, .manifest:
             return EnvironmentPatch()
         }
@@ -732,6 +768,10 @@ struct AgentToolLauncher {
             environmentPatch.set["VIBE_ENABLE_EXPERIMENTAL_HOOKS"] = "true"
         case .devin:
             environmentPatch.set["ZENTTY_DEVIN_PID"] = "\(getpid())"
+        case .muse:
+            // The `muse` launcher script execs its versioned binary in place,
+            // so this PID stays the agent process.
+            environmentPatch.set["ZENTTY_MUSE_PID"] = "\(getpid())"
         case .smallHarness:
             environmentPatch.set["ZENTTY_SMALL_HARNESS_PID"] = "\(getpid())"
         case .opencode, .pi, .omp, .manifest:
@@ -794,6 +834,7 @@ struct AgentToolLauncher {
             "ZENTTY_HERMES_PID",
             "ZENTTY_VIBE_PID",
             "ZENTTY_DEVIN_PID",
+            "ZENTTY_MUSE_PID",
             "ZENTTY_SMALL_HARNESS_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in

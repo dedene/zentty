@@ -393,6 +393,37 @@ Hooks fired inside a subagent share the parent's `session_id`/`prompt_id` and ca
 Devin session ids are word slugs (`thorn-angora`), resumable with `devin --resume <slug>`. Restore drafts keep the `.sessionID` identity requirement; the slug is validated (`[a-z0-9][a-z0-9-]*`) before it is interpolated into the resume command.
 
 
+## Muse Code
+
+Wrapped `muse` launches (Meta's Muse Code CLI) write a per-launch managed hooks file under Zentty's runtime directory and point `TBH_MANAGED_HOOKS_PATH` at it. Muse reads Claude Code-format hooks from that file. The env var **replaces** the `managed_hooks_path` from `~/.config/muse/settings.json` rather than layering on it, so the overlay starts from the managed file the user already had (a user-set env var first, then the settings key, with `~`/`$HOME` expanded) and appends the Zentty hooks. `~/.config/muse` is never written. A nested `muse` inherits its parent's overlay path; that is never used as a source.
+
+Muse scrubs the hook environment down to `PATH`, `HOME`, `MUSE_*` and the names in `managed_hooks_env_vars`. The plan therefore passes `-c managed_hooks_env_vars=[…]` on every run with the Zentty routing variables (`ZENTTY_INSTANCE_SOCKET`, `ZENTTY_INSTANCE_ID`, `ZENTTY_WINDOW_ID`, `ZENTTY_WORKLANE_ID`, `ZENTTY_PANE_ID`, `ZENTTY_PANE_TOKEN`, `ZENTTY_MUSE_PID`). The list is unioned with any list from `settings.json` and any user `-c managed_hooks_env_vars=…`, because Muse refuses a run that sets one key twice. For `exec` the flag goes after the subcommand (Muse rejects it before); otherwise it is prepended (the TUI and `resume` accept it on either side).
+
+Only the TUI, `resume` and `exec` bootstrap. Management subcommands (`login`, `auth`, `plugins`, `skills`, `mcp`, `config`, `serve`, …) and `--help`/`--version` pass straight through. Set `ZENTTY_MUSE_HOOKS_DISABLED=1` to bypass the overlay.
+
+Zentty registers these hooks, each calling `zentty ipc agent-event --adapter=muse`:
+
+- `SessionStart` -> session register (UUID) + PID attach + `starting`
+- `SessionEnd` -> clear session + PID mapping
+- `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` -> `running`
+- `PostToolBatch` -> task progress from `write_todos`, and answers an open question when the batch holds `request_user_input`. Muse's own tools (`write_todos`, `request_user_input`) never fire `PreToolUse`/`PostToolUse`.
+- `PermissionRequest` -> `needs-input` (approval)
+- `Notification`: `permission_prompt` re-asserts a still-pending approval; `question_prompt` -> `needs-input` (decision). It is the only signal that `request_user_input` is waiting, and the question text only arrives with the answer.
+- `ToolUseStart` (async) -> `running` once the approved call starts, which is the moment the prompt was answered
+- `SubagentStart`/`SubagentStop` -> subagent badge (model from the payload, agent type from the `subagent_spawn` call's `role`)
+- `PreCompact`/`PostCompact` -> `running` (`Compacting`)
+- `Stop`, `StopFailure`, `Interrupt` (async) -> `idle`. An `Interrupt` whose `turn_id` is not the open turn is a late arrival and is dropped.
+
+### Threads
+
+Muse fires hooks for every thread, not just the root session. Delegated subagents and Muse's internal reminder agents (`skill-reminder`, `scope-reminder`, `goal-reminder`, `verify-reminder`) report their own thread id as `session_id`, and the reminder agents keep running *after* the root `Stop`. The root id is always in `MUSE_SESSION_ID`, which the CLI forwards, so only root-thread events drive the pane. The reminders' `submit_reminder_decision` traffic is always dropped, and so are `SubagentStart`/`SubagentStop` with a `-reminder` id.
+
+A delegated subagent can still block the session. Its `PermissionRequest` or `question_prompt` raises `needs-input` on the root, keyed to the child's thread. Only that thread's `ToolUseStart`/`PostToolBatch` for the asked-about tool answers it, along with the child's next tool completion or its `SubagentStop`. The root's own tool traffic does not.
+
+### Session restore
+
+Muse session ids are UUIDs, resumable with `muse resume <uuid>`. Without one, restore falls back to `muse resume --last` in the pane's working directory.
+
 ## Pi
 
 Wrapped `pi` launches inject an ephemeral coding-agent extension with `-e <bundle>/pi/extensions/zentty-pi-zentty.js`. The extension shares implementation with OMP via `shared/pi-family/zentty-pi-family-zentty.js` and emits canonical JSON through `zentty ipc agent-event`.

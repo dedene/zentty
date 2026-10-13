@@ -1134,6 +1134,8 @@ enum PanePresentationNormalizer {
             return ["vibe", "mistral vibe", "mistral-vibe"].contains(normalized)
         case .devin:
             return ["devin"].contains(normalized)
+        case .muse:
+            return ["muse", "muse code", "muse-code"].contains(normalized)
         case .smallHarness:
             return ["small-harness", "small harness", "smallharness"].contains(normalized)
         case .custom(let name):

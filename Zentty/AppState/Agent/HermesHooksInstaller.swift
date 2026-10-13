@@ -103,7 +103,7 @@ enum HermesHooksInstaller {
         fileManager: FileManager = .default
     ) throws {
         if let existingConfig = try? String(contentsOf: configURL, encoding: .utf8) {
-            let nextConfig = removeManagedBlock(from: existingConfig)
+            let nextConfig = removeManagedHooks(from: existingConfig)
             if nextConfig != existingConfig {
                 try nextConfig.write(to: configURL, atomically: true, encoding: .utf8)
             }
@@ -133,12 +133,13 @@ enum HermesHooksInstaller {
         }
     }
 
-    /// True when the Hermes config currently contains a well-formed Zentty
-    /// managed block. Mirrors `removeManagedBlock` exactly — a standalone
-    /// (trimmed) begin-marker line followed by a matching end-marker line — so a
-    /// corrupted or commented-out marker isn't mistaken for a live install (a
-    /// false positive would wrongly grandfather the agent `on`). Used by the
-    /// grandfather migration to recognize pre-existing installs.
+    /// True when the Hermes config currently contains Zentty-managed hooks:
+    /// either a well-formed marker block, or bare entries pointing at our
+    /// managed scripts. Hermes re-serializes `config.yaml` on save, which drops
+    /// the marker comments, so the bare form is the common one in the wild.
+    /// Mirrors `removeManagedHooks` exactly, so a corrupted or commented-out
+    /// marker isn't mistaken for a live install. Used by the grandfather
+    /// migration and the Settings panel.
     static func isInstalled(
         configURL: URL = defaultConfigURL(),
         fileManager: FileManager = .default
@@ -149,15 +150,7 @@ enum HermesHooksInstaller {
         else {
             return false
         }
-        let lines = config.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines) == hookMarker
-        }) else {
-            return false
-        }
-        return lines[start...].contains {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines) == hookEndMarker
-        }
+        return removeManagedHooks(from: config) != config
     }
 
     // Void return (dropped an unused Bool) so this directly witnesses the
@@ -177,7 +170,7 @@ enum HermesHooksInstaller {
     }
 
     private static func installManagedBlock(in source: String, hermesHomeURL: URL) -> String {
-        var text = removeManagedBlock(from: source)
+        var text = removeManagedHooks(from: source)
         if text.isEmpty {
             text = "hooks:\n"
         }
@@ -216,6 +209,13 @@ enum HermesHooksInstaller {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    /// Strips every Zentty-managed hook from a Hermes config: the marker block
+    /// we write, plus any marker-less managed entries left after Hermes
+    /// rewrote the file. Foreign hooks are left untouched.
+    static func removeManagedHooks(from source: String) -> String {
+        removeUnmarkedManagedHooks(from: removeManagedBlock(from: source))
+    }
+
     private static func removeManagedBlock(from source: String) -> String {
         var lines = source.components(separatedBy: "\n")
         guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == hookMarker }),
@@ -224,6 +224,120 @@ enum HermesHooksInstaller {
         }
         lines.removeSubrange(start...end)
         return lines.joined(separator: "\n")
+    }
+
+    /// Line-based walk of the top-level `hooks:` mapping (block style, with or
+    /// without indented sequences). Drops list items whose lines reference a
+    /// managed script, then drops event keys left without items. An emptied
+    /// mapping becomes `hooks: {}` so Hermes still reads a mapping.
+    private static func removeUnmarkedManagedHooks(from source: String) -> String {
+        var lines = source.components(separatedBy: "\n")
+        guard let hooksIndex = lines.firstIndex(where: {
+            $0.range(of: #"^hooks:\s*$"#, options: .regularExpression) != nil
+        }) else {
+            return source
+        }
+
+        var sectionEnd = hooksIndex + 1
+        while sectionEnd < lines.count,
+              isBlankOrComment(lines[sectionEnd]) || indentation(of: lines[sectionEnd]) > 0 {
+            sectionEnd += 1
+        }
+        let section = Array(lines[(hooksIndex + 1)..<sectionEnd])
+        guard let keyIndent = section.first(where: { !isBlankOrComment($0) }).map(indentation(of:)) else {
+            return source
+        }
+
+        // Event spans: a key line at keyIndent through the line before the
+        // next key at keyIndent (sequence items may sit at keyIndent too).
+        var keptSection: [String] = []
+        var index = 0
+        var changed = false
+        while index < section.count {
+            let line = section[index]
+            guard !isBlankOrComment(line), indentation(of: line) == keyIndent, !isSequenceItem(line) else {
+                keptSection.append(line)
+                index += 1
+                continue
+            }
+            var eventEnd = index + 1
+            while eventEnd < section.count {
+                let next = section[eventEnd]
+                if !isBlankOrComment(next), indentation(of: next) <= keyIndent, !isSequenceItem(next) {
+                    break
+                }
+                eventEnd += 1
+            }
+            let body = Array(section[(index + 1)..<eventEnd])
+            let (keptBody, removedItems, keptItems) = removeManagedItems(from: body)
+            if removedItems > 0 {
+                changed = true
+                if keptItems > 0 {
+                    keptSection.append(line)
+                    keptSection.append(contentsOf: keptBody)
+                }
+            } else {
+                keptSection.append(line)
+                keptSection.append(contentsOf: body)
+            }
+            index = eventEnd
+        }
+
+        guard changed else {
+            return source
+        }
+        if keptSection.allSatisfy(isBlankOrComment) {
+            lines[hooksIndex] = "hooks: {}"
+        }
+        lines.replaceSubrange((hooksIndex + 1)..<sectionEnd, with: keptSection)
+        return lines.joined(separator: "\n")
+    }
+
+    private static func removeManagedItems(from body: [String]) -> (kept: [String], removed: Int, keptItems: Int) {
+        var kept: [String] = []
+        var removed = 0
+        var keptItems = 0
+        var index = 0
+        while index < body.count {
+            let line = body[index]
+            guard isSequenceItem(line) else {
+                kept.append(line)
+                index += 1
+                continue
+            }
+            let itemIndent = indentation(of: line)
+            var itemEnd = index + 1
+            while itemEnd < body.count {
+                let next = body[itemEnd]
+                if !isBlankOrComment(next), indentation(of: next) <= itemIndent {
+                    break
+                }
+                itemEnd += 1
+            }
+            let item = body[index..<itemEnd]
+            if item.contains(where: { !isBlankOrComment($0) && isManagedHookCommand($0) }) {
+                removed += 1
+            } else {
+                keptItems += 1
+                kept.append(contentsOf: item)
+            }
+            index = itemEnd
+        }
+        return (kept, removed, keptItems)
+    }
+
+    private static func indentation(of line: String) -> Int {
+        line.prefix(while: { $0 == " " }).count
+    }
+
+    private static func isBlankOrComment(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed.hasPrefix("#")
+    }
+
+    private static func isSequenceItem(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == "-" || trimmed.hasPrefix("- ")
     }
 
     private static func installManagedScripts(

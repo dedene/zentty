@@ -60,7 +60,7 @@ enum TmuxCompatStoreIO {
     private static let lock = NSLock()
 
     static func defaultFileURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        ZenttyBuildFlavor.current.configDirectoryURL(homeDirectoryURL: home)
+        ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
             .appendingPathComponent("tmux-compat-store.json", isDirectory: false)
     }
 

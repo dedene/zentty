@@ -202,7 +202,7 @@ enum WorklaneSessionEnvironment {
 
     private static func defaultTmuxCompatTracePath() -> String {
         ZenttyBuildFlavor.current
-            .configDirectoryURL(homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser)
+            .stateDirectoryURL(homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser)
             .appendingPathComponent("tmux-compat-trace.jsonl", isDirectory: false)
             .path
     }

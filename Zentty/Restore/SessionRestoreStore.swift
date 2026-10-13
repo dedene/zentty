@@ -34,10 +34,10 @@ final class SessionRestoreStore {
         self.fileManager = fileManager
     }
 
-    convenience init(configDirectoryURL: URL) {
+    convenience init(stateDirectoryURL: URL) {
         self.init(
-            snapshotURL: configDirectoryURL.appendingPathComponent("restore-snapshot.json"),
-            lifecycleURL: configDirectoryURL.appendingPathComponent("restore-lifecycle.json")
+            snapshotURL: stateDirectoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: stateDirectoryURL.appendingPathComponent("restore-lifecycle.json")
         )
     }
 
@@ -567,7 +567,7 @@ enum SessionRestoreDraftExporter {
 
     private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
         switch tool {
-        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode, .hermes, .vibe, .devin:
+        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode, .hermes, .vibe, .devin, .muse:
             return .sessionID
         case .gemini, .pi, .omp, .grok, .agy, .smallHarness:
             return .workingDirectory
@@ -831,6 +831,21 @@ enum AgentResumeCommandBuilder {
                 return nil
             }
             return "devin --resume \(sessionID)"
+        case .muse:
+            // Muse Code session ids are UUIDs, resumable via `muse resume <uuid>`.
+            // Without one, `--last` reopens the newest session in this workspace.
+            if draft.sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard hasWorkingDirectory(draft) else {
+                    logRejectedWorkingDirectory(for: draft)
+                    return nil
+                }
+                return "muse resume --last"
+            }
+            guard let sessionID = validatedMuseSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            return "muse resume \(sessionID)"
         case .custom(let name):
             guard let resume = AgentManifestRegistry.provider()
                 .manifest(displayName: name)?.resume
@@ -1009,6 +1024,13 @@ enum AgentResumeCommandBuilder {
             return nil
         }
         return .legacy(sessionID: uuid.uuidString.lowercased())
+    }
+
+    private static func validatedMuseSessionID(from sessionID: String) -> String? {
+        guard let uuid = UUID(uuidString: sessionID) else {
+            return nil
+        }
+        return uuid.uuidString.lowercased()
     }
 
     private static func validatedDroidSessionID(from sessionID: String) -> String? {

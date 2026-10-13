@@ -40,7 +40,7 @@
 - **1Password prompts point home.** When `op` or ssh-agent asks for approval, Zentty tells you which pane triggered it and can jump there.
 - **Stays awake.** Zentty caffeinates the Mac while an agent is running.
 
-Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Devin, Droid, Gemini CLI, Grok Build, Hermes Agent, Kimi, Mistral Vibe, Oh My Pi, OpenCode, Pi, and Small Harness. Any other tool can join via the [Agent Status Protocol](docs/agent-status-protocol.md).
+Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Devin, Droid, Gemini CLI, Grok Build, Hermes Agent, Kimi, Mistral Vibe, Muse Code, Oh My Pi, OpenCode, Pi, and Small Harness. Any other tool can join via the [Agent Status Protocol](docs/agent-status-protocol.md).
 
 **Projects**
 - **Dev servers and PRs in the sidebar.** Running localhost servers show as clickable ports. Panes on a branch with a PR show its checks and review state.
@@ -55,6 +55,8 @@ Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Dev
 - **Scriptable.** Drive worklanes and panes from the embedded `zentty` CLI.
 
 See [Zentty CLI](docs/cli.md) for command-line usage.
+
+See [Configuration and Syncing](docs/configuration.md) for where settings live and how to share them between Macs.
 
 ## Agent Skill
 

@@ -1504,6 +1504,10 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_HERMES_PID",
         "ZENTTY_VIBE_PID",
         "ZENTTY_DEVIN_PID",
+        "ZENTTY_MUSE_PID",
+        // Muse Code hooks run for the root session and for every child thread
+        // (subagents, internal reminder agents); the root id tells them apart.
+        "MUSE_SESSION_ID",
         "ZENTTY_SMALL_HARNESS_PID",
     ]
 

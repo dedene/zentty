@@ -163,6 +163,7 @@ enum NotificationSoundManager {
         try? FileManager.default.removeItem(at: transaction.temporaryDirectory)
         // Drop the previous custom sound (and any orphans) now that the new one is committed.
         pruneCustomSounds(keeping: transaction.internalName)
+        shareInstalledSound(named: transaction.internalName)
     }
 
     private static func rollbackCustomSoundInstall(_ transaction: CustomSoundInstallTransaction) {
@@ -177,13 +178,9 @@ enum NotificationSoundManager {
     /// when the user switches back to a system or default sound. Files with another flavor's
     /// prefix are left alone.
     static func pruneCustomSounds(keeping keepName: String?, ownedPrefix: String = customFilePrefix) {
-        let dir = soundsDirectory
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
-            return
-        }
-        for entry in entries
-        where entry.hasPrefix(ownedPrefix) && entry.hasSuffix(".\(customFileExtension)") && entry != keepName {
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent(entry))
+        removeCustomSoundFiles(in: soundsDirectory, keeping: keepName, ownedPrefix: ownedPrefix)
+        if let sharedSoundsDirectory {
+            removeCustomSoundFiles(in: sharedSoundsDirectory, keeping: keepName, ownedPrefix: ownedPrefix)
         }
     }
 
@@ -258,6 +255,7 @@ enum NotificationSoundManager {
     /// Returns a file URL suitable for NSSound(contentsOf:) preview for custom sounds, or nil.
     static func urlForPreview(soundName: String) -> URL? {
         guard isCustomSoundName(soundName) else { return nil }
+        installSharedSoundIfMissing(named: soundName)
         let url = soundsDirectory.appendingPathComponent(soundName)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }

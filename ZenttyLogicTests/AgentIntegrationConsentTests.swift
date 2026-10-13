@@ -64,6 +64,8 @@ final class AgentIntegrationConsentTests: XCTestCase {
         // Devin uses an ephemeral --config overlay; nothing persists, so no
         // consent prompt.
         XCTAssertEqual(AgentBootstrapTool.devin.defaultIntegrationState, .on)
+        // Muse uses an ephemeral managed-hooks file under the runtime dir.
+        XCTAssertEqual(AgentBootstrapTool.muse.defaultIntegrationState, .on)
         XCTAssertEqual(AgentBootstrapTool.smallHarness.defaultIntegrationState, .on)
     }
 
@@ -106,6 +108,7 @@ final class AgentIntegrationConsentTests: XCTestCase {
         XCTAssertEqual(AgentIntegrationConsent.gate(for: .claude, storedState: nil, isRestore: false), .proceed)
         XCTAssertEqual(AgentIntegrationConsent.gate(for: .codex, storedState: nil, isRestore: true), .proceed)
         XCTAssertEqual(AgentIntegrationConsent.gate(for: .devin, storedState: nil, isRestore: false), .proceed)
+        XCTAssertEqual(AgentIntegrationConsent.gate(for: .muse, storedState: nil, isRestore: false), .proceed)
         XCTAssertEqual(AgentIntegrationConsent.gate(for: .smallHarness, storedState: nil, isRestore: true), .proceed)
     }
 

@@ -2,6 +2,7 @@
   "name": "opencode",
   "command": "opencode",
   "real_binary_names": ["opencode"],
+  "opencode_generation": "v1",
   "version_args": ["--version"],
   "launch_args_by_scenario": {
     "smoke": [
@@ -70,9 +71,19 @@
     ],
     "manual_compact": [
       {
-        "after": 5,
-        "text": "/compact\r",
+        "after": 8,
+        "text": "Reply with the single word OK\r",
+        "label": "seed-session"
+      },
+      {
+        "after": 45,
+        "text": "/compact",
         "label": "manual-compact"
+      },
+      {
+        "after": 48,
+        "text": "\r",
+        "label": "submit-compact"
       }
     ]
   },

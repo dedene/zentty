@@ -41,7 +41,7 @@ final class WorklaneSessionEnvironmentTests: XCTestCase {
         let shimDirectory = try XCTUnwrap(AgentStatusHelper.tmuxShimDirectoryPath())
         XCTAssertEqual(env["ZENTTY_TMUX_SHIM_DIR"], shimDirectory)
         XCTAssertTrue(
-            env["ZENTTY_TMUX_COMPAT_TRACE_PATH"]?.hasSuffix(".config/zentty/tmux-compat-trace.jsonl") == true
+            env["ZENTTY_TMUX_COMPAT_TRACE_PATH"]?.hasSuffix("Library/Application Support/Zentty/tmux-compat-trace.jsonl") == true
         )
         let pathEntries = try XCTUnwrap(env["PATH"]).split(separator: ":").map(String.init)
         XCTAssertEqual(pathEntries.first, shimDirectory)

@@ -468,6 +468,48 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
         XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
     }
 
+    func test_builder_returns_muse_resume_command_for_uuid_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-muse",
+            kind: .agentResume,
+            toolName: "Muse Code",
+            sessionID: "01A1312B-07C1-7EB0-8D56-C65F7B11496B",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "muse resume 01a1312b-07c1-7eb0-8d56-c65f7b11496b"
+        )
+    }
+
+    func test_builder_returns_muse_resume_last_when_session_id_blank_and_cwd_present() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-muse",
+            kind: .agentResume,
+            toolName: "Muse Code",
+            sessionID: "",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertEqual(AgentResumeCommandBuilder.command(for: draft), "muse resume --last")
+    }
+
+    func test_builder_returns_nil_for_muse_when_session_id_is_not_a_uuid() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-muse",
+            kind: .agentResume,
+            toolName: "Muse Code",
+            sessionID: "abc;rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
     func test_builder_returns_gemini_resume_command_when_working_directory_exists_without_session_id() {
         let draft = PaneRestoreDraft(
             paneID: "pane-gemini",

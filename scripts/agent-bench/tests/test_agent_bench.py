@@ -158,6 +158,56 @@ class SyntheticScenarioTests(unittest.TestCase):
         self.assertEqual(profiles["kimi"].kimi_variant, "legacy")
         self.assertEqual(profiles["kimi-code"].tool, "kimi")
         self.assertEqual(profiles["kimi-code"].kimi_variant, "modern")
+        self.assertEqual(profiles["opencode"].opencode_generation, "v1")
+        self.assertEqual(profiles["opencode-v2"].tool, "opencode")
+        self.assertEqual(profiles["opencode-v2"].opencode_generation, "v2")
+        self.assertNotIn("tasks", profiles["opencode-v2"].launch_args_by_scenario)
+
+    def test_parse_opencode_generation_reads_v1_and_styled_v2_versions(self):
+        self.assertEqual(agent_bench.parse_opencode_generation("1.18.35\n"), "v1")
+        self.assertEqual(agent_bench.parse_opencode_generation("\x1b[1mopencode\x1b[0m v2.0.26\n"), "v2")
+        self.assertIsNone(agent_bench.parse_opencode_generation("Error: postinstall script was not run"))
+
+    def test_opencode_standalone_arguments_mirror_bootstrap(self):
+        cases = [
+            ([], ["--standalone"]),
+            (["run", "hi"], ["run", "--standalone", "hi"]),
+            (["--session", "ses_x"], ["--standalone", "--session", "ses_x"]),
+            (["--prompt", "run"], ["--standalone", "--prompt", "run"]),
+            (["mini"], ["mini", "--standalone"]),
+            (["auth", "login"], ["auth", "login"]),
+            (["--server", "http://127.0.0.1:1"], ["--server", "http://127.0.0.1:1"]),
+            (["run", "--standalone", "hi"], ["run", "--standalone", "hi"]),
+            (["--version"], ["--version"]),
+        ]
+        for arguments, expected in cases:
+            self.assertEqual(agent_bench.opencode_standalone_arguments(arguments), expected, arguments)
+
+    def test_resolve_agent_binary_picks_pinned_opencode_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            v1 = first / "opencode"
+            v2 = second / "opencode"
+            for binary in (v1, v2):
+                binary.write_text("#!/bin/sh\n", encoding="utf-8")
+                binary.chmod(0o755)
+            profiles = agent_bench.load_profiles(ROOT / "profiles")
+            path_value = os.pathsep.join([str(first), str(second)])
+            probe = lambda path: "v2" if pathlib.Path(path) == v2 else "v1"
+
+            resolved_v2, skip_v2 = agent_bench.resolve_agent_binary(profiles["opencode-v2"], path_value, variant_probe=probe)
+            resolved_v1, _ = agent_bench.resolve_agent_binary(profiles["opencode"], path_value, variant_probe=probe)
+            missing, skip = agent_bench.resolve_agent_binary(profiles["opencode-v2"], str(first), variant_probe=probe)
+
+        self.assertEqual(resolved_v2, str(v2))
+        self.assertIsNone(skip_v2)
+        self.assertEqual(resolved_v1, str(v1))
+        self.assertIsNone(missing)
+        self.assertEqual(skip, "no opencode v2 binary found")
 
     def test_post_stop_notification_detector_flags_late_notification(self):
         records = [
@@ -206,8 +256,12 @@ class SyntheticScenarioTests(unittest.TestCase):
             profiles["opencode"].expectations["manual_compact"].required_events,
             ["session.start", "agent.compacting"],
         )
-        self.assertIn("manual_compact", profiles["opencode"].input_by_scenario)
-        self.assertEqual(profiles["opencode"].input_by_scenario["manual_compact"][0]["text"], "/compact\r")
+        # /compact on the empty home screen has no session to compact, and an
+        # Enter sent in the same write is swallowed by the autocomplete popup:
+        # seed a session first, then type the command and submit separately.
+        for name in ("opencode", "opencode-v2"):
+            texts = [step["text"] for step in profiles[name].input_by_scenario["manual_compact"]]
+            self.assertEqual(texts, ["Reply with the single word OK\r", "/compact", "\r"], name)
 
     def test_cursor_profile_defines_session_capture_restore_and_interactive_completion(self):
         profile_dir = ROOT / "profiles"
@@ -3232,8 +3286,10 @@ class ProfileTests(unittest.TestCase):
                 "kilo",
                 "kimi",
                 "kimi-code",
+                "muse",
                 "omp",
                 "opencode",
+                "opencode-v2",
                 "pi",
                 "small-harness",
                 "vibe",
@@ -4407,6 +4463,130 @@ class LaunchPlannerTests(unittest.TestCase):
                     self.assertIn("SessionStart", config["hooks"])
                     self.assertEqual(plan["arguments"][2:], ["-p", "hello"])
                     self.assertEqual(source.read_text(), original)
+
+    def test_muse_plan_writes_managed_hooks_and_env_allowlist(self):
+        for arguments, expected in (
+            (["--model", "m", "hi"], ["-c", None, "--model", "m", "hi"]),
+            (["exec", "--provider", "echo", "hi"], ["exec", "-c", None, "--provider", "echo", "hi"]),
+            (["resume", "abc"], ["-c", None, "resume", "abc"]),
+        ):
+            with self.subTest(arguments=arguments), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                profile = agent_bench.load_profiles(ROOT / "profiles")["muse"]
+                planner = agent_bench.LaunchPlanner(profile=profile, scenario="smoke", run_dir=root / "run", resources_dir=None)
+
+                plan = planner._plan_muse("/usr/bin/muse", arguments, {"HOME": str(root)}, "/usr/bin/zentty")
+
+                allowlist_index = plan["arguments"].index("-c") + 1
+                self.assertEqual(
+                    [None if index == allowlist_index else value for index, value in enumerate(plan["arguments"])],
+                    expected,
+                )
+                allowlist = json.loads(plan["arguments"][allowlist_index].split("=", 1)[1])
+                self.assertEqual(allowlist, agent_bench.MUSE_HOOK_ENV_VARS)
+                hooks = json.loads(pathlib.Path(plan["setEnvironment"]["TBH_MANAGED_HOOKS_PATH"]).read_text())["hooks"]
+                self.assertEqual(hooks["Stop"][0]["hooks"][0]["command"], '"/usr/bin/zentty" ipc agent-event --adapter=muse')
+                self.assertTrue(hooks["ToolUseStart"][0]["hooks"][0]["async"])
+                self.assertTrue(hooks["Interrupt"][0]["hooks"][0]["async"])
+                self.assertNotIn("async", hooks["Stop"][0]["hooks"][0])
+
+    def test_muse_plan_merges_user_managed_hooks_and_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            managed = root / "enterprise-hooks.json"
+            managed.write_text('{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"audit"}]}]}}', encoding="utf-8")
+            (root / ".config" / "muse").mkdir(parents=True)
+            (root / ".config" / "muse" / "settings.json").write_text(
+                json.dumps({"managed_hooks_path": str(managed), "managed_hooks_env_vars": ["AUDIT"]}), encoding="utf-8"
+            )
+            profile = agent_bench.load_profiles(ROOT / "profiles")["muse"]
+            planner = agent_bench.LaunchPlanner(profile=profile, scenario="smoke", run_dir=root / "run", resources_dir=None)
+
+            plan = planner._plan_muse(
+                "/usr/bin/muse", ["-c", 'managed_hooks_env_vars=["MINE"]', "hi"], {"HOME": str(root)}, "/usr/bin/zentty"
+            )
+
+            self.assertEqual(plan["arguments"].count("-c"), 1)
+            allowlist = json.loads(plan["arguments"][1].split("=", 1)[1])
+            self.assertEqual(allowlist, ["AUDIT", "MINE", *agent_bench.MUSE_HOOK_ENV_VARS])
+            hooks = json.loads(pathlib.Path(plan["setEnvironment"]["TBH_MANAGED_HOOKS_PATH"]).read_text())["hooks"]
+            self.assertEqual([group["hooks"][0]["command"] for group in hooks["Stop"]][0], "audit")
+            self.assertEqual(len(hooks["Stop"]), 2)
+
+    def test_muse_plan_nested_launch_falls_back_to_tilde_settings_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "hooks.json").write_text('{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"audit"}]}]}}', encoding="utf-8")
+            (root / ".config" / "muse").mkdir(parents=True)
+            (root / ".config" / "muse" / "settings.json").write_text('{"managed_hooks_path":"~/hooks.json"}', encoding="utf-8")
+            profile = agent_bench.load_profiles(ROOT / "profiles")["muse"]
+            planner = agent_bench.LaunchPlanner(profile=profile, scenario="smoke", run_dir=root / "run", resources_dir=None)
+
+            plan = planner._plan_muse(
+                "/usr/bin/muse", [],
+                {"HOME": str(root), "TBH_MANAGED_HOOKS_PATH": "/Users/x/.config/zentty/run/launch/w/p/muse/managed-hooks.json"},
+                "/usr/bin/zentty",
+            )
+
+            hooks = json.loads(pathlib.Path(plan["setEnvironment"]["TBH_MANAGED_HOOKS_PATH"]).read_text())["hooks"]
+            self.assertEqual(hooks["Stop"][0]["hooks"][0]["command"], "audit")
+
+    def test_subagent_trace_extra_muse_skips_reminder_agents(self):
+        reminder = json.dumps({"hook_event_name": "SubagentStart", "subagent_id": "skill-reminder", "session_id": "c"})
+        self.assertIsNone(agent_bench.subagent_trace_extra("muse", "SubagentStart", reminder))
+
+        real = json.dumps(
+            {"hook_event_name": "SubagentStart", "subagent_id": "01a1312f-40aa", "session_id": "c", "model": "muse-spark-1.2"}
+        )
+        spawn = json.dumps(
+            {"hook_event_name": "PreToolUse", "tool_name": "subagent_spawn", "tool_use_id": "call_s", "tool_input": {"role": "assistant"}}
+        )
+        self.assertEqual(agent_bench.subagent_trace_extra("muse", "PreToolUse", spawn)["subagent"]["agent_type"], "assistant")
+
+        extra = agent_bench.subagent_trace_extra("muse", "SubagentStart", real)
+        self.assertEqual(extra["subagent"]["event"], "start")
+        self.assertEqual(extra["subagent"]["agent_id"], "01a1312f-40aa")
+        self.assertEqual(extra["subagent"]["model"], "muse-spark-1.2")
+
+    def test_muse_post_tool_batch_reports_todos_and_qualified_event(self):
+        record = agent_bench.TraceRecord(
+            kind="hook",
+            agent="muse",
+            scenario="tasks",
+            event_name="PostToolBatch",
+            adapter="muse",
+            standard_input=json.dumps(
+                {
+                    "hook_event_name": "PostToolBatch",
+                    "session_id": "s-1",
+                    "tool_calls": [
+                        {
+                            "tool_name": "write_todos",
+                            "tool_input": {
+                                "todos": [
+                                    {"text": "Review directory", "status": "completed"},
+                                    {"text": "Identify main language", "status": "in_progress"},
+                                    {"text": "Suggest one improvement", "status": "pending"},
+                                ]
+                            },
+                        }
+                    ],
+                }
+            ),
+        )
+
+        self.assertIn("PostToolBatch:write_todos", agent_bench.hook_record_event_names(record))
+        observations = agent_bench.task_observations_for_records("muse", "tasks", [record])
+        self.assertEqual(observations[-1]["done"], 1)
+        self.assertEqual(observations[-1]["total"], 3)
+        self.assertEqual(
+            [item["title"] for item in observations[-1]["items"]],
+            ["Review directory", "Identify main language", "Suggest one improvement"],
+        )
+
+    def test_muse_session_id_pattern_accepts_uuid_v7(self):
+        self.assertTrue(agent_bench.session_id_matches_pattern("01a1312b-07c1-7eb0-8d56-c65f7b11496b", "muse"))
+        self.assertFalse(agent_bench.session_id_matches_pattern("skill-reminder", "muse"))
 
     def test_devin_config_extraction_preserves_arguments_after_separator(self):
         for prompt in (["--config=example.json"], ["--config", "example.json"]):

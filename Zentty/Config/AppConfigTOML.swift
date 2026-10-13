@@ -7,8 +7,21 @@ enum AppConfigTOML {
         var hasShortcutValue = false
     }
 
+    /// Outcome of decoding one `key = value` line in a known section. Boolean
+    /// literals keep the decoders terse: `true` applied, `false` invalid.
+    private enum AssignmentResult: ExpressibleByBooleanLiteral {
+        case applied
+        case unknownKey
+        case invalid
+
+        init(booleanLiteral value: Bool) {
+            self = value ? .applied : .invalid
+        }
+    }
+
     private enum Section: Equatable {
         case root
+        case unknown
         case sidebar
         case paneLayout
         case panes
@@ -97,7 +110,7 @@ enum AppConfigTOML {
                 lines.append("[[open_with.custom_apps]]")
                 lines.append("id = \(encode(string: app.id))")
                 lines.append("name = \(encode(string: app.name))")
-                lines.append("path = \(encode(string: app.appPath))")
+                lines.append("path = \(encode(string: portablePath(app.appPath)))")
                 lines.append("")
             }
 
@@ -119,7 +132,7 @@ enum AppConfigTOML {
                 lines.append("[[server_detection.custom_browsers]]")
                 lines.append("id = \(encode(string: browser.id))")
                 lines.append("name = \(encode(string: browser.name))")
-                lines.append("path = \(encode(string: browser.appPath))")
+                lines.append("path = \(encode(string: portablePath(browser.appPath)))")
                 if let bundleIdentifier = browser.bundleIdentifier, !bundleIdentifier.isEmpty {
                     lines.append("bundle_identifier = \(encode(string: bundleIdentifier))")
                 }
@@ -216,6 +229,7 @@ enum AppConfigTOML {
             }
         }
 
+        lines = config.preservedTOML.merged(into: lines)
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -226,10 +240,16 @@ enum AppConfigTOML {
         var serverCustomBrowsers: [ServerBrowserCustomApp] = []
         var decodedShortcutBindings: [DecodedShortcutBinding] = []
 
+        var preserved = AppConfigPreservedTOML()
+        var sectionHeader = ""
+
         for rawLine in source.components(separatedBy: .newlines) {
             let line = stripComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else {
                 continue
+            }
+            if line.hasPrefix("[") {
+                sectionHeader = line
             }
 
             if line == "[sidebar]" {
@@ -329,112 +349,91 @@ enum AppConfigTOML {
                 section = .agentIntegrationStates
                 continue
             }
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                section = .unknown
+                preserved.beginUnknownSection(header: line)
+                continue
+            }
+            let preservedLine = rawLine.trimmingCharacters(in: .whitespaces)
+            if section == .unknown {
+                preserved.appendLineToLastUnknownSection(preservedLine)
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
 
+            let result: AssignmentResult
             switch section {
             case .sidebar:
-                guard decodeSidebarAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeSidebarAssignment(assignment, into: &config)
             case .paneLayout:
-                guard decodePaneLayoutAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodePaneLayoutAssignment(assignment, into: &config)
             case .panes:
-                guard decodePanesAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodePanesAssignment(assignment, into: &config)
             case .appearance:
-                guard decodeAppearanceAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeAppearanceAssignment(assignment, into: &config)
             case .openWith:
-                guard decodeOpenWithAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeOpenWithAssignment(assignment, into: &config)
             case .serverDetection:
-                guard decodeServerDetectionAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeServerDetectionAssignment(assignment, into: &config)
             case .errorReporting:
-                guard decodeErrorReportingAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeErrorReportingAssignment(assignment, into: &config)
             case .customApp(let index):
-                guard customApps.indices.contains(index) else {
+                guard customApps.indices.contains(index),
+                      decodeCustomAppAssignment(assignment, into: &customApps[index]) else {
                     return nil
                 }
-                guard decodeCustomAppAssignment(assignment, into: &customApps[index]) else {
-                    return nil
-                }
+                result = .applied
             case .serverCustomBrowser(let index):
-                guard serverCustomBrowsers.indices.contains(index) else {
+                guard serverCustomBrowsers.indices.contains(index),
+                      decodeServerCustomBrowserAssignment(assignment, into: &serverCustomBrowsers[index]) else {
                     return nil
                 }
-                guard decodeServerCustomBrowserAssignment(assignment, into: &serverCustomBrowsers[index]) else {
-                    return nil
-                }
+                result = .applied
             case .shortcutBinding(let index):
-                guard decodedShortcutBindings.indices.contains(index) else {
+                guard decodedShortcutBindings.indices.contains(index),
+                      decodeShortcutAssignment(assignment, into: &decodedShortcutBindings[index]) else {
                     return nil
                 }
-                guard decodeShortcutAssignment(assignment, into: &decodedShortcutBindings[index]) else {
-                    return nil
-                }
-            case .shortcuts:
-                continue
+                result = .applied
             case .notifications:
-                guard decodeNotificationsAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeNotificationsAssignment(assignment, into: &config)
             case .confirmations:
-                guard decodeConfirmationsAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeConfirmationsAssignment(assignment, into: &config)
             case .clipboard:
-                guard decodeClipboardAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeClipboardAssignment(assignment, into: &config)
             case .worklanes:
-                guard decodeWorklanesAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeWorklanesAssignment(assignment, into: &config)
             case .updates:
-                guard decodeUpdatesAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeUpdatesAssignment(assignment, into: &config)
             case .restore:
-                guard decodeRestoreAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeRestoreAssignment(assignment, into: &config)
             case .agentTeams:
-                guard decodeAgentTeamsAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeAgentTeamsAssignment(assignment, into: &config)
             case .agentCaffeination:
-                guard decodeAgentCaffeinationAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeAgentCaffeinationAssignment(assignment, into: &config)
             case .agentLists:
-                guard decodeAgentListsAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeAgentListsAssignment(assignment, into: &config)
             case .menuBar:
-                guard decodeMenuBarAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeMenuBarAssignment(assignment, into: &config)
             case .agentIntegrations:
-                guard decodeAgentIntegrationsAssignment(assignment, into: &config) else {
-                    return nil
-                }
+                result = decodeAgentIntegrationsAssignment(assignment, into: &config)
             case .agentIntegrationStates:
-                guard decodeAgentIntegrationStatesAssignment(assignment, into: &config) else {
-                    return nil
-                }
-            case .root:
+                result = decodeAgentIntegrationStatesAssignment(assignment, into: &config)
+            case .root, .shortcuts:
+                result = .unknownKey
+            case .unknown:
                 continue
+            }
+
+            switch result {
+            case .applied:
+                continue
+            case .unknownKey:
+                preserved.appendExtraLine(preservedLine, toSectionHeader: section == .root ? "" : sectionHeader)
+            case .invalid:
+                return nil
             }
         }
 
@@ -457,13 +456,14 @@ enum AppConfigTOML {
         config.openWith.customApps = customApps
         config.serverDetection.customBrowsers = serverCustomBrowsers
         config.shortcuts.bindings = shortcuts
+        config.preservedTOML = preserved
         return config
     }
 
     private static func decodeSidebarAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "width":
             guard let value = Double(assignment.value) else {
@@ -477,7 +477,7 @@ enum AppConfigTOML {
             }
             config.sidebar.visibility = visibility
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -486,7 +486,7 @@ enum AppConfigTOML {
     private static func decodePaneLayoutAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "laptop":
             guard let raw = decodeString(assignment.value),
@@ -519,7 +519,7 @@ enum AppConfigTOML {
             }
             config.paneLayout.visibleSplitWindowWidth = width
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -528,7 +528,7 @@ enum AppConfigTOML {
     private static func decodeOpenWithAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "primary_target_id":
             guard let value = decodeString(assignment.value), !value.isEmpty else {
@@ -541,7 +541,7 @@ enum AppConfigTOML {
             }
             config.openWith.enabledTargetIDs = values
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -550,7 +550,7 @@ enum AppConfigTOML {
     private static func decodeServerDetectionAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "passive_detection_enabled":
             guard let value = decodeBool(assignment.value) else {
@@ -573,7 +573,7 @@ enum AppConfigTOML {
             }
             config.serverDetection.ignoredPortRules = values
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -582,7 +582,7 @@ enum AppConfigTOML {
     private static func decodeAppearanceAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "local_theme_name":
             guard let value = decodeString(assignment.value) else {
@@ -624,7 +624,7 @@ enum AppConfigTOML {
             }
             config.appearance.sidebarSelectionEmphasis = emphasis
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -633,7 +633,7 @@ enum AppConfigTOML {
     private static func decodePanesAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "show_labels":
             guard let value = decodeBool(assignment.value) else {
@@ -682,7 +682,7 @@ enum AppConfigTOML {
             }
             config.panes.returnAfterOnePasswordPrompt = value
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -707,7 +707,7 @@ enum AppConfigTOML {
             guard let decoded = decodeString(assignment.value) else {
                 return false
             }
-            app.appPath = decoded
+            app.appPath = (decoded as NSString).expandingTildeInPath
         default:
             return true
         }
@@ -734,7 +734,7 @@ enum AppConfigTOML {
             guard let decoded = decodeString(assignment.value) else {
                 return false
             }
-            browser.appPath = decoded
+            browser.appPath = (decoded as NSString).expandingTildeInPath
         case "bundle_identifier":
             guard let decoded = decodeString(assignment.value) else {
                 return false
@@ -750,7 +750,7 @@ enum AppConfigTOML {
     private static func decodeErrorReportingAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "enabled":
             guard let value = decodeBool(assignment.value) else {
@@ -758,7 +758,7 @@ enum AppConfigTOML {
             }
             config.errorReporting.enabled = value
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -800,7 +800,7 @@ enum AppConfigTOML {
     private static func decodeNotificationsAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "sound_name":
             guard let value = decodeString(assignment.value) else {
@@ -813,7 +813,7 @@ enum AppConfigTOML {
             }
             config.notifications.customSoundDisplayName = value
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -822,7 +822,7 @@ enum AppConfigTOML {
     private static func decodeUpdatesAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "channel":
             guard let raw = decodeString(assignment.value),
@@ -831,7 +831,7 @@ enum AppConfigTOML {
             }
             config.updates.channel = channel
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -840,7 +840,7 @@ enum AppConfigTOML {
     private static func decodeConfirmationsAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "confirm_before_closing_pane":
             guard let value = decodeBool(assignment.value) else { return false }
@@ -852,7 +852,7 @@ enum AppConfigTOML {
             guard let value = decodeBool(assignment.value) else { return false }
             config.confirmations.confirmBeforeQuitting = value
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -860,7 +860,7 @@ enum AppConfigTOML {
     private static func decodeClipboardAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "always_clean_copies":
             guard let value = decodeBool(assignment.value) else { return false }
@@ -891,7 +891,7 @@ enum AppConfigTOML {
             guard let value = decodeBool(assignment.value) else { return false }
             config.clipboard.showCopyMarkdownCommand = value
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -900,7 +900,7 @@ enum AppConfigTOML {
     private static func decodeWorklanesAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "new_worklane_placement":
             guard let raw = decodeString(assignment.value),
@@ -909,7 +909,7 @@ enum AppConfigTOML {
             }
             config.worklanes.newWorklanePlacement = placement
         default:
-            return true
+            return .unknownKey
         }
 
         return true
@@ -918,13 +918,13 @@ enum AppConfigTOML {
     private static func decodeRestoreAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "restore_workspace_on_launch":
             guard let value = decodeBool(assignment.value) else { return false }
             config.restore.restoreWorkspaceOnLaunch = value
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -932,13 +932,13 @@ enum AppConfigTOML {
     private static func decodeAgentTeamsAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "enabled":
             guard let value = decodeBool(assignment.value) else { return false }
             config.agentTeams.enabled = value
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -946,13 +946,13 @@ enum AppConfigTOML {
     private static func decodeAgentCaffeinationAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "enabled":
             guard let value = decodeBool(assignment.value) else { return false }
             config.agentCaffeination.enabled = value
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -960,7 +960,7 @@ enum AppConfigTOML {
     private static func decodeAgentListsAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "always_show_task_lists":
             guard let value = decodeBool(assignment.value) else { return false }
@@ -969,7 +969,7 @@ enum AppConfigTOML {
             guard let value = decodeBool(assignment.value) else { return false }
             config.agentLists.alwaysShowSubagentLists = value
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -977,13 +977,13 @@ enum AppConfigTOML {
     private static func decodeAgentIntegrationsAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "grandfathered_v1":
             guard let value = decodeBool(assignment.value) else { return false }
             config.agentIntegrations.grandfatheredV1 = value
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -991,14 +991,15 @@ enum AppConfigTOML {
     private static func decodeAgentIntegrationStatesAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         // key = agent id (`AgentBootstrapTool.id`); value = quoted state.
         guard let raw = decodeString(assignment.value) else { return false }
-        // Unknown/future state values are skipped (not stored) so an older app
-        // reading a newer config never discards the whole file; recognized
-        // values are stored under the raw agent key, which keeps the section
-        // forward-compatible with agents this build doesn't know yet.
-        guard let state = AgentIntegrationState(rawValue: raw) else { return true }
+        // Unknown/future state values are kept as preserved lines (not modeled)
+        // so an older app reading a newer config neither discards the whole
+        // file nor drops the value on save; recognized values are stored under
+        // the raw agent key, which keeps the section forward-compatible with
+        // agents this build doesn't know yet.
+        guard let state = AgentIntegrationState(rawValue: raw) else { return .unknownKey }
         config.agentIntegrations.states[assignment.key] = state
         return true
     }
@@ -1006,7 +1007,7 @@ enum AppConfigTOML {
     private static func decodeMenuBarAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
-    ) -> Bool {
+    ) -> AssignmentResult {
         switch assignment.key {
         case "show_status_item":
             guard let value = decodeBool(assignment.value) else { return false }
@@ -1014,7 +1015,7 @@ enum AppConfigTOML {
         case "indicator_style", "hide_idle_panes", "show_waiting_count_on_icon", "click_focuses_waiting_pane":
             return true
         default:
-            return true
+            return .unknownKey
         }
         return true
     }
@@ -1025,6 +1026,12 @@ enum AppConfigTOML {
         case "false": return false
         default: return nil
         }
+    }
+
+    /// App paths under the home folder are written as `~/…` so config.toml
+    /// still works on a Mac with a different user name; decode expands them.
+    private static func portablePath(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
     }
 
     private static func parseAssignment(_ line: String) -> (key: String, value: String)? {

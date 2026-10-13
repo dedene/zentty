@@ -152,6 +152,7 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
             .grok,
             .hermes,
             .vibe,
+            .muse,
         ]
 
         for tool in builtInTools {

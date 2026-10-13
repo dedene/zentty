@@ -479,6 +479,9 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
 }
 
 func resolvedNotificationSound(for soundName: String) -> UNNotificationSound {
+    // A custom sound picked on another Mac arrives as a name only; install it
+    // from the shared copy before macOS looks it up.
+    NotificationSoundManager.installSharedSoundIfMissing(named: soundName)
     guard let notificationSoundName = resolvedNotificationSoundName(for: soundName) else {
         return .default
     }

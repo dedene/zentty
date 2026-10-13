@@ -1,0 +1,69 @@
+{
+  "name": "opencode-v2",
+  "tool": "opencode",
+  "command": "opencode",
+  "real_binary_names": ["opencode", "opencode2"],
+  "opencode_generation": "v2",
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "run",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "session_capture": [
+      "run",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "approval": [
+      "run",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+    ],
+    "manual_compact": [],
+    "restore_launch": [
+      "--session",
+      "ses_ZenttyBenchRestore"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": ["session.start", "agent.running", "agent.idle"]
+    },
+    "session_capture": {
+      "required_events": ["session.start", "agent.running", "agent.idle"],
+      "session_identity": {
+        "session_id_pattern": "opencode",
+        "tracked_pid": true
+      }
+    },
+    "approval": {
+      "required_events": ["session.start", "agent.needs-input", "agent.input-resolved"]
+    },
+    "manual_compact": {
+      "required_events": ["session.start", "agent.compacting"]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--session", "ses_ZenttyBenchRestore"]]
+    }
+  },
+  "input_by_scenario": {
+    "manual_compact": [
+      {
+        "after": 8,
+        "text": "Reply with the single word OK\r",
+        "label": "seed-session"
+      },
+      {
+        "after": 45,
+        "text": "/compact",
+        "label": "manual-compact"
+      },
+      {
+        "after": 48,
+        "text": "\r",
+        "label": "submit-compact"
+      }
+    ]
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in", "provider"]
+}

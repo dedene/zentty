@@ -179,7 +179,7 @@ targets:
           mkdir -p "${RESOURCES_DST}/bin" "${RESOURCES_DST}/shell-integration" "${RESOURCES_DST}/amp/plugins" "${RESOURCES_DST}/opencode/plugins" "${RESOURCES_DST}/pi/extensions" "${RESOURCES_DST}/omp/extensions" "${RESOURCES_DST}/shared/pi-family" "${RESOURCES_DST}/ghostty" "${RESOURCES_DST}/terminfo"
           rsync -a --delete "${RESOURCES_SRC}/bin/" "${RESOURCES_DST}/bin/"
           install -m 755 "${BUILT_PRODUCTS_DIR}/zentty" "${RESOURCES_DST}/bin/shared/zentty"
-          find "${RESOURCES_DST}/bin" -type f \( -path "*/amp/amp" -o -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/cursor/cursor-agent" -o -path "*/droid/droid" -o -path "*/gemini/gemini" -o -path "*/grok/grok" -o -path "*/hermes/hermes" -o -path "*/kimi/kimi" -o -path "*/kimi/kimi-cli" -o -path "*/opencode/opencode" -o -path "*/pi/pi" -o -path "*/omp/omp" -o -path "*/agy/agy" -o -path "*/vibe/vibe" -o -path "*/vibe/mistral-vibe" -o -path "*/devin/devin" -o -path "*/small-harness/small-harness" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" -o -path "*/shared/zentty-kiro-term" -o -path "*/tmux-shim/tmux" \) -exec chmod 755 {} +
+          find "${RESOURCES_DST}/bin" -type f \( -path "*/amp/amp" -o -path "*/claude/claude" -o -path "*/codex/codex" -o -path "*/copilot/copilot" -o -path "*/cursor/cursor-agent" -o -path "*/droid/droid" -o -path "*/gemini/gemini" -o -path "*/grok/grok" -o -path "*/hermes/hermes" -o -path "*/kimi/kimi" -o -path "*/kimi/kimi-cli" -o -path "*/opencode/opencode" -o -path "*/pi/pi" -o -path "*/omp/omp" -o -path "*/agy/agy" -o -path "*/vibe/vibe" -o -path "*/vibe/mistral-vibe" -o -path "*/devin/devin" -o -path "*/muse/muse" -o -path "*/small-harness/small-harness" -o -path "*/shared/zentty" -o -path "*/shared/zentty-agent-wrapper" -o -path "*/shared/zentty-kiro-term" -o -path "*/tmux-shim/tmux" \) -exec chmod 755 {} +
           rsync -a --delete "${RESOURCES_SRC}/shell-integration/" "${RESOURCES_DST}/shell-integration/"
           rsync -a --delete "${RESOURCES_SRC}/agents/" "${RESOURCES_DST}/agents/"
           rsync -a --delete "${RESOURCES_SRC}/amp/" "${RESOURCES_DST}/amp/"
@@ -213,8 +213,8 @@ targets:
         ZENTTY_DISPLAY_NAME: Zentty
         ZENTTY_APP_ICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zentty$(ZENTTY_BUNDLE_ID_SUFFIX)
-        CURRENT_PROJECT_VERSION: 973
-        MARKETING_VERSION: 0.3.5
+        CURRENT_PROJECT_VERSION: 991
+        MARKETING_VERSION: 0.3.7
         VERSIONING_SYSTEM: apple-generic
         INFOPLIST_FILE: Zentty/Info.plist
         SPARKLE_FEED_URL: ""

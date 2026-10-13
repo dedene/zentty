@@ -27,6 +27,7 @@ enum MenuBarAgentIconInspector {
         .agy,
         .hermes,
         .vibe,
+        .muse,
         .smallHarness,
         .custom("Custom Agent"),
     ] + AgentManifestRegistry.provider().manifests.map { .custom($0.displayName) }

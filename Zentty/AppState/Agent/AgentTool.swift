@@ -18,6 +18,7 @@ enum AgentTool: Equatable, Sendable {
     case hermes
     case vibe
     case devin
+    case muse
     case smallHarness
     case custom(String)
 
@@ -57,6 +58,8 @@ enum AgentTool: Equatable, Sendable {
             return "Mistral Vibe"
         case .devin:
             return "Devin"
+        case .muse:
+            return "Muse Code"
         case .smallHarness:
             return "Small Harness"
         case .custom(let name):
@@ -68,7 +71,7 @@ enum AgentTool: Equatable, Sendable {
     static let builtinTools: [AgentTool] = [
         .zentty, .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .gemini,
         .kimi, .openCode, .pi, .omp, .grok, .agy, .hermes, .vibe, .devin,
-        .smallHarness,
+        .muse, .smallHarness,
     ]
 
     static let builtinDisplayNames: Set<String> = Set(builtinTools.map(\.displayName))
@@ -154,6 +157,9 @@ enum AgentTool: Equatable, Sendable {
         // the bare binary surfaces as "vibe". Match both leading tokens.
         ToolNameMatcher(tool: .vibe, isHookDrivenOnly: false, match: .leadingToken(["vibe", "mistral"])),
         ToolNameMatcher(tool: .devin, isHookDrivenOnly: false, match: .leadingToken(["devin"])),
+        // The launcher script `muse` execs `muse-bin-<version>`; both share the
+        // leading token "muse", as does the "Muse Code" display name.
+        ToolNameMatcher(tool: .muse, isHookDrivenOnly: false, match: .leadingToken(["muse"])),
         ToolNameMatcher(tool: .smallHarness, isHookDrivenOnly: false, match: .containsAny(["small-harness", "small harness", "smallharness"])),
     ]
 

@@ -17,67 +17,8 @@ final class AppConfigStore: @unchecked Sendable {
 
     private enum LoadResult {
         case missing
-        case loaded(AppConfig)
-        case invalid
-    }
-
-    private final class FileWatcher {
-        var onChange: (@Sendable () -> Void)?
-
-        private let queue = DispatchQueue(label: "com.zentty.app-config-watcher")
-        private var source: DispatchSourceFileSystemObject?
-        private var descriptor: Int32 = -1
-        private var debounceWorkItem: DispatchWorkItem?
-
-        func watch(directoryURL: URL) {
-            stop()
-
-            let descriptor = open(directoryURL.path, O_EVTONLY)
-            guard descriptor >= 0 else {
-                return
-            }
-
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: descriptor,
-                eventMask: [.write, .rename, .delete, .extend, .attrib],
-                queue: queue
-            )
-            source.setEventHandler { [weak self] in
-                self?.scheduleChangeNotification()
-            }
-            source.setCancelHandler {
-                close(descriptor)
-            }
-            source.resume()
-
-            self.source = source
-            self.descriptor = descriptor
-        }
-
-        func stop() {
-            debounceWorkItem?.cancel()
-            debounceWorkItem = nil
-            source?.cancel()
-            source = nil
-            descriptor = -1
-        }
-
-        deinit {
-            stop()
-        }
-
-        private func scheduleChangeNotification() {
-            debounceWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let onChange = self?.onChange else {
-                    return
-                }
-
-                onChange()
-            }
-            debounceWorkItem = workItem
-            queue.asyncAfter(deadline: .now() + 0.15, execute: workItem)
-        }
+        case loaded(AppConfig, Data)
+        case invalid(Data?)
     }
 
     let fileURL: URL
@@ -89,7 +30,18 @@ final class AppConfigStore: @unchecked Sendable {
     /// (e.g. `AgentIntegrationGrandfather`) should skip in that state so they
     /// don't overwrite a config we couldn't read (e.g. a forward-version file).
     let didLoadFromValidFile: Bool
-    private let fileWatcher = FileWatcher()
+    /// `true` while the file on disk exists but can't be parsed, at launch or
+    /// after an external edit. Updates then stay in memory: writing would
+    /// replace the user's file (a typo, or a newer build's syntax) with ours.
+    /// Cleared as soon as a valid file is loaded again.
+    private(set) var isWriteProtected: Bool
+    private let fileWatcher = DirectoryChangeWatcher(label: "com.zentty.app-config-watcher")
+    /// Bytes last read from or written to disk. A reload only counts as an
+    /// external change when the file differs from these: `current` holds
+    /// values the encoder doesn't write back (e.g. the legacy local theme
+    /// name), so comparing decoded configs would mistake our own save for an
+    /// external edit and drop them.
+    private var lastKnownFileContents: Data?
     private var changeHandlers: [UUID: OriginChangeHandler] = [:]
 
     init(
@@ -109,16 +61,21 @@ final class AppConfigStore: @unchecked Sendable {
         )
 
         switch Self.load(fileURL: resolvedFileURL) {
-        case .loaded(let persisted):
+        case .loaded(let persisted, let contents):
             current = persisted.normalized()
             didLoadFromValidFile = true
+            isWriteProtected = false
+            lastKnownFileContents = contents
         case .missing:
             current = migrated.normalized()
-            try? Self.persist(config: current, to: resolvedFileURL, fileManager: fileManager)
+            lastKnownFileContents = try? Self.persist(config: current, to: resolvedFileURL, fileManager: fileManager)
             didLoadFromValidFile = true
-        case .invalid:
+            isWriteProtected = false
+        case .invalid(let contents):
             current = AppConfig.default.normalized()
             didLoadFromValidFile = false
+            isWriteProtected = true
+            lastKnownFileContents = contents
             appConfigLogger.error("Ignoring invalid config file at \(resolvedFileURL.path, privacy: .public)")
         }
 
@@ -129,7 +86,12 @@ final class AppConfigStore: @unchecked Sendable {
         }
         let watchDirectoryURL = resolvedFileURL.deletingLastPathComponent()
         try? fileManager.createDirectory(at: watchDirectoryURL, withIntermediateDirectories: true)
-        fileWatcher.watch(directoryURL: watchDirectoryURL)
+        // A symlinked config.toml (dotfiles repo, synced folder) changes in the
+        // target's directory, which the link's own directory never hears about.
+        fileWatcher.watch(directoryURLs: [
+            watchDirectoryURL,
+            fileManager.resolvingSymlinkTarget(at: resolvedFileURL).deletingLastPathComponent(),
+        ])
     }
 
     static func defaultFileURL(
@@ -195,10 +157,18 @@ final class AppConfigStore: @unchecked Sendable {
     }
 
     func update(_ mutate: (inout AppConfig) throws -> Void) throws {
+        // Base the change on the file as it is now, not as the debounced
+        // watcher last saw it: a synced or hand edit may have just landed, and
+        // a broken one must switch on write protection before we save.
+        reloadFromDiskIfNeeded()
         var updated = current
         try mutate(&updated)
         updated = updated.normalized()
-        try Self.persist(config: updated, to: fileURL, fileManager: .default)
+        if isWriteProtected {
+            appConfigLogger.error("Not saving settings: \(self.fileURL.path, privacy: .public) can't be parsed. The change applies until the file is fixed, then the file's settings take over")
+        } else {
+            lastKnownFileContents = try Self.persist(config: updated, to: fileURL, fileManager: .default)
+        }
         current = updated
         notifyChange(origin: .inProcess)
     }
@@ -228,8 +198,19 @@ final class AppConfigStore: @unchecked Sendable {
     }
 
     private func reloadFromDiskIfNeeded() {
-        switch Self.load(fileURL: fileURL) {
-        case .loaded(let reloaded):
+        let result = Self.load(fileURL: fileURL)
+        switch result {
+        case .loaded(_, let contents), .invalid(let contents?):
+            // Unchanged since we last read or wrote it: nothing external happened.
+            guard contents != lastKnownFileContents else { return }
+            lastKnownFileContents = contents
+        case .invalid(nil), .missing:
+            lastKnownFileContents = nil
+        }
+
+        switch result {
+        case .loaded(let reloaded, _):
+            isWriteProtected = false
             guard reloaded != current else {
                 return
             }
@@ -237,9 +218,10 @@ final class AppConfigStore: @unchecked Sendable {
             current = reloaded
             notifyChange(origin: .externalReload)
         case .invalid:
+            isWriteProtected = true
             appConfigLogger.error("Ignoring invalid config reload at \(self.fileURL.path, privacy: .public)")
         case .missing:
-            return
+            isWriteProtected = false
         }
     }
 
@@ -254,18 +236,22 @@ final class AppConfigStore: @unchecked Sendable {
             return .missing
         }
 
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return .invalid(nil)
+        }
         guard
-            let data = try? Data(contentsOf: fileURL),
             let source = String(data: data, encoding: .utf8),
             let config = AppConfigTOML.decode(source)
         else {
-            return .invalid
+            return .invalid(data)
         }
 
-        return .loaded(config.normalized())
+        return .loaded(config.normalized(), data)
     }
 
-    private static func persist(config: AppConfig, to fileURL: URL, fileManager: FileManager) throws {
+    /// Returns the bytes written.
+    @discardableResult
+    private static func persist(config: AppConfig, to fileURL: URL, fileManager: FileManager) throws -> Data {
         // Write through a symlinked config.toml so dotfile setups (Stow, chezmoi, …)
         // keep their link instead of having it clobbered by the atomic temp+rename.
         let targetURL = fileManager.resolvingSymlinkTarget(at: fileURL)
@@ -273,7 +259,8 @@ final class AppConfigStore: @unchecked Sendable {
             at: targetURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let source = AppConfigTOML.encode(config.normalized())
-        try Data(source.utf8).write(to: targetURL, options: .atomic)
+        let data = Data(AppConfigTOML.encode(config.normalized()).utf8)
+        try data.write(to: targetURL, options: .atomic)
+        return data
     }
 }

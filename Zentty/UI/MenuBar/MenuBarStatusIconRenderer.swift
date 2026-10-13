@@ -445,6 +445,9 @@ enum MenuBarStatusIconRenderer {
             // No Devin mark in the asset catalog yet; nil falls back to the
             // generated letter tile.
             return nil
+        case .muse:
+            // Muse Code is Meta's agent; it carries the Meta mark.
+            return "AgentIconMeta"
         case .smallHarness:
             return nil
         case .custom(let name):

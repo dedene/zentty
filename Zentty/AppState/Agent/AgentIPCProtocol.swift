@@ -91,6 +91,7 @@ enum AgentBootstrapTool: Codable, Equatable, Hashable, Sendable {
     case hermes
     case vibe
     case devin
+    case muse
     case smallHarness
     case manifest(String)
 
@@ -99,7 +100,7 @@ enum AgentBootstrapTool: Codable, Equatable, Hashable, Sendable {
     static let builtinCases: [AgentBootstrapTool] = [
         .amp, .claude, .codex, .copilot, .cursor, .droid, .gemini, .kimi,
         .opencode, .pi, .omp, .grok, .agy, .hermes, .vibe, .devin,
-        .smallHarness,
+        .muse, .smallHarness,
     ]
 
     /// Wire-format identifier: the former rawValue for builtins, the manifest id
@@ -122,6 +123,7 @@ enum AgentBootstrapTool: Codable, Equatable, Hashable, Sendable {
         case .hermes: return "hermes"
         case .vibe: return "vibe"
         case .devin: return "devin"
+        case .muse: return "muse"
         case .smallHarness: return "small-harness"
         case .manifest(let id): return id
         }
@@ -172,7 +174,7 @@ enum AgentBootstrapTool: Codable, Equatable, Hashable, Sendable {
         switch self {
         case .cursor:
             return ["cursor-agent"]
-        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .omp, .grok, .agy, .hermes, .devin, .smallHarness:
+        case .amp, .claude, .codex, .copilot, .droid, .gemini, .opencode, .pi, .omp, .grok, .agy, .hermes, .devin, .muse, .smallHarness:
             return [id]
         case .kimi:
             return [id, "kimi-cli"]

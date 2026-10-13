@@ -1,0 +1,201 @@
+{
+  "name": "muse",
+  "command": "muse",
+  "real_binary_names": [
+    "muse"
+  ],
+  "version_args": [
+    "--version"
+  ],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "exec",
+      "--provider",
+      "echo",
+      "ZENTTY_AGENT_BENCH_OK"
+    ],
+    "session_capture": [
+      "exec",
+      "--provider",
+      "echo",
+      "ZENTTY_AGENT_BENCH_OK"
+    ],
+    "tools": [
+      "exec",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal",
+      "--disable-reminders",
+      "Run these two shell commands in order: printf ZENTTY_AGENT_BENCH_TOOLS_1 and then printf ZENTTY_AGENT_BENCH_TOOLS_2. Then reply with exactly DONE."
+    ],
+    "tasks": [
+      "exec",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal",
+      "--disable-reminders",
+      "Use your todo tool (write_todos) to create a task list with these exact three tasks: Review directory, Identify main language, Suggest one improvement. Mark Review directory completed. Mark Identify main language in progress. Leave Suggest one improvement pending. Then reply with exactly DONE."
+    ],
+    "approval": [
+      "--trust-workspace",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal",
+      "--approval-mode",
+      "untrusted",
+      "--approval-judge",
+      "off",
+      "Run this exact shell command and nothing else: printf ZENTTY_AGENT_BENCH_APPROVAL_OK > approval.txt"
+    ],
+    "restore_launch": [
+      "resume",
+      "01a1312b-07c1-7eb0-8d56-c65f7b11496b"
+    ],
+    "subagents": [
+      "exec",
+      "--trust-workspace",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal",
+      "--disable-reminders",
+      "For an integration hook regression test: delegate exactly once to a subagent (subagent_spawn), asking it to list the files in the current directory. Wait for it to finish (subagent_wait), then reply with exactly DONE."
+    ],
+    "user_input": [
+      "--trust-workspace",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal",
+      "Before doing anything else, ask me which colour I prefer (red or blue) using your request_user_input tool. After I answer, reply with exactly DONE."
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "SessionEnd"
+      ]
+    },
+    "session_capture": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "SessionEnd"
+      ],
+      "session_identity": {
+        "session_id_pattern": "muse",
+        "tracked_pid": true
+      }
+    },
+    "tools": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "ToolUseStart",
+        "PostToolUse",
+        "Stop",
+        "SessionEnd"
+      ]
+    },
+    "tasks": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PostToolBatch:write_todos",
+        "Stop",
+        "SessionEnd"
+      ],
+      "expected_task_progress": {
+        "done": 1,
+        "total": 3
+      },
+      "expected_task_items": [
+        {
+          "title": "Review directory",
+          "status": "completed"
+        },
+        {
+          "title": "Identify main language",
+          "status": "in_progress"
+        },
+        {
+          "title": "Suggest one improvement",
+          "status": "pending"
+        }
+      ]
+    },
+    "approval": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PermissionRequest",
+        "ToolUseStart",
+        "PostToolUse",
+        "Stop"
+      ]
+    },
+    "restore_launch": {
+      "required_events": [],
+      "required_bootstrap_arguments": [
+        [
+          "resume",
+          "01a1312b-07c1-7eb0-8d56-c65f7b11496b"
+        ]
+      ]
+    },
+    "subagents": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse:subagent_spawn",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+        "SessionEnd"
+      ],
+      "subagent_payload_required": true,
+      "subagent_model_required": true
+    },
+    "user_input": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Notification",
+        "PostToolBatch:request_user_input",
+        "Stop"
+      ]
+    }
+  },
+  "input_by_scenario": {
+    "approval": [
+      {
+        "match": "Allow this stage once|Would you like to run",
+        "text": "y",
+        "delay": 2
+      }
+    ],
+    "user_input": [
+      {
+        "match": "Enter to select",
+        "text": "\r",
+        "delay": 2
+      }
+    ]
+  },
+  "skip_patterns": [
+    "muse login",
+    "not logged in",
+    "no credentials",
+    "authentication required",
+    "api key",
+    "sign in"
+  ]
+}

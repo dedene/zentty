@@ -129,18 +129,26 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager
             )
         case .opencode:
+            let openCodeExecutablePath = resolvedSiblingExecutablePath(
+                executablePath,
+                binaryNames: ["opencode"],
+                siblingName: ".opencode",
+                fileManager: fileManager
+            )
+            let generation = OpenCodeGenerationProbe.generation(
+                executablePath: openCodeExecutablePath,
+                environment: environment
+            )
             return try openCodeFamilyPlan(
                 toolID: AgentBootstrapTool.opencode.id,
                 displayName: "OpenCode",
                 envPrefix: "OPENCODE",
                 configDirName: "opencode",
-                executablePath: resolvedSiblingExecutablePath(
-                    executablePath,
-                    binaryNames: ["opencode"],
-                    siblingName: ".opencode",
-                    fileManager: fileManager
-                ),
-                arguments: request.arguments,
+                executablePath: openCodeExecutablePath,
+                arguments: generation == .v2
+                    ? OpenCodeGeneration.standaloneArguments(request.arguments)
+                    : request.arguments,
+                pluginResourceDirectoryName: generation.pluginResourceDirectoryName,
                 environment: environment,
                 target: target,
                 runtimeDirectoryURL: runtimeDirectoryURL,
@@ -239,6 +247,15 @@ enum AgentLaunchBootstrap {
             )
         case .devin:
             return try devinPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                fileManager: fileManager
+            )
+        case .muse:
+            return try musePlan(
                 executablePath: executablePath,
                 arguments: request.arguments,
                 environment: environment,
@@ -851,7 +868,7 @@ enum AgentLaunchBootstrap {
     /// a stale ephemeral overlay path. Matches the legacy cache root too, so a
     /// value captured by a long-lived agent before the relocation is still
     /// recognised rather than mistaken for a real user home.
-    private static func isZenttyRuntimeHomePath(_ path: String) -> Bool {
+    static func isZenttyRuntimeHomePath(_ path: String) -> Bool {
         ZenttyRuntimePaths.isRuntimeOverlayPath(path)
     }
 
@@ -1235,6 +1252,7 @@ enum AgentLaunchBootstrap {
         configDirName: String,
         executablePath: String,
         arguments: [String],
+        pluginResourceDirectoryName: String = OpenCodeGeneration.v1.pluginResourceDirectoryName,
         environment: [String: String],
         target: AgentIPCTarget,
         runtimeDirectoryURL: URL,
@@ -1257,7 +1275,7 @@ enum AgentLaunchBootstrap {
 
         if let pluginURL = bundle.resourceURL?
             .appendingPathComponent("opencode", isDirectory: true)
-            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(pluginResourceDirectoryName, isDirectory: true)
             .appendingPathComponent("zentty-opencode-zentty.js", isDirectory: false),
            fileManager.isReadableFile(atPath: pluginURL.path) {
             let overlayDirectoryURL = try prepareToolDirectory(
@@ -1602,7 +1620,7 @@ enum AgentLaunchBootstrap {
         }
     }
 
-    private static func prepareToolDirectory(
+    static func prepareToolDirectory(
         toolID: String,
         target: AgentIPCTarget,
         runtimeDirectoryURL: URL,
@@ -2139,7 +2157,7 @@ enum AgentLaunchBootstrap {
         return (forwarded, source)
     }
 
-    private static func directPlan(
+    static func directPlan(
         executablePath: String,
         arguments: [String],
         unsetEnvironment: [String] = []
@@ -2167,6 +2185,8 @@ enum AgentLaunchBootstrap {
             return ["CLAUDECODE"]
         case .smallHarness:
             return smallHarnessManagedHookEnvironmentKeys
+        case .muse:
+            return museInheritedOverlayKeys(environment: environment)
         case .kimi:
             // A disabled/restore-suppressed launch must still shed a stale
             // overlay home from a pre-fix pane or restore snapshot, or kimi
@@ -2356,7 +2376,7 @@ enum AgentLaunchBootstrap {
         ]
     }
 
-    private static func shellEscapedDoubleQuoted(_ string: String) -> String {
+    static func shellEscapedDoubleQuoted(_ string: String) -> String {
         string
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -2372,7 +2392,7 @@ enum AgentLaunchBootstrap {
         return string
     }
 
-    private static func compactJSONData(_ object: Any) throws -> Data {
+    static func compactJSONData(_ object: Any) throws -> Data {
         try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
     }
 

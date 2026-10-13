@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#
+# test-muse-bench — regression gate for the Muse Code (muse) integration.
+#
+# Builds Zentty in Debug (or reuses a derived build, see --no-build) and runs
+# the agent-bench harness against every scenario the muse profile defines.
+# Strict mode rejects auth-skip / binary-skip outcomes so a missing binary or
+# auth blocker fails the gate rather than silently passing.
+#
+# smoke and session_capture run on Muse's built-in `echo` provider (no model
+# call). The model scenarios pin the cheapest catalog model, muse-spark-1.2 at
+# minimal reasoning effort, with Muse's reminder agents disabled.
+#
+# This bench guards the TBH_MANAGED_HOOKS_PATH overlay, the per-run
+# `-c managed_hooks_env_vars` allowlist (Muse scrubs the hook environment) and
+# the root-thread filtering in the adapter.
+#
+# Re-run this after:
+#   * any muse CLI bump (it is the upstream side of the contract)
+#   * changes to AgentLaunchBootstrap.musePlan / museAdapter
+#   * changes to scripts/agent-bench/profiles/muse.json
+#
+# Usage:
+#   scripts/test-muse-bench                 # full sweep, builds first
+#   scripts/test-muse-bench --no-build      # skip xcodebuild, reuse last build
+#   scripts/test-muse-bench --scenarios smoke,tools
+#   scripts/test-muse-bench --no-build --app-path <Zentty.app>   # pin a worktree build
+#
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+NO_BUILD=0
+APP_PATH=""
+SCENARIOS="smoke,session_capture,tools,tasks,approval,user_input,restore_launch,subagents"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-build) NO_BUILD=1; shift ;;
+    --scenarios) SCENARIOS="$2"; shift 2 ;;
+    --scenarios=*) SCENARIOS="${1#--scenarios=}"; shift ;;
+    --app-path) APP_PATH="$2"; shift 2 ;;
+    --app-path=*) APP_PATH="${1#--app-path=}"; shift ;;
+    -h|--help)
+      sed -n '2,29p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+BENCH_ARGS=(run --agents muse --scenarios "$SCENARIOS" --strict)
+if [[ $NO_BUILD -eq 1 ]]; then
+  BENCH_ARGS+=(--no-build)
+fi
+if [[ -n "$APP_PATH" ]]; then
+  BENCH_ARGS+=(--app-path "$APP_PATH")
+fi
+
+echo "==> Running agent-bench against scenarios: $SCENARIOS"
+python3 scripts/agent-bench/agent_bench.py "${BENCH_ARGS[@]}"

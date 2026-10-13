@@ -111,6 +111,16 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolveKnown(named: "Devin"), .devin)
     }
 
+    func test_agent_tool_recognizes_muse_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "muse"), .muse)
+        XCTAssertEqual(AgentTool.resolve(named: "Muse Code"), .muse)
+        // The launcher script execs its versioned binary, so that is the
+        // process name the terminal reports.
+        XCTAssertEqual(AgentTool.resolveKnown(named: "muse-bin-1.4.6-R6000.1"), .muse)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Muse Code"), .muse)
+        XCTAssertNotEqual(AgentTool.resolveKnown(named: "museum"), .muse)
+    }
+
     func test_agent_tool_recognizes_small_harness_for_explicit_and_known_tool_resolution() {
         XCTAssertEqual(AgentTool.resolve(named: "small-harness"), .smallHarness)
         XCTAssertEqual(AgentTool.resolve(named: "Small Harness"), .smallHarness)
@@ -371,6 +381,41 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertTrue(source.contains("ZENTTY_DEVIN_PID"))
     }
 
+    func test_muse_passthrough_policy_matches_muse_cli_help_snapshot() throws {
+        // Snapshot of `muse --help` verified 2026-10-12 against Muse Code
+        // 1.4.6. Only the TUI, `resume` and `exec` run sessions; every other
+        // subcommand and the early-exit flags bypass the bootstrap.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOfFile: repoRoot.appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift").path,
+            encoding: .utf8
+        )
+        let start = try XCTUnwrap(source.range(of: "static let musePassthroughSubcommands"))
+        let end = try XCTUnwrap(source.range(of: "static let museEarlyExitFlags", range: start.upperBound..<source.endIndex))
+        let passthroughList = String(source[start.upperBound..<end.lowerBound])
+
+        for subcommand in [
+            "config", "export", "trace", "model-profile", "skills", "voice",
+            "plugins", "sandbox", "schema", "serve", "session-message", "mcp",
+            "auth", "login", "logout", "init",
+        ] {
+            XCTAssertTrue(
+                passthroughList.contains("\"\(subcommand)\""),
+                "musePassthroughSubcommands should contain \(subcommand)"
+            )
+        }
+        for sessionCommand in ["resume", "exec"] {
+            XCTAssertFalse(
+                passthroughList.contains("\"\(sessionCommand)\""),
+                "\(sessionCommand) runs a session and must bootstrap"
+            )
+        }
+        XCTAssertTrue(source.contains("ZENTTY_MUSE_HOOKS_DISABLED"))
+        XCTAssertTrue(source.contains("ZENTTY_MUSE_PID"))
+    }
+
     func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
         // AgentToolLauncher lives in the ZenttyCLI target which tests don't
         // import, so read the source file directly to protect the bootstrap
@@ -486,7 +531,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
         XCTAssertEqual(
             AgentStatusHelper.wrapperDirectoryPaths(in: bundle),
-            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "omp", "agy", "vibe", "devin", "small-harness"].map {
+            ["amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi", "omp", "agy", "vibe", "devin", "muse", "small-harness"].map {
                 binURL.appendingPathComponent($0, isDirectory: true).path
             }
         )
@@ -11472,6 +11517,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("vibe", "vibe"),
             ("vibe", "mistral-vibe"),
             ("devin", "devin"),
+            ("muse", "muse"),
             ("small-harness", "small-harness"),
         ]
     }

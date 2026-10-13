@@ -308,17 +308,32 @@ final class GhosttyAppearanceSettingsCoordinator: AppearanceSettingsConfigCoordi
         }
 
         if let writeTargetURL = stack.writeTargetURL {
+            recordInConfigStore(mutation)
             writeSharedValue(mutation.value, forKey: mutation.key, to: writeTargetURL)
             runtimeReload()
             return
         }
 
         if stack.mode == .sharedGhostty {
+            recordInConfigStore(mutation)
             createSharedConfig(from: stack, pendingMutation: mutation)
             return
         }
 
         persistLocalOnlyMutation(mutation)
+    }
+
+    /// Mirrors a Ghostty-config write into config.toml, as theme changes
+    /// already are, so a Mac sharing config.toml without a Ghostty config
+    /// still picks it up. Only Zentty-local mode applies the value.
+    private func recordInConfigStore(_ mutation: PendingMutation) {
+        do {
+            try configStore.update { config in
+                mutation.applyLocally(&config)
+            }
+        } catch {
+            logger.error("Failed to record \(mutation.key) in config.toml: \(error.localizedDescription)")
+        }
     }
 
     private func currentStack() -> GhosttyConfigEnvironment.ResolvedStack? {

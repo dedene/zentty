@@ -154,6 +154,95 @@ final class HermesHooksInstallerTests: XCTestCase {
         ))
     }
 
+    // Hermes re-serializes config.yaml on save, dropping our marker comments
+    // and quotes. Uninstall must still find the entries, or Hermes keeps
+    // prompting for unapproved hooks pointing at deleted scripts.
+    func test_uninstall_removes_managed_hooks_after_hermes_strips_markers() throws {
+        let scripts = hermesHomeURL.appendingPathComponent("hooks/zentty-status", isDirectory: true).path
+        try """
+        model: anthropic/claude-sonnet-4.6
+        hooks:
+          on_session_start:
+            - command: \(scripts)/on-session-start.sh
+              timeout: 5
+          pre_tool_call:
+            - command: echo existing
+              timeout: 9
+            - command: \(scripts)/pre-tool-call.sh
+              timeout: 5
+        hooks_auto_accept: false
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(HermesHooksInstaller.isInstalled(configURL: configURL))
+
+        try HermesHooksInstaller.uninstall(configURL: configURL, allowlistURL: allowlistURL)
+
+        XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), """
+        model: anthropic/claude-sonnet-4.6
+        hooks:
+          pre_tool_call:
+            - command: echo existing
+              timeout: 9
+        hooks_auto_accept: false
+        """)
+        XCTAssertFalse(HermesHooksInstaller.isInstalled(configURL: configURL))
+    }
+
+    func test_uninstall_handles_indentless_sequences_and_empties_hooks_mapping() throws {
+        let scripts = hermesHomeURL.appendingPathComponent("hooks/zentty-status", isDirectory: true).path
+        try """
+        hooks:
+          on_session_start:
+          - command: \(scripts)/on-session-start.sh
+            timeout: 5
+          post_llm_call:
+          - command: \(scripts)/post-llm-call.sh
+            timeout: 5
+        security:
+          redact_secrets: true
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        try HermesHooksInstaller.uninstall(configURL: configURL, allowlistURL: allowlistURL)
+
+        XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), """
+        hooks: {}
+        security:
+          redact_secrets: true
+        """)
+    }
+
+    func test_install_replaces_marker_less_managed_hooks_without_duplicating_events() throws {
+        let scripts = hermesHomeURL.appendingPathComponent("hooks/zentty-status", isDirectory: true).path
+        try """
+        hooks:
+          on_session_start:
+            - command: \(scripts)/on-session-start.sh
+              timeout: 5
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        _ = try HermesHooksInstaller.install(
+            configURL: configURL,
+            allowlistURL: allowlistURL,
+            cliPath: "/opt/zentty/bin/zentty"
+        )
+
+        let config = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertEqual(config.components(separatedBy: "on_session_start:").count - 1, 1)
+        XCTAssertEqual(config.components(separatedBy: HermesHooksInstaller.hookMarker).count - 1, 1)
+    }
+
+    func test_is_installed_ignores_commented_out_managed_hooks() throws {
+        try """
+        hooks:
+          # on_session_start:
+          #   - command: /x/.hermes/hooks/zentty-status/on-session-start.sh
+          pre_tool_call:
+            - command: echo existing
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(HermesHooksInstaller.isInstalled(configURL: configURL))
+    }
+
     func test_uninstall_does_not_create_allowlist_when_none_exists() throws {
         try """
         model: anthropic/claude-sonnet-4.6

@@ -673,6 +673,26 @@ final class GhosttyAppearanceSettingsCoordinatorTests: AppKitTestCase {
         )
     }
 
+    func test_applyBackgroundOpacity_withSharedConfig_alsoRecordsOpacityInConfigStore() async throws {
+        // Like the theme, opacity must reach config.toml too, so a Mac that shares
+        // config.toml but has no Ghostty config still gets the same look.
+        let sharedConfigURL = try makeGhosttyConfig(
+            relativePath: ".config/ghostty/config.ghostty",
+            contents: "theme = Existing\n"
+        )
+        let store = makeConfigStore()
+        let coordinator = makeCoordinator(
+            store: store,
+            decisionProvider: { _ in .keepOnlyInZentty },
+            runtimeReload: {}
+        )
+
+        await coordinator.applyBackgroundOpacity(0.72, presentingWindow: nil)
+
+        XCTAssertTrue(try String(contentsOf: sharedConfigURL, encoding: .utf8).contains("background-opacity = 0.72"))
+        XCTAssertEqual(try XCTUnwrap(store.current.appearance.localBackgroundOpacity), 0.72, accuracy: 0.0001)
+    }
+
     func test_applySidebarSelectionEmphasis_persistsToConfigStoreOnly() async throws {
         let store = makeConfigStore()
         var reloadCount = 0
