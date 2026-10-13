@@ -329,6 +329,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
+        rootViewController.onCloseFocusedOverlayRequested = { [weak self] responder in
+            self?.closeFocusedOverlay(responder: responder) ?? false
+        }
         rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
             self?.toggleQuickActionOverlay(nil)
         }
@@ -1347,6 +1350,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let owner = worklaneID(containing: paneID)
         return overlaySessions.values.first { $0.placement == .pane && $0.paneID == paneID }
             ?? overlaySessions.values.first { $0.placement == .worklane && $0.worklaneID == owner }
+    }
+
+    private func closeFocusedOverlay(responder: NSResponder?) -> Bool {
+        guard let focusedView = responder as? NSView else { return false }
+        for overlay in Array(overlaySessions.values) where !overlay.view.isHiddenOrHasHiddenAncestor {
+            if focusedView.isDescendant(of: overlay.view) {
+                overlay.close()
+                return true
+            }
+        }
+        return false
     }
 
     private func syncOverlayVisibility(focusing overlayID: String? = nil) {

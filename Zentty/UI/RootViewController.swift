@@ -264,6 +264,7 @@ final class RootViewController: NSViewController {
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
     var onToggleQuickActionOverlayRequested: (() -> Void)?
+    var onCloseFocusedOverlayRequested: ((NSResponder?) -> Bool)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -1484,6 +1485,10 @@ final class RootViewController: NSViewController {
     }
 
     func handle(_ action: AppAction, syncingFocusWith responder: NSResponder?) {
+        if case .pane(.closeFocusedPane) = action,
+           onCloseFocusedOverlayRequested?(responder) == true {
+            return
+        }
         syncFocusedPaneWithResponderIfNeeded(responder)
         cancelPendingPaneStripScrollSwitchGestureIfNeeded(for: action)
 
