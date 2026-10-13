@@ -308,6 +308,8 @@ final class PaneContainerView: NSView {
     private let contentClipView = NSView()
     private let terminalAnchorView = TerminalAnchorView()
     private let terminalHostView: TerminalPaneHostView
+    private let webContentView: WebContentView?
+    var onWebURLDidChange: ((String) -> Void)?
     private let borderContextView = PaneBorderContextInsetView()
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = PaneInsetBorderLayer()
@@ -412,6 +414,7 @@ final class PaneContainerView: NSView {
         self.titleTextStorage = pane.title
         self.runtime = runtime
         self.terminalHostView = runtime.hostView
+        self.webContentView = runtime.webContentView(for: pane)
         self.backingScaleFactorProvider = backingScaleFactorProvider
         self.currentTheme = theme
         self.currentEmphasis = emphasis
@@ -524,6 +527,20 @@ final class PaneContainerView: NSView {
         addSubview(borderContextView)
         contentClipView.addSubview(terminalAnchorView)
         terminalAnchorView.addSubview(terminalHostView)
+        if let webContentView {
+            webContentView.removeFromSuperview()
+            webContentView.onSelected = { [weak self] in self?.onSelected?() }
+            webContentView.onURLDidChange = { [weak self] url in self?.onWebURLDidChange?(url) }
+            webContentView.translatesAutoresizingMaskIntoConstraints = false
+            terminalHostView.isHidden = true
+            contentClipView.addSubview(webContentView, positioned: .above, relativeTo: terminalAnchorView)
+            NSLayoutConstraint.activate([
+                webContentView.leadingAnchor.constraint(equalTo: contentClipView.leadingAnchor),
+                webContentView.trailingAnchor.constraint(equalTo: contentClipView.trailingAnchor),
+                webContentView.topAnchor.constraint(equalTo: contentClipView.topAnchor),
+                webContentView.bottomAnchor.constraint(equalTo: contentClipView.bottomAnchor),
+            ])
+        }
         contentClipView.addSubview(statusOverlayView)
         updateTerminalViewportDiagnosticsContext()
         TerminalViewportDiagnostics.shared.record(.paneContainerReparent, context: viewportDiagnosticsContext())
@@ -698,7 +715,7 @@ final class PaneContainerView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onSelected?()
-        focusTerminal()
+        focusContent()
         super.mouseDown(with: event)
     }
 
@@ -753,6 +770,14 @@ final class PaneContainerView: NSView {
     }
 
     func focusTerminal() {
+        focusContent()
+    }
+
+    private func focusContent() {
+        if let webContentView {
+            window?.makeFirstResponder(webContentView.webView)
+            return
+        }
         let wasFocused = runtime.hostView.isTerminalFocused
         suppressSelectionOnNextProgrammaticFocus = false
         if runtime.hostView.focusTerminal(), !wasFocused {
@@ -762,6 +787,9 @@ final class PaneContainerView: NSView {
 
     @discardableResult
     func focusTerminalIfReady() -> Bool {
+        if let webContentView {
+            return window?.makeFirstResponder(webContentView.webView) ?? false
+        }
         let wasFocused = runtime.hostView.isTerminalFocused
         suppressSelectionOnNextProgrammaticFocus = false
         let didFocus = runtime.hostView.focusTerminalIfReady()
@@ -772,7 +800,10 @@ final class PaneContainerView: NSView {
     }
 
     var isTerminalFocused: Bool {
-        runtime.hostView.isTerminalFocused
+        if let webContentView {
+            return (window?.firstResponder as? NSView)?.isDescendant(of: webContentView.webView) == true
+        }
+        return runtime.hostView.isTerminalFocused
     }
 
     var isSearchHUDVisible: Bool {

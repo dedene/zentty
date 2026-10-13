@@ -1039,7 +1039,8 @@ final class WorklaneStore {
         minimumSizeByPaneID: [PaneID: PaneMinimumSize],
         targetPaneID: PaneID? = nil,
         preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
+        sessionRequest: TerminalSessionRequest? = nil,
+        webURL: String? = nil
     ) -> PaneID? {
         splitWithLayout(
             in: activeWorklaneID,
@@ -1052,7 +1053,8 @@ final class WorklaneStore {
             minimumSizeByPaneID: minimumSizeByPaneID,
             targetPaneID: targetPaneID,
             preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
+            sessionRequest: sessionRequest,
+            webURL: webURL
         )
     }
 
@@ -1068,7 +1070,8 @@ final class WorklaneStore {
         minimumSizeByPaneID: [PaneID: PaneMinimumSize],
         targetPaneID: PaneID? = nil,
         preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
+        sessionRequest: TerminalSessionRequest? = nil,
+        webURL: String? = nil
     ) -> PaneID? {
         guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == worklaneID }) else {
             return nil
@@ -1091,6 +1094,9 @@ final class WorklaneStore {
             insertNewPaneVertically(into: &worklane, placement: placement, sessionRequest: sessionRequest)
         }
         let newPaneID = worklane.paneStripState.focusedPaneID
+        if let webURL, let newPaneID {
+            worklane.paneStripState.setWebURL(webURL, for: newPaneID)
+        }
 
         switch layout {
         case .none:

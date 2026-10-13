@@ -43,6 +43,7 @@ final class PaneStripView: NSView {
     var onFocusSettled: ((PaneID) -> Void)?
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
+    var onWebURLDidChange: ((PaneID, String) -> Void)?
     var onPaneBorderContextClicked: ((PaneID) -> Void)?
     var onDividerInteraction: ((PaneDivider) -> Void)?
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> CGFloat)?
@@ -1413,6 +1414,7 @@ final class PaneStripView: NSView {
                 paneView.onCloseRequested = { [weak self] in
                     self?.onPaneCloseRequested?(pane.id)
                 }
+                paneView.onWebURLDidChange = { [weak self] url in self?.onWebURLDidChange?(pane.id, url) }
                 paneView.onBorderContextClicked = { [weak self] paneID in
                     self?.onPaneBorderContextClicked?(paneID)
                 }

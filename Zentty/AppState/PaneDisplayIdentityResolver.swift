@@ -1,6 +1,11 @@
 import Foundation
 
 enum PaneDisplayIdentityResolver {
+    static func webLabel(for pane: PaneState) -> String? {
+        guard let value = pane.webURL else { return nil }
+        if let url = URL(string: value), url.isFileURL { return url.lastPathComponent }
+        return value.contains("://") ? value : URL(fileURLWithPath: value).lastPathComponent
+    }
     static func trimmedCustomTitle(for pane: PaneState) -> String? {
         WorklaneContextFormatter.trimmed(pane.customTitle)
     }
@@ -17,7 +22,7 @@ enum PaneDisplayIdentityResolver {
             return customTitle
         }
 
-        return WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel)
+        return webLabel(for: pane) ?? WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel)
     }
 
     static func primaryLabel(
@@ -28,6 +33,8 @@ enum PaneDisplayIdentityResolver {
         if let customTitle = trimmedCustomTitle(for: pane) {
             return customTitle
         }
+
+        if let webLabel = webLabel(for: pane) { return webLabel }
 
         if let sshConnectionLabel = WorklaneContextFormatter.trimmed(presentation.sshConnectionLabel) {
             return sshConnectionLabel

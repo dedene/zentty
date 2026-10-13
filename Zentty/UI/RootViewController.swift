@@ -290,6 +290,7 @@ final class RootViewController: NSViewController {
         self.windowID = windowID
         self.runtimeRegistry = runtimeRegistry
         self.configStore = configStore
+        runtimeRegistry.webPreviewConfigStore = configStore
         self.appUpdateStateStore = appUpdateStateStore
         self.openWithService = openWithService
         self.serverOpenService = serverOpenService
@@ -798,6 +799,9 @@ final class RootViewController: NSViewController {
     }
 
     private func setupCanvasCallbacks() {
+        appCanvasView.paneStripView.onWebURLDidChange = { [weak self] paneID, url in
+            self?.worklaneStore.updateWebURL(url, on: paneID)
+        }
         appCanvasView.paneStripView.onHostDrivenResizeRenderRequested = { [weak self] in
             self?.renderCoordinator.renderCanvas(animated: false)
         }

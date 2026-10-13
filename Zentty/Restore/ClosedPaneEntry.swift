@@ -53,6 +53,7 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
     let originalCommand: String?
     let agentSnapshot: ClosedPaneAgentSnapshot?
     let scrollbackText: String?
+    let webURL: String?
 
     init(
         id: UUID = UUID(),
@@ -70,7 +71,8 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
         originalNativeCommand: String?,
         originalCommand: String?,
         agentSnapshot: ClosedPaneAgentSnapshot?,
-        scrollbackText: String?
+        scrollbackText: String?,
+        webURL: String? = nil
     ) {
         self.id = id
         self.closedAt = closedAt
@@ -88,5 +90,6 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
         self.originalCommand = originalCommand
         self.agentSnapshot = agentSnapshot
         self.scrollbackText = scrollbackText
+        self.webURL = webURL
     }
 }

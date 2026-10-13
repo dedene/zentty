@@ -1,6 +1,12 @@
 import Foundation
 
 extension WorklaneStore {
+    func updateWebURL(_ url: String, on paneID: PaneID) {
+        guard let index = worklanes.firstIndex(where: { $0.paneStripState.panes.contains(where: { $0.id == paneID && $0.webURL != nil }) }),
+              worklanes[index].paneStripState.panes.first(where: { $0.id == paneID })?.webURL != url else { return }
+        worklanes[index].paneStripState.setWebURL(url, for: paneID)
+        notify(.paneStructure(worklanes[index].id))
+    }
     /// Sets or clears the optional user-visible pane title. The value is
     /// trimmed; empty or whitespace-only input clears the title (nil).
     @discardableResult

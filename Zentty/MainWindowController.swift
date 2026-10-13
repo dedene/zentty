@@ -192,6 +192,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var shouldBypassNextCloseConfirmation = false
     private let overlayAdapterFactory: (PaneID) -> any TerminalAdapter
     private var overlaySessions: [String: TerminalOverlaySession] = [:]
+    private var webOverlaySessions: [String: WebOverlaySession] = [:]
     private var overlayActiveWorklaneID: WorklaneID?
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
@@ -422,6 +423,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         for overlay in Array(overlaySessions.values) {
             overlay.close(restoringFocus: false)
         }
+        for overlay in Array(webOverlaySessions.values) { overlay.close(restoringFocus: false) }
         rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)
@@ -1112,7 +1114,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         layout: SplitLayoutAction,
         targetPaneID: PaneID? = nil,
         preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
+        sessionRequest: TerminalSessionRequest? = nil,
+        webURL: String? = nil
     ) -> PaneID? {
         rootViewController.paneCommands.splitWithLayout(
             placement: placement,
@@ -1120,7 +1123,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             layout: layout,
             targetPaneID: targetPaneID,
             preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
+            sessionRequest: sessionRequest,
+            webURL: webURL
         )
     }
 
@@ -1132,7 +1136,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         layout: SplitLayoutAction,
         targetPaneID: PaneID? = nil,
         preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
+        sessionRequest: TerminalSessionRequest? = nil,
+        webURL: String? = nil
     ) -> PaneID? {
         rootViewController.paneCommands.splitWithLayout(
             in: worklaneID,
@@ -1141,7 +1146,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             layout: layout,
             targetPaneID: targetPaneID,
             preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
+            sessionRequest: sessionRequest,
+            webURL: webURL
         )
     }
 
@@ -1287,10 +1293,62 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return overlay.id
     }
 
+    @discardableResult
+    func openWeb(on paneID: PaneID, options: WebPaneIPCOptions) throws -> String {
+        guard let worklaneID = worklaneID(containing: paneID) else { throw TerminalOverlayError.paneNotFound }
+        let placement = options.placement
+        if placement == .pane {
+            guard let newPaneID = splitWithLayout(
+                in: worklaneID,
+                placement: .afterFocused,
+                isHorizontal: true,
+                layout: .none,
+                targetPaneID: paneID,
+                webURL: options.url
+            ) else { throw TerminalOverlayError.paneNotFound }
+            return newPaneID.rawValue
+        }
+        guard !webOverlaySessions.values.contains(where: {
+            $0.placement == .worklane && $0.worklaneID == worklaneID
+        }) else {
+            throw TerminalOverlayError.alreadyOpen
+        }
+        let session = WebOverlaySession(
+            paneID: paneID,
+            worklaneID: worklaneID,
+            url: options.url,
+            placement: placement,
+            sizePercent: options.sizePercent,
+            configStore: configStore
+        )
+        let id = session.id
+        session.onClose = { [weak self] in self?.webOverlaySessions.removeValue(forKey: id) }
+        session.onRestoreFocus = { [weak self] in self?.rootViewController.restoreTerminalFocusAfterOverlay() }
+        for overlay in overlaySessions.values where overlay.worklaneID == worklaneID {
+            overlay.hide(restoringFocus: false)
+        }
+        webOverlaySessions[id] = session
+        syncOverlayVisibility(focusing: id)
+        return id
+    }
+
     @objc
     func toggleQuickActionOverlay(_ sender: Any?) {
         guard !rootViewController.isWorklanePeekActive else { return }
         guard let paneID = rootViewController.focusedPaneID() else { return }
+        if let owner = worklaneID(containing: paneID),
+           let webOverlay = webOverlaySessions.values.first(where: { $0.worklaneID == owner }) {
+            if webOverlay.isPresented {
+                webOverlay.hide()
+            } else {
+                for overlay in overlaySessions.values where overlay.worklaneID == owner {
+                    overlay.hide(restoringFocus: false)
+                }
+                webOverlay.isPresented = true
+                syncOverlayVisibility(focusing: webOverlay.id)
+            }
+            return
+        }
         if let overlay = overlay(on: paneID) {
             if overlay.isPresented {
                 overlay.hide()
@@ -1354,6 +1412,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     private func closeFocusedOverlay(responder: NSResponder?) -> Bool {
         guard let focusedView = responder as? NSView else { return false }
+        for overlay in Array(webOverlaySessions.values) where !overlay.view.isHiddenOrHasHiddenAncestor {
+            if focusedView.isDescendant(of: overlay.view) {
+                overlay.close()
+                return true
+            }
+        }
         for overlay in Array(overlaySessions.values) where !overlay.view.isHiddenOrHasHiddenAncestor {
             if focusedView.isDescendant(of: overlay.view) {
                 overlay.close()
@@ -1367,7 +1431,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let activeWorklaneID = rootViewController.worklaneStore.activeWorklaneID
         let switchedWorklanes = overlayActiveWorklaneID != activeWorklaneID
         overlayActiveWorklaneID = activeWorklaneID
-        guard !overlaySessions.isEmpty else { return }
+        guard !overlaySessions.isEmpty || !webOverlaySessions.isEmpty else { return }
         for overlay in Array(overlaySessions.values) {
             if overlay.placement == .worklane {
                 guard let worklane = rootViewController.worklaneStore.worklanes.first(where: { $0.id == overlay.worklaneID }) else {
@@ -1384,6 +1448,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                     continue
                 }
                 overlay.worklaneID = owner
+            }
+            if switchedWorklanes && overlay.worklaneID != activeWorklaneID {
+                overlay.hide(restoringFocus: false)
+            }
+            let visible = overlay.isPresented && overlay.worklaneID == activeWorklaneID
+            let anchor = (visible
+                ? rootViewController.quickActionOverlayAnchor(for: overlay.paneID, placement: overlay.placement)
+                : nil) ?? rootViewController.quickActionOverlayAnchor(for: overlay.paneID, placement: .worklane)
+            overlay.setVisible(visible, anchor: anchor, focus: overlay.id == overlayID)
+        }
+        for overlay in Array(webOverlaySessions.values) {
+            guard let worklane = rootViewController.worklaneStore.worklanes.first(where: { $0.id == overlay.worklaneID }) else {
+                overlay.close()
+                continue
+            }
+            if !worklane.paneStripState.panes.contains(where: { $0.id == overlay.paneID }),
+               let replacement = worklane.paneStripState.focusedPaneID {
+                overlay.paneID = replacement
             }
             if switchedWorklanes && overlay.worklaneID != activeWorklaneID {
                 overlay.hide(restoringFocus: false)

@@ -550,6 +550,11 @@ enum WorklaneSidebarSummaryBuilder {
             )
         }
 
+        if let webLabel = PaneDisplayIdentityResolver.webLabel(for: pane) {
+            return PaneSidebarIdentity(primaryText: webLabel, trailingText: nil,
+                                       detailText: nil, usesCustomTitle: false)
+        }
+
         if presentation.isRemoteShell {
             return remotePaneIdentity(
                 metadata: metadata,

@@ -12,6 +12,7 @@ enum AppConfigTOML {
         case sidebar
         case paneLayout
         case panes
+        case webPreview
         case appearance
         case openWith
         case serverDetection
@@ -58,6 +59,12 @@ enum AppConfigTOML {
         lines.append("focus_follows_mouse_delay = \(encode(string: config.panes.focusFollowsMouseDelay.rawValue))")
         lines.append("focus_on_1password_prompt = \(config.panes.focusOnOnePasswordPrompt)")
         lines.append("return_after_1password_prompt = \(config.panes.returnAfterOnePasswordPrompt)")
+        lines.append("")
+        lines.append("[web_preview]")
+        lines.append("javascript_enabled = \(config.webPreview.javaScriptEnabled)")
+        lines.append("localhost_javascript_enabled = \(config.webPreview.localhostJavaScriptEnabled)")
+        lines.append("persistent_storage_enabled = \(config.webPreview.persistentStorageEnabled)")
+        lines.append("browsing_enabled = \(config.webPreview.browsingEnabled)")
         lines.append("")
 
         if config.appearance != .default {
@@ -244,6 +251,10 @@ enum AppConfigTOML {
                 section = .panes
                 continue
             }
+            if line == "[web_preview]" {
+                section = .webPreview
+                continue
+            }
             if line == "[appearance]" {
                 section = .appearance
                 continue
@@ -346,6 +357,17 @@ enum AppConfigTOML {
                 guard decodePanesAssignment(assignment, into: &config) else {
                     return nil
                 }
+            case .webPreview:
+                let keyPath: WritableKeyPath<AppConfig.WebPreview, Bool>
+                switch assignment.key {
+                case "javascript_enabled": keyPath = \.javaScriptEnabled
+                case "localhost_javascript_enabled": keyPath = \.localhostJavaScriptEnabled
+                case "persistent_storage_enabled": keyPath = \.persistentStorageEnabled
+                case "browsing_enabled": keyPath = \.browsingEnabled
+                default: continue
+                }
+                guard let value = decodeBool(assignment.value) else { return nil }
+                config.webPreview[keyPath: keyPath] = value
             case .appearance:
                 guard decodeAppearanceAssignment(assignment, into: &config) else {
                     return nil

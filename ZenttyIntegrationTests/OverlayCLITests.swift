@@ -3,6 +3,36 @@ import XCTest
 @testable import Zentty
 
 final class OverlayCLITests: XCTestCase {
+    func test_web_open_explicitly_requests_a_pane() throws {
+        let server = try TmuxCaptureServer(response: AgentIPCResponse(id: "web", ok: true,
+            result: AgentIPCResponseResult(stdout: "web-pane\n")))
+        defer { server.invalidate() }
+        let result = try runCLI(["web", "open", "https://example.com/report"], server: server)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let request = try XCTUnwrap(result.request)
+        XCTAssertEqual(request.subcommand, "web-open")
+        XCTAssertEqual(request.arguments, ["--url", "https://example.com/report", "--size-percent", "100", "--placement", "pane"])
+        XCTAssertEqual(result.stdout, "web-pane\n")
+    }
+
+    func test_web_explicit_overlay_preserves_target_selectors() throws {
+        let server = try TmuxCaptureServer(response: AgentIPCResponse(id: "web", ok: true))
+        defer { server.invalidate() }
+        let result = try runCLI(["web", "overlay", "--pane-id", "target", "http://localhost:3000"], server: server)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let args = try XCTUnwrap(result.request).arguments
+        XCTAssertTrue(args.contains("overlay"))
+        XCTAssertEqual(Array(args.suffix(2)), ["--pane-id", "target"])
+    }
+
+    func test_web_security_options_cannot_override_app_settings() throws {
+        for flag in ["--js", "--persistent", "--browse"] {
+            let result = try runCLI(["web", "open", flag, "https://example.com"])
+            XCTAssertEqual(result.status, 64)
+            XCTAssertTrue(result.stderr.contains(flag), result.stderr)
+        }
+    }
+
     func test_open_preserves_passthrough_tokens_and_prints_response_verbatim() throws {
         let command = ["tool", "two words", "single'quote", "double\"quote", "--", "--help", "--pane-id", "literal", ""]
         let server = try TmuxCaptureServer(response: AgentIPCResponse(

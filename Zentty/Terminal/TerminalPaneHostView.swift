@@ -409,6 +409,16 @@ enum PaneRuntimeStartupPolicy {
 
 @MainActor
 final class PaneRuntime {
+    var webPreviewConfigStore: AppConfigStore?
+    private var webContentViewValue: WebContentView?
+
+    func webContentView(for pane: PaneState) -> WebContentView? {
+        guard let url = pane.webURL else { return nil }
+        if let webContentViewValue { return webContentViewValue }
+        let content = WebContentView(url: url, configStore: webPreviewConfigStore)
+        webContentViewValue = content
+        return content
+    }
     static let startupFailureMessage = "GhosttyKit could not start this pane. Check your shell environment and retry."
     private static let defaultStartupCommandSettleDelay: TimeInterval = 0.12
     private static let defaultRestoreDraftSettleDelay: TimeInterval = 0.25
@@ -421,6 +431,7 @@ final class PaneRuntime {
     private let startupCommandSettleDelay: TimeInterval
     private let restoreDraftSettleDelay: TimeInterval
     private var sessionRequest: TerminalSessionRequest
+    private var isWebPane: Bool
     private var hasAttemptedStart = false
     private var hasReceivedMetadata = false
     private var hasSentInitialCommand = false
@@ -471,6 +482,7 @@ final class PaneRuntime {
     ) {
         paneIDValue = pane.id
         sessionRequest = pane.sessionRequest
+        isWebPane = pane.webURL != nil
         restoreDraftLifecycleState = Self.initialRestoreDraftLifecycleState(for: pane.sessionRequest)
         adapterValue = adapter
         hostViewValue = TerminalPaneHostView(adapter: adapter)
@@ -522,7 +534,7 @@ final class PaneRuntime {
     }
 
     var canStartDeferred: Bool {
-        !hasAttemptedStart && !sessionRequest.isLaunchDeferred
+        !isWebPane && !hasAttemptedStart && !sessionRequest.isLaunchDeferred
     }
 
     var hasValidViewportSync: Bool {
@@ -567,12 +579,14 @@ final class PaneRuntime {
 
     func update(pane: PaneState) {
         sessionRequest = pane.sessionRequest
+        isWebPane = pane.webURL != nil
         if case .none = restoreDraftLifecycleState {
             restoreDraftLifecycleState = Self.initialRestoreDraftLifecycleState(for: pane.sessionRequest)
         }
     }
 
     func ensureStarted() {
+        guard !isWebPane else { return }
         guard !hasAttemptedStart else {
             return
         }
@@ -1001,6 +1015,7 @@ final class PaneRuntime {
 
 @MainActor
 final class PaneRuntimeRegistry {
+    var webPreviewConfigStore: AppConfigStore?
     typealias AdapterFactory = @MainActor (PaneID) -> any TerminalAdapter
     typealias DeferredStartScheduler = @MainActor (
         _ delay: TimeInterval,
@@ -1042,6 +1057,7 @@ final class PaneRuntimeRegistry {
 
     func runtime(for pane: PaneState) -> PaneRuntime {
         if let runtime = runtimes[pane.id] {
+            runtime.webPreviewConfigStore = webPreviewConfigStore
             runtime.update(pane: pane)
             return runtime
         }
@@ -1053,6 +1069,7 @@ final class PaneRuntimeRegistry {
                 metadataSink: metadataSink(),
                 eventSink: eventSink()
             )
+            runtime.webPreviewConfigStore = webPreviewConfigStore
             bindSinks(to: runtime)
             runtime.updateSearchHUDShortcutTooltips(shortcutManager)
             runtimes[pane.id] = runtime

@@ -155,3 +155,83 @@ final class TerminalOverlaySession: NSObject {
         if restoringFocus && hadFocus { onRestoreFocus?() }
     }
 }
+
+@MainActor
+final class WebOverlaySession {
+    let id = "web_\(UUID().uuidString.lowercased())"
+    var paneID: PaneID
+    var worklaneID: WorklaneID
+    let placement: PaneOverlayIPCOptions.Placement
+    let view = NSView()
+    let content: WebContentView
+    var isPresented = true
+    var onClose: (() -> Void)?
+    var onRestoreFocus: (() -> Void)?
+    private let sizePercent: Int
+    private var constraints: [NSLayoutConstraint] = []
+    private var isClosing = false
+
+    init(paneID: PaneID, worklaneID: WorklaneID, url: String,
+         placement: PaneOverlayIPCOptions.Placement, sizePercent: Int, configStore: AppConfigStore? = nil) {
+        self.paneID = paneID
+        self.worklaneID = worklaneID
+        self.placement = placement
+        self.sizePercent = sizePercent
+        self.content = WebContentView(url: url, showsCloseButton: true, configStore: configStore)
+        view.identifier = NSUserInterfaceItemIdentifier(id)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 8
+        view.layer?.masksToBounds = true
+        view.layer?.borderWidth = 1
+        view.layer?.borderColor = NSColor.separatorColor.cgColor
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.onClose = { [weak self] in self?.close() }
+        view.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            content.topAnchor.constraint(equalTo: view.topAnchor),
+            content.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    func setVisible(_ visible: Bool, anchor: NSView?, focus: Bool = false) {
+        guard !isClosing else { return }
+        if let anchor, view.superview !== anchor {
+            NSLayoutConstraint.deactivate(constraints)
+            view.removeFromSuperview()
+            anchor.addSubview(view, positioned: .above, relativeTo: nil)
+            let fraction = CGFloat(sizePercent) / 100
+            constraints = [
+                view.centerXAnchor.constraint(equalTo: anchor.centerXAnchor),
+                view.centerYAnchor.constraint(equalTo: anchor.centerYAnchor),
+                view.widthAnchor.constraint(equalTo: anchor.widthAnchor, multiplier: fraction, constant: -32 * fraction),
+                view.heightAnchor.constraint(equalTo: anchor.heightAnchor, multiplier: fraction, constant: -32 * fraction),
+            ]
+            NSLayoutConstraint.activate(constraints)
+        }
+        view.isHidden = !visible || anchor == nil
+        view.superview?.layoutSubtreeIfNeeded()
+        if visible && focus { view.window?.makeFirstResponder(content.webView) }
+    }
+
+    func hide(restoringFocus: Bool = true) {
+        guard !isClosing else { return }
+        let hadFocus = (view.window?.firstResponder as? NSView)?.isDescendant(of: view) == true
+        isPresented = false
+        setVisible(false, anchor: view.superview)
+        if restoringFocus && hadFocus { onRestoreFocus?() }
+    }
+
+    func close(restoringFocus: Bool = true) {
+        guard !isClosing else { return }
+        isClosing = true
+        let hadFocus = (view.window?.firstResponder as? NSView)?.isDescendant(of: view) == true
+        content.webView.stopLoading()
+        NSLayoutConstraint.deactivate(constraints)
+        view.removeFromSuperview()
+        onClose?()
+        if restoringFocus && hadFocus { onRestoreFocus?() }
+    }
+}

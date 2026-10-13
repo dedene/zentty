@@ -115,6 +115,7 @@ enum PaneIPCSubcommand: String {
     case overlayList = "overlay-list"
     case overlayShow = "overlay-show"
     case overlayClose = "overlay-close"
+    case webOpen = "web-open"
     case list
     case focus
     case close
@@ -435,7 +436,7 @@ enum PaneIPCHandler {
     ) throws -> AgentIPCResponseResult {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
               let resolved = resolveTarget(target, appDelegate: appDelegate) else {
-            if subcommand == .notify || subcommand == .overlayOpen
+            if subcommand == .notify || subcommand == .overlayOpen || subcommand == .webOpen
                 || subcommand == .overlayList || subcommand == .overlayShow
                 || subcommand == .overlayClose {
                 throw PaneRoutingError.paneNotFound
@@ -464,7 +465,7 @@ enum PaneIPCHandler {
         if subcommand != .list && subcommand != .worklaneColor && subcommand != .worklaneRename
             && subcommand != .paneRename && subcommand != .notify && subcommand != .theme
             && subcommand != .overlayOpen && subcommand != .overlayList
-            && subcommand != .overlayShow && subcommand != .overlayClose {
+            && subcommand != .overlayShow && subcommand != .overlayClose && subcommand != .webOpen {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -502,6 +503,10 @@ enum PaneIPCHandler {
         case .overlayClose:
             try windowController.closeOverlay(on: target.paneID)
             return AgentIPCResponseResult()
+        case .webOpen:
+            let options = try WebPaneIPCOptions.parse(arguments: request.arguments)
+            let id = try windowController.openWeb(on: target.paneID, options: options)
+            return AgentIPCResponseResult(stdout: "\(id)\n")
         case .list:
             return handleList(target: target, windowController: windowController)
         case .focus:

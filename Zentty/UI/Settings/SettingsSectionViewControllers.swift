@@ -180,6 +180,9 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
     private var worklanes: AppConfig.Worklanes
     private var panes: AppConfig.Panes
     private var paneLayout: PaneLayoutPreferences
+    private var webPreview: AppConfig.WebPreview
+    private let webPreviewSwitches = (0..<4).map { _ in NSSwitch() }
+    private var isApplyingWebPreview = false
     private let newWorklanePlacementPopup = NSPopUpButton()
     private let newWorklanePlacementSubtitleLabel = NSTextField(labelWithString: "")
     private let showLabelsSwitch = NSSwitch()
@@ -212,6 +215,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         self.worklanes = configStore.current.worklanes
         self.panes = configStore.current.panes
         self.paneLayout = configStore.current.paneLayout
+        self.webPreview = configStore.current.webPreview
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -247,6 +251,9 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         let displayCard = makeDisplayCard()
         stackView.addArrangedSubview(displayCard)
         displayCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        let webPreviewCard = makeWebPreviewCard()
+        stackView.addArrangedSubview(webPreviewCard)
+        webPreviewCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         configureInactiveOpacitySlider()
         configureVisibleSplitWindowWidthSlider()
@@ -261,6 +268,67 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
         apply(worklanes: worklanes)
         apply(panes: panes)
         apply(paneLayout: paneLayout)
+        apply(webPreview: webPreview)
+    }
+
+    private static let webPreviewKeys: [WritableKeyPath<AppConfig.WebPreview, Bool>] = [
+        \.javaScriptEnabled, \.localhostJavaScriptEnabled, \.persistentStorageEnabled, \.browsingEnabled,
+    ]
+
+    var webPreviewSwitchesForTesting: [NSSwitch] { webPreviewSwitches }
+
+    func apply(webPreview: AppConfig.WebPreview) {
+        self.webPreview = webPreview
+        guard isViewLoaded else { return }
+        isApplyingWebPreview = true
+        for (index, key) in Self.webPreviewKeys.enumerated() {
+            webPreviewSwitches[index].state = webPreview[keyPath: key] ? .on : .off
+        }
+        isApplyingWebPreview = false
+    }
+
+    private func makeWebPreviewCard() -> NSView {
+        let card = SettingsCardView()
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+        let title = makeLabel(text: "Web Preview", font: .systemFont(ofSize: 14, weight: .semibold))
+        stack.addArrangedSubview(title)
+        let description = NSTextField(wrappingLabelWithString: "Choose what web previews can do. Permission changes reload open previews.")
+        description.font = .systemFont(ofSize: 12)
+        description.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(description)
+        description.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        let rows = [
+            ("Allow JavaScript", "Run scripts in websites and HTML artifacts."),
+            ("Allow JavaScript on localhost", "Run scripts on localhost and loopback addresses for tools such as Plannotator, even when JavaScript is otherwise disabled."),
+            ("Keep website data", "Save cookies and site data between previews and app launches. HTML files always use temporary storage."),
+            ("Allow browsing to other websites", "Let a preview leave the website it opened. When off, it stays on the same origin."),
+        ]
+        for (index, row) in rows.enumerated() {
+            let toggle = webPreviewSwitches[index]
+            toggle.tag = index
+            toggle.identifier = NSUserInterfaceItemIdentifier("webPreview.\(index)")
+            let view = makeSwitchRow(title: row.0, subtitle: row.1, toggle: toggle,
+                                     action: #selector(handleWebPreviewChanged(_:)))
+            stack.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+        return card
+    }
+
+    @objc private func handleWebPreviewChanged(_ sender: NSSwitch) {
+        guard !isApplyingWebPreview, Self.webPreviewKeys.indices.contains(sender.tag) else { return }
+        try? configStore.update { $0.webPreview[keyPath: Self.webPreviewKeys[sender.tag]] = sender.state == .on }
     }
 
     var showsPaneLabelsForTesting: Bool {

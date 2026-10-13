@@ -89,3 +89,49 @@ struct PaneOverlayIPCOptions: Equatable {
         )
     }
 }
+
+struct WebPaneIPCOptions {
+    let url: String
+    let placement: PaneOverlayIPCOptions.Placement
+    let sizePercent: Int
+
+    enum ParseError: LocalizedError {
+        case missingValue(String)
+        case invalidValue(String)
+        case missingURL
+        var errorDescription: String? {
+            switch self {
+            case .missingValue(let option): "Missing value for \(option)."
+            case .invalidValue(let option): "Invalid value for \(option)."
+            case .missingURL: "Missing URL or file path."
+            }
+        }
+    }
+
+    static func parse(arguments: [String]) throws -> WebPaneIPCOptions {
+        var url: String?
+        var placement: PaneOverlayIPCOptions.Placement = .pane
+        var sizePercent = 100
+        var index = 0
+        while index < arguments.count {
+            let option = arguments[index]
+            guard arguments.indices.contains(index + 1) else { throw ParseError.missingValue(option) }
+            let value = arguments[index + 1]
+            switch option {
+            case "--url": url = value
+            case "--placement":
+                if value == "overlay" { placement = .worklane }
+                else if let parsed = PaneOverlayIPCOptions.Placement(rawValue: value) { placement = parsed }
+                else { throw ParseError.invalidValue(option) }
+            case "--size-percent":
+                guard let parsed = Int(value), (30...100).contains(parsed) else { throw ParseError.invalidValue(option) }
+                sizePercent = parsed
+            default: throw ParseError.invalidValue(option)
+            }
+            index += 2
+        }
+        guard let url, !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ParseError.missingURL }
+        guard WebPreviewPolicy.resourceURL(url) != nil else { throw ParseError.invalidValue("--url") }
+        return WebPaneIPCOptions(url: url, placement: placement, sizePercent: sizePercent)
+    }
+}
