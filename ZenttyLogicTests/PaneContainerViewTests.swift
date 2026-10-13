@@ -4,6 +4,35 @@ import XCTest
 
 @MainActor
 final class PaneContainerViewTests: AppKitTestCase {
+    func test_web_content_fills_pane_and_keeps_toolbar_at_top_after_resize() throws {
+        let pane = PaneState(id: PaneID("web"), title: "Web", webURL: "about:blank")
+        let runtime = PaneRuntime(pane: pane, adapter: PaneContainerTerminalAdapterSpy(),
+                                  metadataSink: { _, _ in }, eventSink: { _, _ in })
+        let container = PaneContainerView(pane: pane, width: 420, height: 520,
+                                         emphasis: 1, isFocused: true, runtime: runtime,
+                                         theme: ZenttyTheme.fallback(for: nil))
+        let browser = try XCTUnwrap(container.descendantSubviews().compactMap { $0 as? WebContentView }.first)
+        for size in [NSSize(width: 420, height: 520), NSSize(width: 1100, height: 900)] {
+            container.setFrameSize(size)
+            container.layoutSubtreeIfNeeded()
+            browser.layoutSubtreeIfNeeded()
+            XCTAssertEqual(browser.frame, browser.superview?.bounds)
+            let pageFrame = browser.webView.convert(browser.webView.bounds, to: browser)
+            XCTAssertEqual(pageFrame.minY, 42, accuracy: 0.5)
+            XCTAssertEqual(pageFrame.minX, 6, accuracy: 0.5)
+            XCTAssertEqual(pageFrame.width, size.width - 12, accuracy: 0.5)
+            XCTAssertEqual(pageFrame.height, size.height - 48, accuracy: 0.5)
+            XCTAssertTrue(browser.webView.superview?.layer?.masksToBounds == true)
+            let mask = try XCTUnwrap(browser.webView.superview?.layer?.mask as? CAShapeLayer)
+            XCTAssertEqual(mask.path?.boundingBoxOfPath, browser.webView.superview?.bounds)
+            let path = try XCTUnwrap(mask.path)
+            XCTAssertTrue(path.contains(CGPoint(x: 0.1, y: 0.1)))
+            XCTAssertTrue(path.contains(CGPoint(x: pageFrame.width - 0.1, y: 0.1)))
+            XCTAssertFalse(path.contains(CGPoint(x: 0.1, y: pageFrame.height - 0.1)))
+            XCTAssertFalse(path.contains(CGPoint(x: pageFrame.width - 0.1, y: pageFrame.height - 0.1)))
+        }
+    }
+
     func test_pane_hosts_terminal_edge_to_edge_without_internal_header() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(

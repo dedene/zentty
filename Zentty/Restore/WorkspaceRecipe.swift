@@ -18,9 +18,10 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
     /// auto-generated "MAIN"/"WS N" junk that gets sanitized once at import.
     /// Schema version 3 adds optional per-pane `customTitle` fields.
     /// Schema version 4 adds an optional per-window `sidebar` entry.
+    /// Schema version 5 stores optional web content per pane.
     /// Synthesized Decodable ignores the property default for optionals, so
     /// legacy JSON without the key decodes as nil.
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     var schemaVersion: Int?
     var windows: [Window]
@@ -177,6 +178,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var workingDirectory: String?
         var lastActivityTitle: String? = nil
         var lastRunCommand: String? = nil
+        var webURL: String? = nil
     }
 }
 
@@ -262,7 +264,8 @@ enum WorkspaceRecipeExporter {
             titleSeed: titleSeed,
             workingDirectory: workingDirectory,
             lastActivityTitle: lastActivityTitle,
-            lastRunCommand: lastRunCommand
+            lastRunCommand: lastRunCommand,
+            webURL: pane.webURL
         )
     }
 
@@ -615,7 +618,12 @@ enum WorkspaceRecipeImporter {
             auxiliary.raw.restoredAgentAutoResumePending = true
         }
         auxiliaryStateByPaneID[paneID] = auxiliary
-        return result.pane
+        var pane = result.pane
+        if let webURL = recipe.webURL {
+            pane.webURL = webURL
+            pane.title = PaneDisplayIdentityResolver.webLabel(for: pane) ?? "Web"
+        }
+        return pane
     }
 
     private static func legacyLastActivityTitle(from recipe: WorkspaceRecipe.Pane) -> String? {

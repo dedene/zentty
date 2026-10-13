@@ -44,6 +44,14 @@ enum AppUpdateChannel: String, CaseIterable, Equatable, Sendable {
 }
 
 struct AppConfig: Equatable, Sendable {
+    struct WebPreview: Equatable, Sendable {
+        var javaScriptEnabled = false
+        var localhostJavaScriptEnabled = false
+        var persistentStorageEnabled = false
+        var browsingEnabled = false
+
+        static let `default` = WebPreview()
+    }
     struct Appearance: Equatable, Sendable {
         enum ThemeMode: String, CaseIterable, Equatable, Sendable {
             case followMacOS
@@ -343,6 +351,7 @@ struct AppConfig: Equatable, Sendable {
     var agentLists: AgentLists
     var menuBar: MenuBar
     var agentIntegrations: AgentIntegrations
+    var webPreview: WebPreview = .default
 
     static let `default` = AppConfig(
         sidebar: Sidebar(

@@ -84,6 +84,7 @@ struct PaneState: Equatable, Sendable {
     /// trimmed string — never empty, never padded.
     var customTitle: String?
     var sessionRequest: TerminalSessionRequest
+    var webURL: String?
     var width: CGFloat
 
     init(
@@ -91,6 +92,7 @@ struct PaneState: Equatable, Sendable {
         title: String,
         customTitle: String? = nil,
         sessionRequest: TerminalSessionRequest = TerminalSessionRequest(),
+        webURL: String? = nil,
         width: CGFloat = PaneLayoutPreset.balanced.defaultPaneWidth(
             for: .largeDisplay, viewportWidth: 1280)
     ) {
@@ -98,6 +100,7 @@ struct PaneState: Equatable, Sendable {
         self.title = title
         self.customTitle = WorklaneContextFormatter.trimmed(customTitle)
         self.sessionRequest = sessionRequest
+        self.webURL = webURL
         self.width = width
     }
 }
@@ -582,6 +585,13 @@ struct PaneStripState: Equatable, Sendable {
                 return pane
             }
         }
+    }
+
+    mutating func setWebURL(_ url: String, for paneID: PaneID) {
+        guard let columnIndex = columns.firstIndex(where: { $0.panes.contains(where: { $0.id == paneID }) }),
+              let paneIndex = columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else { return }
+        columns[columnIndex].panes[paneIndex].webURL = url
+        columns[columnIndex].panes[paneIndex].title = PaneDisplayIdentityResolver.webLabel(for: columns[columnIndex].panes[paneIndex]) ?? "Web"
     }
 
     var focusedPaneID: PaneID? {

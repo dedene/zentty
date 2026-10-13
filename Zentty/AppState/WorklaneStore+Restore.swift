@@ -69,7 +69,8 @@ extension WorklaneStore {
             originalNativeCommand: pane.sessionRequest.nativeCommand,
             originalCommand: pane.sessionRequest.command,
             agentSnapshot: agentSnapshot,
-            scrollbackText: scrollbackText
+            scrollbackText: scrollbackText,
+            webURL: pane.webURL
         )
 
         closedPaneStack.push(entry, now: currentDateProvider())
@@ -113,6 +114,7 @@ extension WorklaneStore {
             title: entry.title,
             customTitle: entry.customTitle,
             sessionRequest: sessionRequest,
+            webURL: entry.webURL,
             width: entry.originalColumnWidth
         )
 

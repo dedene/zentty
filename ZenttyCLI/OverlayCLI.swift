@@ -87,3 +87,49 @@ struct OverlayCloseCommand: ParsableCommand {
         _ = try PaneIPC.send(subcommand: "overlay-close", arguments: target.selectorArguments())
     }
 }
+
+struct WebCommandGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "web", abstract: "Open web content inside Zentty.", subcommands: [WebOpenCommand.self, WebOverlayCommand.self])
+}
+
+struct WebOpenCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "open", abstract: "Open a URL or local HTML file in a new pane.")
+    @OptionGroup var options: WebResourceOptions
+    mutating func run() throws { try options.open(placement: "pane") }
+}
+
+struct WebOverlayCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "overlay", abstract: "Open a URL or local HTML file over the worklane, like Ctrl+`.")
+    @OptionGroup var options: WebResourceOptions
+    mutating func run() throws { try options.open(placement: "overlay") }
+}
+
+struct WebResourceOptions: ParsableArguments {
+    @Option(name: .long, help: "Overlay size as a percentage (30–100).")
+    var sizePercent = 100
+    @OptionGroup var target: PaneTargetOptions
+    @Argument(help: "URL or local file path.")
+    var resource: String
+
+    func open(placement: String) throws {
+        guard (30...100).contains(sizePercent) else { throw ValidationError("--size-percent must be between 30 and 100.") }
+        guard !resource.isEmpty else {
+            throw ValidationError("Pass a URL or file path.")
+        }
+        let value = resource
+        let resolvedValue: String
+        if value.hasPrefix("file://") || value.contains("://") {
+            resolvedValue = value
+        } else {
+            let expanded = (value as NSString).expandingTildeInPath
+            let fileURL = URL(fileURLWithPath: expanded, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { throw ValidationError("File does not exist: \(fileURL.path)") }
+            resolvedValue = fileURL.absoluteString
+        }
+        var arguments = ["--url", resolvedValue, "--size-percent", String(sizePercent)]
+        arguments.append(contentsOf: ["--placement", placement])
+        arguments.append(contentsOf: target.selectorArguments())
+        let response = try PaneIPC.send(subcommand: "web-open", arguments: arguments)
+        if let stdout = response?.result?.stdout { print(stdout, terminator: "") }
+    }
+}

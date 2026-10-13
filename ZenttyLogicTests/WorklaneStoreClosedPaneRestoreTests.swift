@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class WorklaneStoreClosedPaneRestoreTests: XCTestCase {
+    func test_reopening_closed_web_pane_preserves_its_page() throws {
+        let store = makeMultiPaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        mutateActivePane(in: store, paneID: paneID) { pane, _ in
+            pane.webURL = "https://example.com/review"
+            pane.title = "https://example.com/review"
+        }
+        _ = store.closePane(id: paneID)
+        XCTAssertEqual(store.closedPaneStack.peek()?.webURL, "https://example.com/review")
+        let result = try XCTUnwrap(store.restoreClosedPane())
+        let restored = try XCTUnwrap(store.activeWorklane?.paneStripState.panes.first(where: { $0.id == result.restoredPaneID }))
+        XCTAssertEqual(restored.webURL, "https://example.com/review")
+    }
+
     func test_user_close_pushes_entry_onto_per_window_stack() throws {
         let store = makeMultiPaneStore()
         let originalCount = store.activeWorklane?.paneStripState.panes.count ?? 0

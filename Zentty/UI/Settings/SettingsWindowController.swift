@@ -740,6 +740,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         )
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(worklanes: config.worklanes, panes: config.panes, paneLayout: config.paneLayout)
+        paneLayoutViewController.apply(webPreview: config.webPreview)
         openWithViewController.apply(preferences: config.openWith)
         serverBrowserSettingsViewController.apply(serverDetection: config.serverDetection)
     }

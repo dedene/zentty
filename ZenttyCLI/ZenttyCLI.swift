@@ -21,6 +21,7 @@ struct ZenttyCLI: ParsableCommand {
             VSplitCommand.self,
             GridCommand.self,
             OverlayCommandGroup.self,
+            WebCommandGroup.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
             ThemeCommandGroup.self,

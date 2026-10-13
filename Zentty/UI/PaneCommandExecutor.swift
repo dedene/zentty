@@ -279,7 +279,8 @@ final class PaneCommandExecutor {
         layout: SplitLayoutAction,
         targetPaneID: PaneID? = nil,
         preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
+        sessionRequest: TerminalSessionRequest? = nil,
+        webURL: String? = nil
     ) -> PaneID? {
         canvas.settlePaneStripPresentationNow()
         return worklaneStore.splitWithLayout(
@@ -292,7 +293,8 @@ final class PaneCommandExecutor {
             minimumSizeByPaneID: paneMinimumSizesByPaneID(),
             targetPaneID: targetPaneID,
             preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
+            sessionRequest: sessionRequest,
+            webURL: webURL
         )
     }
 
@@ -304,7 +306,8 @@ final class PaneCommandExecutor {
         layout: SplitLayoutAction,
         targetPaneID: PaneID? = nil,
         preserveFocusPaneID: PaneID? = nil,
-        sessionRequest: TerminalSessionRequest? = nil
+        sessionRequest: TerminalSessionRequest? = nil,
+        webURL: String? = nil
     ) -> PaneID? {
         canvas.settlePaneStripPresentationNow()
         return worklaneStore.splitWithLayout(
@@ -318,7 +321,8 @@ final class PaneCommandExecutor {
             minimumSizeByPaneID: paneMinimumSizesByPaneID(in: worklaneID),
             targetPaneID: targetPaneID,
             preserveFocusPaneID: preserveFocusPaneID,
-            sessionRequest: sessionRequest
+            sessionRequest: sessionRequest,
+            webURL: webURL
         )
     }
 
