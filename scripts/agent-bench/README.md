@@ -121,6 +121,21 @@ every Agent tool call asynchronously:
   `agent_id`s and every stop must match a start. A violation reports
   `missing-nested-subagent`.
 
+`greeting_first_turn` and `multi_turn` (Muse only) drive the interactive TUI
+and set `title_spinner_phases: true`, which reads a title with a leading
+braille spinner frame (`⠋ repo`) as `running` and any other title as `idle`.
+Zentty ends Muse turns when that spinner settles, because Muse's hooks miss
+the turn end in two ways (Muse Code 1.4.7):
+
+- `greeting_first_turn` types `hello!` as the first prompt. Muse answers it
+  without a model step and fires `UserPromptSubmit` but never `Stop`.
+- `multi_turn` runs two prompts. After each root `Stop`, the `goal-reminder`
+  and `verify-reminder` threads keep the TUI on "Double checking" for several
+  seconds; the spinner only settles once they finish.
+
+Both require `running` then `idle` per turn, so they fail if Muse stops
+animating its title or leaves the spinner on after a turn.
+
 `event_order` is generic: each entry is a `[before, after]` pair of hook event
 names, checked against the scenario's own hook records after the required
 events pass.

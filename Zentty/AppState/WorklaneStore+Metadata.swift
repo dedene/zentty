@@ -158,6 +158,12 @@ extension WorklaneStore {
             metadata: metadata,
             in: &worklane
         )
+        completeMuseTurnIfTitleSettled(
+            paneID: paneID,
+            previousMetadata: previousMetadata,
+            metadata: metadata,
+            in: &worklane
+        )
         invalidateGitContextIfNeeded(for: paneID, in: &worklane)
         let prePresentationState = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.state.rawValue ?? "<nil>"
         stopSignalLogger.debug(

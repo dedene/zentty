@@ -105,6 +105,7 @@ SENSITIVE_PAYLOAD_KEY_PATTERNS = re.compile(
     re.I,
 )
 EMAIL_PATTERN = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])")
+TITLE_SPINNER_PATTERN = re.compile(r"[\u2801-\u28ff]\s+\S")
 USER_PATH_PATTERN = re.compile(r"/Users/[^/\\\s\"']+")
 REFUSAL_PATTERNS = [
     r"\bI (?:can'?t|cannot|won'?t|am unable to)\b",
@@ -137,6 +138,10 @@ class ScenarioExpectation:
     required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
     forbidden_events: list[str] = dataclasses.field(default_factory=list)
     forbidden_terminal_phases: list[str] = dataclasses.field(default_factory=list)
+    # Read terminal titles the way Muse Code writes them: a leading braille
+    # spinner frame ("⠋ repo") is `running`, any other title `idle`. Muse's
+    # title carries no status words, and Zentty ends Muse turns on it.
+    title_spinner_phases: bool = False
     expected_task_progress: dict[str, int] | None = None
     expected_task_items: list[dict[str, str]] | None = None
     session_identity: SessionIdentityExpectation | None = None
@@ -594,7 +599,7 @@ def missing_required_terminal_phases(
     expectation: ScenarioExpectation,
     observations: list[TerminalObservation],
 ) -> list[str]:
-    observed_phases = terminal_phase_sequence(observations)
+    observed_phases = terminal_phase_sequence(observations, spinner_titles=expectation.title_spinner_phases)
     missing: list[str] = []
     observed_index = 0
     for phase in expectation.required_terminal_phases:
@@ -1014,9 +1019,13 @@ def terminal_observation_indicates_needs_input(observation: TerminalObservation)
     return observation.kind in {"title", "progress"} and "action required" in observation.text.lower()
 
 
-def terminal_observation_phase(observation: TerminalObservation) -> str | None:
+def terminal_observation_phase(observation: TerminalObservation, spinner_titles: bool = False) -> str | None:
     if observation.kind not in {"title", "progress"}:
         return None
+    if spinner_titles:
+        if observation.kind != "title":
+            return None
+        return "running" if TITLE_SPINNER_PATTERN.match(observation.text) else "idle"
     text = observation.text.lower()
     if "action required" in text or "needs input" in text or "requires approval" in text or "needs approval" in text:
         return "needs-input"
@@ -1037,10 +1046,10 @@ def terminal_final_phase(observations: list[TerminalObservation]) -> str | None:
     return None
 
 
-def terminal_phase_sequence(observations: list[TerminalObservation]) -> list[str]:
+def terminal_phase_sequence(observations: list[TerminalObservation], spinner_titles: bool = False) -> list[str]:
     phases: list[str] = []
     for observation in sorted(observations, key=lambda item: ((item.timestamp is None, item.timestamp or 0), item.offset)):
-        phase = terminal_observation_phase(observation)
+        phase = terminal_observation_phase(observation, spinner_titles=spinner_titles)
         if phase and (not phases or phases[-1] != phase):
             phases.append(phase)
     return phases
@@ -3287,6 +3296,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 forbidden_events=list(value.get("forbidden_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
                 forbidden_terminal_phases=list(value.get("forbidden_terminal_phases", [])),
+                title_spinner_phases=bool(value.get("title_spinner_phases", False)),
                 expected_task_progress=value.get("expected_task_progress")
                 if isinstance(value.get("expected_task_progress"), dict)
                 else None,

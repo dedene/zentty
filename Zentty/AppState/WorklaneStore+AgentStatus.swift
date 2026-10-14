@@ -575,13 +575,19 @@ extension WorklaneStore {
                payload.state == .running || payload.state == .needsInput {
                 auxiliaryState.raw.codexCurrentRunHasObservedActivity = true
             }
+            let museIdleHeld = Self.museIdleIsHeldByBusyTitle(payload, tool: tool, auxiliaryState: auxiliaryState)
+            if museIdleHeld {
+                stopSignalLogger.debug(
+                    "payload.museIdleHeld pane=\(payload.paneID.rawValue, privacy: .public) title=\(auxiliaryState.metadata?.title ?? "<nil>", privacy: .public) => running"
+                )
+            }
             auxiliaryState.agentReducerState.apply(
                 AgentStatusPayload(
                     windowID: payload.windowID ?? windowID,
                     worklaneID: payload.worklaneID,
                     paneID: payload.paneID,
                     signalKind: payload.signalKind,
-                    state: payload.state,
+                    state: museIdleHeld ? .running : payload.state,
                     shellActivityState: payload.shellActivityState,
                     pid: payload.pid,
                     pidEvent: payload.pidEvent,

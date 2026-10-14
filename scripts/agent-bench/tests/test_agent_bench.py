@@ -3484,6 +3484,53 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(result.result_kind, "missing-terminal-phase")
         self.assertEqual(result.missing_events, ["starting"])
 
+    def test_muse_turn_scenarios_read_the_title_spinner(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["muse"]
+
+        for scenario in ("greeting_first_turn", "multi_turn"):
+            expectation = profile.expectations[scenario]
+            self.assertTrue(expectation.title_spinner_phases, scenario)
+            self.assertIn("muse-spark-1.2", profile.launch_args_by_scenario[scenario])
+        self.assertEqual(
+            profile.expectations["multi_turn"].required_terminal_phases,
+            ["running", "idle", "running", "idle"],
+        )
+
+    def test_spinner_title_phases_need_the_spinner_to_settle(self):
+        def observations(*titles):
+            return [
+                agent_bench.TerminalObservation(kind="title", text=title, offset=index)
+                for index, title in enumerate(titles)
+            ]
+
+        expectation = agent_bench.ScenarioExpectation(
+            name="greeting_first_turn",
+            required_events=[],
+            required_terminal_phases=["running", "idle"],
+            title_spinner_phases=True,
+        )
+
+        self.assertEqual(
+            agent_bench.missing_required_terminal_phases(
+                expectation, observations("repo", "⠋ repo", "⠙ repo", "repo")
+            ),
+            [],
+        )
+        self.assertEqual(
+            agent_bench.missing_required_terminal_phases(
+                expectation, observations("repo", "⠋ repo", "⠙ repo")
+            ),
+            ["idle"],
+        )
+        # Without the opt-in a bare title carries no phase.
+        expectation.title_spinner_phases = False
+        self.assertEqual(
+            agent_bench.missing_required_terminal_phases(
+                expectation, observations("repo", "⠋ repo", "repo")
+            ),
+            ["running", "idle"],
+        )
+
     def test_gemini_smoke_profile_skips_trust_prompt_for_headless_runs(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["gemini"]
 

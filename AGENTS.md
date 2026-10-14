@@ -68,7 +68,7 @@ Re-run after:
 - any change to `AgentLaunchBootstrap.devinPlan` or `DevinEventAdapter`,
 - any change to `scripts/agent-bench/profiles/devin.json`.
 
-For the muse (Meta Muse Code) integration, the gate is `scripts/test-muse-bench`. It runs `smoke,session_capture,tools,tasks,approval,user_input,restore_launch,subagents` in `--strict` mode and covers the `TBH_MANAGED_HOOKS_PATH` overlay, the per-run `-c managed_hooks_env_vars` allowlist (Muse scrubs the hook env), and root-thread filtering. `smoke` and `session_capture` use Muse's free `echo` provider; the model scenarios pin the cheapest catalog model, `muse-spark-1.2` at `--reasoning-effort minimal`. Keep new muse scenarios on that model.
+For the muse (Meta Muse Code) integration, the gate is `scripts/test-muse-bench`. It runs `smoke,session_capture,tools,tasks,approval,user_input,restore_launch,subagents,greeting_first_turn,multi_turn` in `--strict` mode and covers the `TBH_MANAGED_HOOKS_PATH` overlay, the per-run `-c managed_hooks_env_vars` allowlist (Muse scrubs the hook env), and root-thread filtering. `greeting_first_turn` and `multi_turn` drive the interactive TUI and pin the title spinner (`⠋ repo` while busy) that Zentty ends Muse turns on: a trivial first turn fires no `Stop`, and a normal `Stop` lands while the goal/verify reminders are still running. `smoke` and `session_capture` use Muse's free `echo` provider; the model scenarios pin the cheapest catalog model, `muse-spark-1.2` at `--reasoning-effort minimal`. Keep new muse scenarios on that model.
 
 Re-run after:
 - any muse CLI version bump,

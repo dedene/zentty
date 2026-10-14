@@ -71,6 +71,21 @@
       "--reasoning-effort",
       "minimal",
       "Before doing anything else, ask me which colour I prefer (red or blue) using your request_user_input tool. After I answer, reply with exactly DONE."
+    ],
+    "multi_turn": [
+      "--trust-workspace",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal",
+      "Join the words pine and apple into one word, write it in uppercase, and reply with only that word."
+    ],
+    "greeting_first_turn": [
+      "--trust-workspace",
+      "--model",
+      "muse-spark-1.2",
+      "--reasoning-effort",
+      "minimal"
     ]
   },
   "expectations": {
@@ -172,6 +187,35 @@
         "PostToolBatch:request_user_input",
         "Stop"
       ]
+    },
+    "multi_turn": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "UserPromptSubmit",
+        "Stop",
+        "Stop",
+        "SessionEnd"
+      ],
+      "required_terminal_phases": [
+        "running",
+        "idle",
+        "running",
+        "idle"
+      ],
+      "title_spinner_phases": true
+    },
+    "greeting_first_turn": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "SessionEnd"
+      ],
+      "required_terminal_phases": [
+        "running",
+        "idle"
+      ],
+      "title_spinner_phases": true
     }
   },
   "input_by_scenario": {
@@ -187,6 +231,56 @@
         "match": "Enter to select",
         "text": "\r",
         "delay": 2
+      }
+    ],
+    "multi_turn": [
+      {
+        "match": "PINEAPPLE",
+        "text": "Join the words grape and fruit into one word, write it in uppercase, and reply with only that word.",
+        "delay": 3
+      },
+      {
+        "match": "PINEAPPLE",
+        "text": "\r",
+        "delay": 4,
+        "label": "submit-2"
+      },
+      {
+        "match": "GRAPEFRUIT",
+        "text": "\u0003",
+        "delay": 25,
+        "label": "ctrl-c"
+      },
+      {
+        "match": "GRAPEFRUIT",
+        "text": "\u0003",
+        "delay": 26,
+        "label": "ctrl-c"
+      }
+    ],
+    "greeting_first_turn": [
+      {
+        "match": "Voice input",
+        "text": "hello!",
+        "delay": 3
+      },
+      {
+        "match": "Voice input",
+        "text": "\r",
+        "delay": 4,
+        "label": "submit"
+      },
+      {
+        "match": "Voice input",
+        "text": "\u0003",
+        "delay": 20,
+        "label": "ctrl-c"
+      },
+      {
+        "match": "Voice input",
+        "text": "\u0003",
+        "delay": 21,
+        "label": "ctrl-c"
       }
     ]
   },
