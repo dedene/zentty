@@ -268,6 +268,7 @@ final class RootViewController: NSViewController {
     var onCloseWindowRequested: (() -> Void)?
     var onToggleQuickActionOverlayRequested: (() -> Void)?
     var onCloseFocusedOverlayRequested: ((NSResponder?) -> Bool)?
+    var overlayTerminalFocusInterceptor: ((PaneID) -> Bool)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -808,6 +809,9 @@ final class RootViewController: NSViewController {
             guard let self else { return false }
 
             return self.globalSearchChoreographer.shouldRetainFocus
+        }
+        appCanvasView.paneStripView.overlayTerminalFocusInterceptor = { [weak self] paneID in
+            self?.overlayTerminalFocusInterceptor?(paneID) ?? false
         }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()

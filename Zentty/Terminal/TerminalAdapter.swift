@@ -191,6 +191,8 @@ protocol TerminalAdapter: AnyObject {
     func cancelPromptInput()
     func submitCommand(_ command: String)
     func close()
+    /// True while closing the session would kill a running foreground process.
+    var needsConfirmQuit: Bool { get }
     var metadataDidChange: ((TerminalMetadata) -> Void)? { get set }
     var eventDidOccur: ((TerminalEvent) -> Void)? { get set }
 }
@@ -198,6 +200,8 @@ protocol TerminalAdapter: AnyObject {
 @MainActor
 extension TerminalAdapter {
     func cancelPromptInput() {}
+
+    var needsConfirmQuit: Bool { false }
 
     // Default for non-Libghostty adapters (mocks, tests). The Libghostty adapter
     // overrides this to send a synthetic Return key event *outside* bracketed-paste

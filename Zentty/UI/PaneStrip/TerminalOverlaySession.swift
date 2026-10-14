@@ -16,6 +16,18 @@ enum TerminalOverlayError: LocalizedError, Equatable {
     }
 }
 
+/// Root view of an overlay. Clicks on its chrome must not fall through to the
+/// pane it covers, whose `mouseDown` would focus the hidden terminal.
+final class TerminalOverlayContainerView: NSView {
+    var onMouseDown: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {}
+}
+
 /// A persistent terminal embedded above its owning worklane or pane.
 @MainActor
 final class TerminalOverlaySession: NSObject {
@@ -23,7 +35,7 @@ final class TerminalOverlaySession: NSObject {
     var paneID: PaneID
     var worklaneID: WorklaneID
     let placement: PaneOverlayIPCOptions.Placement
-    let view = NSView()
+    let view = TerminalOverlayContainerView()
     private let adapter: any TerminalAdapter
     private let host: TerminalPaneHostView
     private let request: TerminalSessionRequest
@@ -31,6 +43,9 @@ final class TerminalOverlaySession: NSObject {
     private var placementConstraints: [NSLayoutConstraint] = []
     private var isClosing = false
     var isPresented = true
+    /// Set for `--notify` overlays opened out of sight, so following the
+    /// notification to the pane shows the overlay it points at.
+    var revealsOnNextNavigation = false
     private(set) var exitCode: Int?
     var onClose: (() -> Void)?
     var onRestoreFocus: (() -> Void)?
@@ -99,6 +114,22 @@ final class TerminalOverlaySession: NSObject {
             default: break
             }
         }
+        view.onMouseDown = { [weak self] in self?.focusTerminal() }
+    }
+
+    /// Shown on screen right now, as opposed to `isPresented`, which only records intent.
+    var isShowing: Bool { !isClosing && !view.isHidden && view.window != nil }
+
+    var holdsKeyboardFocus: Bool {
+        (view.window?.firstResponder as? NSView)?.isDescendant(of: view) ?? false
+    }
+
+    /// Whether closing would kill a live process, so quit and close prompts must ask first.
+    var needsCloseConfirmation: Bool { !isClosing && adapter.needsConfirmQuit }
+
+    func focusTerminal() {
+        guard isShowing else { return }
+        host.focusTerminal()
     }
 
     func start() throws {
@@ -128,6 +159,7 @@ final class TerminalOverlaySession: NSObject {
         view.isHidden = !visible || anchor == nil
         view.superview?.layoutSubtreeIfNeeded()
         let isVisible = !view.isHidden
+        if isVisible { revealsOnNextNavigation = false }
         if isVisible && focus { host.focusTerminal() }
         host.setSurfaceActivity(TerminalSurfaceActivity(
             isVisible: isVisible, isFocused: isVisible && (focus || host.isTerminalFocused)
@@ -136,7 +168,7 @@ final class TerminalOverlaySession: NSObject {
 
     func hide(restoringFocus: Bool = true) {
         guard !isClosing else { return }
-        let hadFocus = (view.window?.firstResponder as? NSView)?.isDescendant(of: view) ?? false
+        let hadFocus = holdsKeyboardFocus
         isPresented = false
         setVisible(false, anchor: view.superview)
         if restoringFocus && hadFocus { onRestoreFocus?() }
@@ -147,7 +179,7 @@ final class TerminalOverlaySession: NSObject {
     func close(restoringFocus: Bool = true) {
         guard !isClosing else { return }
         isClosing = true
-        let hadFocus = (view.window?.firstResponder as? NSView)?.isDescendant(of: view) ?? false
+        let hadFocus = holdsKeyboardFocus
         adapter.close()
         NSLayoutConstraint.deactivate(placementConstraints)
         view.removeFromSuperview()
