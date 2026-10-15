@@ -547,6 +547,7 @@ final class SidebarInsetContainerView: NSView {
 @MainActor
 final class SidebarPaneRowButton: NSButton {
     var paneID = PaneID("")
+    var isOverlay = false
     var isLastPaneInWorklane = false
     var isLastPaneInOnlyWorklane = false
     var currentWorklaneColor: WorklaneColor?
@@ -870,6 +871,13 @@ final class SidebarPaneRowButton: NSButton {
     // MARK: - Context Menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        if isOverlay {
+            let menu = NSMenu()
+            let close = NSMenuItem(title: "Close Overlay", action: #selector(handleClosePane), keyEquivalent: "")
+            close.target = self
+            menu.addItem(close)
+            return menu
+        }
         let originID = bookmarkOriginID
         let result = SidebarWorklaneContextMenu.makeMenu(
             context: SidebarWorklaneContextMenuContext(

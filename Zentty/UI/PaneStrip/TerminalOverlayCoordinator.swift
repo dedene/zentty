@@ -64,10 +64,12 @@ final class TerminalOverlayCoordinator {
         let overlayID = overlay.id
         overlay.onClose = { [weak self] in
             self?.sessions.removeValue(forKey: overlayID)
+            self?.syncSidebarOverlays()
         }
         overlay.onRestoreFocus = { [weak self] in
             self?.rootViewController.restoreTerminalFocusAfterOverlay()
         }
+        overlay.onInfoChanged = { [weak self] in self?.syncSidebarOverlays() }
         sessions[overlay.id] = overlay
         if options.follow {
             focusPane(id: paneID, in: worklaneID)
@@ -182,6 +184,30 @@ final class TerminalOverlayCoordinator {
         }
     }
 
+    // MARK: - Sidebar
+
+    func selectSidebarOverlay(id: String) -> Bool {
+        guard let overlay = sessions[id] else { return false }
+        focusPane(id: overlay.paneID, in: overlay.worklaneID)
+        overlay.isPresented = true
+        syncVisibility(focusing: id)
+        return true
+    }
+
+    func closeSidebarOverlay(id: String) -> Bool {
+        guard let overlay = sessions[id] else { return false }
+        overlay.close()
+        return true
+    }
+
+    private func syncSidebarOverlays() {
+        var rows: [WorklaneID: [WorklaneSidebarPaneRow]] = [:]
+        for overlay in sessions.values.sorted(by: { $0.id < $1.id }) {
+            rows[overlay.worklaneID, default: []].append(overlay.sidebarRow)
+        }
+        rootViewController.updateSidebarOverlays(rows)
+    }
+
     // MARK: - Focus
 
     /// Keeps keyboard focus out of terminals hidden under an overlay: a worklane
@@ -237,6 +263,7 @@ final class TerminalOverlayCoordinator {
     /// Re-anchors overlays to their pane or worklane, closes those whose owner
     /// is gone, and shows only the active worklane's presented overlays.
     func syncVisibility(focusing overlayID: String? = nil) {
+        defer { syncSidebarOverlays() }
         let activeWorklaneID = worklaneStore.activeWorklaneID
         let switchedWorklanes = lastActiveWorklaneID != activeWorklaneID
         lastActiveWorklaneID = activeWorklaneID

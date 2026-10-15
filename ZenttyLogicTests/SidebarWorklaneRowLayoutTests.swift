@@ -667,6 +667,88 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
         XCTAssertGreaterThan(wideLayout.width, 0)
     }
 
+    func test_overlays_follow_all_panes_and_overflow_with_one_separator() {
+        let panes = (0..<2).map { index in
+            WorklaneSidebarPaneRow(
+                paneID: PaneID("pane-\(index)"), primaryText: "Shell",
+                trailingText: nil, detailText: nil, statusText: nil,
+                attentionState: nil, isFocused: index == 0, isWorking: false
+            )
+        }
+        var summary = makeSummary(paneRows: panes, overflowText: "+2 pending")
+        let baseline = SidebarWorklaneRowLayout(summary: summary)
+        summary.overlayRows = [
+            makeOverlayRow(id: "terminal", title: "npm run dev"),
+            makeOverlayRow(id: "web", title: "localhost:3000"),
+        ]
+        let layout = SidebarWorklaneRowLayout(summary: summary)
+        XCTAssertEqual(layout.visibleTextRows, baseline.visibleTextRows + [.overlaySeparator, .panePrimary(2), .panePrimary(3)])
+        XCTAssertEqual(Array(layout.contentGroups.suffix(3)), [
+            .standalone(.overlaySeparator), .pane(index: 2, rows: [.panePrimary(2)]), .pane(index: 3, rows: [.panePrimary(3)]),
+        ])
+        XCTAssertEqual(layout.rowHeight - baseline.rowHeight,
+                       ShellMetrics.sidebarTopLabelSeparatorHeight + 2 * ShellMetrics.sidebarPrimaryLineHeight
+                       + 4 * ShellMetrics.sidebarPaneButtonVerticalInset
+                       + 3 * ShellMetrics.sidebarRowInterlineSpacing, accuracy: 0.001)
+        summary.overlayRows = []
+        XCTAssertEqual(SidebarWorklaneRowLayout(summary: summary), baseline)
+    }
+
+    func test_overlay_expands_single_summary_and_sidebar_setting_round_trips() {
+        var summary = makeSummary(paneRows: [makeOverlayRow(id: "pane", title: "Shell")])
+        summary.overlayRows = [makeOverlayRow(id: "terminal", title: "Shell")]
+        let layout = SidebarWorklaneRowLayout(summary: summary)
+        XCTAssertEqual(layout.mode, .expanded)
+        XCTAssertEqual(layout.visibleTextRows, [.panePrimary(0), .overlaySeparator, .panePrimary(1)])
+        XCTAssertTrue(AppConfig.default.sidebar.showOverlays)
+        var config = AppConfig.default
+        config.sidebar.showOverlays = false
+        XCTAssertEqual(AppConfigTOML.decode(AppConfigTOML.encode(config))?.sidebar.showOverlays, false)
+        XCTAssertEqual(AppConfigTOML.decode("[sidebar]\nwidth = 240")?.sidebar.showOverlays, true)
+    }
+
+    private func makeOverlayRow(id: String, title: String) -> WorklaneSidebarPaneRow {
+        var row = WorklaneSidebarPaneRow(
+            paneID: PaneID(id), primaryText: title, trailingText: nil, detailText: nil,
+            statusText: nil, attentionState: nil, isFocused: false, isWorking: false
+        )
+        row.isOverlay = true
+        return row
+    }
+
+    func test_terminal_overlay_uses_live_pane_identity_and_git_context() async throws {
+        let adapter = MockTerminalAdapter()
+        let overlay = TerminalOverlaySession(
+            paneID: PaneID("owner"), worklaneID: WorklaneID("lane"),
+            command: "", workingDirectory: "/tmp/project", wait: true, sizePercent: 100,
+            placement: .worklane, gitContextResolver: OverlayGitContextStub(), adapterFactory: { _ in adapter }
+        )
+        defer { overlay.close() }
+        let updated = expectation(description: "Overlay resolves branch")
+        overlay.onInfoChanged = {
+            if overlay.sidebarRow.trailingText == "feature/overlay" { updated.fulfill() }
+        }
+        adapter.metadataDidChange?(TerminalMetadata(
+            title: "Building project", currentWorkingDirectory: "/tmp/project", processName: "make"
+        ))
+        await fulfillment(of: [updated], timeout: 2)
+        overlay.onInfoChanged = nil
+        let row = overlay.sidebarRow
+        XCTAssertEqual(row.paneID, PaneID(overlay.id))
+        XCTAssertTrue(row.isOverlay)
+        XCTAssertEqual(row.primaryText, "Building project")
+        XCTAssertEqual(row.trailingText, "feature/overlay")
+        XCTAssertNotNil(row.detailText)
+        XCTAssertTrue(row.detailText?.contains("project") == true)
+        adapter.metadataDidChange?(TerminalMetadata(
+            title: "Running tests", currentWorkingDirectory: "/tmp/project", processName: "make"
+        ))
+        XCTAssertEqual(overlay.sidebarRow.primaryText, "Running tests")
+        adapter.eventDidOccur?(.commandFinished(exitCode: 0, durationNanoseconds: 1))
+        XCTAssertEqual(overlay.exitCode, 0)
+        XCTAssertFalse(overlay.sidebarRow.isWorking)
+    }
+
     private func makeSummary(
         topLabel: String? = nil,
         primaryText: String = "shell",
@@ -691,5 +773,11 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
             attentionState: nil,
             isActive: true
         )
+    }
+}
+
+private struct OverlayGitContextStub: PaneGitContextResolving {
+    func resolve(for workingDirectory: String) async -> PaneGitContext {
+        PaneGitContext(workingDirectory: workingDirectory, repositoryRoot: "/tmp/project", reference: .branch("feature/overlay"))
     }
 }

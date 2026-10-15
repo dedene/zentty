@@ -51,6 +51,7 @@ enum AppConfigTOML {
         var lines: [String] = []
 
         lines.append("[sidebar]")
+        lines.append("show_overlays = \(config.sidebar.showOverlays)")
         lines.append("width = \(format(number: config.sidebar.width))")
         lines.append("visibility = \(encode(string: config.sidebar.visibility.rawValue))")
         lines.append("")
@@ -465,6 +466,9 @@ enum AppConfigTOML {
         into config: inout AppConfig
     ) -> AssignmentResult {
         switch assignment.key {
+        case "show_overlays":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.sidebar.showOverlays = value
         case "width":
             guard let value = Double(assignment.value) else {
                 return false

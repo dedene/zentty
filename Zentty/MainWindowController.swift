@@ -333,6 +333,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onThemeDidChange = { [weak self] theme in
             self?.overlays.apply(theme: theme)
         }
+        rootViewController.onSidebarOverlaySelected = { [weak self] paneID in
+            self?.overlays.selectSidebarOverlay(id: paneID.rawValue) ?? false
+        }
+        rootViewController.onSidebarOverlayClosed = { [weak self] paneID in
+            self?.overlays.closeSidebarOverlay(id: paneID.rawValue) ?? false
+        }
         rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
             self?.overlays.toggleQuickAction()
         }

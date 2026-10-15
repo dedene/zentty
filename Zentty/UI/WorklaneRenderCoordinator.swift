@@ -101,6 +101,7 @@ final class WorklaneRenderCoordinator {
     /// previews keep streaming live instead of freezing on a still frame.
     /// Default returns an empty set (nothing peek-visible).
     var peekVisibleWorklaneIDsProvider: () -> Set<WorklaneID> = { [] }
+    var overlayRowsByWorklaneID: [WorklaneID: [WorklaneSidebarPaneRow]] = [:]
     var sidebarFocusOverrideProvider: () -> WorklaneSidebarFocusOverride? = { nil }
 
     init(
@@ -206,7 +207,13 @@ final class WorklaneRenderCoordinator {
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 focusOverride: sidebarFocusOverrideProvider(),
                 serverContextsByWorklaneID: serverContextsByWorklaneID()
-            ),
+            ).map { summary in
+                var summary = summary
+                if configStore?.current.sidebar.showOverlays ?? true {
+                    summary.overlayRows = overlayRowsByWorklaneID[summary.worklaneID] ?? []
+                }
+                return summary
+            },
             theme: currentTheme
         )
         environment?.renderSidebarSyncNeeded()
