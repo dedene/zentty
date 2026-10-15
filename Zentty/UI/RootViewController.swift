@@ -158,7 +158,10 @@ final class RootViewController: NSViewController {
                 self?.showClosePaneConfirmation(context: context, highlighting: {}, onConfirm: onConfirm)
             },
             showToast: { [weak self] message in self?.showToast(message: message) },
-            requestWindowClose: { [weak self] in self?.requestContainingWindowClose() }
+            requestWindowClose: { [weak self] in self?.requestContainingWindowClose() },
+            runningQuickActionsClosingWithPane: { [weak self] paneID in
+                self?.runningQuickActionsClosingWithPane?(paneID) ?? []
+            }
         )
     )
     private let commandPaletteBackdropView = CommandPaletteBackdropView()
@@ -269,6 +272,10 @@ final class RootViewController: NSViewController {
     var onToggleQuickActionOverlayRequested: (() -> Void)?
     var onCloseFocusedOverlayRequested: ((NSResponder?) -> Bool)?
     var overlayTerminalFocusInterceptor: ((PaneID) -> Bool)?
+    /// Live quick-action overlays a close would terminate. Overlays live outside
+    /// the worklane store, so its close prompts can't see them on their own.
+    var runningQuickActionsClosingWithPane: ((PaneID) -> [RunningQuickAction])?
+    var runningQuickActionsClosingWithWorklane: ((WorklaneID) -> [RunningQuickAction])?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -824,7 +831,7 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
+                let context = self.paneCloseConfirmationContext(paneID)
             {
                 self.showClosePaneConfirmation(
                     context: context,
@@ -1055,7 +1062,10 @@ final class RootViewController: NSViewController {
         sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-               let context = self.worklaneStore.worklaneCloseConfirmationContext(worklaneID)
+               let context = self.worklaneStore.worklaneCloseConfirmationContext(
+                   worklaneID,
+                   runningQuickActions: self.runningQuickActionsClosingWithWorklane?(worklaneID) ?? []
+               )
             {
                 self.showCloseWorklaneConfirmation(
                     context: context,
@@ -1077,7 +1087,7 @@ final class RootViewController: NSViewController {
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
+                let context = self.paneCloseConfirmationContext(paneID)
             {
                 self.showClosePaneConfirmation(
                     context: context,
@@ -1585,6 +1595,13 @@ final class RootViewController: NSViewController {
 
     private var isShowingCloseConfirmation = false
 
+    private func paneCloseConfirmationContext(_ paneID: PaneID) -> PaneCloseConfirmationContext? {
+        worklaneStore.paneCloseConfirmationContext(
+            paneID,
+            runningQuickActions: runningQuickActionsClosingWithPane?(paneID) ?? []
+        )
+    }
+
     /// - Parameter highlighting: moves the selection onto the pane or worklane the
     ///   sheet is about to name, so the prompt matches what is on screen. Runs only
     ///   once the sheet is really going to appear; Cancel puts the selection back.
@@ -2011,8 +2028,18 @@ final class RootViewController: NSViewController {
             focusedPaneCanOpenWithPrimary: focusedOpenWithContext != nil && primaryOpenWithTarget != nil,
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
             activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
-            focusedPaneUnreadToggle: focusedPaneUnreadToggle
+            focusedPaneUnreadToggle: focusedPaneUnreadToggle,
+            isQuickActionFocused: isQuickActionFocused
         )
+    }
+
+    private var isQuickActionFocused: Bool {
+        var view = view.window?.firstResponder as? NSView
+        while let current = view {
+            if current is TerminalOverlayContainerView { return true }
+            view = current.superview
+        }
+        return false
     }
 
     var focusedPaneUnreadToggle: PaneUnreadToggle? {

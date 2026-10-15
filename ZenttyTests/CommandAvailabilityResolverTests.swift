@@ -220,4 +220,25 @@ final class CommandAvailabilityResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.findNext))
         XCTAssertTrue(available.contains(.findPrevious))
     }
+
+    func testQuickActionFocusDisablesPaneSearch() {
+        func context(isQuickActionFocused: Bool) -> CommandAvailabilityContext {
+            CommandAvailabilityContext(
+                worklaneCount: 1, activePaneCount: 1, totalPaneCount: 1,
+                activeColumnCount: 1, focusedColumnPaneCount: 1,
+                focusedPaneHasRememberedSearch: true, globalSearchHasRememberedSearch: false,
+                activeWorklaneHasBranchURL: false,
+                isQuickActionFocused: isQuickActionFocused
+            )
+        }
+        let paneSearch: [AppCommandID] = [.find, .useSelectionForFind, .findNext, .findPrevious]
+
+        let paneFocused = CommandAvailabilityResolver.availableCommandIDs(for: context(isQuickActionFocused: false))
+        XCTAssertTrue(paneFocused.isSuperset(of: paneSearch))
+
+        let overlayFocused = CommandAvailabilityResolver.availableCommandIDs(for: context(isQuickActionFocused: true))
+        XCTAssertTrue(overlayFocused.isDisjoint(with: paneSearch), "search would act on the pane under the overlay")
+        XCTAssertTrue(overlayFocused.contains(.globalFind))
+        XCTAssertTrue(overlayFocused.contains(.cleanCopy))
+    }
 }

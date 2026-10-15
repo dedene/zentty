@@ -35,6 +35,8 @@ final class TerminalOverlaySession: NSObject {
     var paneID: PaneID
     var worklaneID: WorklaneID
     let placement: PaneOverlayIPCOptions.Placement
+    /// The command the overlay runs; empty for an interactive shell.
+    let command: String
     let view = TerminalOverlayContainerView()
     private let adapter: any TerminalAdapter
     private let host: TerminalPaneHostView
@@ -64,6 +66,7 @@ final class TerminalOverlaySession: NSObject {
         self.worklaneID = worklaneID
         self.sizePercent = sizePercent
         self.placement = placement
+        self.command = command
         adapter = adapterFactory(PaneID(id))
         host = TerminalPaneHostView(adapter: adapter)
         request = TerminalSessionRequest(
@@ -126,6 +129,10 @@ final class TerminalOverlaySession: NSObject {
 
     /// Whether closing would kill a live process, so quit and close prompts must ask first.
     var needsCloseConfirmation: Bool { !isClosing && adapter.needsConfirmQuit }
+
+    var runningQuickAction: RunningQuickAction {
+        RunningQuickAction(command: command.isEmpty ? nil : command)
+    }
 
     func focusTerminal() {
         guard isShowing else { return }

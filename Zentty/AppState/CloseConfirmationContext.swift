@@ -30,28 +30,42 @@ enum CloseConfirmationActivity: Equatable, Sendable {
     }
 }
 
+/// A quick-action overlay with a live process. Overlays live outside the
+/// worklane store, so callers pass in the ones a close would terminate.
+struct RunningQuickAction: Equatable, Sendable {
+    /// The command the overlay was opened with; nil for an interactive shell.
+    let command: String?
+}
+
 /// Everything the close-pane confirmation needs to say *which* pane is about
 /// to close and what will be lost. Built from state the sidebar already shows.
 struct PaneCloseConfirmationContext: Equatable, Sendable {
     static let maximumActivityLength = 48
 
-    let reason: WorklaneStore.PaneCloseReason
+    /// Why the pane itself needs confirmation; nil when only its quick actions do.
+    let reason: WorklaneStore.PaneCloseReason?
     let paneName: String
     let worklaneName: String?
     /// Branch and home-relative working directory, e.g. `main · ~/Development/zentty`.
     let locationLine: String?
     let activity: CloseConfirmationActivity?
+    let runningQuickActions: [RunningQuickAction]
 
     var runningActivity: String? {
         activity?.plainText
     }
 
-    static func make(paneID: PaneID, in worklane: WorklaneState) -> PaneCloseConfirmationContext? {
+    static func make(
+        paneID: PaneID,
+        in worklane: WorklaneState,
+        runningQuickActions: [RunningQuickAction] = []
+    ) -> PaneCloseConfirmationContext? {
         guard let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
             return nil
         }
         let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
-        guard let reason = WorklaneStore.quitConfirmationReason(for: auxiliaryState) else {
+        let reason = WorklaneStore.quitConfirmationReason(for: auxiliaryState)
+        guard reason != nil || !runningQuickActions.isEmpty else {
             return nil
         }
 
@@ -60,7 +74,8 @@ struct PaneCloseConfirmationContext: Equatable, Sendable {
             paneName: paneName(pane: pane, auxiliaryState: auxiliaryState),
             worklaneName: worklane.title,
             locationLine: locationLine(for: auxiliaryState),
-            activity: reason == .runningProcess ? activity(for: auxiliaryState) : nil
+            activity: reason == .runningProcess ? activity(for: auxiliaryState) : nil,
+            runningQuickActions: runningQuickActions
         )
     }
 
@@ -172,7 +187,7 @@ struct PaneCloseConfirmationContext: Equatable, Sendable {
         return name.isEmpty || name == "/" ? nil : name
     }
 
-    private static func truncated(_ value: String) -> String {
+    static func truncated(_ value: String) -> String {
         let singleLine = value.split(whereSeparator: \.isNewline).first.map(String.init) ?? value
         guard singleLine.count > maximumActivityLength else {
             return singleLine
@@ -191,8 +206,12 @@ struct WorklaneCloseConfirmationContext: Equatable, Sendable {
     let historyPaneCount: Int
     /// Activities of running panes that could be named, in pane order.
     let runningActivities: [String]
+    let runningQuickActions: [RunningQuickAction]
 
-    static func make(worklane: WorklaneState) -> WorklaneCloseConfirmationContext? {
+    static func make(
+        worklane: WorklaneState,
+        runningQuickActions: [RunningQuickAction] = []
+    ) -> WorklaneCloseConfirmationContext? {
         var runningPaneCount = 0
         var historyPaneCount = 0
         var runningActivities: [String] = []
@@ -215,36 +234,48 @@ struct WorklaneCloseConfirmationContext: Equatable, Sendable {
             }
         }
 
-        guard runningPaneCount > 0 || historyPaneCount > 0 else {
+        let isRunning = runningPaneCount > 0 || !runningQuickActions.isEmpty
+        guard isRunning || historyPaneCount > 0 else {
             return nil
         }
 
         return WorklaneCloseConfirmationContext(
-            reason: runningPaneCount > 0 ? .runningProcess : .sessionHistory,
+            reason: isRunning ? .runningProcess : .sessionHistory,
             worklaneName: worklane.title,
             paneCount: worklane.paneStripState.panes.count,
             runningPaneCount: runningPaneCount,
             historyPaneCount: historyPaneCount,
-            runningActivities: runningActivities
+            runningActivities: runningActivities,
+            runningQuickActions: runningQuickActions
         )
     }
 }
 
 extension WorklaneStore {
-    func paneCloseConfirmationContext(_ paneID: PaneID) -> PaneCloseConfirmationContext? {
+    func paneCloseConfirmationContext(
+        _ paneID: PaneID,
+        runningQuickActions: [RunningQuickAction] = []
+    ) -> PaneCloseConfirmationContext? {
         for worklane in worklanes {
             guard worklane.paneStripState.panes.contains(where: { $0.id == paneID }) else {
                 continue
             }
-            return PaneCloseConfirmationContext.make(paneID: paneID, in: worklane)
+            return PaneCloseConfirmationContext.make(
+                paneID: paneID, in: worklane, runningQuickActions: runningQuickActions
+            )
         }
         return nil
     }
 
-    func worklaneCloseConfirmationContext(_ worklaneID: WorklaneID) -> WorklaneCloseConfirmationContext? {
+    func worklaneCloseConfirmationContext(
+        _ worklaneID: WorklaneID,
+        runningQuickActions: [RunningQuickAction] = []
+    ) -> WorklaneCloseConfirmationContext? {
         guard let worklane = worklanes.first(where: { $0.id == worklaneID }) else {
             return nil
         }
-        return WorklaneCloseConfirmationContext.make(worklane: worklane)
+        return WorklaneCloseConfirmationContext.make(
+            worklane: worklane, runningQuickActions: runningQuickActions
+        )
     }
 }

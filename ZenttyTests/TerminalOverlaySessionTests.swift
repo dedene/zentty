@@ -553,7 +553,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
 }
 
 @MainActor
-private final class OverlayTestAdapter: TerminalAdapter {
+final class OverlayTestAdapter: TerminalAdapter {
     enum Failure: Error { case start }
     let surface = TerminalSurfaceMockView()
     var hasScrollback = false
