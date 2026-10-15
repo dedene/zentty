@@ -1,6 +1,6 @@
 ---
 name: zentty-cli
-description: Use when an agent is running inside Zentty or needs to discover panes, split or grid layouts, focus panes, launch nested coding agents, or notify the user through the Zentty CLI.
+description: Use when an agent is running inside Zentty or needs to discover panes, split or grid layouts, open temporary command overlays, focus panes, launch nested coding agents, or notify the user through the Zentty CLI.
 ---
 
 # Zentty CLI
@@ -81,6 +81,21 @@ Create grids carefully; large grids create many live panes:
 "$ZENTTY" grid 2x2 --new-only -- codex
 "$ZENTTY" grid 2x3 --worklane-id new -- claude
 ```
+
+## Quick Action Overlays
+
+An overlay runs a command in a temporary terminal floating inside its owning worklane without changing the layout. The default placement fills the visible worklane content with a 16 point inset, leaving the sidebar and toolbar accessible. Use `--placement pane` to cover only the target pane, or `--size-percent N` to make either placement smaller. Assign a shortcut to “Toggle Quick Action Overlay” in Settings to open, hide, or restore a manual shell overlay. It is unbound by default. Hidden sessions keep running. Switching worklanes hides the overlay, and returning leaves it hidden until explicitly restored. The toggle is disabled during Ctrl+Tab preview. Opening an overlay on the visible worklane gives it keyboard focus; opening one on another worklane leaves the current worklane selected. Pass `--follow` to select the target worklane. Use `--wait` for short commands so their output remains visible until the user dismisses the overlay. Use `--notify` when the user is viewing another worklane; the notification is tied to the target pane, also appears in Zentty's inbox, and following it reveals the overlay. Relative `--cwd` paths resolve against the caller's directory. Quitting Zentty, closing its window, or closing the pane or worklane an overlay belongs to asks first while that overlay still runs a process. Pane search is off while an overlay has keyboard focus.
+
+```bash
+"$ZENTTY" overlay open --wait --notify -- git log --oneline --decorate --color --graph --all
+"$ZENTTY" overlay open --follow -- lazygit
+"$ZENTTY" overlay open --placement pane --wait -- git diff --color
+"$ZENTTY" overlay list
+"$ZENTTY" overlay show
+"$ZENTTY" overlay close
+```
+
+`overlay open` prints an overlay ID. The default target is the calling pane, even if the user switches worklanes while the command runs. The command starts in that pane's current directory; use `--cwd DIR` to override it. Worklane-placement overlays are shared by all panes in that worklane, with at most one per worklane. Pane-placement overlays allow at most one per pane and can coexist with the shared worklane overlay. `overlay show` and `overlay close` prefer the target pane’s pane-placement overlay; otherwise they act on its shared worklane overlay. `overlay list` returns both overlays applicable to the calling or selected pane, including hidden sessions. It does not list unrelated panes or worklanes. Use pane selectors and a control token to address another pane. Overlays are not panes. Their shell runs Zentty's shell integration under the overlay's own ID, so the sidebar follows its directory, branch and running command, but `zentty` commands that act on the calling pane fail inside them and agents started there report no status, so launch nested agents in a pane instead.
 
 ## Launch Agents Through Zentty
 

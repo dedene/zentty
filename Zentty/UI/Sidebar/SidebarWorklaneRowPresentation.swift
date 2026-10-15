@@ -47,10 +47,10 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
         visibleTextRows = layout.visibleTextRows
         contentGroups = layout.contentGroups
         rowHeight = layout.rowHeight
-        textStackTopInset = summary.paneRows.isEmpty
+        textStackTopInset = summary.displayPaneRows.isEmpty
             ? ShellMetrics.sidebarRowTopInset
             : ShellMetrics.sidebarPaneRowVerticalInset
-        textStackBottomInset = summary.paneRows.isEmpty
+        textStackBottomInset = summary.displayPaneRows.isEmpty
             ? -ShellMetrics.sidebarRowBottomInset
             : -ShellMetrics.sidebarPaneRowVerticalInset
         statusDisplayText = SidebarStatusResolver.resolveDisplayStatusText(
@@ -69,7 +69,7 @@ struct SidebarWorklaneRowRenderPlan: Equatable {
             for: summary,
             availableWidth: availableWidth
         )
-        paneRows = summary.paneRows.map { paneRow in
+        paneRows = summary.displayPaneRows.map { paneRow in
             let presentationMode = SidebarWorklaneRowLayout.paneRowPresentationMode(
                 for: paneRow,
                 availableWidth: availableWidth

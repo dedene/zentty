@@ -163,6 +163,45 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_focus_follows_mouse_ignores_hover_under_a_quick_action_overlay() {
+        let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            state,
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        // Pane tracking areas still fire under an overlay; only the hit test sees it.
+        let overlay = TerminalOverlayContainerView(frame: paneStripView.bounds)
+        paneStripView.addSubview(overlay, positioned: .above, relativeTo: nil)
+        paneStripView.hoverFocusMouseLocationForTesting = paneStripView.convert(
+            NSPoint(x: paneStripView.bounds.midX, y: paneStripView.bounds.midY),
+            to: nil
+        )
+
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+
+        paneStripView.simulatePaneHoverExitedForTesting(PaneID("editor"))
+        overlay.isHidden = true
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+        XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
+    }
+
+    @MainActor
     func test_focus_follows_mouse_ignores_hover_when_window_is_not_key() {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)

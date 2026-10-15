@@ -69,6 +69,9 @@ final class PaneStripView: NSView {
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     var sidebarWidthProvider: (() -> CGFloat)?
     var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
+    /// Lets a quick action overlay keep, or take, keyboard focus meant for a pane
+    /// it covers. Returning true means the pane's focus was handled by the overlay.
+    var overlayTerminalFocusInterceptor: ((PaneID) -> Bool)?
     weak var dragOverlayView: NSView? {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
     }
@@ -150,6 +153,14 @@ final class PaneStripView: NSView {
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var currentShowPaneBorders = AppConfig.Panes.default.showBorders
+    /// Set while a quick-action overlay holds the keyboard: the pane it covers
+    /// is not the one typing, so no pane draws as focused.
+    var suppressesFocusEmphasis = false {
+        didSet {
+            guard suppressesFocusEmphasis != oldValue, let currentState, bounds.size != .zero else { return }
+            renderCurrentState(currentState, animated: false)
+        }
+    }
     private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
     private var pendingHoverFocusWorkItem: DispatchWorkItem?
@@ -701,6 +712,10 @@ final class PaneStripView: NSView {
             return false
         }
 
+        guard !isHoverFocusMouseLocationCoveredByOverlay(mouseLocation) else {
+            return false
+        }
+
         return true
     }
 
@@ -726,6 +741,24 @@ final class PaneStripView: NSView {
         }
 
         return true
+    }
+
+    /// Pane tracking areas keep firing under a quick action overlay, so hover
+    /// focus must check what is actually under the pointer.
+    private func isHoverFocusMouseLocationCoveredByOverlay(_ mouseLocation: NSPoint?) -> Bool {
+        guard let mouseLocation, let frameView = window?.contentView?.superview else {
+            return false
+        }
+
+        // The frame view has no superview, so hitTest takes window coordinates.
+        var view = frameView.hitTest(mouseLocation)
+        while let current = view {
+            if current is TerminalOverlayContainerView {
+                return true
+            }
+            view = current.superview
+        }
+        return false
     }
 
     private func locationInSelfForHoverFocus(_ mouseLocation: NSPoint) -> NSPoint {
@@ -1285,7 +1318,7 @@ final class PaneStripView: NSView {
             paneView.render(
                 pane: pane,
                 emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused,
+                isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
                 borderContext: currentShowsPaneLabels
                     ? currentPaneBorderContextByPaneID[panePresentation.paneID]
                     : nil,
@@ -1374,7 +1407,7 @@ final class PaneStripView: NSView {
                     width: panePresentation.frame.width,
                     height: panePresentation.frame.height,
                     emphasis: panePresentation.emphasis,
-                    isFocused: panePresentation.isFocused,
+                    isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
                     runtime: runtime,
                     theme: currentTheme,
                     initialViewportSyncSuspended: startsWithViewportSyncSuspended,
@@ -1634,6 +1667,13 @@ final class PaneStripView: NSView {
             return
         }
 
+        if overlayTerminalFocusInterceptor?(paneID) == true {
+            lastFocusedPaneID = paneID
+            pendingProgrammaticFocusPaneID = nil
+            focusGeneration &+= 1
+            return
+        }
+
         pendingProgrammaticFocusPaneID = paneID
         focusGeneration &+= 1
         let generation = focusGeneration
@@ -1653,6 +1693,14 @@ final class PaneStripView: NSView {
             return
         }
         guard retryCount < 50 else {
+            if pendingProgrammaticFocusPaneID == paneID {
+                pendingProgrammaticFocusPaneID = nil
+            }
+            return
+        }
+
+        // An overlay can appear between retries (e.g. `overlay open --follow`).
+        if retryCount > 0, overlayTerminalFocusInterceptor?(paneID) == true {
             if pendingProgrammaticFocusPaneID == paneID {
                 pendingProgrammaticFocusPaneID = nil
             }
@@ -2130,6 +2178,10 @@ final class PaneStripView: NSView {
     /// Return the current frame of a live pane view in viewportView coordinates.
     func livePaneFrame(_ paneID: PaneID) -> CGRect? {
         paneViews[paneID]?.frame
+    }
+
+    func quickActionOverlayAnchor(for paneID: PaneID) -> NSView? {
+        paneViews[paneID]
     }
 
     /// Convert a pane's current frame into the coordinate system of `target`,

@@ -49,16 +49,7 @@ enum WorklaneSessionEnvironment {
             environment["ZENTTY_INITIAL_WORKING_DIRECTORY"] = initialWorkingDirectory
         }
 
-        if let connectionInfo = AgentIPCServer.shared.connectionInfo(
-            windowID: windowID,
-            worklaneID: worklaneID,
-            paneID: paneID
-        ) {
-            environment["ZENTTY_INSTANCE_SOCKET"] = connectionInfo.socketPath
-            environment["ZENTTY_PANE_TOKEN"] = connectionInfo.paneToken
-            environment["ZENTTY_CLI_BIN"] = connectionInfo.cliPath
-            environment[AgentStatusTransport.instanceIDEnvironmentKey] = connectionInfo.instanceID
-        }
+        applyIPCConnection(to: &environment, windowID: windowID, worklaneID: worklaneID, paneID: paneID)
 
         var allWrapperDirectories = AgentStatusHelper.wrapperDirectoryPaths() ?? []
         allWrapperDirectories += AgentManifestWrapperMaterializer.materializedDirectories
@@ -91,6 +82,53 @@ enum WorklaneSessionEnvironment {
             )
         }
 
+        applyShellIntegration(to: &environment, processEnvironment: processEnvironment)
+
+        return environment
+    }
+
+    /// Environment for a quick-action overlay's shell. It gets the shell
+    /// integration and its own IPC identity, so the overlay can follow the
+    /// shell's directory, branch and activity, but none of the pane's agent
+    /// wrappers, manifest table or agent-teams shim: overlays are not panes.
+    static func overlay(
+        windowID: WindowID,
+        worklaneID: WorklaneID,
+        overlayID: PaneID,
+        processEnvironment: [String: String]
+    ) -> [String: String] {
+        var environment: [String: String] = [
+            "ZENTTY_WINDOW_ID": windowID.rawValue,
+            "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
+            "ZENTTY_PANE_ID": overlayID.rawValue,
+        ]
+        applyIPCConnection(to: &environment, windowID: windowID, worklaneID: worklaneID, paneID: overlayID)
+        environment["COLORTERM"] = TerminalColorEnvironment.colorTerm(inheritedFrom: processEnvironment)
+        applyShellIntegration(to: &environment, processEnvironment: processEnvironment)
+        return environment
+    }
+
+    private static func applyIPCConnection(
+        to environment: inout [String: String],
+        windowID: WindowID,
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) {
+        guard let connectionInfo = AgentIPCServer.shared.connectionInfo(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID
+        ) else { return }
+        environment["ZENTTY_INSTANCE_SOCKET"] = connectionInfo.socketPath
+        environment["ZENTTY_PANE_TOKEN"] = connectionInfo.paneToken
+        environment["ZENTTY_CLI_BIN"] = connectionInfo.cliPath
+        environment[AgentStatusTransport.instanceIDEnvironmentKey] = connectionInfo.instanceID
+    }
+
+    private static func applyShellIntegration(
+        to environment: inout [String: String],
+        processEnvironment: [String: String]
+    ) {
         if let shellIntegrationDirectory = AgentStatusHelper.shellIntegrationDirectoryPath() {
             environment["ZENTTY_SHELL_INTEGRATION_DIR"] = shellIntegrationDirectory
             environment["ZENTTY_SHELL_INTEGRATION"] = "1"
@@ -143,8 +181,6 @@ enum WorklaneSessionEnvironment {
         } else {
             environment["GHOSTTY_LOG"] = "macos,no-stderr"
         }
-
-        return environment
     }
 
     static func templateSafeOverrides(from environment: [String: String]) -> [String: String] {

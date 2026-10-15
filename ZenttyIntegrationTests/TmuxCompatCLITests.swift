@@ -500,7 +500,7 @@ final class TmuxCompatCLITests: XCTestCase {
     }
 }
 
-private final class TmuxCaptureServer {
+final class TmuxCaptureServer {
     let socketPath: String
 
     private let listenFD: Int32

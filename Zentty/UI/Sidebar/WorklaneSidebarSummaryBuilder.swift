@@ -256,42 +256,49 @@ enum WorklaneSidebarSummaryBuilder {
         focusedPaneID: PaneID?,
         serverContext: WorklaneServerContext?
     ) -> [WorklaneSidebarPaneRow] {
-        let isSinglePane = orderedPaneContexts.count == 1
-
-        return orderedPaneContexts.map { paneContext in
-            let isFocused = focusedPaneID == paneContext.paneID
-            let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
-            let paneIdentity = paneIdentity(
-                pane: paneContext.pane,
-                metadata: paneContext.metadata,
-                for: paneContext.presentation,
-                isSinglePane: isSinglePane,
-                style: .paneRow,
-                fallbackTitle: paneContext.pane.title
-            )
-
-            return WorklaneSidebarPaneRow(
-                paneID: paneContext.paneID,
-                primaryText: paneIdentity.primaryText,
-                usesCustomTitle: paneIdentity.usesCustomTitle,
-                animatesLocalCodexSpinner: paneIdentity.animatesLocalCodexSpinner,
-                trailingText: paneIdentity.trailingText,
-                detailText: paneIdentity.detailText,
-                statusText: statusPresentation.statusText,
-                statusSymbolName: statusPresentation.statusSymbolName,
-                attentionState: statusPresentation.attentionState,
-                interactionKind: statusPresentation.interactionKind,
-                interactionLabel: statusPresentation.interactionLabel,
-                interactionSymbolName: statusPresentation.interactionSymbolName,
-                isFocused: isFocused,
-                isWorking: statusPresentation.isWorking,
-                taskProgress: statusPresentation.taskProgress,
-                subagents: paneContext.presentation.subagents,
-                serverPorts: serverPorts(for: paneContext.paneID, serverContext: serverContext),
-                isRemotePane: paneContext.presentation.isRemotePane,
-                remotePaneLabel: remotePaneLabel(for: paneContext.presentation)
-            )
+        orderedPaneContexts.map { paneContext in
+            paneRow(for: paneContext, isFocused: focusedPaneID == paneContext.paneID,
+                    isSinglePane: orderedPaneContexts.count == 1, serverContext: serverContext)
         }
+    }
+
+    static func paneRow(
+        for paneContext: WorklanePaneContext,
+        isFocused: Bool,
+        isSinglePane: Bool = false,
+        serverContext: WorklaneServerContext? = nil
+    ) -> WorklaneSidebarPaneRow {
+        let statusPresentation = paneSidebarStatusPresentation(for: paneContext.presentation)
+        let paneIdentity = paneIdentity(
+            pane: paneContext.pane,
+            metadata: paneContext.metadata,
+            for: paneContext.presentation,
+            isSinglePane: isSinglePane,
+            style: .paneRow,
+            fallbackTitle: paneContext.pane.title
+        )
+
+        return WorklaneSidebarPaneRow(
+            paneID: paneContext.paneID,
+            primaryText: paneIdentity.primaryText,
+            usesCustomTitle: paneIdentity.usesCustomTitle,
+            animatesLocalCodexSpinner: paneIdentity.animatesLocalCodexSpinner,
+            trailingText: paneIdentity.trailingText,
+            detailText: paneIdentity.detailText,
+            statusText: statusPresentation.statusText,
+            statusSymbolName: statusPresentation.statusSymbolName,
+            attentionState: statusPresentation.attentionState,
+            interactionKind: statusPresentation.interactionKind,
+            interactionLabel: statusPresentation.interactionLabel,
+            interactionSymbolName: statusPresentation.interactionSymbolName,
+            isFocused: isFocused,
+            isWorking: statusPresentation.isWorking,
+            taskProgress: statusPresentation.taskProgress,
+            subagents: paneContext.presentation.subagents,
+            serverPorts: serverPorts(for: paneContext.paneID, serverContext: serverContext),
+            isRemotePane: paneContext.presentation.isRemotePane,
+            remotePaneLabel: remotePaneLabel(for: paneContext.presentation)
+        )
     }
 
     private static func remotePaneLabel(for presentation: PanePresentationState) -> String? {

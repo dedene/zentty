@@ -729,6 +729,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         generalViewController.apply(confirmations: config.confirmations)
         generalViewController.apply(restore: config.restore)
         generalViewController.apply(clipboard: config.clipboard)
+        generalViewController.apply(sidebar: config.sidebar)
         notificationsViewController.apply(notifications: config.notifications)
         updatesPrivacyViewController.apply(updates: config.updates)
         updatesPrivacyViewController.apply(errorReporting: config.errorReporting)

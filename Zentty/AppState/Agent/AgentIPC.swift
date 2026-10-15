@@ -312,7 +312,7 @@ struct AgentIPCTarget: Equatable {
     let paneID: PaneID
 }
 
-private struct ParsedPaneSelectors {
+struct ParsedPaneSelectors {
     let windowID: WindowID?
     let worklaneID: WorklaneID?
     let paneID: PaneID?

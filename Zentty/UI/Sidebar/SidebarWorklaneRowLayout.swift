@@ -215,17 +215,17 @@ struct SidebarWorklaneRowLayout: Equatable {
         for summary: WorklaneSidebarSummary,
         availableWidth: CGFloat? = nil
     ) -> WorklaneRowMode {
-        if summary.paneRows.isEmpty == false {
-            return summary.paneRows.count > 1
+        if summary.displayPaneRows.isEmpty == false {
+            return summary.displayPaneRows.count > 1
                 || hasVisibleText(summary.topLabel)
-                || summary.paneRows.contains(where: { hasVisibleText($0.detailText) || hasVisibleText($0.statusText) })
-                || summary.paneRows.contains(where: {
+                || summary.displayPaneRows.contains(where: { hasVisibleText($0.detailText) || hasVisibleText($0.statusText) })
+                || summary.displayPaneRows.contains(where: {
                     paneRowPresentationMode(for: $0, availableWidth: availableWidth) == .adaptive
                 })
-                || summary.paneRows.contains(where: {
+                || summary.displayPaneRows.contains(where: {
                     paneRowStatusLineCount(for: $0, availableWidth: availableWidth) > 1
                 })
-                || summary.paneRows.contains(where: { $0.serverPorts.isEmpty == false })
+                || summary.displayPaneRows.contains(where: { $0.serverPorts.isEmpty == false })
                 || hasVisibleText(summary.overflowText)
                 ? .expanded
                 : .compact
@@ -280,7 +280,7 @@ struct SidebarWorklaneRowLayout: Equatable {
         toggledTaskListPaneIDs: Set<PaneID> = [],
         agentLists: AppConfig.AgentLists = .default
     ) -> [WorklaneRowTextRow] {
-        if summary.paneRows.isEmpty == false {
+        if summary.displayPaneRows.isEmpty == false {
             var rows: [WorklaneRowTextRow] = []
 
             if hasVisibleText(summary.topLabel) {
@@ -295,8 +295,8 @@ struct SidebarWorklaneRowLayout: Equatable {
                 summary.paneRows.count == 1
                 && hasVisibleText(summary.contextPrefixText)
 
-            for index in summary.paneRows.indices {
-                let paneRow = summary.paneRows[index]
+            for index in summary.displayPaneRows.indices {
+                let paneRow = summary.displayPaneRows[index]
                 rows.append(.panePrimary(index))
 
                 if hasVisibleText(paneRow.detailText) {
@@ -796,18 +796,18 @@ private extension WorklaneRowLayoutMetrics {
                 )
             )
         case .panePrimary(let index):
-            guard summary.paneRows.indices.contains(index) else {
+            guard summary.displayPaneRows.indices.contains(index) else {
                 return primaryLineHeight
             }
             // Always 1 — pane primaries are single-line for shimmer compatibility.
             return primaryLineHeight
         case .paneStatus(let index):
-            guard summary.paneRows.indices.contains(index) else {
+            guard summary.displayPaneRows.indices.contains(index) else {
                 return statusLineHeight
             }
             return statusLineHeight * CGFloat(
                 SidebarWorklaneRowLayout.paneRowStatusLineCount(
-                    for: summary.paneRows[index],
+                    for: summary.displayPaneRows[index],
                     availableWidth: availableWidth,
                     metrics: self
                 )
@@ -815,17 +815,17 @@ private extension WorklaneRowLayoutMetrics {
         case .paneServer:
             return statusLineHeight
         case .paneTaskList(let index):
-            guard summary.paneRows.indices.contains(index) else {
+            guard summary.displayPaneRows.indices.contains(index) else {
                 return detailLineHeight
             }
             return SidebarPaneTaskListView.height(
-                forItemCount: summary.paneRows[index].taskProgress?.items.count ?? 0
+                forItemCount: summary.displayPaneRows[index].taskProgress?.items.count ?? 0
             )
         case .paneSubagents(let index):
-            guard summary.paneRows.indices.contains(index) else {
+            guard summary.displayPaneRows.indices.contains(index) else {
                 return detailLineHeight
             }
-            return detailLineHeight * CGFloat(max(1, summary.paneRows[index].subagents?.groups.count ?? 1))
+            return detailLineHeight * CGFloat(max(1, summary.displayPaneRows[index].subagents?.groups.count ?? 1))
         default:
             return lineHeight(for: row)
         }

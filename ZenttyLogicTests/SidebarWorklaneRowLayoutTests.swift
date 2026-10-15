@@ -667,6 +667,73 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
         XCTAssertGreaterThan(wideLayout.width, 0)
     }
 
+    func test_pane_overlays_hang_under_their_pane_and_worklane_overlays_end_the_card() {
+        let panes = (0..<2).map { index in
+            WorklaneSidebarPaneRow(
+                paneID: PaneID("pane-\(index)"), primaryText: "Shell",
+                trailingText: nil, detailText: nil, statusText: nil,
+                attentionState: nil, isFocused: index == 0, isWorking: false
+            )
+        }
+        var summary = makeSummary(paneRows: panes, overflowText: "+2 pending")
+        let baseline = SidebarWorklaneRowLayout(summary: summary)
+        summary.overlayRows = [
+            makeOverlayRow(id: "shared", title: "", owner: nil),
+            makeOverlayRow(id: "htop", title: "htop", owner: "pane-0"),
+            makeOverlayRow(id: "orphan", title: "make", owner: "closed-pane"),
+        ]
+
+        XCTAssertEqual(
+            summary.displayPaneRows.map(\.paneID.rawValue),
+            ["pane-0", "htop", "pane-1", "shared", "orphan"]
+        )
+        let layout = SidebarWorklaneRowLayout(summary: summary)
+        XCTAssertEqual(
+            layout.visibleTextRows,
+            (0..<5).map(WorklaneRowTextRow.panePrimary) + [.overflow],
+            "one line per overlay, no separator, overflow stays last"
+        )
+        XCTAssertEqual(layout.rowHeight - baseline.rowHeight,
+                       3 * ShellMetrics.sidebarPrimaryLineHeight
+                       + 6 * ShellMetrics.sidebarPaneButtonVerticalInset
+                       + 3 * ShellMetrics.sidebarRowInterlineSpacing, accuracy: 0.001)
+        summary.overlayRows = []
+        XCTAssertEqual(SidebarWorklaneRowLayout(summary: summary), baseline)
+    }
+
+    func test_a_focused_overlay_takes_sidebar_focus_from_the_panes() {
+        let pane = WorklaneSidebarPaneRow(
+            paneID: PaneID("pane"), primaryText: "Shell", trailingText: nil, detailText: nil,
+            statusText: nil, attentionState: nil, isFocused: true, isWorking: false
+        )
+        var summary = makeSummary(paneRows: [pane])
+        var overlay = makeOverlayRow(id: "overlay", title: "", owner: "pane")
+        summary.overlayRows = [overlay]
+        XCTAssertEqual(summary.displayPaneRows.map(\.isFocused), [true, false])
+
+        overlay.isFocused = true
+        summary.overlayRows = [overlay]
+        XCTAssertEqual(summary.displayPaneRows.map(\.isFocused), [false, true])
+    }
+
+    func test_sidebar_overlay_setting_defaults_on_and_round_trips() {
+        XCTAssertTrue(AppConfig.default.sidebar.showOverlays)
+        var config = AppConfig.default
+        config.sidebar.showOverlays = false
+        XCTAssertEqual(AppConfigTOML.decode(AppConfigTOML.encode(config))?.sidebar.showOverlays, false)
+        XCTAssertEqual(AppConfigTOML.decode("[sidebar]\nwidth = 240")?.sidebar.showOverlays, true)
+    }
+
+    private func makeOverlayRow(id: String, title: String, owner: String?) -> WorklaneSidebarPaneRow {
+        var row = WorklaneSidebarPaneRow(
+            paneID: PaneID(id), primaryText: title, trailingText: nil, detailText: nil,
+            statusText: nil, attentionState: nil, isFocused: false, isWorking: false
+        )
+        row.isOverlay = true
+        row.overlayOwnerPaneID = owner.map(PaneID.init)
+        return row
+    }
+
     private func makeSummary(
         topLabel: String? = nil,
         primaryText: String = "shell",

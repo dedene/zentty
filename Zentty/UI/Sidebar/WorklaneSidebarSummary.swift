@@ -16,6 +16,10 @@ struct WorklaneSidebarServerPort: Equatable {
 }
 
 struct WorklaneSidebarPaneRow: Equatable {
+    var isOverlay = false
+    /// The pane a pane overlay hangs under; nil for panes and worklane overlays.
+    var overlayOwnerPaneID: PaneID?
+    var isOverlayHidden = false
     let paneID: PaneID
     let primaryText: String
     let usesCustomTitle: Bool
@@ -28,7 +32,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
     let interactionSymbolName: String?
-    let isFocused: Bool
+    var isFocused: Bool
     let isWorking: Bool
     let taskProgress: PaneAgentTaskProgress?
     let subagents: PaneAgentSubagentSummary?
@@ -80,6 +84,23 @@ struct WorklaneSidebarPaneRow: Equatable {
 }
 
 struct WorklaneSidebarSummary: Equatable {
+    var overlayRows: [WorklaneSidebarPaneRow] = []
+    /// Pane rows with each pane overlay right under its pane and worklane
+    /// overlays (or ones whose pane is gone) at the end.
+    var displayPaneRows: [WorklaneSidebarPaneRow] {
+        guard !overlayRows.isEmpty else { return paneRows }
+        let paneIDs = Set(paneRows.map(\.paneID))
+        // A focused overlay has the keyboard, not the pane under it.
+        let overlayHasFocus = overlayRows.contains(where: \.isFocused)
+        var rows: [WorklaneSidebarPaneRow] = []
+        for var paneRow in paneRows {
+            if overlayHasFocus { paneRow.isFocused = false }
+            rows.append(paneRow)
+            rows += overlayRows.filter { $0.overlayOwnerPaneID == paneRow.paneID }
+        }
+        rows += overlayRows.filter { $0.overlayOwnerPaneID.map { !paneIDs.contains($0) } ?? true }
+        return rows
+    }
     let worklaneID: WorklaneID
     let badgeText: String
     let topLabel: String?

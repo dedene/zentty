@@ -20,6 +20,7 @@ struct ZenttyCLI: ParsableCommand {
             HSplitCommand.self,
             VSplitCommand.self,
             GridCommand.self,
+            OverlayCommandGroup.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
             ThemeCommandGroup.self,
@@ -238,7 +239,7 @@ struct VersionCommand: ParsableCommand {
 
 // MARK: - Pane IPC Helpers
 
-private enum PaneIPC {
+enum PaneIPC {
     static func send(
         subcommand: String,
         arguments: [String] = [],

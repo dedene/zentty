@@ -81,6 +81,7 @@ struct AppConfig: Equatable, Sendable {
     struct Sidebar: Equatable, Sendable {
         var width: CGFloat
         var visibility: SidebarVisibilityMode
+        var showOverlays: Bool = true
     }
 
     struct OpenWith: Equatable, Sendable {

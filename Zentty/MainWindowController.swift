@@ -187,6 +187,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var isApplicationActive = true
     private var isWindowKey = true
     private var shouldBypassNextCloseConfirmation = false
+    private let overlays: TerminalOverlayCoordinator
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
@@ -211,7 +212,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         windowIndex: Int = 0,
         initialPaneLayoutFrame: NSRect? = nil,
         initialWorkspaceState: WindowWorkspaceState? = nil,
-        initialWorkingDirectory: String? = nil
+        initialWorkingDirectory: String? = nil,
+        overlayAdapterFactory: @escaping (PaneID) -> any TerminalAdapter = { LibghosttyAdapter(paneID: $0) }
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.MainWindowController"),
@@ -272,6 +274,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             window.setFrameAutosaveName(Self.windowFrameAutosaveName(forWindowIndex: windowIndex))
         }
 
+        self.overlays = TerminalOverlayCoordinator(
+            rootViewController: rootViewController,
+            adapterFactory: overlayAdapterFactory
+        )
         self.rootViewController = rootViewController
         self.windowID = windowID
         self.windowOrder = windowIndex
@@ -321,8 +327,39 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
+        rootViewController.onCloseFocusedOverlayRequested = { [weak self] responder in
+            self?.overlays.closeFocusedOverlay(responder: responder) ?? false
+        }
+        rootViewController.focusedQuickActionCopyTarget = { [weak self] in
+            self?.overlays.focusedOverlay?.copyTarget
+        }
+        rootViewController.onOverlayAgentStatusPayload = { [weak self] payload in
+            self?.overlays.apply(payload) ?? false
+        }
+        rootViewController.onThemeDidChange = { [weak self] theme in
+            self?.overlays.apply(theme: theme)
+        }
+        rootViewController.onSidebarOverlaySelected = { [weak self] paneID in
+            self?.overlays.selectSidebarOverlay(id: paneID.rawValue) ?? false
+        }
+        rootViewController.onSidebarOverlayClosed = { [weak self] paneID in
+            self?.overlays.closeSidebarOverlay(id: paneID.rawValue) ?? false
+        }
+        rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
+            self?.overlays.toggleQuickAction()
+        }
+        rootViewController.overlayTerminalFocusInterceptor = { [weak self] paneID in
+            self?.overlays.interceptTerminalFocus(paneID: paneID) ?? false
+        }
+        rootViewController.runningQuickActionsClosingWithPane = { [weak self] paneID in
+            self?.overlays.runningQuickActions(closingWithPane: paneID) ?? []
+        }
+        rootViewController.runningQuickActionsClosingWithWorklane = { [weak self] worklaneID in
+            self?.overlays.runningQuickActions(closingWithWorklane: worklaneID) ?? []
+        }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
             self?.refreshWindowTitle()
+            self?.overlays.syncVisibility()
             self?.onWorkspaceStateDidChange?()
         }
         // Restored workspaces set their state before this closure exists, so
@@ -404,6 +441,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        overlays.closeAll()
         rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)
@@ -853,6 +891,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+        overlays.revealOverlayAwaitingNavigation(on: paneID)
     }
 
     /// Selects a pane without activating Zentty or stealing key status. Used
@@ -1217,6 +1256,28 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.paneCommands.focusPaneByID(id, in: worklaneID)
     }
 
+    @discardableResult
+    func openOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> String {
+        try overlays.open(on: paneID, options: options)
+    }
+
+    @objc
+    func toggleQuickActionOverlay(_ sender: Any?) {
+        overlays.toggleQuickAction()
+    }
+
+    func showOverlay(on paneID: PaneID) throws {
+        try overlays.show(on: paneID)
+    }
+
+    func closeOverlay(on paneID: PaneID) throws {
+        try overlays.close(on: paneID)
+    }
+
+    func overlayListJSON(on paneID: PaneID? = nil) throws -> String {
+        try overlays.listJSON(on: paneID)
+    }
+
     func closePane(id: PaneID) {
         rootViewController.paneCommands.closePane(id: id)
     }
@@ -1324,11 +1385,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     var anyPaneRequiresQuitConfirmation: Bool {
-        rootViewController.anyPaneRequiresQuitConfirmation
+        rootViewController.anyPaneRequiresQuitConfirmation || overlays.anyNeedsCloseConfirmation
     }
 
     var anyPaneHasRunningProcessForQuitConfirmation: Bool {
-        rootViewController.anyPaneHasRunningProcessForQuitConfirmation
+        rootViewController.anyPaneHasRunningProcessForQuitConfirmation || overlays.anyNeedsCloseConfirmation
     }
 
     var terminalAppearance: NSAppearance? {
@@ -2054,6 +2115,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 artifactURL: nil
             )
         )
+    }
+
+    func overlaySessionForTesting(on paneID: PaneID) -> TerminalOverlaySession? {
+        overlays.overlay(on: paneID)
     }
 
     var rootViewControllerForTesting: RootViewController {

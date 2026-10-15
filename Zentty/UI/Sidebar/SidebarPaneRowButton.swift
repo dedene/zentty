@@ -547,6 +547,11 @@ final class SidebarInsetContainerView: NSView {
 @MainActor
 final class SidebarPaneRowButton: NSButton {
     var paneID = PaneID("")
+    var isOverlay = false
+    /// Pane overlays hang under the pane they cover.
+    var isIndented = false {
+        didSet { contentLeadingConstraint?.constant = Self.contentLeadingInset(isIndented: isIndented) }
+    }
     var isLastPaneInWorklane = false
     var isLastPaneInOnlyWorklane = false
     var currentWorklaneColor: WorklaneColor?
@@ -584,6 +589,7 @@ final class SidebarPaneRowButton: NSButton {
     private var activeContextPicker: WorklaneColorMenuItemView?
 
     private let contentStack = NSStackView()
+    private var contentLeadingConstraint: NSLayoutConstraint?
     private var contentViews: [NSView] = []
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
@@ -624,11 +630,13 @@ final class SidebarPaneRowButton: NSButton {
         contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(contentStack)
 
+        let contentLeadingConstraint = contentStack.leadingAnchor.constraint(
+            equalTo: leadingAnchor, constant: Self.contentLeadingInset(isIndented: isIndented))
+        self.contentLeadingConstraint = contentLeadingConstraint
         NSLayoutConstraint.activate([
             contentStack.topAnchor.constraint(
                 equalTo: topAnchor, constant: ShellMetrics.sidebarPaneButtonVerticalInset),
-            contentStack.leadingAnchor.constraint(
-                equalTo: leadingAnchor, constant: ShellMetrics.sidebarPaneButtonHorizontalInset),
+            contentLeadingConstraint,
             contentStack.trailingAnchor.constraint(
                 equalTo: trailingAnchor, constant: -ShellMetrics.sidebarPaneButtonHorizontalInset),
             contentStack.bottomAnchor.constraint(
@@ -637,6 +645,10 @@ final class SidebarPaneRowButton: NSButton {
 
         target = self
         action = #selector(handleClick)
+    }
+
+    private static func contentLeadingInset(isIndented: Bool) -> CGFloat {
+        ShellMetrics.sidebarPaneButtonHorizontalInset + (isIndented ? ShellMetrics.sidebarPaneButtonHorizontalInset : 0)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -870,6 +882,13 @@ final class SidebarPaneRowButton: NSButton {
     // MARK: - Context Menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        if isOverlay {
+            let menu = NSMenu()
+            let close = NSMenuItem(title: "Close Overlay", action: #selector(handleClosePane), keyEquivalent: "")
+            close.target = self
+            menu.addItem(close)
+            return menu
+        }
         let originID = bookmarkOriginID
         let result = SidebarWorklaneContextMenu.makeMenu(
             context: SidebarWorklaneContextMenuContext(

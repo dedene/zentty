@@ -130,6 +130,8 @@ final class RootViewController: NSViewController {
     private let themeCoordinator: ThemeCoordinator
     private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
+    var onSidebarOverlaySelected: ((PaneID) -> Bool)?
+    var onSidebarOverlayClosed: ((PaneID) -> Bool)?
     private var staleAgentSweepTimer: Timer?
     private(set) var serverCommands: WindowServerCommandService!
     private var bookmarksPopover: NSPopover?
@@ -158,7 +160,10 @@ final class RootViewController: NSViewController {
                 self?.showClosePaneConfirmation(context: context, highlighting: {}, onConfirm: onConfirm)
             },
             showToast: { [weak self] message in self?.showToast(message: message) },
-            requestWindowClose: { [weak self] in self?.requestContainingWindowClose() }
+            requestWindowClose: { [weak self] in self?.requestContainingWindowClose() },
+            runningQuickActionsClosingWithPane: { [weak self] paneID in
+                self?.runningQuickActionsClosingWithPane?(paneID) ?? []
+            }
         )
     )
     private let commandPaletteBackdropView = CommandPaletteBackdropView()
@@ -258,6 +263,12 @@ final class RootViewController: NSViewController {
     private var configObserverID: UUID?
     private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
+    var onThemeDidChange: ((ZenttyTheme) -> Void)?
+    /// Offers a shell-integration payload to the quick-action overlays first;
+    /// true when it belonged to one, since overlays are not in the store.
+    var onOverlayAgentStatusPayload: ((AgentStatusPayload) -> Bool)?
+    /// What Copy Path copies while a quick-action overlay has focus.
+    var focusedQuickActionCopyTarget: (() -> PaneCopyTarget?)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onServerPrimaryRequested: (() -> Void)?
@@ -266,6 +277,13 @@ final class RootViewController: NSViewController {
     var onShowSettingsSectionRequested: ((SettingsSection) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
+    var onToggleQuickActionOverlayRequested: (() -> Void)?
+    var onCloseFocusedOverlayRequested: ((NSResponder?) -> Bool)?
+    var overlayTerminalFocusInterceptor: ((PaneID) -> Bool)?
+    /// Live quick-action overlays a close would terminate. Overlays live outside
+    /// the worklane store, so its close prompts can't see them on their own.
+    var runningQuickActionsClosingWithPane: ((PaneID) -> [RunningQuickAction])?
+    var runningQuickActionsClosingWithWorklane: ((WorklaneID) -> [RunningQuickAction])?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -807,6 +825,9 @@ final class RootViewController: NSViewController {
 
             return self.globalSearchChoreographer.shouldRetainFocus
         }
+        appCanvasView.paneStripView.overlayTerminalFocusInterceptor = { [weak self] paneID in
+            self?.overlayTerminalFocusInterceptor?(paneID) ?? false
+        }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
             self?.worklaneStore.focusPane(id: paneID)
@@ -818,7 +839,7 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
+                let context = self.paneCloseConfirmationContext(paneID)
             {
                 self.showClosePaneConfirmation(
                     context: context,
@@ -1041,6 +1062,7 @@ final class RootViewController: NSViewController {
             self?.selectWorklaneFromNavigation(id: id)
         }
         sidebarView.onPaneSelected = { [weak self] worklaneID, paneID in
+            if self?.onSidebarOverlaySelected?(paneID) == true { return }
             self?.worklaneStore.selectWorklaneAndFocusPane(
                 worklaneID: worklaneID,
                 paneID: paneID
@@ -1049,7 +1071,10 @@ final class RootViewController: NSViewController {
         sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID in
             guard let self else { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-               let context = self.worklaneStore.worklaneCloseConfirmationContext(worklaneID)
+               let context = self.worklaneStore.worklaneCloseConfirmationContext(
+                   worklaneID,
+                   runningQuickActions: self.runningQuickActionsClosingWithWorklane?(worklaneID) ?? []
+               )
             {
                 self.showCloseWorklaneConfirmation(
                     context: context,
@@ -1070,8 +1095,9 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
+            if self.onSidebarOverlayClosed?(paneID) == true { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
+                let context = self.paneCloseConfirmationContext(paneID)
             {
                 self.showClosePaneConfirmation(
                     context: context,
@@ -1244,7 +1270,8 @@ final class RootViewController: NSViewController {
             self?.remotePaste.configure(runtime: runtime)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
-            self?.worklaneStore.applyAgentStatusPayload(payload)
+            guard let self, self.onOverlayAgentStatusPayload?(payload) != true else { return }
+            self.worklaneStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
     }
@@ -1322,6 +1349,17 @@ final class RootViewController: NSViewController {
         _ = updatePaneLayoutContextIfNeeded()
         updatePaneViewportHeight()
         updateWindowChromeLeadingControlsInset()
+    }
+
+    func quickActionOverlayAnchor(for paneID: PaneID, placement: PaneOverlayIPCOptions.Placement) -> NSView? {
+        switch placement {
+        case .worklane: appCanvasView.quickActionOverlayContainer
+        case .pane: appCanvasView.paneStripView.quickActionOverlayAnchor(for: paneID)
+        }
+    }
+
+    func restoreTerminalFocusAfterOverlay() {
+        appCanvasView.focusCurrentPaneIfNeeded()
     }
 
     func activateWindowBindingsIfNeeded() {
@@ -1475,6 +1513,10 @@ final class RootViewController: NSViewController {
     }
 
     func handle(_ action: AppAction, syncingFocusWith responder: NSResponder?) {
+        if case .pane(.closeFocusedPane) = action,
+           onCloseFocusedOverlayRequested?(responder) == true {
+            return
+        }
         syncFocusedPaneWithResponderIfNeeded(responder)
         cancelPendingPaneStripScrollSwitchGestureIfNeeded(for: action)
 
@@ -1563,6 +1605,13 @@ final class RootViewController: NSViewController {
     }
 
     private var isShowingCloseConfirmation = false
+
+    private func paneCloseConfirmationContext(_ paneID: PaneID) -> PaneCloseConfirmationContext? {
+        worklaneStore.paneCloseConfirmationContext(
+            paneID,
+            runningQuickActions: runningQuickActionsClosingWithPane?(paneID) ?? []
+        )
+    }
 
     /// - Parameter highlighting: moves the selection onto the pane or worklane the
     ///   sheet is about to name, so the prompt matches what is on screen. Runs only
@@ -1712,6 +1761,7 @@ final class RootViewController: NSViewController {
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
         let focusedPaneCopyTarget: PaneCopyTarget? = {
+            if isQuickActionFocused { return focusedQuickActionCopyTarget?() }
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID,
                   let auxiliaryState = activeWorklane?.auxiliaryStateByPaneID[paneID] else { return nil }
             return PaneCopyTargetResolver.target(for: auxiliaryState)
@@ -1896,6 +1946,11 @@ final class RootViewController: NSViewController {
     }
 
     private func copyFocusedPanePath() {
+        if isQuickActionFocused {
+            guard let target = focusedQuickActionCopyTarget?() else { return }
+            copyToPasteboard(target)
+            return
+        }
         guard
             let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
         else {
@@ -1911,7 +1966,10 @@ final class RootViewController: NSViewController {
         else {
             return
         }
+        copyToPasteboard(target)
+    }
 
+    private func copyToPasteboard(_ target: PaneCopyTarget) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(target.pasteboardString, forType: .string)
         showToast(message: target.copiedToastMessage)
@@ -1990,8 +2048,18 @@ final class RootViewController: NSViewController {
             focusedPaneCanOpenWithPrimary: focusedOpenWithContext != nil && primaryOpenWithTarget != nil,
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
             activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
-            focusedPaneUnreadToggle: focusedPaneUnreadToggle
+            focusedPaneUnreadToggle: focusedPaneUnreadToggle,
+            isQuickActionFocused: isQuickActionFocused
         )
+    }
+
+    private var isQuickActionFocused: Bool {
+        var view = view.window?.firstResponder as? NSView
+        while let current = view {
+            if current is TerminalOverlayContainerView { return true }
+            view = current.superview
+        }
+        return false
     }
 
     var focusedPaneUnreadToggle: PaneUnreadToggle? {
@@ -2233,6 +2301,7 @@ final class RootViewController: NSViewController {
             animated: false,
             forceLayout: false
         )
+        onThemeDidChange?(theme)
         onWindowChromeNeedsUpdate?()
     }
 
@@ -3234,6 +3303,15 @@ extension RootViewController: AppActionRouterEnvironment {
         showCommandPalette()
     }
 
+    var isWorklanePeekActive: Bool {
+        peekController.phase != .idle
+    }
+
+    func routeToggleQuickActionOverlay() {
+        guard !isWorklanePeekActive else { return }
+        onToggleQuickActionOverlayRequested?()
+    }
+
     func routeShowTaskManager() {
         NSApp.sendAction(#selector(AppDelegate.showTaskManager(_:)), to: nil, from: nil)
     }
@@ -3911,6 +3989,18 @@ extension RootViewController: WorklanePeekControllerDelegate {
         peekView.isHidden = true
         peekView.detach()
         peekKeyMonitor.uninstall()
+    }
+
+    /// A focused overlay takes focus from the pane under it, so that pane
+    /// drops its focus border while the overlay has the keyboard.
+    func setPaneFocusSuppressedByOverlay(_ suppressed: Bool) {
+        appCanvasView.paneStripView.suppressesFocusEmphasis = suppressed
+    }
+
+    func updateSidebarOverlays(_ overlays: [WorklaneID: [WorklaneSidebarOverlay]]) {
+        guard renderCoordinator.sidebarOverlaysByWorklaneID != overlays else { return }
+        renderCoordinator.sidebarOverlaysByWorklaneID = overlays
+        renderCoordinator.renderSidebar()
     }
 
     private func updatePeekSidebarFocusOverride(_ reference: WorklaneStore.PaneReference?) {

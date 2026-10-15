@@ -7,17 +7,22 @@ struct CloseConfirmationCopy: Equatable {
     let confirmButtonTitle: String
 
     static func pane(_ context: PaneCloseConfirmationContext) -> CloseConfirmationCopy {
-        let reasonLine: String
+        let paneLine: String?
         switch context.reason {
         case .runningProcess:
             if let activity = context.activity {
-                reasonLine = "\(activity.sentenceText) is still running and will be terminated."
+                paneLine = "\(activity.sentenceText) is still running and will be terminated."
             } else {
-                reasonLine = "The running process in this pane will be terminated."
+                paneLine = "The running process in this pane will be terminated."
             }
         case .sessionHistory:
-            reasonLine = "This pane's session history will be lost."
+            paneLine = "This pane's session history will be lost."
+        case nil:
+            paneLine = nil
         }
+        let reasonLine = [paneLine, quickActionLine(context.runningQuickActions)]
+            .compactMap { $0 }
+            .joined(separator: " ")
 
         let detailLines = [
             context.worklaneName.map { "Worklane: \($0)" },
@@ -53,6 +58,15 @@ struct CloseConfirmationCopy: Equatable {
     // MARK: - Helpers
 
     private static func runningLine(_ context: WorklaneCloseConfirmationContext) -> String {
+        [runningPanesLine(context), quickActionLine(context.runningQuickActions)]
+            .compactMap { $0 }
+            .joined(separator: " ")
+    }
+
+    private static func runningPanesLine(_ context: WorklaneCloseConfirmationContext) -> String? {
+        guard context.runningPaneCount > 0 else {
+            return nil
+        }
         let names = groupedActivityList(context.runningActivities)
 
         if context.paneCount == 1 {
@@ -67,6 +81,25 @@ struct CloseConfirmationCopy: Equatable {
             : "\(context.runningPaneCount) of \(context.paneCount) panes have running processes"
         let suffix = names.isEmpty ? "" : ": \(names)"
         return "\(subject) that will be terminated\(suffix)."
+    }
+
+    /// Quick-action overlays close with the pane or worklane under them but are
+    /// not panes themselves, so they get their own sentence.
+    private static func quickActionLine(_ quickActions: [RunningQuickAction]) -> String? {
+        let commands = quickActions.compactMap(\.command).map(PaneCloseConfirmationContext.truncated)
+        switch quickActions.count {
+        case 0:
+            return nil
+        case 1:
+            guard let command = commands.first else {
+                return "A quick action is still running and will be terminated."
+            }
+            return "Quick action “\(command)” is still running and will be terminated."
+        default:
+            let names = groupedActivityList(commands)
+            let suffix = names.isEmpty ? "" : ": \(names)"
+            return "\(quickActions.count) quick actions are still running and will be terminated\(suffix)."
+        }
     }
 
     private static func historyLine(_ context: WorklaneCloseConfirmationContext) -> String {

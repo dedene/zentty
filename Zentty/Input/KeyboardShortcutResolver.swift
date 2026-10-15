@@ -84,6 +84,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
+    case toggleQuickActionOverlay = "overlay.toggle"
     case showTaskManager = "task_manager.show"
     case openWithSelectedApp = "open_with.selected_app"
     case openSelectedServer = "server.open_selected"
@@ -153,6 +154,7 @@ enum AppAction: Equatable, Sendable {
     case navigateBack
     case navigateForward
     case showCommandPalette
+    case toggleQuickActionOverlay
     case showTaskManager
     case openWithSelectedApp
     case openSelectedServer
@@ -886,6 +888,18 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .toggleQuickActionOverlay,
+            title: "Toggle Quick Action Overlay",
+            category: .general,
+            defaultShortcut: nil,
+            action: .toggleQuickActionOverlay,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Toggle Quick Action Overlay",
+                selector: #selector(MainWindowController.toggleQuickActionOverlay(_:))
+            )
+        ),
+        AppCommandDefinition(
             id: .openBranchOnRemote,
             title: "Open Branch on Remote",
             category: .general,
@@ -1060,6 +1074,7 @@ enum AppCommandRegistry {
         ],
         .view: [
             .command(.showCommandPalette),
+            .command(.toggleQuickActionOverlay),
             .separator,
             .command(.openBookmarksPopover),
             .command(.toggleSidebar),
@@ -1242,6 +1257,8 @@ extension AppCommandDefinition {
             "Reset pane sizes to their defaults."
         case .showCommandPalette:
             "Open the command palette."
+        case .toggleQuickActionOverlay:
+            "Open or close a shell overlay on the focused pane."
         case .showTaskManager:
             "Show CPU and memory usage for live panes."
         case .openWithSelectedApp:

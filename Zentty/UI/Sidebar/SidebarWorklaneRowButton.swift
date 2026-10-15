@@ -337,7 +337,7 @@ final class SidebarWorklaneRowButton: NSButton {
             return nil
         }
 
-        let activePaneCount = currentSummary?.paneRows.count ?? 0
+        let activePaneCount = currentSummary?.displayPaneRows.count ?? 0
         for paneButton in paneRowButtons.prefix(activePaneCount)
         where paneButton.superview != nil && !paneButton.isHidden {
             let pointInPane = paneButton.convert(point, from: superview)
@@ -358,7 +358,7 @@ final class SidebarWorklaneRowButton: NSButton {
         let rowHovered = contains(windowPoint: windowPoint)
         setWorklaneHovered(rowHovered, animated: animated)
 
-        let activePaneCount = currentSummary?.paneRows.count ?? 0
+        let activePaneCount = currentSummary?.displayPaneRows.count ?? 0
         var anyPaneRowHovered = false
         for (index, paneButton) in paneRowButtons.enumerated() {
             if index < activePaneCount,
@@ -591,7 +591,7 @@ final class SidebarWorklaneRowButton: NSButton {
             return
         }
 
-        if summary.paneRows.isEmpty {
+        if summary.displayPaneRows.isEmpty {
             // Single-pane worklane — the volatile title lives in the worklane row's
             // top-level primary labels.
             guard primaryBaseLabel.stringValue != text else { return }
@@ -603,7 +603,7 @@ final class SidebarWorklaneRowButton: NSButton {
         paneRowRenderer.setVolatilePaneTitle(
             paneID: paneID,
             text: text,
-            paneRows: summary.paneRows
+            paneRows: summary.displayPaneRows
         )
     }
 
@@ -632,10 +632,10 @@ final class SidebarWorklaneRowButton: NSButton {
         lastConfiguredAgentLists = agentLists
 
         toggledSubagentPaneIDs = toggledSubagentPaneIDs.filter { paneID in
-            summary.paneRows.contains { $0.paneID == paneID && $0.subagents?.isEmpty == false }
+            summary.displayPaneRows.contains { $0.paneID == paneID && $0.subagents?.isEmpty == false }
         }
         toggledTaskListPaneIDs = toggledTaskListPaneIDs.filter { paneID in
-            summary.paneRows.contains { $0.paneID == paneID && $0.taskProgress?.items.isEmpty == false }
+            summary.displayPaneRows.contains { $0.paneID == paneID && $0.taskProgress?.items.isEmpty == false }
         }
         let renderPlan = SidebarWorklaneRowRenderPlan(
             summary: summary,
@@ -651,12 +651,12 @@ final class SidebarWorklaneRowButton: NSButton {
         // Align the title with pane-row text (indented inside the pane
         // button); paneless lanes render primary text un-indented, so the
         // title follows suit there.
-        topLabelLeadingConstraint?.constant = summary.paneRows.isEmpty
+        topLabelLeadingConstraint?.constant = summary.displayPaneRows.isEmpty
             ? 0
             : ShellMetrics.sidebarPaneButtonHorizontalInset
         overflowLabel.stringValue = summary.overflowText ?? ""
         contextPrefixLabel.stringValue = summary.contextPrefixText ?? ""
-        if summary.paneRows.isEmpty {
+        if summary.displayPaneRows.isEmpty {
             primaryBaseLabel.stringValue = summary.primaryText
             primaryLabel.stringValue = summary.primaryText
             applyWorklanePrimaryPresentation()
@@ -756,7 +756,7 @@ final class SidebarWorklaneRowButton: NSButton {
         let summary = currentSummary
         let canReveal =
             isVisible
-            && (summary?.paneRows.isEmpty ?? false)
+            && (summary?.displayPaneRows.isEmpty ?? false)
             && summary?.taskProgress != nil
             && statusProgressIndicator.isHidden == false
         statusProgressRevealView.setRevealed(
@@ -935,7 +935,7 @@ final class SidebarWorklaneRowButton: NSButton {
             theme: currentTheme
         )
 
-        if summary.paneRows.isEmpty {
+        if summary.displayPaneRows.isEmpty {
             let primaryColor = SidebarWorklaneRowStyleResolver.primaryTextColor(
                 isActive: summary.isActive,
                 activeTextColor: activeTextColor,
@@ -1000,7 +1000,7 @@ final class SidebarWorklaneRowButton: NSButton {
             primaryLabel.animatedSpinnerBaseColor = nil
             primaryBaseLabel.isHidden = false
             applyPaneRowColors(
-                paneRows: summary.paneRows,
+                paneRows: summary.displayPaneRows,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor
             )
@@ -1041,7 +1041,7 @@ final class SidebarWorklaneRowButton: NSButton {
         let isActive = currentSummary?.isActive ?? false
         let activeTextColor = currentTheme.sidebarButtonActiveText
         let inactiveTextColor = currentTheme.sidebarButtonInactiveText
-        if summary.paneRows.isEmpty == false {
+        if summary.displayPaneRows.isEmpty == false {
             primaryLabel.isShimmering = false
             statusLabel.isShimmering = false
             return
@@ -1102,20 +1102,29 @@ final class SidebarWorklaneRowButton: NSButton {
             }
 
             let isActive = currentSummary?.isActive ?? false
-            let primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
+            var primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
                 isFocused: paneRow.isFocused,
                 isActive: isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
-            let trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
+            var trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
                 isFocused: paneRow.isFocused,
                 isActive: isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
+            if paneRow.isOverlay {
+                // Overlay lines read as secondary to the panes until focused,
+                // and fade further while hidden.
+                if !paneRow.isFocused { primaryColor = trailingColor }
+                if paneRow.isOverlayHidden {
+                    primaryColor = primaryColor.withAlphaComponent(primaryColor.alphaComponent * 0.6)
+                    trailingColor = trailingColor.withAlphaComponent(trailingColor.alphaComponent * 0.6)
+                }
+            }
             let presentationMode: SidebarPaneRowPresentationMode
             if let panePresentations = currentRenderPlan?.paneRows,
                panePresentations.indices.contains(index) {

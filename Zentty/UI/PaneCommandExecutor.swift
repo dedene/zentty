@@ -32,6 +32,7 @@ final class PaneCommandExecutor {
         var presentClosePaneConfirmation: (PaneCloseConfirmationContext, @escaping () -> Void) -> Void
         var showToast: (String) -> Void
         var requestWindowClose: () -> Void
+        var runningQuickActionsClosingWithPane: (PaneID) -> [RunningQuickAction] = { _ in [] }
     }
 
     private let worklaneStore: WorklaneStore
@@ -150,7 +151,10 @@ final class PaneCommandExecutor {
             let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
             if configStore.current.confirmations.confirmBeforeClosingPane,
                 let focusedPaneID,
-                let context = worklaneStore.paneCloseConfirmationContext(focusedPaneID)
+                let context = worklaneStore.paneCloseConfirmationContext(
+                    focusedPaneID,
+                    runningQuickActions: hooks.runningQuickActionsClosingWithPane(focusedPaneID)
+                )
             {
                 // Close the pane the prompt was raised for: focus can move on
                 // to another pane while the sheet is up.
