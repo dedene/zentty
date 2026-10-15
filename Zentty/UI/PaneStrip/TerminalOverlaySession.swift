@@ -47,6 +47,45 @@ final class TerminalOverlaySession: NSObject {
     /// notification to the pane shows the overlay it points at.
     var revealsOnNextNavigation = false
     private(set) var exitCode: Int?
+    var onInfoChanged: (() -> Void)?
+    private var auxiliaryState = PaneAuxiliaryState()
+    private let gitContextResolver: any PaneGitContextResolving
+    private var gitContextTask: Task<Void, Never>?
+    private var gitContextDirectory: String?
+
+    var sidebarRow: WorklaneSidebarPaneRow {
+        let pane = PaneState(id: PaneID(id), title: "Shell", sessionRequest: request)
+        var row = WorklaneSidebarSummaryBuilder.paneRow(
+            for: WorklanePaneContext(pane: pane, auxiliaryState: auxiliaryState),
+            isFocused: !view.isHiddenOrHasHiddenAncestor && host.isTerminalFocused
+        )
+        row.isOverlay = true
+        return row
+    }
+
+    private func refreshPresentation() {
+        auxiliaryState.presentation = PanePresentationNormalizer.normalize(
+            paneTitle: "Shell", raw: auxiliaryState.raw, previous: auxiliaryState.presentation,
+            sessionRequestWorkingDirectory: request.workingDirectory
+        )
+        onInfoChanged?()
+    }
+
+    private func refreshGitContext(force: Bool = false) {
+        let directory = auxiliaryState.presentation.cwd
+        guard force || directory != gitContextDirectory else { return }
+        gitContextTask?.cancel()
+        gitContextDirectory = directory
+        auxiliaryState.raw.gitContext = nil
+        guard let directory else { return }
+        gitContextTask = Task { [weak self] in
+            let context = await self?.gitContextResolver.resolve(for: directory)
+            guard !Task.isCancelled, let context, let self, !self.isClosing,
+                  self.gitContextDirectory == directory else { return }
+            self.auxiliaryState.raw.gitContext = context
+            self.refreshPresentation()
+        }
+    }
     var onClose: (() -> Void)?
     var onRestoreFocus: (() -> Void)?
 
@@ -58,8 +97,10 @@ final class TerminalOverlaySession: NSObject {
         wait: Bool,
         sizePercent: Int,
         placement: PaneOverlayIPCOptions.Placement,
+        gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         adapterFactory: (PaneID) -> any TerminalAdapter = { LibghosttyAdapter(paneID: $0) }
     ) {
+        self.gitContextResolver = gitContextResolver
         self.paneID = paneID
         self.worklaneID = worklaneID
         self.sizePercent = sizePercent
@@ -73,6 +114,12 @@ final class TerminalOverlaySession: NSObject {
             surfaceContext: .split
         )
         super.init()
+        if let command = WorklaneContextFormatter.trimmed(command) {
+            auxiliaryState.raw.metadata = TerminalMetadata(title: command, currentWorkingDirectory: workingDirectory)
+            auxiliaryState.raw.shellActivityState = .commandRunning
+            auxiliaryState.raw.lastRunCommand = command
+        }
+        refreshPresentation()
         view.identifier = NSUserInterfaceItemIdentifier(id)
         view.translatesAutoresizingMaskIntoConstraints = false
         view.wantsLayer = true
@@ -107,12 +154,34 @@ final class TerminalOverlaySession: NSObject {
             host.topAnchor.constraint(equalTo: view.topAnchor, constant: 32),
             host.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -1),
         ])
+        host.onFocusDidChange = { [weak self] _ in self?.onInfoChanged?() }
+        host.onMetadataDidChange = { [weak self] metadata in
+            guard let self, !self.isClosing else { return }
+            self.auxiliaryState.raw.metadata = metadata
+            self.refreshPresentation()
+            self.refreshGitContext()
+        }
         host.onEventDidOccur = { [weak self] event in
+            guard let self, !self.isClosing else { return }
             switch event {
-            case .commandFinished(let code, _): self?.exitCode = code
-            case .surfaceClosed: self?.close()
+            case .commandFinished(let code, _):
+                self.exitCode = code
+                self.auxiliaryState.raw.shellActivityState = .promptIdle
+                self.auxiliaryState.raw.hasCommandHistory = true
+                self.refreshGitContext(force: true)
+            case .shellReady:
+                self.auxiliaryState.raw.shellActivityState = .promptIdle
+            case .userSubmittedInput:
+                self.exitCode = nil
+                self.auxiliaryState.raw.shellActivityState = .commandRunning
+            case .progressReport(let progress):
+                self.auxiliaryState.raw.terminalProgress = progress
+            case .surfaceClosed:
+                self.close()
+                return
             default: break
             }
+            self.refreshPresentation()
         }
         view.onMouseDown = { [weak self] in self?.focusTerminal() }
     }
@@ -135,6 +204,7 @@ final class TerminalOverlaySession: NSObject {
     func start() throws {
         do {
             try host.startSessionIfNeeded(using: request)
+            refreshGitContext()
         } catch {
             close()
             throw error
@@ -179,6 +249,7 @@ final class TerminalOverlaySession: NSObject {
     func close(restoringFocus: Bool = true) {
         guard !isClosing else { return }
         isClosing = true
+        gitContextTask?.cancel()
         let hadFocus = holdsKeyboardFocus
         adapter.close()
         NSLayoutConstraint.deactivate(placementConstraints)

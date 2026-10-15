@@ -33,6 +33,7 @@ final class SidebarWorklaneRowButton: NSButton {
     private let overflowLabel = SidebarStaticLabel()
     private let textStack = NSStackView()
 
+    private let overlaySeparator = NSView()
     private var detailLabels: [SidebarStaticLabel] = []
     private let paneRowRenderer = SidebarPaneRowRenderer(paneWrapperInset: Layout.paneWrapperInset)
     private lazy var contentRenderer = SidebarWorklaneRowContentRenderer(
@@ -185,6 +186,9 @@ final class SidebarWorklaneRowButton: NSButton {
             lineBreakMode: .byTruncatingTail
         )
         configureTopLabelHeader()
+        overlaySeparator.translatesAutoresizingMaskIntoConstraints = false
+        overlaySeparator.wantsLayer = true
+        overlaySeparator.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarTopLabelSeparatorHeight).isActive = true
         configureLabel(
             primaryBaseLabel,
             font: ShellMetrics.sidebarPrimaryFont(),
@@ -337,7 +341,7 @@ final class SidebarWorklaneRowButton: NSButton {
             return nil
         }
 
-        let activePaneCount = currentSummary?.paneRows.count ?? 0
+        let activePaneCount = currentSummary?.displayPaneRows.count ?? 0
         for paneButton in paneRowButtons.prefix(activePaneCount)
         where paneButton.superview != nil && !paneButton.isHidden {
             let pointInPane = paneButton.convert(point, from: superview)
@@ -358,7 +362,7 @@ final class SidebarWorklaneRowButton: NSButton {
         let rowHovered = contains(windowPoint: windowPoint)
         setWorklaneHovered(rowHovered, animated: animated)
 
-        let activePaneCount = currentSummary?.paneRows.count ?? 0
+        let activePaneCount = currentSummary?.displayPaneRows.count ?? 0
         var anyPaneRowHovered = false
         for (index, paneButton) in paneRowButtons.enumerated() {
             if index < activePaneCount,
@@ -591,7 +595,7 @@ final class SidebarWorklaneRowButton: NSButton {
             return
         }
 
-        if summary.paneRows.isEmpty {
+        if summary.displayPaneRows.isEmpty {
             // Single-pane worklane — the volatile title lives in the worklane row's
             // top-level primary labels.
             guard primaryBaseLabel.stringValue != text else { return }
@@ -603,7 +607,7 @@ final class SidebarWorklaneRowButton: NSButton {
         paneRowRenderer.setVolatilePaneTitle(
             paneID: paneID,
             text: text,
-            paneRows: summary.paneRows
+            paneRows: summary.displayPaneRows
         )
     }
 
@@ -632,10 +636,10 @@ final class SidebarWorklaneRowButton: NSButton {
         lastConfiguredAgentLists = agentLists
 
         toggledSubagentPaneIDs = toggledSubagentPaneIDs.filter { paneID in
-            summary.paneRows.contains { $0.paneID == paneID && $0.subagents?.isEmpty == false }
+            summary.displayPaneRows.contains { $0.paneID == paneID && $0.subagents?.isEmpty == false }
         }
         toggledTaskListPaneIDs = toggledTaskListPaneIDs.filter { paneID in
-            summary.paneRows.contains { $0.paneID == paneID && $0.taskProgress?.items.isEmpty == false }
+            summary.displayPaneRows.contains { $0.paneID == paneID && $0.taskProgress?.items.isEmpty == false }
         }
         let renderPlan = SidebarWorklaneRowRenderPlan(
             summary: summary,
@@ -651,12 +655,12 @@ final class SidebarWorklaneRowButton: NSButton {
         // Align the title with pane-row text (indented inside the pane
         // button); paneless lanes render primary text un-indented, so the
         // title follows suit there.
-        topLabelLeadingConstraint?.constant = summary.paneRows.isEmpty
+        topLabelLeadingConstraint?.constant = summary.displayPaneRows.isEmpty
             ? 0
             : ShellMetrics.sidebarPaneButtonHorizontalInset
         overflowLabel.stringValue = summary.overflowText ?? ""
         contextPrefixLabel.stringValue = summary.contextPrefixText ?? ""
-        if summary.paneRows.isEmpty {
+        if summary.displayPaneRows.isEmpty {
             primaryBaseLabel.stringValue = summary.primaryText
             primaryLabel.stringValue = summary.primaryText
             applyWorklanePrimaryPresentation()
@@ -756,7 +760,7 @@ final class SidebarWorklaneRowButton: NSButton {
         let summary = currentSummary
         let canReveal =
             isVisible
-            && (summary?.paneRows.isEmpty ?? false)
+            && (summary?.displayPaneRows.isEmpty ?? false)
             && summary?.taskProgress != nil
             && statusProgressIndicator.isHidden == false
         statusProgressRevealView.setRevealed(
@@ -929,13 +933,15 @@ final class SidebarWorklaneRowButton: NSButton {
             theme: currentTheme
         )
         topLabelSeparator.layer?.backgroundColor = currentTheme.sidebarBorder.cgColor
+        overlaySeparator.layer?.backgroundColor = currentTheme.sidebarBorder.cgColor
+
         overflowLabel.textColor = SidebarWorklaneRowStyleResolver.overflowTextColor(
             isActive: summary.isActive,
             activeTextColor: activeTextColor,
             theme: currentTheme
         )
 
-        if summary.paneRows.isEmpty {
+        if summary.displayPaneRows.isEmpty {
             let primaryColor = SidebarWorklaneRowStyleResolver.primaryTextColor(
                 isActive: summary.isActive,
                 activeTextColor: activeTextColor,
@@ -1000,7 +1006,7 @@ final class SidebarWorklaneRowButton: NSButton {
             primaryLabel.animatedSpinnerBaseColor = nil
             primaryBaseLabel.isHidden = false
             applyPaneRowColors(
-                paneRows: summary.paneRows,
+                paneRows: summary.displayPaneRows,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor
             )
@@ -1041,7 +1047,7 @@ final class SidebarWorklaneRowButton: NSButton {
         let isActive = currentSummary?.isActive ?? false
         let activeTextColor = currentTheme.sidebarButtonActiveText
         let inactiveTextColor = currentTheme.sidebarButtonInactiveText
-        if summary.paneRows.isEmpty == false {
+        if summary.displayPaneRows.isEmpty == false {
             primaryLabel.isShimmering = false
             statusLabel.isShimmering = false
             return
@@ -1247,6 +1253,7 @@ final class SidebarWorklaneRowButton: NSButton {
             contextPrefixLabel: contextPrefixLabel,
             statusContentStack: statusContentStack,
             detailLabels: detailLabels,
+            overlaySeparator: overlaySeparator,
             overflowLabel: overflowLabel
         )
     }

@@ -332,6 +332,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseFocusedOverlayRequested = { [weak self] responder in
             self?.closeFocusedOverlay(responder: responder) ?? false
         }
+        rootViewController.onSidebarOverlaySelected = { [weak self] paneID in
+            self?.selectSidebarOverlay(id: paneID.rawValue) ?? false
+        }
+        rootViewController.onSidebarOverlayClosed = { [weak self] paneID in
+            guard let overlay = self?.overlaySessions[paneID.rawValue] else { return false }
+            overlay.close()
+            return true
+        }
         rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
             self?.toggleQuickActionOverlay(nil)
         }
@@ -1284,10 +1292,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let overlayID = overlay.id
         overlay.onClose = { [weak self] in
             self?.overlaySessions.removeValue(forKey: overlayID)
+            self?.syncSidebarOverlays()
         }
         overlay.onRestoreFocus = { [weak self] in
             self?.rootViewController.restoreTerminalFocusAfterOverlay()
         }
+        overlay.onInfoChanged = { [weak self] in self?.syncSidebarOverlays() }
         overlaySessions[overlay.id] = overlay
         if options.follow {
             focusPane(id: paneID, in: worklaneID)
@@ -1392,7 +1402,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
+    private func selectSidebarOverlay(id: String) -> Bool {
+        guard let overlay = overlaySessions[id] else { return false }
+        focusPane(id: overlay.paneID, in: overlay.worklaneID)
+        overlay.isPresented = true
+        syncOverlayVisibility(focusing: id)
+        return true
+    }
+
+    private func syncSidebarOverlays() {
+        var rows: [WorklaneID: [WorklaneSidebarPaneRow]] = [:]
+        for overlay in overlaySessions.values.sorted(by: { $0.id < $1.id }) {
+            rows[overlay.worklaneID, default: []].append(
+                overlay.sidebarRow
+            )
+        }
+        rootViewController.updateSidebarOverlays(rows)
+    }
+
     private func syncOverlayVisibility(focusing overlayID: String? = nil) {
+        defer { syncSidebarOverlays() }
         let activeWorklaneID = rootViewController.worklaneStore.activeWorklaneID
         let switchedWorklanes = overlayActiveWorklaneID != activeWorklaneID
         overlayActiveWorklaneID = activeWorklaneID

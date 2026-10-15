@@ -130,6 +130,8 @@ final class RootViewController: NSViewController {
     private let themeCoordinator: ThemeCoordinator
     private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
+    var onSidebarOverlaySelected: ((PaneID) -> Bool)?
+    var onSidebarOverlayClosed: ((PaneID) -> Bool)?
     private var staleAgentSweepTimer: Timer?
     private(set) var serverCommands: WindowServerCommandService!
     private var bookmarksPopover: NSPopover?
@@ -1047,6 +1049,7 @@ final class RootViewController: NSViewController {
             self?.selectWorklaneFromNavigation(id: id)
         }
         sidebarView.onPaneSelected = { [weak self] worklaneID, paneID in
+            if self?.onSidebarOverlaySelected?(paneID) == true { return }
             self?.worklaneStore.selectWorklaneAndFocusPane(
                 worklaneID: worklaneID,
                 paneID: paneID
@@ -1076,6 +1079,7 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
+            if self.onSidebarOverlayClosed?(paneID) == true { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
                 let context = self.worklaneStore.paneCloseConfirmationContext(paneID)
             {
@@ -3941,6 +3945,12 @@ extension RootViewController: WorklanePeekControllerDelegate {
         peekView.isHidden = true
         peekView.detach()
         peekKeyMonitor.uninstall()
+    }
+
+    func updateSidebarOverlays(_ rows: [WorklaneID: [WorklaneSidebarPaneRow]]) {
+        guard renderCoordinator.overlayRowsByWorklaneID != rows else { return }
+        renderCoordinator.overlayRowsByWorklaneID = rows
+        renderCoordinator.renderSidebar()
     }
 
     private func updatePeekSidebarFocusOverride(_ reference: WorklaneStore.PaneReference?) {

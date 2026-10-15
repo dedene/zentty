@@ -149,9 +149,9 @@ struct SidebarWorklaneRowDebugAccess {
 extension SidebarWorklaneRowButton {
     var debugSnapshotForTesting: SidebarWorklaneRowDebugSnapshot {
         let access = debugAccessForTesting
-        let paneRowCount = access.currentSummary?.paneRows.count ?? 0
+        let paneRowCount = access.currentSummary?.displayPaneRows.count ?? 0
         let detailTexts: [String]
-        if access.currentSummary?.paneRows.isEmpty == false {
+        if access.currentSummary?.displayPaneRows.isEmpty == false {
             detailTexts = access.paneDetailLabels
                 .prefix(paneRowCount)
                 .map(\.stringValue)
@@ -165,7 +165,7 @@ extension SidebarWorklaneRowButton {
         let statusText: String
         let statusTextColor: NSColor
         let statusSymbolName: String
-        if access.currentSummary?.paneRows.isEmpty == false {
+        if access.currentSummary?.displayPaneRows.isEmpty == false {
             statusText = access.paneStatusRows.first?.text ?? ""
             statusTextColor = access.paneStatusRows.first?.textColor ?? .clear
             statusSymbolName = access.paneStatusRows.first?.symbolName ?? ""
@@ -176,7 +176,7 @@ extension SidebarWorklaneRowButton {
         }
 
         let primaryRowIndex: Int?
-        if access.currentSummary?.paneRows.isEmpty == false {
+        if access.currentSummary?.displayPaneRows.isEmpty == false {
             primaryRowIndex = access.paneRowButtons.first.flatMap {
                 access.textStack.arrangedSubviews.firstIndex(of: $0)
             }
@@ -188,7 +188,7 @@ extension SidebarWorklaneRowButton {
 
         let primaryTextMinX: CGFloat?
         let primaryTextMaxTrailingInset: CGFloat?
-        if access.currentSummary?.paneRows.isEmpty != false,
+        if access.currentSummary?.displayPaneRows.isEmpty != false,
            let superview = access.primaryTextContainer.superview {
             let primaryTextFrame = access.owner.convert(access.primaryTextContainer.frame, from: superview)
             primaryTextMinX = primaryTextFrame.minX

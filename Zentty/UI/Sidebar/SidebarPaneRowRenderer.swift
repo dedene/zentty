@@ -140,8 +140,9 @@ final class SidebarPaneRowRenderer {
 
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
-            button.isLastPaneInWorklane = panePresentations.count == 1
-            button.isLastPaneInOnlyWorklane = callbacks.isOnlyWorklane && panePresentations.count == 1
+            button.isOverlay = paneRow.isOverlay
+            button.isLastPaneInWorklane = !paneRow.isOverlay && panePresentations.filter { !$0.row.isOverlay }.count == 1
+            button.isLastPaneInOnlyWorklane = callbacks.isOnlyWorklane && button.isLastPaneInWorklane
             button.currentWorklaneColor = worklaneColor
             button.setAccessibilityLabel(paneRow.primaryText)
             button.onPaneClicked = callbacks.onPaneSelected
@@ -251,6 +252,7 @@ final class SidebarWorklaneRowContentRenderer {
         let contextPrefixLabel: NSView
         let statusContentStack: NSView
         let detailLabels: [NSView]
+        let overlaySeparator: NSView
         let overflowLabel: NSView
     }
 
@@ -366,6 +368,8 @@ final class SidebarWorklaneRowContentRenderer {
             labels.detailLabels.first ?? labels.overflowLabel
         case .detail(let index):
             labels.detailLabels[index]
+        case .overlaySeparator:
+            labels.overlaySeparator
         case .overflow:
             labels.overflowLabel
         }

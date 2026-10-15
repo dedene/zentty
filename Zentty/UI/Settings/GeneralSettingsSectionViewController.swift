@@ -12,6 +12,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private var currentRestore: AppConfig.Restore = .default
     private var currentClipboard: AppConfig.Clipboard = .default
 
+    private let showOverlaysSwitch = NSSwitch()
     private let closePaneSwitch = NSSwitch()
     private let closeWindowSwitch = NSSwitch()
     private let quitSwitch = NSSwitch()
@@ -54,6 +55,15 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         stackView.spacing = 16
         stackView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stackView)
+
+        let overlayRow = makeSwitchRow(
+            title: "Show overlays in worklane info",
+            subtitle: "List terminal overlays below the panes in the sidebar.",
+            toggle: showOverlaysSwitch,
+            action: #selector(handleShowOverlaysChanged(_:))
+        )
+        stackView.addArrangedSubview(overlayRow)
+        overlayRow.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         // Confirmations card
         let confirmCard = SettingsCardView()
@@ -222,6 +232,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        showOverlaysSwitch.state = configStore.current.sidebar.showOverlays ? .on : .off
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
@@ -249,6 +260,20 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         guard isViewLoaded else { return }
         syncClipboardControlsFromConfig(clipboard)
         applyClipboardAndPipelineSideEffects(clipboard)
+    }
+
+    func apply(sidebar: AppConfig.Sidebar) {
+        guard isViewLoaded else { return }
+        showOverlaysSwitch.state = sidebar.showOverlays ? .on : .off
+    }
+
+    @objc private func handleShowOverlaysChanged(_ sender: NSSwitch) {
+        do {
+            try configStore.update { $0.sidebar.showOverlays = sender.state == .on }
+        } catch {
+            settingsLogger.error("Could not save overlay visibility: \(error.localizedDescription, privacy: .public)")
+            apply(sidebar: configStore.current.sidebar)
+        }
     }
 
     // MARK: - Actions

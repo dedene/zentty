@@ -16,6 +16,7 @@ struct WorklaneSidebarServerPort: Equatable {
 }
 
 struct WorklaneSidebarPaneRow: Equatable {
+    var isOverlay = false
     let paneID: PaneID
     let primaryText: String
     let usesCustomTitle: Bool
@@ -80,6 +81,8 @@ struct WorklaneSidebarPaneRow: Equatable {
 }
 
 struct WorklaneSidebarSummary: Equatable {
+    var overlayRows: [WorklaneSidebarPaneRow] = []
+    var displayPaneRows: [WorklaneSidebarPaneRow] { paneRows + overlayRows }
     let worklaneID: WorklaneID
     let badgeText: String
     let topLabel: String?
