@@ -258,6 +258,7 @@
 		5F94EB5F5A6F59AD32F605CD /* MainActorShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E46B2946B1B85B846A487F /* MainActorShim.swift */; };
 		5FA8FA00D8D061136E09373B /* NotificationSoundManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B42ADBF99ECA847C27E19 /* NotificationSoundManagerTests.swift */; };
 		5FDBD0983E309C2444F4A2C7 /* AgentSubagentTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FED3179D3B717E218F78E4C /* AgentSubagentTrackingTests.swift */; };
+		606137E1EC7F858DAAAF3BFB /* TerminalOverlayThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44F1EAAE17FA9FAA8E34852D /* TerminalOverlayThemeTests.swift */; };
 		6094C7C8E8203ED2CCE1CAE1 /* AgentManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48856447B871377C53EC786F /* AgentManifest.swift */; };
 		60BEB8CBA618C6A4DD0A69C5 /* ProcessSignaling.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB5382921BB166EEA584F3E6 /* ProcessSignaling.swift */; };
 		60DBEDFCE2FC6CDD2E956F34 /* RuntimeStateRelocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0827C96D420C955033C122C /* RuntimeStateRelocationTests.swift */; };
@@ -926,6 +927,7 @@
 		43EC896B9EA214B488CDCD09 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = FrameworksLocal/GhosttyKit.xcframework; sourceTree = "<group>"; };
 		441A77B729D56459A75D26C3 /* DetectedServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectedServer.swift; sourceTree = "<group>"; };
 		4483B8E7BA05745883A993C0 /* GlobalSearchCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchCoordinatorTests.swift; sourceTree = "<group>"; };
+		44F1EAAE17FA9FAA8E34852D /* TerminalOverlayThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOverlayThemeTests.swift; sourceTree = "<group>"; };
 		457C3E3EB1160148D4CA02E7 /* RemoteImagePasteDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImagePasteDecision.swift; sourceTree = "<group>"; };
 		45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolver.swift; sourceTree = "<group>"; };
 		46BA6D006A82BF48F127C85E /* TaskRunnerSourceScanner+Formats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaskRunnerSourceScanner+Formats.swift"; sourceTree = "<group>"; };
@@ -1980,6 +1982,7 @@
 				BEA67AC0576349EF49539363 /* TaskManagerWindowControllerTests.swift */,
 				3CCB1A0DA3D6777C51C75F43 /* TerminalOverlayCloseAndFindTests.swift */,
 				663ACA1B069E0DE4F3983251 /* TerminalOverlaySessionTests.swift */,
+				44F1EAAE17FA9FAA8E34852D /* TerminalOverlayThemeTests.swift */,
 				FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */,
 				1CF5DDE2F06EB5CBE4C2E0B9 /* WorklaneState+Testing.swift */,
 			);
@@ -3467,6 +3470,7 @@
 				41AB115C7B413B073FA53BD0 /* TaskManagerWindowControllerTests.swift in Sources */,
 				C98A18128E843D2E1FDCC806 /* TerminalOverlayCloseAndFindTests.swift in Sources */,
 				DFC24A77D6256FDBD4784131 /* TerminalOverlaySessionTests.swift in Sources */,
+				606137E1EC7F858DAAAF3BFB /* TerminalOverlayThemeTests.swift in Sources */,
 				D58A19DD4038B6D8E127DA5D /* TerminalPaneHostViewTests.swift in Sources */,
 				F2DE6777CF96D61DF5BF4E32 /* WorklaneState+Testing.swift in Sources */,
 			);

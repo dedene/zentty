@@ -330,6 +330,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseFocusedOverlayRequested = { [weak self] responder in
             self?.overlays.closeFocusedOverlay(responder: responder) ?? false
         }
+        rootViewController.onThemeDidChange = { [weak self] theme in
+            self?.overlays.apply(theme: theme)
+        }
         rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
             self?.overlays.toggleQuickAction()
         }

@@ -261,6 +261,7 @@ final class RootViewController: NSViewController {
     private var configObserverID: UUID?
     private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
+    var onThemeDidChange: ((ZenttyTheme) -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onServerPrimaryRequested: (() -> Void)?
@@ -2281,6 +2282,7 @@ final class RootViewController: NSViewController {
             animated: false,
             forceLayout: false
         )
+        onThemeDidChange?(theme)
         onWindowChromeNeedsUpdate?()
     }
 

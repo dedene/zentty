@@ -58,6 +58,7 @@ final class TerminalOverlayCoordinator {
             placement: options.placement,
             adapterFactory: adapterFactory
         )
+        overlay.apply(theme: rootViewController.currentWindowTheme)
         overlay.isPresented = options.follow || worklaneID == worklaneStore.activeWorklaneID
         overlay.revealsOnNextNavigation = options.notify && !overlay.isPresented
         let overlayID = overlay.id
@@ -173,6 +174,12 @@ final class TerminalOverlayCoordinator {
         }) else { return }
         overlay.isPresented = true
         syncVisibility(focusing: overlay.id)
+    }
+
+    func apply(theme: ZenttyTheme) {
+        for overlay in sessions.values {
+            overlay.apply(theme: theme)
+        }
     }
 
     // MARK: - Focus

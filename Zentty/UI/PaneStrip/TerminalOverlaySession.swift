@@ -40,6 +40,8 @@ final class TerminalOverlaySession: NSObject {
     let view = TerminalOverlayContainerView()
     private let adapter: any TerminalAdapter
     private let host: TerminalPaneHostView
+    private let titleLabel = NSTextField(labelWithString: "Quick action")
+    private let closeButton: NSButton
     private let request: TerminalSessionRequest
     private let sizePercent: Int
     private var placementConstraints: [NSLayoutConstraint] = []
@@ -69,6 +71,10 @@ final class TerminalOverlaySession: NSObject {
         self.command = command
         adapter = adapterFactory(PaneID(id))
         host = TerminalPaneHostView(adapter: adapter)
+        closeButton = NSButton(
+            image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close overlay")!,
+            target: nil, action: nil
+        )
         request = TerminalSessionRequest(
             workingDirectory: workingDirectory,
             nativeCommand: command,
@@ -79,18 +85,16 @@ final class TerminalOverlaySession: NSObject {
         view.identifier = NSUserInterfaceItemIdentifier(id)
         view.translatesAutoresizingMaskIntoConstraints = false
         view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         view.layer?.cornerRadius = 8
         view.layer?.masksToBounds = true
         view.layer?.borderWidth = 1
-        view.layer?.borderColor = NSColor.separatorColor.cgColor
 
-        let title = NSTextField(labelWithString: "Quick action")
+        let title = titleLabel
         title.font = .systemFont(ofSize: 11, weight: .medium)
-        title.textColor = .secondaryLabelColor
         title.translatesAutoresizingMaskIntoConstraints = false
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close overlay")!,
-                             target: self, action: #selector(closeOverlay))
+        let close = closeButton
+        close.target = self
+        close.action = #selector(closeOverlay)
         close.bezelStyle = .inline
         close.isBordered = false
         close.translatesAutoresizingMaskIntoConstraints = false
@@ -118,6 +122,17 @@ final class TerminalOverlaySession: NSObject {
             }
         }
         view.onMouseDown = { [weak self] in self?.focusTerminal() }
+    }
+
+    /// Ghostty draws no background of its own (Zentty sets `background-opacity = 0`
+    /// and paints the backing), so the overlay paints the theme's terminal
+    /// background. It stays opaque even for translucent themes, so the pane it
+    /// covers never shows through.
+    func apply(theme: ZenttyTheme) {
+        view.layer?.backgroundColor = theme.windowBackground.withAlphaComponent(1).cgColor
+        view.layer?.borderColor = theme.paneBorderFocused.cgColor
+        titleLabel.textColor = theme.secondaryText
+        closeButton.contentTintColor = theme.secondaryText
     }
 
     /// Shown on screen right now, as opposed to `isPresented`, which only records intent.
