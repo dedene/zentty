@@ -71,9 +71,11 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func hasSelection() -> Bool
     func close()
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s?
+    var needsConfirmQuit: Bool { get }
 }
 
 extension LibghosttySurfaceControlling {
+    var needsConfirmQuit: Bool { false }
     var mouseCaptured: Bool { false }
     var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func setPreedit(_ text: String) {}
@@ -108,6 +110,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     private var inheritedConfigTemplate: ghostty_surface_config_s?
 
     var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
+    var needsConfirmQuit: Bool { surfaceController?.needsConfirmQuit ?? false }
     var cellWidth: CGFloat { surfaceController?.cellWidth ?? 0 }
     var cellHeight: CGFloat { surfaceController?.cellHeight ?? 0 }
     var metadataDidChange: ((TerminalMetadata) -> Void)?

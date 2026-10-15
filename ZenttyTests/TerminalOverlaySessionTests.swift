@@ -255,6 +255,132 @@ final class TerminalOverlaySessionTests: XCTestCase {
         return view.subviews.lazy.compactMap { self.findOverlay(id, in: $0) }.first
     }
 
+    /// Lets deferred focus retries in the pane strip run.
+    private func settleFocus() {
+        let settled = expectation(description: "focus settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { settled.fulfill() }
+        wait(for: [settled], timeout: 2)
+    }
+
+    private func focusedPaneContainerID(_ controller: MainWindowController) -> PaneID? {
+        var view = controller.window.firstResponder as? NSView
+        while let current = view {
+            if let paneView = current as? PaneContainerView { return paneView.paneID }
+            view = current.superview
+        }
+        return nil
+    }
+
+    func test_focused_worklane_overlay_keeps_keyboard_focus_when_pane_focus_moves() throws {
+        let controller = mockController()
+        let lane = controller.worklaneStore.activeWorklaneID
+        let paneA = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
+        controller.focusPane(id: paneB, in: lane)
+        settleFocus()
+        controller.toggleQuickActionOverlay(nil)
+        let session = try XCTUnwrap(controller.overlaySessionForTesting(on: paneB))
+        XCTAssertTrue(session.holdsKeyboardFocus)
+
+        controller.focusPane(id: paneA, in: lane)
+        settleFocus()
+        XCTAssertEqual(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID, paneA)
+        XCTAssertTrue(session.holdsKeyboardFocus, "typing must not go to the pane hidden under the overlay")
+
+        session.hide()
+        settleFocus()
+        XCTAssertFalse(session.holdsKeyboardFocus)
+        XCTAssertEqual(focusedPaneContainerID(controller), paneA)
+    }
+
+    func test_focusing_a_pane_with_a_visible_pane_overlay_focuses_the_overlay() throws {
+        let controller = mockController()
+        let lane = controller.worklaneStore.activeWorklaneID
+        let paneA = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
+        _ = try controller.openOverlay(on: paneB, options: options(placement: .pane))
+        let session = try XCTUnwrap(controller.overlaySessionForTesting(on: paneB))
+
+        controller.focusPane(id: paneA, in: lane)
+        settleFocus()
+        XCTAssertFalse(session.holdsKeyboardFocus)
+        XCTAssertEqual(focusedPaneContainerID(controller), paneA)
+
+        controller.focusPane(id: paneB, in: lane)
+        settleFocus()
+        XCTAssertTrue(session.holdsKeyboardFocus)
+    }
+
+    func test_clicking_pane_overlay_chrome_focuses_the_overlay_not_the_covered_pane() throws {
+        let controller = mockController()
+        let lane = controller.worklaneStore.activeWorklaneID
+        let paneA = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
+        _ = try controller.openOverlay(on: paneB, options: options(placement: .pane))
+        let session = try XCTUnwrap(controller.overlaySessionForTesting(on: paneB))
+        controller.focusPane(id: paneA, in: lane)
+        settleFocus()
+        XCTAssertFalse(session.holdsKeyboardFocus)
+
+        let click = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: controller.window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        session.view.mouseDown(with: click)
+        settleFocus()
+        XCTAssertTrue(session.holdsKeyboardFocus)
+    }
+
+    func test_following_a_notify_overlay_to_its_pane_reveals_it_once() throws {
+        let controller = mockController()
+        let source = controller.worklaneStore.activeWorklaneID
+        let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        controller.newWorklane(nil)
+        let notifyOptions = PaneOverlayIPCOptions(command: "test command", workingDirectory: "/tmp", wait: true,
+                                                  follow: false, notify: true, sizePercent: 100)
+        _ = try controller.openOverlay(on: pane, options: notifyOptions)
+        let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
+        XCTAssertFalse(session.isShowing)
+
+        controller.navigateToPane(worklaneID: source, paneID: pane)
+        XCTAssertTrue(session.isShowing)
+        XCTAssertTrue(session.holdsKeyboardFocus)
+
+        session.hide()
+        controller.navigateToPane(worklaneID: source, paneID: pane)
+        XCTAssertFalse(session.isShowing, "only the first navigation after the notification reveals it")
+    }
+
+    func test_background_overlay_without_notify_stays_hidden_on_navigation() throws {
+        let controller = mockController()
+        let source = controller.worklaneStore.activeWorklaneID
+        let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        controller.newWorklane(nil)
+        _ = try controller.openOverlay(on: pane, options: options())
+        let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
+
+        controller.navigateToPane(worklaneID: source, paneID: pane)
+        XCTAssertFalse(session.isShowing)
+    }
+
+    func test_overlay_with_live_process_requires_quit_and_window_close_confirmation() throws {
+        let adapter = OverlayTestAdapter()
+        let controller = mockController(adapterFactory: { _ in adapter })
+        let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
+        _ = try controller.openOverlay(on: pane, options: options())
+        XCTAssertFalse(controller.anyPaneHasRunningProcessForQuitConfirmation)
+
+        adapter.needsConfirmQuit = true
+        XCTAssertTrue(controller.anyPaneRequiresQuitConfirmation)
+        XCTAssertTrue(controller.anyPaneHasRunningProcessForQuitConfirmation)
+
+        try controller.closeOverlay(on: pane)
+        XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
+        XCTAssertFalse(controller.anyPaneHasRunningProcessForQuitConfirmation)
+    }
+
     func test_shortcut_hides_and_restores_the_same_focused_shell_overlay() throws {
         let controller = mockController()
         controller.toggleQuickActionOverlay(nil)
@@ -436,6 +562,7 @@ private final class OverlayTestAdapter: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     var startError: Error?
+    var needsConfirmQuit = false
     private(set) var request: TerminalSessionRequest?
     private(set) var closeCount = 0
     func makeTerminalView() -> NSView { surface }

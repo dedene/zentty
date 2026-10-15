@@ -44,6 +44,33 @@ final class OverlayCLITests: XCTestCase {
         ), ["git", "diff"])
     }
 
+    func test_open_resolves_relative_cwd_against_the_caller_directory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let caller = root.appendingPathComponent("caller")
+        try FileManager.default.createDirectory(at: caller, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let physicalRoot = try XCTUnwrap(realpath(root.path, nil).map { pointer in
+            defer { free(pointer) }
+            return String(cString: pointer)
+        })
+        let cases = [
+            ("sub", physicalRoot + "/caller/sub"),
+            ("../sibling", physicalRoot + "/sibling"),
+            ("~/project", NSHomeDirectory() + "/project"),
+            ("/tmp/two words", "/tmp/two words"),
+        ]
+        for (cwd, expected) in cases {
+            let server = try TmuxCaptureServer(response: AgentIPCResponse(id: "open", ok: true))
+            defer { server.invalidate() }
+            let result = try runCLI(
+                ["overlay", "open", "--cwd", cwd, "--", "ls"], server: server, currentDirectory: caller
+            )
+            XCTAssertEqual(result.status, 0, result.stderr)
+            let arguments = try XCTUnwrap(result.request).arguments
+            XCTAssertEqual(Array(arguments.prefix(2)), ["--cwd", expected], cwd)
+        }
+    }
+
     func test_list_show_and_close_forward_selectors_and_handle_response_output() throws {
         let selectors = [
             "--window-id", "window-target", "--worklane-id", "worklane-target",
@@ -133,7 +160,11 @@ final class OverlayCLITests: XCTestCase {
         let stderr: String
     }
 
-    private func runCLI(_ arguments: [String], server: TmuxCaptureServer? = nil) throws -> Result {
+    private func runCLI(
+        _ arguments: [String],
+        server: TmuxCaptureServer? = nil,
+        currentDirectory: URL? = nil
+    ) throws -> Result {
         let productsURL = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"].map {
             URL(fileURLWithPath: $0, isDirectory: true)
         } ?? Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
@@ -142,6 +173,7 @@ final class OverlayCLITests: XCTestCase {
         let process = Process()
         process.executableURL = cliURL
         process.arguments = arguments
+        if let currentDirectory { process.currentDirectoryURL = currentDirectory }
         var environment = ProcessInfo.processInfo.environment
         environment["ZENTTY_INSTANCE_SOCKET"] = server?.socketPath ?? ""
         environment["ZENTTY_WINDOW_ID"] = "window-caller"

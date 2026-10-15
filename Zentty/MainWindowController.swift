@@ -335,6 +335,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
             self?.toggleQuickActionOverlay(nil)
         }
+        rootViewController.overlayTerminalFocusInterceptor = { [weak self] paneID in
+            self?.interceptTerminalFocusForOverlay(paneID: paneID) ?? false
+        }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
             self?.refreshWindowTitle()
             self?.syncOverlayVisibility()
@@ -871,6 +874,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+        revealOverlayAwaitingNavigation(on: paneID)
+    }
+
+    private func revealOverlayAwaitingNavigation(on paneID: PaneID) {
+        let owner = worklaneID(containing: paneID)
+        guard let overlay = overlaySessions.values.first(where: {
+            $0.revealsOnNextNavigation && ($0.placement == .pane ? $0.paneID == paneID : $0.worklaneID == owner)
+        }) else { return }
+        overlay.isPresented = true
+        syncOverlayVisibility(focusing: overlay.id)
     }
 
     /// Selects a pane without activating Zentty or stealing key status. Used
@@ -1267,6 +1280,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             adapterFactory: overlayAdapterFactory
         )
         overlay.isPresented = options.follow || worklaneID == rootViewController.worklaneStore.activeWorklaneID
+        overlay.revealsOnNextNavigation = options.notify && !overlay.isPresented
         let overlayID = overlay.id
         overlay.onClose = { [weak self] in
             self?.overlaySessions.removeValue(forKey: overlayID)
@@ -1361,6 +1375,21 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             }
         }
         return false
+    }
+
+    /// Keeps keyboard focus out of terminals hidden under an overlay: a worklane
+    /// overlay that holds focus keeps it, and a pane overlay takes its pane's focus.
+    private func interceptTerminalFocusForOverlay(paneID: PaneID) -> Bool {
+        let activeWorklaneID = rootViewController.worklaneStore.activeWorklaneID
+        let showing = overlaySessions.values.filter { $0.isShowing && $0.worklaneID == activeWorklaneID }
+        if showing.contains(where: { $0.placement == .worklane && $0.holdsKeyboardFocus }) {
+            return true
+        }
+        guard let paneOverlay = showing.first(where: { $0.placement == .pane && $0.paneID == paneID }) else {
+            return false
+        }
+        paneOverlay.focusTerminal()
+        return true
     }
 
     private func syncOverlayVisibility(focusing overlayID: String? = nil) {
@@ -1503,11 +1532,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     var anyPaneRequiresQuitConfirmation: Bool {
-        rootViewController.anyPaneRequiresQuitConfirmation
+        rootViewController.anyPaneRequiresQuitConfirmation || anyOverlayNeedsCloseConfirmation
     }
 
     var anyPaneHasRunningProcessForQuitConfirmation: Bool {
-        rootViewController.anyPaneHasRunningProcessForQuitConfirmation
+        rootViewController.anyPaneHasRunningProcessForQuitConfirmation || anyOverlayNeedsCloseConfirmation
+    }
+
+    /// Overlays live outside the worklane store, so its pane checks can't see them.
+    private var anyOverlayNeedsCloseConfirmation: Bool {
+        overlaySessions.values.contains(where: \.needsCloseConfirmation)
     }
 
     var terminalAppearance: NSAppearance? {

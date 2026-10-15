@@ -152,6 +152,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         return ghostty_surface_mouse_captured(surface)
     }
 
+    var needsConfirmQuit: Bool {
+        guard let surface, !ghostty_surface_process_exited(surface) else { return false }
+        return ghostty_surface_needs_confirm_quit(surface)
+    }
+
     var mouseScrollIsTerminalInput: Bool {
         guard let surface else { return false }
         return ghostty_surface_mouse_scroll_is_terminal_input(surface)

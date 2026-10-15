@@ -49,7 +49,7 @@ struct OverlayOpenCommand: ParsableCommand {
         guard let json = String(data: data, encoding: .utf8) else {
             throw ValidationError("Unable to encode overlay command.")
         }
-        let options = Array(rawArguments[..<separator])
+        let options = Self.absolutizingWorkingDirectory(in: Array(rawArguments[..<separator]))
         let response = try PaneIPC.send(
             subcommand: "overlay-open",
             arguments: options + ["--command-json", json]
@@ -57,6 +57,22 @@ struct OverlayOpenCommand: ParsableCommand {
         if let stdout = response?.result?.stdout {
             print(stdout, terminator: "")
         }
+    }
+
+    /// The app resolves `--cwd` against its own working directory, so relative
+    /// and `~` paths must be made absolute here, where the caller's directory is known.
+    static func absolutizingWorkingDirectory(
+        in options: [String],
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) -> [String] {
+        var options = options
+        for index in options.indices.dropLast() where options[index] == "--cwd" {
+            let path = (options[index + 1] as NSString).expandingTildeInPath
+            guard !path.isEmpty else { continue }
+            let base = URL(fileURLWithPath: currentDirectory, isDirectory: true)
+            options[index + 1] = URL(fileURLWithPath: path, relativeTo: base).standardizedFileURL.path
+        }
+        return options
     }
 }
 
