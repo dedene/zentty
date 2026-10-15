@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+#
+# Reclaim the disk space Zentty development leaves behind: linked worktrees
+# whose work is merged, Xcode DerivedData for projects that no longer exist,
+# and old Zentty archives. Dry run by default; --apply moves it to the Trash.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${ZENTTY_PRUNE_REPO:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+DERIVED_DATA_DIR="${ZENTTY_DERIVED_DATA_DIR:-${HOME}/Library/Developer/Xcode/DerivedData}"
+ARCHIVES_DIR="${ZENTTY_XCODE_ARCHIVES_DIR:-${HOME}/Library/Developer/Xcode/Archives}"
+
+usage() {
+  cat <<USAGE
+Usage: scripts/prune-build-cache [--apply] [--keep-archives N] [--no-gh]
+
+Lists what can go, and with --apply moves it to the Trash:
+
+  Worktrees    Linked worktrees of this repo whose branch is merged: its tip is
+               the head of a merged GitHub PR, or it is contained in main or
+               origin/main. Kept when the worktree has uncommitted or untracked
+               changes, is locked, has a detached HEAD, is the current checkout,
+               is the cwd of a running process, or its branch was just created
+               and never committed to. Branches are never deleted.
+  DerivedData  Zentty-* folders in ${DERIVED_DATA_DIR}
+               whose project no longer exists or sits in a worktree pruned here.
+  Archives     Zentty archives in ${ARCHIVES_DIR}
+               beyond the newest N (default 3).
+
+Options:
+  --apply             Move the listed items to the Trash (default: dry run).
+  --keep-archives N   Number of newest Zentty archives to keep (default 3).
+  --no-gh             Skip the GitHub lookup of merged PRs; squash-merged
+                      branches are then only found if contained in main.
+  -h, --help          Show this help.
+
+Space comes back once the Trash is emptied. A trashed worktree can be put back
+with 'git worktree repair <path>' after restoring it.
+USAGE
+}
+
+log() { echo "==> $*"; }
+warn() { echo "warning: $*" >&2; }
+die() { echo "error: $*" >&2; exit 1; }
+
+apply=0
+use_gh=1
+keep_archives=3
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --apply) apply=1 ;;
+    --no-gh) use_gh=0 ;;
+    --keep-archives)
+      [[ $# -ge 2 ]] || die "--keep-archives needs a number"
+      keep_archives="$2"
+      shift
+      ;;
+    --keep-archives=*) keep_archives="${1#--keep-archives=}" ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown option: $1" ;;
+  esac
+  shift
+done
+
+[[ "${keep_archives}" =~ ^[0-9]+$ ]] || die "--keep-archives needs a number, got: ${keep_archives}"
+
+for cmd in git trash plutil lsof du find stat; do
+  command -v "${cmd}" >/dev/null 2>&1 || die "missing required command: ${cmd}"
+done
+
+# --- Helpers -----------------------------------------------------------------
+
+size_kb() {
+  local kb
+  kb="$(du -sk "$1" 2>/dev/null | awk '{ print $1 }')" || true
+  echo "${kb:-0}"
+}
+
+human() {
+  awk -v k="$1" 'BEGIN {
+    if (k >= 1048576) printf "%.1fG", k / 1048576
+    else if (k >= 1024) printf "%.0fM", k / 1024
+    else printf "%dK", k
+  }'
+}
+
+# True when $1 is $2 or lies inside it.
+path_within() {
+  [[ "$1" == "$2" || "$1" == "$2/"* ]]
+}
+
+# Working directories of every process this user runs; a worktree that is
+# still some shell's or agent's cwd must not disappear under it.
+open_cwds="$(lsof -d cwd -F n 2>/dev/null | sed -n 's/^n//p' | sort -u)" || true
+
+in_use() {
+  local cwd
+  while IFS= read -r cwd; do
+    [[ -n "${cwd}" ]] && path_within "${cwd}" "$1" && return 0
+  done <<<"${open_cwds}"
+  return 1
+}
+
+failures=0
+trash_item() {
+  if ! trash "$1"; then
+    warn "could not move $1 to the Trash"
+    failures=$((failures + 1))
+  fi
+}
+
+print_row() {
+  printf '  %7s  %s  (%s)\n' "$(human "$1")" "$2" "$3"
+}
+
+# --- Worktrees ---------------------------------------------------------------
+
+git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1 || die "${REPO_ROOT} is not a git repository"
+
+main_wt="$(git -C "${REPO_ROOT}" worktree list --porcelain | awk 'NR == 1 { sub(/^worktree /, ""); print; exit }')"
+current_wt="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+
+base_refs=""
+for ref in refs/heads/main refs/remotes/origin/main; do
+  if git -C "${REPO_ROOT}" show-ref --verify --quiet "${ref}"; then
+    base_refs+="${ref}"$'\n'
+  fi
+done
+
+# "<head oid> <PR number>" per merged PR. Squash merges leave the branch tip
+# outside main, so the PR head is the only reliable merge signal for them.
+merged_prs=""
+if [[ "${use_gh}" -eq 1 ]]; then
+  if ! command -v gh >/dev/null 2>&1 \
+    || ! merged_prs="$(cd "${REPO_ROOT}" && gh pr list --state merged --limit 1000 \
+      --json number,headRefOid --jq '.[] | "\(.headRefOid) \(.number)"' 2>/dev/null)"; then
+    warn "could not list merged PRs with gh; squash-merged worktrees will be kept"
+    merged_prs=""
+  fi
+fi
+
+# A branch that was only ever created (one reflog entry) sits on main without
+# being merged work. Branches with expired reflogs have long been idle.
+is_fresh_branch() {
+  local entries
+  entries="$(git -C "${REPO_ROOT}" reflog show --format=%gs "refs/heads/$1" 2>/dev/null)" || return 1
+  [[ -n "${entries}" && "$(printf '%s\n' "${entries}" | wc -l | tr -d ' ')" -eq 1 && "${entries}" == "branch: Created"* ]]
+}
+
+# Prints why the branch counts as merged, or nothing.
+merged_label() {
+  local branch="$1" head="$2" pr ref
+  pr="$(printf '%s\n' "${merged_prs}" | awk -v h="${head}" '$1 == h { print $2; exit }')"
+  if [[ -n "${pr}" ]]; then
+    echo "${branch}, PR #${pr} merged"
+    return
+  fi
+  is_fresh_branch "${branch}" && return
+  while IFS= read -r ref; do
+    if [[ -n "${ref}" ]] && git -C "${REPO_ROOT}" merge-base --is-ancestor "${head}" "${ref}" 2>/dev/null; then
+      echo "${branch}, in ${ref#refs/*/}"
+      return
+    fi
+  done <<<"${base_refs}"
+}
+
+wt_remove=""      # "<kb>\t<path>\t<label>" lines
+wt_keep=""        # "<path>\t<reason>" lines
+removed_wts=""    # paths, for matching DerivedData
+wt_total_kb=0
+stale_admin=0
+
+consider_worktree() {
+  local wt="$1" head="$2" branch="$3" locked="$4" prunable="$5" label="" reason="" status="" kb
+  [[ "${wt}" == "${main_wt}" ]] && return
+  if [[ "${prunable}" -eq 1 ]]; then
+    stale_admin=$((stale_admin + 1))
+    return
+  fi
+
+  if [[ -z "${branch}" ]]; then
+    reason="detached HEAD"
+  elif [[ "${locked}" -eq 1 ]]; then
+    reason="locked"
+  elif [[ -n "${current_wt}" ]] && path_within "${current_wt}" "${wt}"; then
+    reason="current checkout"
+  else
+    label="$(merged_label "${branch}" "${head}")"
+    if [[ -z "${label}" ]] && is_fresh_branch "${branch}"; then
+      reason="new branch, nothing committed yet"
+    elif [[ -z "${label}" ]]; then
+      reason="not merged"
+    elif ! status="$(git -C "${wt}" status --porcelain 2>/dev/null)"; then
+      reason="git status failed"
+    elif [[ -n "${status}" ]]; then
+      reason="merged, but has uncommitted or untracked changes"
+    elif in_use "${wt}"; then
+      reason="merged, but a running process has its cwd there"
+    fi
+  fi
+
+  if [[ -n "${reason}" ]]; then
+    wt_keep+="${wt}"$'\t'"${reason}"$'\n'
+    return
+  fi
+  kb="$(size_kb "${wt}")"
+  wt_total_kb=$((wt_total_kb + kb))
+  wt_remove+="${kb}"$'\t'"${wt}"$'\t'"${label}"$'\n'
+  removed_wts+="${wt}"$'\n'
+}
+
+wt="" head="" branch="" locked=0 prunable=0
+while IFS= read -r line; do
+  case "${line}" in
+    "worktree "*) wt="${line#worktree }" ;;
+    "HEAD "*) head="${line#HEAD }" ;;
+    "branch "*) branch="${line#branch refs/heads/}" ;;
+    locked*) locked=1 ;;
+    prunable*) prunable=1 ;;
+    "")
+      if [[ -n "${wt}" ]]; then consider_worktree "${wt}" "${head}" "${branch}" "${locked}" "${prunable}"; fi
+      wt="" head="" branch="" locked=0 prunable=0
+      ;;
+  esac
+done < <(git -C "${REPO_ROOT}" worktree list --porcelain; echo)
+
+# --- DerivedData -------------------------------------------------------------
+
+dd_remove=""
+dd_total_kb=0
+
+for dd in "${DERIVED_DATA_DIR}"/Zentty-*; do
+  [[ -d "${dd}" ]] || continue
+  # No readable WorkspacePath means Xcode is mid-write or the layout changed;
+  # leave it alone rather than guess.
+  workspace="$(plutil -extract WorkspacePath raw -o - "${dd}/info.plist" 2>/dev/null)" || continue
+  [[ -n "${workspace}" ]] || continue
+  reason=""
+  if [[ ! -e "${workspace}" ]]; then
+    reason="project gone: ${workspace}"
+  else
+    while IFS= read -r removed; do
+      if [[ -n "${removed}" ]] && path_within "${workspace}" "${removed}"; then
+        reason="worktree pruned: ${removed}"
+        break
+      fi
+    done <<<"${removed_wts}"
+  fi
+  [[ -n "${reason}" ]] || continue
+  kb="$(size_kb "${dd}")"
+  dd_total_kb=$((dd_total_kb + kb))
+  dd_remove+="${kb}"$'\t'"${dd}"$'\t'"${reason}"$'\n'
+done
+
+# --- Archives ----------------------------------------------------------------
+
+ar_remove=""
+ar_total_kb=0
+ar_count=0
+
+if [[ -d "${ARCHIVES_DIR}" ]]; then
+  archives="$(find "${ARCHIVES_DIR}" -mindepth 2 -maxdepth 2 -type d -name 'Zentty *.xcarchive' \
+    -exec stat -f '%m %N' {} + | sort -rn | cut -d' ' -f2-)" || archives=""
+  while IFS= read -r archive; do
+    [[ -n "${archive}" ]] || continue
+    ar_count=$((ar_count + 1))
+    [[ "${ar_count}" -gt "${keep_archives}" ]] || continue
+    kb="$(size_kb "${archive}")"
+    ar_total_kb=$((ar_total_kb + kb))
+    ar_remove+="${kb}"$'\t'"${archive}"$'\t'"older than the newest ${keep_archives}"$'\n'
+  done <<<"${archives}"
+fi
+
+# --- Report ------------------------------------------------------------------
+
+print_section() {
+  local title="$1" rows="$2" kb path label
+  log "${title}"
+  if [[ -z "${rows}" ]]; then
+    echo "  nothing"
+    return
+  fi
+  while IFS=$'\t' read -r kb path label; do
+    if [[ -n "${path}" ]]; then print_row "${kb}" "${path}" "${label}"; fi
+  done <<<"${rows}"
+}
+
+print_section "Merged worktrees ($(human "${wt_total_kb}"))" "${wt_remove}"
+if [[ "${stale_admin}" -gt 0 ]]; then
+  echo "  + ${stale_admin} stale worktree record(s) whose folder is already gone"
+fi
+if [[ -n "${wt_keep}" ]]; then
+  log "Kept worktrees"
+  while IFS=$'\t' read -r path reason; do
+    if [[ -n "${path}" ]]; then printf '  %7s  %s  (%s)\n' "keep" "${path}" "${reason}"; fi
+  done <<<"${wt_keep}"
+fi
+print_section "Orphaned DerivedData ($(human "${dd_total_kb}"))" "${dd_remove}"
+print_section "Old Zentty archives ($(human "${ar_total_kb}"))" "${ar_remove}"
+
+total_kb=$((wt_total_kb + dd_total_kb + ar_total_kb))
+echo
+if [[ "${apply}" -eq 0 ]]; then
+  log "Dry run: $(human "${total_kb}") can be freed. Re-run with --apply to move it to the Trash."
+  exit 0
+fi
+
+# --- Apply -------------------------------------------------------------------
+
+for rows in "${wt_remove}" "${dd_remove}" "${ar_remove}"; do
+  while IFS=$'\t' read -r kb path label; do
+    if [[ -n "${path}" ]]; then trash_item "${path}"; fi
+  done <<<"${rows}"
+done
+
+# Drops the admin records of the worktrees just trashed and of any stale ones.
+git -C "${REPO_ROOT}" worktree prune
+
+if [[ "${failures}" -gt 0 ]]; then
+  die "${failures} item(s) could not be moved to the Trash; see the warnings above"
+fi
+log "Moved $(human "${total_kb}") to the Trash. Empty the Trash to get the space back."
