@@ -32,7 +32,7 @@ struct WorklaneSidebarPaneRow: Equatable {
     let interactionKind: PaneInteractionKind?
     let interactionLabel: String?
     let interactionSymbolName: String?
-    let isFocused: Bool
+    var isFocused: Bool
     let isWorking: Bool
     let taskProgress: PaneAgentTaskProgress?
     let subagents: PaneAgentSubagentSummary?
@@ -90,8 +90,11 @@ struct WorklaneSidebarSummary: Equatable {
     var displayPaneRows: [WorklaneSidebarPaneRow] {
         guard !overlayRows.isEmpty else { return paneRows }
         let paneIDs = Set(paneRows.map(\.paneID))
+        // A focused overlay has the keyboard, not the pane under it.
+        let overlayHasFocus = overlayRows.contains(where: \.isFocused)
         var rows: [WorklaneSidebarPaneRow] = []
-        for paneRow in paneRows {
+        for var paneRow in paneRows {
+            if overlayHasFocus { paneRow.isFocused = false }
             rows.append(paneRow)
             rows += overlayRows.filter { $0.overlayOwnerPaneID == paneRow.paneID }
         }

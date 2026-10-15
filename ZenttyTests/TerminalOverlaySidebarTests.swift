@@ -34,6 +34,39 @@ final class TerminalOverlaySidebarTests: XCTestCase {
         XCTAssertEqual(root.onOverlayAgentStatusPayload?(panePayload), false)
     }
 
+    func test_a_focused_overlay_takes_focus_emphasis_and_copy_path_from_the_pane_under_it() throws {
+        let controller = MainWindowController(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
+            overlayAdapterFactory: { _ in OverlayTestAdapter() }
+        ).prepareForHostedTesting()
+        addTeardownBlock { controller.closeWindowBypassingConfirmation() }
+        controller.showWindow(nil)
+        let root = controller.rootViewControllerForTesting
+        let strip = root.appCanvasViewForTesting.paneStripView
+        let lane = controller.worklaneStore.activeWorklaneID
+        let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        let overlayID = try controller.openOverlay(on: pane, options: PaneOverlayIPCOptions(
+            command: "", workingDirectory: "/tmp", wait: false,
+            follow: false, notify: false, sizePercent: 100, placement: .pane
+        ))
+        let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
+        XCTAssertTrue(session.holdsKeyboardFocus)
+        XCTAssertTrue(strip.suppressesFocusEmphasis, "the covered pane must not look focused")
+
+        _ = root.onOverlayAgentStatusPayload?(paneContext(lane: lane, pane: PaneID(overlayID), path: "/private/var"))
+        let pasteboard = NSPasteboard.general
+        let saved = pasteboard.string(forType: .string)
+        addTeardownBlock {
+            pasteboard.clearContents()
+            if let saved { pasteboard.setString(saved, forType: .string) }
+        }
+        controller.copyFocusedPanePath(nil)
+        XCTAssertEqual(pasteboard.string(forType: .string), "/private/var", "copies where the overlay's shell is")
+
+        session.hide()
+        XCTAssertFalse(strip.suppressesFocusEmphasis)
+    }
+
     private func paneContext(lane: WorklaneID, pane: PaneID, path: String) -> AgentStatusPayload {
         AgentStatusPayload(
             worklaneID: lane, paneID: pane, signalKind: .paneContext, state: nil,

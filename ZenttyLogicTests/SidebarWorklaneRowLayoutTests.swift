@@ -701,6 +701,21 @@ final class SidebarWorklaneRowLayoutTests: AppKitTestCase {
         XCTAssertEqual(SidebarWorklaneRowLayout(summary: summary), baseline)
     }
 
+    func test_a_focused_overlay_takes_sidebar_focus_from_the_panes() {
+        let pane = WorklaneSidebarPaneRow(
+            paneID: PaneID("pane"), primaryText: "Shell", trailingText: nil, detailText: nil,
+            statusText: nil, attentionState: nil, isFocused: true, isWorking: false
+        )
+        var summary = makeSummary(paneRows: [pane])
+        var overlay = makeOverlayRow(id: "overlay", title: "", owner: "pane")
+        summary.overlayRows = [overlay]
+        XCTAssertEqual(summary.displayPaneRows.map(\.isFocused), [true, false])
+
+        overlay.isFocused = true
+        summary.overlayRows = [overlay]
+        XCTAssertEqual(summary.displayPaneRows.map(\.isFocused), [false, true])
+    }
+
     func test_sidebar_overlay_setting_defaults_on_and_round_trips() {
         XCTAssertTrue(AppConfig.default.sidebar.showOverlays)
         var config = AppConfig.default

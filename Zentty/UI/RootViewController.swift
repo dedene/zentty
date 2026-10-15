@@ -267,6 +267,8 @@ final class RootViewController: NSViewController {
     /// Offers a shell-integration payload to the quick-action overlays first;
     /// true when it belonged to one, since overlays are not in the store.
     var onOverlayAgentStatusPayload: ((AgentStatusPayload) -> Bool)?
+    /// What Copy Path copies while a quick-action overlay has focus.
+    var focusedQuickActionCopyTarget: (() -> PaneCopyTarget?)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onServerPrimaryRequested: (() -> Void)?
@@ -1759,6 +1761,7 @@ final class RootViewController: NSViewController {
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
         let focusedPaneCopyTarget: PaneCopyTarget? = {
+            if isQuickActionFocused { return focusedQuickActionCopyTarget?() }
             guard let paneID = activeWorklane?.paneStripState.focusedPaneID,
                   let auxiliaryState = activeWorklane?.auxiliaryStateByPaneID[paneID] else { return nil }
             return PaneCopyTargetResolver.target(for: auxiliaryState)
@@ -1943,6 +1946,11 @@ final class RootViewController: NSViewController {
     }
 
     private func copyFocusedPanePath() {
+        if isQuickActionFocused {
+            guard let target = focusedQuickActionCopyTarget?() else { return }
+            copyToPasteboard(target)
+            return
+        }
         guard
             let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
         else {
@@ -1958,7 +1966,10 @@ final class RootViewController: NSViewController {
         else {
             return
         }
+        copyToPasteboard(target)
+    }
 
+    private func copyToPasteboard(_ target: PaneCopyTarget) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(target.pasteboardString, forType: .string)
         showToast(message: target.copiedToastMessage)
@@ -3978,6 +3989,12 @@ extension RootViewController: WorklanePeekControllerDelegate {
         peekView.isHidden = true
         peekView.detach()
         peekKeyMonitor.uninstall()
+    }
+
+    /// A focused overlay takes focus from the pane under it, so that pane
+    /// drops its focus border while the overlay has the keyboard.
+    func setPaneFocusSuppressedByOverlay(_ suppressed: Bool) {
+        appCanvasView.paneStripView.suppressesFocusEmphasis = suppressed
     }
 
     func updateSidebarOverlays(_ overlays: [WorklaneID: [WorklaneSidebarOverlay]]) {

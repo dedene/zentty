@@ -153,6 +153,14 @@ final class PaneStripView: NSView {
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var currentShowPaneBorders = AppConfig.Panes.default.showBorders
+    /// Set while a quick-action overlay holds the keyboard: the pane it covers
+    /// is not the one typing, so no pane draws as focused.
+    var suppressesFocusEmphasis = false {
+        didSet {
+            guard suppressesFocusEmphasis != oldValue, let currentState, bounds.size != .zero else { return }
+            renderCurrentState(currentState, animated: false)
+        }
+    }
     private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
     private var pendingHoverFocusWorkItem: DispatchWorkItem?
@@ -1310,7 +1318,7 @@ final class PaneStripView: NSView {
             paneView.render(
                 pane: pane,
                 emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused,
+                isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
                 borderContext: currentShowsPaneLabels
                     ? currentPaneBorderContextByPaneID[panePresentation.paneID]
                     : nil,
@@ -1399,7 +1407,7 @@ final class PaneStripView: NSView {
                     width: panePresentation.frame.width,
                     height: panePresentation.frame.height,
                     emphasis: panePresentation.emphasis,
-                    isFocused: panePresentation.isFocused,
+                    isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
                     runtime: runtime,
                     theme: currentTheme,
                     initialViewportSyncSuspended: startsWithViewportSyncSuspended,

@@ -222,9 +222,16 @@ final class TerminalOverlayCoordinator {
             overlays[overlay.worklaneID, default: []].append(overlay.sidebarOverlay)
         }
         rootViewController.updateSidebarOverlays(overlays)
+        rootViewController.setPaneFocusSuppressedByOverlay(focusedOverlay != nil)
     }
 
     // MARK: - Focus
+
+    /// The overlay holding keyboard focus, which pane commands such as Copy
+    /// Path act on instead of the pane hidden under it.
+    var focusedOverlay: TerminalOverlaySession? {
+        sessions.values.first { $0.isShowing && $0.holdsKeyboardFocus }
+    }
 
     /// Keeps keyboard focus out of terminals hidden under an overlay: a worklane
     /// overlay that holds focus keeps it, and a pane overlay takes its pane's focus.

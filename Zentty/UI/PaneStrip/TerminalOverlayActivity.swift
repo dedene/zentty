@@ -38,6 +38,12 @@ final class TerminalOverlayActivity {
     /// The command running right now: the overlay's own, or one typed into its shell.
     var runningCommand: String? { isRunning ? auxiliaryState.raw.lastRunCommand : nil }
 
+    /// The shell's own directory (or SSH target) once the shell integration
+    /// reports it; until then, the directory the overlay opened in.
+    var copyTarget: PaneCopyTarget? {
+        PaneCopyTargetResolver.target(for: auxiliaryState) ?? workingDirectory.map(PaneCopyTarget.path)
+    }
+
     func start() {
         refreshGitContext()
     }

@@ -29,6 +29,15 @@ final class TerminalOverlayActivityTests: XCTestCase {
         XCTAssertNil(activity.runningCommand)
     }
 
+    func test_copy_target_follows_the_shell_and_falls_back_to_the_opening_directory() {
+        let activity = TerminalOverlayActivity(
+            command: "", workingDirectory: "/tmp/zentty", gitContextResolver: BranchPerDirectoryStub()
+        )
+        XCTAssertEqual(activity.copyTarget, .path("/tmp/zentty"))
+        activity.apply(paneContext(path: "/tmp/nimbu"))
+        XCTAssertEqual(activity.copyTarget, .path("/tmp/nimbu"))
+    }
+
     func test_command_overlay_reports_running_then_how_it_ended() {
         let activity = TerminalOverlayActivity(
             command: "make test", workingDirectory: "/tmp/project", gitContextResolver: BranchPerDirectoryStub()

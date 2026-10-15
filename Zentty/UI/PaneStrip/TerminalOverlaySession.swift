@@ -40,7 +40,6 @@ final class TerminalOverlaySession: NSObject {
     let view = TerminalOverlayContainerView()
     private let adapter: any TerminalAdapter
     private let host: TerminalPaneHostView
-    private let titleLabel = NSTextField(labelWithString: "Quick action")
     private let closeButton: NSButton
     private let request: TerminalSessionRequest
     private let sizePercent: Int
@@ -69,6 +68,9 @@ final class TerminalOverlaySession: NSObject {
             isVisible: isShowing
         )
     }
+
+    /// What Copy Path copies while this overlay has focus.
+    var copyTarget: PaneCopyTarget? { activity.copyTarget }
 
     /// Applies a shell-integration signal sent under this overlay's ID.
     func apply(_ payload: AgentStatusPayload) {
@@ -120,9 +122,6 @@ final class TerminalOverlaySession: NSObject {
         view.layer?.masksToBounds = true
         view.layer?.borderWidth = 1
 
-        let title = titleLabel
-        title.font = .systemFont(ofSize: 11, weight: .medium)
-        title.translatesAutoresizingMaskIntoConstraints = false
         let close = closeButton
         close.target = self
         close.action = #selector(closeOverlay)
@@ -130,19 +129,16 @@ final class TerminalOverlaySession: NSObject {
         close.isBordered = false
         close.translatesAutoresizingMaskIntoConstraints = false
         host.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(title)
         view.addSubview(close)
         view.addSubview(host)
         NSLayoutConstraint.activate([
-            title.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            title.centerYAnchor.constraint(equalTo: close.centerYAnchor),
-            close.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
+            close.topAnchor.constraint(equalTo: view.topAnchor, constant: 2),
             close.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
-            close.widthAnchor.constraint(equalToConstant: 24),
-            close.heightAnchor.constraint(equalToConstant: 24),
+            close.widthAnchor.constraint(equalToConstant: 20),
+            close.heightAnchor.constraint(equalToConstant: 20),
             host.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 1),
             host.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -1),
-            host.topAnchor.constraint(equalTo: view.topAnchor, constant: 32),
+            host.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
             host.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -1),
         ])
         host.onFocusDidChange = { [weak self] _ in self?.onInfoChanged?() }
@@ -167,7 +163,6 @@ final class TerminalOverlaySession: NSObject {
     func apply(theme: ZenttyTheme) {
         view.layer?.backgroundColor = theme.windowBackground.withAlphaComponent(1).cgColor
         view.layer?.borderColor = theme.paneBorderFocused.cgColor
-        titleLabel.textColor = theme.secondaryText
         closeButton.contentTintColor = theme.secondaryText
     }
 
@@ -223,6 +218,7 @@ final class TerminalOverlaySession: NSObject {
         host.setSurfaceActivity(TerminalSurfaceActivity(
             isVisible: isVisible, isFocused: isVisible && (focus || host.isTerminalFocused)
         ))
+        onInfoChanged?()
     }
 
     func hide(restoringFocus: Bool = true) {
