@@ -33,7 +33,6 @@ final class SidebarWorklaneRowButton: NSButton {
     private let overflowLabel = SidebarStaticLabel()
     private let textStack = NSStackView()
 
-    private let overlaySeparator = NSView()
     private var detailLabels: [SidebarStaticLabel] = []
     private let paneRowRenderer = SidebarPaneRowRenderer(paneWrapperInset: Layout.paneWrapperInset)
     private lazy var contentRenderer = SidebarWorklaneRowContentRenderer(
@@ -186,9 +185,6 @@ final class SidebarWorklaneRowButton: NSButton {
             lineBreakMode: .byTruncatingTail
         )
         configureTopLabelHeader()
-        overlaySeparator.translatesAutoresizingMaskIntoConstraints = false
-        overlaySeparator.wantsLayer = true
-        overlaySeparator.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarTopLabelSeparatorHeight).isActive = true
         configureLabel(
             primaryBaseLabel,
             font: ShellMetrics.sidebarPrimaryFont(),
@@ -933,8 +929,6 @@ final class SidebarWorklaneRowButton: NSButton {
             theme: currentTheme
         )
         topLabelSeparator.layer?.backgroundColor = currentTheme.sidebarBorder.cgColor
-        overlaySeparator.layer?.backgroundColor = currentTheme.sidebarBorder.cgColor
-
         overflowLabel.textColor = SidebarWorklaneRowStyleResolver.overflowTextColor(
             isActive: summary.isActive,
             activeTextColor: activeTextColor,
@@ -1108,20 +1102,29 @@ final class SidebarWorklaneRowButton: NSButton {
             }
 
             let isActive = currentSummary?.isActive ?? false
-            let primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
+            var primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
                 isFocused: paneRow.isFocused,
                 isActive: isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
-            let trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
+            var trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
                 isFocused: paneRow.isFocused,
                 isActive: isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
+            if paneRow.isOverlay {
+                // Overlay lines read as secondary to the panes until focused,
+                // and fade further while hidden.
+                if !paneRow.isFocused { primaryColor = trailingColor }
+                if paneRow.isOverlayHidden {
+                    primaryColor = primaryColor.withAlphaComponent(primaryColor.alphaComponent * 0.6)
+                    trailingColor = trailingColor.withAlphaComponent(trailingColor.alphaComponent * 0.6)
+                }
+            }
             let presentationMode: SidebarPaneRowPresentationMode
             if let panePresentations = currentRenderPlan?.paneRows,
                panePresentations.indices.contains(index) {
@@ -1253,7 +1256,6 @@ final class SidebarWorklaneRowButton: NSButton {
             contextPrefixLabel: contextPrefixLabel,
             statusContentStack: statusContentStack,
             detailLabels: detailLabels,
-            overlaySeparator: overlaySeparator,
             overflowLabel: overflowLabel
         )
     }

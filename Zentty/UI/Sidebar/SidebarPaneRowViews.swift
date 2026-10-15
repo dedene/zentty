@@ -656,8 +656,11 @@ final class SidebarPanePrimaryRowView: NSView {
     private static let remoteSymbolPointSize: CGFloat = 11
     private static let remoteIconSide: CGFloat = 13
     private static let remoteAccessibilityLabel = "Remote session"
+    private static let overlaySymbolName = "rectangle.on.rectangle"
+    private static let overlayAccessibilityLabel = WorklaneSidebarOverlay.accessibilityTitle
 
     private let remoteIconView = NSImageView()
+    private var iconSymbolName = SidebarPanePrimaryRowView.remoteSymbolName
     private let textContainer = SidebarPrimaryTextContainerView()
     private let baseLabel = SidebarStaticLabel()
     private let shimmerLabel = SidebarShimmerTextView()
@@ -705,7 +708,7 @@ final class SidebarPanePrimaryRowView: NSView {
     }
 
     var remoteIconSymbolNameForTesting: String? {
-        remoteIconView.image == nil ? nil : Self.remoteSymbolName
+        remoteIconView.image == nil ? nil : iconSymbolName
     }
 
     var remoteIconTintColorForTesting: NSColor? {
@@ -740,12 +743,7 @@ final class SidebarPanePrimaryRowView: NSView {
         setContentCompressionResistancePriority(.required, for: .vertical)
 
         remoteIconView.translatesAutoresizingMaskIntoConstraints = false
-        remoteIconView.image = NSImage(
-            systemSymbolName: Self.remoteSymbolName,
-            accessibilityDescription: Self.remoteAccessibilityLabel
-        )?.withSymbolConfiguration(
-            .init(pointSize: Self.remoteSymbolPointSize, weight: .semibold, scale: .medium)
-        )
+        setIconSymbol(Self.remoteSymbolName, accessibilityDescription: Self.remoteAccessibilityLabel)
         remoteIconView.imageScaling = .scaleProportionallyDown
         remoteIconView.isHidden = true
         remoteIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -835,11 +833,32 @@ final class SidebarPanePrimaryRowView: NSView {
     }
 
     func configureRemoteIndicator(isRemote: Bool, label: String?) {
+        setIconSymbol(Self.remoteSymbolName, accessibilityDescription: Self.remoteAccessibilityLabel)
         remoteIconView.isHidden = isRemote == false
 
         let accessibilityText = Self.remoteAccessibilityText(label: label)
         remoteIconView.toolTip = isRemote ? accessibilityText : nil
         remoteIconView.setAccessibilityLabel(isRemote ? accessibilityText : "")
+    }
+
+    /// Marks a quick-action overlay line; it takes the remote indicator's slot,
+    /// since an overlay is never a remote pane of its own.
+    func configureOverlayIndicator() {
+        setIconSymbol(Self.overlaySymbolName, accessibilityDescription: Self.overlayAccessibilityLabel)
+        remoteIconView.isHidden = false
+        remoteIconView.toolTip = Self.overlayAccessibilityLabel
+        remoteIconView.setAccessibilityLabel(Self.overlayAccessibilityLabel)
+    }
+
+    private func setIconSymbol(_ name: String, accessibilityDescription: String) {
+        guard iconSymbolName != name || remoteIconView.image == nil else { return }
+        iconSymbolName = name
+        remoteIconView.image = NSImage(
+            systemSymbolName: name,
+            accessibilityDescription: accessibilityDescription
+        )?.withSymbolConfiguration(
+            .init(pointSize: Self.remoteSymbolPointSize, weight: .semibold, scale: .medium)
+        )
     }
 
     func applyColors(

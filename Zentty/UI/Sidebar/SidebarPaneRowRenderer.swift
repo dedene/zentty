@@ -114,6 +114,9 @@ final class SidebarPaneRowRenderer {
                 isRemote: panePresentation.isRemotePane,
                 label: panePresentation.remotePaneLabel
             )
+            if paneRow.isOverlay {
+                panePrimaryRows[index].configureOverlayIndicator()
+            }
             panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
@@ -141,10 +144,15 @@ final class SidebarPaneRowRenderer {
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
             button.isOverlay = paneRow.isOverlay
+            button.isIndented = paneRow.overlayOwnerPaneID != nil
             button.isLastPaneInWorklane = !paneRow.isOverlay && panePresentations.filter { !$0.row.isOverlay }.count == 1
             button.isLastPaneInOnlyWorklane = callbacks.isOnlyWorklane && button.isLastPaneInWorklane
             button.currentWorklaneColor = worklaneColor
-            button.setAccessibilityLabel(paneRow.primaryText)
+            button.setAccessibilityLabel(
+                paneRow.isOverlay && paneRow.primaryText.isEmpty
+                    ? WorklaneSidebarOverlay.accessibilityTitle
+                    : paneRow.primaryText
+            )
             button.onPaneClicked = callbacks.onPaneSelected
             button.onCloseWorklane = callbacks.onCloseWorklaneRequested
             button.onRenameWorklane = callbacks.onRenameWorklaneRequested
@@ -252,7 +260,6 @@ final class SidebarWorklaneRowContentRenderer {
         let contextPrefixLabel: NSView
         let statusContentStack: NSView
         let detailLabels: [NSView]
-        let overlaySeparator: NSView
         let overflowLabel: NSView
     }
 
@@ -368,8 +375,6 @@ final class SidebarWorklaneRowContentRenderer {
             labels.detailLabels.first ?? labels.overflowLabel
         case .detail(let index):
             labels.detailLabels[index]
-        case .overlaySeparator:
-            labels.overlaySeparator
         case .overflow:
             labels.overflowLabel
         }

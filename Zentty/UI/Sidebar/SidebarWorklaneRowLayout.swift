@@ -21,7 +21,6 @@ enum WorklaneRowTextRow: Equatable {
     case context
     case detail(Int)
     case overflow
-    case overlaySeparator
 }
 
 enum SidebarWorklaneRowContentGroup: Equatable {
@@ -173,8 +172,6 @@ struct WorklaneRowLayoutMetrics: Equatable {
             return contextLineHeight
         case .detail:
             return detailLineHeight
-        case .overlaySeparator:
-            return titleSeparatorHeight
         case .overflow:
             return overflowLineHeight
         }
@@ -218,7 +215,6 @@ struct SidebarWorklaneRowLayout: Equatable {
         for summary: WorklaneSidebarSummary,
         availableWidth: CGFloat? = nil
     ) -> WorklaneRowMode {
-        if !summary.overlayRows.isEmpty { return .expanded }
         if summary.displayPaneRows.isEmpty == false {
             return summary.displayPaneRows.count > 1
                 || hasVisibleText(summary.topLabel)
@@ -300,10 +296,6 @@ struct SidebarWorklaneRowLayout: Equatable {
                 && hasVisibleText(summary.contextPrefixText)
 
             for index in summary.displayPaneRows.indices {
-                if index == summary.paneRows.count && !summary.overlayRows.isEmpty {
-                    if hasVisibleText(summary.overflowText) { rows.append(.overflow) }
-                    rows.append(.overlaySeparator)
-                }
                 let paneRow = summary.displayPaneRows[index]
                 rows.append(.panePrimary(index))
 
@@ -340,7 +332,7 @@ struct SidebarWorklaneRowLayout: Equatable {
                 }
             }
 
-            if summary.overlayRows.isEmpty && hasVisibleText(summary.overflowText) {
+            if hasVisibleText(summary.overflowText) {
                 rows.append(.overflow)
             }
 

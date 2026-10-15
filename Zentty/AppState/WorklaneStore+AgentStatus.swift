@@ -1656,7 +1656,7 @@ extension WorklaneStore {
         return true
     }
 
-    private static func trimmedShellCommand(_ value: String?) -> String? {
+    static func trimmedShellCommand(_ value: String?) -> String? {
         guard let value else {
             return nil
         }

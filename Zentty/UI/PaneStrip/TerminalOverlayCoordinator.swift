@@ -56,6 +56,14 @@ final class TerminalOverlayCoordinator {
             wait: options.wait,
             sizePercent: options.sizePercent,
             placement: options.placement,
+            environment: { [windowID = worklaneStore.windowID] overlayID in
+                WorklaneSessionEnvironment.overlay(
+                    windowID: windowID,
+                    worklaneID: worklaneID,
+                    overlayID: overlayID,
+                    processEnvironment: ProcessInfo.processInfo.environment
+                )
+            },
             adapterFactory: adapterFactory
         )
         overlay.apply(theme: rootViewController.currentWindowTheme)
@@ -184,6 +192,14 @@ final class TerminalOverlayCoordinator {
         }
     }
 
+    /// Hands a shell-integration payload sent under an overlay's ID to that
+    /// overlay; false when it belongs to a pane.
+    func apply(_ payload: AgentStatusPayload) -> Bool {
+        guard let overlay = sessions[payload.paneID.rawValue] else { return false }
+        overlay.apply(payload)
+        return true
+    }
+
     // MARK: - Sidebar
 
     func selectSidebarOverlay(id: String) -> Bool {
@@ -201,11 +217,11 @@ final class TerminalOverlayCoordinator {
     }
 
     private func syncSidebarOverlays() {
-        var rows: [WorklaneID: [WorklaneSidebarPaneRow]] = [:]
+        var overlays: [WorklaneID: [WorklaneSidebarOverlay]] = [:]
         for overlay in sessions.values.sorted(by: { $0.id < $1.id }) {
-            rows[overlay.worklaneID, default: []].append(overlay.sidebarRow)
+            overlays[overlay.worklaneID, default: []].append(overlay.sidebarOverlay)
         }
-        rootViewController.updateSidebarOverlays(rows)
+        rootViewController.updateSidebarOverlays(overlays)
     }
 
     // MARK: - Focus

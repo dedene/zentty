@@ -17,6 +17,9 @@ struct WorklaneSidebarServerPort: Equatable {
 
 struct WorklaneSidebarPaneRow: Equatable {
     var isOverlay = false
+    /// The pane a pane overlay hangs under; nil for panes and worklane overlays.
+    var overlayOwnerPaneID: PaneID?
+    var isOverlayHidden = false
     let paneID: PaneID
     let primaryText: String
     let usesCustomTitle: Bool
@@ -82,7 +85,19 @@ struct WorklaneSidebarPaneRow: Equatable {
 
 struct WorklaneSidebarSummary: Equatable {
     var overlayRows: [WorklaneSidebarPaneRow] = []
-    var displayPaneRows: [WorklaneSidebarPaneRow] { paneRows + overlayRows }
+    /// Pane rows with each pane overlay right under its pane and worklane
+    /// overlays (or ones whose pane is gone) at the end.
+    var displayPaneRows: [WorklaneSidebarPaneRow] {
+        guard !overlayRows.isEmpty else { return paneRows }
+        let paneIDs = Set(paneRows.map(\.paneID))
+        var rows: [WorklaneSidebarPaneRow] = []
+        for paneRow in paneRows {
+            rows.append(paneRow)
+            rows += overlayRows.filter { $0.overlayOwnerPaneID == paneRow.paneID }
+        }
+        rows += overlayRows.filter { $0.overlayOwnerPaneID.map { !paneIDs.contains($0) } ?? true }
+        return rows
+    }
     let worklaneID: WorklaneID
     let badgeText: String
     let topLabel: String?

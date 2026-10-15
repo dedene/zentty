@@ -264,6 +264,9 @@ final class RootViewController: NSViewController {
     private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onThemeDidChange: ((ZenttyTheme) -> Void)?
+    /// Offers a shell-integration payload to the quick-action overlays first;
+    /// true when it belonged to one, since overlays are not in the store.
+    var onOverlayAgentStatusPayload: ((AgentStatusPayload) -> Bool)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onServerPrimaryRequested: (() -> Void)?
@@ -1265,7 +1268,8 @@ final class RootViewController: NSViewController {
             self?.remotePaste.configure(runtime: runtime)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
-            self?.worklaneStore.applyAgentStatusPayload(payload)
+            guard let self, self.onOverlayAgentStatusPayload?(payload) != true else { return }
+            self.worklaneStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
     }
@@ -3976,9 +3980,9 @@ extension RootViewController: WorklanePeekControllerDelegate {
         peekKeyMonitor.uninstall()
     }
 
-    func updateSidebarOverlays(_ rows: [WorklaneID: [WorklaneSidebarPaneRow]]) {
-        guard renderCoordinator.overlayRowsByWorklaneID != rows else { return }
-        renderCoordinator.overlayRowsByWorklaneID = rows
+    func updateSidebarOverlays(_ overlays: [WorklaneID: [WorklaneSidebarOverlay]]) {
+        guard renderCoordinator.sidebarOverlaysByWorklaneID != overlays else { return }
+        renderCoordinator.sidebarOverlaysByWorklaneID = overlays
         renderCoordinator.renderSidebar()
     }
 
