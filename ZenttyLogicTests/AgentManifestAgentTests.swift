@@ -156,6 +156,7 @@ final class AgentManifestAgentTests: XCTestCase {
         )
         XCTAssertNil(plan.setEnvironment["OPENCODE_CONFIG_DIR"])
         XCTAssertNil(plan.setEnvironment["XDG_CONFIG_HOME"])
+        XCTAssertNil(plan.setEnvironment["ZENTTY_AGENT_RESTORE_ENV"])
 
         let action = try XCTUnwrap(plan.preLaunchActions.first)
         XCTAssertEqual(action.subcommand, "agent-event")

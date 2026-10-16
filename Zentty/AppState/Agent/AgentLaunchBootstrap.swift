@@ -1327,6 +1327,13 @@ enum AgentLaunchBootstrap {
                 )
                 setEnvironment["XDG_CONFIG_HOME"] = overlayRoots.configHomeURL.path
                 setEnvironment["XDG_STATE_HOME"] = overlayRoots.stateHomeURL.path
+                // The XDG overlay is only meant for the agent itself. The plugin
+                // hands these originals back to the shells it spawns, so tools like
+                // glab or gh keep finding their real config (#142).
+                setEnvironment[agentRestoreEnvironmentKey] = restoreEnvironmentJSON(
+                    keys: ["XDG_CONFIG_HOME", "XDG_STATE_HOME"],
+                    environment: environment
+                )
                 setEnvironment["\(envPrefix)_TUI_CONFIG"] = overlayConfigURL
                     .appendingPathComponent("tui.json", isDirectory: false)
                     .path
@@ -1640,6 +1647,23 @@ enum AgentLaunchBootstrap {
         }
         try fileManager.createDirectory(at: toolURL, withIntermediateDirectories: true)
         return toolURL
+    }
+
+    static let agentRestoreEnvironmentKey = "ZENTTY_AGENT_RESTORE_ENV"
+
+    /// JSON object of each key's pre-overlay value; `null` marks a key the user
+    /// never set, so the plugin unsets it instead of exporting an empty string.
+    private static func restoreEnvironmentJSON(keys: [String], environment: [String: String]) -> String {
+        var object: [String: Any] = [:]
+        for key in keys {
+            object[key] = environment[key]?.nilIfBlank ?? NSNull()
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]),
+              let json = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return json
     }
 
     private static func openCodeFamilySourceStateDirectoryURL(

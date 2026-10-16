@@ -1,3 +1,26 @@
+// Zentty's theme overlay points XDG_CONFIG_HOME/XDG_STATE_HOME at a per-pane
+// copy for OpenCode itself. OpenCode resolves its paths before plugins load, so
+// hand the originals back here: shells, MCP servers and LSPs spawned later then
+// see the user's real config (glab, gh, … — #142). `null` means "was unset".
+restoreUserEnvironment()
+
+function restoreUserEnvironment() {
+  const raw = process.env.ZENTTY_AGENT_RESTORE_ENV
+  if (!raw) return
+  delete process.env.ZENTTY_AGENT_RESTORE_ENV
+  let originals
+  try {
+    originals = JSON.parse(raw)
+  } catch {
+    return
+  }
+  if (!originals || typeof originals !== "object") return
+  for (const [key, value] of Object.entries(originals)) {
+    if (typeof value === "string" && value) process.env[key] = value
+    else if (value === null) delete process.env[key]
+  }
+}
+
 const worklaneID = process.env.ZENTTY_WORKLANE_ID
 const paneID = process.env.ZENTTY_PANE_ID
 const socketPath = process.env.ZENTTY_INSTANCE_SOCKET
