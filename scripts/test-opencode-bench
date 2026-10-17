@@ -60,7 +60,7 @@ has_opencode_v2() {
   for entry in $PATH; do
     for name in opencode opencode2; do
       [[ -x "$entry/$name" ]] || continue
-      if "$entry/$name" --version 2>/dev/null | grep -Eq 'v?[2-9][0-9]*\.[0-9]+'; then
+      if "$entry/$name" --version 2>/dev/null | grep -Eq '(^|[^0-9.])v?([2-9]|[1-9][0-9]+)\.[0-9]+'; then
         return 0
       fi
     done

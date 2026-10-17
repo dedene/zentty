@@ -6130,6 +6130,15 @@ final class AgentStatusSupportTests: XCTestCase {
         let xdgStateHome: String = try XCTUnwrap(plan.setEnvironment["XDG_STATE_HOME"])
         let opencodeConfigDirectory: String = try XCTUnwrap(plan.setEnvironment["OPENCODE_CONFIG_DIR"])
         let opencodeTUIConfig: String = try XCTUnwrap(plan.setEnvironment["OPENCODE_TUI_CONFIG"])
+        // #142: the plugin restores the user's XDG dirs for spawned shells; an
+        // unset original must come back as null (unset), not an empty string.
+        let restoreJSON: String = try XCTUnwrap(plan.setEnvironment["ZENTTY_AGENT_RESTORE_ENV"])
+        let restore = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(restoreJSON.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(Set(restore.keys), ["XDG_CONFIG_HOME", "XDG_STATE_HOME"])
+        XCTAssertTrue(restore["XDG_CONFIG_HOME"] is NSNull)
+        XCTAssertEqual(restore["XDG_STATE_HOME"] as? String, sourceStateHomeDirectory.path)
         XCTAssertEqual(overlayConfigDirectory.path, URL(fileURLWithPath: xdgConfigHome, isDirectory: true).appendingPathComponent("opencode", isDirectory: true).path)
         XCTAssertEqual(opencodeConfigDirectory, overlayConfigDirectory.path)
         XCTAssertEqual(
@@ -6227,6 +6236,10 @@ final class AgentStatusSupportTests: XCTestCase {
             isDirectory: true
         )
         XCTAssertEqual(plan.setEnvironment["ZENTTY_OPENCODE_BASE_CONFIG_DIR"], sourceConfigDirectory.path)
+        XCTAssertEqual(
+            plan.setEnvironment["ZENTTY_AGENT_RESTORE_ENV"],
+            #"{"XDG_CONFIG_HOME":"\#(xdgConfigHome.path)","XDG_STATE_HOME":null}"#
+        )
         XCTAssertTrue(
             FileManager.default.fileExists(
                 atPath: overlayConfigDirectory
