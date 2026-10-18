@@ -252,7 +252,8 @@ def --env _zentty_ensure_wrapper_path [] {
     }
     let tmux_shim_dir = ($env | get -o ZENTTY_TMUX_SHIM_DIR | default '')
     mut tmux_shim_enabled = false
-    if ($env | get -o CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS | default '') == '1' and $tmux_shim_dir != '' and (_zentty_is_executable ($tmux_shim_dir | path join tmux)) {
+    let tmux_shim_requested = (($env | get -o CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS | default '') == '1') or (($env | get -o ZENTTY_TMUX_SHIM | default '') == '1')
+    if $tmux_shim_requested and $tmux_shim_dir != '' and (_zentty_is_executable ($tmux_shim_dir | path join tmux)) {
         $tmux_shim_enabled = true
     }
     if ($wrapper_dirs | is-empty) and $tmux_shim_dir == '' { return }

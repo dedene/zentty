@@ -1690,6 +1690,55 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), shimURL.path)
     }
 
+    func test_shell_integrations_prefer_tmux_shim_in_tmux_shim_launches() throws {
+        // `zentty launch --tmux-shim` marks its process tree with
+        // ZENTTY_TMUX_SHIM=1 instead of the Claude-specific team switch.
+        for shell in [ShellIntegrationTestShell.zsh, .bash, .fish, .nu] where shell.isAvailable {
+            let shimDir = try makeTemporaryDirectory(named: "shell-generic-tmux-shim")
+            let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)
+            try "#!/bin/sh\nexit 0\n".write(to: shimURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+            let realBinDir = try makeTemporaryDirectory(named: "shell-generic-real-tmux")
+            let realURL = realBinDir.appendingPathComponent("tmux", isDirectory: false)
+            try "#!/bin/sh\nexit 0\n".write(to: realURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realURL.path)
+
+            let command: String
+            switch shell {
+            case .fish:
+                command = """
+                set -gx PATH \(shellQuoted(realBinDir.path)) /usr/bin /bin
+                _zentty_ensure_wrapper_path
+                command -v tmux
+                """
+            case .nu:
+                command = """
+                $env.PATH = ["\(realBinDir.path)" "/usr/bin" "/bin"]
+                _zentty_ensure_wrapper_path
+                which tmux | get 0.path
+                """
+            default:
+                command = """
+                PATH="\(realBinDir.path):/usr/bin:/bin"
+                export PATH
+                _zentty_ensure_wrapper_path
+                command -v tmux
+                """
+            }
+            var environment = [
+                "ZENTTY_TMUX_SHIM": "1",
+                "ZENTTY_TMUX_SHIM_DIR": shimDir.path,
+            ]
+            if shell == .nu {
+                environment["TTY"] = "/dev/null"
+            }
+            let result = try runShellIntegrationCommand(shell: shell, command: command, extraEnvironment: environment)
+
+            XCTAssertEqual(lastAbsolutePath(in: result.stdout), shimURL.path, "\(shell)")
+        }
+    }
+
     func test_zsh_shell_integration_leaves_real_tmux_first_without_agent_teams() throws {
         let shimDir = try makeTemporaryDirectory(named: "shell-zsh-inactive-tmux-shim")
         let shimURL = shimDir.appendingPathComponent("tmux", isDirectory: false)

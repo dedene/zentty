@@ -35,7 +35,7 @@
 
 **Agents**
 - **Agent-aware sidebar.** Agents report status into the sidebar: working, waiting, asking for approval, compacting. You see who needs you without switching panes.
-- **Subagents and teams.** A badge shows how many subagents are running and which models they use. Parents stay visible while background work continues.
+- **Subagents and teams.** A badge shows how many subagents are running and which models they use. Parents stay visible while background work continues. Teammates from Claude Code agent teams and other tmux-based agent tools can open as panes of their own ([Agent Teams](docs/agent-teams.md), experimental).
 - **Menu bar status.** Agent state lives in the macOS menu bar, so you know who needs you even when Zentty is hidden.
 - **1Password prompts point home.** When `op` or ssh-agent asks for approval, Zentty tells you which pane triggered it and can jump there.
 - **Stays awake.** Zentty caffeinates the Mac while an agent is running.

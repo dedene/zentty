@@ -29,6 +29,11 @@ enum WorklaneSessionEnvironment {
         "COLORTERM",
         "XDG_DATA_DIRS",
         "Q_TERM_PATH",
+        // tmux identity is per pane and per app run: a restored pane gets a
+        // fresh one, never the `%N` of whichever pane holds it now.
+        "TMUX",
+        "TMUX_PANE",
+        TmuxShimEnvironment.claudeAgentTeamsKey,
     ]
 
     static func make(
@@ -77,7 +82,7 @@ enum WorklaneSessionEnvironment {
             applyAgentTeamsInjection(
                 environment: &environment,
                 processEnvironment: processEnvironment,
-                worklaneID: worklaneID,
+                windowID: windowID,
                 paneID: paneID
             )
         }
@@ -184,11 +189,15 @@ enum WorklaneSessionEnvironment {
     }
 
     static func templateSafeOverrides(from environment: [String: String]) -> [String: String] {
-        environment.reduce(into: [:]) { safeEnvironment, entry in
+        // `-e NAME=VALUE` assignments a tmux tool passed may carry tokens;
+        // they belong to that run, not to a saved workspace.
+        let toolAssignedKeys = TmuxShimEnvironment.toolAssignedKeys(in: environment)
+        return environment.reduce(into: [:]) { safeEnvironment, entry in
             let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty,
                   !key.hasPrefix("ZENTTY_"),
-                  !generatedTemplateEnvironmentKeys.contains(key) else {
+                  !generatedTemplateEnvironmentKeys.contains(key),
+                  !toolAssignedKeys.contains(key) else {
                 return
             }
             safeEnvironment[key] = entry.value
@@ -206,7 +215,7 @@ enum WorklaneSessionEnvironment {
     private static func applyAgentTeamsInjection(
         environment: inout [String: String],
         processEnvironment: [String: String],
-        worklaneID: WorklaneID,
+        windowID: WindowID,
         paneID: PaneID
     ) {
         if let existing = processEnvironment["TMUX"], !existing.isEmpty {
@@ -221,19 +230,45 @@ enum WorklaneSessionEnvironment {
             return
         }
 
-        environment["ZENTTY_TMUX_SHIM_DIR"] = shimDirectory
+        let state = TmuxCompatSessionState.shared
+        TmuxShimEnvironment.apply(
+            to: &environment,
+            shimDirectory: shimDirectory,
+            tmux: TmuxShimEnvironment.tmuxValue(
+                socketPath: tmuxSocketPath,
+                serverPID: ProcessInfo.processInfo.processIdentifier,
+                sessionNumber: state.sessionNumber(for: windowID.rawValue)
+            ),
+            tmuxPane: TmuxShimEnvironment.paneValue(paneNumber: state.paneNumber(for: paneID.rawValue)),
+            tracePath: processEnvironment[TmuxShimEnvironment.tracePathKey] ?? defaultTmuxCompatTracePath(),
+            fallbackPath: processEnvironment["PATH"]
+        )
+        environment[TmuxShimEnvironment.claudeAgentTeamsKey] = "1"
+    }
 
-        let currentPath = environment["PATH"] ?? processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        let pathEntries = currentPath.split(separator: ":").map(String.init)
-        if !pathEntries.contains(shimDirectory) {
-            environment["PATH"] = ([shimDirectory] + pathEntries).joined(separator: ":")
+    /// Panes created through the tmux shim carry the creator's shim
+    /// environment (see `TmuxShimEnvironment.inheritedKeys`); give them their
+    /// own `TMUX_PANE` once their pane id is known. A `TMUX_PANE` that is
+    /// already set wins: Agent Teams panes get theirs in `make`, and a
+    /// `respawn-pane` replacement keeps the id of the pane it replaces.
+    static func applyTmuxPaneIdentity(to environment: inout [String: String], paneID: PaneID) {
+        guard environment[TmuxShimEnvironment.markerKey] == "1" else {
+            return
         }
+        if let shimDirectory = environment[TmuxShimEnvironment.shimDirectoryKey], !shimDirectory.isEmpty,
+           let path = environment["PATH"] {
+            environment["PATH"] = TmuxShimEnvironment.prependingShim(shimDirectory, to: path)
+        }
+        if environment["TMUX_PANE"]?.isEmpty ?? true {
+            environment["TMUX_PANE"] = TmuxShimEnvironment.paneValue(
+                paneNumber: TmuxCompatSessionState.shared.paneNumber(for: paneID.rawValue)
+            )
+        }
+    }
 
-        environment["TMUX"] = "/tmp/zentty-claude-teams/\(worklaneID.rawValue),0,\(paneID.rawValue)"
-        environment["TMUX_PANE"] = "%\(paneID.rawValue)"
-        environment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
-        environment["ZENTTY_TMUX_COMPAT_TRACE_PATH"] = processEnvironment["ZENTTY_TMUX_COMPAT_TRACE_PATH"]
-            ?? defaultTmuxCompatTracePath()
+    /// `$TMUX` / `#{socket_path}` for this app run.
+    static var tmuxSocketPath: String {
+        TmuxShimEnvironment.socketPath(instanceID: AgentIPCServer.shared.instanceID)
     }
 
     private static func defaultTmuxCompatTracePath() -> String {

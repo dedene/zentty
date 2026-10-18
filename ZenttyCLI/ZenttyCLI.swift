@@ -1705,17 +1705,34 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: .init("Supported values: \(AgentBootstrapTool.builtinCases.map(\.id).joined(separator: ", ")), or the id of an agent manifest"))
-    var tool: String
+    @Flag(name: .customLong("teams"), help: "Run the agent in team mode: its tmux teammates open as Zentty panes.")
+    var teams = false
+
+    @Flag(name: .customLong("tmux-shim"), help: "Run any command (default: your login shell) with Zentty's tmux shim on PATH.")
+    var tmuxShim = false
+
+    @Argument(help: .init("Supported values: \(AgentBootstrapTool.builtinCases.map(\.id).joined(separator: ", ")), or the id of an agent manifest. With --tmux-shim, any command."))
+    var tool: String?
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")
     var arguments: [String] = []
 
     mutating func run() throws {
-        guard let tool = AgentBootstrapTool(id: tool) else {
-            throw ValidationError("Unsupported launch tool: \(tool)")
+        let environment = ProcessInfo.processInfo.environment
+        if let plan = TmuxShimEnvironment.launchPlan(
+            command: (tool.map { [$0] } ?? []) + arguments,
+            teams: teams,
+            tmuxShim: tmuxShim
+        ) {
+            try TmuxShimLauncher(environment: environment).run(plan)
         }
-        try AgentToolLauncher(tool: tool, arguments: arguments, environment: ProcessInfo.processInfo.environment).run()
+        guard let toolID = tool else {
+            throw ValidationError("Missing tool to launch.")
+        }
+        guard let tool = AgentBootstrapTool(id: toolID) else {
+            throw ValidationError("Unsupported launch tool: \(toolID)")
+        }
+        try AgentToolLauncher(tool: tool, arguments: arguments, environment: environment).run()
     }
 }
 

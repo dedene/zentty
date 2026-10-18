@@ -56,7 +56,7 @@ _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
     local tmux_shim_dir="${ZENTTY_TMUX_SHIM_DIR:-}"
     local tmux_shim_enabled=0
-    if [[ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" == "1" && -n "$tmux_shim_dir" && -x "$tmux_shim_dir/tmux" ]]; then
+    if [[ ( "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" == "1" || "${ZENTTY_TMUX_SHIM:-}" == "1" ) && -n "$tmux_shim_dir" && -x "$tmux_shim_dir/tmux" ]]; then
         tmux_shim_enabled=1
     fi
     [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0

@@ -55,8 +55,7 @@ final class PaneKeyNamesTests: XCTestCase {
         XCTAssertEqual(PaneKeyStroke.key(.enter, shift: false).legacyText, "\r")
     }
 
-    /// The agent-teams shim's control-key table must stay byte-for-byte
-    /// what it was before the table moved.
+    /// The agent-teams shim's raw-byte key table.
     func test_control_key_text_table_is_stable() {
         let expected: [String: String] = [
             "Enter": "\r", "C-m": "\r", "KPEnter": "\r",
@@ -64,23 +63,24 @@ final class PaneKeyNamesTests: XCTestCase {
             "Space": " ",
             "BSpace": "\u{7f}", "Backspace": "\u{7f}",
             "Escape": "\u{1b}", "Esc": "\u{1b}", "C-[": "\u{1b}",
-            "C-c": "\u{03}", "C-d": "\u{04}", "C-z": "\u{1a}", "C-l": "\u{0c}",
+            "C-c": "\u{03}", "C-d": "\u{04}", "C-u": "\u{15}", "C-z": "\u{1a}", "C-l": "\u{0c}",
+            "Up": "\u{1b}[A", "Down": "\u{1b}[B", "Right": "\u{1b}[C", "Left": "\u{1b}[D",
         ]
         for (name, bytes) in expected {
             XCTAssertEqual(PaneKeyNames.controlKeyText(name), bytes, name)
         }
-        XCTAssertNil(PaneKeyNames.controlKeyText("Up"))
+        XCTAssertNil(PaneKeyNames.controlKeyText("F1"))
         XCTAssertNil(PaneKeyNames.controlKeyText("hello"))
     }
 
-    func test_agent_teams_shim_text_still_uses_control_table_only() {
+    func test_agent_teams_shim_text_uses_control_table_only() {
         XCTAssertEqual(
             TmuxCompatIPCHandler.sendKeysText(arguments: ["-t", "%1", "ls", "Enter"], standardInput: nil),
             "ls\r"
         )
         XCTAssertEqual(
-            TmuxCompatIPCHandler.sendKeysText(arguments: ["Up"], standardInput: nil),
-            "Up"
+            TmuxCompatIPCHandler.sendKeysText(arguments: ["F1"], standardInput: nil),
+            "F1"
         )
     }
 }

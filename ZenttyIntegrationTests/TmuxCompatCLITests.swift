@@ -484,6 +484,65 @@ final class TmuxCompatCLITests: XCTestCase {
         )
     }
 
+    func test_real_cli_tmux_compat_reports_version_without_ipc() throws {
+        // tmux-based tools probe `tmux -V` before anything else; it must work
+        // even before routing environment is checked.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["__tmux-compat", "-V"]
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "ZENTTY_INSTANCE_SOCKET")
+        process.environment = environment
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = Pipe()
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(String(data: stdoutPipe.fileHandleForReading.availableData, encoding: .utf8), "tmux 3.4\n")
+    }
+
+    func test_real_cli_tmux_compat_prints_tmux_errors_bare_with_exit_one() throws {
+        let server = try TmuxCaptureServer(
+            response: AgentIPCResponse(
+                id: "tmux-4",
+                ok: false,
+                error: AgentIPCResponseError(code: "command_failed", message: "can't find pane: %9")
+            )
+        )
+        defer { server.invalidate() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCLIPath())
+        process.arguments = ["__tmux-compat", "killp", "-t", "%9", ";", "display", "-p", "never"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZENTTY_INSTANCE_SOCKET"] = server.socketPath
+        environment["ZENTTY_WINDOW_ID"] = "window-main"
+        environment["ZENTTY_WORKLANE_ID"] = "worklane-main"
+        environment["ZENTTY_PANE_ID"] = "pane-main"
+        environment["ZENTTY_PANE_TOKEN"] = "token-main"
+        process.environment = environment
+        process.standardOutput = Pipe()
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        try process.run()
+        let request = try server.receiveOneRequest()
+        process.waitUntilExit()
+
+        XCTAssertEqual(request.subcommand, "killp")
+        XCTAssertEqual(request.arguments, ["-t", "%9"], "the sequence stops at the failing command")
+        XCTAssertEqual(process.terminationStatus, 1)
+        // Under Xcode, os_log lines are mirrored to stderr ahead of the
+        // message; the tmux-shaped line is what tools read.
+        let stderr = String(data: stderrPipe.fileHandleForReading.availableData, encoding: .utf8) ?? ""
+        XCTAssertEqual(stderr.split(separator: "\n").last.map(String.init), "can't find pane: %9")
+        XCTAssertFalse(stderr.contains("zentty tmux killp:"), "no prefix before tmux's own wording")
+    }
+
     private func builtCLIPath() throws -> String {
         if let builtProductsDir = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"] {
             return URL(fileURLWithPath: builtProductsDir, isDirectory: true)

@@ -1361,6 +1361,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return reader.readText(includeScrollback: includeScrollback, lineLimit: lineLimit)
     }
 
+    /// A live pane's terminal size in cells, used by the tmux shim to report
+    /// `pane_width` / `pane_height`. Nil before the pane's surface exists.
+    func terminalGridSize(for paneID: PaneID) -> (columns: Int, rows: Int)? {
+        guard let runtime = runtimeRegistry.runtime(for: paneID),
+              runtime.cellWidth > 0, runtime.cellHeight > 0 else {
+            return nil
+        }
+        let scale = runtime.hostView.window?.backingScaleFactor ?? window.backingScaleFactor
+        let bounds = runtime.hostView.bounds.size
+        guard scale > 0, bounds.width > 0, bounds.height > 0 else {
+            return nil
+        }
+        return (
+            columns: max(Int(bounds.width * scale / runtime.cellWidth), 1),
+            rows: max(Int(bounds.height * scale / runtime.cellHeight), 1)
+        )
+    }
+
     /// The live terminal adapter for a pane, or nil before its runtime exists.
     /// Used by `PaneInputService` for scripted input and screen reads.
     func terminalAdapter(for paneID: PaneID) -> (any TerminalAdapter)? {

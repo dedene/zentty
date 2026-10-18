@@ -157,7 +157,7 @@ function _zentty_ensure_wrapper_path
     end
     set -l tmux_shim_dir $ZENTTY_TMUX_SHIM_DIR
     set -l tmux_shim_enabled 0
-    if test "$CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" = "1" -a -n "$tmux_shim_dir" -a -x "$tmux_shim_dir/tmux"
+    if begin; test "$CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" = "1"; or test "$ZENTTY_TMUX_SHIM" = "1"; end; and test -n "$tmux_shim_dir" -a -x "$tmux_shim_dir/tmux"
         set tmux_shim_enabled 1
     end
     if test -z "$wrapper_dirs" -a -z "$tmux_shim_dir"

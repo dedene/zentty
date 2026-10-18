@@ -179,9 +179,9 @@ enum AgentTeamsEnableWarning {
     ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Claude Code agent teams only apply to new panes"
+        alert.messageText = "Agent teams only apply to new panes"
         alert.informativeText =
-            "After enabling this experimental integration, restart Zentty or close and recreate the pane where you want to use Claude Code team mode."
+            "After enabling this experimental integration, restart Zentty or open a new pane to use team mode. To try it in one pane instead, run zentty launch --teams claude."
         alert.addButton(withTitle: "Enable")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { response in

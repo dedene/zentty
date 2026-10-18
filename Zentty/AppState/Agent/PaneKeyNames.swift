@@ -94,9 +94,9 @@ enum PaneKeyNameError: LocalizedError, Equatable {
 /// Key-name vocabulary shared by `zentty pane send-key` and the agent-teams
 /// shim (`TmuxCompatIPCHandler`). Names are case-insensitive.
 enum PaneKeyNames {
-    /// Control-character keys the agent-teams shim has always translated.
-    /// Kept as its own table so the shim's text output stays byte-for-byte
-    /// stable while `send-key` grows richer keys.
+    /// Keys the agent-teams shim turns into raw bytes for `send-keys`.
+    /// Kept as its own table so the shim's text output only changes on
+    /// purpose while `send-key` grows richer keys.
     static func controlKeyText(_ token: String) -> String? {
         switch token.lowercased() {
         case "enter", "c-m", "kpenter":
@@ -113,10 +113,20 @@ enum PaneKeyNames {
             return "\u{03}"
         case "c-d":
             return "\u{04}"
+        case "c-u":
+            return "\u{15}"
         case "c-z":
             return "\u{1a}"
         case "c-l":
             return "\u{0c}"
+        case "up":
+            return "\u{1b}[A"
+        case "down":
+            return "\u{1b}[B"
+        case "right":
+            return "\u{1b}[C"
+        case "left":
+            return "\u{1b}[D"
         default:
             return nil
         }
