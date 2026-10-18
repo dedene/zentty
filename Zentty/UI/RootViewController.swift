@@ -2624,6 +2624,17 @@ final class RootViewController: NSViewController {
         }?.id
     }
 
+    /// Token of the pane's current attention, as carried by the notification
+    /// raised for it. A reply is only typed while the two still match.
+    func notificationReplyToken(worklaneID: WorklaneID, paneID: PaneID) -> String? {
+        renderCoordinator.notificationReplyToken(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    /// The worklane's live state, not the last render.
+    func currentWorklane(id worklaneID: WorklaneID) -> WorklaneState? {
+        worklaneStore.worklanes.first { $0.id == worklaneID }
+    }
+
     func focusedPaneID() -> PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }

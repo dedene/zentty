@@ -1303,6 +1303,38 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
+    /// Types a reply from an agent notification into its pane, but only while
+    /// the agent still sits at its prompt after the turn the notification
+    /// was raised for.
+    /// Uses the same paste + Return path as `submitCommand`.
+    func deliverAgentNotificationReply(
+        _ reply: String,
+        paneID: PaneID,
+        token: String?
+    ) -> AgentNotificationReplyOutcome {
+        guard let worklaneID = worklaneID(containing: paneID) else {
+            return .stale(.paneGone)
+        }
+        let decision = AgentNotificationReplyGuard.decide(
+            worklane: rootViewController.currentWorklane(id: worklaneID),
+            paneID: paneID,
+            paneExists: runtimeRegistry.runtime(for: paneID) != nil,
+            isInlineReplyEnabled: configStore.current.notifications.inlineReply,
+            notificationToken: token,
+            currentToken: rootViewController.notificationReplyToken(worklaneID: worklaneID, paneID: paneID)
+        )
+        if case .stale(let reason) = decision {
+            return .stale(reason)
+        }
+        guard let paste = AgentNotificationReplyText.terminalPaste(for: reply) else {
+            return .emptyReply
+        }
+        guard submitCommand(paste, to: paneID) else {
+            return .stale(.paneGone)
+        }
+        return .delivered(worklaneID: worklaneID)
+    }
+
     func readText(from paneID: PaneID, includeScrollback: Bool, lineLimit: Int?) -> String? {
         guard let runtime = runtimeRegistry.runtime(for: paneID),
               let reader = runtime.adapter as? TerminalTextReading
