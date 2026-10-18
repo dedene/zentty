@@ -124,6 +124,7 @@ enum PaneIPCSubcommand: String {
     case worklaneColor = "worklane-color"
     case worklaneRename = "worklane-rename"
     case paneRename = "pane-rename"
+    case paneFork = "pane-fork"
     case theme
 }
 
@@ -437,7 +438,7 @@ enum PaneIPCHandler {
               let resolved = resolveTarget(target, appDelegate: appDelegate) else {
             if subcommand == .notify || subcommand == .overlayOpen
                 || subcommand == .overlayList || subcommand == .overlayShow
-                || subcommand == .overlayClose {
+                || subcommand == .overlayClose || subcommand == .paneFork {
                 throw PaneRoutingError.paneNotFound
             }
             return AgentIPCResponseResult()
@@ -535,9 +536,34 @@ enum PaneIPCHandler {
                 windowController: windowController,
                 appDelegate: appDelegate
             )
+        case .paneFork:
+            return try handlePaneFork(arguments: request.arguments, target: target, windowController: windowController)
         case .theme:
             return try handleTheme(arguments: request.arguments, windowController: windowController)
         }
+    }
+
+    @MainActor
+    private static func handlePaneFork(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController
+    ) throws -> AgentIPCResponseResult {
+        let parsed = try AgentForkIPCArguments.parse(arguments)
+        let sourcePaneID: PaneID
+        if let forkTarget = parsed.target {
+            guard let resolvedPaneID = windowController.resolvePaneID(forkTarget, in: target.worklaneID) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            sourcePaneID = resolvedPaneID
+        } else {
+            sourcePaneID = target.paneID
+        }
+        let result = try windowController.forkAgentConversation(
+            paneID: sourcePaneID,
+            destination: parsed.destination
+        )
+        return AgentIPCResponseResult(stdout: "\(result.paneID.rawValue)\n")
     }
 
     @MainActor
