@@ -439,6 +439,9 @@ struct AgentIPCResponseResult: Codable, Equatable {
     /// blocks (long timeout) until the user answers the consent panel. Optional
     /// for decode tolerance across version-skewed app/CLI pairs.
     let consentRequired: Bool?
+    /// Screen contents returned by `pane read`. Optional for decode
+    /// tolerance across version-skewed app/CLI pairs.
+    let paneRead: PaneReadResult?
 
     init(
         launchPlan: AgentLaunchPlan? = nil,
@@ -448,7 +451,8 @@ struct AgentIPCResponseResult: Codable, Equatable {
         discoveredPanes: [DiscoveredPane]? = nil,
         serverState: ServerListResult? = nil,
         stdout: String? = nil,
-        consentRequired: Bool? = nil
+        consentRequired: Bool? = nil,
+        paneRead: PaneReadResult? = nil
     ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
@@ -458,6 +462,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         self.serverState = serverState
         self.stdout = stdout
         self.consentRequired = consentRequired
+        self.paneRead = paneRead
     }
 }
 

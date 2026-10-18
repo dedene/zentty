@@ -549,6 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
+        PaneEventMonitor.shared.attach(windowID: controller.windowID, store: controller.worklaneStore)
         syncMenuBarStatusSources()
         return controller
     }
@@ -668,6 +669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleWindowDidClose(_ controller: MainWindowController) {
         let controllerID = ObjectIdentifier(controller)
         windowControllers.removeValue(forKey: controllerID)
+        PaneEventMonitor.shared.detach(windowID: controller.windowID)
         if lastKeyWindowControllerID == controllerID {
             lastKeyWindowControllerID = nil
         }

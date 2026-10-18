@@ -26,6 +26,7 @@ struct ZenttyCLI: ParsableCommand {
             ThemeCommandGroup.self,
             ServerCommandGroup.self,
             NotifyCommand.self,
+            EventsCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             AgyHookCommand.self,
@@ -664,6 +665,9 @@ struct PaneCommandGroup: ParsableCommand {
             PaneRenameCommand.self,
             PaneZoomCommand.self,
             PaneResizeCommand.self,
+            PaneSendCommand.self,
+            PaneSendKeyCommand.self,
+            PaneReadCommand.self,
         ]
     )
 }

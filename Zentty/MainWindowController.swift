@@ -1312,6 +1312,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return reader.readText(includeScrollback: includeScrollback, lineLimit: lineLimit)
     }
 
+    /// The live terminal adapter for a pane, or nil before its runtime exists.
+    /// Used by `PaneInputService` for scripted input and screen reads.
+    func terminalAdapter(for paneID: PaneID) -> (any TerminalAdapter)? {
+        runtimeRegistry.runtime(for: paneID)?.adapter
+    }
+
     /// Re-load the in-memory `WorklaneStore.teamAnchorByWorklaneID` from disk
     /// and emit `.teamAnchorsChanged` for any worklane that changed. Called
     /// by `TmuxCompatIPCHandler` after every store-mutating subcommand so

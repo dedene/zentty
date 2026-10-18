@@ -338,7 +338,7 @@ enum TmuxCompatIPCHandler {
            windowController.launchDeferredPane(id: resolvedPaneID, in: target.worklaneID, nativeCommand: nativeCommand) {
             return AgentIPCResponseResult()
         }
-        let delivered = windowController.sendText(text, to: resolvedPaneID)
+        let delivered = PaneInputService.pasteText(text, to: resolvedPaneID, in: windowController)
         if !delivered {
             tmuxLogger.warning(
                 "send-keys: no live runtime for pane \(resolvedPaneID.rawValue, privacy: .public)"
@@ -521,7 +521,7 @@ enum TmuxCompatIPCHandler {
         var result = ""
         var pendingSpace = false
         for token in tokens {
-            if let special = tmuxSpecialKeyText(token) {
+            if let special = PaneKeyNames.controlKeyText(token) {
                 result += special
                 pendingSpace = false
                 continue
@@ -533,31 +533,6 @@ enum TmuxCompatIPCHandler {
             pendingSpace = true
         }
         return result
-    }
-
-    private static func tmuxSpecialKeyText(_ token: String) -> String? {
-        switch token.lowercased() {
-        case "enter", "c-m", "kpenter":
-            return "\r"
-        case "tab", "c-i":
-            return "\t"
-        case "space":
-            return " "
-        case "bspace", "backspace":
-            return "\u{7f}"
-        case "escape", "esc", "c-[":
-            return "\u{1b}"
-        case "c-c":
-            return "\u{03}"
-        case "c-d":
-            return "\u{04}"
-        case "c-z":
-            return "\u{1a}"
-        case "c-l":
-            return "\u{0c}"
-        default:
-            return nil
-        }
     }
 
     private static func shellQuote(_ value: String) -> String {
@@ -925,8 +900,9 @@ enum TmuxCompatIPCHandler {
         let paneID = options.target
             .flatMap { resolvedPaneID(from: $0, in: target.worklaneID, windowController: windowController) }
             ?? target.paneID
-        let text = windowController.readText(
+        let text = PaneInputService.readText(
             from: paneID,
+            in: windowController,
             includeScrollback: options.includeScrollback,
             lineLimit: options.lineLimit
         ) ?? ""
@@ -1150,19 +1126,7 @@ enum TmuxCompatIPCHandler {
     }
 
     static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else {
-            return ""
-        }
-        let hadTrailingNewline = text.hasSuffix("\n")
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if hadTrailingNewline, lines.last == "" {
-            lines.removeLast()
-        }
-        var output = lines.suffix(maxLines).joined(separator: "\n")
-        if hadTrailingNewline, !output.isEmpty {
-            output.append("\n")
-        }
-        return output
+        PaneTextLines.tail(text, maxLines: maxLines)
     }
 
     private static func targetEnvironment(_ target: AgentIPCTarget) -> [String: String] {
