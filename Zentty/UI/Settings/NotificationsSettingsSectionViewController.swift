@@ -24,6 +24,7 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
     private let sendTestButton = NSButton(title: "Send Test", target: nil, action: nil)
     private let soundPopupButton = NSPopUpButton()
     private let playButton = NSButton()
+    private let inlineReplySwitch = NSSwitch()
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
@@ -62,6 +63,18 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
         cardStack.addArrangedSubview(soundRow)
         soundRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
 
+        SettingsFormBuilder.separator(addedTo: cardStack)
+
+        let inlineReplyRow = SettingsFormBuilder.switchRow(
+            title: "Reply from Notifications",
+            subtitle: "Answer an agent that finished its turn without switching to its pane.",
+            toggle: inlineReplySwitch,
+            target: self,
+            action: #selector(handleInlineReplySwitchChanged(_:))
+        )
+        cardStack.addArrangedSubview(inlineReplyRow)
+        inlineReplyRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             cardStack.topAnchor.constraint(equalTo: card.topAnchor),
             cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
@@ -83,6 +96,7 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
     override func viewDidLoad() {
         super.viewDidLoad()
         selectSoundPopupItem(for: currentNotifications.soundName)
+        inlineReplySwitch.state = currentNotifications.inlineReply ? .on : .off
         refreshNotificationStatus()
     }
 
@@ -94,6 +108,7 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
     func apply(notifications: AppConfig.Notifications) {
         currentNotifications = notifications
         selectSoundPopupItem(for: notifications.soundName)
+        inlineReplySwitch.state = notifications.inlineReply ? .on : .off
     }
 
     // MARK: - Notification Row
@@ -286,6 +301,14 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
     }
 
     @objc
+    private func handleInlineReplySwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.notifications.inlineReply = sender.state == .on
+        }
+        currentNotifications = configStore.current.notifications
+    }
+
+    @objc
     private func handlePlaySound(_ sender: Any?) {
         if NotificationSoundManager.playPreview(for: currentNotifications.soundName) {
             return
@@ -466,6 +489,15 @@ final class NotificationsSettingsSectionViewController: SettingsScrollableSectio
 
     var soundPopupWidthForTesting: CGFloat {
         soundPopupButton.frame.width
+    }
+
+    var isInlineReplyEnabledInControl: Bool {
+        inlineReplySwitch.state == .on
+    }
+
+    func setInlineReplyForTesting(_ isEnabled: Bool) {
+        inlineReplySwitch.state = isEnabled ? .on : .off
+        handleInlineReplySwitchChanged(inlineReplySwitch)
     }
 
     var availableSoundNames: [String] {

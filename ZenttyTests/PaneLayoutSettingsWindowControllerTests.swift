@@ -2038,6 +2038,38 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(notificationsController.availableSoundNames.contains("Ping"))
     }
 
+    func test_notifications_section_inline_reply_switch_writes_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .notifications, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        let notificationsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
+        )
+        XCTAssertTrue(notificationsController.isInlineReplyEnabledInControl)
+
+        notificationsController.setInlineReplyForTesting(false)
+        XCTAssertFalse(store.current.notifications.inlineReply)
+
+        var enabled = store.current.notifications
+        enabled.inlineReply = true
+        notificationsController.apply(notifications: enabled)
+        XCTAssertTrue(notificationsController.isInlineReplyEnabledInControl)
+    }
+
     func test_updates_privacy_section_shows_error_reporting_enabled_when_available() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
