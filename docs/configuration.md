@@ -11,7 +11,7 @@ Zentty keeps everything you set up in `~/.config/zentty/`. That folder is safe t
 | `~/.config/zentty/sounds/` | Copies of custom notification sounds | Yes |
 | `~/.config/zentty/agents/` | Your own agent definitions ([Agent Hooks](agent-hooks.md)) | Yes |
 | `~/.config/zentty/run/` | The running app's socket, locks and agent wrapper scripts | **No** |
-| `~/Library/Application Support/Zentty/` | Session restore snapshot, agent session state | No |
+| `~/Library/Application Support/Zentty/` | Session restore snapshot, saved pane output, agent session state | No |
 | `~/Library/Preferences/be.zenjoy.zentty.plist` | Window positions, update checks | No |
 
 The Zentty Dev build uses `~/.config/zentty-dev/` and `~/Library/Application Support/Zentty Dev/` instead.
@@ -44,6 +44,25 @@ Don't sync the open windows and worklanes themselves. They belong to the Mac the
 - **agents/** is read at launch. Restart Zentty after changing it.
 
 If `config.toml` contains a line Zentty can't read, Zentty logs it and won't save over the file until you fix it. In the meantime it runs on its last good settings, or on defaults if the file was already broken at launch. Zentty also keeps sections and keys it doesn't recognize when it saves, so a Mac on an older version doesn't strip settings a newer version added. This works from the version after 0.3.7 onward; 0.3.7 and earlier treat an unknown section as a broken file and reset it to defaults on their next save, so keep shared Macs on the same version. Keys inside individual open-with apps, browsers and shortcut bindings aren't covered.
+
+## Session restore
+
+Zentty reopens your windows, worklanes and panes when it starts again, after a normal quit, an update relaunch, or a crash. Turn it off with **Restore worklanes on next launch** in Settings → General, or in `config.toml`:
+
+```toml
+[restore]
+restore_workspace_on_launch = true
+scrollback = true
+```
+
+`scrollback` (on by default, **Restore pane output** in Settings) brings back what each pane showed. When a pane comes back, its previous output is printed above the new prompt, followed by a dim `── restored from previous session ──` line. In an agent pane the agent resumes after that, the same way it does without saved output.
+
+- Zentty saves the output when you quit. Every few minutes it also saves panes that are running a command or an agent, or that changed since the last save, so most of it survives a crash too.
+- Each pane keeps its last 4,000 lines, up to about 1 MB, and older lines are dropped first. A save is capped at 32 MB in total, so with many panes each one keeps less.
+- Only plain text is kept. Colors and other terminal control sequences are removed before saving, so printing the output again can't run anything.
+- If a full-screen program such as vim or an agent's full-screen interface was open when the output was saved, the pane comes back with that program's last screen instead of the shell output behind it.
+- The output is printed by Zentty's shell integration for zsh, bash, fish and nushell. Other shells, and shells started with `ZENTTY_SHELL_INTEGRATION=0`, come back without it.
+- Saved output lives in `~/Library/Application Support/Zentty/session-scrollback/`, one file per pane, readable only by you and excluded from Time Machine backups. Pane output can contain secrets. Zentty deletes a file once its pane is gone, and deletes all of them when you turn `scrollback` or session restore off.
 
 ## Bookmarks
 
