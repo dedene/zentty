@@ -323,6 +323,27 @@ Example:
 zentty notify --title "Agent ready" --subtitle "Review the result"
 ```
 
+## Agent Teams
+
+Start an agent or a tmux-based orchestrator so its teammates open as Zentty panes. Run these from a Zentty pane. See [Agent Teams and tmux-based agent tools](agent-teams.md) for supported tools and tmux commands.
+
+```bash
+zentty launch --teams claude [ARGS...]
+zentty launch claude --teams [ARGS...]
+zentty launch --tmux-shim [--] [COMMAND [ARGS...]]
+```
+
+- `--teams` launches an integrated agent with Zentty's tmux command on `PATH`. For Claude Code it also turns on agent teams.
+- `--tmux-shim` runs any command the same way, or your login shell when no command is given.
+
+Examples:
+
+```bash
+zentty launch --teams claude
+zentty launch --tmux-shim -- omc team 2:claude "review the auth flow"
+zentty launch --tmux-shim
+```
+
 ## Agent Integrations
 
 Install or remove shell hook integrations managed by Zentty.

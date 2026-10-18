@@ -108,6 +108,13 @@ Use the hidden launch command only when you explicitly need to force Zentty's bo
 "$ZENTTY" launch claude --dangerously-skip-permissions
 ```
 
+To let an agent's tmux-based teammates open as Zentty panes, launch it in team mode. `--tmux-shim` does the same for any tmux-based orchestrator, or for a login shell when no command is given:
+
+```bash
+"$ZENTTY" launch --teams claude
+"$ZENTTY" launch --tmux-shim -- omx team 3:executor "fix the failing tests"
+```
+
 Supported launch tool names include `amp`, `claude`, `codex`, `copilot`, `cursor`, `droid`, `gemini`, `kimi`, `opencode`, `pi`, `grok`, `agy`, and `hermes`.
 
 ## Notify The User
