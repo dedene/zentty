@@ -235,7 +235,10 @@ final class WorklaneAttentionNotificationCoordinator {
                     worklaneID: worklane.id.rawValue,
                     paneID: attention.paneID.rawValue,
                     soundName: systemNotificationSoundName(),
-                    shouldRequestUserAttention: attention.state == .needsInput && !windowIsKey
+                    // A paused program is a status, not a prompt waiting on the user.
+                    shouldRequestUserAttention: attention.state == .needsInput
+                        && !windowIsKey
+                        && paneContext?.presentation.programStatus == nil
                 )
             }
         }
@@ -339,6 +342,10 @@ final class WorklaneAttentionNotificationCoordinator {
         for attention: WorklaneAttentionSummary,
         paneContext: WorklanePaneContext?
     ) -> NeedsInputNotificationContent {
+        if let paneContext, paneContext.presentation.programStatus != nil {
+            return programPausedContent(for: attention, presentation: paneContext.presentation)
+        }
+
         let interactionKind = attention.interactionKind ?? .genericInput
         logUnclassifiedNeedsInputIfNeeded(
             interactionKind: interactionKind,
@@ -356,6 +363,26 @@ final class WorklaneAttentionNotificationCoordinator {
             panelStatusText: actionText,
             askPreview: askPreview,
             locationText: paneContext.flatMap { compactLocationText(for: $0.presentation) }
+        )
+    }
+
+    /// A program that reported a pause: name the state it set instead of
+    /// claiming it waits for input.
+    private func programPausedContent(
+        for attention: WorklaneAttentionSummary,
+        presentation: PanePresentationState
+    ) -> NeedsInputNotificationContent {
+        let label = attention.interactionLabel ?? "Paused"
+        let title = WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
+            ?? WorklaneContextFormatter.trimmed(presentation.identityText)
+        let preview = title.flatMap { $0.caseInsensitiveCompare("shell") == .orderedSame ? nil : $0 }
+            ?? "\(attention.tool.displayName) paused."
+
+        return NeedsInputNotificationContent(
+            systemTitle: "\(attention.tool.displayName) \(label.lowercased())",
+            panelStatusText: label,
+            askPreview: preview,
+            locationText: compactLocationText(for: presentation)
         )
     }
 
@@ -660,6 +687,10 @@ final class WorklaneAttentionNotificationCoordinator {
                 if let meaningfulTitle,
                    meaningfulTitle.caseInsensitiveCompare("shell") != .orderedSame {
                     return meaningfulTitle
+                }
+
+                if presentation.programStatus != nil {
+                    return "\(attention.tool.displayName) reported an error."
                 }
 
                 if let cwd = presentation.cwd,

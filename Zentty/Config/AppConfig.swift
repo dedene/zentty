@@ -150,6 +150,8 @@ struct AppConfig: Equatable, Sendable {
         var focusOnOnePasswordPrompt: Bool
         /// Jump back to the previous pane once that 1Password prompt closes.
         var returnAfterOnePasswordPrompt: Bool
+        /// Show the status a program sets with the OSC 9;4 progress sequence.
+        var programStatusEnabled: Bool
 
         static let minimumInactiveOpacity: CGFloat = 0.6
         static let maximumInactiveOpacity: CGFloat = 1.0
@@ -163,7 +165,8 @@ struct AppConfig: Equatable, Sendable {
             focusFollowsMouse: Bool = false,
             focusFollowsMouseDelay: FocusFollowsMouseDelay = .short,
             focusOnOnePasswordPrompt: Bool = true,
-            returnAfterOnePasswordPrompt: Bool = true
+            returnAfterOnePasswordPrompt: Bool = true,
+            programStatusEnabled: Bool = true
         ) {
             self.showLabels = showLabels
             self.showBorders = showBorders
@@ -174,6 +177,7 @@ struct AppConfig: Equatable, Sendable {
             self.focusFollowsMouseDelay = focusFollowsMouseDelay
             self.focusOnOnePasswordPrompt = focusOnOnePasswordPrompt
             self.returnAfterOnePasswordPrompt = returnAfterOnePasswordPrompt
+            self.programStatusEnabled = programStatusEnabled
         }
 
         static let `default` = Panes(
@@ -185,7 +189,8 @@ struct AppConfig: Equatable, Sendable {
             focusFollowsMouse: false,
             focusFollowsMouseDelay: .short,
             focusOnOnePasswordPrompt: true,
-            returnAfterOnePasswordPrompt: true
+            returnAfterOnePasswordPrompt: true,
+            programStatusEnabled: true
         )
     }
 
@@ -589,7 +594,8 @@ extension AppConfig.Panes {
             focusFollowsMouse: focusFollowsMouse,
             focusFollowsMouseDelay: focusFollowsMouseDelay,
             focusOnOnePasswordPrompt: focusOnOnePasswordPrompt,
-            returnAfterOnePasswordPrompt: returnAfterOnePasswordPrompt
+            returnAfterOnePasswordPrompt: returnAfterOnePasswordPrompt,
+            programStatusEnabled: programStatusEnabled
         )
     }
 }

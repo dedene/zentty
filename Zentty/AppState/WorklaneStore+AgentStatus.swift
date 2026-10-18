@@ -86,8 +86,10 @@ extension WorklaneStore {
         )
         switch event {
         case .shellReady:
+            clearProgramStatus(.shellReady, paneID: paneID, in: &worklane)
             clearTransientAgentStateForFreshShellIfNeeded(paneID: paneID, in: &worklane)
         case .progressReport(let report):
+            applyProgramStatusReport(report, paneID: paneID, in: &worklane)
             let now = currentDateProvider()
             if report.state == .remove {
                 let wasBusy = worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress?.state.indicatesActivity == true
@@ -141,6 +143,7 @@ extension WorklaneStore {
                 in: worklane
             )
             worklane.auxiliaryStateByPaneID[paneID]?.raw.codexInterruptSuppressionUntil = nil
+            clearProgramStatus(.userSubmittedInput, paneID: paneID, in: &worklane)
             clearCodexTitleIdleSuppression(for: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             promoteCodexAgentStateFromUserInput(
@@ -181,6 +184,7 @@ extension WorklaneStore {
             )
         case .userInterrupted:
             let now = currentDateProvider()
+            clearProgramStatus(.userInterrupted, paneID: paneID, in: &worklane)
             clearReadyStatusIfNeeded(for: paneID, in: &worklane)
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
             auxiliaryState.terminalProgress = nil
@@ -221,6 +225,7 @@ extension WorklaneStore {
             }
         case .commandFinished:
             worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
+            clearProgramStatus(.commandFinished, paneID: paneID, in: &worklane)
             if clearStaleCodexStateAfterShellReturnIfNeeded(
                 paneID: paneID,
                 metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata,
@@ -636,6 +641,14 @@ extension WorklaneStore {
 
             // Pane-level state: always persisted, independent of agent status.
             auxiliaryState.shellActivityState = shellActivityState
+            switch shellActivityState {
+            case .promptIdle:
+                auxiliaryState.raw.programStatus = auxiliaryState.raw.programStatus?.surviving(.commandFinished)
+            case .commandRunning:
+                auxiliaryState.raw.programStatus = auxiliaryState.raw.programStatus?.surviving(.commandStarted)
+            case .unknown:
+                break
+            }
             if shellActivityState == .commandRunning {
                 auxiliaryState.hasCommandHistory = true
                 auxiliaryState.raw.lastRunCommand = Self.trimmedShellCommand(payload.shellCommand)

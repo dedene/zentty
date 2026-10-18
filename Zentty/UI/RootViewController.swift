@@ -352,6 +352,9 @@ final class RootViewController: NSViewController {
             serverDetectionProvider: { [weak configStore] in
                 configStore?.current.serverDetection ?? .default
             },
+            programStatusEnabledProvider: { [weak configStore] in
+                configStore?.current.panes.programStatusEnabled ?? true
+            },
             claudeHookSessionStoreProvider: { ClaudeHookSessionStore() }
         )
         self.peekController = WorklanePeekController(
@@ -3020,6 +3023,7 @@ final class RootViewController: NSViewController {
         refreshShortcutTooltips()
         preloadOpenWithIcons()
         windowChromeView.apply(panes: config.panes)
+        worklaneStore.clearProgramStatusesIfDisabled()
         preloadProjectIcons()
         // Sidebar visibility and width are per-window state. The config store only
         // holds the most recently changed value so that new windows can seed from

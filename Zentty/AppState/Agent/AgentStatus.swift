@@ -207,12 +207,20 @@ struct WorklaneArtifactLink: Equatable, Sendable {
 }
 
 struct PaneAgentTaskProgress: Equatable, Sendable {
+    /// What the counts measure: an agent's task list, or a program's
+    /// percentage (`doneCount` of 100).
+    enum Unit: Equatable, Sendable {
+        case tasks
+        case percent
+    }
+
     let doneCount: Int
     let totalCount: Int
     /// Item-level task list in harness order; empty for counts-only updates.
     let items: [PaneAgentTaskItem]
+    let unit: Unit
 
-    init?(doneCount: Int, totalCount: Int, items: [PaneAgentTaskItem] = []) {
+    init?(doneCount: Int, totalCount: Int, items: [PaneAgentTaskItem] = [], unit: Unit = .tasks) {
         guard totalCount > 0 else {
             return nil
         }
@@ -220,6 +228,32 @@ struct PaneAgentTaskProgress: Equatable, Sendable {
         self.totalCount = totalCount
         self.doneCount = min(max(doneCount, 0), totalCount)
         self.items = items
+        self.unit = unit
+    }
+
+    init?(percent: Int) {
+        self.init(doneCount: percent, totalCount: 100, unit: .percent)
+    }
+
+    /// Short readout: "3/5 tasks" or "42%".
+    var readoutText: String {
+        switch unit {
+        case .tasks:
+            return "\(doneCount)/\(totalCount) tasks"
+        case .percent:
+            return "\(doneCount)%"
+        }
+    }
+
+    /// Suffix the status line carries while the progress ring is shown:
+    /// " (3/5)" or " (42%)". The sidebar strips it again and draws the ring.
+    var statusSuffix: String {
+        switch unit {
+        case .tasks:
+            return " (\(doneCount)/\(totalCount))"
+        case .percent:
+            return " (\(doneCount)%)"
+        }
     }
 
     init?(items: [PaneAgentTaskItem]) {
