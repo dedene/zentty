@@ -67,6 +67,9 @@ struct AgentManifest: Codable, Equatable, Sendable {
     var canonical: CanonicalOptions?
     var passthrough: Passthrough?
     var resume: Resume?
+    /// Fork command, same template shape as `resume`. Only `{sessionId}`
+    /// templates fork: a fork needs the exact conversation to branch from.
+    var fork: Resume?
     /// Asset catalog image name, optional.
     var icon: String?
 
@@ -80,6 +83,7 @@ struct AgentManifest: Codable, Equatable, Sendable {
         canonical: CanonicalOptions? = nil,
         passthrough: Passthrough? = nil,
         resume: Resume? = nil,
+        fork: Resume? = nil,
         icon: String? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -91,6 +95,7 @@ struct AgentManifest: Codable, Equatable, Sendable {
         self.canonical = canonical
         self.passthrough = passthrough
         self.resume = resume
+        self.fork = fork
         self.icon = icon
     }
 }

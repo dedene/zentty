@@ -18,6 +18,10 @@ struct TerminalSessionRequest: Equatable, Sendable {
     var configInheritanceSourcePaneID: PaneID?
     var surfaceContext: TerminalSurfaceContext
     var environmentVariables: [String: String]
+    /// False for a one-shot startup command that a closed-pane restore must
+    /// not run again, such as an agent fork: replaying it would branch the
+    /// source conversation a second time.
+    var replaysCommandOnRestore = true
 
     init(workingDirectory: String?) {
         self.init(workingDirectory: workingDirectory, inheritFromPaneID: nil)

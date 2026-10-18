@@ -963,6 +963,23 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func forkAgentConversation(_ sender: Any?) {
+        if let paneID = representedPaneID(from: sender),
+           let worklaneID = rootViewController.worklaneID(containing: paneID) {
+            rootViewController.paneCommands.focusPaneByID(paneID, in: worklaneID)
+        }
+        handle(.pane(.forkAgentConversation))
+    }
+
+    @discardableResult
+    func forkAgentConversation(
+        paneID: PaneID,
+        destination: AgentForkDestination?
+    ) throws -> WorklaneStore.AgentForkResult {
+        try rootViewController.paneCommands.forkAgentConversation(paneID: paneID, destination: destination)
+    }
+
+    @objc
     func movePaneToWorklane(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,
               let request = item.representedObject as? MovePaneToWorklaneRequest else {
@@ -2200,6 +2217,13 @@ extension MainWindowController: NSMenuItemValidation {
             return rootViewController.isCommandAvailable(.splitHorizontally)
         case #selector(addPaneDown(_:)), #selector(addPaneUp(_:)):
             return rootViewController.isCommandAvailable(.splitVertically)
+        case #selector(forkAgentConversation(_:)):
+            // A pane context menu carries the right-clicked pane, which isn't
+            // necessarily the focused one.
+            guard let paneID = representedPaneID(from: menuItem) ?? rootViewController.focusedPaneID() else {
+                return false
+            }
+            return worklaneStore.agentForkAvailability(for: paneID)?.isAvailable == true
         default:
             break
         }

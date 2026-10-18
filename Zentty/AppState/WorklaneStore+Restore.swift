@@ -67,7 +67,7 @@ extension WorklaneStore {
             customTitle: pane.customTitle,
             workingDirectory: workingDirectory,
             originalNativeCommand: pane.sessionRequest.nativeCommand,
-            originalCommand: pane.sessionRequest.command,
+            originalCommand: pane.sessionRequest.replaysCommandOnRestore ? pane.sessionRequest.command : nil,
             agentSnapshot: agentSnapshot,
             scrollbackText: scrollbackText
         )

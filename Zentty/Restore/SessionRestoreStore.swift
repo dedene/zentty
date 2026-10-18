@@ -594,8 +594,14 @@ enum SessionRestoreDraftExporter {
             return ""
         }
 
-        let fallbackSessionID = "pane-\(tool.displayName.lowercased())"
-        return sessionID == fallbackSessionID ? "" : sessionID
+        return isPlaceholderSessionID(sessionID, for: tool) ? "" : sessionID
+    }
+
+    /// The per-pane id the agent reducer stores until the agent reports a
+    /// real one. It names no conversation, so resume and fork both treat it
+    /// as missing.
+    static func isPlaceholderSessionID(_ sessionID: String, for tool: AgentTool) -> Bool {
+        sessionID == "pane-\(tool.displayName.lowercased())"
     }
 
     private static func restoreRank(for session: PaneAgentSessionState) -> Int {
@@ -613,7 +619,9 @@ enum SessionRestoreDraftExporter {
         }
     }
 
-    private static func workingDirectory(
+    /// The directory an agent session belongs to. Shared with
+    /// `AgentForkCommandBuilder` so a fork starts where a resume would.
+    static func workingDirectory(
         agentStatus: PaneAgentStatus?,
         auxiliary: PaneAuxiliaryState,
         pane: PaneState,
@@ -898,7 +906,10 @@ enum AgentResumeCommandBuilder {
         return command
     }
 
-    private static func validatedManifestSessionID(
+    // Validators and shell quoting below without `private` are shared with
+    // `AgentForkCommandBuilder`, so a fork accepts exactly the ids a resume
+    // would.
+    static func validatedManifestSessionID(
         _ sessionID: String,
         pattern: String?
     ) -> String? {
@@ -920,14 +931,14 @@ enum AgentResumeCommandBuilder {
         return trimmed
     }
 
-    private static func validatedClaudeSessionID(from sessionID: String) -> String? {
+    static func validatedClaudeSessionID(from sessionID: String) -> String? {
         guard let uuid = UUID(uuidString: sessionID) else {
             return nil
         }
         return uuid.uuidString.lowercased()
     }
 
-    private static func validatedCodexSessionID(from sessionID: String) -> String? {
+    static func validatedCodexSessionID(from sessionID: String) -> String? {
         if let uuid = UUID(uuidString: sessionID) {
             return uuid.uuidString.lowercased()
         }
@@ -940,7 +951,7 @@ enum AgentResumeCommandBuilder {
         return sessionID
     }
 
-    private static func validatedOpenCodeSessionID(from sessionID: String) -> String? {
+    static func validatedOpenCodeSessionID(from sessionID: String) -> String? {
         let pattern = #"^ses_[A-Za-z0-9]+$"#
         guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
             return nil
@@ -963,7 +974,7 @@ enum AgentResumeCommandBuilder {
         return uuid.uuidString.lowercased()
     }
 
-    private static func validatedGrokSessionID(from sessionID: String) -> String? {
+    static func validatedGrokSessionID(from sessionID: String) -> String? {
         // Grok Build sessions are typically UUIDs. We also accept reasonable
         // alphanumeric session identifiers (Grok may use short IDs in some modes).
         if let uuid = UUID(uuidString: sessionID) {
@@ -1033,7 +1044,7 @@ enum AgentResumeCommandBuilder {
         return uuid.uuidString.lowercased()
     }
 
-    private static func validatedDroidSessionID(from sessionID: String) -> String? {
+    static func validatedDroidSessionID(from sessionID: String) -> String? {
         // Droid session IDs are opaque strings; validate only that they are
         // non-empty and contain no shell metacharacters or whitespace so the
         // restore command remains a single safe argument.
@@ -1111,7 +1122,7 @@ enum AgentResumeCommandBuilder {
         return result
     }
 
-    private static func shellQuotedArgument(_ argument: String) -> String {
+    static func shellQuotedArgument(_ argument: String) -> String {
         if argument.range(of: #"^[A-Za-z0-9_./:=+-]+$"#, options: .regularExpression) != nil {
             return argument
         }
