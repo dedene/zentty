@@ -45,6 +45,16 @@ Don't sync the open windows and worklanes themselves. They belong to the Mac the
 
 If `config.toml` contains a line Zentty can't read, Zentty logs it and won't save over the file until you fix it. In the meantime it runs on its last good settings, or on defaults if the file was already broken at launch. Zentty also keeps sections and keys it doesn't recognize when it saves, so a Mac on an older version doesn't strip settings a newer version added. This works from the version after 0.3.7 onward; 0.3.7 and earlier treat an unknown section as a broken file and reset it to defaults on their next save, so keep shared Macs on the same version. Keys inside individual open-with apps, browsers and shortcut bindings aren't covered.
 
+## Agent settings
+
+The `[agents]` section holds agent behaviour that isn't tied to one integration:
+
+```toml
+[agents]
+# Where "Fork Agent Conversation" opens the fork: split_right, split_down or new_worklane.
+fork_destination = "split_right"
+```
+
 ## Bookmarks
 
 Bookmarks store each pane's working directory as a full path. They work on both Macs when your user name and project folders match. Paths under your home folder in custom open-with apps and browsers are stored as `~/…`, so those don't depend on the user name.
