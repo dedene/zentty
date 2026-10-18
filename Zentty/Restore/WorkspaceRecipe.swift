@@ -177,6 +177,10 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var workingDirectory: String?
         var lastActivityTitle: String? = nil
         var lastRunCommand: String? = nil
+        /// File name of the pane's saved output inside the `session-scrollback`
+        /// directory (see `SessionScrollbackArchive`). Optional and additive:
+        /// recipes written before it decode with nil, so no schema bump.
+        var scrollbackFile: String? = nil
     }
 }
 

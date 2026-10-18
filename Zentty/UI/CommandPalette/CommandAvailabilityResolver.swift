@@ -21,6 +21,9 @@ struct CommandAvailabilityContext: Equatable {
     /// A quick-action overlay holds keyboard focus. Pane search would act on
     /// the terminal hidden under it, so it is off until focus leaves the overlay.
     let isQuickActionFocused: Bool
+    /// Fork state of the focused pane's agent; `nil` (no agent) hides the
+    /// fork command, an unavailable value shows it disabled with its reason.
+    let focusedPaneAgentFork: AgentForkAvailability?
 
     init(
         worklaneCount: Int,
@@ -35,7 +38,8 @@ struct CommandAvailabilityContext: Equatable {
         activeWorklaneHasPrimaryServer: Bool = false,
         activeWorklaneHasReviewLookup: Bool = false,
         focusedPaneUnreadToggle: PaneUnreadToggle? = nil,
-        isQuickActionFocused: Bool = false
+        isQuickActionFocused: Bool = false,
+        focusedPaneAgentFork: AgentForkAvailability? = nil
     ) {
         self.worklaneCount = worklaneCount
         self.activePaneCount = activePaneCount
@@ -50,6 +54,7 @@ struct CommandAvailabilityContext: Equatable {
         self.activeWorklaneHasReviewLookup = activeWorklaneHasReviewLookup
         self.focusedPaneUnreadToggle = focusedPaneUnreadToggle
         self.isQuickActionFocused = isQuickActionFocused
+        self.focusedPaneAgentFork = focusedPaneAgentFork
     }
 }
 
@@ -140,6 +145,8 @@ enum CommandAvailabilityResolver {
             return context.activePaneCount >= 1
         case .duplicateFocusedPane:
             return context.activePaneCount >= 1
+        case .forkAgentConversation:
+            return context.focusedPaneAgentFork != nil
         case .movePaneToNewWindow:
             return context.activePaneCount >= 1
                 && !(context.worklaneCount == 1 && context.activePaneCount == 1)

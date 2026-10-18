@@ -31,7 +31,7 @@
 - **Worklanes, not tabs.** A horizontally scrolling strip of columns, each a vertical stack of panes, borrowed from niri and Hyprland. Drag, resize, and rearrange without losing your place.
 - **Keyboard-first.** Every action is a command, every command is bindable, and a fuzzy command palette catches whatever you forgot. Ghostty-compatible shortcuts out of the box.
 - **Visual pane switcher.** Hold Ctrl+Tab to zoom out and pick a pane. ⌘⇧T reopens the pane you just closed.
-- **Restore everything.** Worklanes, sidebar, and agent sessions come back on relaunch. Closed mid-task? Zentty resumes the agent, or reruns your last shell command.
+- **Restore everything.** Worklanes, sidebar, pane output, and agent sessions come back on relaunch. Closed mid-task? Zentty resumes the agent, or reruns your last shell command.
 
 **Agents**
 - **Agent-aware sidebar.** Agents report status into the sidebar: working, waiting, asking for approval, compacting. You see who needs you without switching panes.
@@ -39,6 +39,7 @@
 - **Menu bar status.** Agent state lives in the macOS menu bar, so you know who needs you even when Zentty is hidden.
 - **1Password prompts point home.** When `op` or ssh-agent asks for approval, Zentty tells you which pane triggered it and can jump there.
 - **Stays awake.** Zentty caffeinates the Mac while an agent is running.
+- **Fork a conversation.** Branch an agent's conversation into a new pane with its own fork command while the original keeps going.
 
 Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Devin, Droid, Gemini CLI, Grok Build, Hermes Agent, Kimi, Mistral Vibe, Muse Code, Oh My Pi, OpenCode, Pi, and Small Harness. Any other tool can join via the [Agent Status Protocol](docs/agent-status-protocol.md).
 
@@ -49,10 +50,11 @@ Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Dev
 
 **Remote and terminal**
 - **Paste files into ssh sessions.** Drop an image, PDF, or archive on a remote pane and Zentty uploads it over the existing ssh connection and pastes the remote path.
+- **Status from any program.** A build, test run, or remote script can show progress, an error, or a pause in the sidebar by printing the standard OSC 9;4 progress sequence. See [Program Status](docs/program-status.md).
 - **Clean copy.** Copy agent output without prompts, box drawing, and tracking params. Copy as Markdown keeps the structure.
 - **Native Ghostty themes.** Built-in picker with live preview, opacity, and blur. Fine without Ghostty installed too.
 - **Built on libghostty.** GPU rendering in a native Swift and AppKit shell. No Electron, no web views.
-- **Scriptable.** Drive worklanes and panes from the embedded `zentty` CLI.
+- **Scriptable.** Drive worklanes and panes, type into them, read their screens, and stream agent and pane events from the embedded `zentty` CLI.
 
 See [Zentty CLI](docs/cli.md) for command-line usage.
 

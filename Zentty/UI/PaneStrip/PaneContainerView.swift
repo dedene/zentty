@@ -342,6 +342,7 @@ final class PaneContainerView: NSView {
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+    var agentForkAvailabilityProvider: ((PaneID) -> AgentForkAvailability?)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
     var onHoverEntered: ((NSEvent) -> Void)?
@@ -1436,6 +1437,16 @@ final class PaneContainerView: NSView {
             action: rightPaneCommandPresentation.forceOppositeCommand.contextMenuSelector,
             symbolName: rightPaneCommandPresentation.forceOppositeIconSystemName
         ))
+        if let forkAvailability = agentForkAvailabilityProvider?(paneID) {
+            let forkItem = makeContextMenuItem(
+                title: "Fork Agent Conversation",
+                action: #selector(MainWindowController.forkAgentConversation(_:)),
+                symbolName: "arrow.triangle.branch"
+            )
+            forkItem.representedObject = paneID
+            forkItem.toolTip = forkAvailability.unavailableReason
+            customMenu.addItem(forkItem)
+        }
         customMenu.addItem(.separator())
         let moveToWindowItem = makeContextMenuItem(
             title: "Move Pane to New Window",

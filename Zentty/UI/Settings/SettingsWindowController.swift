@@ -66,7 +66,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .shortcuts:
             "Keyboard shortcuts and conflicts"
         case .notifications:
-            "Desktop alerts and notification sound"
+            "Desktop alerts, sound, and replies"
         case .openWith:
             "Default apps and custom launchers"
         case .devServers:
@@ -91,7 +91,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .shortcuts:
             ["keyboard", "keybinding", "hotkey", "binding", "shortcut"]
         case .notifications:
-            ["sound", "alert", "notify", "permission", "desktop"]
+            ["sound", "alert", "notify", "permission", "desktop", "reply", "respond"]
         case .openWith:
             ["app", "editor", "launch", "finder", "vscode", "cursor", "xcode"]
         case .devServers:

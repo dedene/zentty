@@ -26,6 +26,7 @@ struct ZenttyCLI: ParsableCommand {
             ThemeCommandGroup.self,
             ServerCommandGroup.self,
             NotifyCommand.self,
+            EventsCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             AgyHookCommand.self,
@@ -661,9 +662,13 @@ struct PaneCommandGroup: ParsableCommand {
             PaneListCommand.self,
             PaneFocusCommand.self,
             PaneCloseCommand.self,
+            PaneForkCommand.self,
             PaneRenameCommand.self,
             PaneZoomCommand.self,
             PaneResizeCommand.self,
+            PaneSendCommand.self,
+            PaneSendKeyCommand.self,
+            PaneReadCommand.self,
         ]
     )
 }
@@ -855,6 +860,45 @@ struct WorklaneRenameCommand: ParsableCommand {
             arguments.append(contentsOf: ["--id", id])
         }
         _ = try PaneIPC.send(subcommand: "worklane-rename", arguments: arguments)
+    }
+}
+
+struct PaneForkCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "fork",
+        abstract: "Fork a pane's agent conversation into a new pane.",
+        discussion: """
+        Runs the agent's own fork command next to the source pane and leaves the original running. \
+        Opens to the right by default, or where agents.fork_destination points. Prints the new pane ID.
+        """
+    )
+
+    @Argument(help: "Pane index or ID. Defaults to the current pane.")
+    var target: String?
+
+    @Flag(name: .long, help: "Open the fork below the source pane.")
+    var down = false
+
+    @Flag(name: .long, help: "Open the fork in a new worklane.")
+    var worklane = false
+
+    @OptionGroup var selection: PaneTargetOptions
+
+    mutating func run() throws {
+        try selection.validatedForPositionalPaneSelector(target)
+        let forkArguments: AgentForkIPCArguments
+        do {
+            forkArguments = try AgentForkIPCArguments(target: target, down: down, worklane: worklane)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        let response = try PaneIPC.send(
+            subcommand: "pane-fork",
+            arguments: forkArguments.ipcArguments + selection.selectorArguments()
+        )
+        if let stdout = response?.result?.stdout {
+            print(stdout, terminator: "")
+        }
     }
 }
 

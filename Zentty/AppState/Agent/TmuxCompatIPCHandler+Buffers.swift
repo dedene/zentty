@@ -48,8 +48,9 @@ extension TmuxCompatIPCHandler {
     ) throws -> AgentIPCResponseResult {
         let options = capturePaneOptions(arguments: arguments)
         let paneID = PaneID(try context.pane(options.target).pane.id)
-        let text = context.windowController.readText(
+        let text = PaneInputService.readText(
             from: paneID,
+            in: context.windowController,
             includeScrollback: options.includeScrollback,
             lineLimit: options.lineLimit
         ) ?? ""
@@ -85,19 +86,7 @@ extension TmuxCompatIPCHandler {
     }
 
     static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else {
-            return ""
-        }
-        let hadTrailingNewline = text.hasSuffix("\n")
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if hadTrailingNewline, lines.last == "" {
-            lines.removeLast()
-        }
-        var output = lines.suffix(maxLines).joined(separator: "\n")
-        if hadTrailingNewline, !output.isEmpty {
-            output.append("\n")
-        }
-        return output
+        PaneTextLines.tail(text, maxLines: maxLines)
     }
 
     // MARK: - wait-for

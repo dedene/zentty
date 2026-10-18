@@ -29,7 +29,7 @@ extension TmuxCompatIPCHandler {
            context.windowController.launchDeferredPane(id: resolvedPaneID, in: worklaneID, nativeCommand: nativeCommand) {
             return AgentIPCResponseResult()
         }
-        let delivered = context.windowController.sendText(text, to: resolvedPaneID)
+        let delivered = PaneInputService.pasteText(text, to: resolvedPaneID, in: context.windowController)
         if !delivered {
             tmuxLogger.warning(
                 "send-keys: no live runtime for pane \(resolvedPaneID.rawValue, privacy: .public)"
@@ -162,7 +162,7 @@ extension TmuxCompatIPCHandler {
         var result = ""
         var pendingSpace = false
         for token in tokens {
-            if let special = tmuxSpecialKeyText(token) {
+            if let special = PaneKeyNames.controlKeyText(token) {
                 result += special
                 pendingSpace = false
                 continue
@@ -174,40 +174,5 @@ extension TmuxCompatIPCHandler {
             pendingSpace = true
         }
         return result
-    }
-
-    private static func tmuxSpecialKeyText(_ token: String) -> String? {
-        switch token.lowercased() {
-        case "enter", "c-m", "kpenter":
-            return "\r"
-        case "tab", "c-i":
-            return "\t"
-        case "space":
-            return " "
-        case "bspace", "backspace":
-            return "\u{7f}"
-        case "escape", "esc", "c-[":
-            return "\u{1b}"
-        case "c-c":
-            return "\u{03}"
-        case "c-d":
-            return "\u{04}"
-        case "c-u":
-            return "\u{15}"
-        case "c-z":
-            return "\u{1a}"
-        case "c-l":
-            return "\u{0c}"
-        case "up":
-            return "\u{1b}[A"
-        case "down":
-            return "\u{1b}[B"
-        case "right":
-            return "\u{1b}[C"
-        case "left":
-            return "\u{1b}[D"
-        default:
-            return nil
-        }
     }
 }

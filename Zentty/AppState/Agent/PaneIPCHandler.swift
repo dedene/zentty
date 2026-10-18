@@ -124,7 +124,35 @@ enum PaneIPCSubcommand: String {
     case worklaneColor = "worklane-color"
     case worklaneRename = "worklane-rename"
     case paneRename = "pane-rename"
+    case paneFork = "pane-fork"
     case theme
+    case send
+    case sendKey = "send-key"
+    case read
+
+    /// Commands that act on the targeted pane by focusing it first. Reads,
+    /// renames, notifications, and scripted input leave focus alone.
+    var focusesTarget: Bool {
+        switch self {
+        case .split, .grid, .focus, .close, .resize, .layout, .paneFork:
+            return true
+        case .overlayOpen, .overlayList, .overlayShow, .overlayClose, .list, .notify,
+             .worklaneColor, .worklaneRename, .paneRename, .theme, .send, .sendKey, .read:
+            return false
+        }
+    }
+
+    /// Commands that fail loudly when the target cannot be resolved instead
+    /// of reporting success without doing anything.
+    var requiresResolvedTarget: Bool {
+        switch self {
+        case .notify, .overlayOpen, .overlayList, .overlayShow, .overlayClose, .paneFork, .send, .sendKey, .read:
+            return true
+        case .split, .grid, .list, .focus, .close, .resize, .layout,
+             .worklaneColor, .worklaneRename, .paneRename, .theme:
+            return false
+        }
+    }
 }
 
 enum WorklaneCommandIPCError: LocalizedError {
@@ -410,6 +438,12 @@ enum PaneIPCHandler {
             throw AgentIPCError.unsupportedSubcommand(request.subcommand ?? "<nil>")
         }
 
+        if subcommand == .send {
+            // Hops to the main thread itself so the pause before Enter is
+            // spent on this IPC thread.
+            return try PaneControlIPCHandler.handleSend(request: request, target: target)
+        }
+
         if Thread.isMainThread {
             return try MainActorShim.assumeIsolated {
                 try Self.dispatch(subcommand: subcommand, request: request, target: target)
@@ -435,9 +469,7 @@ enum PaneIPCHandler {
     ) throws -> AgentIPCResponseResult {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
               let resolved = resolveTarget(target, appDelegate: appDelegate) else {
-            if subcommand == .notify || subcommand == .overlayOpen
-                || subcommand == .overlayList || subcommand == .overlayShow
-                || subcommand == .overlayClose {
+            if subcommand.requiresResolvedTarget {
                 throw PaneRoutingError.paneNotFound
             }
             return AgentIPCResponseResult()
@@ -461,10 +493,7 @@ enum PaneIPCHandler {
             throw PaneRoutingError.paneNotFound
         }
 
-        if subcommand != .list && subcommand != .worklaneColor && subcommand != .worklaneRename
-            && subcommand != .paneRename && subcommand != .notify && subcommand != .theme
-            && subcommand != .overlayOpen && subcommand != .overlayList
-            && subcommand != .overlayShow && subcommand != .overlayClose {
+        if subcommand.focusesTarget {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -535,9 +564,40 @@ enum PaneIPCHandler {
                 windowController: windowController,
                 appDelegate: appDelegate
             )
+        case .paneFork:
+            return try handlePaneFork(arguments: request.arguments, target: target, windowController: windowController)
         case .theme:
             return try handleTheme(arguments: request.arguments, windowController: windowController)
+        case .send:
+            return try PaneControlIPCHandler.handleSend(request: request, target: target)
+        case .sendKey:
+            return try PaneControlIPCHandler.handleSendKey(request: request, target: target)
+        case .read:
+            return try PaneControlIPCHandler.handleRead(request: request, target: target)
         }
+    }
+
+    @MainActor
+    private static func handlePaneFork(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController
+    ) throws -> AgentIPCResponseResult {
+        let parsed = try AgentForkIPCArguments.parse(arguments)
+        let sourcePaneID: PaneID
+        if let forkTarget = parsed.target {
+            guard let resolvedPaneID = windowController.resolvePaneID(forkTarget, in: target.worklaneID) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            sourcePaneID = resolvedPaneID
+        } else {
+            sourcePaneID = target.paneID
+        }
+        let result = try windowController.forkAgentConversation(
+            paneID: sourcePaneID,
+            destination: parsed.destination
+        )
+        return AgentIPCResponseResult(stdout: "\(result.paneID.rawValue)\n")
     }
 
     @MainActor
@@ -633,7 +693,7 @@ enum PaneIPCHandler {
     }
 
     @MainActor
-    private static func resolveTarget(
+    static func resolveTarget(
         _ target: AgentIPCTarget,
         appDelegate: AppDelegate
     ) -> (windowController: MainWindowController, target: AgentIPCTarget)? {

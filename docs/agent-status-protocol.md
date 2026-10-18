@@ -495,6 +495,6 @@ The `version` field in every event enables future protocol evolution. Zentty wil
 
 ### What's Not in the Protocol
 
-- **OSC 9;4 progress sequences** — Terminal escape sequences for progress bars. Zentty reads these from the terminal emulator layer, not from the agent protocol. Agents that emit OSC 9;4 get running-state detection for free, but it's not part of this protocol.
+- **OSC 9;4 progress sequences** — Terminal escape sequences for progress bars. Zentty reads these from the terminal emulator layer, not from the agent protocol. Agents that emit OSC 9;4 get running-state detection for free, and panes without an agent show them as a program status (see [Program Status](program-status.md)), but they're not part of this protocol.
 - **Terminal title heuristics** — Zentty parses terminal titles to detect agent state when no hook is available. This is a fallback mechanism, not a protocol feature.
 - **Desktop notification signals** — Zentty recognizes certain desktop notification patterns as agent state signals. This is also a fallback, not part of the protocol.

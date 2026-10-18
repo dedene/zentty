@@ -1675,7 +1675,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(worklanes[0].paneStripState.focusedPaneID, shellPaneID)
     }
 
-    func test_builder_marks_worklane_as_working_when_background_terminal_progress_exists() {
+    func test_builder_marks_worklane_as_working_when_background_program_status_exists() {
         let shellPaneID = PaneID("worklane-main-shell")
         let backgroundPaneID = PaneID("worklane-main-background")
         let worklane = WorklaneState(
@@ -1702,8 +1702,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
                     gitBranch: nil
                 ),
             ],
-            terminalProgressByPaneID: [
-                backgroundPaneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+            programStatusByPaneID: [
+                backgroundPaneID: PaneProgramStatus(state: .working, updatedAt: Date())
             ]
         )
 
@@ -2328,7 +2328,7 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertEqual(paneRow.statusText, "Idle")
     }
 
-    func test_builder_attaches_terminal_progress_status_to_own_non_agent_pane_row() {
+    func test_builder_attaches_program_status_to_own_non_agent_pane_row() {
         let shellPaneID = PaneID("worklane-main-shell")
         let buildPaneID = PaneID("worklane-main-build")
         let worklane = WorklaneState(
@@ -2355,8 +2355,8 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
                     gitBranch: nil
                 ),
             ],
-            terminalProgressByPaneID: [
-                buildPaneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+            programStatusByPaneID: [
+                buildPaneID: PaneProgramStatus(state: .working, updatedAt: Date())
             ]
         )
 

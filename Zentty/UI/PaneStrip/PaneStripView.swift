@@ -67,6 +67,7 @@ final class PaneStripView: NSView {
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
+    var agentForkAvailabilityProvider: ((PaneID) -> AgentForkAvailability?)?
     var sidebarWidthProvider: (() -> CGFloat)?
     var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
     /// Lets a quick action overlay keep, or take, keyboard focus meant for a pane
@@ -1460,6 +1461,9 @@ final class PaneStripView: NSView {
                 }
                 paneView.restoredRerunnableCommandProvider = { [weak self] paneID in
                     self?.restoredRerunnableCommandProvider?(paneID)
+                }
+                paneView.agentForkAvailabilityProvider = { [weak self] paneID in
+                    self?.agentForkAvailabilityProvider?(paneID)
                 }
                 if !startsWithViewportSyncSuspended {
                     paneView.setTerminalViewportSyncSuspended(false)
