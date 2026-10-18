@@ -49,6 +49,7 @@ Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Dev
 
 **Remote and terminal**
 - **Paste files into ssh sessions.** Drop an image, PDF, or archive on a remote pane and Zentty uploads it over the existing ssh connection and pastes the remote path.
+- **Status from any program.** A build, test run, or remote script can show progress, an error, or a pause in the sidebar by printing the standard OSC 9;4 progress sequence. See [Program Status](docs/program-status.md).
 - **Clean copy.** Copy agent output without prompts, box drawing, and tracking params. Copy as Markdown keeps the structure.
 - **Native Ghostty themes.** Built-in picker with live preview, opacity, and blur. Fine without Ghostty installed too.
 - **Built on libghostty.** GPU rendering in a native Swift and AppKit shell. No Electron, no web views.
