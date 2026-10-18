@@ -126,6 +126,7 @@
 		29DED4BE28EE3F6BAA589705 /* SettingsNavigationHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3094AA8521BDAB3096CF18D /* SettingsNavigationHistoryTests.swift */; };
 		2A08D5A8D71D847DA5EBB8FC /* DiscoveryIPCHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8132E7564D882D85A155D2B5 /* DiscoveryIPCHandlerTests.swift */; };
 		2A64F29063B13F85F622F207 /* SidebarBookmarkRowAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D603FA3B4BCDFE0AC7C4342 /* SidebarBookmarkRowAction.swift */; };
+		2AD992848D9388F61CD0E630 /* RestoreLayoutSeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D46536EC2E26701D06201594 /* RestoreLayoutSeedTests.swift */; };
 		2B3520C9D571691FB2D09616 /* OnePasswordPromptDarwinProcessProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A877F28C926381BDC394539 /* OnePasswordPromptDarwinProcessProvider.swift */; };
 		2B6218848F734FEE8E0A9D72 /* WorklaneStore+MuseTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93DD557EEC14C3AC926A5C5 /* WorklaneStore+MuseTitle.swift */; };
 		2BC7421FF9D00CF7851A5E32 /* JSONCRelaxedParse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24AFCE0DB1F7E072081C9D41 /* JSONCRelaxedParse.swift */; };
@@ -1343,6 +1344,7 @@
 		D28121A25243C98C3BFB947A /* CommandAvailabilityResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolverTests.swift; sourceTree = "<group>"; };
 		D2D282138FCDC94B5D876B4D /* WorklaneGitContextResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneGitContextResolverTests.swift; sourceTree = "<group>"; };
 		D40A07AF51FBC28C9CC07ABA /* CursorHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorHooksInstaller.swift; sourceTree = "<group>"; };
+		D46536EC2E26701D06201594 /* RestoreLayoutSeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreLayoutSeedTests.swift; sourceTree = "<group>"; };
 		D468A4AAC25D668673CC51CE /* PaneContainerViewWorklaneBorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerViewWorklaneBorderTests.swift; sourceTree = "<group>"; };
 		D4B07C000F905AC8E20E1648 /* SidebarGlobalSearchRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGlobalSearchRowView.swift; sourceTree = "<group>"; };
 		D4D79ED218E7EC24A67B6C7C /* ServerPortRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerPortRule.swift; sourceTree = "<group>"; };
@@ -2443,6 +2445,7 @@
 				5BB5D7EB3C3C6F4CA6325492 /* RemoteFileUploadRequestResolverTests.swift */,
 				DE6082DFE772670E457EB1F4 /* RemoteImagePasteDecisionTests.swift */,
 				D666096F56C2FA591E900FF4 /* RemoteImageUploaderTests.swift */,
+				D46536EC2E26701D06201594 /* RestoreLayoutSeedTests.swift */,
 				D24F62AFB71CBBAE4BC9B5A1 /* RootViewCompositionTests.swift */,
 				B50181BE811AE835D0DAAF33 /* RootViewControllerHeaderIntegrationTests.swift */,
 				CC28F1EA0D7841668F8DA676 /* RootViewControllerUpdateIntegrationTests.swift */,
@@ -2928,6 +2931,7 @@
 				30CB07863C026E27D0FF2BB9 /* RemoteFileUploadRequestResolverTests.swift in Sources */,
 				948FF3321AF5D47C542A2297 /* RemoteImagePasteDecisionTests.swift in Sources */,
 				185DFF067ADC9207E76A7D03 /* RemoteImageUploaderTests.swift in Sources */,
+				2AD992848D9388F61CD0E630 /* RestoreLayoutSeedTests.swift in Sources */,
 				8B1430D7C662CD2D1CC2E080 /* RootViewCompositionTests.swift in Sources */,
 				FB6421E478EA88F89ACE1603 /* RootViewControllerHeaderIntegrationTests.swift in Sources */,
 				CB79F077F87E4A504CBEA9B9 /* RootViewControllerUpdateIntegrationTests.swift in Sources */,

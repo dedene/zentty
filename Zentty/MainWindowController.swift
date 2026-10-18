@@ -225,7 +225,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let initialLayoutFrame = initialPaneLayoutFrame ?? initialWindowFrame
         let initialLayoutContext = Self.initialPaneLayoutContext(
             initialFrame: initialLayoutFrame,
-            config: resolvedConfigStore.current
+            config: resolvedConfigStore.current,
+            recipeSidebar: initialWorkspaceState?.sidebar
         )
 
         let rootViewController = RootViewController(
@@ -1954,10 +1955,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return NSRect(x: 0, y: 0, width: 1440, height: 900)
     }
 
+    /// Restored column widths are absolute points that the store rescales by
+    /// `live readableWidth / seed readableWidth` on the first real layout, so
+    /// a restored window must seed with its own sidebar, not the config's
+    /// last-changed one, or every multi-column worklane drifts wider.
     private static func initialPaneLayoutContext(
         initialFrame: NSRect,
-        config: AppConfig
+        config: AppConfig,
+        recipeSidebar: WorkspaceRecipe.Sidebar? = nil
     ) -> PaneLayoutContext {
+        let sidebar = recipeSidebar?.appConfigSidebar ?? config.sidebar
         let viewportWidth = max(1, initialFrame.width - (ShellMetrics.outerInset * 2))
         let displayClass = PaneDisplayClassResolver.resolve(
             screen: NSScreen.main ?? NSScreen.screens.first,
@@ -1967,13 +1974,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return config.paneLayout.makeLayoutContext(
             displayClass: displayClass,
             viewportWidth: viewportWidth,
-            leadingVisibleInset: SidebarVisibilityController(mode: config.sidebar.visibility)
+            leadingVisibleInset: SidebarVisibilityController(mode: sidebar.visibility)
                 .effectiveLeadingInset(
-                    sidebarWidth: config.sidebar.width,
+                    sidebarWidth: sidebar.width,
                     availableWidth: initialFrame.width
                 ),
             sizing: PaneLayoutSizing.forSidebarVisibility(
-                config.sidebar.visibility,
+                sidebar.visibility,
                 showPaneBorders: config.panes.showBorders
             )
         )
@@ -2040,9 +2047,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     static func initialPaneLayoutContextForRestore(
         initialFrame: NSRect,
-        config: AppConfig
+        config: AppConfig,
+        recipeSidebar: WorkspaceRecipe.Sidebar? = nil
     ) -> PaneLayoutContext {
-        initialPaneLayoutContext(initialFrame: initialFrame, config: config)
+        initialPaneLayoutContext(initialFrame: initialFrame, config: config, recipeSidebar: recipeSidebar)
     }
 
     var workspaceRecipeWindow: WorkspaceRecipe.Window {

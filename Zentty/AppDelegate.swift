@@ -985,7 +985,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ?? MainWindowController.defaultFrameForRestore()
             let layoutContext = MainWindowController.initialPaneLayoutContextForRestore(
                 initialFrame: paneLayoutSeedFrame,
-                config: config
+                config: config,
+                recipeSidebar: recipeWindow.sidebar
             )
             let importedState = WorkspaceRecipeImporter.makeWorklanes(
                 from: recipeWindow,
