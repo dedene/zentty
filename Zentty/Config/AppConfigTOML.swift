@@ -199,6 +199,7 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[restore]")
         lines.append("restore_workspace_on_launch = \(config.restore.restoreWorkspaceOnLaunch)")
+        lines.append("scrollback = \(config.restore.restoreScrollback)")
 
         lines.append("")
         lines.append("[agent_teams]")
@@ -927,6 +928,9 @@ enum AppConfigTOML {
         case "restore_workspace_on_launch":
             guard let value = decodeBool(assignment.value) else { return false }
             config.restore.restoreWorkspaceOnLaunch = value
+        case "scrollback":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.restore.restoreScrollback = value
         default:
             return .unknownKey
         }

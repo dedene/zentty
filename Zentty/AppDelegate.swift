@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
     private let sessionRestorePersistence: SessionRestoreSnapshotPersistence
+    private let sessionScrollback: SessionScrollbackCoordinator
     private let windowFrameDefaults: UserDefaults
     private let notificationStore = NotificationStore()
     private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
@@ -77,6 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? SessionRestoreStore(stateDirectoryURL: Self.sessionStateDirectoryURL(for: configStore))
         self.sessionRestoreStore = resolvedSessionRestoreStore
         self.sessionRestorePersistence = SessionRestoreSnapshotPersistence(store: resolvedSessionRestoreStore)
+        self.sessionScrollback = SessionScrollbackCoordinator(
+            stateDirectoryURL: resolvedSessionRestoreStore.snapshotURL.deletingLastPathComponent()
+        )
         self.windowFrameDefaults = windowFrameDefaults
         self.isSessionRestoreEnabled = sessionRestoreEnabled
             ?? !Self.isHostedTestMode
@@ -129,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.applyMenuBarStatusConfig(config)
                 if self.isSessionRestoreEnabled {
                     self.handleRestorePreferenceChange(config.restore)
+                    self.applySessionScrollbackPreference(config.restore)
                 }
             }
         }
@@ -155,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard shouldOpenMainWindow else { return }
 
         if isSessionRestoreEnabled {
+            configureSessionScrollback()
             let launchDecision: SessionRestoreStore.LaunchDecision?
             do {
                 launchDecision = try sessionRestoreStore.prepareForLaunch(
@@ -549,6 +555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
+        sessionScrollback.observe(controller.worklaneStore)
         syncMenuBarStatusSources()
         return controller
     }
@@ -783,7 +790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         generation: UInt64,
         synchronously: Bool
     ) {
-        let request = workspaceSnapshotPersistenceRequest(reason: reason)
+        let request = workspaceSnapshotPersistenceRequest(reason: reason, synchronously: synchronously)
         if synchronously {
             sessionRestorePersistence.persistSynchronously(request, generation: generation)
         } else {
@@ -791,22 +798,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func workspaceSnapshotPersistenceRequest(reason: SessionRestoreEnvelope.SaveReason) -> SessionRestorePersistenceRequest {
+    /// A synchronous save is the one on quit: saved pane output is captured
+    /// only once the snapshot is known to be kept, and its disk work finishes
+    /// before the process exits.
+    private func workspaceSnapshotPersistenceRequest(
+        reason: SessionRestoreEnvelope.SaveReason,
+        synchronously: Bool
+    ) -> SessionRestorePersistenceRequest {
         if !configStore.current.restore.restoreWorkspaceOnLaunch {
+            sessionScrollback.discardAll(synchronously: synchronously)
             return .deleteSnapshot
         }
 
         let envelope = currentSessionRestoreEnvelope(reason: reason)
-        guard let envelope else {
+        guard var envelope else {
             return .none
         }
 
         let defaultWorkingDirectory = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         guard WorkspaceRecipeMeaningfulness.isMeaningful(envelope.workspace, defaultWorkingDirectory: defaultWorkingDirectory) else {
+            sessionScrollback.discardAll(synchronously: synchronously)
             return .deleteSnapshot
         }
 
+        envelope.workspace = sessionScrollback.prepareForSave(envelope.workspace, finalSave: synchronously)
         return .saveSnapshot(envelope)
+    }
+
+    private func configureSessionScrollback() {
+        sessionScrollback.sourcesProvider = { [weak self] in
+            self?.orderedWindowControllers.map { controller in
+                let store = controller.worklaneStore
+                return SessionScrollbackCoordinator.CaptureSource(
+                    paneIDs: store.worklanes.flatMap { $0.paneStripState.panes.map(\.id) },
+                    busyPaneIDs: Self.busyPaneIDs(in: store),
+                    read: { [weak store] paneID in store?.scrollbackProvider?(paneID) }
+                )
+            } ?? []
+        }
+        sessionScrollback.onReferencesChanged = { [weak self] in
+            self?.scheduleWorkspaceSnapshotSave()
+        }
+        applySessionScrollbackPreference(configStore.current.restore)
+        if !sessionScrollback.isEnabled {
+            // Turned off in config.toml while Zentty was not running.
+            sessionScrollback.discardAll()
+        }
+    }
+
+    private static func busyPaneIDs(in store: WorklaneStore) -> Set<PaneID> {
+        var busy = Set<PaneID>()
+        for worklane in store.worklanes {
+            for (paneID, state) in worklane.auxiliaryStateByPaneID
+            where state.shellActivityState == .commandRunning || state.isWorking {
+                busy.insert(paneID)
+            }
+        }
+        return busy
+    }
+
+    /// Saved pane output only exists alongside a restorable workspace.
+    private func applySessionScrollbackPreference(_ restore: AppConfig.Restore) {
+        sessionScrollback.setEnabled(restore.restoreWorkspaceOnLaunch && restore.restoreScrollback)
     }
 
     private func currentSessionRestoreEnvelope(reason: SessionRestoreEnvelope.SaveReason) -> SessionRestoreEnvelope? {
@@ -987,7 +1040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 initialFrame: paneLayoutSeedFrame,
                 config: config
             )
-            let importedState = WorkspaceRecipeImporter.makeWorklanes(
+            var importedState = WorkspaceRecipeImporter.makeWorklanes(
                 from: recipeWindow,
                 restoreDraftWindow: envelope.restoreDraftWindow(forWindowID: recipeWindow.id),
                 windowID: WindowID(recipeWindow.id),
@@ -995,6 +1048,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 processEnvironment: ProcessInfo.processInfo.environment,
                 agentTeamsEnabled: config.agentTeams.enabled
             )
+            sessionScrollback.prepareRestoredPanes(in: &importedState, from: recipeWindow)
             let controller = makeWindowController(
                 windowID: WindowID(recipeWindow.id),
                 initialWorkspaceState: importedState,
