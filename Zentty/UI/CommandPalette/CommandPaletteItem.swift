@@ -123,7 +123,8 @@ enum CommandPaletteItemBuilder {
         focusedPaneCopyTarget: PaneCopyTarget? = nil,
         focusedBranchName: String? = nil,
         rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane,
-        focusedPaneUnreadToggle: PaneUnreadToggle? = nil
+        focusedPaneUnreadToggle: PaneUnreadToggle? = nil,
+        focusedPaneAgentFork: AgentForkAvailability? = nil
     ) -> [CommandPaletteItem] {
         AppCommandRegistry.definitions.compactMap { definition in
             guard availableCommandIDs.contains(definition.id) else {
@@ -139,9 +140,12 @@ enum CommandPaletteItemBuilder {
                 for: definition,
                 focusedPaneCopyTarget: focusedPaneCopyTarget ?? focusedPanePath.map(PaneCopyTarget.path),
                 focusedBranchName: focusedBranchName,
-                rightPaneCommandPresentation: rightPaneCommandPresentation
+                rightPaneCommandPresentation: rightPaneCommandPresentation,
+                focusedPaneAgentFork: focusedPaneAgentFork
             )
             let shortcut = shortcutManager.shortcut(for: definition.id)
+            let isEnabled = definition.id != .forkAgentConversation
+                || focusedPaneAgentFork?.isAvailable == true
 
             return CommandPaletteItem(
                 id: .command(definition.id),
@@ -157,7 +161,8 @@ enum CommandPaletteItemBuilder {
                 ),
                 family: nil,
                 familySearchText: nil,
-                familyOrder: nil
+                familyOrder: nil,
+                isEnabled: isEnabled
             )
         }
     }
@@ -351,6 +356,16 @@ enum CommandPaletteItemBuilder {
         return items
     }
 
+    /// Command rows shown dimmed: selecting one must not run or record it.
+    static func disabledCommandItemIDs(in items: [CommandPaletteItem]) -> Set<CommandPaletteItemID> {
+        Set(items.compactMap { item in
+            guard !item.isEnabled, case .command = item.id else {
+                return nil
+            }
+            return item.id
+        })
+    }
+
     static func buildOpenWithItems(
         targets: [OpenWithResolvedTarget],
         focusedPanePath: String?,
@@ -406,7 +421,8 @@ enum CommandPaletteItemBuilder {
         for definition: AppCommandDefinition,
         focusedPaneCopyTarget: PaneCopyTarget?,
         focusedBranchName: String?,
-        rightPaneCommandPresentation: PaneRightCommandPresentation
+        rightPaneCommandPresentation: PaneRightCommandPresentation,
+        focusedPaneAgentFork: AgentForkAvailability?
     ) -> String {
         if definition.id == .splitHorizontally {
             return rightPaneCommandPresentation.primaryDetailDescription
@@ -423,6 +439,15 @@ enum CommandPaletteItemBuilder {
                 return definition.detailDescription
             }
             return "Open remote branch — \(focusedBranchName)"
+        case .forkAgentConversation:
+            switch focusedPaneAgentFork {
+            case .available(let plan):
+                return "Continue this \(plan.tool.displayName) conversation in a new pane."
+            case .unavailable(let reason):
+                return reason
+            case nil:
+                return definition.detailDescription
+            }
         default:
             return definition.detailDescription
         }
@@ -503,6 +528,8 @@ enum CommandPaletteItemBuilder {
             "arrow.up.forward.app"
         case .refreshPullRequestStatus:
             "arrow.clockwise"
+        case .forkAgentConversation:
+            "arrow.triangle.branch"
         case .toggleLightDarkTheme, .useDarkTheme, .useLightTheme, .useAutoTheme:
             "circle.lefthalf.filled"
         default:

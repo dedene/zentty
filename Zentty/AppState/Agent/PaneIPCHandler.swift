@@ -124,6 +124,7 @@ enum PaneIPCSubcommand: String {
     case worklaneColor = "worklane-color"
     case worklaneRename = "worklane-rename"
     case paneRename = "pane-rename"
+    case paneFork = "pane-fork"
     case theme
     case send
     case sendKey = "send-key"
@@ -133,7 +134,7 @@ enum PaneIPCSubcommand: String {
     /// renames, notifications, and scripted input leave focus alone.
     var focusesTarget: Bool {
         switch self {
-        case .split, .grid, .focus, .close, .resize, .layout:
+        case .split, .grid, .focus, .close, .resize, .layout, .paneFork:
             return true
         case .overlayOpen, .overlayList, .overlayShow, .overlayClose, .list, .notify,
              .worklaneColor, .worklaneRename, .paneRename, .theme, .send, .sendKey, .read:
@@ -145,7 +146,7 @@ enum PaneIPCSubcommand: String {
     /// of reporting success without doing anything.
     var requiresResolvedTarget: Bool {
         switch self {
-        case .notify, .overlayOpen, .overlayList, .overlayShow, .overlayClose, .send, .sendKey, .read:
+        case .notify, .overlayOpen, .overlayList, .overlayShow, .overlayClose, .paneFork, .send, .sendKey, .read:
             return true
         case .split, .grid, .list, .focus, .close, .resize, .layout,
              .worklaneColor, .worklaneRename, .paneRename, .theme:
@@ -563,6 +564,8 @@ enum PaneIPCHandler {
                 windowController: windowController,
                 appDelegate: appDelegate
             )
+        case .paneFork:
+            return try handlePaneFork(arguments: request.arguments, target: target, windowController: windowController)
         case .theme:
             return try handleTheme(arguments: request.arguments, windowController: windowController)
         case .send:
@@ -572,6 +575,29 @@ enum PaneIPCHandler {
         case .read:
             return try PaneControlIPCHandler.handleRead(request: request, target: target)
         }
+    }
+
+    @MainActor
+    private static func handlePaneFork(
+        arguments: [String],
+        target: AgentIPCTarget,
+        windowController: MainWindowController
+    ) throws -> AgentIPCResponseResult {
+        let parsed = try AgentForkIPCArguments.parse(arguments)
+        let sourcePaneID: PaneID
+        if let forkTarget = parsed.target {
+            guard let resolvedPaneID = windowController.resolvePaneID(forkTarget, in: target.worklaneID) else {
+                throw PaneRoutingError.paneNotFound
+            }
+            sourcePaneID = resolvedPaneID
+        } else {
+            sourcePaneID = target.paneID
+        }
+        let result = try windowController.forkAgentConversation(
+            paneID: sourcePaneID,
+            destination: parsed.destination
+        )
+        return AgentIPCResponseResult(stdout: "\(result.paneID.rawValue)\n")
     }
 
     @MainActor

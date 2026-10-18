@@ -31,6 +31,17 @@ if set -q ZENTTY_FISH_INTEGRATION_LOADED
 end
 set -g ZENTTY_FISH_INTEGRATION_LOADED 1
 
+# A pane restored after relaunch carries its previous output in a file Zentty
+# wrote on quit. Print it once, before the first prompt, and drop the variable
+# so nothing started from this shell sees it. The file is only ever printed.
+if set -q ZENTTY_RESTORED_SCROLLBACK_FILE
+    set -l _zentty_restored_file $ZENTTY_RESTORED_SCROLLBACK_FILE
+    set -e ZENTTY_RESTORED_SCROLLBACK_FILE
+    if test -n "$_zentty_restored_file" -a -f "$_zentty_restored_file" -a -r "$_zentty_restored_file"
+        command cat -- $_zentty_restored_file 2>/dev/null
+    end
+end
+
 set -g _zentty_shell_activity_last ""
 
 function _zentty_print_tty

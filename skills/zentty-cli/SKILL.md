@@ -70,9 +70,13 @@ Common pane actions:
 "$ZENTTY" pane focus left
 "$ZENTTY" pane resize 60%
 "$ZENTTY" pane zoom
+"$ZENTTY" pane fork
+"$ZENTTY" pane fork 2 --down
 "$ZENTTY" layout thirds
 "$ZENTTY" layout reset
 ```
+
+`pane fork` branches the agent conversation in a pane into a new pane that runs the agent's own fork command, leaving the original running. It opens to the right by default (`--down` or `--worklane` to change that), prints the new pane ID, and fails with a reason when the agent can't fork or hasn't reported a session ID yet.
 
 Create grids carefully; large grids create many live panes:
 

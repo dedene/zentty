@@ -963,6 +963,23 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func forkAgentConversation(_ sender: Any?) {
+        if let paneID = representedPaneID(from: sender),
+           let worklaneID = rootViewController.worklaneID(containing: paneID) {
+            rootViewController.paneCommands.focusPaneByID(paneID, in: worklaneID)
+        }
+        handle(.pane(.forkAgentConversation))
+    }
+
+    @discardableResult
+    func forkAgentConversation(
+        paneID: PaneID,
+        destination: AgentForkDestination?
+    ) throws -> WorklaneStore.AgentForkResult {
+        try rootViewController.paneCommands.forkAgentConversation(paneID: paneID, destination: destination)
+    }
+
+    @objc
     func movePaneToWorklane(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,
               let request = item.representedObject as? MovePaneToWorklaneRequest else {
@@ -1301,6 +1318,38 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         runtime.adapter.submitCommand(command)
         return true
+    }
+
+    /// Types a reply from an agent notification into its pane, but only while
+    /// the agent still sits at its prompt after the turn the notification
+    /// was raised for.
+    /// Uses the same paste + Return path as `submitCommand`.
+    func deliverAgentNotificationReply(
+        _ reply: String,
+        paneID: PaneID,
+        token: String?
+    ) -> AgentNotificationReplyOutcome {
+        guard let worklaneID = worklaneID(containing: paneID) else {
+            return .stale(.paneGone)
+        }
+        let decision = AgentNotificationReplyGuard.decide(
+            worklane: rootViewController.currentWorklane(id: worklaneID),
+            paneID: paneID,
+            paneExists: runtimeRegistry.runtime(for: paneID) != nil,
+            isInlineReplyEnabled: configStore.current.notifications.inlineReply,
+            notificationToken: token,
+            currentToken: rootViewController.notificationReplyToken(worklaneID: worklaneID, paneID: paneID)
+        )
+        if case .stale(let reason) = decision {
+            return .stale(reason)
+        }
+        guard let paste = AgentNotificationReplyText.terminalPaste(for: reply) else {
+            return .emptyReply
+        }
+        guard submitCommand(paste, to: paneID) else {
+            return .stale(.paneGone)
+        }
+        return .delivered(worklaneID: worklaneID)
     }
 
     func readText(from paneID: PaneID, includeScrollback: Bool, lineLimit: Int?) -> String? {
@@ -2206,6 +2255,13 @@ extension MainWindowController: NSMenuItemValidation {
             return rootViewController.isCommandAvailable(.splitHorizontally)
         case #selector(addPaneDown(_:)), #selector(addPaneUp(_:)):
             return rootViewController.isCommandAvailable(.splitVertically)
+        case #selector(forkAgentConversation(_:)):
+            // A pane context menu carries the right-clicked pane, which isn't
+            // necessarily the focused one.
+            guard let paneID = representedPaneID(from: menuItem) ?? rootViewController.focusedPaneID() else {
+                return false
+            }
+            return worklaneStore.agentForkAvailability(for: paneID)?.isAvailable == true
         default:
             break
         }

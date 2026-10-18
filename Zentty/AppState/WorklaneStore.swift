@@ -393,6 +393,7 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
+    var pendingProgramStatusStaleTasks: [PaneID: any WorklaneStoreScheduledHandle] = [:]
     var pendingCodexQuestionTasks: [PaneReference: Task<Void, Never>] = [:]
     var pendingCodexQuestionRequests: [PaneReference: CodexTranscriptQuestionRequest] = [:]
     var cachedCodexTranscriptQuestions: [CodexTranscriptQuestionCacheKey: CodexTranscriptQuestion] = [:]
@@ -407,12 +408,14 @@ final class WorklaneStore {
     /// would reject forces a fresh scan before it is dropped.
     var cachedForegroundAgentContext: (context: AgentSessionSweepContext, stamp: Date)?
     let foregroundAgentContextTTL: TimeInterval
-    private let scheduleReadyStatusTask: ReadyStatusScheduler
+    let scheduleReadyStatusTask: ReadyStatusScheduler
     let codexQuestionResolver: CodexQuestionResolver
     let codexResolver: CodexToolStatusResolver
     private let newWorklanePlacementProvider: @MainActor () -> NewWorklanePlacement
     private let agentTeamsEnabledProvider: @MainActor () -> Bool
     private let serverDetectionProvider: @MainActor () -> AppConfig.ServerDetection
+    /// `panes.program_status`: whether OSC 9;4 sets a program status.
+    let programStatusEnabledProvider: @MainActor () -> Bool
     /// Reaches the Claude hook bridge's on-disk session store so in-app
     /// resumes (spinner title after a prompt) can drop the pending prompt the
     /// bridge remembered. `nil` (tests, previews) leaves the store alone.
@@ -509,6 +512,7 @@ final class WorklaneStore {
         newWorklanePlacementProvider: @escaping @MainActor () -> NewWorklanePlacement = { .afterCurrent },
         agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false },
         serverDetectionProvider: @escaping @MainActor () -> AppConfig.ServerDetection = { .default },
+        programStatusEnabledProvider: @escaping @MainActor () -> Bool = { true },
         claudeHookSessionStoreProvider: @escaping @MainActor () -> ClaudeHookSessionStore? = { nil }
     ) {
         self.windowID = windowID
@@ -527,6 +531,7 @@ final class WorklaneStore {
         self.newWorklanePlacementProvider = newWorklanePlacementProvider
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.serverDetectionProvider = serverDetectionProvider
+        self.programStatusEnabledProvider = programStatusEnabledProvider
         self.claudeHookSessionStoreProvider = claudeHookSessionStoreProvider
         self.runtimeIdentity = runtimeIdentity
         self.serverRegistry = serverRegistry
@@ -1012,7 +1017,8 @@ final class WorklaneStore {
             .arrangeVertically,
             .arrangeGoldenRatio,
             .resetLayout,
-            .restoreClosedPane:
+            .restoreClosedPane,
+            .forkAgentConversation:
             activeWorklane = worklane
             return
         }
@@ -1842,6 +1848,7 @@ final class WorklaneStore {
         pane.sessionRequest.nativeCommand = override.nativeCommand
         pane.sessionRequest.waitAfterNativeCommand = override.waitAfterNativeCommand
         pane.sessionRequest.isLaunchDeferred = override.isLaunchDeferred
+        pane.sessionRequest.replaysCommandOnRestore = override.replaysCommandOnRestore
         if !override.environmentVariables.isEmpty {
             pane.sessionRequest.environmentVariables.merge(override.environmentVariables) { _, new in new }
         }

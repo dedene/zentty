@@ -352,6 +352,9 @@ final class RootViewController: NSViewController {
             serverDetectionProvider: { [weak configStore] in
                 configStore?.current.serverDetection ?? .default
             },
+            programStatusEnabledProvider: { [weak configStore] in
+                configStore?.current.panes.programStatusEnabled ?? true
+            },
             claudeHookSessionStoreProvider: { ClaudeHookSessionStore() }
         )
         self.peekController = WorklanePeekController(
@@ -947,6 +950,9 @@ final class RootViewController: NSViewController {
         }
         appCanvasView.paneStripView.restoredRerunnableCommandProvider = { [weak self] paneID in
             self?.worklaneStore.restoredRerunnableCommand(for: paneID)
+        }
+        appCanvasView.paneStripView.agentForkAvailabilityProvider = { [weak self] paneID in
+            self?.worklaneStore.agentForkAvailability(for: paneID)
         }
         appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
             self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
@@ -2049,7 +2055,8 @@ final class RootViewController: NSViewController {
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
             activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
             focusedPaneUnreadToggle: focusedPaneUnreadToggle,
-            isQuickActionFocused: isQuickActionFocused
+            isQuickActionFocused: isQuickActionFocused,
+            focusedPaneAgentFork: focusedPaneAgentForkAvailability
         )
     }
 
@@ -2060,6 +2067,10 @@ final class RootViewController: NSViewController {
             view = current.superview
         }
         return false
+    }
+
+    var focusedPaneAgentForkAvailability: AgentForkAvailability? {
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.agentForkAvailability(for:))
     }
 
     var focusedPaneUnreadToggle: PaneUnreadToggle? {
@@ -2624,6 +2635,17 @@ final class RootViewController: NSViewController {
         }?.id
     }
 
+    /// Token of the pane's current attention, as carried by the notification
+    /// raised for it. A reply is only typed while the two still match.
+    func notificationReplyToken(worklaneID: WorklaneID, paneID: PaneID) -> String? {
+        renderCoordinator.notificationReplyToken(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    /// The worklane's live state, not the last render.
+    func currentWorklane(id worklaneID: WorklaneID) -> WorklaneState? {
+        worklaneStore.worklanes.first { $0.id == worklaneID }
+    }
+
     func focusedPaneID() -> PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
@@ -3020,6 +3042,7 @@ final class RootViewController: NSViewController {
         refreshShortcutTooltips()
         preloadOpenWithIcons()
         windowChromeView.apply(panes: config.panes)
+        worklaneStore.clearProgramStatusesIfDisabled()
         preloadProjectIcons()
         // Sidebar visibility and width are per-window state. The config store only
         // holds the most recently changed value so that new windows can seed from

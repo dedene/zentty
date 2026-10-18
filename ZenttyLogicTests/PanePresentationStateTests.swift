@@ -1696,10 +1696,10 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.runtimePhase, .unresolvedStop)
     }
 
-    func test_normalize_unknown_tool_with_osc_progress_resolves_to_running() {
-        // No agentStatus + unrecognized tool + active OSC progress
-        // exercises the generic fallback at line 484-486 of the normalizer.
-        let raw = PaneRawState(
+    func test_normalize_unknown_tool_with_program_status_resolves_to_running() {
+        // No agentStatus + unrecognized tool + an OSC 9;4 program status
+        // exercises the lowest-priority ProgramStatusReducer.
+        var raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "some-binary running",
                 currentWorkingDirectory: "/tmp/project",
@@ -1712,6 +1712,7 @@ final class PanePresentationStateTests: XCTestCase {
             reviewState: nil,
             gitContext: nil
         )
+        raw.programStatus = PaneProgramStatus(state: .working, updatedAt: Date())
 
         let presentation = PanePresentationNormalizer.normalize(
             paneTitle: "shell",
