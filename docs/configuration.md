@@ -92,6 +92,15 @@ Sync `~/.config/ghostty/` as well for identical terminals. Ghostty.app reads the
 
 The theme and background opacity you pick in Zentty's settings are always recorded in `config.toml` as well. A Mac without a Ghostty config uses those.
 
+## Program status
+
+Programs can set their pane's sidebar status by printing the OSC 9;4 progress sequence; see [Program Status](program-status.md). It's on by default. To turn it off:
+
+```toml
+[panes]
+program_status = false
+```
+
 ## Custom notification sounds
 
 macOS only plays notification sounds from `~/Library/Sounds`. When you pick a custom sound, Zentty installs it there and keeps a copy in `~/.config/zentty/sounds/`. A Mac that receives the setting through sync installs the sound from that copy the first time it needs it.

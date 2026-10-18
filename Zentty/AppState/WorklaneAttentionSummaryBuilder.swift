@@ -24,7 +24,7 @@ enum WorklaneAttentionSummaryBuilder {
         let presentation = paneContext.presentation
         guard
             let attentionState = attentionState(for: presentation),
-            let tool = presentation.recognizedTool
+            let tool = presentation.recognizedTool ?? programTool(for: presentation)
         else {
             return nil
         }
@@ -43,6 +43,16 @@ enum WorklaneAttentionSummaryBuilder {
             taskProgress: presentation.taskProgress,
             updatedAt: presentation.updatedAt
         )
+    }
+
+    /// A pane without an agent still raises attention for the status its
+    /// program set, owned by the program's name.
+    private static func programTool(for presentation: PanePresentationState) -> AgentTool? {
+        guard presentation.programStatus != nil else {
+            return nil
+        }
+
+        return .custom(presentation.programName ?? "Terminal")
     }
 
     private static func primaryText(for presentation: PanePresentationState) -> String {

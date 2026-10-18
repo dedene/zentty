@@ -11,7 +11,7 @@
 /// (`context.copilotTitleNeedsInput`, `context.titlePhase`,
 /// `context.recognizedTool`) to claim the phase directly. They do NOT
 /// depend on each other — each checks raw context, not the draft.
-/// Reducer 5 is the default hook-state mapping. Reducers 6–7 are
+/// Reducer 6 is the default hook-state mapping. Reducers 7–8 are
 /// fallbacks when no hook data exists.
 ///
 /// ```
@@ -22,7 +22,7 @@
 /// 5. CopilotOSCProgressReducer        — Copilot OSC upgrades idle→running
 /// 6. ExplicitAgentStateReducer        — default agentStatus.state mapping
 /// 7. FallbackTitleHeuristicReducer    — title-based phase when no hooks
-/// 8. GenericProgressReducer           — unknown tool + OSC → running
+/// 8. ProgramStatusReducer            — no agent + OSC 9;4 program status
 /// ```
 struct PresentationPipeline: Sendable {
     let reducers: [any PresentationReducer & Sendable]
@@ -50,6 +50,6 @@ struct PresentationPipeline: Sendable {
         CopilotOSCProgressReducer(),
         ExplicitAgentStateReducer(),
         FallbackTitleHeuristicReducer(),
-        GenericProgressReducer(),
+        ProgramStatusReducer(),
     ])
 }

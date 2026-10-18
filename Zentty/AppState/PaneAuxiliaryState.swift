@@ -148,6 +148,10 @@ struct PanePresentationState: Equatable, Sendable {
     var taskProgress: PaneAgentTaskProgress? = nil
     /// Live subagents under this pane's agent session; `nil` or empty hides the badge.
     var subagents: PaneAgentSubagentSummary? = nil
+    /// The OSC 9;4 status this pane presents; nil whenever an agent owns it.
+    var programStatus: PaneProgramStatus? = nil
+    /// Owner name for `programStatus` in attention surfaces.
+    var programName: String? = nil
 
     var hasResolvedIdentity: Bool {
         identityText != nil || contextText != nil || rememberedTitle != nil
@@ -243,6 +247,9 @@ struct PaneRawState: Equatable, Sendable {
     var lastRunCommand: String?
     var restoredRerunnableCommand: String?
     var terminalProgress: TerminalProgressReport?
+    /// Status the pane's program set through OSC 9;4; shown only while no
+    /// agent owns the pane.
+    var programStatus: PaneProgramStatus? = nil
     var restoredAgentRestoreDraft: PaneRestoreDraft?
     var restoredAgentAutoResumePending = false
     var reviewState: WorklaneReviewState?
@@ -585,6 +592,10 @@ enum PanePresentationNormalizer {
             titlePhase: titlePhase,
             copilotTitleNeedsInput: copilotTitleNeedsInput
         )
+        let programStatus = ProgramStatusReducer.displayedProgramStatus(
+            raw: raw,
+            recognizedTool: recognizedTool
+        )
         let agentInteractionKind: PaneAgentInteractionKind =
             copilotTitleNeedsInput
             ? .question
@@ -606,13 +617,13 @@ enum PanePresentationNormalizer {
         let taskProgress =
             (recognizedTool == .codex
                 ? TerminalMetadataChangeClassifier.codexTaskProgress(for: raw.metadata?.title)
-                : nil) ?? raw.agentStatus?.taskProgress
+                : nil) ?? raw.agentStatus?.taskProgress ?? programStatus?.taskProgress
         // Mutually exclusive with `isReady` below, so a mark always shows.
         let isCheckBack = raw.checkBackReminder != nil
             && runtimePhase == .idle
             && recognizedTool != nil
             && !(showsReadyStatus && incompleteTaskProgress(taskProgress) == nil)
-        let statusText = visibleStatusText(
+        let statusText = programStatus?.presentedStatusText ?? visibleStatusText(
             for: runtimePhase,
             interactionKind: agentInteractionKind,
             taskProgress: taskProgress,
@@ -630,7 +641,11 @@ enum PanePresentationNormalizer {
         let titleDerivedNeedsInput =
             runtimePhase == .needsInput
             && (copilotTitleNeedsInput || codexTitleInteractionKind != nil)
-        if titleDerivedNeedsInput {
+        if let programStatus {
+            // A program has no interaction kind; its own state names the row.
+            interactionLabel = runtimePhase == .needsInput ? programStatus.statusText : nil
+            interactionSymbolName = programStatus.symbolName
+        } else if titleDerivedNeedsInput {
             // Some terminal-title driven needs-input states arrive before the
             // hook/API state catches up, or while a stale approval status is
             // still present. Derive the visible label from the current title
@@ -718,7 +733,11 @@ enum PanePresentationNormalizer {
             interactionLabel: interactionLabel,
             interactionSymbolName: interactionSymbolName,
             taskProgress: taskProgress,
-            subagents: raw.agentStatus?.subagents.flatMap { $0.isEmpty ? nil : $0 }
+            subagents: raw.agentStatus?.subagents.flatMap { $0.isEmpty ? nil : $0 },
+            programStatus: programStatus,
+            programName: programStatus.map { _ in
+                PaneProgramStatus.programName(metadata: raw.metadata, lastRunCommand: raw.lastRunCommand)
+            }
         )
     }
 
@@ -955,11 +974,11 @@ enum PanePresentationNormalizer {
             return "Running"
         }
 
-        return "Running (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
+        return "Running\(taskProgress.statusSuffix)"
     }
 
     private static func idleStatusText(taskProgress: PaneAgentTaskProgress) -> String {
-        "Idle (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
+        "Idle\(taskProgress.statusSuffix)"
     }
 
     private static func incompleteTaskProgress(_ taskProgress: PaneAgentTaskProgress?)

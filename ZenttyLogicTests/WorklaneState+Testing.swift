@@ -12,6 +12,7 @@ extension WorklaneState {
         paneContextByPaneID: [PaneID: PaneShellContext] = [:],
         agentStatusByPaneID: [PaneID: PaneAgentStatus] = [:],
         terminalProgressByPaneID: [PaneID: TerminalProgressReport] = [:],
+        programStatusByPaneID: [PaneID: PaneProgramStatus] = [:],
         reviewStateByPaneID: [PaneID: WorklaneReviewState] = [:],
         gitContextByPaneID: [PaneID: PaneGitContext] = [:]
     ) {
@@ -20,6 +21,7 @@ extension WorklaneState {
             .union(paneContextByPaneID.keys)
             .union(agentStatusByPaneID.keys)
             .union(terminalProgressByPaneID.keys)
+            .union(programStatusByPaneID.keys)
             .union(reviewStateByPaneID.keys)
             .union(gitContextByPaneID.keys)
         for paneID in allPaneIDs {
@@ -28,7 +30,7 @@ extension WorklaneState {
                 metadata: metadata,
                 shellContext: paneContextByPaneID[paneID]
             )
-            let auxiliaryState = PaneAuxiliaryState(
+            var auxiliaryState = PaneAuxiliaryState(
                 metadata: metadata,
                 shellContext: paneContextByPaneID[paneID],
                 agentStatus: agentStatusByPaneID[paneID],
@@ -36,6 +38,7 @@ extension WorklaneState {
                 reviewState: reviewStateByPaneID[paneID],
                 gitContext: synthesizedGitContext
             )
+            auxiliaryState.raw.programStatus = programStatusByPaneID[paneID]
             let pane = paneStripState.panes.first(where: { $0.id == paneID })
             let paneTitle = pane?.title
             var normalizedAuxiliaryState = auxiliaryState

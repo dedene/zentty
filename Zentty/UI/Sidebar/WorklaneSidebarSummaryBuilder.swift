@@ -1178,7 +1178,7 @@ enum WorklaneSidebarSummaryBuilder {
             return (statusText, nil)
         }
 
-        let suffix = " (\(taskProgress.doneCount)/\(taskProgress.totalCount))"
+        let suffix = taskProgress.statusSuffix
         guard statusText.hasSuffix(suffix) else {
             return (statusText, nil)
         }
