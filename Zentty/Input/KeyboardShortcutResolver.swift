@@ -47,6 +47,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case jumpToLatestNotification = "notifications.jump_latest"
     case toggleFocusedPaneUnread = "pane.toggle_unread"
     case duplicateFocusedPane = "pane.duplicate"
+    case forkAgentConversation = "pane.fork_agent_conversation"
     case movePaneToNewWindow = "pane.move_to_new_window"
     case splitHorizontally = "pane.split.horizontal"
     case forceSplitRight = "pane.split.right.force"
@@ -473,6 +474,14 @@ enum AppCommandRegistry {
             category: .panes,
             defaultShortcut: nil,
             action: .pane(.duplicateFocusedPane),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .forkAgentConversation,
+            title: "Fork Agent Conversation",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .pane(.forkAgentConversation),
             menuItem: nil
         ),
         AppCommandDefinition(
@@ -1187,6 +1196,8 @@ extension AppCommandDefinition {
             "Mark the focused agent pane as Check back until you visit it again, or mark it as read."
         case .duplicateFocusedPane:
             "Duplicate the focused pane in a new column, keeping its working directory."
+        case .forkAgentConversation:
+            "Continue the focused agent's conversation in a new pane, leaving the original running."
         case .movePaneToNewWindow:
             "Move the focused pane into its own window without restarting the terminal session."
         case .movePaneLeft:
@@ -1298,6 +1309,10 @@ extension AppCommandDefinition {
                 .lowercased()
         case .refreshPullRequestStatus:
             [title, detailDescription, "refresh pull request pr status checks review ci reload"]
+                .joined(separator: " ")
+                .lowercased()
+        case .forkAgentConversation:
+            [title, detailDescription, "fork branch session agent conversation chat"]
                 .joined(separator: " ")
                 .lowercased()
         case .toggleFocusedPaneUnread:

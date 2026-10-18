@@ -24,5 +24,9 @@
   "resume": {
     "command": "kilo --session {sessionId}",
     "sessionIdPattern": "^ses_[A-Za-z0-9]+$"
+  },
+  "fork": {
+    "command": "kilo --session {sessionId} --fork",
+    "sessionIdPattern": "^ses_[A-Za-z0-9]+$"
   }
 }

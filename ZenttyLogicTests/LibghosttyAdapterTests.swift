@@ -314,6 +314,20 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(surfaceController.submitReturnCallCount, 1)
     }
 
+    func test_multi_line_notification_reply_is_one_line_paste_then_one_return_key() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        let paste = try XCTUnwrap(AgentNotificationReplyText.terminalPaste(for: "use main\r\nthen rebase\n"))
+        adapter.submitCommand(paste)
+
+        XCTAssertEqual(surfaceController.sentTexts, ["use main then rebase"])
+        XCTAssertEqual(surfaceController.submitReturnCallCount, 1)
+    }
+
     func test_cancel_prompt_input_forwards_to_surface_controller() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)

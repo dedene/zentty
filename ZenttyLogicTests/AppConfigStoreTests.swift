@@ -1262,6 +1262,44 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.restore.restoreWorkspaceOnLaunch)
     }
 
+    func test_store_defaults_restore_scrollback_to_enabled() {
+        let store = AppConfigStore(
+            fileURL: temporaryDirectoryURL.appendingPathComponent("config.toml"),
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertTrue(store.current.restore.restoreScrollback)
+        XCTAssertTrue(AppConfig.Restore.default.restoreScrollback)
+    }
+
+    func test_store_reads_and_persists_restore_scrollback_preference() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [restore]
+        restore_workspace_on_launch = true
+        scrollback = false
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertFalse(store.current.restore.restoreScrollback)
+        XCTAssertTrue(store.current.restore.restoreWorkspaceOnLaunch)
+
+        try store.update { config in
+            config.restore.restoreScrollback = true
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("scrollback = true"))
+        XCTAssertTrue(store.current.restore.restoreScrollback)
+    }
+
     func test_store_defaults_agent_teams_to_disabled() {
         let store = AppConfigStore(
             fileURL: temporaryDirectoryURL.appendingPathComponent("config.toml"),

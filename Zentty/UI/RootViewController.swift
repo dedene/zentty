@@ -951,6 +951,9 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.restoredRerunnableCommandProvider = { [weak self] paneID in
             self?.worklaneStore.restoredRerunnableCommand(for: paneID)
         }
+        appCanvasView.paneStripView.agentForkAvailabilityProvider = { [weak self] paneID in
+            self?.worklaneStore.agentForkAvailability(for: paneID)
+        }
         appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
             self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
         }
@@ -2052,7 +2055,8 @@ final class RootViewController: NSViewController {
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
             activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
             focusedPaneUnreadToggle: focusedPaneUnreadToggle,
-            isQuickActionFocused: isQuickActionFocused
+            isQuickActionFocused: isQuickActionFocused,
+            focusedPaneAgentFork: focusedPaneAgentForkAvailability
         )
     }
 
@@ -2063,6 +2067,10 @@ final class RootViewController: NSViewController {
             view = current.superview
         }
         return false
+    }
+
+    var focusedPaneAgentForkAvailability: AgentForkAvailability? {
+        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.agentForkAvailability(for:))
     }
 
     var focusedPaneUnreadToggle: PaneUnreadToggle? {
@@ -2625,6 +2633,17 @@ final class RootViewController: NSViewController {
         worklaneStore.worklanes.first { worklane in
             worklane.paneStripState.panes.contains(where: { $0.id == paneID })
         }?.id
+    }
+
+    /// Token of the pane's current attention, as carried by the notification
+    /// raised for it. A reply is only typed while the two still match.
+    func notificationReplyToken(worklaneID: WorklaneID, paneID: PaneID) -> String? {
+        renderCoordinator.notificationReplyToken(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    /// The worklane's live state, not the last render.
+    func currentWorklane(id worklaneID: WorklaneID) -> WorklaneState? {
+        worklaneStore.worklanes.first { $0.id == worklaneID }
     }
 
     func focusedPaneID() -> PaneID? {

@@ -17,6 +17,44 @@ protocol WorklaneAttentionUserNotificationCenter: AnyObject {
         paneID: String,
         soundName: String?
     )
+    /// `replyToken` is non-nil when the notification offers an inline reply;
+    /// the token comes back with the reply so it can be checked for staleness.
+    func add(
+        identifier: String,
+        title: String,
+        subtitle: String?,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String?,
+        replyToken: String?
+    )
+}
+
+extension WorklaneAttentionUserNotificationCenter {
+    func add(
+        identifier: String,
+        title: String,
+        subtitle: String?,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String?,
+        replyToken: String?
+    ) {
+        add(
+            identifier: identifier,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            soundName: soundName
+        )
+    }
 }
 
 struct WorklaneAttentionUnclassifiedNeedsInputLogRecord: Equatable {
@@ -82,6 +120,7 @@ final class WorklaneAttentionNotificationCoordinator {
         let worklaneID: String
         let paneID: String
         let soundName: String
+        let replyToken: String?
         let shouldRequestUserAttention: Bool
     }
 
@@ -94,6 +133,9 @@ final class WorklaneAttentionNotificationCoordinator {
     private var lastSeenStates: [PaneKey: WorklaneAttentionState] = [:]
     private var lastSeenActiveViews: [PaneKey: Bool] = [:]
     private var lastSeenNotificationSignatures: [PaneKey: String] = [:]
+    /// Rotates whenever a pane's attention changes, so a reply typed into an
+    /// older notification can be told apart from one for the current prompt.
+    private var replyTokens: [PaneKey: String] = [:]
     private var pendingSystemNotificationRequests: [PaneKey: SystemNotificationRequest] = [:]
     private var pendingSystemNotificationTasks: [PaneKey: Task<Void, Never>] = [:]
     private var loggedGenericNeedsInputMessageHashes = Set<String>()
@@ -147,6 +189,7 @@ final class WorklaneAttentionNotificationCoordinator {
         var nextSeenStates: [PaneKey: WorklaneAttentionState] = [:]
         var nextSeenActiveViews: [PaneKey: Bool] = [:]
         var nextSeenNotificationSignatures: [PaneKey: String] = [:]
+        var nextReplyTokens: [PaneKey: String] = [:]
         var visitedPaneKeys = Set<PaneKey>()
 
         for worklane in worklanes {
@@ -188,6 +231,10 @@ final class WorklaneAttentionNotificationCoordinator {
                 let stateChanged = lastSeenStates[key] != attention.state
                 let contentChanged = attention.state == .needsInput
                     && lastSeenNotificationSignatures[key] != notificationSignature
+                let replyToken = stateChanged || contentChanged
+                    ? UUID().uuidString
+                    : replyTokens[key] ?? UUID().uuidString
+                nextReplyTokens[key] = replyToken
                 guard stateChanged || contentChanged else {
                     continue
                 }
@@ -235,6 +282,11 @@ final class WorklaneAttentionNotificationCoordinator {
                     worklaneID: worklane.id.rawValue,
                     paneID: attention.paneID.rawValue,
                     soundName: systemNotificationSoundName(),
+                    replyToken: AgentNotificationReplyPolicy.offersReply(
+                        state: attention.state,
+                        shellActivityState: worklane.auxiliaryStateByPaneID[attention.paneID]?.shellActivityState,
+                        isInlineReplyEnabled: isInlineReplyEnabled()
+                    ) ? replyToken : nil,
                     // A paused program is a status, not a prompt waiting on the user.
                     shouldRequestUserAttention: attention.state == .needsInput
                         && !windowIsKey
@@ -254,6 +306,7 @@ final class WorklaneAttentionNotificationCoordinator {
         lastSeenStates = nextSeenStates
         lastSeenActiveViews = nextSeenActiveViews
         lastSeenNotificationSignatures = nextSeenNotificationSignatures
+        replyTokens = nextReplyTokens
 
         // Reconcile ALL notifications for this window against currently live panes.
         // The attention sweep above only covers panes that had attention summaries;
@@ -277,6 +330,7 @@ final class WorklaneAttentionNotificationCoordinator {
         worklaneID: String,
         paneID: String,
         soundName: String,
+        replyToken: String?,
         shouldRequestUserAttention: Bool
     ) {
         let request = SystemNotificationRequest(
@@ -287,6 +341,7 @@ final class WorklaneAttentionNotificationCoordinator {
             worklaneID: worklaneID,
             paneID: paneID,
             soundName: soundName,
+            replyToken: replyToken,
             shouldRequestUserAttention: shouldRequestUserAttention
         )
 
@@ -326,7 +381,8 @@ final class WorklaneAttentionNotificationCoordinator {
             windowID: request.windowID,
             worklaneID: request.worklaneID,
             paneID: request.paneID,
-            soundName: request.soundName
+            soundName: request.soundName,
+            replyToken: request.replyToken
         )
         if request.shouldRequestUserAttention {
             NSApplication.shared.requestUserAttention(.informationalRequest)
@@ -759,6 +815,16 @@ final class WorklaneAttentionNotificationCoordinator {
     private func systemNotificationSoundName() -> String {
         return configStore?.current.notifications.soundName ?? ""
     }
+
+    private func isInlineReplyEnabled() -> Bool {
+        configStore?.current.notifications.inlineReply ?? AppConfig.Notifications.default.inlineReply
+    }
+
+    /// The pane's current reply token, compared against the token a reply
+    /// arrives with. Nil once the pane has no attention summary.
+    func replyToken(worklaneID: WorklaneID, paneID: PaneID) -> String? {
+        replyTokens[PaneKey(worklaneID: worklaneID, paneID: paneID)]
+    }
 }
 
 @MainActor
@@ -820,22 +886,7 @@ final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificati
                 + "badge=\(settings.badgeSetting.rawValue)")
         }
 
-        let jumpAction = UNNotificationAction(
-            identifier: "JUMP",
-            title: "Jump to Pane",
-            options: [.foreground]
-        )
-        let dismissAction = UNNotificationAction(
-            identifier: "DISMISS",
-            title: "Dismiss",
-            options: []
-        )
-        let category = UNNotificationCategory(
-            identifier: "agent-attention",
-            actions: [jumpAction, dismissAction],
-            intentIdentifiers: []
-        )
-        center.setNotificationCategories([category])
+        center.setNotificationCategories(AgentNotificationReplyPolicy.makeCategories())
     }
 
     func add(
@@ -848,13 +899,46 @@ final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificati
         paneID: String,
         soundName: String?
     ) {
+        add(
+            identifier: identifier,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            soundName: soundName,
+            replyToken: nil
+        )
+    }
+
+    func add(
+        identifier: String,
+        title: String,
+        subtitle: String?,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String?,
+        replyToken: String?
+    ) {
+        typealias Key = AgentNotificationIdentifiers.UserInfoKey
         let content = UNMutableNotificationContent()
         content.title = title
         content.subtitle = subtitle ?? ""
         content.body = body
-        content.categoryIdentifier = "agent-attention"
+        content.categoryIdentifier = AgentNotificationReplyPolicy.categoryIdentifier(
+            offersReply: replyToken != nil
+        )
         content.threadIdentifier = worklaneID
-        content.userInfo = ["windowID": windowID, "worklaneID": worklaneID, "paneID": paneID]
+        var userInfo: [String: String] = [
+            Key.windowID: windowID,
+            Key.worklaneID: worklaneID,
+            Key.paneID: paneID,
+        ]
+        userInfo[Key.replyToken] = replyToken
+        content.userInfo = userInfo
         content.sound = soundName.map(resolvedNotificationSound)
         let request = UNNotificationRequest(
             identifier: identifier,

@@ -1017,7 +1017,8 @@ final class WorklaneStore {
             .arrangeVertically,
             .arrangeGoldenRatio,
             .resetLayout,
-            .restoreClosedPane:
+            .restoreClosedPane,
+            .forkAgentConversation:
             activeWorklane = worklane
             return
         }
@@ -1847,6 +1848,7 @@ final class WorklaneStore {
         pane.sessionRequest.nativeCommand = override.nativeCommand
         pane.sessionRequest.waitAfterNativeCommand = override.waitAfterNativeCommand
         pane.sessionRequest.isLaunchDeferred = override.isLaunchDeferred
+        pane.sessionRequest.replaysCommandOnRestore = override.replaysCommandOnRestore
         if !override.environmentVariables.isEmpty {
             pane.sessionRequest.environmentVariables.merge(override.environmentVariables) { _, new in new }
         }
