@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
+    private static let notificationReplyLogger = Logger(subsystem: "be.zenjoy.zentty", category: "NotificationReply")
     private static var isHostedTestMode: Bool {
         CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
             || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -1102,8 +1103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func navigateToNotification(windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID) {
-        let target = windowID.flatMap(windowController(with:))
+    private func notificationTargetController(
+        windowID: WindowID?,
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) -> MainWindowController? {
+        windowID.flatMap(windowController(with:))
             .flatMap { controller in
                 controller.containsPane(worklaneID: worklaneID, paneID: paneID) ? controller : nil
             }
@@ -1111,10 +1116,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? windowControllers.values.first {
                 $0.containsPane(worklaneID: worklaneID, paneID: paneID)
             }
+    }
 
-        guard let target else { return }
+    func navigateToNotification(windowID: WindowID?, worklaneID: WorklaneID, paneID: PaneID) {
+        guard let target = notificationTargetController(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID
+        ) else { return }
         let resolvedWorklaneID = target.worklaneID(containing: paneID) ?? worklaneID
         target.navigateToPane(worklaneID: resolvedWorklaneID, paneID: paneID)
+    }
+
+    /// Answers an agent notification's inline Reply. A stale reply types
+    /// nothing and opens the pane instead, so the user sees what changed.
+    func replyToNotification(
+        _ reply: String,
+        token: String?,
+        windowID: WindowID?,
+        worklaneID: WorklaneID,
+        paneID: PaneID
+    ) {
+        let target = notificationTargetController(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+        let outcome = target?.deliverAgentNotificationReply(reply, paneID: paneID, token: token)
+            ?? .stale(.paneGone)
+        switch outcome {
+        case .delivered(let resolvedWorklaneID):
+            if let target {
+                notificationStore.resolve(windowID: target.windowID, worklaneID: resolvedWorklaneID, paneID: paneID)
+            }
+        case .emptyReply:
+            Self.notificationReplyLogger.info(
+                "Ignored empty notification reply for pane \(paneID.rawValue, privacy: .public)"
+            )
+        case .stale(let reason):
+            Self.notificationReplyLogger.notice(
+                "Notification reply not typed into pane \(paneID.rawValue, privacy: .public): \(reason.rawValue, privacy: .public); jumping to pane"
+            )
+            navigateToNotification(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+        }
     }
 
     func deliverPaneNotification(_ request: PaneNotificationRequest) {
@@ -1239,23 +1279,38 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        typealias Key = AgentNotificationIdentifiers.UserInfoKey
         let userInfo = response.notification.request.content.userInfo
         let actionIdentifier = response.actionIdentifier
-        guard let worklaneRaw = userInfo["worklaneID"] as? String,
-              let paneRaw = userInfo["paneID"] as? String else {
+        guard let worklaneRaw = userInfo[Key.worklaneID] as? String,
+              let paneRaw = userInfo[Key.paneID] as? String else {
             return
         }
-        let windowIDRaw = userInfo["windowID"] as? String
+        let windowIDRaw = userInfo[Key.windowID] as? String
+        let replyToken = userInfo[Key.replyToken] as? String
+        let replyText = actionIdentifier == AgentNotificationIdentifiers.Action.reply
+            ? (response as? UNTextInputNotificationResponse)?.userText
+            : nil
         let shouldJump = actionIdentifier == UNNotificationDefaultActionIdentifier
-            || actionIdentifier == "JUMP"
+            || actionIdentifier == AgentNotificationIdentifiers.Action.jump
 
         await MainActor.run {
-            if shouldJump {
-                let worklaneID = WorklaneID(worklaneRaw)
-                self.navigateToNotification(
-                    windowID: windowIDRaw.map(WindowID.init),
+            let windowID = windowIDRaw.map(WindowID.init)
+            let worklaneID = WorklaneID(worklaneRaw)
+            let paneID = PaneID(paneRaw)
+            if let replyText {
+                self.replyToNotification(
+                    replyText,
+                    token: replyToken,
+                    windowID: windowID,
                     worklaneID: worklaneID,
-                    paneID: PaneID(paneRaw)
+                    paneID: paneID
+                )
+            } else if shouldJump {
+                self.navigateToNotification(
+                    windowID: windowID,
+                    worklaneID: worklaneID,
+                    paneID: paneID
                 )
             }
         }

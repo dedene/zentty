@@ -34,6 +34,7 @@ enum SplitLayoutAction: Equatable, Sendable {
 
 enum PaneCommand: Equatable, Sendable {
     case duplicateFocusedPane
+    case forkAgentConversation
     case split
     case splitHorizontally
     case splitRightVisibly

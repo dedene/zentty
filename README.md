@@ -39,6 +39,7 @@
 - **Menu bar status.** Agent state lives in the macOS menu bar, so you know who needs you even when Zentty is hidden.
 - **1Password prompts point home.** When `op` or ssh-agent asks for approval, Zentty tells you which pane triggered it and can jump there.
 - **Stays awake.** Zentty caffeinates the Mac while an agent is running.
+- **Fork a conversation.** Branch an agent's conversation into a new pane with its own fork command while the original keeps going.
 
 Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Devin, Droid, Gemini CLI, Grok Build, Hermes Agent, Kimi, Mistral Vibe, Muse Code, Oh My Pi, OpenCode, Pi, and Small Harness. Any other tool can join via the [Agent Status Protocol](docs/agent-status-protocol.md).
 

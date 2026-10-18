@@ -42,6 +42,7 @@ enum AppConfigTOML {
         case agentTeams
         case agentCaffeination
         case agentLists
+        case agents
         case menuBar
         case agentIntegrations
         case agentIntegrationStates
@@ -173,6 +174,7 @@ enum AppConfigTOML {
         if let customDisplayName = config.notifications.customSoundDisplayName {
             lines.append("custom_sound_display_name = \(encode(string: customDisplayName))")
         }
+        lines.append("inline_reply = \(config.notifications.inlineReply)")
 
         lines.append("")
         lines.append("[confirmations]")
@@ -213,6 +215,10 @@ enum AppConfigTOML {
         lines.append("[agent_lists]")
         lines.append("always_show_task_lists = \(config.agentLists.alwaysShowTaskLists)")
         lines.append("always_show_subagent_lists = \(config.agentLists.alwaysShowSubagentLists)")
+
+        lines.append("")
+        lines.append("[agents]")
+        lines.append("fork_destination = \(encode(string: config.agents.forkDestination.rawValue))")
 
         lines.append("")
         lines.append("[menu_bar]")
@@ -339,6 +345,10 @@ enum AppConfigTOML {
                 section = .agentLists
                 continue
             }
+            if line == "[agents]" {
+                section = .agents
+                continue
+            }
             if line == "[menu_bar]" {
                 section = .menuBar
                 continue
@@ -417,6 +427,8 @@ enum AppConfigTOML {
                 result = decodeAgentCaffeinationAssignment(assignment, into: &config)
             case .agentLists:
                 result = decodeAgentListsAssignment(assignment, into: &config)
+            case .agents:
+                result = decodeAgentsAssignment(assignment, into: &config)
             case .menuBar:
                 result = decodeMenuBarAssignment(assignment, into: &config)
             case .agentIntegrations:
@@ -817,6 +829,11 @@ enum AppConfigTOML {
                 return false
             }
             config.notifications.customSoundDisplayName = value
+        case "inline_reply":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.notifications.inlineReply = value
         default:
             return .unknownKey
         }
@@ -895,6 +912,24 @@ enum AppConfigTOML {
         case "show_copy_markdown_command":
             guard let value = decodeBool(assignment.value) else { return false }
             config.clipboard.showCopyMarkdownCommand = value
+        default:
+            return .unknownKey
+        }
+
+        return true
+    }
+
+    private static func decodeAgentsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> AssignmentResult {
+        switch assignment.key {
+        case "fork_destination":
+            guard let raw = decodeString(assignment.value),
+                  let destination = AgentForkDestination(rawValue: raw) else {
+                return false
+            }
+            config.agents.forkDestination = destination
         default:
             return .unknownKey
         }

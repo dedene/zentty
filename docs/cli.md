@@ -236,6 +236,44 @@ zentty pane close 2
 zentty pane close --pane-id pn_123
 ```
 
+### Fork
+
+Fork the agent conversation running in a pane into a new pane. The new pane runs the agent's own fork command in the agent's working directory, so the original conversation keeps running. With no positional target, forks the current or selected pane. Prints the new pane ID.
+
+```bash
+zentty pane fork [<pane-index|pane-id>] [--down | --worklane] [selectors]
+```
+
+Options:
+
+- `--down`: open the fork below the source pane.
+- `--worklane`: open the fork in a new worklane.
+
+Without either flag the fork opens to the right of the source pane, or wherever `agents.fork_destination` in `config.toml` points.
+
+Forkable agents and the command Zentty runs:
+
+| Agent | Fork command |
+| --- | --- |
+| Claude Code | `claude --resume <id> --fork-session` |
+| Codex | `codex fork <id>` |
+| OpenCode | `opencode --session <id> --fork` |
+| Droid | `droid --fork <id>` |
+| Grok Build | `grok --resume <id> --fork-session` |
+| Pi | `pi --fork <id>` |
+| Kilo Code | `kilo --session <id> --fork` |
+| Other agent definitions with a `fork` block | the definition's `fork.command` |
+
+Other agents have no fork command. Forking also needs the session ID the agent reports to Zentty and a local pane; otherwise the command fails with the reason.
+
+Examples:
+
+```bash
+zentty pane fork
+zentty pane fork 2 --down
+zentty pane fork --pane-id pn_123 --worklane
+```
+
 ### Zoom
 
 Toggle zoomed-out pane view for the selected pane.

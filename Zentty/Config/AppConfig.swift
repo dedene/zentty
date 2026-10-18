@@ -200,8 +200,10 @@ struct AppConfig: Equatable, Sendable {
         var soundName: String
         /// Display name for a user-chosen custom sound file (when soundName is the internal custom file).
         var customSoundDisplayName: String?
+        /// Offers a "Reply" field on notifications for agents that finished a turn.
+        var inlineReply: Bool = true
 
-        static let `default` = Notifications(soundName: "", customSoundDisplayName: nil)
+        static let `default` = Notifications(soundName: "", customSoundDisplayName: nil, inlineReply: true)
 
         func normalized() -> Notifications {
             var normalized = self
@@ -299,6 +301,13 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    /// Agent behaviour that isn't tied to one integration.
+    struct Agents: Equatable, Sendable {
+        var forkDestination: AgentForkDestination
+
+        static let `default` = Agents(forkDestination: .default)
+    }
+
     struct MenuBar: Equatable, Sendable {
         var showStatusItem: Bool
 
@@ -346,6 +355,7 @@ struct AppConfig: Equatable, Sendable {
     var agentLists: AgentLists
     var menuBar: MenuBar
     var agentIntegrations: AgentIntegrations
+    var agents: Agents = .default
     /// config.toml content this build doesn't model, kept so saves don't drop it.
     var preservedTOML: AppConfigPreservedTOML = .empty
 
