@@ -240,8 +240,10 @@ struct AppConfig: Equatable, Sendable {
 
     struct Restore: Equatable, Sendable {
         var restoreWorkspaceOnLaunch: Bool
+        /// Print each pane's previous output back into it on restore.
+        var restoreScrollback: Bool = true
 
-        static let `default` = Restore(restoreWorkspaceOnLaunch: true)
+        static let `default` = Restore(restoreWorkspaceOnLaunch: true, restoreScrollback: true)
     }
 
     struct Clipboard: Equatable, Sendable {
