@@ -173,6 +173,7 @@ enum AppConfigTOML {
         if let customDisplayName = config.notifications.customSoundDisplayName {
             lines.append("custom_sound_display_name = \(encode(string: customDisplayName))")
         }
+        lines.append("inline_reply = \(config.notifications.inlineReply)")
 
         lines.append("")
         lines.append("[confirmations]")
@@ -816,6 +817,11 @@ enum AppConfigTOML {
                 return false
             }
             config.notifications.customSoundDisplayName = value
+        case "inline_reply":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.notifications.inlineReply = value
         default:
             return .unknownKey
         }

@@ -66,3 +66,18 @@ The theme and background opacity you pick in Zentty's settings are always record
 ## Custom notification sounds
 
 macOS only plays notification sounds from `~/Library/Sounds`. When you pick a custom sound, Zentty installs it there and keeps a copy in `~/.config/zentty/sounds/`. A Mac that receives the setting through sync installs the sound from that copy the first time it needs it.
+
+## Replying from notifications
+
+When an agent finishes a turn, its macOS notification has a **Reply** field. What you type is sent to the agent's prompt as one message with a single Return. The pane doesn't have to be in front. Line breaks in a reply become spaces, so a reply can't be submitted line by line.
+
+A reply is only typed if the pane still exists, the agent is still running in it, and it is still idle after the turn the notification was raised for. If the agent has started another turn, has exited back to the shell, or the pane is gone, nothing is typed and Zentty opens the pane instead. The same happens when you reply to an older notification after turning the setting off.
+
+Notifications for agents that need input (approvals, questions, choices, sign-in) keep **Jump to Pane** only, since the agent expects keystrokes in its own interface there.
+
+Turn it off in Settings → Notifications, or in `config.toml`:
+
+```toml
+[notifications]
+inline_reply = false
+```
