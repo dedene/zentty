@@ -54,7 +54,7 @@ Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Dev
 - **Clean copy.** Copy agent output without prompts, box drawing, and tracking params. Copy as Markdown keeps the structure.
 - **Native Ghostty themes.** Built-in picker with live preview, opacity, and blur. Fine without Ghostty installed too.
 - **Built on libghostty.** GPU rendering in a native Swift and AppKit shell. No Electron, no web views.
-- **Scriptable.** Drive worklanes and panes from the embedded `zentty` CLI.
+- **Scriptable.** Drive worklanes and panes, type into them, read their screens, and stream agent and pane events from the embedded `zentty` CLI.
 
 See [Zentty CLI](docs/cli.md) for command-line usage.
 

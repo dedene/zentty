@@ -594,7 +594,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
 
         if let lineLimit {
-            return TmuxCompatIPCHandler.tailTerminalLines(output, maxLines: lineLimit)
+            return PaneTextLines.tail(output, maxLines: lineLimit)
         }
         return output
     }

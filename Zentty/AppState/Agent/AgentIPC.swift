@@ -914,6 +914,20 @@ final class AgentIPCServer: @unchecked Sendable {
                 canonicalRequest = request.canonicalized(for: validatedTarget)
             }
 
+            if canonicalRequest.kind == .pane,
+               canonicalRequest.subcommand == PaneControlIPC.eventsSubcommand {
+                // Long-lived stream: acknowledge, then hand the descriptor to
+                // the event monitor, which owns and closes it from here on.
+                let options = try PaneEventsIPCOptions.parse(arguments: canonicalRequest.arguments)
+                try writeResponse(
+                    AgentIPCResponse(id: canonicalRequest.id, ok: true, result: AgentIPCResponseResult()),
+                    to: fileDescriptor
+                )
+                fileDescriptorOwnedByHandler = false
+                PaneEventMonitor.subscribe(fileDescriptor: fileDescriptor, filter: options.filter)
+                return
+            }
+
             if canonicalRequest.kind == .pane {
                 let result = try PaneIPCHandler.handle(request: canonicalRequest, target: target)
                 if canonicalRequest.expectsResponse {
@@ -1222,6 +1236,22 @@ final class AgentIPCServer: @unchecked Sendable {
             return "missing_value"
         case PaneNotificationIPCError.unexpectedArgument:
             return "unexpected_argument"
+        case PaneControlIPCError.agentBusy:
+            return "agent_busy"
+        case PaneControlIPCError.agentPrompting:
+            return "agent_prompting"
+        case PaneControlIPCError.paneUnavailable:
+            return "pane_unavailable"
+        case PaneControlIPCError.textTooLarge:
+            return "request_too_large"
+        case PaneControlIPCError.missingText, PaneControlIPCError.missingKeys,
+             PaneControlIPCError.missingValue:
+            return "missing_value"
+        case PaneControlIPCError.invalidValue, PaneControlIPCError.unexpectedArgument,
+             PaneControlIPCError.unknownEventType:
+            return "unexpected_argument"
+        case PaneKeyNameError.unknownKey:
+            return "unknown_key"
         default:
             return "internal_error"
         }

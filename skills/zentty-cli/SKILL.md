@@ -1,6 +1,6 @@
 ---
 name: zentty-cli
-description: Use when an agent is running inside Zentty or needs to discover panes, split or grid layouts, open temporary command overlays, focus panes, launch nested coding agents, or notify the user through the Zentty CLI.
+description: Use when an agent is running inside Zentty or needs to discover panes, split or grid layouts, open temporary command overlays, focus panes, type into or read other panes, watch agent and pane events, launch nested coding agents, or notify the user through the Zentty CLI.
 ---
 
 # Zentty CLI
@@ -85,6 +85,28 @@ Create grids carefully; large grids create many live panes:
 "$ZENTTY" grid 2x2 --new-only -- codex
 "$ZENTTY" grid 2x3 --worklane-id new -- claude
 ```
+
+## Drive And Watch Other Panes
+
+Type into a pane, press keys, and read its screen. The destination of `send` and `send-key` must be named; to target your own pane, pass its ID. Both refuse while an agent in the target pane is mid-turn or showing an approval, decision, or sign-in prompt, because input could answer that prompt for the user. Wait for it, and pass `--force` only when the user asked you to. `send-key ... C-c` and `Escape` always go through. Empty text is an error; multi-line text is always sent as a paste.
+
+```bash
+"$ZENTTY" pane send 2 -- npm test
+"$ZENTTY" pane send 2 --no-enter -- "draft text"
+printf '%s\n' "$PROMPT" | "$ZENTTY" pane send 2 --paste
+"$ZENTTY" pane send-key 2 C-c
+"$ZENTTY" pane send-key 2 Escape
+"$ZENTTY" pane read 2 --lines 40
+"$ZENTTY" pane read 2 --scrollback --json
+```
+
+Wait for something to happen instead of polling the screen:
+
+```bash
+"$ZENTTY" events --json --type agent.phase --type attention
+```
+
+Each line is `{"v":1,"type":...,"ts":...}` plus fields such as `pane`, `agent`, `phase` (`running`, `needs-input`, `idle`, `exited`, ...), `interaction`, and `attention`. The first line is `stream.ready`; every change after it is reported. An unknown `--type` fails. Stop reading (or kill the process) when you have what you need.
 
 ## Quick Action Overlays
 

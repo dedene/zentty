@@ -510,7 +510,13 @@ final class TmuxCaptureServer {
     private var capturedRequest: AgentIPCRequest?
     private var response: AgentIPCResponse
 
-    init(response: AgentIPCResponse, tempDirectoryURL providedTempDirectoryURL: URL? = nil) throws {
+    /// `streamLines` are written after the response, one per line, before
+    /// the connection closes (for streaming commands such as `events`).
+    init(
+        response: AgentIPCResponse,
+        streamLines: [String] = [],
+        tempDirectoryURL providedTempDirectoryURL: URL? = nil
+    ) throws {
         self.response = response
         tempDirectoryURL = providedTempDirectoryURL ?? FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -556,6 +562,9 @@ final class TmuxCaptureServer {
                 let requestData = try Self.readLine(from: clientFD)
                 capturedRequest = try JSONDecoder().decode(AgentIPCRequest.self, from: requestData)
                 try Self.write(response: response, to: clientFD)
+                for line in streamLines {
+                    Self.write(Data((line + "\n").utf8), to: clientFD)
+                }
             } catch {
             }
 
@@ -596,7 +605,11 @@ final class TmuxCaptureServer {
     private static func write(response: AgentIPCResponse, to fileDescriptor: Int32) throws {
         var payload = try JSONEncoder().encode(response)
         payload.append(UInt8(ascii: "\n"))
-        try payload.withUnsafeBytes { rawBuffer in
+        write(payload, to: fileDescriptor)
+    }
+
+    private static func write(_ payload: Data, to fileDescriptor: Int32) {
+        payload.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else {
                 return
             }
