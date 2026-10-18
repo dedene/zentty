@@ -76,6 +76,10 @@ targets:
       - path: Zentty/AppState/Agent/HermesHooksInstaller.swift
       - path: Zentty/AppState/Agent/VibeHooksInstaller.swift
       - path: Zentty/AppState/Agent/PiFamilyLaunchPolicy.swift
+      - path: Zentty/AppState/Agent/TmuxCommandLine.swift
+      - path: Zentty/AppState/Agent/TmuxCompatArguments.swift
+      - path: Zentty/AppState/Agent/TmuxFormatRenderer.swift
+      - path: Zentty/AppState/Agent/TmuxShimEnvironment.swift
       - path: Zentty/Servers/ServerIPCCommands.swift
       - path: Zentty/Servers/ServerOutputURLDetector.swift
       - path: Zentty/Servers/ServerURLNormalizer.swift

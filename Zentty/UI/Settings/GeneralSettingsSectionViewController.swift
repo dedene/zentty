@@ -756,7 +756,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         titleRow.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = makeLabel(
-            text: "Claude Code agent teams",
+            text: "Agent teams",
             font: .systemFont(ofSize: 13, weight: .semibold)
         )
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -779,7 +779,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
 
         let subtitleLabel = makeLabel(
             text:
-                "Render Claude Code's subagents as native Zentty panes when team mode is enabled.",
+                "Open teammates from Claude Code and other tmux-based agent tools as native Zentty panes.",
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor

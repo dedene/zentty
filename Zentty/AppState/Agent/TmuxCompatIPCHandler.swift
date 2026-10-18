@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import OSLog
 
-private let tmuxLogger = Logger(subsystem: "be.zenjoy.zentty", category: "tmux-compat")
+let tmuxLogger = Logger(subsystem: "be.zenjoy.zentty", category: "tmux-compat")
 
 struct RespawnPaneLaunchRequest: Equatable {
     let paneID: PaneID
@@ -13,7 +13,14 @@ enum TmuxCompatIPCError: LocalizedError {
     case invalidRespawnPane
     case targetNotDeferred(PaneID)
     case targetUnavailable
+    case paneNotFound(String)
+    case windowNotFound(String)
+    case sessionNotFound(String)
+    case paneStillActive(String)
+    case createFailed(String)
 
+    /// Messages for the tmux-shaped cases match tmux's own wording; tools
+    /// match on `can't find pane` / `can't find session`.
     var errorDescription: String? {
         switch self {
         case .invalidRespawnPane:
@@ -22,58 +29,78 @@ enum TmuxCompatIPCError: LocalizedError {
             "Cannot respawn pane %\(paneID.rawValue): it is not awaiting a launch command."
         case .targetUnavailable:
             "Cannot route tmux command: the target Zentty worklane or pane is no longer available."
+        case let .paneNotFound(target):
+            "can't find pane: \(target)"
+        case let .windowNotFound(target):
+            "can't find window: \(target)"
+        case let .sessionNotFound(target):
+            "can't find session: \(target)"
+        case let .paneStillActive(paneID):
+            "respawn pane failed: pane \(paneID) still active"
+        case let .createFailed(command):
+            "\(command): create pane failed"
         }
     }
 }
 
-/// Translates the small subset of tmux subcommands that Claude Code's
-/// experimental agent-teams mode emits (split-window, send-keys, list-panes,
-/// kill-pane, etc.) into Zentty's existing window-controller and worklane
-/// operations. This keeps agent team pane operations inside Zentty's layout model.
+/// Translates tmux commands from tmux-based agent orchestrators (Claude Code
+/// agent teams and similar tools) into Zentty window-controller and worklane
+/// operations, so their teammate panes stay inside Zentty's layout model.
+/// Sequences, `if-shell` and `run-shell` are handled by the CLI
+/// (`TmuxCommandRunner`); every command that reaches this handler is one
+/// tmux command.
 enum TmuxCompatIPCHandler {
+    /// How long a request that needs a pane's pid waits for the pane's shell
+    /// to report it.
+    private static let panePIDWaitAttempts = 20
+    private static let panePIDWaitInterval: TimeInterval = 0.1
+
     static func handle(
         request: AgentIPCRequest,
         target: AgentIPCTarget
     ) throws -> AgentIPCResponseResult {
-        guard let subcommand = request.subcommand?.lowercased() else {
+        guard let rawSubcommand = request.subcommand else {
             throw AgentIPCError.invalidMessage
         }
+        let subcommand = TmuxCommandLine.canonicalName(rawSubcommand)
 
         tmuxLogger.debug(
             "tmux \(subcommand, privacy: .public) args=\(request.arguments.joined(separator: " "), privacy: .public)"
         )
 
-        if subcommand == "wait-for" || subcommand == "wait" {
-            trace(
-                event: "ipc_wait_for",
-                request: request,
-                fields: ["phase": "local"]
-            )
+        if subcommand == "wait-for" {
+            trace(event: "ipc_wait_for", request: request, fields: ["phase": "local"])
             return handleWaitFor(arguments: request.arguments, environment: request.environment)
         }
 
-        var captured: AgentIPCResponseResult = AgentIPCResponseResult()
+        var captured = AgentIPCResponseResult()
         var dispatchError: Error?
-        DispatchQueue.main.sync {
-            MainActorShim.assumeIsolated {
-                do {
-                    captured = try Self.dispatch(
-                        subcommand: subcommand,
-                        arguments: request.arguments,
-                        standardInput: request.standardInput,
-                        target: target
-                    )
-                } catch {
-                    dispatchError = error
+        for attempt in 0..<panePIDWaitAttempts {
+            let allowsPending = attempt < panePIDWaitAttempts - 1
+            dispatchError = nil
+            DispatchQueue.main.sync {
+                MainActorShim.assumeIsolated {
+                    do {
+                        captured = try Self.dispatch(
+                            subcommand: subcommand,
+                            arguments: request.arguments,
+                            standardInput: request.standardInput,
+                            environment: request.environment,
+                            target: target,
+                            allowsPendingPanePID: allowsPending
+                        )
+                    } catch {
+                        dispatchError = error
+                    }
                 }
             }
+            guard dispatchError is TmuxCompatPendingPanePID else {
+                break
+            }
+            Thread.sleep(forTimeInterval: panePIDWaitInterval)
         }
         if let dispatchError {
-            trace(
-                event: "ipc_error",
-                request: request,
-                fields: ["error": String(describing: dispatchError)]
-            )
+            trace(event: "ipc_error", request: request, fields: ["error": String(describing: dispatchError)])
             throw dispatchError
         }
         trace(
@@ -92,86 +119,86 @@ enum TmuxCompatIPCHandler {
         subcommand: String,
         arguments: [String],
         standardInput: String?,
-        target: AgentIPCTarget
+        environment: [String: String],
+        target: AgentIPCTarget,
+        allowsPendingPanePID: Bool
     ) throws -> AgentIPCResponseResult {
-        guard let appDelegate = NSApp.delegate as? AppDelegate else {
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let windowController = resolveWindowController(for: target, appDelegate: appDelegate) else {
             return try unresolvedTargetResult(for: subcommand)
         }
-        guard let windowController = resolveWindowController(for: target, appDelegate: appDelegate) else {
-            return try unresolvedTargetResult(for: subcommand)
-        }
+        var context = TmuxCompatRequestContext(
+            target: target,
+            windowController: windowController,
+            requestEnvironment: environment,
+            allowsPendingPanePID: allowsPendingPanePID
+        )
 
         switch subcommand {
-        case "split-window", "splitw":
-            return try handleSplitWindow(arguments: arguments, target: target, windowController: windowController)
-        case "send-keys", "send":
-            return handleSendKeys(
-                arguments: arguments,
-                standardInput: standardInput,
-                target: target,
-                windowController: windowController
-            )
-        case "set-option", "set":
-            // Claude uses pane options for styling and remain-on-exit; Zentty owns presentation/session retention, so this acknowledgment is intentional.
-            return AgentIPCResponseResult()
-        case "respawn-pane", "respawnp":
-            return try handleRespawnPane(arguments: arguments, target: target, windowController: windowController)
-        case "select-pane", "selectp":
-            return handleSelectPane(arguments: arguments, target: target, windowController: windowController)
-        case "select-window", "selectw":
-            // Worklane already focused via routing; nothing more to do.
-            return AgentIPCResponseResult()
-        case "kill-pane", "killp":
-            return handleKillPane(arguments: arguments, target: target, windowController: windowController)
-        case "kill-window", "killw":
-            return handleKillWindow(target: target, windowController: windowController)
-        case "list-panes", "lsp":
-            return handleListPanes(arguments: arguments, target: target, windowController: windowController)
-        case "list-windows", "lsw":
-            return handleListWindows(arguments: arguments, target: target, windowController: windowController)
-        case "display-message", "display":
-            return handleDisplayMessage(
-                arguments: arguments,
-                target: target,
-                windowController: windowController
-            )
-        case "rename-window", "renamew":
-            return AgentIPCResponseResult()
-        case "select-layout", "selectl":
-            return handleSelectLayout(arguments: arguments, target: target, windowController: windowController)
-        case "resize-pane", "resizep":
-            return handleResizePane(arguments: arguments, target: target, windowController: windowController)
-        case "new-session", "new":
-            return handleNewSession(arguments: arguments, target: target)
-        case "new-window", "neww":
-            return AgentIPCResponseResult()
-        case "wait-for", "wait":
-            return handleWaitFor(arguments: arguments, environment: targetEnvironment(target))
-        case "show", "show-options", "show-option", "showw", "show-window-options":
-            return handleShowOptions(arguments: arguments)
-        case "last-pane", "lastp":
-            return AgentIPCResponseResult()
-        case "save-buffer", "saveb":
+        case "split-window":
+            return try handleCreatePane(.split, arguments: arguments, context: &context)
+        case "new-window":
+            return try handleCreatePane(.window, arguments: arguments, context: &context)
+        case "new-session":
+            return try handleNewSession(arguments: arguments, context: &context)
+        case "send-keys":
+            return try handleSendKeys(arguments: arguments, standardInput: standardInput, context: context)
+        case "respawn-pane":
+            return try handleRespawnPane(arguments: arguments, context: &context)
+        case "set-option":
+            return try handleSetOption(arguments: arguments, impliedScope: nil, context: context)
+        case "set-window-option":
+            return try handleSetOption(arguments: arguments, impliedScope: "-w", context: context)
+        case "show-options":
+            return try handleShowOptions(arguments: arguments, impliedScope: nil, context: context)
+        case "show-window-options":
+            return try handleShowOptions(arguments: arguments, impliedScope: "-w", context: context)
+        case "select-pane":
+            return try handleSelectPane(arguments: arguments, context: context)
+        case "kill-pane":
+            return try handleKillPane(arguments: arguments, context: context)
+        case "kill-window":
+            return try handleKillWindow(arguments: arguments, context: context)
+        case "list-panes":
+            return try handleListPanes(arguments: arguments, context: context)
+        case "list-windows":
+            return try handleListWindows(arguments: arguments, context: context)
+        case "list-sessions":
+            return handleListSessions(arguments: arguments, context: context)
+        case "has-session":
+            return try handleHasSession(arguments: arguments, context: context)
+        case "display-message":
+            return try handleDisplayMessage(arguments: arguments, context: context)
+        case "select-layout":
+            return try handleSelectLayout(arguments: arguments, context: context)
+        case "resize-pane":
+            return try handleResizePane(arguments: arguments, context: context)
+        case "show-buffer", "save-buffer":
             return handleSaveBuffer(arguments: arguments)
-        case "show-buffer", "showb":
-            return handleShowBuffer(arguments: arguments)
-        case "set-buffer", "setb":
+        case "set-buffer", "load-buffer":
             return handleSetBuffer(arguments: arguments, standardInput: standardInput)
-        case "load-buffer", "loadb":
-            return handleLoadBuffer(arguments: arguments, standardInput: standardInput)
-        case "capture-pane", "capturep":
-            return handleCapturePane(arguments: arguments, target: target, windowController: windowController)
-        case "popup":
+        case "capture-pane":
+            return try handleCapturePane(arguments: arguments, context: context)
+        case "display-popup":
             throw AgentIPCError.unsupportedSubcommand("popup")
+        case "kill-session", "kill-server":
+            // Zentty's "session" is the user's whole window. Closing it on a
+            // tool's cleanup call would take unrelated panes with it, so these
+            // are acknowledged without closing anything.
+            return AgentIPCResponseResult()
         default:
-            tmuxLogger.debug("Ignoring unsupported tmux subcommand: \(subcommand, privacy: .public)")
+            // select-window, rename-window, last-pane, start-server,
+            // set-hook, set-environment, switch-client, refresh-client, ...:
+            // Zentty owns focus, naming and presentation, so these are
+            // acknowledged as no-ops.
+            tmuxLogger.debug("Acknowledging tmux subcommand without action: \(subcommand, privacy: .public)")
             return AgentIPCResponseResult()
         }
     }
 
     static func unresolvedTargetResult(for subcommand: String) throws -> AgentIPCResponseResult {
-        switch subcommand {
-        case "split-window", "splitw", "respawn-pane", "respawnp":
+        switch TmuxCommandLine.canonicalName(subcommand) {
+        case "split-window", "new-window", "respawn-pane":
             throw TmuxCompatIPCError.targetUnavailable
         default:
             return AgentIPCResponseResult()
@@ -196,1034 +223,227 @@ enum TmuxCompatIPCHandler {
             ?? appDelegate.windowController(containingWorklane: target.worklaneID)
     }
 
-    // MARK: - split-window
+    // MARK: - split-window / new-window / new-session
 
-    @MainActor
-    private static func handleSplitWindow(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) throws -> AgentIPCResponseResult {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-c", "-F", "-l", "-t"],
-            boolFlags: ["-P", "-b", "-d", "-h", "-v"]
-        )
-        try validateSplitTarget(
-            target.paneID,
-            paneEntries: windowController.paneListEntries(for: target.worklaneID)
-        )
-        let key = target.worklaneID.rawValue
-        let preExisting = TmuxCompatStoreIO.load().anchors[key]
-        let startupRequest = splitWindowStartupRequest(arguments: arguments, parsed: parsed)
-        let newPaneID: String?
+    enum PaneCreationKind {
+        case split
+        case window
+        case session
 
-        // Snapshot the leader's column width BEFORE any split-window layout
-        // disruption, but only on the team's first split (preExisting == nil).
-        // Restored when the last subagent is killed so the pre-team layout
-        // returns even when other columns existed alongside the leader.
-        let preTeamLeaderColumnWidth: CGFloat? = preExisting == nil
-            ? windowController.columnWidthForPane(id: target.paneID, in: target.worklaneID)
-            : nil
-
-        if preExisting == nil {
-            // First subagent for this worklane: create a new column to the
-            // right of the leader at golden ratio while keeping the leader
-            // visually anchored.
-            newPaneID = windowController.splitWithLayout(
-                in: target.worklaneID,
-                placement: .afterFocused,
-                isHorizontal: true,
-                layout: .golden,
-                targetPaneID: target.paneID,
-                preserveFocusPaneID: target.paneID,
-                sessionRequest: startupRequest
-            )?.rawValue
-        } else {
-            // Subsequent subagent: stack vertically inside the existing
-            // subagent column without moving the user's focus away from the
-            // leader pane.
-            let targetPaneID = preExisting?.columnPaneIDs.last.map { PaneID($0) } ?? target.paneID
-            let preservePaneID = PaneID(preExisting?.leaderPaneID ?? target.paneID.rawValue)
-            newPaneID = windowController.splitWithLayout(
-                in: target.worklaneID,
-                placement: .afterFocused,
-                isHorizontal: false,
-                layout: .equal,
-                targetPaneID: targetPaneID,
-                preserveFocusPaneID: preservePaneID,
-                sessionRequest: startupRequest
-            )?.rawValue
-        }
-
-        TmuxCompatStoreIO.mutate { store in
-            if var updatedAnchor = store.anchors[key] {
-                if let newPaneID {
-                    updatedAnchor.columnPaneIDs.append(newPaneID)
-                }
-                store.anchors[key] = updatedAnchor
-            } else {
-                store.anchors[key] = WorklaneAnchor(
-                    leaderPaneID: target.paneID.rawValue,
-                    columnPaneIDs: newPaneID.map { [$0] } ?? [],
-                    preTeamLeaderColumnWidth: preTeamLeaderColumnWidth
-                )
-            }
-            if !parsed.hasFlag("-d"), let newPaneID {
-                store.activePaneIDs[key] = newPaneID
+        var commandName: String {
+            switch self {
+            case .split: "split-window"
+            case .window: "new-window"
+            case .session: "new-session"
             }
         }
-        windowController.refreshTeamAnchors()
-        if newPaneID != nil {
-            let leaderPaneID = preExisting?.leaderPaneID ?? target.paneID.rawValue
-            windowController.resizeColumnContainingPane(
-                id: PaneID(leaderPaneID),
-                in: target.worklaneID,
-                toFraction: goldenWideFraction
-            )
-        }
 
-        guard let newPaneID else {
-            return AgentIPCResponseResult()
-        }
-        guard parsed.hasFlag("-P") else {
-            return AgentIPCResponseResult()
-        }
-        let template = parsed.formatTemplate ?? "#{pane_id}"
-        let window = windowCoordinates(for: target.worklaneID, windowController: windowController)
-        let context = windowController
-            .paneListEntries(for: target.worklaneID)
-            .first(where: { $0.id == newPaneID })
-            .map { paneContext(for: $0, windowID: window.id, windowIndex: window.index) }
-            ?? [
-                "pane_id": "%\(newPaneID)",
-                "pane_uuid": newPaneID,
-                "window_id": "@\(window.id)",
-                "window_index": String(window.index),
-                "session_name": "zentty",
-            ]
-        return AgentIPCResponseResult(
-            stdout: TmuxFormatRenderer.render(template, context: context) + "\n"
-        )
-    }
-
-    static func validateSplitTarget(_ paneID: PaneID, paneEntries: [PaneListEntry]) throws {
-        guard paneEntries.contains(where: { $0.id == paneID.rawValue }) else {
-            throw TmuxCompatIPCError.targetUnavailable
-        }
-    }
-
-    // MARK: - send-keys
-
-    @MainActor
-    private static func handleSendKeys(
-        arguments: [String],
-        standardInput: String?,
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        guard let resolvedPaneID = sendKeysTargetPaneID(
-            arguments: arguments,
-            fallback: target.paneID,
-            paneEntries: windowController.paneListEntries(for: target.worklaneID)
-        ) else {
-            return AgentIPCResponseResult()
-        }
-        let text = sendKeysText(arguments: arguments, standardInput: standardInput)
-        guard !text.isEmpty else {
-            return AgentIPCResponseResult()
-        }
-        if let launchCommand = launchCommandFromSendKeysText(text),
-           let nativeCommand = shellWrappedGhosttyCommand(launchCommand),
-           windowController.launchDeferredPane(id: resolvedPaneID, in: target.worklaneID, nativeCommand: nativeCommand) {
-            return AgentIPCResponseResult()
-        }
-        let delivered = windowController.sendText(text, to: resolvedPaneID)
-        if !delivered {
-            tmuxLogger.warning(
-                "send-keys: no live runtime for pane \(resolvedPaneID.rawValue, privacy: .public)"
-            )
-        }
-        return AgentIPCResponseResult()
-    }
-
-    @MainActor
-    private static func handleRespawnPane(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) throws -> AgentIPCResponseResult {
-        guard let launchRequest = respawnPaneLaunchRequest(
-            arguments: arguments,
-            paneEntries: windowController.paneListEntries(for: target.worklaneID)
-        ) else {
-            throw TmuxCompatIPCError.invalidRespawnPane
-        }
-        guard windowController.launchDeferredPane(
-            id: launchRequest.paneID,
-            in: target.worklaneID,
-            nativeCommand: launchRequest.nativeCommand
-        ) else {
-            throw TmuxCompatIPCError.targetNotDeferred(launchRequest.paneID)
-        }
-        return AgentIPCResponseResult()
-    }
-
-    static func sendKeysText(arguments: [String], standardInput: String?) -> String {
-        // Filter out tmux flags. `-t target` and `-l` and `-R` and friends
-        // are handled by the caller resolution above.
-        var skipNext = false
-        var pieces: [String] = []
-        var literal = false
-        for argument in arguments {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            if argument == "-t" || argument == "-T" || argument == "-N" {
-                skipNext = true
-                continue
-            }
-            if argument == "-l" {
-                literal = true
-                continue
-            }
-            if argument.hasPrefix("-") {
-                continue
-            }
-            pieces.append(argument)
-        }
-        let joined = tmuxSendKeysText(tokens: pieces, literal: literal)
-        if !joined.isEmpty {
-            return joined
-        }
-        return standardInput ?? ""
-    }
-
-    static func launchCommandFromSendKeysText(_ text: String) -> String? {
-        guard text.hasSuffix("\r") || text.hasSuffix("\n") else {
-            return nil
-        }
-        let command = String(text.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty,
-              !command.contains("\r"),
-              !command.contains("\n")
-        else {
-            return nil
-        }
-        return command
-    }
-
-    static func shellWrappedGhosttyCommand(
-        _ command: String,
-        loginShellPath: String? = ProcessInfo.processInfo.environment["SHELL"]
-    ) -> String? {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-        if let shellPath = loginShellPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !shellPath.isEmpty,
-           isLoginShellSupported(shellPath) {
-            return "\(shellQuote(shellPath)) -lic \(shellQuote(trimmed))"
-        }
-        return "sh -c \(shellQuote(trimmed))"
-    }
-
-    static func respawnPaneLaunchRequest(
-        arguments: [String],
-        paneEntries: [PaneListEntry],
-        loginShellPath: String? = ProcessInfo.processInfo.environment["SHELL"]
-    ) -> RespawnPaneLaunchRequest? {
-        guard arguments.count == 5,
-              arguments[0] == "-k",
-              arguments[1] == "-t",
-              !arguments[2].isEmpty,
-              arguments[3] == "--"
-        else {
-            return nil
-        }
-        guard let separatorIndex = arguments.firstIndex(of: "--") else {
-            return nil
-        }
-        let suffix = Array(arguments[arguments.index(after: separatorIndex)...])
-        guard suffix.count == 1 else {
-            return nil
-        }
-
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t"],
-            boolFlags: ["-k"]
-        )
-        guard parsed.hasFlag("-k"),
-              parsed.value("-t") != nil,
-              parsed.positionals == suffix,
-              let paneID = explicitTargetPaneID(arguments: arguments, paneEntries: paneEntries),
-              let nativeCommand = shellWrappedGhosttyCommand(suffix[0], loginShellPath: loginShellPath)
-        else {
-            return nil
-        }
-        return RespawnPaneLaunchRequest(paneID: paneID, nativeCommand: nativeCommand)
-    }
-
-    private static func isLoginShellSupported(_ shellPath: String) -> Bool {
-        let shellName = URL(fileURLWithPath: shellPath).lastPathComponent
-        return shellName == "zsh" || shellName == "bash" || shellName == "fish"
-    }
-
-    static func isClaudeBootstrapSplit(arguments: [String], parsed: TmuxCompatArguments) -> Bool {
-        guard let separatorIndex = arguments.firstIndex(of: "--"),
-              Array(arguments[arguments.index(after: separatorIndex)...]) == ["cat"],
-              parsed.positionals == ["cat"],
-              parsed.hasFlag("-d"),
-              parsed.hasFlag("-P"),
-              parsed.value("-t") != nil,
-              parsed.formatTemplate == "#{pane_id}"
-        else {
-            return false
-        }
-        return true
-    }
-
-    static func splitWindowStartupRequest(
-        arguments: [String],
-        parsed: TmuxCompatArguments,
-        loginShellPath: String? = ProcessInfo.processInfo.environment["SHELL"]
-    ) -> TerminalSessionRequest {
-        if isClaudeBootstrapSplit(arguments: arguments, parsed: parsed) {
-            return TerminalSessionRequest(
-                workingDirectory: parsed.value("-c"),
-                isLaunchDeferred: true
-            )
-        }
-
-        let commandText = parsed.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        if let nativeCommand = shellWrappedGhosttyCommand(commandText, loginShellPath: loginShellPath) {
-            return TerminalSessionRequest(
-                workingDirectory: parsed.value("-c"),
-                nativeCommand: nativeCommand,
-                waitAfterNativeCommand: true
-            )
-        }
-
-        return TerminalSessionRequest(
-            workingDirectory: parsed.value("-c"),
-            isLaunchDeferred: true
-        )
-    }
-
-    private static func tmuxSendKeysText(tokens: [String], literal: Bool) -> String {
-        if literal {
-            return tokens.joined(separator: " ")
-        }
-
-        var result = ""
-        var pendingSpace = false
-        for token in tokens {
-            if let special = tmuxSpecialKeyText(token) {
-                result += special
-                pendingSpace = false
-                continue
-            }
-            if pendingSpace {
-                result += " "
-            }
-            result += token
-            pendingSpace = true
-        }
-        return result
-    }
-
-    private static func tmuxSpecialKeyText(_ token: String) -> String? {
-        switch token.lowercased() {
-        case "enter", "c-m", "kpenter":
-            return "\r"
-        case "tab", "c-i":
-            return "\t"
-        case "space":
-            return " "
-        case "bspace", "backspace":
-            return "\u{7f}"
-        case "escape", "esc", "c-[":
-            return "\u{1b}"
-        case "c-c":
-            return "\u{03}"
-        case "c-d":
-            return "\u{04}"
-        case "c-z":
-            return "\u{1a}"
-        case "c-l":
-            return "\u{0c}"
-        default:
-            return nil
-        }
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
-
-    // MARK: - select-pane
-
-    @MainActor
-    private static func handleSelectPane(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t", "-T"],
-            boolFlags: ["-P"]
-        )
-        let paneID = resolvedTargetPaneID(
-            arguments: arguments,
-            target: target,
-            windowController: windowController
-        )
-        TmuxCompatStoreIO.mutate { store in
-            store.activePaneIDs[target.worklaneID.rawValue] = paneID.rawValue
-        }
-        if let title = parsed.value("-T") {
-            windowController.setPaneTitle(id: paneID, title: title)
-        }
-        return AgentIPCResponseResult()
-    }
-
-    // MARK: - kill-pane / kill-window
-
-    @MainActor
-    private static func handleKillPane(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        // `WorklaneStore.closePane(id:)` already runs `cascadeCloseTeamColumnIfLeader`
-        // which prunes the anchor when the leader is closed. Subagent panes
-        // need their column-membership pruned here.
-        let key = target.worklaneID.rawValue
-        let paneEntries = windowController.paneListEntries(for: target.worklaneID)
-        let hasExplicitTarget = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t"],
-            boolFlags: []
-        ).value("-t") != nil
-        guard let paneID = explicitTargetPaneID(arguments: arguments, paneEntries: paneEntries)
-            ?? (hasExplicitTarget ? nil : target.paneID) else {
-            return AgentIPCResponseResult()
-        }
-        // When the last subagent is torn down we want to restore the leader's
-        // pre-team column width. Capture the snapshot + leader id before the
-        // mutation drops the anchor so we can apply the resize after the
-        // pane close lands in the layout.
-        var dissolvedTeamLeader: (paneID: PaneID, snapshotWidth: CGFloat)?
-        TmuxCompatStoreIO.mutate { store in
-            if var anchor = store.anchors[key],
-               anchor.leaderPaneID != paneID.rawValue {
-                anchor.columnPaneIDs.removeAll(where: { $0 == paneID.rawValue })
-                if anchor.columnPaneIDs.isEmpty {
-                    // Last subagent torn down — the team is dissolved. Drop
-                    // the anchor so the leader's ✳ marker disappears even if
-                    // Claude Code keeps running for further user prompts.
-                    if let snapshot = anchor.preTeamLeaderColumnWidth {
-                        dissolvedTeamLeader = (PaneID(anchor.leaderPaneID), snapshot)
-                    }
-                    store.anchors.removeValue(forKey: key)
-                } else {
-                    store.anchors[key] = anchor
-                }
-            }
-            if store.activePaneIDs[key] == paneID.rawValue {
-                store.activePaneIDs.removeValue(forKey: key)
+        /// What `-P` prints without `-F`. tmux prints positional targets
+        /// (`session:index.pane-index`); here they would shift whenever the
+        /// user adds or closes a pane, so the defaults name the created pane
+        /// or its pane-group window by id, in the same target grammar.
+        var defaultPrintFormat: String {
+            switch self {
+            case .split: "#{session_name}:#{window_id}.#{pane_id}"
+            case .window, .session: "#{session_name}:#{window_id}"
             }
         }
-        windowController.closePane(id: paneID)
-        windowController.refreshTeamAnchors()
-        if let dissolved = dissolvedTeamLeader {
-            windowController.resizeColumnContainingPaneToWidth(
-                id: dissolved.paneID,
-                width: dissolved.snapshotWidth
-            )
+
+        /// new-window and new-session make a window of their own: the
+        /// created pane starts a pane group.
+        var startsPaneGroup: Bool {
+            self != .split
         }
-        return AgentIPCResponseResult()
     }
 
-    @MainActor
-    private static func handleKillWindow(
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        // Closing the leader pane is enough — `WorklaneStore.closePane` will
-        // cascade-close the recorded subagent column and drop the anchor.
-        // If there's no anchor, just close the targeted pane (the worklane
-        // itself disappears via the standard close path).
-        let key = target.worklaneID.rawValue
-        let leaderPaneID = TmuxCompatStoreIO.load().anchors[key].map { PaneID($0.leaderPaneID) }
-        TmuxCompatStoreIO.mutate { store in
-            store.activePaneIDs.removeValue(forKey: key)
-        }
-        windowController.closePane(id: leaderPaneID ?? target.paneID)
-        windowController.refreshTeamAnchors()
-        return AgentIPCResponseResult()
-    }
-
-    // MARK: - list-panes / list-windows / display-message
-
-    @MainActor
-    private static func handleListPanes(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        let entries = windowController.paneListEntries(for: target.worklaneID)
-        let activePaneID = TmuxCompatStoreIO.load().activePaneIDs[target.worklaneID.rawValue]
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-F", "-t"],
-            boolFlags: []
-        )
-        let template = parsed.formatTemplate ?? defaultListPanesTemplate
-        let window = windowCoordinates(for: target.worklaneID, windowController: windowController)
-        let lines = entries.map { entry in
-            TmuxFormatRenderer.render(
-                template,
-                context: paneContext(
-                    for: entry,
-                    windowID: window.id,
-                    windowIndex: window.index,
-                    activePaneID: activePaneID
-                )
-            )
-        }
-        return AgentIPCResponseResult(
-            paneList: entries,
-            stdout: lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
-        )
-    }
-
-    @MainActor
-    private static func handleListWindows(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        // Scope to the calling window only — Claude inside one Zentty window
-        // shouldn't see worklane IDs from other windows.
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-F", "-t"],
-            boolFlags: []
-        )
-        let template = parsed.formatTemplate ?? defaultListWindowsTemplate
-        let lines = windowController.discoveryWorkspaceState.worklanes
-            .enumerated()
-            .map { worklaneIndex, worklane in
-                TmuxFormatRenderer.render(template, context: [
-                    "session_name": "zentty",
-                    "window_id": "@\(worklane.id.rawValue)",
-                    "window_uuid": worklane.id.rawValue,
-                    "window_index": String(worklaneIndex),
-                    "window_name": worklane.title ?? "worklane-\(worklaneIndex)",
-                ])
-            }
-        return AgentIPCResponseResult(stdout: lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n"))
-    }
-
-    @MainActor
-    private static func handleDisplayMessage(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-F", "-t"],
-            boolFlags: ["-p"]
-        )
-        let template = parsed.displayTemplate ?? defaultDisplayMessageTemplate
-        let entries = windowController.paneListEntries(for: target.worklaneID)
-        let activePaneID = TmuxCompatStoreIO.load().activePaneIDs[target.worklaneID.rawValue]
-        let targetPaneID = parsed.value("-t").flatMap {
-            resolvedPaneID(from: $0, in: target.worklaneID, windowController: windowController)
-        }
-        guard let entry = targetPaneID.flatMap({ paneID in
-            entries.first(where: { $0.id == paneID.rawValue })
-        })
-            ?? activePaneID.flatMap({ activeID in entries.first(where: { $0.id == activeID }) })
-            ?? entries.first(where: { $0.id == target.paneID.rawValue })
-            ?? entries.first(where: { $0.isFocused })
-            ?? entries.first
-        else {
-            return AgentIPCResponseResult(stdout: "")
-        }
-        let window = windowCoordinates(for: target.worklaneID, windowController: windowController)
-        let rendered = TmuxFormatRenderer.render(
-            template,
-            context: paneContext(
-                for: entry,
-                windowID: window.id,
-                windowIndex: window.index,
-                activePaneID: activePaneID
-            )
-        )
-        return AgentIPCResponseResult(stdout: rendered + "\n")
-    }
-
-    // MARK: - select-layout
-
-    @MainActor
-    private static func handleSelectLayout(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        // Claude only ever emits `main-vertical` for agent teams. Equalize
-        // the column heights to redistribute space among subagents.
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t"],
-            boolFlags: []
-        )
-        let preset = parsed.positionals.first ?? "main-vertical"
-        if preset == "main-vertical" || preset == "even-vertical" {
-            windowController.equalizeFocusedColumnPaneHeights()
-            if preset == "main-vertical",
-               let leaderPaneID = TmuxCompatStoreIO.load().anchors[target.worklaneID.rawValue]?.leaderPaneID {
-                windowController.resizeColumnContainingPane(
-                    id: PaneID(leaderPaneID),
-                    toFraction: goldenWideFraction
-                )
-            }
-        }
-        return AgentIPCResponseResult()
-    }
-
-    @MainActor
-    private static func handleResizePane(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t", "-x", "-y"],
-            boolFlags: ["-D", "-L", "-R", "-U"]
-        )
-        guard let width = parsed.value("-x"),
-              width.hasSuffix("%"),
-              let anchor = TmuxCompatStoreIO.load().anchors[target.worklaneID.rawValue] else {
-            return AgentIPCResponseResult()
-        }
-
-        // Claude emits `resize-pane -x 30%` after `main-vertical`. Keep the
-        // leader/teammate split at Zentty's golden ratio instead of applying
-        // Claude's exact tmux width hint.
-        windowController.resizeColumnContainingPane(
-            id: PaneID(anchor.leaderPaneID),
-            toFraction: goldenWideFraction
-        )
-        return AgentIPCResponseResult()
-    }
-
-    private static var goldenWideFraction: CGFloat {
-        let phi = (1 + sqrt(CGFloat(5))) / 2
-        return phi / (1 + phi)
-    }
-
-    // MARK: - new-session
+    static let createPaneValueFlags: Set<String> = ["-c", "-e", "-F", "-l", "-n", "-p", "-s", "-t", "-x", "-y"]
+    static let createPaneBoolFlags: Set<String> = ["-A", "-a", "-b", "-D", "-d", "-E", "-f", "-h", "-I", "-k", "-P", "-S", "-v", "-X", "-Z"]
 
     @MainActor
     private static func handleNewSession(
         arguments: [String],
-        target: AgentIPCTarget
-    ) -> AgentIPCResponseResult {
-        if arguments.contains("-A") {
-            tmuxLogger.warning("new-session -A is not supported in zentty agent-teams mode")
+        context: inout TmuxCompatRequestContext
+    ) throws -> AgentIPCResponseResult {
+        // Tools only create detached sessions when they are not inside tmux.
+        // Without `-P` nobody reads the result, so nothing is created; with
+        // `-P` the caller wants a pane it can drive, which becomes a teammate
+        // pane like `new-window`.
+        let parsed = TmuxCompatArguments.parse(arguments, valueFlags: createPaneValueFlags, boolFlags: createPaneBoolFlags)
+        guard parsed.hasFlag("-P") else {
+            return AgentIPCResponseResult()
         }
-        return AgentIPCResponseResult(stdout: "@\(target.worklaneID.rawValue)\n")
+        return try handleCreatePane(.session, arguments: arguments, context: &context)
     }
 
-    // MARK: - buffers
-
-    static func showOptionsStdout(arguments: [String]) -> String {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t"],
-            boolFlags: ["-A", "-g", "-v", "-w"]
-        )
-        let optionName = parsed.positionals.last ?? ""
-        guard !optionName.isEmpty else {
-            return ""
-        }
-        let value = tmuxOptionValue(optionName)
-        if parsed.hasFlag("-v") {
-            return value + "\n"
-        }
-        return "\(optionName) \(value)\n"
-    }
-
-    private static func handleShowOptions(arguments: [String]) -> AgentIPCResponseResult {
-        AgentIPCResponseResult(stdout: showOptionsStdout(arguments: arguments))
-    }
-
-    private static func tmuxOptionValue(_ name: String) -> String {
-        switch name {
-        case "focus-events", "mouse", "synchronize-panes":
-            return "off"
-        default:
-            return ""
-        }
-    }
-
-    private static func handleSaveBuffer(arguments: [String]) -> AgentIPCResponseResult {
-        let store = TmuxCompatStoreIO.load()
-        let bufferName = bufferName(in: arguments) ?? store.buffers.keys.sorted().first ?? ""
-        let value = store.buffers[bufferName] ?? ""
-        return AgentIPCResponseResult(stdout: value)
-    }
-
-    private static func handleShowBuffer(arguments: [String]) -> AgentIPCResponseResult {
-        handleSaveBuffer(arguments: arguments)
-    }
-
-    private static func handleSetBuffer(
+    @MainActor
+    private static func handleCreatePane(
+        _ kind: PaneCreationKind,
         arguments: [String],
-        standardInput: String?
-    ) -> AgentIPCResponseResult {
-        let bufferName = bufferName(in: arguments) ?? "default"
-        let value = standardInput ?? ""
+        context: inout TmuxCompatRequestContext
+    ) throws -> AgentIPCResponseResult {
+        let parsed = TmuxCompatArguments.parse(arguments, valueFlags: createPaneValueFlags, boolFlags: createPaneBoolFlags)
+        let anchorTarget: (window: TmuxTopology.Window, pane: TmuxTopology.Pane)
+        switch kind {
+        case .split:
+            anchorTarget = try context.pane(parsed.value("-t"))
+        case .window, .session:
+            // `-t` names a window or session here. A teammate column is
+            // anchored on the caller when it lives in that window.
+            let window = kind == .session ? try context.window(nil) : try context.window(parsed.value("-t"))
+            let caller = context.topology.location(ofPane: context.target.paneID.rawValue)
+                .flatMap { $0.window.id == window.id ? $0.pane : nil }
+            guard let pane = caller ?? window.activePane else {
+                throw TmuxCompatIPCError.windowNotFound(parsed.value("-t") ?? "")
+            }
+            anchorTarget = (window, pane)
+        }
+
+        let worklaneID = WorklaneID(anchorTarget.window.id)
+        let key = worklaneID.rawValue
+        let preExisting = TmuxCompatStoreIO.load().anchors[key]
+        var startupRequest = splitWindowStartupRequest(arguments: arguments, parsed: parsed)
+        if let directory = parsed.value("-c") {
+            startupRequest.workingDirectory = TmuxFormatRenderer.render(
+                directory,
+                context: context.formatContext(window: anchorTarget.window, pane: anchorTarget.pane, template: directory)
+            )
+        }
+        startupRequest.environmentVariables = shimPaneEnvironment(
+            assignments: parsed.values("-e"),
+            requestEnvironment: context.requestEnvironment,
+            topology: context.topology
+        )
+        let leaderPaneID = PaneID(preExisting?.leaderPaneID ?? anchorTarget.pane.id)
+
+        // Snapshot the leader's column width BEFORE any split-window layout
+        // disruption, but only on the team's first split (preExisting == nil).
+        // Restored when the last teammate is killed so the pre-team layout
+        // returns even when other columns existed alongside the leader.
+        let preTeamLeaderColumnWidth: CGFloat? = preExisting == nil
+            ? context.windowController.columnWidthForPane(id: leaderPaneID, in: worklaneID)
+            : nil
+
+        let newPaneID: PaneID?
+        if preExisting == nil {
+            // First teammate for this worklane: a new column right of the
+            // leader at golden ratio, keeping the leader visually anchored.
+            newPaneID = context.windowController.splitWithLayout(
+                in: worklaneID,
+                placement: .afterFocused,
+                isHorizontal: true,
+                layout: .golden,
+                targetPaneID: leaderPaneID,
+                preserveFocusPaneID: leaderPaneID,
+                sessionRequest: startupRequest
+            )
+        } else {
+            // Later teammates stack inside the existing teammate column
+            // without moving the user's focus away from the leader.
+            let stackTarget = preExisting?.columnPaneIDs.last.map(PaneID.init) ?? leaderPaneID
+            newPaneID = context.windowController.splitWithLayout(
+                in: worklaneID,
+                placement: .afterFocused,
+                isHorizontal: false,
+                layout: .equal,
+                targetPaneID: stackTarget,
+                preserveFocusPaneID: leaderPaneID,
+                sessionRequest: startupRequest
+            )
+        }
+
+        guard let newPaneID else {
+            throw TmuxCompatIPCError.createFailed(kind.commandName)
+        }
+
+        let state = TmuxCompatSessionState.shared
+        state.recordShimPane(newPaneID.rawValue, startCommand: commandText(from: parsed.positionals))
+        if kind.startsPaneGroup {
+            state.assignPaneGroup(
+                newPaneID.rawValue,
+                group: TmuxCompatSessionState.paneGroupKey(creatorPaneID: newPaneID.rawValue)
+            )
+        } else if let group = anchorTarget.window.groupKey {
+            // A split inside a pane group's window stays in that window.
+            state.assignPaneGroup(newPaneID.rawValue, group: group)
+        }
         TmuxCompatStoreIO.mutate { store in
-            store.buffers[bufferName] = value
-        }
-        return AgentIPCResponseResult()
-    }
-
-    private static func handleLoadBuffer(
-        arguments: [String],
-        standardInput: String?
-    ) -> AgentIPCResponseResult {
-        handleSetBuffer(arguments: arguments, standardInput: standardInput)
-    }
-
-    // MARK: - capture-pane
-
-    struct CapturePaneOptions: Equatable {
-        let target: String?
-        let print: Bool
-        let includeScrollback: Bool
-        let lineLimit: Int?
-    }
-
-    @MainActor
-    private static func handleCapturePane(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> AgentIPCResponseResult {
-        let options = capturePaneOptions(arguments: arguments)
-        let paneID = options.target
-            .flatMap { resolvedPaneID(from: $0, in: target.worklaneID, windowController: windowController) }
-            ?? target.paneID
-        let text = windowController.readText(
-            from: paneID,
-            includeScrollback: options.includeScrollback,
-            lineLimit: options.lineLimit
-        ) ?? ""
-
-        if options.print {
-            return AgentIPCResponseResult(stdout: text.hasSuffix("\n") ? text : text + "\n")
-        }
-
-        TmuxCompatStoreIO.mutate { store in
-            store.buffers["default"] = text
-        }
-        return AgentIPCResponseResult()
-    }
-
-    static func capturePaneOptions(arguments: [String]) -> CapturePaneOptions {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-E", "-S", "-t"],
-            boolFlags: ["-J", "-N", "-p"]
-        )
-        let lineLimit = parsed.value("-S").flatMap { value -> Int? in
-            guard let start = Int(value), start < 0 else {
-                return nil
+            if var updatedAnchor = store.anchors[key] {
+                updatedAnchor.columnPaneIDs.append(newPaneID.rawValue)
+                store.anchors[key] = updatedAnchor
+            } else {
+                store.anchors[key] = WorklaneAnchor(
+                    leaderPaneID: leaderPaneID.rawValue,
+                    columnPaneIDs: [newPaneID.rawValue],
+                    preTeamLeaderColumnWidth: preTeamLeaderColumnWidth
+                )
             }
-            return abs(start)
-        }
-        return CapturePaneOptions(
-            target: parsed.value("-t"),
-            print: parsed.hasFlag("-p"),
-            includeScrollback: true,
-            lineLimit: lineLimit
-        )
-    }
-
-    // MARK: - wait-for
-
-    enum WaitForAction: Equatable {
-        case signal(String)
-        case wait(name: String, timeout: TimeInterval)
-        case invalid
-    }
-
-    private static func handleWaitFor(
-        arguments: [String],
-        environment: [String: String]
-    ) -> AgentIPCResponseResult {
-        switch waitForAction(arguments: arguments) {
-        case .signal(let name):
-            signalWaitFor(name: name, environment: environment)
-        case .wait(let name, let timeout):
-            _ = waitForSignal(name: name, timeout: timeout, environment: environment)
-        case .invalid:
-            tmuxLogger.warning("wait-for requires a name")
-        }
-        return AgentIPCResponseResult()
-    }
-
-    static func waitForAction(arguments: [String]) -> WaitForAction {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["--timeout"],
-            boolFlags: ["-S", "--signal"]
-        )
-        guard let name = parsed.positionals.first else {
-            return .invalid
-        }
-        if parsed.hasFlag("-S") || parsed.hasFlag("--signal") {
-            return .signal(name)
-        }
-        let timeout = parsed.value("--timeout").flatMap(TimeInterval.init) ?? 30
-        return .wait(name: name, timeout: timeout)
-    }
-
-    static func waitForSignalURL(name: String, environment: [String: String] = [:]) -> URL {
-        let scope = environment["ZENTTY_INSTANCE_ID"] ?? environment["ZENTTY_WORKLANE_ID"] ?? "global"
-        let rawName = "\(scope)-\(name)"
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitized = rawName.unicodeScalars.map { scalar in
-            allowed.contains(scalar) ? Character(scalar) : "_"
-        }
-        return URL(fileURLWithPath: "/tmp/zentty-tmux-wait-for-\(String(sanitized)).sig")
-    }
-
-    static func signalWaitFor(name: String, environment: [String: String] = [:]) {
-        let url = waitForSignalURL(name: name, environment: environment)
-        FileManager.default.createFile(atPath: url.path, contents: Data())
-    }
-
-    static func waitForSignal(
-        name: String,
-        timeout: TimeInterval,
-        environment: [String: String] = [:]
-    ) -> Bool {
-        let url = waitForSignalURL(name: name, environment: environment)
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try? FileManager.default.removeItem(at: url)
-                return true
-            }
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        if FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.removeItem(at: url)
-            return true
-        }
-        return false
-    }
-
-    // MARK: - helpers
-
-    @MainActor
-    private static func resolvedTargetPaneID(
-        arguments: [String],
-        target: AgentIPCTarget,
-        windowController: MainWindowController
-    ) -> PaneID {
-        resolvedTargetPaneID(
-            arguments: arguments,
-            fallback: target.paneID,
-            paneEntries: windowController.paneListEntries(for: target.worklaneID)
-        )
-    }
-
-    static func resolvedTargetPaneID(
-        arguments: [String],
-        fallback: PaneID,
-        paneEntries: [PaneListEntry]
-    ) -> PaneID {
-        explicitTargetPaneID(arguments: arguments, paneEntries: paneEntries) ?? fallback
-    }
-
-    static func sendKeysTargetPaneID(
-        arguments: [String],
-        fallback: PaneID,
-        paneEntries: [PaneListEntry]
-    ) -> PaneID? {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t"],
-            boolFlags: []
-        )
-        if arguments.contains("-t") || parsed.value("-t") != nil {
-            return explicitTargetPaneID(arguments: arguments, paneEntries: paneEntries)
-        }
-        return fallback
-    }
-
-    static func explicitTargetPaneID(
-        arguments: [String],
-        paneEntries: [PaneListEntry]
-    ) -> PaneID? {
-        let parsed = TmuxCompatArguments.parse(
-            arguments,
-            valueFlags: ["-t"],
-            boolFlags: []
-        )
-        if let selector = parsed.value("-t") {
-            let normalized = selector.hasPrefix("%") ? String(selector.dropFirst()) : selector
-            if paneEntries.contains(where: { $0.id == normalized }) {
-                return PaneID(normalized)
+            // A new window's pane is active in its own window already; only a
+            // split moves the active pane of the window it splits.
+            if !parsed.hasFlag("-d"), !kind.startsPaneGroup {
+                store.activePaneIDs[key] = newPaneID.rawValue
             }
         }
-        return nil
-    }
-
-    @MainActor
-    private static func resolvedPaneID(
-        from selector: String,
-        in worklaneID: WorklaneID,
-        windowController: MainWindowController
-    ) -> PaneID? {
-        let normalized = selector.hasPrefix("%") ? String(selector.dropFirst()) : selector
-        return windowController.resolvePaneID(normalized, in: worklaneID)
-    }
-
-    private static func bufferName(in arguments: [String]) -> String? {
-        guard let flagIndex = arguments.firstIndex(of: "-b"),
-              flagIndex + 1 < arguments.count
-        else {
-            return nil
+        context.windowController.refreshTeamAnchors()
+        context.windowController.resizeColumnContainingPane(
+            id: leaderPaneID,
+            in: worklaneID,
+            toFraction: goldenWideFraction
+        )
+        if let name = parsed.value("-n"), !name.isEmpty {
+            context.windowController.setPaneTitle(id: newPaneID, title: name)
         }
-        return arguments[flagIndex + 1]
+
+        guard parsed.hasFlag("-P") else {
+            return AgentIPCResponseResult()
+        }
+        context.refresh()
+        let template = parsed.formatTemplate ?? kind.defaultPrintFormat
+        guard let created = context.topology.location(ofPane: newPaneID.rawValue) else {
+            return AgentIPCResponseResult(stdout: "%\(TmuxCompatSessionState.shared.paneNumber(for: newPaneID.rawValue))\n")
+        }
+        let rendered = TmuxFormatRenderer.render(
+            template,
+            context: context.formatContext(window: created.window, pane: created.pane, template: template)
+        )
+        return AgentIPCResponseResult(stdout: rendered + "\n")
     }
 
-    /// Builds the format-render context for a single pane.
-    ///
-    /// `windowID` and `windowIndex` identify the worklane the pane belongs to,
-    /// using the same enumeration `list-windows` reports. Earlier revisions
-    /// derived these from the pane's column-within-worklane (`entry.column`),
-    /// which collided with `list-windows`'s worklane-enumeration index and
-    /// broke the harness's pane→window reconciliation.
-    static func paneContext(
-        for entry: PaneListEntry,
-        windowID: String,
-        windowIndex: Int,
-        activePaneID: String? = nil
+    /// Environment for a pane the shim creates: the shim environment (so the
+    /// teammate can drive tmux too; `TMUX_PANE` and `PATH` are finished in
+    /// `WorklaneStore` once the pane id exists) plus `-e` assignments.
+    @MainActor
+    static func shimPaneEnvironment(
+        assignments: [String],
+        requestEnvironment: [String: String],
+        topology: TmuxTopology
     ) -> [String: String] {
-        let isActive = activePaneID.map { $0 == entry.id } ?? entry.isFocused
-        return [
-            "session_name": "zentty",
-            "pane_id": "%\(entry.id)",
-            "pane_uuid": entry.id,
-            "pane_index": String(entry.index),
-            "pane_title": entry.title,
-            "pane_active": isActive ? "1" : "",
-            "pane_current_path": entry.workingDirectory ?? "",
-            "window_id": "@\(windowID)",
-            "window_index": String(windowIndex),
-        ]
-    }
-
-    @MainActor
-    private static func windowCoordinates(
-        for worklaneID: WorklaneID,
-        windowController: MainWindowController
-    ) -> (id: String, index: Int) {
-        let worklanes = windowController.discoveryWorkspaceState.worklanes
-        let index = worklanes.firstIndex(where: { $0.id == worklaneID }) ?? 0
-        return (id: worklaneID.rawValue, index: index)
-    }
-
-    static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else {
-            return ""
+        var environment: [String: String] = [:]
+        if let shimDirectory = AgentStatusHelper.tmuxShimDirectoryPath() {
+            environment[TmuxShimEnvironment.markerKey] = "1"
+            environment[TmuxShimEnvironment.shimDirectoryKey] = shimDirectory
+            environment["TMUX"] = TmuxShimEnvironment.tmuxValue(
+                socketPath: topology.socketPath,
+                serverPID: topology.serverPID,
+                sessionNumber: topology.session.number
+            )
+            if let tracePath = requestEnvironment[TmuxShimEnvironment.tracePathKey], !tracePath.isEmpty {
+                environment[TmuxShimEnvironment.tracePathKey] = tracePath
+            }
         }
-        let hadTrailingNewline = text.hasSuffix("\n")
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if hadTrailingNewline, lines.last == "" {
-            lines.removeLast()
-        }
-        var output = lines.suffix(maxLines).joined(separator: "\n")
-        if hadTrailingNewline, !output.isEmpty {
-            output.append("\n")
-        }
-        return output
-    }
-
-    private static func targetEnvironment(_ target: AgentIPCTarget) -> [String: String] {
-        var environment: [String: String] = [
-            "ZENTTY_WORKLANE_ID": target.worklaneID.rawValue,
-            "ZENTTY_PANE_ID": target.paneID.rawValue,
-        ]
-        if let windowID = target.windowID {
-            environment["ZENTTY_WINDOW_ID"] = windowID.rawValue
+        let assigned = TmuxShimEnvironment.environmentAssignments(assignments)
+        environment.merge(assigned) { _, new in new }
+        if !assigned.isEmpty {
+            environment[TmuxShimEnvironment.toolAssignedKeysKey] = assigned.keys.sorted().joined(separator: ",")
         }
         return environment
     }
 
-    private static let defaultListPanesTemplate = "#{pane_id} #{pane_index} #{pane_title} #{?pane_active,*,-}"
-    private static let defaultListWindowsTemplate = "#{window_id} #{window_index} #{window_name}"
-    private static let defaultDisplayMessageTemplate = "#{pane_id}"
-
-    private static func trace(
-        event: String,
-        request: AgentIPCRequest,
-        fields: [String: String]
-    ) {
-        guard let path = request.environment["ZENTTY_TMUX_COMPAT_TRACE_PATH"], !path.isEmpty else {
-            return
-        }
-
-        var payload: [String: Any] = [
-            "timestamp": Date().timeIntervalSince1970,
-            "event": event,
-            "subcommand": request.subcommand ?? "",
-            "arguments": request.arguments,
-            "worklane_id": request.environment["ZENTTY_WORKLANE_ID"] ?? "",
-            "pane_id": request.environment["ZENTTY_PANE_ID"] ?? "",
-        ]
-        fields.forEach { payload[$0.key] = $0.value }
-        appendTracePayload(payload, to: path)
+    static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private static func appendTracePayload(_ payload: [String: Any], to path: String) {
-        guard JSONSerialization.isValidJSONObject(payload),
-              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        else {
-            return
-        }
-
-        let url = URL(fileURLWithPath: path)
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        guard let handle = try? FileHandle(forWritingTo: url) else {
-            var line = data
-            line.append(UInt8(ascii: "\n"))
-            try? line.write(to: url, options: .atomic)
-            return
-        }
-        defer {
-            try? handle.close()
-        }
-        try? handle.seekToEnd()
-        try? handle.write(contentsOf: data)
-        try? handle.write(contentsOf: Data([UInt8(ascii: "\n")]))
+    static var goldenWideFraction: CGFloat {
+        let phi = (1 + sqrt(CGFloat(5))) / 2
+        return phi / (1 + phi)
     }
 }

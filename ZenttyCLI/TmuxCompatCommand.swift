@@ -6,13 +6,14 @@ import os
 private let tmuxCompatCLILogger = Logger(subsystem: "be.zenjoy.zentty", category: "tmux-compat-cli")
 
 /// Hidden subcommand the bundled `tmux-shim/tmux` script re-execs into.
-/// Forwards the tmux subcommand and its arguments to the running Zentty
-/// instance via `AgentIPCRequest(kind: .tmuxCompat, ...)` and prints the
-/// returned `stdout` to stdout, exiting with `exitCode`.
+/// Interprets the tmux command line (globals, `-V`, `;` sequences,
+/// `if-shell`, `run-shell`) and forwards each remaining command to the
+/// running Zentty instance via `AgentIPCRequest(kind: .tmuxCompat, ...)`,
+/// printing the returned `stdout` and exiting with tmux-style status.
 ///
-/// Hidden because users never invoke this directly — it's only meant to be
-/// reachable through the bundled shim, which Claude Code's agent-teams mode
-/// resolves as `tmux` on PATH when the toggle is enabled.
+/// Hidden because users never invoke this directly — it's only reachable
+/// through the bundled shim, which tmux-based tools resolve as `tmux` on
+/// PATH in Agent Teams panes and `zentty launch --teams` / `--tmux-shim`.
 struct TmuxCompatCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "__tmux-compat",
@@ -34,97 +35,189 @@ struct TmuxCompatCommand: ParsableCommand {
 
     mutating func run() throws {
         let environment = ProcessInfo.processInfo.environment
+        if TmuxCommandLine.isVersionRequest(rawArguments) {
+            FileHandle.standardOutput.write(Data(TmuxCommandLine.versionLine.utf8))
+            return
+        }
         guard let invocation = Self.parseTmuxInvocation(rawArguments) else {
             FileHandle.standardError.write(Data(
                 "zentty: __tmux-compat requires a tmux subcommand\n".utf8
             ))
             throw ExitCode(1)
         }
-        let localSubcommand = invocation.subcommand
-        let localArguments = invocation.arguments
-        trace(
-            event: "cli_start",
-            subcommand: localSubcommand,
-            arguments: localArguments,
-            environment: environment
-        )
-        if localSubcommand == "wait-for" || localSubcommand == "wait" {
-            try runLocalWaitFor(arguments: localArguments, environment: environment)
-            trace(
-                event: "cli_wait_for_done",
-                subcommand: localSubcommand,
-                arguments: localArguments,
-                environment: environment
-            )
-            return
+
+        let backend = TmuxCompatCLIBackend(environment: environment)
+        let outcome = TmuxCommandRunner(backend: backend).run([invocation.subcommand] + invocation.arguments)
+        if !outcome.stdout.isEmpty {
+            FileHandle.standardOutput.write(Data(outcome.stdout.utf8))
+        }
+        if !outcome.stderr.isEmpty {
+            FileHandle.standardError.write(Data(outcome.stderr.utf8))
+        }
+        if outcome.exitCode != 0 {
+            throw ExitCode(outcome.exitCode)
+        }
+    }
+
+    /// Strip tmux's global options that appear before the subcommand. Real
+    /// tmux accepts e.g. `-S socket-path`, `-L socket-name`, `-f config`,
+    /// `-c shell-command`, `-T features` ahead of the subcommand; we ignore
+    /// them because routing happens via `ZENTTY_INSTANCE_SOCKET`. Claude Code
+    /// 2.1.128 prefixes `-S <socket-from-$TMUX>` onto every call, which
+    /// previously crashed ArgumentParser before any handler ran.
+    static func parseTmuxInvocation(
+        _ arguments: [String]
+    ) -> (subcommand: String, arguments: [String])? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if TmuxCommandLine.globalValueOptions.contains(argument) {
+                index += (index + 1 < arguments.count) ? 2 : 1
+                continue
+            }
+            if TmuxCommandLine.globalBoolOptions.contains(argument) || argument == "-V" {
+                index += 1
+                continue
+            }
+            let subcommand = argument
+            let rest = Array(arguments[(index + 1)...])
+            return (subcommand, rest)
+        }
+        return nil
+    }
+
+    static func subcommandReadsStandardInput(_ subcommand: String) -> Bool {
+        switch TmuxCommandLine.canonicalName(subcommand) {
+        case "load-buffer", "set-buffer":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// The CLI side of `TmuxCommandRunner`: IPC to the app, local shell, local
+/// wait-for.
+final class TmuxCompatCLIBackend: TmuxCommandBackend {
+    private let environment: [String: String]
+    private var standardInputConsumed = false
+
+    init(environment: [String: String]) {
+        self.environment = environment
+    }
+
+    func send(subcommand: String, arguments: [String]) -> TmuxCommandOutcome {
+        trace(event: "cli_start", subcommand: subcommand, arguments: arguments)
+        if TmuxCommandLine.canonicalName(subcommand) == "wait-for" {
+            let outcome = runLocalWaitFor(arguments: arguments)
+            trace(event: "cli_wait_for_done", subcommand: subcommand, arguments: arguments)
+            return outcome
         }
 
         guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"], !socketPath.isEmpty else {
-            FileHandle.standardError.write(Data(
-                "zentty: __tmux-compat must be invoked from inside a Zentty pane (ZENTTY_INSTANCE_SOCKET unset)\n".utf8
-            ))
-            throw ExitCode(1)
+            return .failure(
+                "zentty: __tmux-compat must be invoked from inside a Zentty pane (ZENTTY_INSTANCE_SOCKET unset)"
+            )
         }
         guard IPCCommand.hasRequiredRoutingEnvironment(environment) else {
             let missing = IPCCommand.missingRoutingEnvironmentKeys(environment).joined(separator: ", ")
-            FileHandle.standardError.write(Data(
-                "zentty: __tmux-compat missing routing env: \(missing)\n".utf8
-            ))
-            throw ExitCode(1)
+            return .failure("zentty: __tmux-compat missing routing env: \(missing)")
         }
 
-        let stdinPayload = Self.subcommandReadsStandardInput(localSubcommand)
-            ? readStandardInputIfPresent()
-            : nil
+        var stdinPayload: String?
+        if TmuxCompatCommand.subcommandReadsStandardInput(subcommand), !standardInputConsumed {
+            standardInputConsumed = true
+            stdinPayload = readStandardInputIfPresent()
+        }
 
         let request = AgentIPCRequest(
             kind: .tmuxCompat,
-            arguments: localArguments,
+            arguments: arguments,
             standardInput: stdinPayload,
-            environment: forwardedEnvironment(from: environment),
+            environment: forwardedEnvironment(),
             expectsResponse: true,
-            subcommand: localSubcommand
+            subcommand: subcommand
         )
 
         do {
             let response = try AgentIPCClient.send(request: request, socketPath: socketPath)
-            if let stdout = response?.result?.stdout, !stdout.isEmpty {
-                FileHandle.standardOutput.write(Data(stdout.utf8))
-            }
+            let stdout = response?.result?.stdout ?? ""
             trace(
                 event: "cli_result",
-                subcommand: localSubcommand,
-                arguments: localArguments,
-                environment: environment,
-                fields: ["stdout_bytes": "\(response?.result?.stdout?.utf8.count ?? 0)"]
+                subcommand: subcommand,
+                arguments: arguments,
+                fields: ["stdout_bytes": "\(stdout.utf8.count)"]
             )
+            return TmuxCommandOutcome(stdout: stdout)
         } catch let error as AgentIPCClientError {
             trace(
                 event: "cli_error",
-                subcommand: localSubcommand,
-                arguments: localArguments,
-                environment: environment,
+                subcommand: subcommand,
+                arguments: arguments,
                 fields: ["error": error.localizedDescription]
             )
             switch error {
             case .responseError(let payload):
                 tmuxCompatCLILogger.warning(
-                    "tmux \(localSubcommand, privacy: .public) failed: \(payload.message, privacy: .public)"
+                    "tmux \(subcommand, privacy: .public) failed: \(payload.message, privacy: .public)"
                 )
-                FileHandle.standardError.write(Data(
-                    "zentty tmux \(localSubcommand): \(payload.message)\n".utf8
-                ))
-                throw ExitCode(1)
+                // tmux prints its own errors bare (`can't find pane: %3`);
+                // tools match on that text.
+                return .failure(payload.message)
             default:
                 tmuxCompatCLILogger.warning(
-                    "tmux \(localSubcommand, privacy: .public) IPC failed: \(error.localizedDescription, privacy: .public)"
+                    "tmux \(subcommand, privacy: .public) IPC failed: \(error.localizedDescription, privacy: .public)"
                 )
-                FileHandle.standardError.write(Data(
-                    "zentty tmux \(localSubcommand): \(error.localizedDescription)\n".utf8
-                ))
-                throw ExitCode(1)
+                return .failure("zentty tmux \(subcommand): \(error.localizedDescription)")
             }
+        } catch {
+            return .failure("zentty tmux \(subcommand): \(error.localizedDescription)")
         }
+    }
+
+    func expandFormat(_ format: String, target: String?) -> String? {
+        var arguments = ["-p"]
+        if let target {
+            arguments += ["-t", target]
+        }
+        arguments.append(format)
+        let outcome = send(subcommand: "display-message", arguments: arguments)
+        guard outcome.exitCode == 0 else {
+            return nil
+        }
+        return outcome.stdout.hasSuffix("\n") ? String(outcome.stdout.dropLast()) : outcome.stdout
+    }
+
+    func runShell(_ command: String) -> (stdout: String, exitCode: Int32) {
+        let process = shellProcess(command)
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        do {
+            try process.run()
+        } catch {
+            return ("", 127)
+        }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (String(data: data, encoding: .utf8) ?? "", process.terminationStatus)
+    }
+
+    func runShellInBackground(_ command: String) {
+        let process = shellProcess(command)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    /// tmux runs shell commands with `/bin/sh -c`; the shell inherits the
+    /// caller's environment, so a nested `tmux` resolves to the shim again.
+    private func shellProcess(_ command: String) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        return process
     }
 
     private func readStandardInputIfPresent() -> String? {
@@ -155,48 +248,7 @@ struct TmuxCompatCommand: ParsableCommand {
         return String(data: collected, encoding: .utf8)
     }
 
-    /// Strip tmux's global options that appear before the subcommand. Real
-    /// tmux accepts e.g. `-S socket-path`, `-L socket-name`, `-f config`,
-    /// `-c shell-command`, `-T features` ahead of the subcommand; we ignore
-    /// them because routing happens via `ZENTTY_INSTANCE_SOCKET`. Claude Code
-    /// 2.1.128 prefixes `-S <socket-from-$TMUX>` onto every call, which
-    /// previously crashed ArgumentParser before any handler ran.
-    static func parseTmuxInvocation(
-        _ arguments: [String]
-    ) -> (subcommand: String, arguments: [String])? {
-        let valueGlobals: Set<String> = ["-S", "-L", "-T", "-f", "-c"]
-        let boolGlobals: Set<String> = [
-            "-2", "-C", "-CC", "-D", "-d", "-l", "-N", "-P", "-q", "-u", "-U", "-v", "-V",
-        ]
-
-        var index = 0
-        while index < arguments.count {
-            let argument = arguments[index]
-            if valueGlobals.contains(argument) {
-                index += (index + 1 < arguments.count) ? 2 : 1
-                continue
-            }
-            if boolGlobals.contains(argument) {
-                index += 1
-                continue
-            }
-            let subcommand = argument
-            let rest = Array(arguments[(index + 1)...])
-            return (subcommand, rest)
-        }
-        return nil
-    }
-
-    static func subcommandReadsStandardInput(_ subcommand: String) -> Bool {
-        switch subcommand.lowercased() {
-        case "load-buffer", "loadb", "set-buffer", "setb":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func forwardedEnvironment(from environment: [String: String]) -> [String: String] {
+    private func forwardedEnvironment() -> [String: String] {
         // Only the routing keys; the server resolves the target from these
         // and validates the token. We deliberately do NOT forward TMUX or
         // TMUX_PANE — they are user-controlled and the server has no need
@@ -217,35 +269,32 @@ struct TmuxCompatCommand: ParsableCommand {
         })
     }
 
-    private func runLocalWaitFor(arguments: [String], environment: [String: String]) throws {
+    private func runLocalWaitFor(arguments: [String]) -> TmuxCommandOutcome {
         let signal = arguments.contains("-S") || arguments.contains("--signal")
         let timeout = optionValue("--timeout", in: arguments).flatMap(TimeInterval.init) ?? 30
         guard let name = arguments.first(where: { !$0.hasPrefix("-") }) else {
-            FileHandle.standardError.write(Data("zentty tmux wait-for: wait-for requires a name\n".utf8))
-            throw ExitCode(1)
+            return .failure("zentty tmux wait-for: wait-for requires a name")
         }
 
-        let url = waitForSignalURL(name: name, environment: environment)
+        let url = waitForSignalURL(name: name)
         if signal {
             FileManager.default.createFile(atPath: url.path, contents: Data())
-            return
+            return .success
         }
 
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
                 try? FileManager.default.removeItem(at: url)
-                return
+                return .success
             }
             Thread.sleep(forTimeInterval: 0.05)
         }
         if FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.removeItem(at: url)
-            return
+            return .success
         }
-
-        FileHandle.standardError.write(Data("zentty tmux wait-for: timed out waiting for '\(name)'\n".utf8))
-        throw ExitCode(1)
+        return .failure("zentty tmux wait-for: timed out waiting for '\(name)'")
     }
 
     private func optionValue(_ name: String, in arguments: [String]) -> String? {
@@ -255,7 +304,7 @@ struct TmuxCompatCommand: ParsableCommand {
         return arguments[index + 1]
     }
 
-    private func waitForSignalURL(name: String, environment: [String: String]) -> URL {
+    private func waitForSignalURL(name: String) -> URL {
         let scope = environment["ZENTTY_INSTANCE_ID"] ?? environment["ZENTTY_WORKLANE_ID"] ?? "global"
         let rawName = "\(scope)-\(name)"
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
@@ -269,7 +318,6 @@ struct TmuxCompatCommand: ParsableCommand {
         event: String,
         subcommand: String,
         arguments: [String],
-        environment: [String: String],
         fields: [String: String] = [:]
     ) {
         guard let path = environment["ZENTTY_TMUX_COMPAT_TRACE_PATH"], !path.isEmpty else {
@@ -306,7 +354,7 @@ struct TmuxCompatCommand: ParsableCommand {
         defer {
             try? handle.close()
         }
-        try? handle.seekToEnd()
+        _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: data)
         try? handle.write(contentsOf: Data([UInt8(ascii: "\n")]))
     }

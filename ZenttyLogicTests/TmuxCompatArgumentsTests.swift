@@ -2,17 +2,10 @@ import XCTest
 @testable import Zentty
 
 final class TmuxCompatArgumentsTests: XCTestCase {
-    private func paneEntry(id: String, isFocused: Bool) -> PaneListEntry {
-        PaneListEntry(
-            index: 0,
-            id: id,
-            column: 0,
-            title: id,
-            workingDirectory: nil,
-            isFocused: isFocused,
-            agentTool: nil,
-            agentStatus: nil
-        )
+    /// Stands in for the topology resolver: `%leader` and `%agent` exist.
+    private func resolveKnownPane(_ selector: String) -> PaneID? {
+        let id = selector.hasPrefix("%") ? String(selector.dropFirst()) : selector
+        return ["leader", "agent"].contains(id) ? PaneID(id) : nil
     }
 
     func test_displayTemplateUsesPositionalFormatAfterPrintFlag() {
@@ -173,13 +166,11 @@ final class TmuxCompatArgumentsTests: XCTestCase {
     }
 
     func test_respawnPaneLaunchRequestPreservesClaudeCompoundCommand() {
-        let leader = paneEntry(id: "leader", isFocused: true)
-        let agent = paneEntry(id: "agent", isFocused: false)
         let command = "cd /tmp/project && env CLAUDECODE=1 claude --agent-id teammate"
 
         let request = TmuxCompatIPCHandler.respawnPaneLaunchRequest(
             arguments: ["-k", "-t", "%agent", "--", command],
-            paneEntries: [leader, agent],
+            resolvePane: resolveKnownPane,
             loginShellPath: "/bin/zsh"
         )
 
@@ -191,8 +182,6 @@ final class TmuxCompatArgumentsTests: XCTestCase {
     }
 
     func test_respawnPaneLaunchRequestRejectsUnsupportedOrUnsafeShapes() {
-        let leader = paneEntry(id: "leader", isFocused: true)
-        let agent = paneEntry(id: "agent", isFocused: false)
         let command = "cd /tmp/project && env CLAUDECODE=1 claude --agent-id teammate"
         let cases: [[String]] = [
             ["-t", "%agent", "--", command],
@@ -212,7 +201,7 @@ final class TmuxCompatArgumentsTests: XCTestCase {
             XCTAssertNil(
                 TmuxCompatIPCHandler.respawnPaneLaunchRequest(
                     arguments: arguments,
-                    paneEntries: [leader, agent],
+                    resolvePane: resolveKnownPane,
                     loginShellPath: "/bin/zsh"
                 ),
                 "Expected nil for arguments: \(arguments)"
@@ -221,7 +210,7 @@ final class TmuxCompatArgumentsTests: XCTestCase {
     }
 
     func test_unresolvedTargetResultRejectsTargetDependentLaunchCommands() {
-        for subcommand in ["split-window", "splitw", "respawn-pane", "respawnp"] {
+        for subcommand in ["split-window", "splitw", "new-window", "neww", "respawn-pane", "respawnp"] {
             XCTAssertThrowsError(try TmuxCompatIPCHandler.unresolvedTargetResult(for: subcommand)) { error in
                 guard let tmuxError = error as? TmuxCompatIPCError else {
                     return XCTFail("Expected TmuxCompatIPCError, got \(error)")
@@ -233,22 +222,6 @@ final class TmuxCompatArgumentsTests: XCTestCase {
                     tmuxError.localizedDescription,
                     "Cannot route tmux command: the target Zentty worklane or pane is no longer available."
                 )
-            }
-        }
-    }
-
-    func test_validateSplitTargetRejectsMissingLeaderPane() {
-        XCTAssertThrowsError(
-            try TmuxCompatIPCHandler.validateSplitTarget(
-                PaneID("gone"),
-                paneEntries: [paneEntry(id: "other", isFocused: true)]
-            )
-        ) { error in
-            guard let tmuxError = error as? TmuxCompatIPCError else {
-                return XCTFail("Expected TmuxCompatIPCError, got \(error)")
-            }
-            guard case .targetUnavailable = tmuxError else {
-                return XCTFail("Expected targetUnavailable, got \(tmuxError)")
             }
         }
     }
@@ -295,91 +268,6 @@ final class TmuxCompatArgumentsTests: XCTestCase {
                 loginShellPath: "/bin/zsh"
             ),
             "'/bin/zsh' -lic 'cd /tmp/a b && env NAME='\"'\"'x'\"'\"' claude'"
-        )
-    }
-
-    func test_resolvedTargetPaneIDPrefersExplicitTmuxTarget() {
-        let panes = [
-            PaneListEntry(
-                index: 0,
-                id: "leader",
-                column: 0,
-                title: "leader",
-                workingDirectory: nil,
-                isFocused: true,
-                agentTool: nil,
-                agentStatus: nil
-            ),
-            PaneListEntry(
-                index: 1,
-                id: "agent",
-                column: 1,
-                title: "agent",
-                workingDirectory: nil,
-                isFocused: false,
-                agentTool: nil,
-                agentStatus: nil
-            ),
-        ]
-
-        XCTAssertEqual(
-            TmuxCompatIPCHandler.resolvedTargetPaneID(
-                arguments: ["-t", "%agent"],
-                fallback: PaneID("leader"),
-                paneEntries: panes
-            ),
-            PaneID("agent")
-        )
-    }
-
-    func test_sendKeysTargetPaneIDDoesNotFallbackWhenExplicitTargetIsMissing() {
-        let panes = [paneEntry(id: "leader", isFocused: true)]
-
-        for arguments in [
-            ["-t", "%gone", "echo", "hello"],
-            ["-t%gone", "echo", "hello"],
-        ] {
-            XCTAssertNil(
-                TmuxCompatIPCHandler.sendKeysTargetPaneID(
-                    arguments: arguments,
-                    fallback: PaneID("leader"),
-                    paneEntries: panes
-                ),
-                "Expected no fallback for arguments: \(arguments)"
-            )
-        }
-    }
-
-    func test_sendKeysTargetPaneIDUsesFallbackWhenTargetFlagIsAbsent() {
-        XCTAssertEqual(
-            TmuxCompatIPCHandler.sendKeysTargetPaneID(
-                arguments: ["echo", "hello"],
-                fallback: PaneID("leader"),
-                paneEntries: []
-            ),
-            PaneID("leader")
-        )
-    }
-
-    func test_explicitTargetPaneIDReturnsNilWhenTmuxTargetIsAlreadyGone() {
-        let panes = [
-            PaneListEntry(
-                index: 0,
-                id: "leader",
-                column: 0,
-                title: "leader",
-                workingDirectory: nil,
-                isFocused: true,
-                agentTool: nil,
-                agentStatus: nil
-            ),
-        ]
-
-        XCTAssertNil(
-            TmuxCompatIPCHandler.explicitTargetPaneID(
-                arguments: ["-t", "%agent"],
-                paneEntries: panes
-            )
         )
     }
 

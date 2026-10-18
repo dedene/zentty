@@ -1385,22 +1385,23 @@ final class WorklaneStore {
 
     @discardableResult
     func setPaneTitle(id paneID: PaneID, title: String) -> Bool {
-        guard var worklane = activeWorklane else {
-            return false
-        }
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             return false
         }
 
-        for columnIndex in worklane.paneStripState.columns.indices {
-            guard let paneIndex = worklane.paneStripState.columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else {
-                continue
+        // Teammate panes can live in a worklane the user is not looking at.
+        for worklaneIndex in worklanes.indices {
+            var worklane = worklanes[worklaneIndex]
+            for columnIndex in worklane.paneStripState.columns.indices {
+                guard let paneIndex = worklane.paneStripState.columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else {
+                    continue
+                }
+                worklane.paneStripState.columns[columnIndex].panes[paneIndex].title = trimmedTitle
+                worklanes[worklaneIndex] = worklane
+                notify(.paneStructure(worklane.id))
+                return true
             }
-            worklane.paneStripState.columns[columnIndex].panes[paneIndex].title = trimmedTitle
-            activeWorklane = worklane
-            notify(.paneStructure(activeWorklaneID))
-            return true
         }
 
         return false
@@ -1844,6 +1845,10 @@ final class WorklaneStore {
         pane.sessionRequest.isLaunchDeferred = override.isLaunchDeferred
         if !override.environmentVariables.isEmpty {
             pane.sessionRequest.environmentVariables.merge(override.environmentVariables) { _, new in new }
+            WorklaneSessionEnvironment.applyTmuxPaneIdentity(
+                to: &pane.sessionRequest.environmentVariables,
+                paneID: pane.id
+            )
         }
     }
 

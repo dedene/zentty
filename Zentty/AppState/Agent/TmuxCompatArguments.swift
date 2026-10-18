@@ -1,7 +1,10 @@
 import Foundation
 
 struct TmuxCompatArguments: Equatable {
+    /// Last value given for each value flag.
     let valuesByFlag: [String: String]
+    /// Every value given for each value flag, in order (`-e A=1 -e B=2`).
+    var allValuesByFlag: [String: [String]] = [:]
     let flags: Set<String>
     let positionals: [String]
 
@@ -11,6 +14,7 @@ struct TmuxCompatArguments: Equatable {
         boolFlags: Set<String>
     ) -> TmuxCompatArguments {
         var valuesByFlag: [String: String] = [:]
+        var allValuesByFlag: [String: [String]] = [:]
         var flags: Set<String> = []
         var positionals: [String] = []
         var index = 0
@@ -30,6 +34,7 @@ struct TmuxCompatArguments: Equatable {
             if valueFlags.contains(argument) {
                 if index + 1 < arguments.count {
                     valuesByFlag[argument] = arguments[index + 1]
+                    allValuesByFlag[argument, default: []].append(arguments[index + 1])
                     index += 2
                 } else {
                     index += 1
@@ -50,21 +55,49 @@ struct TmuxCompatArguments: Equatable {
                     index += 1
                     continue
                 }
-                if let valueFlag = clusterFlags.first(where: valueFlags.contains),
-                   argument.hasPrefix(valueFlag) {
-                    let valueStart = argument.index(argument.startIndex, offsetBy: valueFlag.count)
-                    valuesByFlag[valueFlag] = String(argument[valueStart...])
-                    index += 1
+                // getopt-style cluster: leading boolean flags, then at most one
+                // value flag whose value is the rest of the word (`-l70%`) or,
+                // when it ends the word, the next argument (`-at target`).
+                if let valueFlagOffset = clusterFlags.firstIndex(where: valueFlags.contains),
+                   clusterFlags[..<valueFlagOffset].allSatisfy(boolFlags.contains) {
+                    let valueFlag = clusterFlags[valueFlagOffset]
+                    let valueStart = argument.index(argument.startIndex, offsetBy: valueFlagOffset + 2)
+                    let inlineValue = String(argument[valueStart...])
+                    let value: String?
+                    if !inlineValue.isEmpty {
+                        value = inlineValue
+                        index += 1
+                    } else if index + 1 < arguments.count {
+                        value = arguments[index + 1]
+                        index += 2
+                    } else {
+                        value = nil
+                        index += 1
+                    }
+                    flags.formUnion(clusterFlags[..<valueFlagOffset])
+                    if let value {
+                        valuesByFlag[valueFlag] = value
+                        allValuesByFlag[valueFlag, default: []].append(value)
+                    }
                     continue
                 }
             }
 
+            // Like getopt, option parsing ends at the first word that is not
+            // an option: `split-window -t %1 sh -c 'x'` runs `sh -c 'x'`, and
+            // `send-keys ls -la Enter` types `ls -la`. An unknown option
+            // before that point is kept as a positional and parsing goes on.
+            guard argument.hasPrefix("-"), argument.count > 1 else {
+                positionals.append(contentsOf: arguments[index...])
+                break
+            }
             positionals.append(argument)
             index += 1
         }
 
         return TmuxCompatArguments(
             valuesByFlag: valuesByFlag,
+            allValuesByFlag: allValuesByFlag,
             flags: flags,
             positionals: positionals
         )
@@ -72,6 +105,10 @@ struct TmuxCompatArguments: Equatable {
 
     func value(_ flag: String) -> String? {
         valuesByFlag[flag]
+    }
+
+    func values(_ flag: String) -> [String] {
+        allValuesByFlag[flag] ?? []
     }
 
     func hasFlag(_ flag: String) -> Bool {
