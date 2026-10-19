@@ -1028,6 +1028,77 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.trackedPID, 4242)
     }
 
+    func test_stop_grace_expiry_keeps_tracked_pid_while_badge_expires() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                lifecycleEvent: .stopCandidate,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+
+        let graceExpiredAt = startedAt.addingTimeInterval(2 + PaneAgentReducerState.stopGraceWindow + 1)
+        reducerState.sweep(now: graceExpiredAt, isProcessAlive: { $0 == 4242 })
+        let idleStatus = reducerState.reducedStatus(now: graceExpiredAt)
+        XCTAssertEqual(idleStatus?.state, .idle)
+        XCTAssertEqual(idleStatus?.trackedPID, 4242)
+
+        let badgeExpiredAt = graceExpiredAt.addingTimeInterval(PaneAgentReducerState.idleVisibilityWindow + 1)
+        reducerState.sweep(now: badgeExpiredAt, isProcessAlive: { $0 == 4242 })
+        XCTAssertNil(reducerState.reducedStatus(now: badgeExpiredAt))
+        XCTAssertEqual(reducerState.sessionsByID["session-1"]?.trackedPID, 4242)
+
+        reducerState.sweep(now: badgeExpiredAt.addingTimeInterval(1), isProcessAlive: { _ in false })
+        XCTAssertTrue(reducerState.sessionsByID.isEmpty)
+    }
+
     func test_nil_session_codex_turn_complete_does_not_replace_restorable_session() {
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

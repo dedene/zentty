@@ -119,10 +119,12 @@ struct PaneAgentReducerState: Equatable, Sendable {
                 stopSignalLogger.debug(
                     "reducer.sweep graceExpired session=\(sessionID, privacy: .public) tool=\(session.tool.displayName, privacy: .public) => idle"
                 )
+                // Keep `trackedPID`: the agent is back at its prompt, not
+                // gone. A live PID keeps the hidden idle session restorable
+                // once `idleVisibleUntil` passes; a dead one is handled above.
                 session.state = .idle
                 session.interactionKind = .none
                 session.text = nil
-                session.trackedPID = nil
                 session.completionCandidateDeadline = nil
                 session.idleVisibleUntil = now.addingTimeInterval(Self.idleVisibilityWindow)
                 session.unresolvedStopVisibleUntil = nil
