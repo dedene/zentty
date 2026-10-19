@@ -835,7 +835,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return SessionScrollbackCoordinator.CaptureSource(
                     paneIDs: store.worklanes.flatMap { $0.paneStripState.panes.map(\.id) },
                     busyPaneIDs: Self.busyPaneIDs(in: store),
-                    read: { [weak store] paneID in store?.scrollbackProvider?(paneID) }
+                    read: { [weak store] paneID in store?.styledScrollbackProvider?(paneID) }
                 )
             } ?? []
         }

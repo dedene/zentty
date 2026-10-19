@@ -30,6 +30,8 @@ enabled = true
 
 New panes then start in team mode with Claude Code's team switch on. Panes that were already open keep their old environment. If Zentty itself was started from inside a real tmux session, it leaves that session's `TMUX` alone.
 
+Inside Zentty the team switch wins over Claude Code's own settings. Claude normally lets an `env` entry in `~/.claude/settings.json` override the environment, so a `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"` there would turn teams back off. In team-mode panes Zentty also puts `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in the settings it passes to Claude, which take precedence. With the setting off, Zentty leaves the variable alone.
+
 ## Tools
 
 | Tool | How to start it | Notes |

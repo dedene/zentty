@@ -404,6 +404,28 @@ class SyntheticScenarioTests(unittest.TestCase):
             settings = json.loads(arguments[arguments.index("--settings") + 1])
         self.assertEqual(settings, {"hooks": swift_plan})
 
+    def test_claude_plan_forces_agent_teams_env_only_in_teams_panes(self):
+        # Mirror of AgentLaunchBootstrap.claudeAgentTeamsSettingsEnvironment.
+        base = {"ZENTTY_REAL_BINARY": "/usr/local/bin/claude", "ZENTTY_CLI_BIN": "/tmp/zentty-bench"}
+        cases = (
+            ({"ZENTTY_TMUX_SHIM": "1", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}, {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}),
+            ({"ZENTTY_TMUX_SHIM": "1"}, None),
+            ({"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}, None),
+            ({}, None),
+        )
+        for extra, expected in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan = agent_bench.LaunchPlanner(
+                    profile=agent_bench.load_profiles(ROOT / "profiles")["claude"],
+                    scenario="smoke",
+                    run_dir=pathlib.Path(tmp),
+                    resources_dir=None,
+                ).plan({"arguments": ["hello"], "environment": {**base, **extra}})
+                arguments = plan["arguments"]
+                settings = json.loads(arguments[arguments.index("--settings") + 1])
+            self.assertEqual(settings.get("env"), expected, extra)
+            self.assertIn("hooks", settings, extra)
+
     def test_claude_hook_command_carries_launch_routing(self):
         # Transcribed from AgentLaunchBootstrap.claudeHookCommand; the Swift
         # side wins when the two disagree.

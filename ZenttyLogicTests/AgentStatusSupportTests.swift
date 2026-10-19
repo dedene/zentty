@@ -2559,6 +2559,92 @@ final class AgentStatusSupportTests: XCTestCase {
         }
     }
 
+    func test_agent_launch_bootstrap_forces_claude_agent_teams_in_settings_for_teams_panes() throws {
+        let settings = try claudeBootstrapSettings(
+            named: "agent-launch-claude-teams-runtime",
+            extraEnvironment: [
+                "ZENTTY_TMUX_SHIM": "1",
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+            ]
+        )
+
+        // User settings `env` outranks the process environment; the
+        // `--settings` overlay outranks user settings.
+        XCTAssertEqual(
+            settings["env"] as? [String: String],
+            ["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"]
+        )
+        let hooks = try XCTUnwrap(settings["hooks"] as? [String: Any])
+        XCTAssertNotNil(hooks["SessionStart"])
+        XCTAssertNotNil(hooks["SubagentStop"])
+    }
+
+    func test_agent_launch_bootstrap_leaves_claude_settings_env_out_without_teams_pane() throws {
+        let environments: [[String: String]] = [
+            [:],
+            // `zentty launch --tmux-shim` without `--teams`.
+            ["ZENTTY_TMUX_SHIM": "1"],
+            // Switched on by the user outside an agent-teams pane.
+            ["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"],
+            ["ZENTTY_TMUX_SHIM": "1", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"],
+        ]
+        for (index, extraEnvironment) in environments.enumerated() {
+            let settings = try claudeBootstrapSettings(
+                named: "agent-launch-claude-no-teams-runtime-\(index)",
+                extraEnvironment: extraEnvironment
+            )
+            XCTAssertNil(settings["env"], "\(extraEnvironment)")
+            XCTAssertNotNil(settings["hooks"], "\(extraEnvironment)")
+        }
+    }
+
+    func test_agent_tool_launcher_forwards_agent_teams_markers_to_bootstrap() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOfFile: repoRoot.appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift").path,
+            encoding: .utf8
+        )
+
+        for key in ["ZENTTY_TMUX_SHIM", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] {
+            XCTAssertTrue(
+                source.contains("\"\(key)\""),
+                "AgentToolLauncher should forward \(key) so the Claude plan sees agent-teams panes"
+            )
+        }
+    }
+
+    private func claudeBootstrapSettings(
+        named name: String,
+        extraEnvironment: [String: String]
+    ) throws -> [String: Any] {
+        let runtimeDirectory = try makeTemporaryDirectory(named: name)
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+            ].merging(extraEnvironment) { _, extra in extra },
+            expectsResponse: true,
+            tool: .claude
+        )
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+        let settingsIndex = try XCTUnwrap(plan.arguments.firstIndex(of: "--settings"))
+        let settingsData = try XCTUnwrap(plan.arguments[settingsIndex + 1].data(using: .utf8))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: settingsData) as? [String: Any])
+    }
+
     func test_agent_launch_bootstrap_preserves_explicit_claude_color_environment() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-color-runtime")
         let request = AgentIPCRequest(

@@ -430,6 +430,13 @@ final class RootViewController: NSViewController {
             else { return nil }
             return reader.readText(includeScrollback: true, lineLimit: 5_000)
         }
+        worklaneStore.styledScrollbackProvider = { [weak self] paneID in
+            guard let self else { return nil }
+            guard let runtime = self.runtimeRegistry.runtime(for: paneID),
+                  let reader = runtime.adapter as? TerminalTextReading
+            else { return nil }
+            return reader.readStyledText(includeScrollback: true, lineLimit: 5_000)
+        }
         ClosedPaneScrollbackArchive.purgeStale()
         preloadOpenWithIcons()
         preloadProjectIcons()
