@@ -899,7 +899,7 @@ enum AgentLaunchBootstrap {
         }
 
         let hookCommand = claudeHookCommand(cliPath: cliPath, environment: environment)
-        let settingsJSON = try compactJSONString([
+        var settings: [String: Any] = [
             "hooks": [
                 "SessionStart": claudeSessionStartHookEntries(command: hookCommand, timeout: 10),
                 "Stop": claudeHookEntries(command: hookCommand, timeout: 10),
@@ -918,7 +918,11 @@ enum AgentLaunchBootstrap {
                 "SubagentStart": claudeHookEntries(command: hookCommand, timeout: 5),
                 "SubagentStop": claudeHookEntries(command: hookCommand, timeout: 5),
             ],
-        ])
+        ]
+        if let teamsEnvironment = claudeAgentTeamsSettingsEnvironment(from: environment) {
+            settings["env"] = teamsEnvironment
+        }
+        let settingsJSON = try compactJSONString(settings)
 
         var plannedArguments = arguments
         let shouldReuseSession = arguments.contains { argument in
@@ -946,6 +950,21 @@ enum AgentLaunchBootstrap {
             unsetEnvironment: ["CLAUDECODE"],
             preLaunchActions: []
         )
+    }
+
+    /// Claude Code applies the `env` block of its user settings over the
+    /// process environment, so a user-level
+    /// `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0` would switch teams off in a
+    /// pane where the Agent teams setting put the tmux shim in place. The
+    /// `--settings` overlay outranks user settings, so it repeats the value
+    /// there. Nil when the pane is not an agent-teams pane.
+    static func claudeAgentTeamsSettingsEnvironment(from environment: [String: String]) -> [String: String]? {
+        guard environment[TmuxShimEnvironment.markerKey] == "1",
+              environment[TmuxShimEnvironment.claudeAgentTeamsKey] == "1"
+        else {
+            return nil
+        }
+        return [TmuxShimEnvironment.claudeAgentTeamsKey: "1"]
     }
 
     /// `claude attach <id>` shows a background session in this pane. The
