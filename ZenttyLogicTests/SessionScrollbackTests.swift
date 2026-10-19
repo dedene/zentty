@@ -2,13 +2,63 @@ import XCTest
 @testable import Zentty
 
 final class SessionScrollbackTextTests: XCTestCase {
-    func test_prepared_text_strips_control_characters_but_keeps_tabs_and_newlines() {
+    func test_prepared_text_keeps_colors_but_strips_other_control_characters() {
         let raw = "red \u{1B}[31mtext\u{1B}[0m\r\n\tindented\u{07}\nosc \u{1B}]52;c;ZXZpbA==\u{07}end\u{9B}31m"
 
         let prepared = SessionScrollbackText.preparedText(from: raw)
 
-        XCTAssertEqual(prepared, "red [31mtext[0m\n\tindented\nosc ]52;c;ZXZpbA==end31m")
-        XCTAssertFalse(prepared?.unicodeScalars.contains { $0.value == 0x1B || $0.value == 0x07 || $0.value == 0x9B } ?? true)
+        XCTAssertEqual(prepared, "red \u{1B}[31mtext\u{1B}[0m\n\tindented\nosc end31m")
+        XCTAssertFalse(prepared?.unicodeScalars.contains { $0.value == 0x07 || $0.value == 0x9B } ?? true)
+    }
+
+    func test_prepared_text_keeps_every_sgr_form_a_prompt_uses() {
+        let raw = "\u{1B}[1;38;5;208m\u{E0B0}\u{1B}[48;2;40;44;52m main \u{1B}[38:2::255:0:0mx\u{1B}[m"
+
+        XCTAssertEqual(SessionScrollbackText.preparedText(from: raw), raw)
+    }
+
+    func test_prepared_text_drops_non_sgr_sequences_with_their_parameters() {
+        let raw = [
+            "\u{1B}[2J\u{1B}[?25l\u{1B}[3;1Hcleared",
+            "\u{1B}]8;;https://example.com\u{1B}\\link\u{1B}]8;;\u{1B}\\ text",
+            "\u{1B}]0;title\u{07}\u{1B}Pdcs\u{1B}\\\u{1B}_apc\u{1B}\\\u{1B}=after",
+            "\u{1B}[38;5;2\u{1B}[\"m quoted",
+        ].joined(separator: "\n")
+
+        XCTAssertEqual(
+            SessionScrollbackText.preparedText(from: raw),
+            "cleared\nlink text\nafter\n quoted"
+        )
+    }
+
+    func test_unterminated_osc_ends_at_the_line_break() {
+        let raw = "before \u{1B}]0;never closed\nnext line"
+
+        XCTAssertEqual(SessionScrollbackText.preparedText(from: raw), "before \nnext line")
+    }
+
+    func test_style_only_lines_count_as_blank() {
+        XCTAssertEqual(
+            SessionScrollbackText.preparedText(from: "$ ls\n\u{1B}[0m\n\u{1B}[41m   \u{1B}[0m\n"),
+            "$ ls"
+        )
+        XCTAssertFalse(SessionScrollbackText.hasVisibleContent("\u{1B}[0m\n\u{1B}[41m  \u{1B}[0m"))
+        XCTAssertTrue(SessionScrollbackText.hasVisibleContent("\u{1B}[31mx"))
+    }
+
+    func test_styled_payload_resets_attributes_before_the_separator() throws {
+        let payload = try XCTUnwrap(SessionScrollbackText.replayPayload(from: "\u{1B}[42m ok \n"))
+
+        XCTAssertEqual(payload, "\u{1B}[42m ok \u{1B}[0m\n" + SessionScrollbackText.separatorLine)
+    }
+
+    func test_a_styled_separator_read_back_is_dropped() throws {
+        let shown = "$ make\n\u{1B}[0m\u{1B}[2m── restored from previous session ──\u{1B}[0m\n$ ls\n"
+
+        let payload = try XCTUnwrap(SessionScrollbackText.replayPayload(from: shown))
+
+        XCTAssertEqual(payload.components(separatedBy: SessionScrollbackText.separatorTitle).count, 2)
+        XCTAssertTrue(payload.hasPrefix("$ make\n$ ls"))
     }
 
     func test_prepared_text_drops_trailing_blank_lines_and_ignores_blank_screens() {

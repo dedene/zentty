@@ -1,5 +1,5 @@
 repo=https://github.com/dedene/ghostty.git
-revision=a9de107b4217ff3b7faa40f0ff6f5cd4afb122f6
+revision=4fbcf833022e5b61bb71c92dcc4e473205e332d0
 upstream_repo=https://github.com/ghostty-org/ghostty.git
 upstream_revision=35a81a980bb9fce09a1ea762a68b55f8eb3477ed
 patch_branch=zentty/smooth-scroll

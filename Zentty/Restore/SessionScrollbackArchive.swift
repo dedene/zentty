@@ -22,12 +22,6 @@ enum SessionScrollbackText {
     /// Printed after the saved text: SGR 2 (faint), reset afterwards.
     static let separatorLine = "\u{1B}[2m\(separatorTitle)\u{1B}[0m\n"
 
-    /// The separator as read back from the screen, and as found in a saved
-    /// payload once its escape bytes are stripped.
-    private static let replayedSeparatorLines: Set<String> = [
-        separatorTitle,
-        sanitized(separatorLine).trimmingCharacters(in: .whitespacesAndNewlines),
-    ]
 
     static func limits(forPaneCount paneCount: Int, base: Limits = .perPane) -> Limits {
         guard paneCount > 0 else { return base }
@@ -41,19 +35,22 @@ enum SessionScrollbackText {
         guard let text = preparedText(from: raw, limits: limits) else {
             return nil
         }
-        return text + "\n" + separatorLine
+        // Styled text may end mid-color; reset so the separator starts clean.
+        let reset = text.unicodeScalars.contains("\u{1B}") ? "\u{1B}[0m" : ""
+        return text + reset + "\n" + separatorLine
     }
 
-    /// Strips terminal control characters (so printing the file can never
-    /// run escape sequences), drops trailing blank lines, and keeps the
+    /// Keeps SGR sequences (colors and text attributes) and strips every
+    /// other control character and escape sequence, so printing the file can
+    /// only change how text looks. Drops trailing blank lines and keeps the
     /// newest lines within `limits`, trimming from the top. Separators
     /// replayed by an earlier restore are dropped, so a pane restored many
     /// times still shows only the newest one.
     static func preparedText(from raw: String, limits: Limits = .perPane) -> String? {
-        var lines = sanitized(raw).components(separatedBy: "\n").filter { line in
-            !replayedSeparatorLines.contains(line.trimmingCharacters(in: .whitespaces))
+        var lines = filtered(raw, keepsStyle: true).components(separatedBy: "\n").filter { line in
+            visibleText(line).trimmingCharacters(in: .whitespaces) != separatorTitle
         }
-        while let last = lines.last, last.allSatisfy(\.isWhitespace) {
+        while let last = lines.last, visibleText(last).allSatisfy(\.isWhitespace) {
             lines.removeLast()
         }
         guard !lines.isEmpty else {
@@ -82,23 +79,66 @@ enum SessionScrollbackText {
     }
 
     static func hasVisibleContent(_ raw: String) -> Bool {
-        raw.unicodeScalars.contains { !CharacterSet.whitespacesAndNewlines.contains($0) }
+        visibleText(raw).unicodeScalars.contains { !CharacterSet.whitespacesAndNewlines.contains($0) }
     }
 
-    private static func sanitized(_ raw: String) -> String {
-        var scalars = String.UnicodeScalarView()
-        scalars.reserveCapacity(raw.unicodeScalars.count)
-        for scalar in raw.unicodeScalars {
+    private static func visibleText(_ raw: String) -> String {
+        filtered(raw, keepsStyle: false)
+    }
+
+    /// Drops control characters other than newline and tab, and every escape
+    /// sequence with its parameters. With `keepsStyle`, SGR sequences
+    /// (`ESC [ <digits ; :> m`) are kept as-is.
+    private static func filtered(_ raw: String, keepsStyle: Bool) -> String {
+        var output = String.UnicodeScalarView()
+        output.reserveCapacity(raw.unicodeScalars.count)
+        var scalars = raw.unicodeScalars[...]
+        while let scalar = scalars.popFirst() {
             switch scalar.value {
+            case 0x1B:
+                guard let introducer = scalars.popFirst() else { continue }
+                switch introducer {
+                case "[":
+                    var parameters = String.UnicodeScalarView()
+                    while let next = scalars.first, (0x20...0x3F).contains(next.value) {
+                        parameters.append(next)
+                        scalars.removeFirst()
+                    }
+                    // A sequence cut short by another control character is dropped.
+                    guard let final = scalars.first, (0x40...0x7E).contains(final.value) else { continue }
+                    scalars.removeFirst()
+                    if keepsStyle, final == "m", parameters.allSatisfy(isSGRParameter) {
+                        output.append(contentsOf: "\u{1B}[".unicodeScalars)
+                        output.append(contentsOf: parameters)
+                        output.append("m")
+                    }
+                case "]", "P", "X", "^", "_":
+                    // OSC, DCS, SOS, PM, APC: skip the string up to BEL or ST.
+                    // A newline ends an unterminated one so it can't swallow the rest.
+                    while let next = scalars.first, next.value != 0x0A {
+                        scalars.removeFirst()
+                        if next.value == 0x07 { break }
+                        if next.value == 0x1B {
+                            if scalars.first == "\\" { scalars.removeFirst() }
+                            break
+                        }
+                    }
+                default:
+                    continue
+                }
             case 0x0A, 0x09:
-                scalars.append(scalar)
+                output.append(scalar)
             case 0x00...0x1F, 0x7F, 0x80...0x9F:
                 continue
             default:
-                scalars.append(scalar)
+                output.append(scalar)
             }
         }
-        return String(scalars)
+        return String(output)
+    }
+
+    private static func isSGRParameter(_ scalar: Unicode.Scalar) -> Bool {
+        ("0"..."9").contains(scalar) || scalar == ";" || scalar == ":"
     }
 }
 

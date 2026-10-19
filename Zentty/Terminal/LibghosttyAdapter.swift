@@ -91,6 +91,7 @@ extension LibghosttySurfaceControlling {
 @MainActor
 protocol LibghosttySurfaceTextReading: AnyObject {
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    func readStyledText(includeScrollback: Bool, lineLimit: Int?) -> String?
 }
 
 @MainActor
@@ -207,6 +208,13 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
 
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
         (surfaceController as? LibghosttySurfaceTextReading)?.readText(
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
+    }
+
+    func readStyledText(includeScrollback: Bool, lineLimit: Int?) -> String? {
+        (surfaceController as? LibghosttySurfaceTextReading)?.readStyledText(
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )

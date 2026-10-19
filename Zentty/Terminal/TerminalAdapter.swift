@@ -219,6 +219,8 @@ extension TerminalAdapter {
 @MainActor
 protocol TerminalTextReading: AnyObject {
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String?
+    /// Same text with colors and attributes kept as SGR sequences.
+    func readStyledText(includeScrollback: Bool, lineLimit: Int?) -> String?
 }
 
 @MainActor

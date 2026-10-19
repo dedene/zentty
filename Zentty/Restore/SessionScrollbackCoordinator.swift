@@ -5,8 +5,8 @@ private let sessionScrollbackLogger = Logger(subsystem: "be.zenjoy.zentty", cate
 
 /// Keeps each pane's output across an app relaunch.
 ///
-/// Capture reuses the Undo Close Pane provider (`WorklaneStore.scrollbackProvider`)
-/// on the main thread; sanitizing, capping and the disk writes run on a
+/// Capture reads styled text (`WorklaneStore.styledScrollbackProvider`) on the
+/// main thread; sanitizing, capping and the disk writes run on a
 /// private serial queue. On restore, the pane's environment names its file in
 /// `environmentKey` and Zentty's shell integration prints it before the first
 /// prompt, so the saved text is shown, never typed into the shell, and an agent
