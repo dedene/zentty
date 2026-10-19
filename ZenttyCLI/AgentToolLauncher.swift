@@ -646,6 +646,10 @@ struct AgentToolLauncher {
             "ZENTTY_MUSE_HOOKS_DISABLED",
             "ZENTTY_SMALL_HARNESS_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
+            // Agent-teams panes: the Claude plan repeats the teams switch in
+            // its settings overlay so user settings cannot turn it off.
+            "ZENTTY_TMUX_SHIM",
+            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
             "COPILOT_HOME",

@@ -2391,6 +2391,11 @@ class LaunchPlanner:
         # PreToolUse, so the sidebar can leave "Needs input" once work resumes.
         for event in ("PostToolUse", "PostToolUseFailure"):
             settings["hooks"][event] = [{"matcher": "", "hooks": [{"type": "command", "command": hook_command, "timeout": 5}]}]
+        # Mirror AgentLaunchBootstrap.claudeAgentTeamsSettingsEnvironment: an
+        # agent-teams pane repeats the teams switch in the overlay so a user
+        # settings `env` entry cannot turn it off.
+        if environment.get("ZENTTY_TMUX_SHIM") == "1" and environment.get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") == "1":
+            settings["env"] = {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}
         planned = ["--session-id", str(uuid.uuid4()).lower(), "--settings", compact_json(settings)] + arguments
         return self._launch_plan(executable, planned, {"ZENTTY_AGENT_TOOL": "claude"}, unset=["CLAUDECODE"])
 
