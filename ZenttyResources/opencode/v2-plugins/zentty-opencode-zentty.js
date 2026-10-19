@@ -9,24 +9,29 @@ import { delimiter, join } from "node:path"
 
 // Zentty's theme overlay points XDG_CONFIG_HOME/XDG_STATE_HOME at a per-pane
 // copy for OpenCode itself. OpenCode resolves its paths before plugins load, so
-// hand the originals back here: shells, MCP servers and LSPs spawned later then
-// see the user's real config (glab, gh, … — #142). `null` means "was unset".
-restoreUserEnvironment()
+// hand the originals back here and to every session shell (see `setup`): MCP
+// servers, LSPs and shells then see the user's real config (glab, gh, … — #142).
+// `null` means "was unset".
+const userEnvironment = readRestoreEnvironment()
+restoreUserEnvironment(process.env)
 
-function restoreUserEnvironment() {
+function readRestoreEnvironment() {
   const raw = process.env.ZENTTY_AGENT_RESTORE_ENV
-  if (!raw) return
-  delete process.env.ZENTTY_AGENT_RESTORE_ENV
-  let originals
+  if (!raw) return undefined
   try {
-    originals = JSON.parse(raw)
+    const originals = JSON.parse(raw)
+    return originals && typeof originals === "object" ? originals : undefined
   } catch {
-    return
+    return undefined
   }
-  if (!originals || typeof originals !== "object") return
-  for (const [key, value] of Object.entries(originals)) {
-    if (typeof value === "string" && value) process.env[key] = value
-    else if (value === null) delete process.env[key]
+}
+
+function restoreUserEnvironment(env) {
+  delete env.ZENTTY_AGENT_RESTORE_ENV
+  if (!userEnvironment) return
+  for (const [key, value] of Object.entries(userEnvironment)) {
+    if (typeof value === "string" && value) env[key] = value
+    else if (value === null) delete env[key]
   }
 }
 
@@ -188,6 +193,10 @@ function forwardCanonical(canonical) {
 export default {
   id: "zentty",
   setup: (ctx) => {
+    // The TUI sends the server its own environment, overlay included, and shells
+    // spawn from that session copy rather than from `process.env` (#142).
+    ctx?.shell?.hook?.("create.before", (invocation) => restoreUserEnvironment(invocation.env))
+
     if (!hasZenttyIntegration) return
 
     const cwd = firstString(ctx?.location?.directory)
