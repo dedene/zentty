@@ -298,7 +298,41 @@ _zentty_report_directory_change() {
     _zentty_reset_title_to_cwd
 }
 
-_zentty_bash_original_prompt_command="${ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND:-}"
+# PROMPT_COMMAND sources this file at the first prompt, after ~/.bash_profile and
+# ~/.bashrc ran, so it also carries the hooks those added around our entry (mise,
+# zoxide, direnv, ...). The prompt hook takes over PROMPT_COMMAND and runs them
+# instead (#162). Our own entry becomes a no-op so the separators around it stay
+# valid; the commands inherited from before Zentty set PROMPT_COMMAND run first,
+# unless the rc files already kept them. The current string still runs the rc
+# hooks for this first prompt, so the load-time prompt hook only runs the
+# inherited commands.
+_zentty_bash_collect_prompt_commands() {
+    local own_entry=". \"${BASH_SOURCE[0]}\""
+    local inherited="${ZENTTY_BASH_ORIGINAL_PROMPT_COMMAND:-}"
+    local current="" entry
+    if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+        for entry in ${PROMPT_COMMAND[@]+"${PROMPT_COMMAND[@]}"}; do
+            entry=${entry//"$own_entry"/:}
+            [[ -z "$entry" || "$entry" == ":" ]] && continue
+            current="${current:+$current$'\n'}$entry"
+        done
+    else
+        current=${PROMPT_COMMAND:-}
+        current=${current//"$own_entry"/:}
+        [[ "$current" == ":" ]] && current=""
+    fi
+    inherited=${inherited//"$own_entry"/:}
+    [[ "$inherited" == ":" ]] && inherited=""
+    if [[ -n "$inherited" && "$current" != *"$inherited"* ]]; then
+        current="$inherited${current:+$'\n'$current}"
+        _zentty_bash_first_prompt_command="$inherited"
+    fi
+    _zentty_bash_original_prompt_command="$current"
+}
+_zentty_bash_original_prompt_command=""
+_zentty_bash_first_prompt_command=""
+_zentty_bash_collect_prompt_commands
+unset -f _zentty_bash_collect_prompt_commands
 _zentty_bash_in_prompt=0
 
 _zentty_reset_keyboard_protocol() {
@@ -330,7 +364,9 @@ _zentty_bind_leaked_key_events() {
     done
 }
 
+# Runs the user's prompt commands, or $1 instead when given.
 _zentty_bash_prompt_hook() {
+    local user_prompt_command="${1-$_zentty_bash_original_prompt_command}"
     _zentty_bash_in_prompt=1
     _zentty_ensure_wrapper_path
     _zentty_apply_initial_working_directory
@@ -338,8 +374,8 @@ _zentty_bash_prompt_hook() {
     _zentty_report_pane_root_pid
     _zentty_report_shell_activity prompt
     _zentty_emit_pane_context
-    if [[ -n "$_zentty_bash_original_prompt_command" ]]; then
-        eval "$_zentty_bash_original_prompt_command"
+    if [[ -n "$user_prompt_command" ]]; then
+        eval "$user_prompt_command"
         _zentty_ensure_wrapper_path
     fi
     _zentty_reset_title_to_cwd
@@ -561,9 +597,16 @@ if _zentty_ssh_has_feature ssh-env || _zentty_ssh_has_feature ssh-terminfo; then
     }
 fi
 
-PROMPT_COMMAND="_zentty_bash_prompt_hook"
+# Assigning a scalar to an array PROMPT_COMMAND (bash 5.1+) only replaces its
+# first element, and the rest are already in the prompt hook.
+if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+    PROMPT_COMMAND=("_zentty_bash_prompt_hook")
+else
+    PROMPT_COMMAND="_zentty_bash_prompt_hook"
+fi
 _zentty_ensure_wrapper_path
 _zentty_bind_leaked_key_events
-_zentty_bash_prompt_hook
+_zentty_bash_prompt_hook "$_zentty_bash_first_prompt_command"
+unset _zentty_bash_first_prompt_command
 # DEBUG last: bootstrap helpers above must not emit spurious command-running signals.
 trap '_zentty_bash_preexec_hook' DEBUG

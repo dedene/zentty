@@ -390,7 +390,9 @@ final class WorklaneStoreShellExitTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("ZenttyResources/shell-integration/zentty-bash-integration.bash")
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
-        let bootstrapIndex = try XCTUnwrap(script.range(of: "_zentty_bash_prompt_hook\n")?.upperBound)
+        let bootstrapIndex = try XCTUnwrap(
+            script.range(of: "_zentty_bash_prompt_hook \"$_zentty_bash_first_prompt_command\"\n")?.upperBound
+        )
         let trapIndex = try XCTUnwrap(
             script.range(of: "trap '_zentty_bash_preexec_hook' DEBUG")?.lowerBound
         )
