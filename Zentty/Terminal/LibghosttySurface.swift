@@ -519,6 +519,15 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {
+        readText(includeScrollback: includeScrollback, lineLimit: lineLimit, styled: false)
+    }
+
+    /// Like `readText`, but keeps colors and text attributes as SGR sequences.
+    func readStyledText(includeScrollback: Bool, lineLimit: Int?) -> String? {
+        readText(includeScrollback: includeScrollback, lineLimit: lineLimit, styled: true)
+    }
+
+    private func readText(includeScrollback: Bool, lineLimit: Int?, styled: Bool) -> String? {
         guard let surface else {
             return nil
         }
@@ -543,7 +552,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             )
 
             var text = ghostty_text_s()
-            guard ghostty_surface_read_text(surface, selection, &text) else {
+            let didRead = styled
+                ? ghostty_surface_read_text_vt(surface, selection, &text)
+                : ghostty_surface_read_text(surface, selection, &text)
+            guard didRead else {
                 return nil
             }
             defer {

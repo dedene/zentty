@@ -440,6 +440,9 @@ final class WorklaneStore {
     /// Set by the view layer to provide pane scrollback right before close.
     /// Returns nil if the runtime is gone or the read fails.
     var scrollbackProvider: ((PaneID) -> String?)?
+    /// Same as `scrollbackProvider`, with colors and text attributes kept as
+    /// SGR sequences. Session restore filters the text before replaying it.
+    var styledScrollbackProvider: ((PaneID) -> String?)?
 
     var activeWorklaneID: WorklaneID
 
