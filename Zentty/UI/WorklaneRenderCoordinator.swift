@@ -136,6 +136,10 @@ final class WorklaneRenderCoordinator {
         }
     }
 
+    func notificationReplyToken(worklaneID: WorklaneID, paneID: PaneID) -> String? {
+        attentionNotificationCoordinator.replyToken(worklaneID: worklaneID, paneID: paneID)
+    }
+
     func bind(to views: ViewBindings) {
         self.views = views
     }

@@ -55,7 +55,8 @@ enum AgentIPCClient {
     static func send(
         request: AgentIPCRequest,
         socketPath: String,
-        timeoutSeconds: Int = timeoutSeconds
+        timeoutSeconds: Int = timeoutSeconds,
+        maxResponseBytes: Int = maxResponseBytes
     ) throws -> AgentIPCResponse? {
         let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else {
@@ -71,11 +72,96 @@ enum AgentIPCClient {
             return nil
         }
 
-        let response = try readResponse(from: fileDescriptor)
+        let response = try readResponse(from: fileDescriptor, maxResponseBytes: maxResponseBytes)
         if !response.ok, let error = response.error {
             throw AgentIPCClientError.responseError(error)
         }
         return response
+    }
+
+    /// Opens a long-lived stream: sends `request`, waits for the app's
+    /// acknowledgement, then hands every following newline-terminated line
+    /// to `onLine` until the app closes the connection. `onLine` returns
+    /// false to stop early.
+    static func stream(
+        request: AgentIPCRequest,
+        socketPath: String,
+        onLine: (Data) -> Bool
+    ) throws {
+        let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fileDescriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+        defer { close(fileDescriptor) }
+
+        try configure(fileDescriptor)
+        try connect(fileDescriptor, socketPath: socketPath)
+        try write(request: request, to: fileDescriptor)
+
+        var reader = LineReader(fileDescriptor: fileDescriptor, maxLineBytes: maxResponseBytes)
+        guard let acknowledgement = try reader.nextLine() else {
+            throw AgentIPCClientError.invalidResponse
+        }
+        let response = try JSONDecoder().decode(AgentIPCResponse.self, from: acknowledgement)
+        if !response.ok, let error = response.error {
+            throw AgentIPCClientError.responseError(error)
+        }
+
+        // Events can be minutes apart: wait indefinitely from here on.
+        var noTimeout = timeval(tv_sec: 0, tv_usec: 0)
+        _ = setsockopt(fileDescriptor, SOL_SOCKET, SO_RCVTIMEO, &noTimeout, socklen_t(MemoryLayout<timeval>.size))
+        while let line = try reader.nextLine() {
+            if !onLine(line) {
+                return
+            }
+        }
+    }
+
+    private struct LineReader {
+        let fileDescriptor: Int32
+        let maxLineBytes: Int
+        private var buffer = Data()
+        /// Bytes at the front of `buffer` already known to hold no newline.
+        private var scannedCount = 0
+
+        init(fileDescriptor: Int32, maxLineBytes: Int) {
+            self.fileDescriptor = fileDescriptor
+            self.maxLineBytes = maxLineBytes
+        }
+
+        /// The next line without its newline, or nil at end of stream.
+        mutating func nextLine() throws -> Data? {
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let scanStart = buffer.index(buffer.startIndex, offsetBy: scannedCount)
+                if let newlineIndex = buffer[scanStart...].firstIndex(of: UInt8(ascii: "\n")) {
+                    let line = Data(buffer[buffer.startIndex..<newlineIndex])
+                    buffer = Data(buffer[buffer.index(after: newlineIndex)...])
+                    scannedCount = 0
+                    return line
+                }
+                scannedCount = buffer.count
+                if buffer.count > maxLineBytes {
+                    throw AgentIPCClientError.requestTooLarge
+                }
+                let receivedCount = recv(fileDescriptor, &chunk, chunk.count, 0)
+                if receivedCount > 0 {
+                    buffer.append(chunk, count: receivedCount)
+                    continue
+                }
+                if receivedCount == 0 {
+                    guard !buffer.isEmpty else { return nil }
+                    let line = buffer
+                    buffer = Data()
+                    scannedCount = 0
+                    return line
+                }
+                if errno == EINTR {
+                    continue
+                }
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+        }
     }
 
     private static func configure(_ fileDescriptor: Int32, timeoutSeconds: Int = timeoutSeconds) throws {
@@ -178,15 +264,18 @@ enum AgentIPCClient {
         }
     }
 
-    private static func readResponse(from fileDescriptor: Int32) throws -> AgentIPCResponse {
+    private static func readResponse(from fileDescriptor: Int32, maxResponseBytes: Int) throws -> AgentIPCResponse {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
 
         while true {
             let receivedCount = recv(fileDescriptor, &buffer, buffer.count, 0)
             if receivedCount > 0 {
+                // Only the new bytes can hold the terminator; rescanning the
+                // whole buffer would make large `pane read` replies quadratic.
+                let chunkStart = data.endIndex
                 data.append(buffer, count: receivedCount)
-                if let newlineIndex = data.firstIndex(of: UInt8(ascii: "\n")) {
+                if let newlineIndex = data[chunkStart...].firstIndex(of: UInt8(ascii: "\n")) {
                     let responseData = data.prefix(upTo: newlineIndex)
                     return try JSONDecoder().decode(AgentIPCResponse.self, from: responseData)
                 }

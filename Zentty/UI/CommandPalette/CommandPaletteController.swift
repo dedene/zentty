@@ -12,6 +12,7 @@ final class CommandPaletteController {
     private var recentCommands = RecentCommandsTracker()
     private var lastFocusedPanePath: String?
     private var taskRunnerActionsByID: [String: TaskRunnerAction] = [:]
+    private var disabledCommandItemIDs: Set<CommandPaletteItemID> = []
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
     var onOpenServer: ((_ serverID: String) -> Void)?
@@ -60,8 +61,10 @@ final class CommandPaletteController {
             focusedPaneCopyTarget: focusedPaneCopyTarget,
             focusedBranchName: focusedBranchName,
             rightPaneCommandPresentation: rightPaneCommandPresentation,
-            focusedPaneUnreadToggle: availabilityContext.focusedPaneUnreadToggle
+            focusedPaneUnreadToggle: availabilityContext.focusedPaneUnreadToggle,
+            focusedPaneAgentFork: availabilityContext.focusedPaneAgentFork
         )
+        disabledCommandItemIDs = CommandPaletteItemBuilder.disabledCommandItemIDs(in: commandItems)
         let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
             targets: openWithTargets,
             focusedPanePath: focusedPanePath,
@@ -241,6 +244,11 @@ final class CommandPaletteController {
     }
 
     private func executeItem(_ itemID: CommandPaletteItemID) {
+        // A dimmed command row only explains why it can't run; selecting it
+        // keeps the palette open and stays out of the recents.
+        guard !disabledCommandItemIDs.contains(itemID) else {
+            return
+        }
         if itemID.shouldRecordAsRecentCommand {
             recentCommands.record(itemID)
         }

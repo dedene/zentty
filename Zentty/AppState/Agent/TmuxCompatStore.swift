@@ -47,6 +47,23 @@ struct TmuxCompatStore: Codable, Equatable {
         self.activePaneIDs = activePaneIDs
     }
 
+    /// Points the worklane's team anchor and active pane at `newPaneID`
+    /// where they named `oldPaneID` (a `respawn-pane` replacement). Must run
+    /// before the old pane closes, or closing a leader would cascade-close
+    /// its teammates.
+    mutating func replacePane(_ oldPaneID: String, with newPaneID: String, inWorklane key: String) {
+        if var anchor = anchors[key] {
+            if anchor.leaderPaneID == oldPaneID {
+                anchor.leaderPaneID = newPaneID
+            }
+            anchor.columnPaneIDs = anchor.columnPaneIDs.map { $0 == oldPaneID ? newPaneID : $0 }
+            anchors[key] = anchor
+        }
+        if activePaneIDs[key] == oldPaneID {
+            activePaneIDs[key] = newPaneID
+        }
+    }
+
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1

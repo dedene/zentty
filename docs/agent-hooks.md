@@ -573,11 +573,15 @@ Malformed manifests are logged and skipped. At launch, Zentty materializes a thi
     "command": "my-agent --resume {sessionId}",
     "sessionIdPattern": "^ses_[A-Za-z0-9]+$"
   },
+  "fork": {                          // optional; enables Fork Agent Conversation
+    "command": "my-agent --resume {sessionId} --fork",
+    "sessionIdPattern": "^ses_[A-Za-z0-9]+$"
+  },
   "icon": "AgentIconMyAgent"         // optional; asset-catalog image name for the menu-bar icon
 }
 ```
 
-`{sessionId}` and `{workingDirectory}` are the only template variables in `resume.command`; when `sessionIdPattern` is set, captured ids are validated against it before substitution (a non-matching id makes the restore ineligible rather than building a bad command). `id` must not equal a builtin agent id; `displayName` must not equal a builtin display name or another manifest's. Both rules are enforced at load time — a violating manifest is skipped.
+`{sessionId}` and `{workingDirectory}` are the only template variables in `resume.command`; when `sessionIdPattern` is set, captured ids are validated against it before substitution (a non-matching id makes the restore ineligible rather than building a bad command). `fork.command` uses the same variables and validation, but must contain `{sessionId}`: a fork branches one specific conversation, so a template without it leaves the agent not forkable. `id` must not equal a builtin agent id; `displayName` must not equal a builtin display name or another manifest's. Both rules are enforced at load time — a violating manifest is skipped.
 
 ### `opencode-plugin` family
 
@@ -602,6 +606,10 @@ For OpenCode forks that share the plugin/config-dir layout (OpenCode, Kilo, …)
   },
   "resume": {
     "command": "kilo --session {sessionId}",
+    "sessionIdPattern": "^ses_[A-Za-z0-9]+$"
+  },
+  "fork": {
+    "command": "kilo --session {sessionId} --fork",
     "sessionIdPattern": "^ses_[A-Za-z0-9]+$"
   }
 }

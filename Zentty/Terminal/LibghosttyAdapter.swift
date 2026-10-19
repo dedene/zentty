@@ -94,7 +94,7 @@ protocol LibghosttySurfaceTextReading: AnyObject {
 }
 
 @MainActor
-final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading {
+final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, TerminalTextReading, TerminalPaneInputDriving {
     private let runtime: any LibghosttyRuntimeProviding
     private let paneID: PaneID
     private let diagnostics: TerminalDiagnostics
@@ -185,6 +185,24 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     func submitCommand(_ command: String) {
         surfaceController?.sendText(command)
         surfaceController?.submitReturn()
+    }
+
+    var acceptsInput: Bool { surfaceController != nil }
+
+    func typeText(_ text: String) -> Bool {
+        surfaceController?.performBindingAction(TerminalPaneInputEncoding.ghosttyTextAction(text)) ?? false
+    }
+
+    func sendKeyStroke(_ stroke: PaneKeyStroke) -> Bool {
+        guard let surfaceController else { return false }
+        guard let event = TerminalPaneInputEncoding.keyEvent(for: stroke) else {
+            return typeText(stroke.legacyText)
+        }
+        return surfaceController.sendKey(event: event, action: .press, text: nil, composing: false)
+    }
+
+    var terminalGridSize: TerminalGridSize? {
+        (surfaceController as? LibghosttySurfaceGridReporting)?.terminalGridSize
     }
 
     func readText(includeScrollback: Bool, lineLimit: Int?) -> String? {

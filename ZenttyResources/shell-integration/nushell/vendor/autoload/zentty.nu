@@ -25,6 +25,21 @@ if ($env | get -o ZENTTY_SHELL_INTEGRATION_XDG_DIR | default '') != '' {
     hide-env ZENTTY_SHELL_INTEGRATION_XDG_DIR
 }
 
+# A pane restored after relaunch carries its previous output in a file Zentty
+# wrote on quit. Print it once, before the first prompt, and drop the variable
+# so nothing started from this shell sees it. The file is only ever printed.
+# Autoload runs after config.nu, so whatever config.nu starts still inherits
+# the variable. Zentty never rewrites the file it names and deletes it once
+# the pane saves newer output, so such a copy can only show the same old
+# output, and only until then.
+if ($env | get -o ZENTTY_RESTORED_SCROLLBACK_FILE | default '') != '' {
+    let zentty_restored_file = $env.ZENTTY_RESTORED_SCROLLBACK_FILE
+    hide-env ZENTTY_RESTORED_SCROLLBACK_FILE
+    if ($zentty_restored_file | path exists) {
+        try { open --raw $zentty_restored_file | print --raw } catch { }
+    }
+}
+
 # Internal bookkeeping that must survive across hook invocations (dedupe keys,
 # last-reported pid, the loaded guard above) lives in $env on purpose. Nushell hook
 # closures have no non-exported persistent scope — a plain `let`/`mut` would not carry
@@ -237,7 +252,8 @@ def --env _zentty_ensure_wrapper_path [] {
     }
     let tmux_shim_dir = ($env | get -o ZENTTY_TMUX_SHIM_DIR | default '')
     mut tmux_shim_enabled = false
-    if ($env | get -o CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS | default '') == '1' and $tmux_shim_dir != '' and (_zentty_is_executable ($tmux_shim_dir | path join tmux)) {
+    let tmux_shim_requested = (($env | get -o CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS | default '') == '1') or (($env | get -o ZENTTY_TMUX_SHIM | default '') == '1')
+    if $tmux_shim_requested and $tmux_shim_dir != '' and (_zentty_is_executable ($tmux_shim_dir | path join tmux)) {
         $tmux_shim_enabled = true
     }
     if ($wrapper_dirs | is-empty) and $tmux_shim_dir == '' { return }

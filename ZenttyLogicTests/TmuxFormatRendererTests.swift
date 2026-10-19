@@ -168,4 +168,97 @@ final class TmuxFormatRendererTests: XCTestCase {
         )
         XCTAssertEqual(result, "zentty")
     }
+
+    // MARK: - tmux operators and modifiers
+
+    private let paneContext = [
+        "pane_id": "%4",
+        "pane_pid": "5150",
+        "pane_dead": "0",
+        "session_id": "$1",
+        "pane_title": "teammate-alpha",
+        "pane_current_path": "/tmp/project/src",
+        "@owner": "omx-1",
+    ]
+
+    func test_conditional_treats_zero_as_false_like_tmux() {
+        XCTAssertEqual(
+            TmuxFormatRenderer.render("#{?pane_dead,dead,alive}", context: paneContext),
+            "alive"
+        )
+    }
+
+    func test_conditional_accepts_a_nested_format_condition() {
+        XCTAssertEqual(
+            TmuxFormatRenderer.render("#{?#{==:#{pane_id},%4},yes,no}", context: paneContext),
+            "yes"
+        )
+    }
+
+    func test_conditional_without_else_branch_renders_empty_when_false() {
+        XCTAssertEqual(TmuxFormatRenderer.render("[#{?pane_dead,dead}]", context: paneContext), "[]")
+    }
+
+    func test_equality_operators_compare_expanded_operands() {
+        XCTAssertEqual(TmuxFormatRenderer.render("#{==:#{pane_pid},5150}", context: paneContext), "1")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{==:#{pane_pid},1}", context: paneContext), "0")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{!=:#{pane_dead},1}", context: paneContext), "1")
+    }
+
+    func test_numeric_comparison_operators() {
+        XCTAssertEqual(TmuxFormatRenderer.render("#{<:#{pane_pid},10000}", context: paneContext), "1")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{>=:9,10}", context: paneContext), "0")
+    }
+
+    func test_logical_operators_combine_nested_comparisons() {
+        // The shape oh-my-codex uses to guard effects on an exact pane identity.
+        let predicate = "#{&&:#{&&:#{==:#{pane_dead},0},#{==:#{pane_id},%4}},#{==:#{@owner},omx-1}}"
+        XCTAssertEqual(TmuxFormatRenderer.render(predicate, context: paneContext), "1")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{||:#{pane_dead},}", context: paneContext), "0")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{||:#{pane_dead},x}", context: paneContext), "1")
+    }
+
+    func test_glob_match_operator() {
+        XCTAssertEqual(TmuxFormatRenderer.render("#{m:teammate-*,#{pane_title}}", context: paneContext), "1")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{m:lead*,#{pane_title}}", context: paneContext), "0")
+    }
+
+    func test_truncation_basename_dirname_and_length_modifiers() {
+        XCTAssertEqual(TmuxFormatRenderer.render("#{=8:pane_title}", context: paneContext), "teammate")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{=-5:pane_title}", context: paneContext), "alpha")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{b:pane_current_path}", context: paneContext), "src")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{d:pane_current_path}", context: paneContext), "/tmp/project")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{n:pane_title}", context: paneContext), "14")
+    }
+
+    func test_literal_quote_and_expand_modifiers() {
+        XCTAssertEqual(TmuxFormatRenderer.render("#{l:#{pane_id}}", context: paneContext), "#{pane_id}")
+        XCTAssertEqual(TmuxFormatRenderer.render("#{q:pane_title}", context: ["pane_title": "a b"]), "a\\ b")
+        XCTAssertEqual(
+            TmuxFormatRenderer.render("#{E:template}", context: ["template": "#{pane_id}", "pane_id": "%4"]),
+            "%4"
+        )
+    }
+
+    func test_self_referential_values_stop_expanding() {
+        // `set -g @a '#{E:@a}'`, or a pane title set to `#{E:pane_title}`:
+        // rendering must end instead of recursing on the main thread.
+        XCTAssertEqual(TmuxFormatRenderer.render("#{E:@a}", context: ["@a": "#{E:@a}"]), "")
+        XCTAssertEqual(
+            TmuxFormatRenderer.render("x#{E:@a}y", context: ["@a": "#{E:@a}#{E:@a}"]),
+            "xy",
+            "a value that doubles itself stays bounded"
+        )
+    }
+
+    func test_user_option_variables_resolve_from_context() {
+        XCTAssertEqual(TmuxFormatRenderer.render("#{@owner}", context: paneContext), "omx-1")
+    }
+
+    func test_is_truthy_follows_tmux() {
+        XCTAssertFalse(TmuxFormatRenderer.isTruthy(""))
+        XCTAssertFalse(TmuxFormatRenderer.isTruthy("0"))
+        XCTAssertTrue(TmuxFormatRenderer.isTruthy("1"))
+        XCTAssertTrue(TmuxFormatRenderer.isTruthy("off"))
+    }
 }

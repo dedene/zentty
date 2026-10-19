@@ -105,10 +105,10 @@ final class SidebarTaskProgressIndicatorView: NSView {
         (Arc.startAngle, Arc.endAngle, Arc.clockwise)
     }
 
-    /// "n/m tasks" plus a click hint when the pane carries an item list the
+    /// "n/m tasks" (or "42%") plus a click hint when the pane carries an item list the
     /// ring can reveal; counts-only progress stays a plain readout.
     static func tooltipText(for taskProgress: PaneAgentTaskProgress) -> String {
-        var text = "\(taskProgress.doneCount)/\(taskProgress.totalCount) tasks"
+        var text = taskProgress.readoutText
         if taskProgress.items.isEmpty == false {
             text += "\nClick for details"
         }
@@ -132,10 +132,10 @@ final class SidebarTaskProgressIndicatorView: NSView {
 
         isHidden = false
         progressColor = color
-        let progressText = "\(taskProgress.doneCount)/\(taskProgress.totalCount) tasks"
+        let progressText = taskProgress.readoutText
         tooltipText = Self.tooltipText(for: taskProgress)
         toolTip = tooltipText.isEmpty ? nil : tooltipText
-        setAccessibilityLabel("Task progress")
+        setAccessibilityLabel(taskProgress.unit == .percent ? "Progress" : "Task progress")
         setAccessibilityValue(progressText)
 
         trackLayer.strokeColor = color.withAlphaComponent(0.22).cgColor
@@ -271,7 +271,7 @@ final class SidebarTaskProgressRevealView: NSView {
             return
         }
 
-        let nextRevealText = "\(taskProgress.doneCount)/\(taskProgress.totalCount) tasks ・"
+        let nextRevealText = "\(taskProgress.readoutText) ・"
         let nextMeasuredExpandedWidth = Self.measuredWidth(for: nextRevealText, font: font) + Layout.leadingPadding
         let shouldSyncPresentation =
             isHidden

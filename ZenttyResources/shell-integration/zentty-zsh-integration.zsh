@@ -23,6 +23,19 @@ _zentty_print_tty() {
     builtin print -rn -u "$_zentty_tty_fd" -- "$1"
 }
 
+# A pane restored after relaunch carries its previous output in a file Zentty
+# wrote on quit. Print it once, before the first prompt, and drop the variable
+# so nothing started from this shell sees it. The file is only ever printed.
+_zentty_print_restored_scrollback() {
+    local file="${ZENTTY_RESTORED_SCROLLBACK_FILE:-}"
+    builtin unset ZENTTY_RESTORED_SCROLLBACK_FILE
+    [[ -n "$file" && -f "$file" && -r "$file" ]] || return 0
+    command cat -- "$file" 2>/dev/null
+    return 0
+}
+_zentty_print_restored_scrollback
+builtin unfunction _zentty_print_restored_scrollback
+
 # `mise run` / `mise x` build their child PATH as [entries before mise's first
 # shims dir] + [tool dirs] + [the rest], so a project's tool dir lands ahead of
 # the wrappers and the agent starts unwrapped (#142). Marking that boundary
@@ -43,7 +56,7 @@ _zentty_ensure_wrapper_path() {
     local wrapper_dirs="${ZENTTY_ALL_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIRS:-${ZENTTY_WRAPPER_BIN_DIR:-}}}"
     local tmux_shim_dir="${ZENTTY_TMUX_SHIM_DIR:-}"
     local tmux_shim_enabled=0
-    if [[ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" == "1" && -n "$tmux_shim_dir" && -x "$tmux_shim_dir/tmux" ]]; then
+    if [[ ( "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" == "1" || "${ZENTTY_TMUX_SHIM:-}" == "1" ) && -n "$tmux_shim_dir" && -x "$tmux_shim_dir/tmux" ]]; then
         tmux_shim_enabled=1
     fi
     [[ -n "$wrapper_dirs" || -n "$tmux_shim_dir" ]] || return 0

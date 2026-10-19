@@ -166,6 +166,8 @@ final class PaneCommandExecutor {
             }
         case .restoreClosedPane:
             performRestoreClosedPane()
+        case .forkAgentConversation:
+            performForkAgentConversation()
         default:
             worklaneStore.send(command)
         }
@@ -181,6 +183,31 @@ final class PaneCommandExecutor {
         } else {
             showRestoreToast(message: "No recently closed pane to restore")
         }
+    }
+
+    private func performForkAgentConversation() {
+        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+            return
+        }
+        do {
+            try forkAgentConversation(paneID: paneID)
+        } catch {
+            hooks.showToast(error.localizedDescription)
+        }
+    }
+
+    /// Forks the agent in `paneID`. A nil destination uses the configured
+    /// `agents.fork_destination`.
+    @discardableResult
+    func forkAgentConversation(
+        paneID: PaneID,
+        destination: AgentForkDestination? = nil
+    ) throws -> WorklaneStore.AgentForkResult {
+        canvas.settlePaneStripPresentationNow()
+        return try worklaneStore.forkAgentConversation(
+            paneID: paneID,
+            destination: destination ?? configStore.current.agents.forkDestination
+        )
     }
 
     private func showRestoreToast(message: String) {

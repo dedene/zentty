@@ -66,7 +66,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .shortcuts:
             "Keyboard shortcuts and conflicts"
         case .notifications:
-            "Desktop alerts and notification sound"
+            "Desktop alerts, sound, and replies"
         case .openWith:
             "Default apps and custom launchers"
         case .devServers:
@@ -91,7 +91,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .shortcuts:
             ["keyboard", "keybinding", "hotkey", "binding", "shortcut"]
         case .notifications:
-            ["sound", "alert", "notify", "permission", "desktop"]
+            ["sound", "alert", "notify", "permission", "desktop", "reply", "respond"]
         case .openWith:
             ["app", "editor", "launch", "finder", "vscode", "cursor", "xcode"]
         case .devServers:
@@ -179,9 +179,9 @@ enum AgentTeamsEnableWarning {
     ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Claude Code agent teams only apply to new panes"
+        alert.messageText = "Agent teams only apply to new panes"
         alert.informativeText =
-            "After enabling this experimental integration, restart Zentty or close and recreate the pane where you want to use Claude Code team mode."
+            "After enabling this experimental integration, restart Zentty or open a new pane to use team mode. To try it in one pane instead, run zentty launch --teams claude."
         alert.addButton(withTitle: "Enable")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { response in

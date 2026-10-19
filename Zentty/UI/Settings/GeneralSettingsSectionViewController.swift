@@ -17,6 +17,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let closeWindowSwitch = NSSwitch()
     private let quitSwitch = NSSwitch()
     private let restoreWorkspaceSwitch = NSSwitch()
+    private let restoreScrollbackSwitch = NSSwitch()
     private let alwaysCleanCopiesSwitch = NSSwitch()
     private let flattenMultiLineCommandsSwitch = NSSwitch()
     private let commandFlattenAggressivenessPopup = NSPopUpButton()
@@ -115,6 +116,17 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         )
         confirmStack.addArrangedSubview(restoreRow)
         restoreRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
+
+        SettingsFormBuilder.separator(addedTo: confirmStack)
+
+        let restoreScrollbackRow = makeSwitchRow(
+            title: "Restore pane output",
+            subtitle: "Show each restored pane's previous output above its new prompt.",
+            toggle: restoreScrollbackSwitch,
+            action: #selector(handleRestoreScrollbackSwitchChanged(_:))
+        )
+        confirmStack.addArrangedSubview(restoreScrollbackRow)
+        restoreScrollbackRow.widthAnchor.constraint(equalTo: confirmStack.widthAnchor).isActive = true
 
         NSLayoutConstraint.activate([
             confirmStack.topAnchor.constraint(equalTo: confirmCard.topAnchor),
@@ -236,7 +248,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         closePaneSwitch.state = currentConfirmations.confirmBeforeClosingPane ? .on : .off
         closeWindowSwitch.state = currentConfirmations.confirmBeforeClosingWindow ? .on : .off
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
-        restoreWorkspaceSwitch.state = currentRestore.restoreWorkspaceOnLaunch ? .on : .off
+        syncRestoreControls(currentRestore)
         syncClipboardControlsFromConfig(currentClipboard)
         applyClipboardAndPipelineSideEffects(currentClipboard)
     }
@@ -252,7 +264,14 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     func apply(restore: AppConfig.Restore) {
         currentRestore = restore
         guard isViewLoaded else { return }
+        syncRestoreControls(restore)
+    }
+
+    private func syncRestoreControls(_ restore: AppConfig.Restore) {
         restoreWorkspaceSwitch.state = restore.restoreWorkspaceOnLaunch ? .on : .off
+        restoreScrollbackSwitch.state = restore.restoreScrollback ? .on : .off
+        // Pane output only comes back with the worklanes it belongs to.
+        restoreScrollbackSwitch.isEnabled = restore.restoreWorkspaceOnLaunch
     }
 
     func apply(clipboard: AppConfig.Clipboard) {
@@ -308,6 +327,16 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
             config.restore.restoreWorkspaceOnLaunch = sender.state == .on
         }
         currentRestore = configStore.current.restore
+        syncRestoreControls(currentRestore)
+    }
+
+    @objc
+    private func handleRestoreScrollbackSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.restore.restoreScrollback = sender.state == .on
+        }
+        currentRestore = configStore.current.restore
+        syncRestoreControls(currentRestore)
     }
 
     @objc
@@ -504,6 +533,19 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     func setRestoreWorkspaceEnabledForTesting(_ enabled: Bool) {
         restoreWorkspaceSwitch.state = enabled ? .on : .off
         handleRestoreWorkspaceSwitchChanged(restoreWorkspaceSwitch)
+    }
+
+    var isRestoreScrollbackSwitchOn: Bool {
+        restoreScrollbackSwitch.state == .on
+    }
+
+    var isRestoreScrollbackSwitchEnabled: Bool {
+        restoreScrollbackSwitch.isEnabled
+    }
+
+    func setRestoreScrollbackEnabledForTesting(_ enabled: Bool) {
+        restoreScrollbackSwitch.state = enabled ? .on : .off
+        handleRestoreScrollbackSwitchChanged(restoreScrollbackSwitch)
     }
 }
 
@@ -756,7 +798,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         titleRow.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = makeLabel(
-            text: "Claude Code agent teams",
+            text: "Agent teams",
             font: .systemFont(ofSize: 13, weight: .semibold)
         )
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -779,7 +821,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
 
         let subtitleLabel = makeLabel(
             text:
-                "Render Claude Code's subagents as native Zentty panes when team mode is enabled.",
+                "Open teammates from Claude Code and other tmux-based agent tools as native Zentty panes.",
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor

@@ -54,6 +54,7 @@ targets:
     platform: macOS
     sources:
       - path: ZenttyCLI
+      - path: Zentty/AppState/Agent/AgentForkDestination.swift
       - path: Zentty/AppState/Agent/AgentHookProcessLineage.swift
       - path: Zentty/AppState/Agent/AgentIPCProtocol.swift
       - path: Zentty/AppState/Agent/AgentManifest.swift
@@ -76,6 +77,13 @@ targets:
       - path: Zentty/AppState/Agent/HermesHooksInstaller.swift
       - path: Zentty/AppState/Agent/VibeHooksInstaller.swift
       - path: Zentty/AppState/Agent/PiFamilyLaunchPolicy.swift
+      - path: Zentty/AppState/Agent/TmuxCommandLine.swift
+      - path: Zentty/AppState/Agent/TmuxCompatArguments.swift
+      - path: Zentty/AppState/Agent/TmuxFormatRenderer.swift
+      - path: Zentty/AppState/Agent/TmuxShimEnvironment.swift
+      - path: Zentty/AppState/Agent/PaneControlProtocol.swift
+      - path: Zentty/AppState/Agent/PaneEvent.swift
+      - path: Zentty/AppState/Agent/PaneKeyNames.swift
       - path: Zentty/Servers/ServerIPCCommands.swift
       - path: Zentty/Servers/ServerOutputURLDetector.swift
       - path: Zentty/Servers/ServerURLNormalizer.swift

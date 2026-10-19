@@ -26,6 +26,7 @@ struct ZenttyCLI: ParsableCommand {
             ThemeCommandGroup.self,
             ServerCommandGroup.self,
             NotifyCommand.self,
+            EventsCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             AgyHookCommand.self,
@@ -661,9 +662,13 @@ struct PaneCommandGroup: ParsableCommand {
             PaneListCommand.self,
             PaneFocusCommand.self,
             PaneCloseCommand.self,
+            PaneForkCommand.self,
             PaneRenameCommand.self,
             PaneZoomCommand.self,
             PaneResizeCommand.self,
+            PaneSendCommand.self,
+            PaneSendKeyCommand.self,
+            PaneReadCommand.self,
         ]
     )
 }
@@ -855,6 +860,45 @@ struct WorklaneRenameCommand: ParsableCommand {
             arguments.append(contentsOf: ["--id", id])
         }
         _ = try PaneIPC.send(subcommand: "worklane-rename", arguments: arguments)
+    }
+}
+
+struct PaneForkCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "fork",
+        abstract: "Fork a pane's agent conversation into a new pane.",
+        discussion: """
+        Runs the agent's own fork command next to the source pane and leaves the original running. \
+        Opens to the right by default, or where agents.fork_destination points. Prints the new pane ID.
+        """
+    )
+
+    @Argument(help: "Pane index or ID. Defaults to the current pane.")
+    var target: String?
+
+    @Flag(name: .long, help: "Open the fork below the source pane.")
+    var down = false
+
+    @Flag(name: .long, help: "Open the fork in a new worklane.")
+    var worklane = false
+
+    @OptionGroup var selection: PaneTargetOptions
+
+    mutating func run() throws {
+        try selection.validatedForPositionalPaneSelector(target)
+        let forkArguments: AgentForkIPCArguments
+        do {
+            forkArguments = try AgentForkIPCArguments(target: target, down: down, worklane: worklane)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        let response = try PaneIPC.send(
+            subcommand: "pane-fork",
+            arguments: forkArguments.ipcArguments + selection.selectorArguments()
+        )
+        if let stdout = response?.result?.stdout {
+            print(stdout, terminator: "")
+        }
     }
 }
 
@@ -1661,17 +1705,34 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: .init("Supported values: \(AgentBootstrapTool.builtinCases.map(\.id).joined(separator: ", ")), or the id of an agent manifest"))
-    var tool: String
+    @Flag(name: .customLong("teams"), help: "Run the agent in team mode: its tmux teammates open as Zentty panes.")
+    var teams = false
+
+    @Flag(name: .customLong("tmux-shim"), help: "Run any command (default: your login shell) with Zentty's tmux shim on PATH.")
+    var tmuxShim = false
+
+    @Argument(help: .init("Supported values: \(AgentBootstrapTool.builtinCases.map(\.id).joined(separator: ", ")), or the id of an agent manifest. With --tmux-shim, any command."))
+    var tool: String?
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")
     var arguments: [String] = []
 
     mutating func run() throws {
-        guard let tool = AgentBootstrapTool(id: tool) else {
-            throw ValidationError("Unsupported launch tool: \(tool)")
+        let environment = ProcessInfo.processInfo.environment
+        if let plan = TmuxShimEnvironment.launchPlan(
+            command: (tool.map { [$0] } ?? []) + arguments,
+            teams: teams,
+            tmuxShim: tmuxShim
+        ) {
+            try TmuxShimLauncher(environment: environment).run(plan)
         }
-        try AgentToolLauncher(tool: tool, arguments: arguments, environment: ProcessInfo.processInfo.environment).run()
+        guard let toolID = tool else {
+            throw ValidationError("Missing tool to launch.")
+        }
+        guard let tool = AgentBootstrapTool(id: toolID) else {
+            throw ValidationError("Unsupported launch tool: \(toolID)")
+        }
+        try AgentToolLauncher(tool: tool, arguments: arguments, environment: environment).run()
     }
 }
 

@@ -34,8 +34,18 @@ final class WorklaneSessionEnvironmentTests: XCTestCase {
             agentTeamsEnabled: true
         )
 
-        XCTAssertEqual(env["TMUX"], "/tmp/zentty-claude-teams/wl_env_test,0,pn_env_test")
-        XCTAssertEqual(env["TMUX_PANE"], "%pn_env_test")
+        // tmux tools validate these with `/^%\d+$/` and split `$TMUX` into
+        // socket, numeric server pid and session number.
+        let state = TmuxCompatSessionState.shared
+        let expectedTMUX = TmuxShimEnvironment.tmuxValue(
+            socketPath: WorklaneSessionEnvironment.tmuxSocketPath,
+            serverPID: ProcessInfo.processInfo.processIdentifier,
+            sessionNumber: state.sessionNumber(for: windowID.rawValue)
+        )
+        XCTAssertEqual(env["TMUX"], expectedTMUX)
+        XCTAssertEqual(env["TMUX_PANE"], "%\(state.paneNumber(for: paneID.rawValue))")
+        XCTAssertNotNil(env["TMUX_PANE"]?.range(of: #"^%\d+$"#, options: .regularExpression))
+        XCTAssertEqual(env["ZENTTY_TMUX_SHIM"], "1")
         XCTAssertEqual(env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "1")
 
         let shimDirectory = try XCTUnwrap(AgentStatusHelper.tmuxShimDirectoryPath())
@@ -200,6 +210,20 @@ final class WorklaneSessionEnvironmentTests: XCTestCase {
         let safe = WorklaneSessionEnvironment.templateSafeOverrides(
             from: ["Q_TERM_PATH": "/x", "FOO": "bar"]
         )
+
+        XCTAssertEqual(safe, ["FOO": "bar"])
+    }
+
+    func test_template_safe_overrides_drop_tmux_identity_and_tool_assignments() {
+        let safe = WorklaneSessionEnvironment.templateSafeOverrides(from: [
+            "TMUX": "/tmp/zentty-tmux/abc,42,0",
+            "TMUX_PANE": "%1",
+            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+            "ZENTTY_TMUX_SHIM": "1",
+            "OPENCODE_SERVER_PASSWORD": "secret",
+            TmuxShimEnvironment.toolAssignedKeysKey: "OPENCODE_SERVER_PASSWORD",
+            "FOO": "bar",
+        ])
 
         XCTAssertEqual(safe, ["FOO": "bar"])
     }
