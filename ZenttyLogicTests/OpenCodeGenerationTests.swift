@@ -202,6 +202,75 @@ final class OpenCodeGenerationTests: XCTestCase {
         )
     }
 
+    // The v2 TUI hands the server its own environment (still the XDG overlay) as
+    // the session environment, and shells spawn from that, not from the server's
+    // `process.env`. The plugin has to restore the originals per shell (#142).
+    func test_repository_opencode_v2_plugin_restores_user_xdg_dirs_for_session_shells() throws {
+        guard let nodePath = try resolvedExecutable(named: "node") else {
+            throw XCTSkip("node is not available")
+        }
+
+        let pluginURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("ZenttyResources/opencode/v2-plugins/zentty-opencode-zentty.js", isDirectory: false)
+        let scratch = try makeTemporaryDirectory(named: "opencode-v2-plugin-shell-env")
+        let harnessURL = scratch.appendingPathComponent("harness.mjs", isDirectory: false)
+
+        try """
+        const plugin = (await import(process.env.ZENTTY_PLUGIN_URL)).default
+        const hooks = {}
+        await plugin.setup({
+          location: { directory: "/tmp/project" },
+          shell: { hook: (name, callback) => { hooks[name] = callback } },
+        })
+        const invocation = {
+          command: "glab auth status",
+          cwd: "/tmp/project",
+          timeout: 0,
+          shell: "/bin/zsh",
+          env: {
+            PATH: "/usr/bin",
+            XDG_CONFIG_HOME: "/overlay/xdg-config-home",
+            XDG_STATE_HOME: "/overlay/xdg-state-home",
+            ZENTTY_AGENT_RESTORE_ENV: process.env.ZENTTY_TEST_RESTORE_JSON,
+          },
+        }
+        await hooks["create.before"]?.(invocation)
+        process.stdout.write(JSON.stringify(invocation.env))
+        """.write(to: harnessURL, atomically: true, encoding: .utf8)
+
+        let restoreJSON = #"{"XDG_CONFIG_HOME":"/Users/someone/.config","XDG_STATE_HOME":null}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: nodePath)
+        process.arguments = [harnessURL.path]
+        process.environment = [
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+            "ZENTTY_AGENT_RESTORE_ENV": restoreJSON,
+            "ZENTTY_PLUGIN_URL": pluginURL.absoluteString,
+            "ZENTTY_TEST_RESTORE_JSON": restoreJSON,
+        ]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            XCTFail("OpenCode v2 plugin harness failed: \(error)")
+            return
+        }
+
+        let env = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: stdout.fileHandleForReading.readDataToEndOfFile()) as? [String: String]
+        )
+        XCTAssertEqual(env["XDG_CONFIG_HOME"], "/Users/someone/.config")
+        XCTAssertNil(env["XDG_STATE_HOME"])
+        XCTAssertNil(env["ZENTTY_AGENT_RESTORE_ENV"])
+        XCTAssertEqual(env["PATH"], "/usr/bin")
+    }
+
     // MARK: - Helpers
 
     private static let v1PluginMarker = "// v1 plugin\n"
