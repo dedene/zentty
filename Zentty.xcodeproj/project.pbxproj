@@ -54,6 +54,7 @@
 		0F4F04977344F5C9AF016CCB /* OverlayCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96AB55DBD7B97ACDCA06FB95 /* OverlayCLI.swift */; };
 		0F7546B851229BA46CC5DCFA /* TaskManagerRootPIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF50948B1AF143E418C8144 /* TaskManagerRootPIDTests.swift */; };
 		0FC2D0AD60F418A128BCDBFF /* MenuBarStatusPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99E1E58109E4888F6925F30 /* MenuBarStatusPalette.swift */; };
+		1037C259D9864A258BA06529 /* ShellIntegrationBashPromptCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADA340A3BAB07EF11F09548 /* ShellIntegrationBashPromptCommandTests.swift */; };
 		1041B5CDF3EA5C978F3580BC /* PanePresentationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */; };
 		10495E193033CEF259528C11 /* AgentConsentCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6960333F9BE4F448FCA1D1A5 /* AgentConsentCoordinator.swift */; };
 		105EFDDB2995F6500AE4DF21 /* BookmarkStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA071E0AD16A044F7C2F644 /* BookmarkStoreTests.swift */; };
@@ -1466,6 +1467,7 @@
 		DA310007A676CA2214DD81F7 /* CloseConfirmationContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseConfirmationContextTests.swift; sourceTree = "<group>"; };
 		DA7480578817A7A59450A1FF /* MuseEventAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseEventAdapter.swift; sourceTree = "<group>"; };
 		DAA052B6DDCA1EE9D9F58BC0 /* PaneLayoutPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutPreferencesTests.swift; sourceTree = "<group>"; };
+		DADA340A3BAB07EF11F09548 /* ShellIntegrationBashPromptCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationBashPromptCommandTests.swift; sourceTree = "<group>"; };
 		DAE496F1AF7FA5EAE6EBA324 /* PaneEventMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneEventMonitorTests.swift; sourceTree = "<group>"; };
 		DB7A0155A7517D3459081223 /* TmuxCompatStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatStoreTests.swift; sourceTree = "<group>"; };
 		DBAD1A9BF197EEA6E4F636D7 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
@@ -2620,6 +2622,7 @@
 				C3094AA8521BDAB3096CF18D /* SettingsNavigationHistoryTests.swift */,
 				4B6F06FD570B9740CE7008CB /* SettingsSidebarTests.swift */,
 				EC6B0309F5F34D3C1D5AE4AB /* ShellEscapingTests.swift */,
+				DADA340A3BAB07EF11F09548 /* ShellIntegrationBashPromptCommandTests.swift */,
 				063BC872FEF22E670BF3054C /* ShellIntegrationKiroTermTests.swift */,
 				0F0174FCC4D7311A6EC6F1C3 /* ShellIntegrationMiseBoundaryTests.swift */,
 				F23A22DF352C0C8F1D75E9B4 /* ShellIntegrationRestoredScrollbackTests.swift */,
@@ -3127,6 +3130,7 @@
 				29DED4BE28EE3F6BAA589705 /* SettingsNavigationHistoryTests.swift in Sources */,
 				EBAB412B1DBC55EC0D896F9F /* SettingsSidebarTests.swift in Sources */,
 				92B757E3C3678473753A2A54 /* ShellEscapingTests.swift in Sources */,
+				1037C259D9864A258BA06529 /* ShellIntegrationBashPromptCommandTests.swift in Sources */,
 				C0C013424D1352E50F67BB61 /* ShellIntegrationKiroTermTests.swift in Sources */,
 				DD5BEC8644629000B3263586 /* ShellIntegrationMiseBoundaryTests.swift in Sources */,
 				02829CEB5ACDD7FDEAF1D50E /* ShellIntegrationRestoredScrollbackTests.swift in Sources */,
