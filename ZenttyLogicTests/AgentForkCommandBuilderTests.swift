@@ -273,6 +273,47 @@ final class AgentForkCommandBuilderTests: XCTestCase {
         )
     }
 
+    func test_pane_availability_uses_hidden_idle_session_with_live_agent() {
+        let pane = PaneState(
+            id: PaneID("pane"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/launch")
+        )
+        var auxiliary = PaneAuxiliaryState()
+        auxiliary.agentReducerState.sessionsByID[claudeID] = hiddenIdleSession(
+            sessionID: claudeID,
+            trackedPID: 4242,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        auxiliary.agentReducerState.sessionsByID["older"] = hiddenIdleSession(
+            sessionID: "11111111-2222-3333-4444-555555555555",
+            trackedPID: 4243,
+            updatedAt: Date(timeIntervalSince1970: 50)
+        )
+
+        XCTAssertNil(auxiliary.agentStatus)
+        XCTAssertEqual(
+            AgentForkCommandBuilder.availability(pane: pane, auxiliary: auxiliary)?.plan,
+            AgentForkPlan(
+                tool: .claudeCode,
+                command: "claude --resume 5b1f9e52-5c1d-4e8a-9d53-7f3e0b1c2a44 --fork-session",
+                workingDirectory: "/tmp/launch"
+            )
+        )
+    }
+
+    func test_pane_availability_ignores_hidden_session_without_live_agent() {
+        let pane = PaneState(id: PaneID("pane"), title: "shell")
+        var auxiliary = PaneAuxiliaryState()
+        auxiliary.agentReducerState.sessionsByID[claudeID] = hiddenIdleSession(
+            sessionID: claudeID,
+            trackedPID: nil,
+            updatedAt: Date()
+        )
+
+        XCTAssertNil(AgentForkCommandBuilder.availability(pane: pane, auxiliary: auxiliary))
+    }
+
     // MARK: - Title
 
     func test_forked_pane_title_carries_custom_title_once() {
@@ -307,6 +348,30 @@ final class AgentForkCommandBuilderTests: XCTestCase {
             updatedAt: Date(),
             workingDirectory: workingDirectory,
             sessionID: sessionID
+        )
+    }
+
+    /// An idle session past its badge window: still in the reducer, but no
+    /// longer surfaced as `agentStatus`.
+    private func hiddenIdleSession(sessionID: String, trackedPID: Int32?, updatedAt: Date) -> PaneAgentSessionState {
+        PaneAgentSessionState(
+            sessionID: sessionID,
+            parentSessionID: nil,
+            tool: .claudeCode,
+            state: .idle,
+            text: nil,
+            artifactLink: nil,
+            updatedAt: updatedAt,
+            source: .explicit,
+            origin: .explicitHook,
+            interactionKind: .none,
+            confidence: .explicit,
+            shellActivityState: .unknown,
+            trackedPID: trackedPID,
+            hasObservedRunning: true,
+            completionCandidateDeadline: nil,
+            idleVisibleUntil: Date(timeIntervalSince1970: 0),
+            unresolvedStopVisibleUntil: nil
         )
     }
 }

@@ -51,7 +51,7 @@ enum AgentForkCommandBuilder {
         pane: PaneState,
         auxiliary: PaneAuxiliaryState?
     ) -> AgentForkAvailability? {
-        guard let auxiliary, let agentStatus = auxiliary.agentStatus else {
+        guard let auxiliary, let agent = forkableAgent(in: auxiliary) else {
             return nil
         }
         guard auxiliary.shellContext?.scope != .remote else {
@@ -59,10 +59,10 @@ enum AgentForkCommandBuilder {
         }
 
         let source = AgentForkSource(
-            tool: agentStatus.tool,
-            sessionID: agentStatus.sessionID,
+            tool: agent.tool,
+            sessionID: agent.sessionID,
             workingDirectory: SessionRestoreDraftExporter.workingDirectory(
-                agentStatus: agentStatus,
+                agentStatus: auxiliary.agentStatus,
                 auxiliary: auxiliary,
                 pane: pane,
                 restoredDraft: nil
@@ -156,6 +156,21 @@ enum AgentForkCommandBuilder {
         }
         let suffix = " (fork)"
         return title.hasSuffix(suffix) ? title : title + suffix
+    }
+
+    /// The visible agent, or else the newest root session the reducer still
+    /// tracks with a live PID. The sidebar badge hides an idle agent after
+    /// `idleVisibilityWindow`, but the agent stays forkable while it runs.
+    private static func forkableAgent(
+        in auxiliary: PaneAuxiliaryState
+    ) -> (tool: AgentTool, sessionID: String?)? {
+        if let agentStatus = auxiliary.agentStatus {
+            return (agentStatus.tool, agentStatus.sessionID)
+        }
+        return auxiliary.agentReducerState.sessionsByID.values
+            .filter { $0.trackedPID != nil && $0.parentSessionID == nil }
+            .max { $0.updatedAt < $1.updatedAt }
+            .map { ($0.tool, $0.sessionID) }
     }
 
     private static func manifestFork(displayName: String) -> AgentManifest.Resume? {
