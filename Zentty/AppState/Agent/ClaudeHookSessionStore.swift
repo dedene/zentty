@@ -692,6 +692,25 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// `TaskUpdate` with status `deleted` drops the task from the list.
+    func removeTask(sessionID: String, taskID: String) throws {
+        let normalizedSessionID = normalized(sessionID)
+        let normalizedTaskID = normalized(taskID)
+        guard !normalizedSessionID.isEmpty, !normalizedTaskID.isEmpty else {
+            return
+        }
+
+        try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionID],
+                  record.tasks.contains(where: { $0.id == normalizedTaskID }) else {
+                return
+            }
+            record.tasks.removeAll { $0.id == normalizedTaskID }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSessionID] = record
+        }
+    }
+
     /// Registers a task observed via `PostToolUse(TaskCreate)` when `TaskCreated`
     /// did not fire first. An existing record keeps its status; only a missing
     /// subject is filled in.
