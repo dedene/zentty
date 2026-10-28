@@ -241,8 +241,16 @@ _zentty_local_git_branch() {
     command git branch --show-current 2>/dev/null || true
 }
 
+# Directory names and command lines are untrusted text: a raw ESC or BEL in
+# one would end the OSC 2 early and start a sequence of its own, such as an
+# OSC 52 clipboard write. Strip control bytes before framing; _zentty_print_tty
+# prints with -r, so backslashes in the text stay literal.
+_zentty_set_title() {
+    _zentty_print_tty $'\e]2;'"${1//[[:cntrl:]]}"$'\a'
+}
+
 _zentty_reset_title_to_cwd() {
-    _zentty_print_tty $'\e]2;'"${PWD/#$HOME/~}"$'\a'
+    _zentty_set_title "${PWD/#$HOME/~}"
 }
 
 _zentty_emit_pane_context() {
@@ -351,7 +359,7 @@ _zentty_preexec() {
         fi
     fi
     # Set terminal title to the running command (first line only)
-    _zentty_print_tty $'\e]2;'"${1%%$'\n'*}"$'\a'
+    _zentty_set_title "${1%%$'\n'*}"
 }
 
 # --- ssh wrapper (GHOSTTY_SHELL_FEATURES: ssh-env / ssh-terminfo) --------------
@@ -495,13 +503,13 @@ if _zentty_ssh_has_feature ssh-env || _zentty_ssh_has_feature ssh-terminfo; then
                                 if command grep -q "Cannot execute command-line and remote command" "$ssh_install_error" 2>/dev/null; then
                                     : # The user passed their own remote command; ssh ran nothing.
                                 else
-                                    builtin print "Warning: Failed to install xterm-ghostty terminfo on $ssh_hostname." >&2
+                                    builtin print -r -- "Warning: Failed to install xterm-ghostty terminfo on $ssh_hostname." >&2
                                 fi
                             else
                                 # The installer itself ran and failed: no tic/base64 on the
                                 # remote, or a shell that cannot run it. Remember, warn once.
                                 _zentty_ssh_cache_add "!$ssh_target"
-                                builtin print "Warning: Could not install xterm-ghostty terminfo on $ssh_hostname; using xterm-256color. Remove the \"!$ssh_target\" line from $(_zentty_ssh_cache_file) to retry." >&2
+                                builtin print -r -- "Warning: Could not install xterm-ghostty terminfo on $ssh_hostname; using xterm-256color. Remove the \"!$ssh_target\" line from $(_zentty_ssh_cache_file) to retry." >&2
                             fi
                         fi
                     else

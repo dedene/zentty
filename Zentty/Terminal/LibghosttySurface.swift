@@ -147,6 +147,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     private var hasEmittedShellReady = false
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
+    /// The window this pane is shown in, for sheets such as clipboard prompts.
+    var hostWindow: NSWindow? {
+        hostView?.window
+    }
+
     var mouseCaptured: Bool {
         guard let surface else { return false }
         return ghostty_surface_mouse_captured(surface)
@@ -422,6 +427,19 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
                 return
             }
             ghostty_surface_text(surface, baseAddress, UInt(buffer.count - 1))
+        }
+    }
+
+    func pasteText(_ text: String) {
+        guard let surface, !text.isEmpty else {
+            return
+        }
+
+        text.utf8CString.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                return
+            }
+            ghostty_surface_paste_text(surface, baseAddress, UInt(buffer.count - 1))
         }
     }
 
@@ -795,9 +813,14 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             hasScrollback = total > len
         case .cellSize(let width, let height):
             hostView?.applyCellSizeUpdate(width: CGFloat(width), height: CGFloat(height))
-        case .openURL(let urlString):
-            NSWorkspace.shared.open(
-                TerminalOpenURLResolver.resolve(urlString, workingDirectory: metadata.currentWorkingDirectory)
+        case .openURL(let urlString, let kind):
+            TerminalOpenURLAlert.perform(
+                TerminalOpenURLPolicy.decision(
+                    for: urlString,
+                    kind: kind,
+                    workingDirectory: metadata.currentWorkingDirectory
+                ),
+                window: hostView?.window
             )
         case .mouseShape(let shape):
             hostView?.setMouseCursorShape(shape)

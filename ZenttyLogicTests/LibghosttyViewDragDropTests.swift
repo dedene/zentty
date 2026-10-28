@@ -52,7 +52,7 @@ final class LibghosttyViewDragDropTests: AppKitTestCase {
 
         let info = StubDraggingInfo(pasteboard: pasteboard)
         XCTAssertTrue(view.performDragOperation(info))
-        XCTAssertEqual(surface.sentTexts.last, "/tmp/my\\ folder/file\\ \\(1\\).txt")
+        XCTAssertEqual(surface.pastedTexts.last, "/tmp/my\\ folder/file\\ \\(1\\).txt")
     }
 
     func test_perform_drag_inserts_multiple_file_paths_space_separated() {
@@ -65,7 +65,7 @@ final class LibghosttyViewDragDropTests: AppKitTestCase {
 
         let info = StubDraggingInfo(pasteboard: pasteboard)
         XCTAssertTrue(view.performDragOperation(info))
-        XCTAssertEqual(surface.sentTexts.last, "/tmp/a\\ b /tmp/c\\ d")
+        XCTAssertEqual(surface.pastedTexts.last, "/tmp/a\\ b /tmp/c\\ d")
     }
 
     func test_perform_drag_inserts_plain_string_without_escaping() {
@@ -75,7 +75,18 @@ final class LibghosttyViewDragDropTests: AppKitTestCase {
 
         let info = StubDraggingInfo(pasteboard: pasteboard)
         XCTAssertTrue(view.performDragOperation(info))
-        XCTAssertEqual(surface.sentTexts.last, "echo hello world")
+        XCTAssertEqual(surface.pastedTexts.last, "echo hello world")
+    }
+
+    func test_perform_drag_pastes_multiline_string_so_paste_protection_applies() {
+        let pasteboard = makeTestPasteboard()
+        pasteboard.declareTypes([.string], owner: nil)
+        pasteboard.setString("echo safe\nrm -rf ~/important\n", forType: .string)
+
+        let info = StubDraggingInfo(pasteboard: pasteboard)
+        XCTAssertTrue(view.performDragOperation(info))
+        XCTAssertEqual(surface.pastedTexts, ["echo safe\nrm -rf ~/important\n"])
+        XCTAssertTrue(surface.sentTexts.isEmpty, "dropped text must not bypass paste protection")
     }
 
     func test_perform_drag_returns_false_for_empty_pasteboard() {
@@ -84,6 +95,7 @@ final class LibghosttyViewDragDropTests: AppKitTestCase {
 
         let info = StubDraggingInfo(pasteboard: pasteboard)
         XCTAssertFalse(view.performDragOperation(info))
+        XCTAssertTrue(surface.pastedTexts.isEmpty)
         XCTAssertTrue(surface.sentTexts.isEmpty)
     }
 
@@ -103,6 +115,7 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
     var cellHeight: CGFloat = 16
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var sentTexts: [String] = []
+    private(set) var pastedTexts: [String] = []
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -117,6 +130,7 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
         modifiers: NSEvent.ModifierFlags
     ) -> Bool { false }
     func sendText(_ text: String) { sentTexts.append(text) }
+    func pasteText(_ text: String) { pastedTexts.append(text) }
     func submitReturn() {}
     func performBindingAction(_ action: String) -> Bool { true }
     func hasSelection() -> Bool { false }

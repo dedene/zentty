@@ -265,8 +265,16 @@ _zentty_local_git_branch() {
     command git branch --show-current 2>/dev/null || true
 }
 
+# Directory names and command lines are untrusted text: a raw ESC or BEL in
+# one would end the OSC 2 early and start a sequence of its own, such as an
+# OSC 52 clipboard write. Strip control bytes before framing; _zentty_print_tty
+# uses printf '%s', so backslashes in the text stay literal.
+_zentty_set_title() {
+    _zentty_print_tty $'\e]2;'"${1//[[:cntrl:]]/}"$'\a'
+}
+
 _zentty_reset_title_to_cwd() {
-    _zentty_print_tty $'\e]2;'"${PWD/#$HOME/\~}"$'\a'
+    _zentty_set_title "${PWD/#$HOME/\~}"
 }
 
 _zentty_emit_pane_context() {
@@ -397,7 +405,7 @@ _zentty_bash_preexec_hook() {
         _zentty_report_shell_activity running --command "$full_command"
     fi
     # Set terminal title to the running command (first line only)
-    _zentty_print_tty $'\e]2;'"${full_command%%$'\n'*}"$'\a'
+    _zentty_set_title "${full_command%%$'\n'*}"
 }
 
 cd() {

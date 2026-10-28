@@ -3043,7 +3043,8 @@ extension LibghosttyView {
         }
 
         guard let content else { return false }
-        surfaceController?.sendText(content)
+        // Dropped text is untrusted, so it gets the same paste protection as Cmd-V.
+        surfaceController?.pasteText(content)
         return true
     }
 }

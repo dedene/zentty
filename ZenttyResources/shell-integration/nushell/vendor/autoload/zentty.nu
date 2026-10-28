@@ -182,6 +182,15 @@ def _zentty_local_git_branch [] {
     } catch { '' }
 }
 
+# Directory names and command lines are untrusted text: a raw ESC or BEL in
+# one would end the OSC 2 early and start a sequence of its own, such as an
+# OSC 52 clipboard write. Strip C0/C1 controls before framing; interpolation
+# inserts the value as-is, so backslashes in it stay literal.
+def _zentty_set_title [title: string] {
+    let clean = ($title | str replace -ra '[\x00-\x1f\x7f-\x9f]' '')
+    _zentty_print_tty $"\e]2;($clean)\a"
+}
+
 def _zentty_reset_title_to_cwd [] {
     # Anchor to the leading path prefix (port of bash/zsh ${PWD/#$HOME/~}); a plain
     # `str replace` rewrites the first $HOME match anywhere in the path.
@@ -192,7 +201,7 @@ def _zentty_reset_title_to_cwd [] {
     } else {
         $pwd
     }
-    _zentty_print_tty $"\e]2;($title)\a"
+    _zentty_set_title $title
 }
 
 def _zentty_emit_pane_context [] {
@@ -316,8 +325,7 @@ def --env _zentty_pre_execution_for_command [full: string] {
             _zentty_report_shell_activity "running" "--command" $full
         }
     }
-    let title = ($full | split row "\n" | first | default '')
-    _zentty_print_tty $"\e]2;($title)\a"
+    _zentty_set_title ($full | split row "\n" | first | default '')
 }
 
 def _zentty_reset_keyboard_protocol [] {

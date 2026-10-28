@@ -28,7 +28,7 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         let notification = LibghosttySurfaceActionPayload.desktopNotification(
             TerminalDesktopNotification(title: "Codex", body: "Needs input")
         )
-        let openURL = LibghosttySurfaceActionPayload.openURL("https://example.com")
+        let openURL = LibghosttySurfaceActionPayload.openURL("https://example.com", kind: .unknown)
 
         XCTAssertFalse(coalescer.enqueue(commandFinished))
         XCTAssertFalse(coalescer.enqueue(notification))
