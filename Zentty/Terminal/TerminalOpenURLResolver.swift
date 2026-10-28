@@ -6,6 +6,7 @@ enum TerminalOpenURLResolver {
     /// Resolves the string libghostty hands us for an open-URL action into something NSWorkspace can open.
     /// Scheme URLs pass through untouched. Paths are expanded (~, ..), resolved against the pane's working
     /// directory when relative, and trailing sentence punctuation is stripped when the literal path does not exist.
+    /// This only resolves; TerminalOpenURLPolicy decides whether the result may open.
     static func resolve(
         _ rawString: String,
         workingDirectory: String?,

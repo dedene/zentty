@@ -14,8 +14,24 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case searchSelected(Int)
     case scrollbar(total: UInt64, offset: Double, len: UInt64)
     case cellSize(width: UInt32, height: UInt32)
-    case openURL(String)
+    case openURL(String, kind: TerminalOpenURLKind)
     case mouseShape(ghostty_action_mouse_shape_e)
+}
+
+extension TerminalOpenURLKind {
+    /// Anything unrecognized maps to `unknown`, the untrusted default.
+    init(_ kind: ghostty_action_open_url_kind_e) {
+        switch kind {
+        case GHOSTTY_ACTION_OPEN_URL_KIND_TEXT:
+            self = .text
+        case GHOSTTY_ACTION_OPEN_URL_KIND_HTML:
+            self = .html
+        case GHOSTTY_ACTION_OPEN_URL_KIND_OSC8:
+            self = .osc8
+        default:
+            self = .unknown
+        }
+    }
 }
 
 func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> LibghosttySurfaceActionPayload? {
@@ -86,7 +102,7 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
         guard let urlString = String(data: data, encoding: .utf8), !urlString.isEmpty else {
             return nil
         }
-        return .openURL(urlString)
+        return .openURL(urlString, kind: TerminalOpenURLKind(openURL.kind))
     case GHOSTTY_ACTION_MOUSE_SHAPE:
         return .mouseShape(action.action.mouse_shape)
     default:
@@ -209,7 +225,9 @@ private func libghosttyActionCallback(
 
     let owner = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue()
     guard let payload = copyLibghosttySurfaceActionPayload(from: action) else {
-        return false
+        // Claim an open-URL we could not decode: declining it would let libghostty fall back to
+        // its own opener and skip TerminalOpenURLPolicy.
+        return action.tag == GHOSTTY_ACTION_OPEN_URL
     }
     owner.recordActionCallback(payload: payload)
 
@@ -884,11 +902,6 @@ private func libghosttyVsyncRequestCallback(userdata: UnsafeMutableRawPointer?, 
     owner.vsyncDriver?.requestFromRenderer(active)
 }
 
-private struct LibghosttyClipboardContent {
-    let mime: String
-    let data: Data
-}
-
 private func libghosttyReadClipboardCallback(
     userdata: UnsafeMutableRawPointer?,
     location: ghostty_clipboard_e,
@@ -940,15 +953,16 @@ private func libghosttyConfirmReadClipboardCallback(
     userdata: UnsafeMutableRawPointer?,
     confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
     state: UnsafeMutableRawPointer?,
-    _: ghostty_clipboard_request_e
+    request: ghostty_clipboard_request_e
 ) {
-    guard
-        let userdata,
-        let surface = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue().surface
-    else {
+    guard let userdata else {
         return
     }
-    guard let confirm = confirm?.pointee else {
+    let owner = Unmanaged<LibghosttySurface>.fromOpaque(userdata).takeUnretainedValue()
+    guard let surface = owner.surface else {
+        return
+    }
+    guard let confirm = confirm?.pointee, let kind = TerminalClipboardRequestKind(request) else {
         ghostty_surface_deny_clipboard_request(surface, state)
         return
     }
@@ -968,15 +982,43 @@ private func libghosttyConfirmReadClipboardCallback(
         }
     }
 
-    // Zentty has no clipboard confirmation UI; it approves what libghostty
-    // would have shown, as it did before libghostty passed structured contents.
-    completeLibghosttyClipboardRequest(
-        surface,
+    let confirmation = TerminalClipboardConfirmation(
+        kind: kind,
         contents: contents,
         available: available,
-        state: state,
-        confirmed: true
+        canRemember: confirm.can_remember
     )
+    // libghostty keeps the request alive until it is completed or denied, so it can outlive this call.
+    let pending = LibghosttyPendingClipboardRequest(state: state)
+    DispatchQueue.main.async { [weak owner] in
+        guard let owner else {
+            return
+        }
+        TerminalClipboardConfirmationAlert.present(confirmation, window: owner.hostWindow) { [weak owner] allowed, remember in
+            // A pane closed while the prompt was up took its pending requests with it.
+            guard let surface = owner?.surface else {
+                return
+            }
+            guard allowed else {
+                ghostty_surface_deny_clipboard_request(surface, pending.state)
+                return
+            }
+            completeLibghosttyClipboardRequest(
+                surface,
+                contents: contents,
+                available: available,
+                state: pending.state,
+                confirmed: true,
+                remember: remember
+            )
+        }
+    }
+}
+
+/// The opaque request state libghostty hands to the confirm callback. Only ever used on the main
+/// thread, after the callback returns.
+private struct LibghosttyPendingClipboardRequest: @unchecked Sendable {
+    let state: UnsafeMutableRawPointer?
 }
 
 private func completeLibghosttyClipboardRequest(
@@ -984,7 +1026,8 @@ private func completeLibghosttyClipboardRequest(
     contents: [LibghosttyClipboardContent],
     available: [String],
     state: UnsafeMutableRawPointer?,
-    confirmed: Bool
+    confirmed: Bool,
+    remember: Bool = false
 ) {
     // libghostty copies what it needs during the call, so C copies only have to
     // live until it returns.
@@ -1028,7 +1071,7 @@ private func completeLibghosttyClipboardRequest(
                 available: availableBuffer.baseAddress,
                 available_len: availableBuffer.count,
                 confirmed: confirmed,
-                remember: false
+                remember: remember
             )
             ghostty_surface_complete_clipboard_request(surface, &complete, state)
         }
