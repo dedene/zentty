@@ -317,10 +317,18 @@ function _zentty_local_git_branch
     git branch --show-current 2>/dev/null || true
 end
 
+# Directory names and command lines are untrusted text: a raw ESC or BEL in
+# one would end the OSC 2 early and start a sequence of its own, such as an
+# OSC 52 clipboard write. Strip C0/C1 controls before framing. Quoting the
+# argument keeps an empty title from making `string replace` read stdin.
+function _zentty_set_title
+    _zentty_print_tty (printf '\e]2;%s\a' (string replace -ra -- '[\x00-\x1f\x7f-\x9f]' '' "$argv[1]"))
+end
+
 function _zentty_reset_title_to_cwd
     # Anchor to the leading path prefix (port of bash/zsh ${PWD/#$HOME/~}); an
     # unanchored replace would rewrite $HOME anywhere it appears in the path.
-    _zentty_print_tty (printf '\e]2;%s\a' (string replace -r -- "^"(string escape --style=regex -- $HOME) '~' $PWD))
+    _zentty_set_title (string replace -r -- "^"(string escape --style=regex -- $HOME) '~' $PWD)
 end
 
 function _zentty_emit_pane_context
@@ -385,7 +393,7 @@ function _zentty_fish_preexec_hook --on-event fish_preexec
             _zentty_report_shell_activity running --command $full_command
         end
     end
-    _zentty_print_tty (printf '\e]2;%s\a' (string split -m 1 \n -- $full_command)[1])
+    _zentty_set_title (string split -m 1 \n -- $full_command)[1]
 end
 
 function _zentty_fish_pwd_hook --on-variable PWD
