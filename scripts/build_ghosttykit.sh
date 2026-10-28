@@ -56,11 +56,24 @@ resolve_zig_command() {
     return
   fi
 
+  # Homebrew ships the newest Zig as plain `zig` and older ones as `zig@X.Y`,
+  # so try both. The zig on PATH may be pinned for another checkout's lock.
   local major_minor="${zig_version%.*}"
-  local formula="zig@${major_minor}"
-  local formula_prefix
-  if command -v brew >/dev/null 2>&1 && formula_prefix="$(brew --prefix "${formula}" 2>/dev/null)"; then
-    local candidate="${formula_prefix}/bin/zig"
+  local formula formula_prefix
+  if command -v brew >/dev/null 2>&1; then
+    for formula in "zig@${major_minor}" zig; do
+      formula_prefix="$(brew --prefix "${formula}" 2>/dev/null)" || continue
+      local candidate="${formula_prefix}/bin/zig"
+      if [[ -x "${candidate}" && "$("${candidate}" version)" == "${zig_version}" ]]; then
+        echo "${candidate}"
+        return
+      fi
+    done
+  fi
+
+  local mise_prefix
+  if command -v mise >/dev/null 2>&1 && mise_prefix="$(mise where "zig@${zig_version}" 2>/dev/null)"; then
+    local candidate="${mise_prefix}/zig"
     if [[ -x "${candidate}" && "$("${candidate}" version)" == "${zig_version}" ]]; then
       echo "${candidate}"
       return
@@ -80,7 +93,7 @@ resolve_zig_command() {
   fi
 
   echo "Missing required Zig version ${zig_version}." >&2
-  echo "Install it with: brew install zig OR sudo port install zig" >&2
+  echo "Install it with: brew install zig OR mise install zig@${zig_version} OR sudo port install zig" >&2
   exit 1
 }
 
