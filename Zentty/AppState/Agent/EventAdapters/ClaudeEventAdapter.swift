@@ -669,6 +669,10 @@ extension AgentEventBridge {
             let status = JSONKeyAccess.firstString(in: input.toolInput, keys: ["status", "state"])
                 ?? JSONKeyAccess.firstString(in: statusChange, keys: ["to"])
                 ?? JSONKeyAccess.firstString(in: input.toolResponse, keys: ["status", "state"])
+            if status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "deleted" {
+                try sessionStore.removeTask(sessionID: sessionID, taskID: taskID)
+                return
+            }
             _ = try sessionStore.updateTask(
                 sessionID: sessionID,
                 taskID: taskID,
