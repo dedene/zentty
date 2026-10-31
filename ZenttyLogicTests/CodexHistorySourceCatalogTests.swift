@@ -109,6 +109,47 @@ final class CodexHistorySourceCatalogTests: XCTestCase {
         XCTAssertEqual(renamed.cursor.watermark, C.baseMs + 9_000)
     }
 
+    func test_failed_catalog_read_reuses_last_snapshot_reports_and_retries() throws {
+        let (root, source) = try C.makeRoot(self)
+        let top = C.newThreadID(), child = C.newThreadID()
+        try C.writeRollout(root: root, id: top, lines: [C.sessionMeta(top), C.user("hello", at: 1)])
+        try C.writeRollout(root: root, id: child, lines: [C.sessionMeta(child), C.user("subtask", at: 1)])
+        var rowTop = C.ThreadRow(id: top)
+        rowTop.title = "Catalog title"
+        var rowChild = C.ThreadRow(id: child)
+        rowChild.threadSource = "subagent"
+        try C.writeCatalog(root: root, rows: [rowTop, rowChild])
+        let good = try XCTUnwrap(source.catalog.lookup().snapshot)
+        XCTAssertEqual(good.childIDs, [child])
+
+        // Codex rewrites the catalog while it cannot be opened (a transient permission problem):
+        // the last good snapshot is reused and the problem reported.
+        let databasePath = root.appendingPathComponent(CodexThreadCatalog.databaseFileName).path
+        rowTop.title = "Newer title"
+        try C.writeCatalog(root: root, rows: [rowTop])
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: databasePath)
+        addTeardownBlock { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: databasePath) }
+        XCTAssertEqual(source.catalog.lookup(), CodexThreadCatalogLookup(snapshot: good, problem: .permissionDenied))
+        XCTAssertEqual(try source.discoverUnits().compactMap(\.nativeSessionID), [top], "children stay filtered")
+
+        // The failure is not cached: with the same file identity, the next lookup reads again.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: databasePath)
+        let recovered = source.catalog.lookup()
+        XCTAssertNil(recovered.problem)
+        XCTAssertEqual(recovered.snapshot?.rows[top]?.title, "Newer title")
+
+        // An unreadable file (not a database) keeps the last good snapshot as well.
+        try Data(repeating: 0x5A, count: 8_192).write(to: URL(fileURLWithPath: databasePath))
+        let broken = source.catalog.lookup()
+        XCTAssertEqual(broken.snapshot, recovered.snapshot)
+        XCTAssertEqual(broken.problem, .unreadableDatabase(code: 26), "SQLITE_NOTADB")
+        XCTAssertEqual(source.catalog.lookup(), broken, "retried, same outcome")
+        XCTAssertEqual(try source.discoverUnits().compactMap(\.nativeSessionID), [top])
+        let batch = try XCTUnwrap(try C.ingestAll(source, unit: try C.unit(source, key: "rollout:" + top)).last)
+        XCTAssertEqual(batch.problem, broken.problem)
+        XCTAssertEqual(batch.sessions.first?.title, "Newer title", "metadata still comes from the catalog")
+    }
+
     // MARK: - state unit
 
     func test_state_unit_emits_renames_archives_since_watermark() throws {
