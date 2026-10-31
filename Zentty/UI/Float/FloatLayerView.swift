@@ -40,9 +40,42 @@ struct FloatLayerContent: Equatable {
             floats: worklane.floatingPanes,
             floatsHidden: worklane.floatsHidden,
             focusedFloatID: worklane.floatOwnsFocus ? worklane.focusedFloatID : nil,
-            borderContextByPaneID: borderContextByPaneID.filter { worklane.isFloating($0.key) },
+            borderContextByPaneID: Self.floatBorderContexts(worklane: worklane, base: borderContextByPaneID),
             worklaneColor: worklane.color
         )
+    }
+
+    /// Border legends for the worklane's floats, each with its bold name
+    /// (`name · cwd`). When the base label already is the name (a custom
+    /// title), the cwd takes its place so the name isn't shown twice.
+    private static func floatBorderContexts(
+        worklane: WorklaneState,
+        base: [PaneID: PaneBorderContextDisplayModel]
+    ) -> [PaneID: PaneBorderContextDisplayModel] {
+        var result = base.filter { worklane.isFloating($0.key) }
+        for float in worklane.floatingPanes {
+            let paneID = float.pane.id
+            let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
+            guard let name = FloatDisplayName.resolve(
+                pane: float.pane,
+                presentation: auxiliaryState?.presentation,
+                metadata: auxiliaryState?.metadata
+            ) else {
+                continue
+            }
+            var model = result[paneID] ?? PaneBorderContextDisplayModel(text: "")
+            if model.text == name {
+                var replacement = PaneBorderContextDisplayModel(
+                    text: auxiliaryState?.shellContext?.borderContextDisplayText ?? ""
+                )
+                replacement.isAgentTeamLeader = model.isAgentTeamLeader
+                replacement.isAgentTeamMember = model.isAgentTeamMember
+                model = replacement
+            }
+            model.displayName = name
+            result[paneID] = model
+        }
+        return result
     }
 
     var ownsFocus: Bool {
@@ -62,11 +95,17 @@ final class FloatLayerView: NSView {
     var onFloatSelected: ((PaneID) -> Void)?
     var onFloatCloseRequested: ((PaneID) -> Void)?
     var onPipClicked: ((PaneID) -> Void)?
+    var onFloatActionRequested: ((PaneID, PaneBorderAction) -> Void)?
     var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
+    /// Wires a new float container like a strip pane (providers, copy path).
+    /// Runs once per container, right after it is created.
+    var containerConfigurator: ((PaneContainerView, PaneID) -> Void)?
 
     private let runtimeRegistry: PaneRuntimeRegistry
     private var containers: [PaneID: PaneContainerView] = [:]
     private var pipHosts: [PaneID: PipContainerView] = [:]
+    private var floatHosts: [PaneID: FloatContainerView] = [:]
+    private var shortcutManager: ShortcutManager?
     private var content = FloatLayerContent.empty
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var showPaneBorders = AppConfig.Panes.default.showBorders
@@ -115,6 +154,11 @@ final class FloatLayerView: NSView {
         syncFocus(force: false)
     }
 
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        containers.values.forEach { $0.updateShortcutTooltips(shortcutManager) }
+    }
+
     /// Gives keyboard focus to the float that owns it. Returns false when no
     /// float owns focus (the strip should take it instead).
     @discardableResult
@@ -153,8 +197,10 @@ final class FloatLayerView: NSView {
             }
             switch placement.kind {
             case .floating:
+                container.chromeKind = .float
                 mountFloating(container, paneID: placement.paneID, frame: placement.frame)
             case .pip(let contentSize):
+                container.chromeKind = .pip
                 mountPip(container, paneID: placement.paneID, frame: placement.frame, contentSize: contentSize)
             }
             container.render(
@@ -178,7 +224,7 @@ final class FloatLayerView: NSView {
             // PiP left suspended stays frozen at its old grid until someone
             // clears it. A new `.floating` container is the sole owner now, so
             // clear it here. PiP containers (under a PipContainerView) keep it.
-            for container in newlyMounted where container.superview === self {
+            for container in newlyMounted where container.superview is FloatContainerView {
                 container.setTerminalViewportSyncSuspended(false)
                 container.forceTerminalViewportSync()
             }
@@ -215,28 +261,42 @@ final class FloatLayerView: NSView {
         container.onCloseRequested = { [weak self] in
             self?.onFloatCloseRequested?(paneID)
         }
+        container.onBorderActionRequested = { [weak self] action in
+            self?.onFloatActionRequested?(paneID, action)
+        }
+        if let shortcutManager {
+            container.updateShortcutTooltips(shortcutManager)
+        }
+        containerConfigurator?(container, paneID)
         containers[paneID] = container
         container.activateSessionIfNeeded()
         return (container, true)
     }
 
     private func mountFloating(_ container: PaneContainerView, paneID: PaneID, frame: CGRect) {
+        let host = floatHost(for: paneID)
+        host.setPaneFrame(frame)
         if let pip = pipHosts.removeValue(forKey: paneID) {
             // Leave PiP: re-parent at the final unscaled frame, then resume
             // viewport sync, so the grid never sees the scaled size.
-            container.removeFromSuperview()
-            container.frame = frame
-            addSubview(container)
+            host.host(container)
             pip.removeFromSuperview()
             container.setTerminalViewportSyncSuspended(false)
             return
         }
-        if container.superview !== self {
-            container.frame = frame
-            addSubview(container)
-        } else if container.frame != frame {
-            container.frame = frame
+        if container.superview !== host {
+            host.host(container)
         }
+    }
+
+    private func floatHost(for paneID: PaneID) -> FloatContainerView {
+        if let existing = floatHosts[paneID] {
+            return existing
+        }
+        let host = FloatContainerView(paneID: paneID)
+        floatHosts[paneID] = host
+        addSubview(host)
+        return host
     }
 
     private func mountPip(_ container: PaneContainerView, paneID: PaneID, frame: CGRect, contentSize: CGSize) {
@@ -258,6 +318,7 @@ final class FloatLayerView: NSView {
             container.frame = CGRect(origin: .zero, size: contentSize)
             pip.addSubview(container)
         }
+        floatHosts.removeValue(forKey: paneID)?.removeFromSuperview()
         pip.apply(frame: frame, contentSize: contentSize)
     }
 
@@ -266,6 +327,7 @@ final class FloatLayerView: NSView {
         container.prepareForRemoval()
         container.removeFromSuperview()
         pipHosts.removeValue(forKey: paneID)?.removeFromSuperview()
+        floatHosts.removeValue(forKey: paneID)?.removeFromSuperview()
         if lastFocusedFloatID == paneID {
             lastFocusedFloatID = nil
         }
@@ -276,7 +338,7 @@ final class FloatLayerView: NSView {
     private func sortMountedViews(by order: [PaneID]) {
         let rankByView = Dictionary(
             uniqueKeysWithValues: order.enumerated().compactMap { index, paneID -> (ObjectIdentifier, Int)? in
-                guard let view: NSView = pipHosts[paneID] ?? containers[paneID] else { return nil }
+                guard let view: NSView = pipHosts[paneID] ?? floatHosts[paneID] else { return nil }
                 return (ObjectIdentifier(view), index)
             }
         )
@@ -317,7 +379,8 @@ final class FloatLayerView: NSView {
         if shouldSuppressProgrammaticTerminalFocus?() == true {
             return
         }
-        if let container = containers[paneID], container.superview === self, container.focusTerminalIfReady() {
+        if let container = containers[paneID], container.superview is FloatContainerView,
+           container.focusTerminalIfReady() {
             return
         }
         guard attempt < Self.maxFocusAttempts else {
@@ -337,6 +400,10 @@ final class FloatLayerView: NSView {
 
     func pipHostForTesting(_ paneID: PaneID) -> PipContainerView? {
         pipHosts[paneID]
+    }
+
+    func floatHostForTesting(_ paneID: PaneID) -> FloatContainerView? {
+        floatHosts[paneID]
     }
 }
 

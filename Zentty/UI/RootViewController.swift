@@ -764,7 +764,9 @@ final class RootViewController: NSViewController {
                 self.updateServerChromeState()
                 self.updatePaneNavigationButtonState()
                 self.serverCommands.schedulePassiveServerDetectionRefresh()
-            case .focusChanged, .activeWorklaneChanged:
+            case .focusChanged, .activeWorklaneChanged, .floats:
+                // `.floats` covers float focus and float-only structure
+                // changes: chrome follows the float-aware focused pane.
                 self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
                 self.updateOpenWithChromeState()
                 self.updateServerChromeState()
@@ -855,6 +857,52 @@ final class RootViewController: NSViewController {
         }
         floatLayer.onPipClicked = { [weak self] paneID in
             self?.worklaneStore.restoreFloat(paneID)
+        }
+        floatLayer.onFloatActionRequested = { [weak self] paneID, action in
+            self?.handlePaneBorderAction(action, paneID: paneID)
+        }
+        floatLayer.containerConfigurator = { [weak self] container, _ in
+            self?.configureFloatContainer(container)
+        }
+        appCanvasView.paneStripView.onPaneBorderActionRequested = { [weak self] paneID, action in
+            self?.handlePaneBorderAction(action, paneID: paneID)
+        }
+    }
+
+    /// Gives a float container what strip panes get from `PaneStripView`:
+    /// copy-path on the legend and the context-menu providers.
+    private func configureFloatContainer(_ container: PaneContainerView) {
+        container.onBorderContextClicked = { [weak self] paneID in
+            self?.copyPath(forPaneID: paneID)
+        }
+        container.rightPaneCommandPresentationProvider = { [weak self] in
+            self?.currentPaneLayoutContext.rightPaneCommandPresentation ?? .addsToWorklane
+        }
+        container.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            self?.moveToWorklaneCatalogProvider?(paneID)
+        }
+        container.restoredRerunnableCommandProvider = { [weak self] paneID in
+            self?.worklaneStore.restoredRerunnableCommand(for: paneID)
+        }
+        container.agentForkAvailabilityProvider = { [weak self] paneID in
+            self?.worklaneStore.agentForkAvailability(for: paneID)
+        }
+    }
+
+    func handlePaneBorderAction(_ action: PaneBorderAction, paneID: PaneID) {
+        switch action {
+        case .float:
+            routeFloatPane(paneID)
+        case .pip:
+            worklaneStore.pipPane(paneID)
+        case .minimize:
+            worklaneStore.minimizePane(paneID)
+        case .dock:
+            worklaneStore.dockPane(paneID, target: .origin)
+        case .restore:
+            worklaneStore.restoreFloat(paneID)
+        case .close:
+            requestPaneClose(paneID)
         }
     }
 
@@ -2003,9 +2051,17 @@ final class RootViewController: NSViewController {
         copyToPasteboard(target)
     }
 
+    /// Replaces the system pasteboard for copy-path in tests (never touch the
+    /// user's clipboard from a test run).
+    var pasteboardStringWriterForTesting: ((String) -> Void)?
+
     private func copyToPasteboard(_ target: PaneCopyTarget) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(target.pasteboardString, forType: .string)
+        if let pasteboardStringWriterForTesting {
+            pasteboardStringWriterForTesting(target.pasteboardString)
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(target.pasteboardString, forType: .string)
+        }
         showToast(message: target.copiedToastMessage)
     }
 
@@ -2702,6 +2758,10 @@ final class RootViewController: NSViewController {
         worklaneStore.focusedOpenWithContext
     }
 
+    var openWithChromeStateForTesting: WindowChromeOpenWithState? {
+        windowChromeView.openWithStateForTesting
+    }
+
     var focusedPaneHasRememberedSearch: Bool {
         focusedPaneRuntime()?.snapshot.search.hasRememberedSearch ?? false
     }
@@ -3333,6 +3393,12 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeToggleFloat() {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else { return }
+        routeFloatPane(paneID)
+    }
+
+    /// Floats tile `paneID` in place, or docks it when it already floats.
+    func routeFloatPane(_ paneID: PaneID) {
         // Mid-drag the canvas render bails out, so a toggle would change the
         // store (possibly floating the dragged pane) without the UI following.
         // A divider drag's cancel restores the strip from before the toggle.
@@ -3341,7 +3407,7 @@ extension RootViewController: AppActionRouterEnvironment {
               !paneStripView.isDragActive,
               !paneStripView.isDividerDragActive else { return }
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
-        worklaneStore.toggleFloat(canvas: appCanvasView.floatLayerView.bounds) { [appCanvasView] paneID in
+        worklaneStore.toggleFloat(paneID, canvas: appCanvasView.floatLayerView.bounds) { [appCanvasView] paneID in
             appCanvasView.tileFrameInFloatLayer(for: paneID)
         }
     }

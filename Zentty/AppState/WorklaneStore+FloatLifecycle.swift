@@ -29,7 +29,16 @@ extension WorklaneStore {
     /// centres it); a focused float docks back to its origin column. An empty
     /// canvas (layout not done yet) falls back to `floatCanvasEstimate`.
     func toggleFloat(canvas: CGRect, tileFrame: (PaneID) -> CGRect?) {
-        guard let worklane = activeWorklane, let paneID = worklane.focusedPaneID else {
+        guard let paneID = activeWorklane?.focusedPaneID else {
+            return
+        }
+        toggleFloat(paneID, canvas: canvas, tileFrame: tileFrame)
+    }
+
+    /// Float/dock toggle for any pane of the active worklane (a tile's float
+    /// button need not be on the focused pane).
+    func toggleFloat(_ paneID: PaneID, canvas: CGRect, tileFrame: (PaneID) -> CGRect?) {
+        guard let worklane = activeWorklane, worklane.containsPane(id: paneID) else {
             return
         }
         if worklane.isFloating(paneID) {

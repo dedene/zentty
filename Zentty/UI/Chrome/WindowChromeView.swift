@@ -1386,6 +1386,8 @@ final class WindowChromeView: NSView {
     var isFocusedProxyIconUsingPopupMenu: Bool { focusedProxyIconView.usesPopupMenuForTesting }
     var focusedProxyIconFrame: NSRect { focusedProxyIconView.frame }
     var currentPanesConfigForTesting: AppConfig.Panes { currentPanesConfig }
+
+    var openWithStateForTesting: WindowChromeOpenWithState? { currentOpenWithState }
     var focusedProxyIconImage: NSImage? { focusedProxyIconView.image }
     var focusedLabelText: String { focusedLabel.stringValue }
     var focusedLabelFrame: NSRect { focusedLabel.frame }

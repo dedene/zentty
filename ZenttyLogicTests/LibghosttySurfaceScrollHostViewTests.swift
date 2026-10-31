@@ -5,6 +5,35 @@ import XCTest
 
 @MainActor
 final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
+    func test_scroll_host_masks_scroll_view_not_overlay_host() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+
+        hostView.topFadeHeight = 12
+        hostView.layoutSubtreeIfNeeded()
+
+        let mask = try XCTUnwrap(hostView.topFadeMaskLayerForTesting)
+        let scrollLayer = try XCTUnwrap(hostView.scrollViewLayerForTesting)
+        XCTAssertTrue(scrollLayer.mask === mask)
+        XCTAssertNil(hostView.layer?.mask, "the host keeps the search HUD and frame meter unfaded")
+        XCTAssertNil(hostView.overlayHostLayerForTesting?.mask)
+        XCTAssertEqual(mask.frame, scrollLayer.bounds)
+        // Opaque up to 12pt below the top (y-up), clear at the top edge.
+        let locations = try XCTUnwrap(mask.locations).map(\.doubleValue)
+        XCTAssertEqual(locations.count, 3)
+        XCTAssertEqual(locations[1], Double((160 - 12) / 160.0), accuracy: 0.0001)
+        // The clear end of the gradient lands on the view's top edge (the
+        // host is unflipped and y-up; AppKit renders the scroll layer flipped).
+        let hostLayer = try XCTUnwrap(hostView.layer)
+        XCTAssertFalse(hostView.isFlipped)
+        XCTAssertFalse(hostLayer.contentsAreFlipped())
+        let clearEnd = CGPoint(x: 0, y: mask.endPoint.y * scrollLayer.bounds.height)
+        XCTAssertEqual(scrollLayer.convert(clearEnd, to: hostLayer).y, hostView.bounds.maxY, accuracy: 0.5)
+
+        hostView.topFadeHeight = 0
+        XCTAssertNil(scrollLayer.mask)
+    }
+
     func test_fixed_overlay_owns_terminal_cursor_rects_when_surface_moves() throws {
         let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
         let hostView = harness.hostView

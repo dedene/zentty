@@ -119,6 +119,12 @@ struct ZenttyTheme: Equatable {
     let sidebarGlassAppearance: ThemeChromeAppearance
     let sidebarGlassOpacity: CGFloat
     let reducedTransparency: Bool
+    /// The window background shows through (background-opacity < 1 and
+    /// Reduce Transparency off). Pane fills are `.clear` then.
+    let isTranslucent: Bool
+    /// Theme background at full opacity. Floats paint it behind their
+    /// terminal so tiles never show through, even in a translucent theme.
+    let paneOpaqueBackdrop: NSColor
     let sidebarSelectionEmphasis: AppConfig.Appearance.SidebarSelectionEmphasis
 
     static let animationDuration: CFTimeInterval = 0.20
@@ -151,7 +157,7 @@ struct ZenttyTheme: Equatable {
             lhs.commandPaletteText, lhs.commandPaletteSecondaryText,
             lhs.commandPaletteRowHoverBackground, lhs.commandPaletteRowSelectedBackground,
             lhs.commandPaletteSeparator, lhs.commandPaletteBackdrop,
-            lhs.underlapShadow,
+            lhs.underlapShadow, lhs.paneOpaqueBackdrop,
             lhs.statusRunning, lhs.statusNeedsInput, lhs.statusStopped, lhs.statusReady, lhs.statusCheckBack,
             lhs.statusIdle,
         ].map(\.themeToken) == [
@@ -181,13 +187,14 @@ struct ZenttyTheme: Equatable {
             rhs.commandPaletteText, rhs.commandPaletteSecondaryText,
             rhs.commandPaletteRowHoverBackground, rhs.commandPaletteRowSelectedBackground,
             rhs.commandPaletteSeparator, rhs.commandPaletteBackdrop,
-            rhs.underlapShadow,
+            rhs.underlapShadow, rhs.paneOpaqueBackdrop,
             rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusCheckBack,
             rhs.statusIdle,
         ].map(\.themeToken)
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
             && lhs.sidebarGlassOpacity == rhs.sidebarGlassOpacity
             && lhs.reducedTransparency == rhs.reducedTransparency
+            && lhs.isTranslucent == rhs.isTranslucent
             && lhs.sidebarSelectionEmphasis == rhs.sidebarSelectionEmphasis
     }
 
@@ -243,6 +250,8 @@ struct ZenttyTheme: Equatable {
                 .mixed(towards: startupSurfaceBase, amount: 0.10)
 
         self.reducedTransparency = reduceTransparency
+        self.isTranslucent = isTranslucent
+        paneOpaqueBackdrop = background.withAlphaComponent(1)
         sidebarGlassAppearance = background.isDarkThemeColor ? .dark : .light
         startupSurface = isTranslucent ? .clear : startupSurfaceBase
         windowBackground = startupSurfaceBase

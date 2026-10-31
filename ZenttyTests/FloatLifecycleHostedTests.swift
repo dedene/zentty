@@ -183,7 +183,8 @@ final class FloatLifecycleHostedTests: XCTestCase {
         let layer = canvas(controller).floatLayerView
         XCTAssertNil(layer.pipHostForTesting(floatID))
         let container = try XCTUnwrap(layer.containerForTesting(floatID))
-        XCTAssertTrue(container.superview === layer)
+        XCTAssertTrue(container.superview is FloatContainerView)
+        XCTAssertTrue(container.superview?.superview === layer)
         XCTAssertEqual(spyView.isViewportSyncSuspended, false)
         let resume = try XCTUnwrap(spyView.suspensionLog.last { !$0.suspended })
         XCTAssertFalse(resume.wasInPip, "re-parented out of the PiP before resuming")
@@ -237,7 +238,8 @@ final class FloatLifecycleHostedTests: XCTestCase {
         waitForLayout("restored")
 
         let container = try XCTUnwrap(canvas(controller).floatLayerView.containerForTesting(floatID))
-        XCTAssertTrue(container.superview === canvas(controller).floatLayerView)
+        XCTAssertTrue(container.superview is FloatContainerView)
+        XCTAssertTrue(container.superview?.superview === canvas(controller).floatLayerView)
         XCTAssertTrue(spyView.isDescendant(of: container))
         XCTAssertEqual(spyView.isViewportSyncSuspended, false, "a new floating container resumes sync")
     }

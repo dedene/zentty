@@ -233,8 +233,12 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         }
     }
 
+    /// Height over which terminal content fades out under the top border.
+    static let topFadeHeight: CGFloat = 12
+
     private func setup() {
         wantsLayer = true
+        (terminalView as? any TerminalTopFadeConfiguring)?.topFadeHeight = Self.topFadeHeight
         addSubview(terminalView)
         searchHUDView.isHidden = true
         searchHUDView.delegate = self

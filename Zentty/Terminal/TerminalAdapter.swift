@@ -264,6 +264,13 @@ protocol TerminalMouseInteractionSuppressionControlling: AnyObject {
     func setMouseInteractionSuppressionRects(_ rects: [CGRect])
 }
 
+/// Terminal views whose content fades out under the pane's top border
+/// (the legends sit on it). `topFadeHeight` 0 disables the fade.
+@MainActor
+protocol TerminalTopFadeConfiguring: AnyObject {
+    var topFadeHeight: CGFloat { get set }
+}
+
 @MainActor
 protocol TerminalContextMenuConfiguring: AnyObject {
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)? { get set }

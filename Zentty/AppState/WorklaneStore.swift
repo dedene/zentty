@@ -196,6 +196,9 @@ struct PaneBorderContextDisplayModel: Equatable, Sendable {
     /// Code agent teams anchor (excluding the leader). Renders a subordinate
     /// glyph at the leading edge of the inset.
     var isAgentTeamMember: Bool = false
+    /// Bold name ahead of the cwd (`name · cwd`). Floats only; tiles keep
+    /// the plain cwd label.
+    var displayName: String? = nil
 }
 
 struct WorklaneAuxiliaryInvalidation: OptionSet, Equatable, Sendable {
@@ -298,11 +301,10 @@ extension WorklaneState {
         let livePaneIDs = Set(allPanes.map(\.id))
 
         if let leaderPaneID, livePaneIDs.contains(leaderPaneID) {
-            if let existing = result[leaderPaneID] {
-                result[leaderPaneID] = PaneBorderContextDisplayModel(
-                    text: existing.text,
-                    isAgentTeamLeader: true
-                )
+            if var existing = result[leaderPaneID] {
+                existing.isAgentTeamLeader = true
+                existing.isAgentTeamMember = false
+                result[leaderPaneID] = existing
             } else {
                 result[leaderPaneID] = PaneBorderContextDisplayModel(
                     text: "",
@@ -312,11 +314,10 @@ extension WorklaneState {
         }
 
         for memberID in memberPaneIDs where memberID != leaderPaneID && livePaneIDs.contains(memberID) {
-            if let existing = result[memberID] {
-                result[memberID] = PaneBorderContextDisplayModel(
-                    text: existing.text,
-                    isAgentTeamMember: true
-                )
+            if var existing = result[memberID] {
+                existing.isAgentTeamLeader = false
+                existing.isAgentTeamMember = true
+                result[memberID] = existing
             }
         }
 

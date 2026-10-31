@@ -509,6 +509,53 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertTrue(didRequestOpen)
     }
 
+    func test_float_focus_change_refreshes_chrome_state() throws {
+        let target = OpenWithResolvedTarget(
+            stableID: "cursor",
+            kind: .editor,
+            displayName: "Cursor",
+            builtInID: .cursor,
+            appPath: nil
+        )
+        let controller = makeController(
+            openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
+        )
+        controller.loadViewIfNeeded()
+        let tile = PaneState(
+            id: PaneID("tile"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: nil, surfaceContext: .window),
+            width: 720
+        )
+        let floatPane = PaneState(
+            id: PaneID("float"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/b", surfaceContext: .window),
+            width: 720
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "Main",
+            paneStripState: PaneStripState(panes: [tile], focusedPaneID: tile.id),
+            floatingPanes: [
+                FloatingPaneState(
+                    pane: floatPane,
+                    mode: .floating,
+                    floatFrame: NormalizedRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5),
+                    stackOrder: 0,
+                    origin: FloatOrigin(columnIndex: 0)
+                ),
+            ]
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        XCTAssertEqual(controller.openWithChromeStateForTesting?.isPrimaryEnabled, false)
+
+        controller.worklaneStore.focusFloat(floatPane.id)
+
+        XCTAssertEqual(controller.focusedOpenWithContext?.workingDirectory, "/tmp/b")
+        XCTAssertEqual(controller.openWithChromeStateForTesting?.isPrimaryEnabled, true)
+    }
+
     func test_open_selected_server_action_invokes_primary_server_request_when_available() throws {
         let worklaneID = WorklaneID("worklane-main")
         let paneID = PaneID("pane-main")

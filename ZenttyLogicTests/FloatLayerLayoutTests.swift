@@ -125,4 +125,81 @@ final class FloatLayerLayoutTests: XCTestCase {
 
         XCTAssertTrue(placements.isEmpty)
     }
+
+    // MARK: - Content legends
+
+    private func worklaneWithFloat(floatTitle: String?, tileTitle: String? = "api") -> WorklaneState {
+        let tile = PaneState(id: PaneID("tile"), title: "zsh", customTitle: tileTitle)
+        let floatPane = PaneState(id: PaneID("float"), title: "zsh", customTitle: floatTitle)
+        return WorklaneState(
+            id: WorklaneID("w"),
+            title: nil,
+            paneStripState: PaneStripState(panes: [tile], focusedPaneID: tile.id),
+            auxiliaryStateByPaneID: [
+                tile.id: PaneAuxiliaryState(),
+                floatPane.id: PaneAuxiliaryState(
+                    shellContext: PaneShellContext(scope: .local, path: "/tmp/site", home: nil, user: nil, host: nil)
+                ),
+            ],
+            floatingPanes: [
+                FloatingPaneState(
+                    pane: floatPane,
+                    mode: .floating,
+                    floatFrame: NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5),
+                    stackOrder: 0,
+                    origin: nil
+                ),
+            ]
+        )
+    }
+
+    func test_content_sets_displayName_for_floats_only() throws {
+        let worklane = worklaneWithFloat(floatTitle: "pnpm dev")
+        let base: [PaneID: PaneBorderContextDisplayModel] = [
+            PaneID("tile"): PaneBorderContextDisplayModel(text: "~/a"),
+            PaneID("float"): PaneBorderContextDisplayModel(text: "~/b"),
+        ]
+
+        let content = FloatLayerContent(worklane: worklane, borderContextByPaneID: base)
+
+        XCTAssertNil(content.borderContextByPaneID[PaneID("tile")], "tiles are not the float layer's")
+        let model = try XCTUnwrap(content.borderContextByPaneID[PaneID("float")])
+        XCTAssertEqual(model.displayName, "pnpm dev")
+        XCTAssertEqual(model.text, "~/b")
+        XCTAssertNil(base[PaneID("tile")]?.displayName)
+    }
+
+    func test_custom_title_label_is_replaced_by_cwd_next_to_the_name() throws {
+        let worklane = worklaneWithFloat(floatTitle: "pnpm dev")
+
+        let content = FloatLayerContent(
+            worklane: worklane,
+            borderContextByPaneID: worklane.paneBorderContextDisplayByPaneID
+        )
+
+        let model = try XCTUnwrap(content.borderContextByPaneID[PaneID("float")])
+        XCTAssertEqual(model.displayName, "pnpm dev")
+        XCTAssertNotEqual(model.text, "pnpm dev", "the name is not shown twice")
+        XCTAssertTrue(model.text.hasSuffix("site"), model.text)
+    }
+
+    func test_unnamed_float_keeps_plain_legend() throws {
+        let worklane = worklaneWithFloat(floatTitle: nil)
+        let base = [PaneID("float"): PaneBorderContextDisplayModel(text: "~/b")]
+
+        let content = FloatLayerContent(worklane: worklane, borderContextByPaneID: base)
+
+        XCTAssertEqual(content.borderContextByPaneID[PaneID("float")], PaneBorderContextDisplayModel(text: "~/b"))
+    }
+
+    func test_team_variant_keeps_displayName() throws {
+        let worklane = worklaneWithFloat(floatTitle: "lead")
+        let teamContexts = worklane.paneBorderContextDisplayByPaneID(leaderPaneID: PaneID("float"))
+
+        let content = FloatLayerContent(worklane: worklane, borderContextByPaneID: teamContexts)
+
+        let model = try XCTUnwrap(content.borderContextByPaneID[PaneID("float")])
+        XCTAssertTrue(model.isAgentTeamLeader)
+        XCTAssertEqual(model.displayName, "lead")
+    }
 }

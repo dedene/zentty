@@ -63,6 +63,21 @@ private final class PaneInsetBorderLayer: CALayer {
         }
     }
 
+    /// Second cut in the top border, behind the right legend's buttons.
+    var trailingGapWidth: CGFloat = 0 {
+        didSet {
+            guard oldValue != trailingGapWidth else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    var trailingGapMaxX: CGFloat = 0 {
+        didSet {
+            guard oldValue != trailingGapMaxX else { return }
+            setNeedsDisplay()
+        }
+    }
+
     override init() {
         super.init()
         backgroundColor = NSColor.clear.cgColor
@@ -80,6 +95,8 @@ private final class PaneInsetBorderLayer: CALayer {
             gapWidth = layer.gapWidth
             gapMinX = layer.gapMinX
             gapSuppressed = layer.gapSuppressed
+            trailingGapWidth = layer.trailingGapWidth
+            trailingGapMaxX = layer.trailingGapMaxX
         }
         super.init(layer: layer)
     }
@@ -110,10 +127,19 @@ private final class PaneInsetBorderLayer: CALayer {
         context.setLineWidth(strokeWidth)
         context.setLineJoin(.round)
 
-        if gapWidth > 0, !gapSuppressed {
+        let hasLeadingGap = gapWidth > 0 && !gapSuppressed
+        let hasTrailingGap = trailingGapWidth > 0
+        if hasLeadingGap || hasTrailingGap {
             let clipPath = CGMutablePath()
             clipPath.addRect(bounds.insetBy(dx: -4, dy: -4))
-            clipPath.addRect(gapRect(in: strokeRect))
+            if hasLeadingGap {
+                clipPath.addRect(gapRect(in: strokeRect, minX: gapMinX, width: gapWidth))
+            }
+            if hasTrailingGap {
+                clipPath.addRect(
+                    gapRect(in: strokeRect, minX: trailingGapMaxX - trailingGapWidth, width: trailingGapWidth)
+                )
+            }
             context.addPath(clipPath)
             context.clip(using: .evenOdd)
         }
@@ -142,11 +168,11 @@ private final class PaneInsetBorderLayer: CALayer {
         return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 
-    private func gapRect(in strokeRect: CGRect) -> CGRect {
+    private func gapRect(in strokeRect: CGRect, minX: CGFloat, width: CGFloat) -> CGRect {
         CGRect(
-            x: gapMinX,
+            x: minX,
             y: strokeRect.maxY - (strokeWidth / 2) - 1,
-            width: gapWidth,
+            width: width,
             height: strokeWidth + 2
         )
     }
@@ -190,12 +216,12 @@ private final class PaneFocusGlowLayer: CALayer {
         }
     }
 
-    /// Rectangle (in layer-local coords) to punch out of the halo — matches
-    /// the border-context label's frame so the glow doesn't bleed through its
-    /// transparent background. `.zero` disables.
-    var labelGapRect: CGRect = .zero {
+    /// Rectangles (in layer-local coords) to punch out of the halo — the
+    /// border-context label and the right legend, so the glow doesn't bleed
+    /// through their transparent backgrounds. Empty rects are ignored.
+    var labelGapRects: [CGRect] = [] {
         didSet {
-            guard oldValue != labelGapRect else { return }
+            guard oldValue != labelGapRects else { return }
             setNeedsDisplay()
         }
     }
@@ -216,7 +242,7 @@ private final class PaneFocusGlowLayer: CALayer {
             glowBlurRadius = layer.glowBlurRadius
             strokeInset = layer.strokeInset
             strokeCornerRadius = layer.strokeCornerRadius
-            labelGapRect = layer.labelGapRect
+            labelGapRects = layer.labelGapRects
         }
         super.init(layer: layer)
     }
@@ -256,11 +282,12 @@ private final class PaneFocusGlowLayer: CALayer {
         ]
 
         context.saveGState()
-        if labelGapRect.width > 0, labelGapRect.height > 0 {
+        let gapRects = labelGapRects.filter { $0.width > 0 && $0.height > 0 }
+        if !gapRects.isEmpty {
             let cutout = CGMutablePath()
             // Pad the clip region to comfortably cover every concentric stroke.
             cutout.addRect(bounds.insetBy(dx: -(glowBlurRadius * 4), dy: -(glowBlurRadius * 4)))
-            cutout.addRect(labelGapRect)
+            gapRects.forEach { cutout.addRect($0) }
             context.addPath(cutout)
             context.clip(using: .evenOdd)
         }
@@ -309,6 +336,7 @@ final class PaneContainerView: NSView {
     private let terminalAnchorView = TerminalAnchorView()
     private let terminalHostView: TerminalPaneHostView
     private let borderContextView = PaneBorderContextInsetView()
+    private let borderActionsView = PaneBorderActionsView()
     private let backingScaleFactorProvider: () -> CGFloat
     private let insetBorderLayer = PaneInsetBorderLayer()
     private let focusGlowLayer = PaneFocusGlowLayer()
@@ -339,6 +367,20 @@ final class PaneContainerView: NSView {
     private var leadingMouseInteractionOcclusionWidth: CGFloat = 0
     private var terminalResizePreview: TerminalResizePreview?
     private var hoverTrackingArea: NSTrackingArea?
+    private var isHovered = false
+    private var legendGlowCutout: CGRect = .zero
+    private var actionsGlowCutout: CGRect = .zero
+    /// Tile, float or PiP. Floats and PiPs paint an opaque backdrop, drop the
+    /// container shadow (the float container draws its own) and show their
+    /// own right-legend buttons.
+    var chromeKind: PaneChromeKind = .tile {
+        didSet {
+            guard oldValue != chromeKind else { return }
+            applyVisualState(animated: false)
+            updateBorderChrome()
+        }
+    }
+    var onBorderActionRequested: ((PaneBorderAction) -> Void)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
@@ -523,6 +565,13 @@ final class PaneContainerView: NSView {
         borderContextView.autoresizingMask = []
         borderContextView.isHidden = true
         addSubview(borderContextView)
+        borderActionsView.translatesAutoresizingMaskIntoConstraints = true
+        borderActionsView.autoresizingMask = []
+        borderActionsView.isHidden = true
+        borderActionsView.onAction = { [weak self] action in
+            self?.onBorderActionRequested?(action)
+        }
+        addSubview(borderActionsView)
         contentClipView.addSubview(terminalAnchorView)
         terminalAnchorView.addSubview(terminalHostView)
         contentClipView.addSubview(statusOverlayView)
@@ -684,6 +733,7 @@ final class PaneContainerView: NSView {
         currentWorklaneColor = worklaneColor
         runtime.update(pane: pane)
         updateInsetBorderLayer()
+        updateBorderActionsView()
         updateBorderContextView()
         applyVisualState(animated: animatedVisualState, useNeutralBackground: useNeutralBackground)
     }
@@ -721,6 +771,7 @@ final class PaneContainerView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        setHovered(true)
         onHoverEntered?(event)
     }
 
@@ -731,7 +782,15 @@ final class PaneContainerView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        setHovered(false)
         onHoverExited?(event)
+    }
+
+    /// Hover drives the tile/PiP right legend. Internal so tests can drive it.
+    func setHovered(_ hovered: Bool) {
+        guard isHovered != hovered else { return }
+        isHovered = hovered
+        updateBorderChrome()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -882,6 +941,7 @@ final class PaneContainerView: NSView {
 
         isZoomedOutBackdropVisible = visible
         applyVisualState(animated: animated, animationDuration: animationDuration)
+        updateBorderChrome()
     }
 
     static let dragZoneHeight: CGFloat = 15
@@ -940,6 +1000,7 @@ final class PaneContainerView: NSView {
             updateInsetBorderLayer()
         }
         statusOverlayView.frame = bounds
+        updateBorderActionsView()
         updateBorderContextView()
         updateSearchHUDMouseSuppression()
     }
@@ -1142,6 +1203,43 @@ final class PaneContainerView: NSView {
 
     func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
         borderContextView.updateShortcutTooltip(shortcutManager)
+        borderActionsView.updateShortcutTooltips(shortcutManager)
+    }
+
+    var borderActionsFrameForTesting: CGRect? {
+        borderActionsView.isHidden ? nil : borderActionsView.frame
+    }
+
+    var trailingBorderGapWidthForTesting: CGFloat {
+        insetBorderLayer.trailingGapWidth
+    }
+
+    var borderActionsViewForTesting: PaneBorderActionsView {
+        borderActionsView
+    }
+
+    var paneBorderContextAttributedTextForTesting: NSAttributedString? {
+        guard !borderContextView.isHidden else { return nil }
+        return borderContextView.attributedTextForTesting
+    }
+
+    var backgroundColorsForTesting: (pane: CGColor?, contentClip: CGColor?, terminalHost: CGColor?) {
+        (layer?.backgroundColor, contentClipView.layer?.backgroundColor, terminalHostView.layer?.backgroundColor)
+    }
+
+    /// The right-legend button or the copy-path legend under `point`
+    /// (`point` in `coordinateSpaceView` coordinates). Both sit on the top
+    /// border line, half outside the pane's bounds, so owners that put
+    /// something above the pane (the strip's drag zones, a float's container)
+    /// ask here first.
+    func hitTestBorderChrome(_ point: NSPoint, from coordinateSpaceView: NSView) -> NSView? {
+        if !borderActionsView.isHidden {
+            let pointInSelf = convert(point, from: coordinateSpaceView)
+            if borderActionsView.frame.contains(pointInSelf) {
+                return borderActionsView.hitTest(pointInSelf)
+            }
+        }
+        return hitTestBorderContext(point, from: coordinateSpaceView)
     }
 
     var borderLabelGapWidthForTesting: CGFloat {
@@ -1282,20 +1380,21 @@ final class PaneContainerView: NSView {
         guard !bounds.isEmpty else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
-            focusGlowLayer.labelGapRect = .zero
+            setLegendGlowCutout(.zero)
             return
         }
 
         let borderContext = currentBorderContext
         let prefixGlyph = teamPrefixGlyph(for: borderContext)
         let text = borderContext?.text ?? ""
-        // Show the inset when there's either shell-context text OR a team
-        // marker to render. A leader pane with no shell context still gets
-        // its glyph.
-        guard !text.isEmpty || prefixGlyph != nil else {
+        let name = borderContext?.displayName.flatMap { $0.isEmpty ? nil : $0 }
+        // Show the inset when there's shell-context text, a float name OR a
+        // team marker to render. A leader pane with no shell context still
+        // gets its glyph.
+        guard !text.isEmpty || name != nil || prefixGlyph != nil else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
-            focusGlowLayer.labelGapRect = .zero
+            setLegendGlowCutout(.zero)
             return
         }
 
@@ -1303,17 +1402,18 @@ final class PaneContainerView: NSView {
             0,
             bounds.width
                 - PaneBorderContextInsetView.Layout.paneContextLeadingInset
-                - PaneBorderContextInsetView.Layout.paneContextTrailingGutter
+                - legendTrailingReserve
         )
         guard maxWidth > 24 else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
-            focusGlowLayer.labelGapRect = .zero
+            setLegendGlowCutout(.zero)
             return
         }
 
         let size = borderContextView.measure(
             text: text,
+            name: name,
             maxWidth: maxWidth,
             prefixGlyph: prefixGlyph
         )
@@ -1329,16 +1429,93 @@ final class PaneContainerView: NSView {
         borderContextView.isHidden = false
         borderContextView.render(
             text: text,
+            name: name,
             isFocused: currentIsFocused,
             theme: currentTheme,
             backingScaleFactor: resolvedBackingScaleFactor,
             prefixGlyph: prefixGlyph
         )
         setBorderLabelGap(width: size.width)
-        focusGlowLayer.labelGapRect = targetFrame
+        setLegendGlowCutout(targetFrame)
         if borderContextView.onClick != nil {
             window?.invalidateCursorRects(for: borderContextView)
         }
+    }
+
+    /// Room right of the left legend: the plain gutter, or the right legend's
+    /// buttons plus spacing while they show.
+    private var legendTrailingReserve: CGFloat {
+        let actions = visibleBorderActions
+        guard !actions.isEmpty else {
+            return PaneBorderContextInsetView.Layout.paneContextTrailingGutter
+        }
+        return PaneBorderActionsLayout.trailingInset
+            + PaneBorderActionsLayout.size(for: actions).width
+            + PaneBorderActionsLayout.legendSpacing
+    }
+
+    private var visibleBorderActions: [PaneBorderAction] {
+        guard !bounds.isEmpty, !isZoomedOutBackdropVisible else { return [] }
+        guard PaneBorderActionsLayout.isVisible(
+            kind: chromeKind,
+            isHovered: isHovered,
+            isFocused: currentIsFocused
+        ) else {
+            return []
+        }
+        let actions = PaneBorderActionsLayout.actions(for: chromeKind)
+        if chromeKind == .tile, bounds.width < PaneBorderActionsLayout.minimumPaneWidth(for: actions) {
+            return []
+        }
+        return actions
+    }
+
+    private func updateBorderChrome() {
+        updateBorderActionsView()
+        updateBorderContextView()
+        updateSearchHUDMouseSuppression()
+    }
+
+    private func updateBorderActionsView() {
+        let actions = visibleBorderActions
+        guard !actions.isEmpty, !insetBorderLayer.frame.isEmpty else {
+            borderActionsView.isHidden = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            insetBorderLayer.trailingGapWidth = 0
+            CATransaction.commit()
+            setActionsGlowCutout(.zero)
+            return
+        }
+
+        let size = PaneBorderActionsLayout.size(for: actions)
+        let borderFrame = insetBorderLayer.frame
+        let targetFrame = PaneBorderActionsLayout.frame(
+            size: size,
+            borderFrame: borderFrame,
+            borderInset: ChromeGeometry.paneBorderInset(backingScaleFactor: resolvedBackingScaleFactor),
+            strokeWidth: insetBorderLayer.strokeWidth
+        )
+        let padding = PaneBorderActionsLayout.gapPadding
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        borderActionsView.frame = targetFrame
+        insetBorderLayer.trailingGapWidth = size.width + (padding * 2)
+        insetBorderLayer.trailingGapMaxX = targetFrame.maxX + padding - borderFrame.minX
+        CATransaction.commit()
+        borderActionsView.isHidden = false
+        borderActionsView.render(actions: actions, isFocused: currentIsFocused, theme: currentTheme)
+        setActionsGlowCutout(targetFrame.insetBy(dx: -padding, dy: 0))
+    }
+
+    private func setLegendGlowCutout(_ rect: CGRect) {
+        legendGlowCutout = rect
+        focusGlowLayer.labelGapRects = [legendGlowCutout, actionsGlowCutout].filter { !$0.isEmpty }
+    }
+
+    private func setActionsGlowCutout(_ rect: CGRect) {
+        actionsGlowCutout = rect
+        focusGlowLayer.labelGapRects = [legendGlowCutout, actionsGlowCutout].filter { !$0.isEmpty }
     }
 
     private func teamPrefixGlyph(for context: PaneBorderContextDisplayModel?) -> String? {
@@ -1735,6 +1912,15 @@ final class PaneContainerView: NSView {
         if lastRenderedSearchState.isHUDVisible {
             suppressionRects.append(terminalHostView.searchHUDFrameInHostCoordinates)
         }
+        // The right-legend buttons sit on the top border, normally inside
+        // the drag-zone rect already; add them only when they poke out.
+        if !borderActionsView.isHidden {
+            let actionsRect = borderActionsView.frame.intersection(bounds)
+            if !actionsRect.isNull, !actionsRect.isEmpty,
+               !suppressionRects.contains(where: { $0.contains(actionsRect) }) {
+                suppressionRects.append(terminalHostView.convert(actionsRect, from: self))
+            }
+        }
 
         terminalHostView.setMouseInteractionSuppressionRects(suppressionRects)
     }
@@ -1797,7 +1983,9 @@ final class PaneContainerView: NSView {
             useNeutralBackground
             ? theme.startupSurface
             : zoomAwareTerminalBackingColor(theme: theme, isFocused: isFocused)
-        let shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
+        // Floats and PiPs draw their shadow on sibling layers of their own
+        // container; a shadow here would follow the (translucent) content.
+        let shadowOpacity = chromeKind == .tile ? Float(max(0, emphasis - 0.88) * 2.2) : 0
         let shadowRadius = 6 + max(0, emphasis - 0.92) * 24
 
         let focusedStroke: NSColor
@@ -1874,6 +2062,9 @@ final class PaneContainerView: NSView {
     }
 
     private func zoomAwarePaneFillColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
+        if chromeKind != .tile {
+            return theme.paneOpaqueBackdrop
+        }
         if isZoomedOutBackdropVisible {
             return theme.paneZoomFillUnfocused
         }
@@ -1906,6 +2097,11 @@ final class PaneContainerView: NSView {
     }
 
     private func zoomAwareTerminalBackingColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
+        // Floats sit on top of tiles: text under them must never show through,
+        // even in a translucent theme.
+        if chromeKind != .tile {
+            return theme.paneOpaqueBackdrop
+        }
         if isZoomedOutBackdropVisible {
             return zoomAwarePaneFillColor(theme: theme, isFocused: isFocused)
         }

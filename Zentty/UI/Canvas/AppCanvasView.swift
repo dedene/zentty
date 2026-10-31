@@ -40,6 +40,9 @@ final class PaneBorderContextInsetView: NSView {
     private let leftBorderLineLayer = CALayer()
     private let rightBorderLineLayer = CALayer()
     private let textFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .semibold)
+    private let nameFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .bold)
+    /// Separates a float's bold name from its cwd.
+    static let nameSeparator = " \u{00B7} "
     private var textColorToken = ""
     private var naturalTextWidth: CGFloat = 0
     private var currentAttributedText = NSAttributedString(string: "")
@@ -85,9 +88,9 @@ final class PaneBorderContextInsetView: NSView {
 
     override func updateLayer() {}
 
-    func measure(text: String, maxWidth: CGFloat, prefixGlyph: String? = nil) -> CGSize {
-        let displayText = (prefixGlyph ?? "") + text
-        naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText, font: textFont))
+    func measure(text: String, name: String? = nil, maxWidth: CGFloat, prefixGlyph: String? = nil) -> CGSize {
+        let displayText = attributedText(text: text, name: name, prefixGlyph: prefixGlyph, color: nil)
+        naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText))
         return CGSize(
             width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
             height: Layout.paneContextPreferredHeight
@@ -96,6 +99,7 @@ final class PaneBorderContextInsetView: NSView {
 
     func render(
         text: String,
+        name: String? = nil,
         isFocused: Bool,
         theme: ZenttyTheme,
         backingScaleFactor: CGFloat,
@@ -105,17 +109,7 @@ final class PaneBorderContextInsetView: NSView {
             ? theme.paneBorderFocused
             : theme.paneBorderUnfocused).brightenedForLabel
         let textHeight = ceil(Self.textLineHeight(for: textFont))
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: textFont,
-            .foregroundColor: textColor,
-        ]
-        let attributedText = NSMutableAttributedString()
-        if let prefixGlyph, !prefixGlyph.isEmpty {
-            attributedText.append(NSAttributedString(string: prefixGlyph, attributes: attributes))
-        }
-        if !text.isEmpty {
-            attributedText.append(NSAttributedString(string: text, attributes: attributes))
-        }
+        let attributedText = attributedText(text: text, name: name, prefixGlyph: prefixGlyph, color: textColor)
 
         let borderColor = (isFocused
             ? theme.paneBorderFocused
@@ -166,6 +160,40 @@ final class PaneBorderContextInsetView: NSView {
 
     var textForTesting: String {
         currentAttributedText.string
+    }
+
+    var attributedTextForTesting: NSAttributedString {
+        currentAttributedText
+    }
+
+    /// `prefixGlyph` + bold `name` + " · " + `text`. A float shows its name
+    /// first; tiles pass no name and keep the plain cwd label.
+    private func attributedText(
+        text: String,
+        name: String?,
+        prefixGlyph: String?,
+        color: NSColor?
+    ) -> NSAttributedString {
+        var attributes: [NSAttributedString.Key: Any] = [.font: textFont]
+        var nameAttributes: [NSAttributedString.Key: Any] = [.font: nameFont]
+        if let color {
+            attributes[.foregroundColor] = color
+            nameAttributes[.foregroundColor] = color
+        }
+        let result = NSMutableAttributedString()
+        if let prefixGlyph, !prefixGlyph.isEmpty {
+            result.append(NSAttributedString(string: prefixGlyph, attributes: attributes))
+        }
+        if let name, !name.isEmpty {
+            result.append(NSAttributedString(string: name, attributes: nameAttributes))
+            if !text.isEmpty {
+                result.append(NSAttributedString(string: Self.nameSeparator, attributes: attributes))
+            }
+        }
+        if !text.isEmpty {
+            result.append(NSAttributedString(string: text, attributes: attributes))
+        }
+        return result
     }
 
     var textColorTokenForTesting: String {
@@ -228,11 +256,8 @@ final class PaneBorderContextInsetView: NSView {
         updateCopyAffordanceState()
     }
 
-    private static func naturalTextWidth(for text: String, font: NSFont) -> CGFloat {
-        NSAttributedString(
-            string: text,
-            attributes: [.font: font]
-        ).boundingRect(
+    private static func naturalTextWidth(for text: NSAttributedString) -> CGFloat {
+        text.boundingRect(
             with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
@@ -460,6 +485,7 @@ final class AppCanvasView: NSView {
 
     func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
         paneStripView.updateShortcutTooltips(shortcutManager)
+        floatLayerView.updateShortcutTooltips(shortcutManager)
     }
 
     func focusCurrentPaneIfNeeded() {

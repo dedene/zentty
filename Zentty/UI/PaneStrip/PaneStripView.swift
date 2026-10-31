@@ -44,6 +44,7 @@ final class PaneStripView: NSView {
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
     var onPaneBorderContextClicked: ((PaneID) -> Void)?
+    var onPaneBorderActionRequested: ((PaneID, PaneBorderAction) -> Void)?
     var onDividerInteraction: ((PaneDivider) -> Void)?
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> CGFloat)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
@@ -627,8 +628,10 @@ final class PaneStripView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let borderContextHitView = hitTestBorderContext(at: point) {
-            return borderContextHitView
+        // Border chrome (copy-path legend, right-legend buttons) sits under
+        // each tile's drag zone, so it gets first pick.
+        if let borderChromeHitView = hitTestBorderChrome(at: point) {
+            return borderChromeHitView
         }
 
         return super.hitTest(point)
@@ -867,6 +870,10 @@ final class PaneStripView: NSView {
             let frameInSelf = convert(frameInPane, from: paneView)
             addCursorRect(frameInSelf, cursor: .pointingHand)
         }
+    }
+
+    func paneContainerViewForTesting(_ paneID: PaneID) -> PaneContainerView? {
+        paneViews[paneID]
     }
 
     var leadingVisibleInsetForTesting: CGFloat {
@@ -1141,9 +1148,11 @@ final class PaneStripView: NSView {
         }
     }
 
-    private func hitTestBorderContext(at pointInSelf: CGPoint) -> PaneBorderContextInsetView? {
+    /// `point` is in the superview's coordinates, like `hitTest(_:)`.
+    private func hitTestBorderChrome(at point: CGPoint) -> NSView? {
+        let pointInSelf = superview.map { convert(point, from: $0) } ?? point
         for paneView in paneViews.values.reversed() {
-            if let hitView = paneView.hitTestBorderContext(pointInSelf, from: self) {
+            if let hitView = paneView.hitTestBorderChrome(pointInSelf, from: self) {
                 return hitView
             }
         }
@@ -1462,6 +1471,9 @@ final class PaneStripView: NSView {
                 }
                 paneView.onBorderContextClicked = { [weak self] paneID in
                     self?.onPaneBorderContextClicked?(paneID)
+                }
+                paneView.onBorderActionRequested = { [weak self] action in
+                    self?.onPaneBorderActionRequested?(pane.id, action)
                 }
                 paneView.onScrollWheel = { [weak self] event in
                     self?.handlePaneSwitchScroll(event) ?? false
