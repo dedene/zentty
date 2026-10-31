@@ -267,6 +267,7 @@
 		4E1373DAB8FC1A583D982FFA /* CleanCopyURLHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56D0544A9DC91F1BB3E0B88 /* CleanCopyURLHelpersTests.swift */; };
 		4E3C101E4C6C0B72F75ABBBE /* SidebarViewChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F557AF9F9BF4989153692316 /* SidebarViewChrome.swift */; };
 		4E4004B5A9792744A78D5120 /* TerminalClipboardConfirmationAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = E519ADB1CDD209B7B23478AD /* TerminalClipboardConfirmationAlert.swift */; };
+		4E4E15BAB48B870FB9099A4A /* OpenCodeHistorySourceArtifactTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFD2212E924F9693390FF741 /* OpenCodeHistorySourceArtifactTests.swift */; };
 		4E6C281C24DBF15136375A41 /* AppConfigClipboardTOMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F66585FDFDFE4560B7F3B1 /* AppConfigClipboardTOMLTests.swift */; };
 		4E70D8D7B6CACC828DE77541 /* TmuxCommandLineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 991FDD30EE7EE6562FE4AF70 /* TmuxCommandLineTests.swift */; };
 		4EACFE190A5A7FA738A3510C /* WorklaneRenderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E0AB398A3212751C553DAD6 /* WorklaneRenderCoordinator.swift */; };
@@ -1564,6 +1565,7 @@
 		BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		BF6932CD53AF150CC4656051 /* WorklaneSidebarSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummaryTests.swift; sourceTree = "<group>"; };
 		BF858A2AAD656DC571D60389 /* ProcessInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessInspection.swift; sourceTree = "<group>"; };
+		BFD2212E924F9693390FF741 /* OpenCodeHistorySourceArtifactTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeHistorySourceArtifactTests.swift; sourceTree = "<group>"; };
 		BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneShellContext.swift; sourceTree = "<group>"; };
 		BFE8A6AA456445175899564B /* GrokHistorySource+Records.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GrokHistorySource+Records.swift"; sourceTree = "<group>"; };
 		BFF869D6D306AFE18589C8CF /* WorklaneStoreTeamAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreTeamAnchorTests.swift; sourceTree = "<group>"; };
@@ -2934,6 +2936,7 @@
 				4C571DADB3493CD047A35125 /* OnePasswordPromptFocusCoordinatorTests.swift */,
 				62DFA87180028DF1155F1F7A /* OpenCodeGenerationTests.swift */,
 				AE44259450E37F666F97DBB0 /* OpenCodeHistorySourceAdmissionTests.swift */,
+				BFD2212E924F9693390FF741 /* OpenCodeHistorySourceArtifactTests.swift */,
 				E71A02C300C6E9FA16FAE307 /* OpenCodeHistorySourceDetectionTests.swift */,
 				95086BCB65577F8C6C3B320D /* OpenCodeHistorySourceRobustnessTests.swift */,
 				7893BEDFB858BD688D98A3D1 /* OpenCodeHistorySourceTests.swift */,
@@ -3495,6 +3498,7 @@
 				1473B82FF74979BB1E17E8ED /* OpenCodeGenerationTests.swift in Sources */,
 				E1343B5C8D2AF8D27BDF7573 /* OpenCodeHistoryFixture.swift in Sources */,
 				79896AD447EB00CFBCB857C9 /* OpenCodeHistorySourceAdmissionTests.swift in Sources */,
+				4E4E15BAB48B870FB9099A4A /* OpenCodeHistorySourceArtifactTests.swift in Sources */,
 				1862D385BB18A7B330F5174D /* OpenCodeHistorySourceDetectionTests.swift in Sources */,
 				4A08045CD2EA176BEEEFE843 /* OpenCodeHistorySourceRobustnessTests.swift in Sources */,
 				B65F4800DD4F2C0A4187E498 /* OpenCodeHistorySourceTestCase.swift in Sources */,
