@@ -162,6 +162,47 @@ final class FloatLayerViewInteractionTests: AppKitTestCase {
         XCTAssertEqual(view.log.last?.containerSize, CGSize(width: 400, height: 280))
     }
 
+    /// Review finding: a move that starts before the lift-in-place lands
+    /// scales the float; the landing must not resume sync under that scale.
+    func test_lift_in_place_landing_keeps_sync_suspended_while_a_move_scales_the_float() throws {
+        let layer = makeLayer()
+        let landed = expectation(description: "lift landed")
+        layer.onLiftInPlaceFinishedForTesting = { _ in landed.fulfill() }
+        layer.prepareLift(paneID: floatID, fromTileFrame: CGRect(x: 0, y: 20, width: 500, height: 640))
+        layer.render(content(frame: NormalizedRect(x: 0.1, y: 0.1, width: 0.4, height: 0.4)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
+        let view = try XCTUnwrap(adapters[floatID]?.view)
+
+        host.applyLiftScale(1.05)
+        let resumesBeforeLanding = view.log.filter { !$0.suspended }.count
+        wait(for: [landed], timeout: 2)
+
+        XCTAssertEqual(view.isSuspended, true, "the move still scales the float")
+        XCTAssertEqual(view.log.filter { !$0.suspended }.count, resumesBeforeLanding, "the landing never resumed sync")
+
+        host.applyLiftScale(1)
+        XCTAssertEqual(view.isSuspended, false, "sync resumes once the float is unscaled")
+    }
+
+    /// The other order: the move ends while the float still lifts in place;
+    /// the grid stays frozen until the lift lands.
+    func test_move_ending_mid_lift_in_place_keeps_sync_suspended_until_it_lands() throws {
+        let layer = makeLayer()
+        let landed = expectation(description: "lift landed")
+        layer.onLiftInPlaceFinishedForTesting = { _ in landed.fulfill() }
+        layer.prepareLift(paneID: floatID, fromTileFrame: CGRect(x: 0, y: 20, width: 500, height: 640))
+        layer.render(content(frame: NormalizedRect(x: 0.1, y: 0.1, width: 0.4, height: 0.4)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
+        let view = try XCTUnwrap(adapters[floatID]?.view)
+
+        host.applyLiftScale(1.05)
+        host.applyLiftScale(1)
+        XCTAssertEqual(view.isSuspended, true, "still lifting in place")
+
+        wait(for: [landed], timeout: 2)
+        XCTAssertEqual(view.isSuspended, false)
+    }
+
     func test_prepareLift_is_dropped_when_the_render_does_not_mount_it() throws {
         let layer = makeLayer()
         layer.prepareLift(paneID: floatID, fromTileFrame: CGRect(x: 0, y: 0, width: 500, height: 600))

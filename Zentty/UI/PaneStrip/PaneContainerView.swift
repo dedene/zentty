@@ -351,6 +351,7 @@ final class PaneContainerView: NSView {
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
     private(set) var isTerminalAnimationFrozen = false
+    private var viewportSuspension = TerminalViewportSuspension()
     private var viewportDiagnosticsWorklaneID: WorklaneID?
     private var viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .unknown
     private var viewportDiagnosticsIsZoomedOut = false
@@ -445,6 +446,7 @@ final class PaneContainerView: NSView {
         runtime: PaneRuntime,
         theme: ZenttyTheme,
         initialViewportSyncSuspended: Bool = false,
+        initialViewportSuspensionOwner: TerminalViewportSuspensionOwner = .strip,
         viewportDiagnosticsWorklaneID: WorklaneID? = nil,
         viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .unknown,
         viewportDiagnosticsIsZoomedOut: Bool = false,
@@ -467,6 +469,7 @@ final class PaneContainerView: NSView {
         translatesAutoresizingMaskIntoConstraints = true
         updateTerminalViewportDiagnosticsContext()
         if initialViewportSyncSuspended {
+            viewportSuspension.acquire(initialViewportSuspensionOwner)
             TerminalViewportDiagnostics.shared.record(.initialSuspension, context: viewportDiagnosticsContext())
             terminalHostView.setViewportSyncSuspended(true)
         }
@@ -858,19 +861,47 @@ final class PaneContainerView: NSView {
         updateTerminalViewportDiagnosticsContext()
     }
 
+    /// The strip's suspension (zoom, animated renders, divider drags): the
+    /// `.strip` owner. Resuming it leaves any other owner's suspension alone.
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
-        needsLayout = true
         if suspended {
-            guard ownsTerminalHostView else { return }
-            updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: true)
-            terminalHostView.setViewportSyncSuspended(true)
-            syncFramesForCurrentBounds()
+            suspendTerminalViewportSync(by: .strip)
         } else {
-            syncFramesForCurrentBounds()
-            guard ownsTerminalHostView else { return }
-            updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: false)
-            terminalHostView.setViewportSyncSuspended(false)
+            resumeTerminalViewportSync(by: .strip)
         }
+    }
+
+    /// Freezes the terminal grid on behalf of `owner` (see
+    /// `TerminalViewportSuspensionOwner`). Idempotent per owner.
+    func suspendTerminalViewportSync(by owner: TerminalViewportSuspensionOwner) {
+        viewportSuspension.acquire(owner)
+        needsLayout = true
+        guard ownsTerminalHostView else { return }
+        updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: true)
+        terminalHostView.setViewportSyncSuspended(true)
+        syncFramesForCurrentBounds()
+    }
+
+    /// Drops `owner`'s suspension. Sync resumes only when no other owner
+    /// still holds it; returns whether it did (callers force a sync only then).
+    @discardableResult
+    func resumeTerminalViewportSync(by owner: TerminalViewportSuspensionOwner) -> Bool {
+        let resumes = viewportSuspension.release(owner)
+        needsLayout = true
+        syncFramesForCurrentBounds()
+        guard resumes else { return false }
+        guard ownsTerminalHostView else { return true }
+        updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: false)
+        terminalHostView.setViewportSyncSuspended(false)
+        return true
+    }
+
+    var isTerminalViewportSyncSuspended: Bool {
+        viewportSuspension.isSuspended
+    }
+
+    var terminalViewportSuspensionOwners: Set<TerminalViewportSuspensionOwner> {
+        viewportSuspension.owners
     }
 
     func prepareSuspendedTerminalLayoutForPreviewMount() {

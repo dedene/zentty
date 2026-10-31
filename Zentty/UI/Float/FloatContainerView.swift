@@ -90,13 +90,21 @@ final class FloatContainerView: NSView {
     func applyLiftScale(_ scale: CGFloat) {
         guard liftScale != scale else { return }
         if scale != 1 {
-            hostedContainer?.setTerminalViewportSyncSuspended(true)
+            hostedContainer?.suspendTerminalViewportSync(by: .floatLiftScale)
         }
         liftScale = scale
         applyGeometry()
         if scale == 1 {
-            hostedContainer?.setTerminalViewportSyncSuspended(false)
+            hostedContainer?.resumeTerminalViewportSync(by: .floatLiftScale)
         }
+    }
+
+    /// The container leaves this host (to a PiP, or the float unmounts):
+    /// drops the lift scale's suspension on it without laying it out here.
+    func relinquishHostedContainer() {
+        hostedContainer?.resumeTerminalViewportSync(by: .floatLiftScale)
+        hostedContainer = nil
+        liftScale = 1
     }
 
     private func applyGeometry() {

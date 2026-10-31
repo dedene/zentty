@@ -12,6 +12,7 @@ final class PipContainerView: NSView {
     let paneID: PaneID
     var onClicked: ((PaneID) -> Void)?
     private(set) var contentSize: CGSize = .zero
+    private(set) weak var hostedContainer: PaneContainerView?
 
     init(paneID: PaneID) {
         self.paneID = paneID
@@ -23,6 +24,25 @@ final class PipContainerView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Enter PiP: freezes the grid (the `.pip` suspension owner) before the
+    /// container is re-parented and scaled, then hosts it at `contentSize`.
+    func host(_ container: PaneContainerView, contentSize: CGSize) {
+        guard container.superview !== self else { return }
+        container.suspendTerminalViewportSync(by: .pip)
+        container.removeFromSuperview()
+        container.frame = CGRect(origin: .zero, size: contentSize)
+        addSubview(container)
+        hostedContainer = container
+    }
+
+    /// Leave PiP: call once the container sits at its final unscaled frame
+    /// elsewhere. Drops the PiP's suspension; sync resumes unless another
+    /// owner (a lift still landing) holds it.
+    func relinquishHostedContainer() {
+        hostedContainer?.resumeTerminalViewportSync(by: .pip)
+        hostedContainer = nil
     }
 
     /// Places the PiP at `frame` and scales `contentSize` into it. Bounds must

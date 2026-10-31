@@ -305,7 +305,8 @@ final class FloatLayerView: NSView {
             isFocused: content.focusedFloatID == paneID,
             runtime: runtimeRegistry.runtime(for: float.pane),
             theme: currentTheme,
-            initialViewportSyncSuspended: isPip
+            initialViewportSyncSuspended: isPip,
+            initialViewportSuspensionOwner: .pip
         )
         container.showPaneBorders = showPaneBorders
         container.smoothScrollingEnabled = smoothScrollingEnabled
@@ -335,7 +336,7 @@ final class FloatLayerView: NSView {
             // viewport sync, so the grid never sees the scaled size.
             host.host(container)
             pip.removeFromSuperview()
-            container.setTerminalViewportSyncSuspended(false)
+            pip.relinquishHostedContainer()
             return
         }
         if container.superview !== host {
@@ -366,15 +367,10 @@ final class FloatLayerView: NSView {
             pipHosts[paneID] = pip
             addSubview(pip)
         }
-        if container.superview !== pip {
-            // Enter PiP: freeze the grid before the container is scaled.
-            container.setTerminalViewportSyncSuspended(true)
-            container.removeFromSuperview()
-            container.frame = CGRect(origin: .zero, size: contentSize)
-            pip.addSubview(container)
-        }
+        pip.host(container, contentSize: contentSize)
         if let host = floatHosts.removeValue(forKey: paneID) {
             host.cancelGesture()
+            host.relinquishHostedContainer()
             host.removeFromSuperview()
         }
         interactiveFrames.removeValue(forKey: paneID)

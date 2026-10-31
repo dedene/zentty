@@ -2365,7 +2365,7 @@ final class PaneStripView: NSView {
             completion()
             return
         }
-        paneView.setTerminalViewportSyncSuspended(true)
+        paneView.suspendTerminalViewportSync(by: .dockSettle)
         paneView.layer?.removeAllAnimations()
         paneView.frame = startFrame
         paneView.syncInsetBorderNow()
@@ -2377,10 +2377,14 @@ final class PaneStripView: NSView {
             paneView.animator().frame = finalFrame
         } completionHandler: { [weak self, weak paneView] in
             Task { @MainActor [weak self, weak paneView] in
+                // Only the landing's own hold goes: peek or a drag zoom that
+                // started meanwhile keeps the grid frozen under its scale.
+                let resumed = paneView?.resumeTerminalViewportSync(by: .dockSettle) ?? false
                 if let self, let paneView, self.paneViews[paneID] === paneView {
                     paneView.syncInsetBorderNow()
-                    paneView.setTerminalViewportSyncSuspended(false)
-                    paneView.forceTerminalViewportSync()
+                    if resumed {
+                        paneView.forceTerminalViewportSync()
+                    }
                 }
                 completion()
             }

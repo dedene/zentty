@@ -171,7 +171,7 @@ extension FloatLayerView {
     func animateLiftInPlace(paneID: PaneID, container: PaneContainerView, to frame: CGRect) {
         interactiveFrames.removeValue(forKey: paneID)
         guard let host = floatHost(paneID) else { return }
-        container.setTerminalViewportSyncSuspended(true)
+        container.suspendTerminalViewportSync(by: .floatLiftInPlace)
         layoutSubtreeIfNeeded()
         let motion = FloatMotion.reflowMotion
         NSAnimationContext.runAnimationGroup { context in
@@ -182,13 +182,17 @@ extension FloatLayerView {
             host.layoutSubtreeIfNeeded()
         } completionHandler: { [weak self, weak container] in
             Task { @MainActor [weak self, weak container] in
-                guard let self, let container,
-                      self.mountedContainer(paneID) === container,
+                guard let self, let container else { return }
+                // Always drop this lift's own hold. Sync resumes only if no
+                // one else (a move's lift scale, a PiP) still scales it.
+                let resumed = container.resumeTerminalViewportSync(by: .floatLiftInPlace)
+                guard self.mountedContainer(paneID) === container,
                       container.superview is FloatContainerView else {
                     return
                 }
-                container.setTerminalViewportSyncSuspended(false)
-                container.forceTerminalViewportSync()
+                if resumed {
+                    container.forceTerminalViewportSync()
+                }
                 self.onLiftInPlaceFinishedForTesting?(paneID)
             }
         }
