@@ -125,6 +125,17 @@ final class GrokHistorySource: AgentHistorySource, @unchecked Sendable {
         return .unchanged
     }
 
+    /// Directory identity re-read from `chat_history.jsonl` and `summary.json`.
+    func refreshUnit(_ unit: AgentHistoryUnit) -> AgentHistoryUnit {
+        AgentHistoryUnit(
+            key: unit.key,
+            path: unit.path,
+            kind: unit.kind,
+            identity: Self.unitIdentity(directory: unit.path),
+            nativeSessionID: unit.nativeSessionID
+        )
+    }
+
     /// `chat_history.jsonl`'s stat with the newer of its and `summary.json`'s mtime; nil
     /// without a chat history.
     static func unitIdentity(directory: String) -> AgentHistoryFileIdentity? {
@@ -199,8 +210,13 @@ final class GrokHistorySource: AgentHistorySource, @unchecked Sendable {
             return batch
         }
 
-        let cwd = summary.cwd.map { AgentHistoryPath.canonical($0) }
-        let decision = context.admission.decide(agent: agent, nativeID: nativeID, cwd: cwd)
+        let cwd = (summary.cwd ?? Self.projectCwd(sessionDirectory: directory)).map { AgentHistoryPath.canonical($0) }
+        var decision = context.admission.decide(agent: agent, nativeID: nativeID, cwd: cwd)
+        if decision == .admit, cwd == nil, !context.admission.exclusions.isEmpty {
+            // No usable folder at all: an exclusion might cover it, so hold the session back
+            // (as excluded) rather than let it bypass the user's excluded folders.
+            decision = .excludedFolder
+        }
         guard decision == .admit else {
             batch.rejected[nativeID] = decision
             return batch
@@ -257,6 +273,19 @@ final class GrokHistorySource: AgentHistorySource, @unchecked Sendable {
         )
         batch.cursor.watermark = summaryMtime
         return batch
+    }
+}
+
+extension GrokHistorySource {
+    /// The cwd Grok encoded in the project folder name (`sessions/<percent-encoded cwd>/<id>`),
+    /// used when `summary.json` has no absolute `info.cwd`; nil unless it decodes to an
+    /// absolute path.
+    static func projectCwd(sessionDirectory: String) -> String? {
+        let encoded = ((sessionDirectory as NSString).deletingLastPathComponent as NSString).lastPathComponent
+        guard let decoded = encoded.removingPercentEncoding, decoded.hasPrefix("/") else {
+            return nil
+        }
+        return decoded
     }
 }
 

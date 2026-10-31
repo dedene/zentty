@@ -236,6 +236,42 @@ final class GrokHistorySourceTests: XCTestCase {
         XCTAssertTrue(second.messages.isEmpty)
     }
 
+    func test_missing_summary_cwd_falls_back_to_project_folder_for_exclusions() throws {
+        var summary = AgentHistoryFixtures.grokSummary(id: sessionID, cwd: cwd)
+        summary["info"] = ["id": sessionID]
+        try AgentHistoryFixtures.writeGrokSession(root: root, id: sessionID, cwd: cwd, summary: summary, chat: [
+            try chat("user", "secret project", promptIndex: 0),
+        ])
+        let source = makeSource()
+
+        let admitted = try ingest(source, unit: try unit(source))
+        XCTAssertEqual(admitted.sessions.first?.cwd, AgentHistoryPath.canonical(cwd))
+
+        let excluded = AgentHistoryAdmission(exclusions: AgentHistoryExclusionMatcher(folders: [cwd]), tombstones: [])
+        let batch = try ingest(source, unit: try unit(source), context: AgentHistoryFixtures.context(admission: excluded))
+        XCTAssertEqual(batch.rejected[sessionID], .excludedFolder)
+        XCTAssertTrue(batch.messages.isEmpty)
+    }
+
+    func test_unknown_cwd_is_held_back_while_any_folder_is_excluded() throws {
+        var summary = AgentHistoryFixtures.grokSummary(id: sessionID, cwd: "relative-project")
+        summary["info"] = ["id": sessionID, "cwd": "relative-project"]
+        try AgentHistoryFixtures.writeGrokSession(root: root, id: sessionID, cwd: "relative-project", summary: summary, chat: [
+            try chat("user", "where am I", promptIndex: 0),
+        ])
+        let source = makeSource()
+
+        let unrestricted = try ingest(source, unit: try unit(source))
+        XCTAssertEqual(unrestricted.sessions.count, 1)
+        XCTAssertNil(unrestricted.sessions.first?.cwd)
+
+        let excluded = AgentHistoryAdmission(exclusions: AgentHistoryExclusionMatcher(folders: ["/elsewhere"]), tombstones: [])
+        let batch = try ingest(source, unit: try unit(source), context: AgentHistoryFixtures.context(admission: excluded))
+        XCTAssertEqual(batch.rejected[sessionID], .excludedFolder)
+        XCTAssertTrue(batch.sessions.isEmpty)
+        XCTAssertTrue(batch.messages.isEmpty)
+    }
+
     // MARK: - Timestamps and metadata
 
     func test_turn_started_timestamps_and_interpolation() throws {

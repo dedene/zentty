@@ -8,7 +8,7 @@ struct AgentHistorySourceRoot: Hashable, Sendable {
 }
 
 /// Per-batch caps. A batch ends at the first line boundary after either cap is reached.
-struct AgentHistoryIngestLimits: Sendable {
+struct AgentHistoryIngestLimits: Equatable, Sendable {
     var messages = 500
     var sourceBytes = 8 << 20
 }
@@ -58,6 +58,9 @@ protocol AgentHistorySource: AnyObject, Sendable {
     func discoverUnits() throws -> [AgentHistoryUnit]
     /// The unit or database a changed path belongs to; nil for noise.
     func eventTarget(forCanonicalPath path: String) -> AgentHistoryEventTarget?
+    /// The unit re-stat'ed just before the indexer classifies it (discovery may be minutes old).
+    /// `identity` is nil when the unit is gone. Stat-only.
+    func refreshUnit(_ unit: AgentHistoryUnit) -> AgentHistoryUnit
     func classifyChange(unit: AgentHistoryUnit, cursor: AgentHistoryCursor?) -> AgentHistoryUnitChange
     /// Reads one batch. The returned `batch.cursor` is complete (A-5): the indexer persists it
     /// verbatim and only sets `isRejected`.
@@ -75,6 +78,17 @@ protocol AgentHistorySource: AnyObject, Sendable {
 }
 
 extension AgentHistorySource {
+    /// Plain files and databases: a fresh stat of `unit.path`. Directory units override.
+    func refreshUnit(_ unit: AgentHistoryUnit) -> AgentHistoryUnit {
+        AgentHistoryUnit(
+            key: unit.key,
+            path: unit.path,
+            kind: unit.kind,
+            identity: AgentHistoryFileIdentity.stat(path: unit.path),
+            nativeSessionID: unit.nativeSessionID
+        )
+    }
+
     /// Generic file rules; non-plain units (zstd, directories, databases) override (A-6).
     func classifyChange(unit: AgentHistoryUnit, cursor: AgentHistoryCursor?) -> AgentHistoryUnitChange {
         AgentHistoryUnitChangeClassifier.classify(cursor: cursor, current: unit.identity) {

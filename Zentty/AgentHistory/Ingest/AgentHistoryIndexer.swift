@@ -1,0 +1,392 @@
+import Foundation
+
+struct AgentHistoryIndexerConfiguration: Sendable, Equatable {
+    var enabledAgents: Set<AgentHistoryAgent>
+    var excludedFolders: [String]
+    var fileEventLatency: TimeInterval = 2.0
+    var limits = AgentHistoryIngestLimits()
+}
+
+/// A flag set once from any thread (stop) and read by adapters through `context.isCancelled`.
+final class AgentHistoryCancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+}
+
+/// What the indexer knows about one source while it runs. Confined to the indexer queue.
+final class AgentHistoryIndexerSourceState {
+    let source: any AgentHistorySource
+    let id: Int64
+    /// Units from the last discovery, refreshed one by one as they are processed.
+    var units: [String: AgentHistoryUnit] = [:]
+    /// Mirror of the persisted cursors, updated after every commit.
+    var cursors: [String: AgentHistoryCursor]
+    var discoveryProblem: AgentHistorySourceProblem?
+    /// The last problem each unit's batch reported (`batch.problem`); cleared by a clean batch.
+    var unitProblems: [String: AgentHistorySourceProblem] = [:]
+    /// Sessions skipped for a reason the user did not choose (invalid id, unreadable, format).
+    var skippedSessionIDs: Set<String> = []
+    var skippedRecords = 0
+    var discovered = 0
+    var indexed = 0
+    var lastScanAt: Date?
+    var countersDirty = true
+
+    init(source: any AgentHistorySource, id: Int64, cursors: [String: AgentHistoryCursor]) {
+        self.source = source
+        self.id = id
+        self.cursors = cursors
+    }
+
+    /// Discovery problems win; otherwise the problem of the first unit (by key) that has one.
+    var problem: AgentHistorySourceProblem? {
+        if let discoveryProblem {
+            return discoveryProblem
+        }
+        return unitProblems.min { $0.key < $1.key }?.value
+    }
+}
+
+/// Builds and maintains the Agent History index.
+///
+/// Everything below runs on one serial utility queue (`queueLabel`): the writer connection, the
+/// store, the sources, the work queue and the snapshot builder (§3.19). Each batch is one
+/// `queue.async` step, so `stop`, configuration changes and other writes interleave with a long
+/// backfill. Every batch commits its rows and the unit's cursor in one transaction: a failure
+/// before the commit leaves the previous cursor, and the retry re-reads the same slice.
+///
+/// Status and snapshot are published to main (`onStatusChange`, `onSnapshotChange`) at most
+/// once a second, immediately on a state change and when the visible sessions first reach 50;
+/// `currentStatus` / `currentSnapshot` are readable from any thread.
+///
+/// One instance runs once: after `stop` it ignores every call. Create a new one to restart.
+final class AgentHistoryIndexer: @unchecked Sendable {
+    static let queueLabel = "be.zenjoy.zentty.agent-history.indexer"
+    /// Larger units are rewritten in normal batch commits instead of one transaction (A-8).
+    static let wholeUnitReplaceMaxBytes: Int64 = 64 << 20
+    static let snapshotPublishThreshold = 50
+    /// Unchanged units classified per step before yielding the queue.
+    static let unchangedUnitsPerStep = 256
+    static let backfillCompletedMetaKey = "backfill_completed_at"
+
+    enum Lifecycle: Equatable {
+        case idle, running, failed, stopped
+    }
+
+    let queue = DispatchQueue(label: AgentHistoryIndexer.queueLabel, qos: .utility)
+    let storage: AgentHistoryStorage
+    let stateStore: AgentHistoryStateStore
+    let makeSources: @Sendable () -> [any AgentHistorySource]
+    let systemConditions: any AgentHistorySystemConditions
+    let now: @Sendable () -> Date
+    let onStatusChange: @MainActor @Sendable (AgentHistoryStatus) -> Void
+    let onSnapshotChange: @MainActor @Sendable (AgentHistoryMetadataSnapshot) -> Void
+    let cancellation = AgentHistoryCancellationFlag()
+    let redactor = AgentHistoryRedactor.shared
+    let repositories = RepositoryIdentityCache()
+
+    // MARK: Queue-confined state
+
+    var lifecycle: Lifecycle = .idle
+    var configuration: AgentHistoryIndexerConfiguration
+    var writer: AgentHistoryDatabase?
+    var store: AgentHistoryStore?
+    var tokenizer: AgentHistoryTokenizer?
+    var admission = AgentHistoryAdmission.admitAll
+    var sourceStates: [Int64: AgentHistoryIndexerSourceState] = [:]
+    var sourceOrder: [Int64] = []
+    var workQueue = AgentHistoryWorkQueue()
+    var snapshotBuilder = AgentHistoryMetadataSnapshotBuilder()
+    var snapshotDirty = false
+    var state: AgentHistoryIndexerState = .off
+    /// Persisted: a full backfill finished once (the snapshot is complete).
+    var isBackfillComplete = false
+    /// In this run: the work queue drained once, so later work no longer reads as backfill.
+    var hasDrainedOnce = false
+    /// Units seen `.missing`, with the time they were first seen so (A-21). Deletion is the
+    /// reconcile's job; here a moved unit is looked up again once.
+    var missingSince: [AgentHistoryUnitRef: Date] = [:]
+    var missingRechecked: Set<AgentHistoryUnitRef> = []
+    var stepScheduled = false
+    var schedule = AgentHistoryReconcileSchedule()
+    var lastPublishUptime: TimeInterval?
+    var lastPublishedStateName: String?
+    var trailingPublishScheduled = false
+    var reachedSnapshotThreshold = false
+    var lastUpdatedAt: Date?
+    var revision: UInt64 = 0
+    /// Runs inside each commit transaction right before the cursor is saved; throwing rolls the
+    /// batch back. Set before `start()`.
+    var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
+
+    // MARK: Published (lock-protected)
+
+    private let publishedLock = NSLock()
+    private var publishedStatus = AgentHistoryStatus.off
+    private var publishedSnapshot = AgentHistoryMetadataSnapshot.empty
+
+    init(
+        storage: AgentHistoryStorage,
+        stateStore: AgentHistoryStateStore,
+        makeSources: @escaping @Sendable () -> [any AgentHistorySource],
+        configuration: AgentHistoryIndexerConfiguration,
+        systemConditions: any AgentHistorySystemConditions = LiveAgentHistorySystemConditions(),
+        now: @escaping @Sendable () -> Date = Date.init,
+        onStatusChange: @escaping @MainActor @Sendable (AgentHistoryStatus) -> Void,
+        onSnapshotChange: @escaping @MainActor @Sendable (AgentHistoryMetadataSnapshot) -> Void
+    ) {
+        self.storage = storage
+        self.stateStore = stateStore
+        self.makeSources = makeSources
+        self.configuration = configuration
+        self.systemConditions = systemConditions
+        self.now = now
+        self.onStatusChange = onStatusChange
+        self.onSnapshotChange = onSnapshotChange
+    }
+
+    // MARK: - Public API
+
+    /// Opens the index, publishes the stored sessions at once, then backfills newest first.
+    func start() {
+        queue.async { [self] in
+            startOnQueue()
+        }
+    }
+
+    /// Cancels in-flight work (a whole-unit transaction rolls back), closes the writer and
+    /// publishes `.off`. Waits at most `timeout` for the queue (A-7); never blocks longer.
+    func stop(timeout: TimeInterval = 1.0) {
+        cancellation.set()
+        let done = DispatchSemaphore(value: 0)
+        queue.async { [self] in
+            teardownOnQueue()
+            done.signal()
+        }
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            AgentHistoryLog.indexer.info("Agent History indexer stop timed out; teardown continues in the background")
+        }
+    }
+
+    func update(configuration: AgentHistoryIndexerConfiguration) {
+        queue.async { [self] in
+            applyConfiguration(configuration)
+        }
+    }
+
+    /// Re-discovers one source (or all) and queues every unit that changed.
+    func requestReconcile(sourceID: Int64? = nil) {
+        queue.async { [self] in
+            guard lifecycle == .running else {
+                return
+            }
+            let ids = sourceID.map { [$0] } ?? sourceOrder
+            for id in ids {
+                if let sourceState = sourceStates[id] {
+                    discover(sourceState)
+                }
+            }
+            updateProgressState()
+            publish()
+            scheduleStep()
+        }
+    }
+
+    var currentSnapshot: AgentHistoryMetadataSnapshot {
+        publishedLock.lock()
+        defer { publishedLock.unlock() }
+        return publishedSnapshot
+    }
+
+    var currentStatus: AgentHistoryStatus {
+        publishedLock.lock()
+        defer { publishedLock.unlock() }
+        return publishedStatus
+    }
+
+    func storePublished(status: AgentHistoryStatus?, snapshot: AgentHistoryMetadataSnapshot?) {
+        publishedLock.lock()
+        if let status {
+            publishedStatus = status
+        }
+        if let snapshot {
+            publishedSnapshot = snapshot
+        }
+        publishedLock.unlock()
+    }
+
+    // MARK: - Testing
+
+    /// Runs every queued step on the calling thread (through the queue) until the work queue is
+    /// empty or only paused backfill is left, then the idle bookkeeping, then publishes without
+    /// throttling so `currentStatus` / `currentSnapshot` are current on return.
+    func drainSynchronouslyForTesting() {
+        queue.sync { [self] in
+            while lifecycle == .running, !cancellation.isSet {
+                if processNext() {
+                    continue
+                }
+                if !becomeIdle() {
+                    break
+                }
+            }
+            if lifecycle == .running {
+                publish(force: true)
+            }
+        }
+    }
+
+    var isWriterOpenForTesting: Bool {
+        queue.sync { writer?.isOpen ?? false }
+    }
+
+    var sourceIDsForTesting: [Int64] {
+        queue.sync { sourceOrder }
+    }
+
+    // MARK: - Lifecycle on the queue
+
+    func startOnQueue() {
+        guard lifecycle == .idle, !cancellation.isSet else {
+            return
+        }
+        lifecycle = .running
+        setState(.starting)
+        publish(force: true)
+
+        let handle: AgentHistoryWriterHandle
+        do {
+            handle = try storage.openWriter()
+        } catch let error as AgentHistoryDatabaseError {
+            fail(Self.failureReason(for: error))
+            return
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History indexer could not open the index outside SQLite")
+            fail(.openFailed(code: -1))
+            return
+        }
+        writer = handle.database
+        tokenizer = handle.tokenizer
+        let store = AgentHistoryStore(database: handle.database, now: now)
+        self.store = store
+
+        do {
+            admission = AgentHistoryAdmission(
+                exclusions: AgentHistoryExclusionMatcher(folders: configuration.excludedFolders),
+                tombstones: try store.tombstones()
+            )
+            snapshotBuilder.replaceAll(try store.allVisibleSessionSummaries())
+            snapshotDirty = true
+            isBackfillComplete = try store.meta(Self.backfillCompletedMetaKey) != nil
+            reachedSnapshotThreshold = snapshotBuilder.count >= Self.snapshotPublishThreshold
+        } catch let error as AgentHistoryDatabaseError {
+            AgentHistoryLog.indexer.error("Agent History indexer could not load the index \(error.description, privacy: .public)")
+            fail(error.isCorruption ? .corrupt : .openFailed(code: error.code))
+            return
+        } catch {
+            fail(.openFailed(code: -1))
+            return
+        }
+        AgentHistoryLog.indexer.info("Agent History indexer started sessions=\(self.snapshotBuilder.count, privacy: .public)")
+
+        activateSources(makeSources())
+        let conditionsQueue = queue
+        systemConditions.startObserving { [weak self] in
+            conditionsQueue.async {
+                self?.conditionsChanged()
+            }
+        }
+        updateProgressState()
+        publish(force: true)
+        scheduleStep()
+    }
+
+    func teardownOnQueue() {
+        guard lifecycle != .stopped else {
+            return
+        }
+        lifecycle = .stopped
+        systemConditions.stopObserving()
+        writer?.close()
+        writer = nil
+        store = nil
+        workQueue = AgentHistoryWorkQueue()
+        setState(.off)
+        publish(force: true)
+        AgentHistoryLog.indexer.info("Agent History indexer stopped")
+    }
+
+    func fail(_ reason: AgentHistoryFailureReason) {
+        writer?.close()
+        writer = nil
+        store = nil
+        lifecycle = .failed
+        setState(.failed(reason))
+        publish(force: true)
+    }
+
+    static func failureReason(for error: AgentHistoryDatabaseError) -> AgentHistoryFailureReason {
+        if case .schemaTooNew(let found) = error.kind {
+            return .newerSchema(found: found)
+        }
+        if error.isCorruption {
+            return .corrupt
+        }
+        return .openFailed(code: error.code)
+    }
+
+    func applyConfiguration(_ next: AgentHistoryIndexerConfiguration) {
+        let previous = configuration
+        configuration = next
+        guard lifecycle == .running, store != nil else {
+            return
+        }
+        if next.excludedFolders != previous.excludedFolders {
+            // Purging stored sessions under new exclusions and re-reading lifted ones is
+            // routed through the indexer's write path; this keeps admission current.
+            admission = AgentHistoryAdmission(
+                exclusions: AgentHistoryExclusionMatcher(folders: next.excludedFolders),
+                tombstones: admission.tombstones
+            )
+        }
+        if next.enabledAgents != previous.enabledAgents {
+            for id in sourceOrder {
+                guard let sourceState = sourceStates[id], !next.enabledAgents.contains(sourceState.source.agent) else {
+                    continue
+                }
+                workQueue.removeAll(sourceID: id)
+                sourceStates[id] = nil
+                missingSince = missingSince.filter { $0.key.sourceID != id }
+            }
+            sourceOrder.removeAll { sourceStates[$0] == nil }
+            let added = next.enabledAgents.subtracting(previous.enabledAgents)
+            if !added.isEmpty {
+                activateSources(makeSources().filter { added.contains($0.agent) })
+            }
+        }
+        updateProgressState()
+        publish(force: true)
+        scheduleStep()
+    }
+
+    func conditionsChanged() {
+        guard lifecycle == .running else {
+            return
+        }
+        updateProgressState()
+        publish()
+        scheduleStep()
+    }
+}
