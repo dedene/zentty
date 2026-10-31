@@ -53,6 +53,15 @@ extension WorklaneState {
         return paneStripState.focusedPaneID
     }
 
+    /// True when a `.floating` float, not the strip, owns keyboard focus.
+    /// Strip-relative commands (focus moves, reorder, resize) check this.
+    var floatOwnsFocus: Bool {
+        guard let focusedFloatID else {
+            return false
+        }
+        return focusedPaneID == focusedFloatID
+    }
+
     var hasLivePanes: Bool {
         hasTiledPanes || !floatingPanes.isEmpty
     }

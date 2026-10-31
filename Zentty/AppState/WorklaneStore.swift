@@ -235,13 +235,13 @@ extension WorklaneState {
     }
 
     var focusedPaneContext: WorklanePaneContext? {
-        paneContext(for: paneStripState.focusedPaneID)
+        paneContext(for: focusedPaneID)
     }
 
     var paneContextsPrioritizingFocus: [WorklanePaneContext] {
-        let panes = paneStripState.panes
+        let panes = allPanes
         guard
-            let focusedPaneID = paneStripState.focusedPaneID,
+            let focusedPaneID,
             let focusedPaneIndex = panes.firstIndex(where: { $0.id == focusedPaneID })
         else {
             return panes.map { WorklanePaneContext(pane: $0, auxiliaryState: auxiliaryStateByPaneID[$0.id]) }
@@ -259,7 +259,7 @@ extension WorklaneState {
     func paneContext(for paneID: PaneID?) -> WorklanePaneContext? {
         guard
             let paneID,
-            let pane = paneStripState.panes.first(where: { $0.id == paneID })
+            let pane = pane(id: paneID)
         else {
             return nil
         }
@@ -268,7 +268,7 @@ extension WorklaneState {
     }
 
     var paneBorderContextDisplayByPaneID: [PaneID: PaneBorderContextDisplayModel] {
-        let panesByID = Dictionary(uniqueKeysWithValues: paneStripState.panes.map { ($0.id, $0) })
+        let panesByID = Dictionary(uniqueKeysWithValues: allPanes.map { ($0.id, $0) })
         return Dictionary(uniqueKeysWithValues: auxiliaryStateByPaneID.compactMap { paneID, auxiliaryState in
             if let pane = panesByID[paneID],
                let borderText = PaneDisplayIdentityResolver.borderLabelText(
@@ -294,7 +294,7 @@ extension WorklaneState {
         memberPaneIDs: Set<PaneID> = []
     ) -> [PaneID: PaneBorderContextDisplayModel] {
         var result = paneBorderContextDisplayByPaneID
-        let livePaneIDs = Set(paneStripState.panes.map(\.id))
+        let livePaneIDs = Set(allPanes.map(\.id))
 
         if let leaderPaneID, livePaneIDs.contains(leaderPaneID) {
             if let existing = result[leaderPaneID] {
@@ -600,7 +600,7 @@ final class WorklaneStore {
 
     func serverContext(for worklaneID: WorklaneID) -> WorklaneServerContext {
         let worklane = worklanes.first { $0.id == worklaneID }
-        let focusedPaneID = worklane?.paneStripState.focusedPaneID
+        let focusedPaneID = worklane?.focusedPaneID
         let merged = serverRegistry.servers(in: worklaneID)
 
         let relevanceContext = ServerRelevanceContext(
@@ -625,7 +625,7 @@ final class WorklaneStore {
         guard let worklane else {
             return []
         }
-        let livePaneIDs = Set(worklane.paneStripState.panes.map(\.id))
+        let livePaneIDs = Set(worklane.allPanes.map(\.id))
         return Set(
             worklane.auxiliaryStateByPaneID
                 .filter { paneID, auxiliary in
@@ -703,7 +703,7 @@ final class WorklaneStore {
 
     var hasRunningAgentPane: Bool {
         worklanes.contains { worklane in
-            let livePaneIDs = Set(worklane.paneStripState.panes.map(\.id))
+            let livePaneIDs = Set(worklane.allPanes.map(\.id))
             return worklane.auxiliaryStateByPaneID.contains { paneID, auxiliaryState in
                 guard livePaneIDs.contains(paneID) else {
                     return false
@@ -732,8 +732,8 @@ final class WorklaneStore {
 
     private func notifyServerDetectionChanged(worklaneID: WorklaneID, paneID: PaneID?) {
         guard let notificationPaneID = paneID
-            ?? worklanes.first(where: { $0.id == worklaneID })?.paneStripState.focusedPaneID
-            ?? worklanes.first(where: { $0.id == worklaneID })?.paneStripState.panes.first?.id
+            ?? worklanes.first(where: { $0.id == worklaneID })?.focusedPaneID
+            ?? worklanes.first(where: { $0.id == worklaneID })?.allPanes.first?.id
         else {
             notify(.worklaneListChanged)
             return
@@ -782,9 +782,7 @@ final class WorklaneStore {
     }
 
     func consumeRestoredRerunnableCommand(for paneID: PaneID) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.pane(id: paneID) != nil }) else {
             return
         }
 
@@ -798,10 +796,15 @@ final class WorklaneStore {
         notify(.auxiliaryStateUpdated(worklanes[worklaneIndex].id, paneID, .sidebar))
     }
 
+    /// Strip tiles, then `.floating` floats, per worklane. PiPs and pills are
+    /// not cycle targets: they never hold keyboard focus.
     private var paneReferencesInSidebarOrder: [PaneReference] {
         worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map { pane in
-                PaneReference(worklaneID: worklane.id, paneID: pane.id)
+            let floatIDs = worklane.allPanes.compactMap { pane -> PaneID? in
+                worklane.floatingPane(id: pane.id)?.mode.isFloating == true ? pane.id : nil
+            }
+            return (worklane.paneStripState.panes.map(\.id) + floatIDs).map { paneID in
+                PaneReference(worklaneID: worklane.id, paneID: paneID)
             }
         }
     }
@@ -921,10 +924,15 @@ final class WorklaneStore {
         }
 
         let previousPaneRef = currentPaneReference
+        let previousFocusedFloatID = worklane.focusedFloatID
         let changeType: WorklaneChange
 
         switch command {
         case .duplicateFocusedPane:
+            if worklane.floatOwnsFocus, let focusedFloatID = worklane.focusedFloatID {
+                duplicateFloat(focusedFloatID)
+                return
+            }
             guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
                 return
             }
@@ -945,24 +953,31 @@ final class WorklaneStore {
             }
             return
         case .split, .splitHorizontally:
+            worklane.focusedFloatID = nil
             insertNewPaneRight(into: &worklane, behavior: layoutContext.rightPaneInsertionBehavior)
             changeType = .paneStructure(activeWorklaneID)
         case .splitRightVisibly:
+            worklane.focusedFloatID = nil
             insertNewPaneRight(into: &worklane, behavior: .visibleSplit)
             changeType = .paneStructure(activeWorklaneID)
         case .addPaneRightWithoutResizing:
+            worklane.focusedFloatID = nil
             insertNewPaneRight(into: &worklane, behavior: .worklaneAdd)
             changeType = .paneStructure(activeWorklaneID)
         case .splitAfterFocusedPane:
+            worklane.focusedFloatID = nil
             insertNewPaneHorizontally(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitVertically:
+            worklane.focusedFloatID = nil
             insertNewPaneVertically(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitVerticallyBefore:
+            worklane.focusedFloatID = nil
             insertNewPaneVertically(into: &worklane, placement: .beforeFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitBeforeFocusedPane:
+            worklane.focusedFloatID = nil
             insertNewPaneHorizontally(into: &worklane, placement: .beforeFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .closeFocusedPane:
@@ -973,6 +988,14 @@ final class WorklaneStore {
             return
         case .focusNextPaneBySidebarOrder:
             focusPaneBySidebarOrder(offset: 1)
+            return
+        case _ where worklane.floatOwnsFocus && Self.isStripFocusMove(command):
+            // Strip navigation from a float first returns to the strip focus.
+            worklane.focusedFloatID = nil
+            clearReadyStatusForFocusedPane(in: &worklane)
+            changeType = .focusChanged(activeWorklaneID)
+        case _ where worklane.floatOwnsFocus && Self.isStripReorder(command):
+            // Reordering is strip-only; never move the tile under a focused float.
             return
         case .focusLeft:
             worklane.paneStripState.moveFocusLeft()
@@ -1052,7 +1075,31 @@ final class WorklaneStore {
         }
 
         refreshLastFocusedLocalWorkingDirectory()
-        notify(changeType)
+        batchUpdate {
+            notify(changeType)
+            if previousFocusedFloatID != worklane.focusedFloatID {
+                notify(.floats(activeWorklaneID))
+            }
+        }
+    }
+
+    private static func isStripFocusMove(_ command: PaneCommand) -> Bool {
+        switch command {
+        case .focusLeft, .focusRight, .focusUp, .focusDown,
+             .focusFirst, .focusLast, .focusFirstColumn, .focusLastColumn:
+            true
+        default:
+            false
+        }
+    }
+
+    private static func isStripReorder(_ command: PaneCommand) -> Bool {
+        switch command {
+        case .moveLeft, .moveRight, .moveUp, .moveDown:
+            true
+        default:
+            false
+        }
     }
 
     @discardableResult
@@ -1101,16 +1148,19 @@ final class WorklaneStore {
             return nil
         }
         var worklane = worklanes[worklaneIndex]
-        if let targetPaneID,
-           !worklane.paneStripState.panes.contains(where: { $0.id == targetPaneID }) {
+        if let targetPaneID, worklane.pane(id: targetPaneID) == nil {
             return nil
         }
+        let previousFocusedFloatID = worklane.focusedFloatID
 
         let isActiveWorklane = worklaneID == activeWorklaneID
         let previousPaneRef = isActiveWorklane ? currentPaneReference : nil
-        if let targetPaneID {
+        // A floated target can't be split in the strip: split at the strip
+        // focus instead (an empty strip just gains its first column).
+        if let targetPaneID, !worklane.isFloating(targetPaneID) {
             worklane.paneStripState.focusPane(id: targetPaneID)
         }
+        worklane.focusedFloatID = nil
 
         if isHorizontal {
             insertNewPaneHorizontally(into: &worklane, placement: placement, sessionRequest: sessionRequest)
@@ -1159,7 +1209,11 @@ final class WorklaneStore {
         }
 
         if let preserveFocusPaneID {
-            worklane.paneStripState.focusPane(id: preserveFocusPaneID)
+            if worklane.isFloating(preserveFocusPaneID) {
+                worklane.focusedFloatID = preserveFocusPaneID
+            } else {
+                worklane.paneStripState.focusPane(id: preserveFocusPaneID)
+            }
         }
 
         worklanes[worklaneIndex] = worklane
@@ -1172,7 +1226,12 @@ final class WorklaneStore {
 
             refreshLastFocusedLocalWorkingDirectory()
         }
-        notify(.paneStructure(worklaneID))
+        batchUpdate {
+            notify(.paneStructure(worklaneID))
+            if previousFocusedFloatID != worklane.focusedFloatID {
+                notify(.floats(worklaneID))
+            }
+        }
         return newPaneID
     }
 
@@ -1192,12 +1251,23 @@ final class WorklaneStore {
         guard cellCount <= 36 else {
             throw GridApplicationError.tooManyCells
         }
-        guard let startingWorklane = activeWorklane,
-              startingWorklane.paneStripState.panes.contains(where: { $0.id == sourcePaneID }) else {
+        guard var startingWorklane = activeWorklane,
+              startingWorklane.pane(id: sourcePaneID) != nil else {
             throw GridApplicationError.sourcePaneNotFound
         }
 
-        if startingWorklane.paneStripState.panes.count > 1 {
+        // The grid rebuilds the strip, so a floated source docks first.
+        if startingWorklane.isFloating(sourcePaneID) {
+            dockPane(sourcePaneID, target: .origin)
+            guard let docked = activeWorklane, !docked.isFloating(sourcePaneID) else {
+                throw GridApplicationError.sourcePaneNotFound
+            }
+            startingWorklane = docked
+        }
+
+        // Any other live pane (tile or float) means the grid gets its own
+        // worklane, so existing floats never sit over the new grid.
+        if startingWorklane.allPanes.count > 1 {
             transferPaneToNewWorklane(
                 paneID: sourcePaneID,
                 singleColumnWidth: layoutContext.singlePaneWidth
@@ -1390,24 +1460,29 @@ final class WorklaneStore {
             return false
         }
 
-        for columnIndex in worklane.paneStripState.columns.indices {
-            guard let paneIndex = worklane.paneStripState.columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else {
-                continue
-            }
-            guard worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.isLaunchDeferred else {
-                return false
-            }
-
-            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.command = nil
-            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.nativeCommand = trimmedCommand
-            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.waitAfterNativeCommand = true
-            worklane.paneStripState.columns[columnIndex].panes[paneIndex].sessionRequest.isLaunchDeferred = false
-            worklanes[worklaneIndex] = worklane
-            notify(.paneStructure(worklaneID))
-            return true
+        guard worklane.pane(id: paneID)?.sessionRequest.isLaunchDeferred == true else {
+            return false
         }
+        worklane.updatePane(id: paneID) { pane in
+            pane.sessionRequest.command = nil
+            pane.sessionRequest.nativeCommand = trimmedCommand
+            pane.sessionRequest.waitAfterNativeCommand = true
+            pane.sessionRequest.isLaunchDeferred = false
+        }
+        worklanes[worklaneIndex] = worklane
+        notifyPaneDataChanged(paneID, in: worklane)
+        return true
+    }
 
-        return false
+    /// Pane data (title, session request) changed in place: the strip renders
+    /// on `.paneStructure`, the float layer on `.floats`.
+    private func notifyPaneDataChanged(_ paneID: PaneID, in worklane: WorklaneState) {
+        batchUpdate {
+            notify(.paneStructure(worklane.id))
+            if worklane.isFloating(paneID) {
+                notify(.floats(worklane.id))
+            }
+        }
     }
 
     @discardableResult
@@ -1420,15 +1495,12 @@ final class WorklaneStore {
         // Teammate panes can live in a worklane the user is not looking at.
         for worklaneIndex in worklanes.indices {
             var worklane = worklanes[worklaneIndex]
-            for columnIndex in worklane.paneStripState.columns.indices {
-                guard let paneIndex = worklane.paneStripState.columns[columnIndex].panes.firstIndex(where: { $0.id == paneID }) else {
-                    continue
-                }
-                worklane.paneStripState.columns[columnIndex].panes[paneIndex].title = trimmedTitle
-                worklanes[worklaneIndex] = worklane
-                notify(.paneStructure(worklane.id))
-                return true
+            guard worklane.updatePane(id: paneID, { $0.title = trimmedTitle }) else {
+                continue
             }
+            worklanes[worklaneIndex] = worklane
+            notifyPaneDataChanged(paneID, in: worklane)
+            return true
         }
 
         return false
@@ -1437,7 +1509,11 @@ final class WorklaneStore {
     func focusedHorizontalKeyboardResizeAction(
         for delta: CGFloat
     ) -> FocusedHorizontalKeyboardResizeAction? {
-        activeWorklane?.paneStripState.focusedHorizontalKeyboardResizeAction(for: delta)
+        guard let worklane = activeWorklane, !worklane.floatOwnsFocus else {
+            // Floats resize through their frame, not the strip.
+            return nil
+        }
+        return worklane.paneStripState.focusedHorizontalKeyboardResizeAction(for: delta)
     }
 
     func equalizeDivider(
@@ -1465,7 +1541,7 @@ final class WorklaneStore {
         minimumSizeByPaneID: [PaneID: PaneMinimumSize],
         animation: WorklaneLayoutResizeAnimation = .splitCurve
     ) -> Bool {
-        guard var worklane = activeWorklane else {
+        guard var worklane = activeWorklane, !worklane.floatOwnsFocus else {
             return false
         }
 
@@ -1490,7 +1566,7 @@ final class WorklaneStore {
         leadingVisibleInset: CGFloat = 0,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
     ) {
-        guard var worklane = activeWorklane else {
+        guard var worklane = activeWorklane, !worklane.floatOwnsFocus else {
             return
         }
 
@@ -1607,7 +1683,10 @@ final class WorklaneStore {
         leadingVisibleInset: CGFloat = 0,
         minimumSizeByPaneID: [PaneID: PaneMinimumSize]
     ) -> Bool {
-        guard var worklane = activeWorklane else {
+        // A float (or unknown) id would make the temp-focus a no-op and resize
+        // whichever column happens to be focused.
+        guard var worklane = activeWorklane,
+              worklane.paneStripState.panes.contains(where: { $0.id == paneID }) else {
             return false
         }
         let previousPaneID = worklane.paneStripState.focusedPaneID
@@ -1662,6 +1741,11 @@ final class WorklaneStore {
         }
 
         worklane.paneStripState = paneStripState
+        // A pane floated mid-drag must not come back as a tile too.
+        for float in worklane.floatingPanes
+        where worklane.paneStripState.panes.contains(where: { $0.id == float.pane.id }) {
+            worklane.paneStripState.removePane(id: float.pane.id, singleColumnWidth: layoutContext.singlePaneWidth)
+        }
         activeWorklane = worklane
         notifyLayoutResized(animation: .splitCurve)
     }
@@ -1959,9 +2043,7 @@ final class WorklaneStore {
         inheritingFrom sourcePaneID: PaneID,
         destinationWindowID: WindowID
     ) -> WindowWorkspaceState? {
-        guard let sourceWorklane = worklanes.first(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == sourcePaneID })
-        }) else {
+        guard let sourceWorklane = worklanes.first(where: { $0.pane(id: sourcePaneID) != nil }) else {
             return nil
         }
 
@@ -2026,7 +2108,8 @@ final class WorklaneStore {
             return
         }
         worklanes[index].bookmarkOriginID = originID
-        notify(.auxiliaryStateUpdated(worklaneID, worklanes[index].paneStripState.focusedPaneID ?? PaneID(""), .sidebar))
+        let notificationPaneID = worklanes[index].focusedPaneID ?? worklanes[index].allPanes.first?.id ?? PaneID("")
+        notify(.auxiliaryStateUpdated(worklaneID, notificationPaneID, .sidebar))
     }
 
     func focusPane(id: PaneID) {
@@ -2073,7 +2156,22 @@ final class WorklaneStore {
         }
 
         let previousPaneRef = currentPaneReference
-        worklanes[index].paneStripState.focusPane(id: paneID)
+        if let float = worklanes[index].floatingPane(id: paneID) {
+            // Same rules as `focusFloat`: a PiP or pill comes back as a float.
+            if !float.mode.isFloating, let floatIndex = worklanes[index].floatingPanes.firstIndex(where: { $0.pane.id == paneID }) {
+                worklanes[index].floatingPanes[floatIndex].mode = .floating
+                Self.compactFloatOrders(in: &worklanes[index])
+            }
+            Self.raise(paneID, in: &worklanes[index])
+            worklanes[index].floatsHidden = false
+            worklanes[index].focusedFloatID = paneID
+            worklanes[index].auxiliaryStateByPaneID[paneID]?.autoPopped = false
+        } else {
+            worklanes[index].paneStripState.focusPane(id: paneID)
+            if worklanes[index].paneStripState.focusedPaneID == paneID {
+                worklanes[index].focusedFloatID = nil
+            }
+        }
         clearReadyStatusIfNeeded(for: paneID, in: &worklanes[index])
         activeWorklaneID = worklaneID
         recordFocusTransition(from: previousPaneRef)
@@ -2097,15 +2195,15 @@ final class WorklaneStore {
     }
 
     func closePaneFromShellExit(id paneID: PaneID) -> PaneCloseResult {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.pane(id: paneID) != nil }) else {
             return .notFound
         }
 
         var worklane = worklanes[worklaneIndex]
 
-        if worklane.paneStripState.panes.count == 1 {
+        // Only the worklane's last live pane (tile or float) takes the
+        // worklane — or the window — with it.
+        if worklane.allPanes.count == 1 {
             if worklanes.count == 1 {
                 worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
                 worklanes[worklaneIndex] = worklane
@@ -2125,24 +2223,37 @@ final class WorklaneStore {
             return .closed
         }
 
-        let previousColumnCount = worklane.paneStripState.columns.count
-        if let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: layoutContext.singlePaneWidth) {
-            clearPaneState(for: removal.pane.id, in: &worklane)
-            serverRegistry.clear(worklaneID: worklane.id, paneID: removal.pane.id)
-            applyColumnWidthNormalization(
-                &worklane,
-                previousColumnCount: previousColumnCount,
-                singleColumnWidth: layoutContext.singlePaneWidth
-            )
+        let isFloat = worklane.isFloating(paneID)
+        let previousFocusedFloatID = worklane.focusedFloatID
+        if isFloat {
+            detachFloat(paneID, from: &worklane)
+        } else {
+            let previousColumnCount = worklane.paneStripState.columns.count
+            if let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: layoutContext.singlePaneWidth) {
+                clearPaneState(for: removal.pane.id, in: &worklane)
+                serverRegistry.clear(worklaneID: worklane.id, paneID: removal.pane.id)
+                applyColumnWidthNormalization(
+                    &worklane,
+                    previousColumnCount: previousColumnCount,
+                    singleColumnWidth: layoutContext.singlePaneWidth
+                )
+            }
+            Self.focusFrontFloatIfUnfocused(in: &worklane)
         }
         worklanes[worklaneIndex] = worklane
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(worklane.id))
+        batchUpdate {
+            notify(.paneStructure(worklane.id))
+            if isFloat || worklane.focusedFloatID != previousFocusedFloatID {
+                notify(.floats(worklane.id))
+            }
+        }
         return .closed
     }
 
     func closeFocusedPane() -> PaneCloseResult {
-        guard let paneID = activeWorklane?.paneStripState.focusedPaneID else {
+        // Float-aware: ⌘W on a focused float closes only the float.
+        guard let paneID = activeWorklane?.focusedPaneID else {
             return .notFound
         }
 
@@ -2161,20 +2272,25 @@ final class WorklaneStore {
         cascadeCloseTeamColumnIfLeader(paneID: id, in: &worklane)
 
         let previousPaneRef = currentPaneReference
-        worklane.paneStripState.focusPane(id: id)
-        guard worklane.paneStripState.panes.contains(where: { $0.id == id }) else {
+        guard worklane.pane(id: id) != nil else {
             return .notFound
         }
+        let isFloat = worklane.isFloating(id)
+        let previousFocusedFloatID = worklane.focusedFloatID
+        if !isFloat {
+            worklane.paneStripState.focusPane(id: id)
+        }
 
-        let isLastPaneInLastColumn = worklane.paneStripState.columns.count == 1
-            && worklane.paneStripState.panes.count == 1
+        // The worklane's last live pane: a lone tile, or the last float of a
+        // float-only worklane. A last tile with floats left only removes it.
+        let isLastLivePane = worklane.allPanes.count == 1
 
         // Closing the last pane in the only worklane just signals the view
         // layer to close the window — the pane itself isn't removed here, and
         // the user may still cancel the window-close prompt. Skip capture in
         // that case to avoid leaving a stack entry pointing at a still-live
         // pane (which would let ⌘⇧T duplicate it).
-        if isLastPaneInLastColumn, worklanes.count == 1 {
+        if isLastLivePane, worklanes.count == 1 {
             return .closeWindow
         }
 
@@ -2182,7 +2298,7 @@ final class WorklaneStore {
             captureClosedPane(paneID: id, in: worklane)
         }
 
-        if isLastPaneInLastColumn {
+        if isLastLivePane {
             guard removeActiveWorklaneIfPossible() else {
                 refreshLastFocusedLocalWorkingDirectory()
                 notify(.paneStructure(activeWorklaneID))
@@ -2193,15 +2309,20 @@ final class WorklaneStore {
             return .closed
         }
 
-        let previousColumnCount = worklane.paneStripState.columns.count
-        if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
-            clearPaneState(for: removedPane.id, in: &worklane)
-            serverRegistry.clear(worklaneID: worklane.id, paneID: removedPane.id)
-            applyColumnWidthNormalization(
-                &worklane,
-                previousColumnCount: previousColumnCount,
-                singleColumnWidth: layoutContext.singlePaneWidth
-            )
+        if isFloat {
+            detachFloat(id, from: &worklane)
+        } else {
+            let previousColumnCount = worklane.paneStripState.columns.count
+            if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
+                clearPaneState(for: removedPane.id, in: &worklane)
+                serverRegistry.clear(worklaneID: worklane.id, paneID: removedPane.id)
+                applyColumnWidthNormalization(
+                    &worklane,
+                    previousColumnCount: previousColumnCount,
+                    singleColumnWidth: layoutContext.singlePaneWidth
+                )
+            }
+            Self.focusFrontFloatIfUnfocused(in: &worklane)
         }
 
         activeWorklane = worklane
@@ -2216,7 +2337,12 @@ final class WorklaneStore {
         }
 
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(activeWorklaneID))
+        batchUpdate {
+            notify(.paneStructure(activeWorklaneID))
+            if isFloat || worklane.focusedFloatID != previousFocusedFloatID {
+                notify(.floats(activeWorklaneID))
+            }
+        }
         return .closed
     }
 
@@ -2241,7 +2367,7 @@ final class WorklaneStore {
 
         let title = "pane \(worklane.nextPaneNumber)"
         let paneID = runtimeIdentity.makePaneID()
-        let focusedPaneID = worklane.paneStripState.focusedPaneID
+        let focusedPaneID = worklane.focusedPaneID
         let launchContext = focusedPaneID.flatMap { resolveLaunchContext(for: $0, in: worklane) }
         let workingDirectory = launchContext?.path
             ?? lastFocusedLocalWorkingDirectory
@@ -2608,6 +2734,11 @@ final class WorklaneStore {
 
         for paneRaw in anchor.columnPaneIDs {
             let teammateID = PaneID(paneRaw)
+            // A teammate the user floated out of the team column.
+            if worklane.isFloating(teammateID) {
+                detachFloat(teammateID, from: &worklane)
+                continue
+            }
             guard worklane.paneStripState.panes.contains(where: { $0.id == teammateID }) else {
                 continue
             }
@@ -2654,7 +2785,7 @@ final class WorklaneStore {
     ) -> [WorklaneID: WorklaneAnchor] {
         let livePaneIDsByWorklane = Dictionary(
             uniqueKeysWithValues: worklanes.map { worklane in
-                (worklane.id, Set(worklane.paneStripState.panes.map(\.id.rawValue)))
+                (worklane.id, Set(worklane.allPanes.map(\.id.rawValue)))
             }
         )
         let diskAnchors = TmuxCompatStoreIO.load().anchors
@@ -2687,7 +2818,7 @@ final class WorklaneStore {
     }
 
     private func sourcePaneIDForSessionInheritance(in worklane: WorklaneState) -> PaneID? {
-        guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
+        guard let focusedPaneID = worklane.focusedPaneID else {
             return nil
         }
 
@@ -2703,7 +2834,7 @@ final class WorklaneStore {
     }
 
     private func sourcePaneIDForConfigInheritance(in worklane: WorklaneState) -> PaneID? {
-        guard let focusedPaneID = worklane.paneStripState.focusedPaneID,
+        guard let focusedPaneID = worklane.focusedPaneID,
               pane(for: focusedPaneID, in: worklane) != nil else {
             return nil
         }
@@ -2744,7 +2875,7 @@ final class WorklaneStore {
 
     func focusedOpenWithContext(in worklane: WorklaneState) -> WorklaneOpenWithContext? {
         guard
-            let focusedPaneID = worklane.paneStripState.focusedPaneID,
+            let focusedPaneID = worklane.focusedPaneID,
             let launchContext = resolveLaunchContext(for: focusedPaneID, in: worklane),
             canTreatLaunchContextAsLocal(launchContext, for: focusedPaneID, in: worklane)
         else {
@@ -2777,7 +2908,7 @@ final class WorklaneStore {
     func refreshLastFocusedLocalWorkingDirectory() {
         guard
             let worklane = activeWorklane,
-            let focusedPaneID = worklane.paneStripState.focusedPaneID
+            let focusedPaneID = worklane.focusedPaneID
         else {
             lastFocusedPaneReference = nil
             return
@@ -2791,7 +2922,7 @@ final class WorklaneStore {
         worklane: WorklaneState,
         paneID: PaneID
     ) {
-        guard worklane.id == activeWorklaneID, worklane.paneStripState.focusedPaneID == paneID else {
+        guard worklane.id == activeWorklaneID, worklane.focusedPaneID == paneID else {
             return
         }
 
@@ -2817,7 +2948,7 @@ final class WorklaneStore {
     }
 
     private func clearReadyStatusForFocusedPane(in worklane: inout WorklaneState) {
-        guard let focusedPaneID = worklane.paneStripState.focusedPaneID else {
+        guard let focusedPaneID = worklane.focusedPaneID else {
             return
         }
 
@@ -3077,12 +3208,12 @@ final class WorklaneStore {
     }
 
     private func pane(for paneID: PaneID, in worklane: WorklaneState) -> PaneState? {
-        worklane.paneStripState.panes.first { $0.id == paneID }
+        worklane.pane(id: paneID)
     }
 
     private func liveAuxiliaryState(for paneID: PaneID) -> PaneAuxiliaryState? {
         for worklane in worklanes {
-            guard worklane.paneStripState.panes.contains(where: { $0.id == paneID }) else {
+            guard worklane.pane(id: paneID) != nil else {
                 continue
             }
             return worklane.auxiliaryStateByPaneID[paneID]
@@ -3150,7 +3281,7 @@ final class WorklaneStore {
 private extension WorklaneStore {
     func normalizeAllPanePresentationState() {
         for worklaneIndex in worklanes.indices {
-            let paneIDs = worklanes[worklaneIndex].paneStripState.panes.map(\.id)
+            let paneIDs = worklanes[worklaneIndex].allPanes.map(\.id)
             for paneID in paneIDs {
                 recomputePresentation(for: paneID, in: &worklanes[worklaneIndex])
             }
@@ -3159,7 +3290,7 @@ private extension WorklaneStore {
 
     func refreshAllPaneGitContexts() {
         for worklane in worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 refreshGitContextIfNeeded(for: PaneReference(worklaneID: worklane.id, paneID: pane.id))
             }
         }

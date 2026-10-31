@@ -272,7 +272,7 @@ extension WorklaneStore {
     /// Writes the worklane back, records focus history and notifies `.floats`
     /// (+ `.paneStructure` when the strip changed, + `.focusChanged` when the
     /// focused pane changed). No-op when nothing changed.
-    private func commitFloatChange(from original: WorklaneState, to worklane: WorklaneState) {
+    func commitFloatChange(from original: WorklaneState, to worklane: WorklaneState) {
         guard original != worklane else {
             return
         }
@@ -298,10 +298,11 @@ extension WorklaneStore {
         }
     }
 
-    /// Focus fallback when the focused float is put away: the most recent
-    /// eligible pane in history (pending entry first), else the strip focus,
-    /// else no terminal focus.
-    private func moveFocusAway(from id: PaneID, in worklane: inout WorklaneState) {
+    /// Focus fallback when the focused float is put away or closed: the most
+    /// recent eligible pane in history (pending entry first), else the strip
+    /// focus, else (empty strip) the front-most visible float, else no
+    /// terminal focus.
+    func moveFocusAway(from id: PaneID, in worklane: inout WorklaneState) {
         worklane.focusedFloatID = nil
         let candidates = [focusHistoryController.pendingReference].compactMap { $0 }
             + focusHistoryController.history.backStack.reversed()
@@ -317,6 +318,7 @@ extension WorklaneStore {
             }
             return
         }
+        Self.focusFrontFloatIfUnfocused(in: &worklane)
     }
 
     /// Sets `id` to `.pip` in `corner`, evicting that corner's oldest PiP to
@@ -414,7 +416,7 @@ extension WorklaneStore {
         }
     }
 
-    private static func nextStackOrder(in worklane: WorklaneState) -> Int {
+    static func nextStackOrder(in worklane: WorklaneState) -> Int {
         (worklane.floatingPanes.map(\.stackOrder).max() ?? -1) + 1
     }
 
@@ -422,7 +424,7 @@ extension WorklaneStore {
         (worklane.floatingPanes.compactMap { minimizedOrder(of: $0.mode) }.max() ?? -1) + 1
     }
 
-    private static func raise(_ id: PaneID, in worklane: inout WorklaneState) {
+    static func raise(_ id: PaneID, in worklane: inout WorklaneState) {
         guard let index = worklane.floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
             return
         }
@@ -436,7 +438,7 @@ extension WorklaneStore {
 
     /// Renumbers PiP orders per corner and pill orders to 0..<n, keeping
     /// their relative order.
-    private static func compactFloatOrders(in worklane: inout WorklaneState) {
+    static func compactFloatOrders(in worklane: inout WorklaneState) {
         for corner in FloatCorner.allCases {
             let ids = FloatLayout.pips(in: worklane.floatingPanes, corner: corner).map(\.pane.id)
             for (order, id) in ids.enumerated() {
