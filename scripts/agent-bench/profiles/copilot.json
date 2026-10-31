@@ -51,7 +51,7 @@
       }
     },
     "approval": {
-      "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use"]
+      "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use", "notification:permission_prompt"]
     },
     "tasks": {
       "required_events": ["session-start", "user-prompt-submitted", "pre-tool-use", "post-tool-use", "session-end"],

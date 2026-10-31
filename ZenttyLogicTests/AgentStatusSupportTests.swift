@@ -3000,82 +3000,136 @@ final class AgentStatusSupportTests: XCTestCase {
     func test_agent_launch_bootstrap_builds_copilot_overlay_and_strips_config_dir_override() throws {
         let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-copilot-runtime")
         let copilotHome = try makeTemporaryDirectory(named: "agent-launch-copilot-home")
-        try """
-        {
-          // comment
-          "version": 1,
-          "hooks": {
-            "sessionStart": [
-              {"type":"command","bash":"echo existing","timeoutSec":10},
-            ],
-          },
-        }
-        """.write(
-            to: copilotHome.appendingPathComponent("config.json", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
+        let sourceConfigURL = copilotHome.appendingPathComponent("config.json", isDirectory: false)
+        try #"{"trustedFolders":["/tmp/project"]}"#.write(to: sourceConfigURL, atomically: true, encoding: .utf8)
 
-        let request = AgentIPCRequest(
-            kind: .bootstrap,
-            arguments: ["--config-dir", copilotHome.path, "chat", "hello"],
-            standardInput: nil,
-            environment: [
-                "HOME": NSHomeDirectory(),
-                "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
-                "ZENTTY_CLI_BIN": "/tmp/zentty",
-            ],
-            expectsResponse: true,
-            tool: .copilot
-        )
-
-        let plan = try AgentLaunchBootstrap.makePlan(
-            request: request,
-            target: AgentIPCTarget(
-                windowID: WindowID("window-main"),
-                worklaneID: WorklaneID("worklane-main"),
-                paneID: PaneID("pane-main")
-            ),
-            runtimeDirectoryURL: runtimeDirectory
-        )
+        let plan = try makeCopilotBootstrapPlan(copilotHome: copilotHome, runtimeDirectory: runtimeDirectory)
 
         XCTAssertEqual(plan.executablePath, "/usr/local/bin/copilot")
         XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "copilot")
         XCTAssertFalse(plan.arguments.contains("--config-dir"))
         XCTAssertEqual(plan.arguments, ["chat", "hello"])
-        let overlayHome = try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"])
-        let overlayConfigURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
-            .appendingPathComponent("config.json", isDirectory: false)
-        let overlayConfig = try String(contentsOf: overlayConfigURL, encoding: .utf8)
-        XCTAssertTrue(overlayConfig.contains("session-start"))
-        XCTAssertTrue(overlayConfig.contains("pre-tool-use"))
-        XCTAssertTrue(overlayConfig.contains("echo existing"))
+        let overlayHome = URL(fileURLWithPath: try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"]), isDirectory: true)
+
+        // Copilot no longer reads hooks from config.json, so it passes through
+        // untouched and state written to it reaches the real home.
+        let overlayConfigPath = overlayHome.appendingPathComponent("config.json", isDirectory: false).path
+        XCTAssertEqual(
+            try resolvedSymlinkDestination(atPath: overlayConfigPath),
+            sourceConfigURL.resolvingSymlinksInPath().path
+        )
+
+        let hooksFileURL = overlayHome
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("zentty.json", isDirectory: false)
+        let hooksFile = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hooksFileURL)) as? [String: Any]
+        )
+        XCTAssertEqual(hooksFile["version"] as? Int, 1)
+        let hooks = try XCTUnwrap(hooksFile["hooks"] as? [String: Any])
+        let expectedArguments = [
+            "sessionStart": "session-start",
+            "sessionEnd": "session-end",
+            "userPromptSubmitted": "user-prompt-submitted",
+            "preToolUse": "pre-tool-use",
+            "postToolUse": "post-tool-use",
+            "postToolUseFailure": "post-tool-use-failure",
+            "notification": "notification",
+            "agentStop": "agent-stop",
+            "errorOccurred": "error-occurred",
+        ]
+        XCTAssertEqual(Set(hooks.keys), Set(expectedArguments.keys))
+        for (event, argument) in expectedArguments {
+            let entry = try XCTUnwrap((hooks[event] as? [[String: Any]])?.first, "Expected Copilot hook for \(event)")
+            XCTAssertEqual(entry["type"] as? String, "command")
+            XCTAssertEqual(
+                entry["bash"] as? String,
+                "\"/tmp/zentty\" ipc agent-event --adapter=copilot \(argument) || true"
+            )
+        }
     }
 
-    func test_agent_launch_bootstrap_adds_copilot_hooks_when_user_config_has_no_hooks() throws {
-        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-copilot-runtime-no-hooks")
-        let copilotHome = try makeTemporaryDirectory(named: "agent-launch-copilot-home-no-hooks")
-        try #"{"theme":"dark"}"#.write(
-            to: copilotHome.appendingPathComponent("config.json", isDirectory: false),
-            atomically: true,
+    func test_agent_launch_bootstrap_keeps_user_copilot_hooks_without_writing_into_them() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-copilot-runtime-user-hooks")
+        let copilotHome = try makeTemporaryDirectory(named: "agent-launch-copilot-home-user-hooks")
+        let sourceHooksURL = copilotHome.appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceHooksURL, withIntermediateDirectories: true)
+        let userHookURL = sourceHooksURL.appendingPathComponent("notify.json", isDirectory: false)
+        try #"{"version":1,"hooks":{"agentStop":[{"type":"command","bash":"say done"}]}}"#
+            .write(to: userHookURL, atomically: true, encoding: .utf8)
+
+        let plan = try makeCopilotBootstrapPlan(copilotHome: copilotHome, runtimeDirectory: runtimeDirectory)
+
+        let overlayHooksURL = URL(fileURLWithPath: try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"]), isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let attributes = try FileManager.default.attributesOfItem(atPath: overlayHooksURL.path)
+        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeDirectory, "hooks/ must be a real directory, not a symlink to the user's")
+        XCTAssertEqual(
+            try resolvedSymlinkDestination(
+                atPath: overlayHooksURL.appendingPathComponent("notify.json", isDirectory: false).path
+            ),
+            userHookURL.resolvingSymlinksInPath().path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: overlayHooksURL.appendingPathComponent("zentty.json", isDirectory: false).path
+        ))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: sourceHooksURL.path),
+            ["notify.json"]
+        )
+    }
+
+    func test_agent_launch_bootstrap_keeps_user_copilot_hooks_file_named_like_zenttys() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-copilot-runtime-collision")
+        let copilotHome = try makeTemporaryDirectory(named: "agent-launch-copilot-home-collision")
+        let sourceHooksURL = copilotHome.appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceHooksURL, withIntermediateDirectories: true)
+        let userZenttyHooksURL = sourceHooksURL.appendingPathComponent("zentty.json", isDirectory: false)
+        try #"{"version":1,"hooks":{"preToolUse":[{"type":"command","bash":"./guard.sh"}]}}"#
+            .write(to: userZenttyHooksURL, atomically: true, encoding: .utf8)
+
+        let plan = try makeCopilotBootstrapPlan(copilotHome: copilotHome, runtimeDirectory: runtimeDirectory)
+
+        let overlayHooksURL = URL(fileURLWithPath: try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"]), isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        XCTAssertEqual(
+            try resolvedSymlinkDestination(
+                atPath: overlayHooksURL.appendingPathComponent("user-zentty.json", isDirectory: false).path
+            ),
+            userZenttyHooksURL.resolvingSymlinksInPath().path
+        )
+        let managed = try String(
+            contentsOf: overlayHooksURL.appendingPathComponent("zentty.json", isDirectory: false),
             encoding: .utf8
         )
-
-        let request = AgentIPCRequest(
-            kind: .bootstrap,
-            arguments: ["--config-dir", copilotHome.path, "chat", "hello"],
-            standardInput: nil,
-            environment: [
-                "HOME": NSHomeDirectory(),
-                "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
-                "ZENTTY_CLI_BIN": "/tmp/zentty",
-            ],
-            expectsResponse: true,
-            tool: .copilot
+        XCTAssertTrue(managed.contains("agent-stop"))
+        XCTAssertEqual(
+            try String(contentsOf: userZenttyHooksURL, encoding: .utf8),
+            #"{"version":1,"hooks":{"preToolUse":[{"type":"command","bash":"./guard.sh"}]}}"#
         )
+    }
 
-        let plan = try AgentLaunchBootstrap.makePlan(
-            request: request,
+    /// Temp dirs live under `/var`, which the FileManager may report as
+    /// `/private/var`; compare fully resolved paths.
+    private func resolvedSymlinkDestination(atPath path: String) throws -> String {
+        let destination = try FileManager.default.destinationOfSymbolicLink(atPath: path)
+        return URL(fileURLWithPath: destination).resolvingSymlinksInPath().path
+    }
+
+    private func makeCopilotBootstrapPlan(copilotHome: URL, runtimeDirectory: URL) throws -> AgentLaunchPlan {
+        try AgentLaunchBootstrap.makePlan(
+            request: AgentIPCRequest(
+                kind: .bootstrap,
+                arguments: ["--config-dir", copilotHome.path, "chat", "hello"],
+                standardInput: nil,
+                environment: [
+                    "HOME": NSHomeDirectory(),
+                    "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
+                    "ZENTTY_CLI_BIN": "/tmp/zentty",
+                ],
+                expectsResponse: true,
+                tool: .copilot
+            ),
             target: AgentIPCTarget(
                 windowID: WindowID("window-main"),
                 worklaneID: WorklaneID("worklane-main"),
@@ -3083,18 +3137,6 @@ final class AgentStatusSupportTests: XCTestCase {
             ),
             runtimeDirectoryURL: runtimeDirectory
         )
-
-        let overlayHome = try XCTUnwrap(plan.setEnvironment["COPILOT_HOME"])
-        let overlayConfigURL = URL(fileURLWithPath: overlayHome, isDirectory: true)
-            .appendingPathComponent("config.json", isDirectory: false)
-        let overlayData = try Data(contentsOf: overlayConfigURL)
-        let overlayConfig = try XCTUnwrap(JSONSerialization.jsonObject(with: overlayData) as? [String: Any])
-        let hooks = try XCTUnwrap(overlayConfig["hooks"] as? [String: Any])
-
-        XCTAssertEqual(overlayConfig["theme"] as? String, "dark")
-        for event in ["sessionStart", "sessionEnd", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred"] {
-            XCTAssertNotNil(hooks[event], "Expected Copilot hook for \(event)")
-        }
     }
 
     func test_agent_launch_bootstrap_builds_devin_overlay_from_default_user_config() throws {
@@ -8332,7 +8374,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let payload = try XCTUnwrap(
             AgentEventBridge.copilotAdapter(
                 data: Data("""
-                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"askuserquestiontool","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"ask_user","toolArgs":"{\\"question\\":\\"Which option do you want?\\"}"}
                 """.utf8),
                 defaultEventName: "preToolUse",
                 environment: [
@@ -8370,7 +8412,7 @@ final class AgentStatusSupportTests: XCTestCase {
         let payload = try XCTUnwrap(
             AgentEventBridge.copilotAdapter(
                 data: Data("""
-                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"askUserQuestion","toolArgs":"{}"}
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","toolName":"ask_user","toolArgs":"{}"}
                 """.utf8),
                 defaultEventName: "postToolUse",
                 environment: [
@@ -8380,10 +8422,97 @@ final class AgentStatusSupportTests: XCTestCase {
             ).first
         )
 
-        XCTAssertEqual(payload.state, .idle)
+        // The answer resumes the turn; agentStop is what ends it.
+        XCTAssertEqual(payload.state, .running)
         XCTAssertNil(payload.interactionKind)
         XCTAssertEqual(payload.toolName, "Copilot")
         XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+    }
+
+    // Regression for #168: tool approval prompts never surfaced as needs-input.
+    func test_copilot_hook_permission_prompt_notification_emits_approval_needs_input() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.copilotAdapter(
+                data: Data("""
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","timestamp":1793451019796,"cwd":"/tmp/project","hook_event_name":"Notification","message":"Copilot wants to run: rm -rf build","title":"Permission needed","notification_type":"permission_prompt"}
+                """.utf8),
+                defaultEventName: "notification",
+                environment: copilotHookEnvironment
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Copilot wants to run: rm -rf build")
+        // Async hook: must not bypass the reducer's post-stop grace.
+        XCTAssertEqual(payload.confidence, .strong)
+        XCTAssertEqual(payload.toolName, "Copilot")
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+        XCTAssertEqual(payload.agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_copilot_hook_elicitation_notification_emits_question_needs_input() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.copilotAdapter(
+                data: Data("""
+                {"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","hook_event_name":"Notification","notification_type":"elicitation_dialog"}
+                """.utf8),
+                defaultEventName: "notification",
+                environment: copilotHookEnvironment
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .question)
+        XCTAssertEqual(payload.text, "Copilot is asking a question")
+    }
+
+    func test_copilot_hook_background_notifications_are_noops() throws {
+        for type in ["shell_completed", "shell_detached_completed", "agent_completed", "agent_idle"] {
+            let payloads = try AgentEventBridge.copilotAdapter(
+                data: Data(#"{"hook_event_name":"Notification","notification_type":"\#(type)","message":"done"}"#.utf8),
+                defaultEventName: "notification",
+                environment: copilotHookEnvironment
+            )
+            XCTAssertTrue(payloads.isEmpty, "Expected \(type) to leave the pane state alone")
+        }
+    }
+
+    func test_copilot_hook_post_tool_use_after_approval_resumes_running() throws {
+        for event in ["post-tool-use", "post-tool-use-failure"] {
+            let payload = try XCTUnwrap(
+                AgentEventBridge.copilotAdapter(
+                    data: Data(#"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName":"bash","toolArgs":"{}"}"#.utf8),
+                    defaultEventName: event,
+                    environment: copilotHookEnvironment
+                ).first,
+                event
+            )
+            XCTAssertEqual(payload.state, .running, event)
+            XCTAssertNil(payload.interactionKind, event)
+            XCTAssertEqual(payload.lifecycleEvent, .toolActivity, event)
+        }
+    }
+
+    func test_copilot_hook_agent_stop_marks_session_idle() throws {
+        let payload = try XCTUnwrap(
+            AgentEventBridge.copilotAdapter(
+                data: Data(#"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","cwd":"/tmp/project","transcriptPath":"/tmp/t.jsonl","stopReason":"end_turn","stop_hook_active":false}"#.utf8),
+                defaultEventName: "agent-stop",
+                environment: copilotHookEnvironment
+            ).first
+        )
+
+        XCTAssertEqual(payload.state, .idle)
+        XCTAssertNil(payload.interactionKind)
+        XCTAssertEqual(payload.sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
+    }
+
+    private var copilotHookEnvironment: [String: String] {
+        [
+            "ZENTTY_WORKLANE_ID": "worklane-main",
+            "ZENTTY_PANE_ID": "worklane-main-shell",
+        ]
     }
 
     func test_copilot_hook_session_end_emits_clear_status_and_pid_payloads() throws {

@@ -207,6 +207,13 @@ struct PaneAgentReducerState: Equatable, Sendable {
             if session.tool == .kimi, session.interactionKind == .approval {
                 return false
             }
+            // Copilot's turn keeps its OSC 9;4 progress up while a permission
+            // or question dialog waits. Its own hooks resolve the prompt
+            // (postToolUse, userPromptSubmitted, agentStop).
+            if session.tool == .copilot,
+               session.state == .needsInput || session.interactionKind.requiresHumanAttention {
+                return false
+            }
 
             return session.state == .needsInput || session.interactionKind.requiresHumanAttention
         }
@@ -806,6 +813,16 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return payload.lifecycleEvent == .toolActivity
                 || payload.lifecycleEvent == .turnComplete
                 || Self.codexNeedsInputIsWeakTerminalFallback(existingSession)
+        }
+
+        // Copilot tool hooks also fire for subagents, including background
+        // agents that outlive the main turn. A finished tool may resolve a
+        // prompt or keep a turn running, but only a prompt (or OSC activity)
+        // starts work again after agentStop.
+        if existingSession.tool == .copilot,
+           existingSession.state == .idle,
+           payload.lifecycleEvent == .toolActivity {
+            return false
         }
 
         // Post-Stop grace: if the session was just explicitly stopped

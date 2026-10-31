@@ -26,6 +26,26 @@ extension AgentEventBridge {
         let sessionID = JSONKeyAccess.firstString(in: jsonObject, keys: ["session_id", "sessionId", "sessionID"])
         let toolName = AgentTool.copilot.displayName
 
+        func statusPayload(
+            _ state: PaneAgentState,
+            interactionKind: PaneAgentInteractionKind? = nil,
+            text: String? = nil,
+            lifecycleEvent: AgentLifecycleEvent = .update,
+            confidence: AgentSignalConfidence = .explicit
+        ) -> AgentStatusPayload {
+            lifecyclePayload(
+                target: target,
+                toolName: toolName,
+                state: state,
+                text: text,
+                lifecycleEvent: lifecycleEvent,
+                interactionKind: interactionKind,
+                confidence: confidence,
+                sessionID: sessionID,
+                cwd: cwd
+            )
+        }
+
         switch event {
         case .sessionStart:
             var payloads: [AgentStatusPayload] = []
@@ -34,91 +54,62 @@ extension AgentEventBridge {
             }
             // Seed at .idle so CopilotOSCProgressReducer can promote to .running
             // when libghostty reports OSC 9;4 activity.
-            payloads.append(AgentStatusPayload(
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                state: .idle,
-                origin: .explicitHook,
-                toolName: toolName,
-                text: nil,
-                lifecycleEvent: .update,
-                interactionKind: .none,
-                confidence: .explicit,
-                sessionID: sessionID,
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: cwd
-            ))
+            payloads.append(statusPayload(.idle))
             return payloads
 
         case .userPromptSubmitted:
-            return [AgentStatusPayload(
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                state: .running,
-                origin: .explicitHook,
-                toolName: toolName,
-                text: nil,
-                lifecycleEvent: .update,
-                interactionKind: .none,
-                confidence: .explicit,
-                sessionID: sessionID,
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: cwd
-            )]
+            return [statusPayload(.running)]
 
         case .preToolUse:
+            // Tool approval prompts arrive as a `notification` (permission_prompt):
+            // preToolUse fires before Copilot decides whether to ask, so only
+            // the question tool is a reliable needs-input signal here.
             let toolArg = JSONKeyAccess.firstString(in: jsonObject, keys: ["toolName", "tool_name"])
             guard copilotIsUserQuestionTool(toolArg) else {
                 return []
             }
-            let toolArgs = JSONKeyAccess.firstString(in: jsonObject, keys: ["toolArgs", "tool_args"])
-            let questionText = copilotExtractQuestionText(from: toolArgs) ?? "Copilot is asking a question"
-            return [AgentStatusPayload(
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                state: .needsInput,
-                origin: .explicitHook,
-                toolName: toolName,
-                text: questionText,
-                lifecycleEvent: .update,
-                interactionKind: .question,
-                confidence: .explicit,
-                sessionID: sessionID,
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: cwd
-            )]
+            let questionText = copilotExtractQuestionText(from: jsonObject) ?? "Copilot is asking a question"
+            return [statusPayload(.needsInput, interactionKind: .question, text: questionText)]
 
-        case .postToolUse:
-            let toolArg = JSONKeyAccess.firstString(in: jsonObject, keys: ["toolName", "tool_name"])
-            guard copilotIsUserQuestionTool(toolArg) else {
+        case .postToolUse, .postToolUseFailure:
+            // A finished tool means the turn is moving again: an approved
+            // permission prompt or an answered question is over. Tool
+            // activity, because subagents fire these too: the reducer keeps
+            // them from waking a session that agentStop already idled.
+            return [statusPayload(.running, lifecycleEvent: .toolActivity)]
+
+        case .notification:
+            let notificationType = JSONKeyAccess.firstString(
+                in: jsonObject,
+                keys: ["notification_type", "notificationType"]
+            )?.lowercased()
+            let message = JSONKeyAccess.firstString(in: jsonObject, keys: ["message", "title"])
+            // Notification hooks are fire-and-forget, so one can land after
+            // the agentStop that ended its turn. `.strong` (not `.explicit`)
+            // lets the reducer's post-stop grace drop such a straggler.
+            switch notificationType {
+            case "permission_prompt":
+                return [statusPayload(
+                    .needsInput,
+                    interactionKind: .approval,
+                    text: message ?? "Copilot needs your approval",
+                    confidence: .strong
+                )]
+            case "elicitation_dialog":
+                return [statusPayload(
+                    .needsInput,
+                    interactionKind: .question,
+                    text: message ?? "Copilot is asking a question",
+                    confidence: .strong
+                )]
+            default:
+                // shell_completed, agent_completed, agent_idle, … report
+                // background work, not a change in the foreground turn.
                 return []
             }
-            return [AgentStatusPayload(
-                windowID: target.windowID,
-                worklaneID: target.worklaneID,
-                paneID: target.paneID,
-                state: .idle,
-                origin: .explicitHook,
-                toolName: toolName,
-                text: nil,
-                lifecycleEvent: .update,
-                interactionKind: .none,
-                confidence: .explicit,
-                sessionID: sessionID,
-                artifactKind: nil,
-                artifactLabel: nil,
-                artifactURL: nil,
-                agentWorkingDirectory: cwd
-            )]
+
+        case .agentStop:
+            return [statusPayload(.idle)]
 
         case .errorOccurred:
             return []
@@ -146,7 +137,9 @@ extension AgentEventBridge {
     }
 
     private enum CopilotEvent {
-        case sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse, errorOccurred
+        case sessionStart, sessionEnd, userPromptSubmitted
+        case preToolUse, postToolUse, postToolUseFailure
+        case notification, agentStop, errorOccurred
     }
 
     private static func copilotMappedEvent(_ raw: String?) -> String? {
@@ -156,6 +149,9 @@ extension AgentEventBridge {
         case "user-prompt-submitted": return "userPromptSubmitted"
         case "pre-tool-use": return "preToolUse"
         case "post-tool-use": return "postToolUse"
+        case "post-tool-use-failure": return "postToolUseFailure"
+        case "notification": return "notification"
+        case "agent-stop": return "agentStop"
         case "error-occurred": return "errorOccurred"
         default: return nil
         }
@@ -170,14 +166,19 @@ extension AgentEventBridge {
         switch normalized {
         case "sessionstart": return .sessionStart
         case "sessionend": return .sessionEnd
-        case "userpromptsubmitted": return .userPromptSubmitted
+        case "userpromptsubmitted", "userpromptsubmit": return .userPromptSubmitted
         case "pretooluse": return .preToolUse
         case "posttooluse": return .postToolUse
+        case "posttoolusefailure": return .postToolUseFailure
+        case "notification": return .notification
+        case "agentstop", "stop": return .agentStop
         case "erroroccurred": return .errorOccurred
         default: return nil
         }
     }
 
+    /// Copilot's built-in question tool is `ask_user`; Claude-format plugin
+    /// payloads name it `AskUserQuestion`.
     private static func copilotIsUserQuestionTool(_ name: String?) -> Bool {
         guard let normalized = name?
             .lowercased()
@@ -185,17 +186,26 @@ extension AgentEventBridge {
             .replacingOccurrences(of: "-", with: "") else {
             return false
         }
-        return normalized.contains("askuserquestion")
+        return normalized.hasPrefix("askuser")
     }
 
-    private static func copilotExtractQuestionText(from toolArgs: String?) -> String? {
-        guard let toolArgs,
-              let data = toolArgs.data(using: .utf8),
-              let jsonObject = try? JSONSerialization.jsonObject(with: data),
-              let object = jsonObject as? [String: Any] else {
-            return nil
+    /// camelCase payloads carry `toolArgs` as a JSON string (an object is
+    /// tolerated); snake_case payloads carry a `tool_input` object.
+    private static func copilotExtractQuestionText(from payload: [String: Any]) -> String? {
+        let questionKeys = ["question", "prompt", "message", "title"]
+        for key in ["toolArgs", "tool_args", "tool_input", "toolInput"] {
+            if let object = payload[key] as? [String: Any],
+               let text = JSONKeyAccess.firstString(in: object, keys: questionKeys) {
+                return text
+            }
+            if let string = payload[key] as? String,
+               let data = string.data(using: .utf8),
+               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let text = JSONKeyAccess.firstString(in: object, keys: questionKeys) {
+                return text
+            }
         }
-        return JSONKeyAccess.firstString(in: object, keys: ["question", "prompt", "message", "title"])
+        return nil
     }
 }
 

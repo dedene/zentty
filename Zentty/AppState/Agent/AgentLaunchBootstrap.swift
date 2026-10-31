@@ -1459,28 +1459,51 @@ enum AgentLaunchBootstrap {
     ) throws -> String? {
         let overlayHomeURL = overlayDirectoryURL.appendingPathComponent("home", isDirectory: true)
         try fileManager.createDirectory(at: overlayHomeURL, withIntermediateDirectories: true)
+        // Everything but `hooks/` is a symlink, so config.json, settings.json,
+        // sign-in and trust state keep writing through to the real home.
         try symlinkDirectoryContentsSkipping(
             from: sourceHomeURL,
             to: overlayHomeURL,
-            skippingNames: ["config.json"],
+            skippingNames: [copilotHooksDirectoryName],
             fileManager: fileManager
         )
 
-        let overlayConfigURL = overlayHomeURL.appendingPathComponent("config.json", isDirectory: false)
-        let sourceConfigURL = sourceHomeURL.appendingPathComponent("config.json", isDirectory: false)
-        if fileManager.fileExists(atPath: sourceConfigURL.path) {
-            let rawData = try Data(contentsOf: sourceConfigURL)
-            if let mergedData = try copilotMergedConfigJSON(existingData: rawData, cliPath: cliPath) {
-                try mergedData.write(to: overlayConfigURL, options: .atomic)
-            } else {
-                try rawData.write(to: overlayConfigURL, options: .atomic)
+        // Copilot loads user hooks from every `*.json` in `$COPILOT_HOME/hooks/`
+        // (since 0.0.422) and no longer reads hooks from `config.json`. The
+        // overlay gets a real `hooks/` directory holding the user's own hook
+        // files as symlinks plus Zentty's file, so nothing is written into
+        // the user's `~/.copilot/hooks`.
+        let sourceHooksURL = sourceHomeURL.appendingPathComponent(copilotHooksDirectoryName, isDirectory: true)
+        let overlayHooksURL = overlayHomeURL.appendingPathComponent(copilotHooksDirectoryName, isDirectory: true)
+        try fileManager.createDirectory(at: overlayHooksURL, withIntermediateDirectories: true)
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: sourceHooksURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            try symlinkDirectoryContentsSkipping(
+                from: sourceHooksURL,
+                to: overlayHooksURL,
+                skippingNames: [copilotHooksFileName],
+                fileManager: fileManager
+            )
+            // A user file that happens to share Zentty's name still loads,
+            // under another name.
+            let collidingUserHooksURL = sourceHooksURL.appendingPathComponent(copilotHooksFileName, isDirectory: false)
+            let renamedUserHooksURL = overlayHooksURL.appendingPathComponent("user-\(copilotHooksFileName)", isDirectory: false)
+            if fileManager.fileExists(atPath: collidingUserHooksURL.path),
+               (try? fileManager.destinationOfSymbolicLink(atPath: renamedUserHooksURL.path)) == nil,
+               !fileManager.fileExists(atPath: renamedUserHooksURL.path) {
+                try fileManager.createSymbolicLink(at: renamedUserHooksURL, withDestinationURL: collidingUserHooksURL)
             }
-        } else {
-            try copilotBaseConfigJSON(cliPath: cliPath).write(to: overlayConfigURL, options: .atomic)
         }
+        try copilotHooksFileJSON(cliPath: cliPath).write(
+            to: overlayHooksURL.appendingPathComponent(copilotHooksFileName, isDirectory: false),
+            options: .atomic
+        )
 
         return overlayHomeURL.path
     }
+
+    private static let copilotHooksDirectoryName = "hooks"
+    private static let copilotHooksFileName = "zentty.json"
 
     /// Rewrite stale per-launch overlay paths in Kimi's shared session index
     /// back to the persistent `~/.kimi-code/sessions/` location.
@@ -1859,58 +1882,29 @@ enum AgentLaunchBootstrap {
         return "sha256:\(hex)"
     }
 
-    private static func copilotBaseConfigJSON(cliPath: String) throws -> Data {
-        let hooks: [String: Any] = [
-            "sessionStart": [copilotHookEntry(cliPath: cliPath, event: "session-start", timeout: 10)],
-            "sessionEnd": [copilotHookEntry(cliPath: cliPath, event: "session-end", timeout: 10)],
-            "userPromptSubmitted": [copilotHookEntry(cliPath: cliPath, event: "user-prompt-submitted", timeout: 10)],
-            "preToolUse": [copilotHookEntry(cliPath: cliPath, event: "pre-tool-use", timeout: 5)],
-            "postToolUse": [copilotHookEntry(cliPath: cliPath, event: "post-tool-use", timeout: 5)],
-            "errorOccurred": [copilotHookEntry(cliPath: cliPath, event: "error-occurred", timeout: 10)],
-        ]
-        return try compactJSONData([
-            "version": 1,
-            "hooks": hooks,
-        ])
-    }
-
-    private static func copilotMergedConfigJSON(existingData: Data, cliPath: String) throws -> Data? {
-        guard let uncommentedData = JSONCRelaxedParse.stripComments(in: existingData),
-              let cleanedData = JSONCRelaxedParse.stripTrailingCommas(in: uncommentedData),
-              var jsonObject = try JSONSerialization.jsonObject(with: cleanedData) as? [String: Any] else {
-            return nil
-        }
-
-        jsonObject["version"] = 1
-        var hooks = jsonObject["hooks"] as? [String: Any] ?? [:]
-
-        let entries: [(String, String, Int)] = [
+    /// `$COPILOT_HOME/hooks/zentty.json`. `notification` carries the
+    /// permission_prompt / elicitation_dialog needs-input signals, `agentStop`
+    /// ends the turn, and the post-tool events resume after either.
+    private static func copilotHooksFileJSON(cliPath: String) throws -> Data {
+        let entries: [(event: String, argument: String, timeout: Int)] = [
             ("sessionStart", "session-start", 10),
             ("sessionEnd", "session-end", 10),
             ("userPromptSubmitted", "user-prompt-submitted", 10),
             ("preToolUse", "pre-tool-use", 5),
             ("postToolUse", "post-tool-use", 5),
+            ("postToolUseFailure", "post-tool-use-failure", 5),
+            ("notification", "notification", 5),
+            ("agentStop", "agent-stop", 10),
             ("errorOccurred", "error-occurred", 10),
         ]
-
-        for (eventName, eventArgument, timeout) in entries {
-            let command = copilotHookCommand(cliPath: cliPath, event: eventArgument)
-            var eventEntries = hooks[eventName] as? [[String: Any]] ?? []
-            let alreadyPresent = eventEntries.contains {
-                ($0["type"] as? String) == "command" && ($0["bash"] as? String) == command
-            }
-            if !alreadyPresent {
-                eventEntries.append([
-                    "type": "command",
-                    "bash": command,
-                    "timeoutSec": timeout,
-                ])
-            }
-            hooks[eventName] = eventEntries
+        var hooks: [String: Any] = [:]
+        for entry in entries {
+            hooks[entry.event] = [copilotHookEntry(cliPath: cliPath, event: entry.argument, timeout: entry.timeout)]
         }
-
-        jsonObject["hooks"] = hooks
-        return try compactJSONData(jsonObject)
+        return try compactJSONData([
+            "version": 1,
+            "hooks": hooks,
+        ])
     }
 
     private static func geminiSystemSettingsSourceURL(
