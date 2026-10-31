@@ -4,6 +4,7 @@ import os
 
 private let worklaneReadyLogger = Logger(subsystem: "be.zenjoy.zentty", category: "WorklaneReady")
 private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "StopSignals")
+private let paneLayoutLogger = Logger(subsystem: "be.zenjoy.zentty", category: "PaneLayout")
 
 @MainActor
 protocol WorklaneStoreScheduledHandle: AnyObject {
@@ -1735,16 +1736,32 @@ final class WorklaneStore {
         notifyLayoutResized(animation: .splitCurve)
     }
 
+    /// Writes back a strip snapshot (divider-drag cancel). The snapshot is
+    /// only geometry: it must hold exactly the strip's current panes, give or
+    /// take panes floated since. A pane docked or opened mid-drag is missing
+    /// from it and would end up in neither the strip nor `floatingPanes`
+    /// (its runtime gets closed); a pane closed mid-drag would come back
+    /// without its runtime. Such snapshots are ignored: the live layout
+    /// stays and is re-rendered.
     func restorePaneLayout(_ paneStripState: PaneStripState) {
         guard var worklane = activeWorklane else {
             return
         }
 
+        let floatIDs = Set(worklane.floatingPanes.map(\.pane.id))
+        let snapshotIDs = Set(paneStripState.panes.map(\.id)).subtracting(floatIDs)
+        let currentIDs = Set(worklane.paneStripState.panes.map(\.id))
+        guard snapshotIDs == currentIDs else {
+            paneLayoutLogger.info("Ignoring strip layout restore: pane set changed since the snapshot")
+            notifyLayoutResized(animation: .splitCurve)
+            return
+        }
+
         worklane.paneStripState = paneStripState
         // A pane floated mid-drag must not come back as a tile too.
-        for float in worklane.floatingPanes
-        where worklane.paneStripState.panes.contains(where: { $0.id == float.pane.id }) {
-            worklane.paneStripState.removePane(id: float.pane.id, singleColumnWidth: layoutContext.singlePaneWidth)
+        for floatID in floatIDs
+        where worklane.paneStripState.panes.contains(where: { $0.id == floatID }) {
+            worklane.paneStripState.removePane(id: floatID, singleColumnWidth: layoutContext.singlePaneWidth)
         }
         activeWorklane = worklane
         notifyLayoutResized(animation: .splitCurve)

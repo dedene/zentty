@@ -77,6 +77,12 @@ final class PaneStripView: NSView {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
     }
     private(set) var isDragActive = false
+    /// True while a strip divider is being dragged. Its cancel restores the
+    /// strip snapshot taken at drag start, so callers that change the strip's
+    /// pane set (float toggle, dock) hold off until it ends.
+    var isDividerDragActive: Bool {
+        dividerDragSession != nil
+    }
     private(set) var isDropSettling = false
     private var dropSettleCoveredPaneID: PaneID?
     private var afterNextRenderCallback: (() -> Void)?

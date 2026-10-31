@@ -427,6 +427,60 @@ final class WorklaneStoreFloatLifecycleTests: XCTestCase {
         XCTAssertEqual(main(store)?.focusedPaneID, floatID)
     }
 
+    // MARK: - Divider-drag restore
+
+    /// A divider-drag cancel restores the strip snapshot taken at drag start.
+    /// A pane docked mid-drag is missing from it and must not be dropped:
+    /// it would be in neither the strip nor `floatingPanes`, and the runtime
+    /// registry would close its shell.
+    func test_restorePaneLayout_keeps_a_pane_docked_mid_divider_drag() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        let floatID = addFloat(store)
+        let snapshot = try XCTUnwrap(main(store)?.paneStripState)
+
+        store.dockPane(floatID, target: .origin)
+        XCTAssertTrue(main(store)?.paneStripState.panes.contains { $0.id == floatID } ?? false, "precondition: docked")
+
+        store.restorePaneLayout(snapshot)
+
+        let worklane = try XCTUnwrap(main(store))
+        XCTAssertTrue(worklane.containsPane(id: floatID), "docked pane must stay live")
+        XCTAssertEqual(Set(worklane.allPanes.map(\.id)), [PaneID("a"), PaneID("b"), floatID])
+    }
+
+    func test_restorePaneLayout_does_not_resurrect_a_pane_closed_mid_divider_drag() throws {
+        let store = makeStore(tiles: ["a", "b", "c"])
+        let snapshot = try XCTUnwrap(main(store)?.paneStripState)
+
+        _ = store.closePane(id: PaneID("b"))
+
+        store.restorePaneLayout(snapshot)
+
+        XCTAssertEqual(stripIDs(store), ["a", "c"])
+    }
+
+    func test_restorePaneLayout_drops_a_pane_floated_mid_divider_drag() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        let snapshot = try XCTUnwrap(main(store)?.paneStripState)
+
+        store.floatPane(PaneID("b"), canvas: canvas, tileFrame: nil)
+
+        store.restorePaneLayout(snapshot)
+
+        XCTAssertEqual(stripIDs(store), ["a"], "a pane floated mid-drag must not come back as a tile too")
+        XCTAssertTrue(main(store)?.isFloating(PaneID("b")) ?? false)
+    }
+
+    func test_restorePaneLayout_applies_a_snapshot_of_the_same_panes() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        var snapshot = try XCTUnwrap(main(store)?.paneStripState)
+        snapshot.columns[0].width = 333
+
+        store.restorePaneLayout(snapshot)
+
+        XCTAssertEqual(main(store)?.paneStripState.columns.first?.width ?? 0, 333, accuracy: 0.001)
+    }
+
     // MARK: - Contexts
 
     func test_focusedPaneContext_and_border_labels_see_floats() {

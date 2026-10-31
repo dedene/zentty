@@ -3923,6 +3923,46 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.endDividerDragForTesting()
     }
 
+    /// The float toggle checks this to stay out of a divider drag, whose
+    /// cancel restores the strip from drag start.
+    @MainActor
+    func test_divider_drag_is_reported_active_until_it_ends_or_cancels() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("right")
+        )
+        paneStripView.onDividerResizeRequested = { _, delta in delta }
+        paneStripView.onPaneStripStateRestoreRequested = { _ in }
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        XCTAssertFalse(paneStripView.isDividerDragActive)
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        XCTAssertTrue(paneStripView.isDividerDragActive)
+        XCTAssertFalse(paneStripView.isDragActive, "a divider drag is not a pane drag")
+        paneStripView.cancelDividerDragForTesting()
+        XCTAssertFalse(paneStripView.isDividerDragActive)
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        XCTAssertTrue(paneStripView.isDividerDragActive)
+        paneStripView.endDividerDragForTesting()
+        XCTAssertFalse(paneStripView.isDividerDragActive)
+    }
+
     @MainActor
     func test_cancel_divider_drag_restores_initial_drag_scroll_offset() throws {
         let paneStripView = makePaneStripView(width: 1400, height: 720)
