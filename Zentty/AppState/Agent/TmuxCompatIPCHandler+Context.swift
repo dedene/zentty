@@ -165,9 +165,18 @@ enum TmuxCompatTopologyBuilder {
         let knownActive = activePaneID.flatMap { id in worklane.containsPane(id: PaneID(id)) ? id : nil }
         let resolvedActive = knownActive ?? worklane.focusedPaneID?.rawValue
 
+        let geometry = TmuxWindowGeometry.make(
+            columns: strip.columns.map { $0.panes.map(\.id) },
+            floats: worklane.floatingPanes.map(\.pane.id),
+            gridSize: { windowController.terminalGridSize(for: $0) ?? fallbackGridSize }
+        )
+        let panesByID = Dictionary(
+            worklane.allPanes.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var panes: [TmuxTopology.Pane] = []
-        func appendPane(_ pane: PaneState, left: Int, top: Int) -> (columns: Int, rows: Int) {
-            let grid = windowController.terminalGridSize(for: pane.id) ?? fallbackGridSize
+        for placement in geometry.placements {
+            guard let pane = panesByID[placement.paneID] else { continue }
             let auxiliary = worklane.auxiliaryStateByPaneID[pane.id]
             panes.append(TmuxTopology.Pane(
                 id: pane.id.rawValue,
@@ -177,35 +186,13 @@ enum TmuxCompatTopologyBuilder {
                 workingDirectory: auxiliary?.shellContext?.path ?? pane.sessionRequest.workingDirectory,
                 isActive: pane.id.rawValue == resolvedActive,
                 pid: state.pinnedPanePID(for: pane.id.rawValue, observed: auxiliary?.raw.paneRootPID),
-                columns: grid.columns,
-                rows: grid.rows,
-                left: left,
-                top: top,
+                columns: placement.columns,
+                rows: placement.rows,
+                left: placement.left,
+                top: placement.top,
                 startCommand: state.startCommand(for: pane.id.rawValue) ?? pane.sessionRequest.command ?? "",
                 isLaunchDeferred: pane.sessionRequest.isLaunchDeferred
             ))
-            return grid
-        }
-
-        var left = 0
-        var windowRows = 0
-        for column in strip.columns {
-            var top = 0
-            var columnCells = 0
-            for pane in column.panes {
-                let grid = appendPane(pane, left: left, top: top)
-                top += grid.rows + 1
-                columnCells = max(columnCells, grid.columns)
-            }
-            windowRows = max(windowRows, max(top - 1, 0))
-            left += columnCells + 1
-        }
-        // Floats have no grid position; each gets a synthetic trailing column
-        // so list-panes and target resolution still see them as alive.
-        for float in worklane.floatingPanes {
-            let grid = appendPane(float.pane, left: left, top: 0)
-            windowRows = max(windowRows, grid.rows)
-            left += grid.columns + 1
         }
 
         return TmuxTopology.Window(
@@ -215,9 +202,63 @@ enum TmuxCompatTopologyBuilder {
             name: worklane.title ?? "worklane-\(index)",
             isActive: isActive,
             panes: panes,
-            columns: max(left - 1, 1),
-            rows: max(windowRows, 1)
+            columns: geometry.columns,
+            rows: geometry.rows
         )
+    }
+}
+
+/// Where each pane of a worklane sits in its tmux window, in cells. Strip
+/// columns run left to right with a one-cell separator, panes stacked top to
+/// bottom in each. Floats are listed after the strip at `0,0` with their own
+/// size and stay out of the window size, so `window_width` and pane edges
+/// describe the strip only. A float-only worklane takes its largest float's
+/// size.
+enum TmuxWindowGeometry {
+    struct Placement: Equatable {
+        let paneID: PaneID
+        let left: Int
+        let top: Int
+        let columns: Int
+        let rows: Int
+    }
+
+    struct Layout: Equatable {
+        let placements: [Placement]
+        let columns: Int
+        let rows: Int
+    }
+
+    static func make(
+        columns: [[PaneID]],
+        floats: [PaneID],
+        gridSize: (PaneID) -> (columns: Int, rows: Int)
+    ) -> Layout {
+        var placements: [Placement] = []
+        var left = 0
+        var windowRows = 0
+        for column in columns {
+            var top = 0
+            var columnCells = 0
+            for paneID in column {
+                let grid = gridSize(paneID)
+                placements.append(Placement(paneID: paneID, left: left, top: top, columns: grid.columns, rows: grid.rows))
+                top += grid.rows + 1
+                columnCells = max(columnCells, grid.columns)
+            }
+            windowRows = max(windowRows, max(top - 1, 0))
+            left += columnCells + 1
+        }
+        var windowColumns = max(left - 1, 0)
+        for paneID in floats {
+            let grid = gridSize(paneID)
+            placements.append(Placement(paneID: paneID, left: 0, top: 0, columns: grid.columns, rows: grid.rows))
+            if columns.allSatisfy(\.isEmpty) {
+                windowColumns = max(windowColumns, grid.columns)
+                windowRows = max(windowRows, grid.rows)
+            }
+        }
+        return Layout(placements: placements, columns: max(windowColumns, 1), rows: max(windowRows, 1))
     }
 }
 
