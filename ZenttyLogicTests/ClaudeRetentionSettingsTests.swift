@@ -66,6 +66,61 @@ final class ClaudeRetentionSettingsTests: XCTestCase {
         XCTAssertFalse(status.isNudgeEligible)
     }
 
+    /// A managed file that doesn't decide retention (other keys only, malformed, a non-number
+    /// value, unreadable) is ignored: the user's file, or the default, decides.
+    func test_status_managed_file_without_usable_value_falls_through_to_user_file() throws {
+        let managedURL = root.appendingPathComponent("managed.json")
+        let managedContents: [(label: String, text: String)] = [
+            ("other keys only", #"{"permissions": {}}"#),
+            ("invalid JSON", #"{"cleanupPeriodDays": 14,"#),
+            ("boolean value", #"{"cleanupPeriodDays": true}"#),
+        ]
+
+        for (label, text) in managedContents {
+            try Data(text.utf8).write(to: managedURL)
+
+            try write(#"{"cleanupPeriodDays": 90}"#)
+            var status = ClaudeRetentionSettings.status(configDirectory: configDirectory, managedSettingsURL: managedURL)
+            XCTAssertEqual(status.source, .userSettings, label)
+            XCTAssertEqual(status.effectiveDays, 90, label)
+            XCTAssertNil(status.readError, label)
+            XCTAssertTrue(status.isNudgeEligible, label)
+
+            try write(#"{"cleanupPeriodDays": 400}"#)
+            status = ClaudeRetentionSettings.status(configDirectory: configDirectory, managedSettingsURL: managedURL)
+            XCTAssertEqual(status.source, .userSettings, label)
+            XCTAssertEqual(status.effectiveDays, 400, label)
+            XCTAssertFalse(status.isNudgeEligible, label)
+
+            try write(#"{"theme": "dark"}"#)
+            status = ClaudeRetentionSettings.status(configDirectory: configDirectory, managedSettingsURL: managedURL)
+            XCTAssertEqual(status.source, .defaultValue, label)
+            XCTAssertEqual(status.effectiveDays, 30, label)
+            XCTAssertNil(status.readError, label)
+            XCTAssertTrue(status.isNudgeEligible, label)
+        }
+    }
+
+    func test_status_unreadable_managed_file_falls_through_to_user_file() throws {
+        let managedURL = root.appendingPathComponent("managed.json")
+        try Data(#"{"cleanupPeriodDays": 14}"#.utf8).write(to: managedURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: managedURL.path)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: managedURL.path)
+        }
+        guard !FileManager.default.isReadableFile(atPath: managedURL.path) else {
+            throw XCTSkip("running with privileges that ignore file permissions")
+        }
+        try write(#"{"cleanupPeriodDays": 90}"#)
+
+        let status = ClaudeRetentionSettings.status(configDirectory: configDirectory, managedSettingsURL: managedURL)
+
+        XCTAssertEqual(status.source, .userSettings)
+        XCTAssertEqual(status.effectiveDays, 90)
+        XCTAssertNil(status.readError)
+        XCTAssertTrue(status.isNudgeEligible)
+    }
+
     func test_status_invalid_json_reports_error_and_is_not_eligible() throws {
         try write(#"{"cleanupPeriodDays": 90,"#)
 
