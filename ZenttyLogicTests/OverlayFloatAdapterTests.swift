@@ -476,6 +476,43 @@ final class OverlayFloatAdapterTests: XCTestCase {
         XCTAssertNotNil(store.worklaneIndex(containingPane: shared))
     }
 
+    // MARK: - Overlays never keep a window alive
+
+    /// Review finding: a lone tile plus its overlay used to count as two
+    /// panes, so it split out and left an empty source window behind.
+    func test_a_lone_tile_with_an_overlay_cannot_split_out_of_the_only_worklane() throws {
+        let store = makeStore(tiles: ["a"])
+        try open(store, on: "a", request(.pane))
+
+        XCTAssertFalse(store.canSplitOutPaneToNewWindow(paneID: PaneID("a")))
+        XCTAssertNil(store.splitOutPaneToNewWindow(paneID: PaneID("a"), destinationWindowID: WindowID("win_dest")))
+        XCTAssertNotNil(store.worklaneIndex(containingPane: PaneID("a")))
+    }
+
+    func test_splitting_out_a_worklanes_last_persistent_pane_removes_the_worklane() throws {
+        let store = makeStore(tiles: ["a"], otherTiles: ["c"])
+        let overlay = try open(store, on: "a", request(.pane)).id
+        let shared = try open(store, on: "a", request(.worklane)).id
+        XCTAssertTrue(store.canSplitOutPaneToNewWindow(paneID: PaneID("a")))
+
+        let result = try XCTUnwrap(
+            store.splitOutPaneToNewWindow(paneID: PaneID("a"), destinationWindowID: WindowID("win_dest"))
+        )
+
+        XCTAssertFalse(result.sourceWindowShouldClose, "the other worklane keeps the window")
+        XCTAssertNil(worklane(store, mainID), "only overlays were left: the worklane goes with them")
+        XCTAssertNil(store.worklaneIndex(containingPane: overlay))
+        XCTAssertNil(store.worklaneIndex(containingPane: shared))
+        XCTAssertEqual(store.activeWorklaneID, otherID)
+        XCTAssertEqual(result.destinationWorkspaceState.worklanes.first?.floatingPanes, [])
+    }
+
+    func test_an_overlay_alone_in_its_worklane_never_splits_out() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        let overlay = try open(store, on: "a", request(.pane)).id
+        XCTAssertFalse(store.canSplitOutPaneToNewWindow(paneID: overlay), "floats don't split out in v1")
+    }
+
     // MARK: - IPC options share the store's placement type
 
     func test_ipc_options_map_onto_the_float_request() throws {

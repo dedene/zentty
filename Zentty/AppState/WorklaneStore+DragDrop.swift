@@ -357,7 +357,9 @@ extension WorklaneStore {
             return false
         }
 
-        return !(worklanes.count == 1 && sourceWorklane.allPanes.count == 1)
+        // Overlay floats close once their owner leaves; they never count as
+        // a pane that keeps the source window open.
+        return !(worklanes.count == 1 && sourceWorklane.isLastPersistentPane(paneID))
     }
 
     @discardableResult
@@ -372,7 +374,7 @@ extension WorklaneStore {
         }
 
         var sourceWorklane = worklanes[sourceIndex]
-        guard !(worklanes.count == 1 && sourceWorklane.allPanes.count == 1) else {
+        guard !(worklanes.count == 1 && sourceWorklane.isLastPersistentPane(paneID)) else {
             return nil
         }
 
@@ -427,6 +429,16 @@ extension WorklaneStore {
         Self.focusFrontFloatIfUnfocused(in: &sourceWorklane)
 
         worklanes[sourceIndex] = sourceWorklane
+        // Only overlays left: they close with the worklane (their owner just
+        // left this window), like the cross-window extraction.
+        let sourceWorklaneRemoved = !sourceWorklane.hasPersistentPanes
+        if sourceWorklaneRemoved {
+            worklanes.remove(at: sourceIndex)
+            serverRegistry.clear(worklaneID: sourceWorklane.id)
+            if activeWorklaneID == sourceWorklane.id, !worklanes.isEmpty {
+                activeWorklaneID = worklanes[min(max(sourceIndex - 1, 0), worklanes.count - 1)].id
+            }
+        }
 
         removal.pane.width = layoutContext.singlePaneWidth
         let destinationWorklaneID = runtimeIdentity.makeWorklaneID()
@@ -449,7 +461,11 @@ extension WorklaneStore {
         )
 
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(sourceWorklane.id))
+        if sourceWorklaneRemoved {
+            notify(.worklaneListChanged)
+        } else {
+            notify(.paneStructure(sourceWorklane.id))
+        }
 
         return PaneSplitOutResult(
             destinationWorkspaceState: WindowWorkspaceState(
@@ -457,7 +473,8 @@ extension WorklaneStore {
                 activeWorklaneID: destinationWorklaneID
             ),
             movedPaneID: paneID,
-            sourceWindowShouldClose: false
+            // Decided after the overlays went (notify reconciles them).
+            sourceWindowShouldClose: worklanes.allSatisfy { !$0.hasPersistentPanes }
         )
     }
 
