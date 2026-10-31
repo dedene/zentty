@@ -1,0 +1,309 @@
+import Foundation
+import XCTest
+@testable import Zentty
+
+/// The app-level owner of the indexer (I9): launch gating, consent, config pushes, disable and
+/// per-agent purge. Every test injects temp paths, fake sources and a fake indexer factory.
+@MainActor
+final class AgentHistoryControllerTests: XCTestCase {
+    private final class FactoryLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var made: [AgentHistoryIndexer] = []
+        private var configurations: [AgentHistoryIndexerConfiguration] = []
+
+        var count: Int { lock.lock(); defer { lock.unlock() }; return made.count }
+        var lastConfiguration: AgentHistoryIndexerConfiguration? {
+            lock.lock(); defer { lock.unlock() }; return configurations.last
+        }
+
+        func record(_ indexer: AgentHistoryIndexer, _ configuration: AgentHistoryIndexerConfiguration) {
+            lock.lock()
+            made.append(indexer)
+            configurations.append(configuration)
+            lock.unlock()
+        }
+    }
+
+    private struct Fixture {
+        let controller: AgentHistoryController
+        let paths: AgentHistoryPaths
+        let configStore: AppConfigStore
+        let claude: FakeHistorySource
+        let codex: FakeHistorySource
+        let factory: FactoryLog
+    }
+
+    private func makeFixture() -> Fixture {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-history-\(UUID().uuidString)", isDirectory: true)
+        let paths = AgentHistoryPaths(directoryURL: base.appendingPathComponent("AgentHistory", isDirectory: true))
+        let claudeRoot = base.appendingPathComponent("claude-root", isDirectory: true)
+        let codexRoot = base.appendingPathComponent("codex-root", isDirectory: true)
+        try? FileManager.default.createDirectory(at: claudeRoot, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: codexRoot, withIntermediateDirectories: true)
+        let claude = FakeHistorySource(agent: .claude, rootPath: claudeRoot.path)
+        let codex = FakeHistorySource(agent: .codex, rootPath: codexRoot.path)
+        claude.setUnits([
+            .single("claude-outside", cwd: "/work/project"),
+            .single("claude-inside", cwd: "/work/secret/app"),
+        ])
+        codex.setUnits([.single("codex-one", cwd: "/work/project")])
+
+        let factory = FactoryLog()
+        let sources: [any AgentHistorySource] = [claude, codex]
+        let controller = AgentHistoryController(
+            launchDelay: 0,
+            makeSources: { sources },
+            makeIndexer: { storage, stateStore, configuration, callbacks in
+                let indexer = AgentHistoryIndexer(
+                    storage: storage,
+                    stateStore: stateStore,
+                    makeSources: { sources },
+                    configuration: configuration,
+                    systemConditions: FakeSystemConditions(),
+                    onStatusChange: callbacks.onStatusChange,
+                    onSnapshotChange: callbacks.onSnapshotChange
+                )
+                factory.record(indexer, configuration)
+                return indexer
+            }
+        )
+        let configStore = AppConfigStore(fileURL: base.appendingPathComponent("config.toml", isDirectory: false))
+        controller.configure(configStore: configStore, paths: paths)
+        addTeardownBlock { @MainActor in
+            controller.stop()
+            try? FileManager.default.removeItem(at: base)
+        }
+        return Fixture(controller: controller, paths: paths, configStore: configStore,
+                       claude: claude, codex: codex, factory: factory)
+    }
+
+    private func writeState(_ paths: AgentHistoryPaths, _ mutate: (inout AgentHistoryState) -> Void) throws {
+        try AgentHistoryStateStore(fileURL: paths.stateURL).update(mutate)
+    }
+
+    private func persistedState(_ paths: AgentHistoryPaths) -> AgentHistoryState {
+        AgentHistoryStateStore(fileURL: paths.stateURL).current
+    }
+
+    private func launch(_ controller: AgentHistoryController) -> Bool {
+        let decided = expectation(description: "launch decision")
+        var started = false
+        controller.scheduleStartAfterLaunch { result in
+            started = result
+            decided.fulfill()
+        }
+        wait(for: [decided], timeout: 5)
+        return started
+    }
+
+    private func waitForStatus(
+        _ controller: AgentHistoryController,
+        _ description: String,
+        where predicate: @escaping (AgentHistoryStatus) -> Bool
+    ) {
+        if predicate(controller.status) {
+            return
+        }
+        let reached = expectation(description: description)
+        var fulfilled = false
+        let id = controller.addStatusObserver { status in
+            if !fulfilled, predicate(status) {
+                fulfilled = true
+                reached.fulfill()
+            }
+        }
+        wait(for: [reached], timeout: 10)
+        controller.removeObserver(id)
+    }
+
+    private func waitForSnapshot(
+        _ controller: AgentHistoryController,
+        _ description: String,
+        where predicate: @escaping (Set<String>) -> Bool
+    ) {
+        let ids = { (snapshot: AgentHistoryMetadataSnapshot) in Set(snapshot.sessions.map(\.nativeID)) }
+        if predicate(ids(controller.metadataSnapshot)) {
+            return
+        }
+        let reached = expectation(description: description)
+        var fulfilled = false
+        let id = controller.addSnapshotObserver { snapshot in
+            if !fulfilled, predicate(ids(snapshot)) {
+                fulfilled = true
+                reached.fulfill()
+            }
+        }
+        wait(for: [reached], timeout: 10)
+        controller.removeObserver(id)
+    }
+
+    private static let allSessions: Set<String> = ["claude-outside", "claude-inside", "codex-one"]
+
+    // MARK: - Launch
+
+    func test_does_not_start_when_disabled_or_not_consented() throws {
+        let fresh = makeFixture()
+        XCTAssertFalse(launch(fresh.controller), "no state file")
+
+        let notConsented = makeFixture()
+        try writeState(notConsented.paths) { $0.enabled = true }
+        XCTAssertFalse(launch(notConsented.controller), "enabled without consent")
+
+        let turnedOff = makeFixture()
+        try writeState(turnedOff.paths) { $0.enabled = false; $0.consentedAt = Date() }
+        XCTAssertFalse(launch(turnedOff.controller), "consented but off")
+
+        let noAgents = makeFixture()
+        try writeState(noAgents.paths) { state in
+            state.enabled = true
+            state.consentedAt = Date()
+            AgentHistoryAgent.allCases.forEach { state.setSource($0, enabled: false) }
+        }
+        XCTAssertFalse(launch(noAgents.controller), "every agent off")
+
+        for fixture in [fresh, notConsented, turnedOff, noAgents] {
+            XCTAssertEqual(fixture.factory.count, 0)
+            XCTAssertEqual(fixture.controller.status.state, .off)
+            XCTAssertNil(fixture.controller.storage)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
+        }
+        XCTAssertTrue(notConsented.controller.status.isEnabled)
+        XCTAssertFalse(notConsented.controller.status.hasConsented)
+    }
+
+    func test_starts_after_launch_delay_when_enabled() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertEqual(fixture.factory.count, 0, "configure alone never starts the indexer")
+
+        XCTAssertTrue(launch(fixture.controller))
+
+        XCTAssertEqual(fixture.factory.count, 1)
+        XCTAssertEqual(fixture.factory.lastConfiguration?.enabledAgents, Set(AgentHistoryAgent.allCases))
+        XCTAssertNotNil(fixture.controller.storage)
+        waitForSnapshot(fixture.controller, "sessions indexed") { $0 == Self.allSessions }
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+        XCTAssertEqual(fixture.controller.threadSafeStatus, fixture.controller.status)
+        XCTAssertEqual(Set(fixture.controller.threadSafeSnapshot.sessions.map(\.nativeID)), Self.allSessions)
+    }
+
+    func test_enable_starts_immediately_and_stamps_consent() throws {
+        let fixture = makeFixture()
+        XCTAssertFalse(launch(fixture.controller))
+
+        fixture.controller.enable(agents: [.claude])
+
+        waitForStatus(fixture.controller, "running with consent") { $0.hasConsented && $0.state != .off }
+        XCTAssertEqual(fixture.factory.count, 1)
+        XCTAssertEqual(fixture.factory.lastConfiguration?.enabledAgents, [.claude])
+        let state = persistedState(fixture.paths)
+        XCTAssertTrue(state.enabled)
+        XCTAssertNotNil(state.consentedAt)
+        XCTAssertTrue(state.isSourceEnabled(.claude))
+        XCTAssertFalse(state.isSourceEnabled(.codex))
+        waitForSnapshot(fixture.controller, "claude only") { $0 == ["claude-outside", "claude-inside"] }
+    }
+
+    // MARK: - Config
+
+    func test_config_change_pushes_excluded_folders_and_mirrors_flags() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
+        XCTAssertFalse(fixture.controller.allowsAgentsAllProjects)
+        XCTAssertFalse(fixture.controller.exclusions.excludes("/work/secret/app"))
+
+        try fixture.configStore.update { config in
+            config.agentHistory.excludedFolders = ["/work/secret"]
+            config.agentHistory.allowAgentsAllProjects = true
+        }
+
+        waitForSnapshot(fixture.controller, "excluded session purged") { !$0.contains("claude-inside") }
+        XCTAssertEqual(
+            Set(fixture.controller.metadataSnapshot.sessions.map(\.nativeID)),
+            ["claude-outside", "codex-one"]
+        )
+        XCTAssertTrue(fixture.controller.allowsAgentsAllProjects)
+        XCTAssertTrue(fixture.controller.exclusions.excludes("/work/secret/app"))
+        XCTAssertFalse(fixture.controller.exclusions.excludes("/work/project"))
+    }
+
+    // MARK: - Disable
+
+    func test_disable_with_delete_removes_directory_and_consent() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
+
+        let done = expectation(description: "disabled")
+        fixture.controller.disable(deleteIndex: true) {
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.directoryURL.path))
+        XCTAssertEqual(fixture.controller.status.state, .off)
+        XCTAssertFalse(fixture.controller.status.isEnabled)
+        XCTAssertFalse(fixture.controller.status.hasConsented)
+        XCTAssertTrue(fixture.controller.metadataSnapshot.sessions.isEmpty)
+        XCTAssertNil(fixture.controller.storage)
+        let state = persistedState(fixture.paths)
+        XCTAssertNil(state.consentedAt)
+        XCTAssertFalse(state.enabled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.directoryURL.path),
+                       "reading the reset state never recreates the directory")
+    }
+
+    // MARK: - Observers
+
+    func test_status_observers_receive_updates() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        var first: [AgentHistoryStatus] = []
+        var second: [AgentHistoryStatus] = []
+        let firstID = fixture.controller.addStatusObserver { first.append($0) }
+        fixture.controller.addStatusObserver { second.append($0) }
+
+        XCTAssertTrue(launch(fixture.controller))
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+        XCTAssertTrue(first.contains { $0.state == .watching })
+        XCTAssertTrue(second.contains { $0.state == .watching })
+        XCTAssertEqual(first.map(\.revision), first.map(\.revision).sorted(), "revisions only grow")
+
+        fixture.controller.removeObserver(firstID)
+        let firstCount = first.count
+        fixture.controller.setEnabled(false)
+        waitForStatus(fixture.controller, "off") { $0.state == .off && !$0.isEnabled }
+
+        XCTAssertEqual(first.count, firstCount, "a removed observer hears nothing")
+        XCTAssertEqual(second.last?.state, .off)
+        XCTAssertFalse(second.last?.isEnabled ?? true)
+        XCTAssertTrue(second.last?.hasConsented ?? false, "turning off keeps consent")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path), "turning off keeps data")
+    }
+
+    // MARK: - Per-agent purge
+
+    func test_set_agent_disabled_purges() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
+
+        fixture.controller.setAgentEnabled(.codex, false)
+
+        waitForSnapshot(fixture.controller, "codex purged") { !$0.contains("codex-one") }
+        waitForStatus(fixture.controller, "codex off") { !$0.enabledAgents.contains(.codex) }
+        XCTAssertFalse(persistedState(fixture.paths).isSourceEnabled(.codex))
+        let storage = try XCTUnwrap(fixture.controller.storage)
+        let codexRows = try storage.readers.withReader { db in
+            try AgentHistoryFixtures.count(db, "SELECT count(*) FROM sessions WHERE native_id = ?", [.text("codex-one")])
+        }
+        XCTAssertEqual(codexRows, 0)
+        XCTAssertTrue(fixture.controller.status.sources.allSatisfy { $0.agent != .codex })
+    }
+}

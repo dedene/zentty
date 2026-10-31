@@ -158,6 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AgentIntegrationConsentPanel.present(tool: tool, completion: completion)
         }
 
+        // Agent History reads its consent off-main and starts indexing a few seconds after
+        // launch. Never in the inert test host: tests must not index the user's agent history.
+        if !Self.isHostedTestMode {
+            AgentHistoryController.shared.configure(
+                configStore: configStore,
+                paths: AgentHistoryPaths.resolve(configFileURL: configStore.fileURL)
+            )
+            AgentHistoryController.shared.scheduleStartAfterLaunch()
+        }
+
         guard shouldOpenMainWindow else { return }
 
         if isSessionRestoreEnabled {
@@ -478,6 +488,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // state out from under live agents. Tearing down first also lets an
         // agent's final hook events still be delivered.
         AgentIPCServer.shared.stop()
+        if !Self.isHostedTestMode {
+            AgentHistoryController.shared.stop()
+        }
         if let configObserverID {
             configStore.removeObserver(configObserverID)
         }
