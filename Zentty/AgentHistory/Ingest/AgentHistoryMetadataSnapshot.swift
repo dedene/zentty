@@ -56,6 +56,11 @@ struct AgentHistoryMetadataSnapshotBuilder: Sendable {
         }
     }
 
+    /// Every session held, in no particular order (hidden ones included).
+    var allSessions: [AgentHistorySessionSummary] {
+        Array(sessionsByID.values)
+    }
+
     /// A new snapshot with the next generation.
     mutating func build(isComplete: Bool) -> AgentHistoryMetadataSnapshot {
         generation &+= 1

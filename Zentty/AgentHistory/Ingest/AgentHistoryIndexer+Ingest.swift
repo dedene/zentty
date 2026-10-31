@@ -106,6 +106,9 @@ extension AgentHistoryIndexer {
         if recheckMissingUnits() {
             return true
         }
+        if pendingCarryOver != nil, let store {
+            restorePendingCarryOver(into: store)
+        }
         storePendingAdapterVersions()
         persistCounters()
         hasDrainedOnce = true

@@ -10,7 +10,8 @@ import Foundation
 ///   amount resumes too, and SQLite reports again if it is still full).
 /// - Corruption found mid-run: close the writer, move the file aside (`index.corrupt-*`), open a
 ///   fresh index and reconcile every source from scratch, at most
-///   `maxCorruptionRecoveriesPerRun` times before failing with `.corrupt`.
+///   `maxCorruptionRecoveriesPerRun` times before failing with `.corrupt`. Tombstones and usage
+///   are carried into the fresh index like a rebuild's (`AgentHistoryIndexer+CarryOver.swift`).
 extension AgentHistoryIndexer {
     static let diskFullResumeMinimumBytes: Int64 = 200_000_000
     static let maxCorruptionRecoveriesPerRun = 3
@@ -105,6 +106,8 @@ extension AgentHistoryIndexer {
         AgentHistoryLog.indexer.error(
             "Agent History index corrupt mid-run; moving it aside and rebuilding attempt=\(self.corruptionRecoveries, privacy: .public)"
         )
+        // Removals and usage outlive the corrupt file (what it still yields, plus this run's).
+        pendingCarryOver = collectCarryOver()
         systemConditions.stopObserving()
         stopFreshness()
         writer?.close()

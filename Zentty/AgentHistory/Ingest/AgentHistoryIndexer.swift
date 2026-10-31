@@ -143,6 +143,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     /// Runs inside each commit transaction right before the cursor is saved; throwing rolls the
     /// batch back. Set before `start()`.
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
+    /// Runs inside the carry-over restore transaction; throwing makes the restore fail.
+    var beforeCarryOverRestoreForTesting: (() throws -> Void)?
 
     // MARK: Writes (AgentHistoryIndexer+Writes.swift)
 
@@ -336,7 +338,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         do {
             admission = AgentHistoryAdmission(
                 exclusions: AgentHistoryExclusionMatcher(folders: configuration.excludedFolders),
-                tombstones: try store.tombstones()
+                tombstones: try tombstonesInForce(store: store)
             )
             snapshotBuilder.replaceAll(try store.allVisibleSessionSummaries())
             snapshotDirty = true
