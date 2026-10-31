@@ -231,6 +231,7 @@
 		45EA80346CAAD175EFFA0372 /* TerminalViewportDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8A1D79CA942A2AC09A2981D /* TerminalViewportDiagnostics.swift */; };
 		461D0A6C73C8D50AFC232765 /* AgentHistoryArtifactExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F214AFAE22D287384168A3 /* AgentHistoryArtifactExtractor.swift */; };
 		46C31BF360864FB190F2FABE /* PaneControlCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E87B33AE76C19CE6FFAB18 /* PaneControlCLI.swift */; };
+		470C6EFC94640CA42430B7FE /* ClaudeRetentionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06001A4AF626CAE9725F2556 /* ClaudeRetentionSettings.swift */; };
 		4722CFBE781F555F67DA809A /* TmuxCompatStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB7A0155A7517D3459081223 /* TmuxCompatStoreTests.swift */; };
 		4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474B9A1AC6A427A707683CA3 /* PaneCommand.swift */; };
 		4787C7E94BDCB1445A474610 /* CommandPaletteResultsResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3075B4E64F400647941D17F8 /* CommandPaletteResultsResolver.swift */; };
@@ -527,6 +528,7 @@
 		A3B9E7C21732F8FBD1AFF6B4 /* WorklaneStore+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5362E171051471B00419EB85 /* WorklaneStore+Restore.swift */; };
 		A3DF172F7DBD4AD8B215E680 /* PaneSSHProcessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B681E0E2004A0AECC6C405B /* PaneSSHProcessProbe.swift */; };
 		A3EC32493550CDCC5875D93E /* AppMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E33FF8DDD0088600F542E4B1 /* AppMenuBuilderTests.swift */; };
+		A46D98A51BF09CAAB05E725D /* ClaudeRetentionSettings+JSONText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B169C46BB6117D96D0FC536D /* ClaudeRetentionSettings+JSONText.swift */; };
 		A4A53654BC7A3139C0256836 /* AgyCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8E072C80D640FFB3D8E022 /* AgyCanonicalReEmitter.swift */; };
 		A4AB1E1BBD2911055709D697 /* TerminalOverlayActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9871BA3CA8D35CCA804B5B1 /* TerminalOverlayActivityTests.swift */; };
 		A4F9BA4052B89971F4897D09 /* ShortcutsSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */; };
@@ -791,6 +793,7 @@
 		EEC22296EE34DF6250AD3DAD /* BookmarkNameSuggester.swift in Sources */ = {isa = PBXBuildFile; fileRef = D08C0137453B47FE9FC59D1E /* BookmarkNameSuggester.swift */; };
 		EF0F88674C95591761ACB87B /* BookmarksPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F8BB4DD16E95F8BDEFA2 /* BookmarksPopoverView.swift */; };
 		EF1455526F16B4FE4995D467 /* WorklaneStore+Metadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4225A0DF5039F2DBBAA2D91C /* WorklaneStore+Metadata.swift */; };
+		F048583060276BD3DEAC1364 /* ClaudeRetentionSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9FD60E7784549D602240DB /* ClaudeRetentionSettingsTests.swift */; };
 		F04AF49E4322D368925A8601 /* ServerOutputURLDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087C2ACC1BD5F24FD8F5A39F /* ServerOutputURLDetector.swift */; };
 		F0C9D149934EB6F100801EBA /* TmuxCompatArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF1C35E3E3441C4C57051CA /* TmuxCompatArguments.swift */; };
 		F0FF1DAC11BDA07A28868FE4 /* TrackpadPanGestureDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25EF5AC625776DA85911237 /* TrackpadPanGestureDriver.swift */; };
@@ -901,6 +904,7 @@
 		0529815FA8F05D8F52601625 /* CommandTooltipFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandTooltipFormatter.swift; sourceTree = "<group>"; };
 		0548B9E0EF5C69DD34B1CA40 /* PaneEventSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneEventSnapshot.swift; sourceTree = "<group>"; };
 		058230B7588E412C374895C9 /* PresentationReducerContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationReducerContext.swift; sourceTree = "<group>"; };
+		06001A4AF626CAE9725F2556 /* ClaudeRetentionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRetentionSettings.swift; sourceTree = "<group>"; };
 		063BC872FEF22E670BF3054C /* ShellIntegrationKiroTermTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationKiroTermTests.swift; sourceTree = "<group>"; };
 		0780927F63098801F0B6B9D5 /* WorkspaceRecipeMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecipeMigrationTests.swift; sourceTree = "<group>"; };
 		0792D9262FFEC02764026E39 /* TmuxCompatIPCHandler+Buffers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TmuxCompatIPCHandler+Buffers.swift"; sourceTree = "<group>"; };
@@ -1453,6 +1457,7 @@
 		B0DB8F94BDF5915567FD8FE9 /* CommandFlattenAggressiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandFlattenAggressiveness.swift; sourceTree = "<group>"; };
 		B147E532F92E9849DAF51188 /* TaskManagerProcessSamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerProcessSamplerTests.swift; sourceTree = "<group>"; };
 		B16413FC0363A393599D36E7 /* CodexNotifyEventAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexNotifyEventAdapter.swift; sourceTree = "<group>"; };
+		B169C46BB6117D96D0FC536D /* ClaudeRetentionSettings+JSONText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeRetentionSettings+JSONText.swift"; sourceTree = "<group>"; };
 		B1F616D86BF9A658C1E1A9D7 /* GhosttyAppearanceSettingsCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAppearanceSettingsCoordinator.swift; sourceTree = "<group>"; };
 		B1FEF5B9CCA17DAF2334EDDB /* ClaudeStaticTitleStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStaticTitleStatusTests.swift; sourceTree = "<group>"; };
 		B308B03F54BFA5F3812B101D /* SidebarRowDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRowDiffTests.swift; sourceTree = "<group>"; };
@@ -1682,6 +1687,7 @@
 		FA88E1E64FB65E4B800852D7 /* GeneralSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		FAC4ADDC4B7DF5E375DC95F8 /* NotificationSoundManager+SharedCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundManager+SharedCopy.swift"; sourceTree = "<group>"; };
 		FB5154316309F374526C5D5C /* SidebarWorklaneRowButtonColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButtonColorTests.swift; sourceTree = "<group>"; };
+		FB9FD60E7784549D602240DB /* ClaudeRetentionSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRetentionSettingsTests.swift; sourceTree = "<group>"; };
 		FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneColor.swift; sourceTree = "<group>"; };
 		FC4A3980D8AB50389B834490 /* TmuxShimLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxShimLauncher.swift; sourceTree = "<group>"; };
 		FC4C8BA27DE89609B50C437C /* TerminalOpenURLResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOpenURLResolver.swift; sourceTree = "<group>"; };
@@ -1772,6 +1778,15 @@
 				12CDE5D3C8DC2EEAC878AEE3 /* ThirdPartyLicenses.json */,
 			);
 			path = ZenttyResources;
+			sourceTree = "<group>";
+		};
+		1178868EBF3FC8D01B1ED882 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				06001A4AF626CAE9725F2556 /* ClaudeRetentionSettings.swift */,
+				B169C46BB6117D96D0FC536D /* ClaudeRetentionSettings+JSONText.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		15AA6E2482F0B19E52214D55 /* Review */ = {
@@ -1975,6 +1990,7 @@
 				A2ADDF01EDC2A3E8E4DF0E18 /* Contracts */,
 				B5D6F42EA78CB469F11E92F3 /* Ingest */,
 				3E16F205B6ECACCD06E5094C /* Search */,
+				1178868EBF3FC8D01B1ED882 /* Settings */,
 				F836AC8BA9BA291B315EF582 /* Storage */,
 			);
 			path = AgentHistory;
@@ -2727,6 +2743,7 @@
 				0EA071E0AD16A044F7C2F644 /* BookmarkStoreTests.swift */,
 				9B314CBC82EBD530AEDF0330 /* ClaudeApprovalResumeTests.swift */,
 				106F8EB98DCA59C9B7ED19CD /* ClaudeDaemonPaneRoutingTests.swift */,
+				FB9FD60E7784549D602240DB /* ClaudeRetentionSettingsTests.swift */,
 				B1FEF5B9CCA17DAF2334EDDB /* ClaudeStaticTitleStatusTests.swift */,
 				EDDFDCEF34526A6C5882223E /* ClaudeStopNotificationRaceTests.swift */,
 				41D3D22F3E783C0247024435 /* CleanCopyCommandFlatteningTests.swift */,
@@ -3268,6 +3285,7 @@
 				105EFDDB2995F6500AE4DF21 /* BookmarkStoreTests.swift in Sources */,
 				E04EBA3DB2C42DBD5F114123 /* ClaudeApprovalResumeTests.swift in Sources */,
 				D2F640B56B4C4AD7618F379B /* ClaudeDaemonPaneRoutingTests.swift in Sources */,
+				F048583060276BD3DEAC1364 /* ClaudeRetentionSettingsTests.swift in Sources */,
 				D3B171741EFA2DB3CF0DA6BA /* ClaudeStaticTitleStatusTests.swift in Sources */,
 				44A22AB9819823EBE62144BE /* ClaudeStopNotificationRaceTests.swift in Sources */,
 				A1E9D4AC7D56DF6F533F5B0A /* CleanCopyCommandFlatteningTests.swift in Sources */,
@@ -3604,6 +3622,8 @@
 				D737EBF7DF106CC48AC0E1CE /* ClaudeEventAdapter.swift in Sources */,
 				720727A2DA0A0EA0C32EC86E /* ClaudeHookSessionStore.swift in Sources */,
 				8EA1DD62A5C348364EE62B33 /* ClaudeLaunchPolicy.swift in Sources */,
+				A46D98A51BF09CAAB05E725D /* ClaudeRetentionSettings+JSONText.swift in Sources */,
+				470C6EFC94640CA42430B7FE /* ClaudeRetentionSettings.swift in Sources */,
 				0AA879EAFB09310C3F6B58C3 /* CleanCopyChromeDecoration.swift in Sources */,
 				080A2341A895C8E1BA3C4619 /* CleanCopyCommandFlattening.swift in Sources */,
 				BE895FEB672BF0DB2319F51B /* CleanCopyOptions.swift in Sources */,
