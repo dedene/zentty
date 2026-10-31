@@ -1258,6 +1258,9 @@ final class PaneRuntimeRegistry {
         let liveRuntimeCount = runtimes.count
         var visiblePaneCount = 0
         let activeWorklaneIndex = worklanes.firstIndex { $0.id == activeWorklaneID } ?? 0
+        // A peek session always lists the original lane, so a non-empty set
+        // means peek is open (and the float layer is hidden).
+        let isPeekOpen = !peekVisibleWorklaneIDs.isEmpty
         var deferredCandidates: [(distance: Int, worklaneIndex: Int, paneIndex: Int, paneID: PaneID)] = []
 
         for (worklaneIndex, worklane) in worklanes.enumerated() {
@@ -1283,7 +1286,8 @@ final class PaneRuntimeRegistry {
                         isPeekVisible: isPeekVisible,
                         windowIsVisible: windowIsVisible,
                         windowIsKey: windowIsKey,
-                        isFocusedPane: pane.id == focusedPaneID
+                        isFocusedPane: pane.id == focusedPaneID,
+                        isPeekOpen: isPeekOpen
                     )
                 )
                 if isActiveWorklane, activity.isVisible {

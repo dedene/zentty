@@ -589,6 +589,68 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         )
     }
 
+    func test_updateSurfaceActivities_occludes_floats_while_peek_open() {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let floating = PaneState(id: PaneID("worklane-main-float"), title: "float")
+        let pip = PaneState(id: PaneID("worklane-main-pip"), title: "pip")
+        let neighbourShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: nil,
+                paneStripState: PaneStripState(panes: [shell], focusedPaneID: shell.id),
+                floatingPanes: [
+                    makeFloat(floating, mode: .floating, stackOrder: 0),
+                    makeFloat(pip, mode: .pip(corner: .bottomRight, order: 0), stackOrder: 1),
+                ],
+                focusedFloatID: floating.id
+            ),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
+                title: nil,
+                paneStripState: PaneStripState(panes: [neighbourShell], focusedPaneID: neighbourShell.id)
+            ),
+        ]
+
+        registry.synchronize(with: worklanes)
+        registry.updateSurfaceActivities(
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true,
+            peekVisibleWorklaneIDs: [WorklaneID("worklane-main"), WorklaneID("worklane-2")]
+        )
+
+        XCTAssertEqual(
+            adapterFactory.activity(for: floating.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: pip.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+        XCTAssertEqual(adapterFactory.activity(for: shell.id)?.isVisible, true)
+        XCTAssertEqual(adapterFactory.activity(for: neighbourShell.id)?.isVisible, true)
+
+        // Peek closes: the floats are drawn again and the focused one takes focus.
+        registry.updateSurfaceActivities(
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true,
+            peekVisibleWorklaneIDs: []
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: floating.id),
+            TerminalSurfaceActivity(isVisible: true, isFocused: true)
+        )
+        XCTAssertEqual(adapterFactory.activity(for: pip.id)?.isVisible, true)
+    }
+
     func test_updateSurfaceActivities_defers_floats_of_inactive_worklane() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let deferredScheduler = PaneRuntimeDeferredStartSchedulerSpy()

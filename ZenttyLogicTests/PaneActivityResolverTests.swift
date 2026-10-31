@@ -107,6 +107,29 @@ final class PaneActivityResolverTests: XCTestCase {
         )
     }
 
+    // MARK: - Peek open
+
+    func test_floating_not_visible_while_peek_open() {
+        XCTAssertEqual(
+            resolve(.floating, isPeekOpen: true),
+            TerminalSurfaceActivity(keepsRuntimeLive: true, isVisible: false, isFocused: false)
+        )
+    }
+
+    func test_pip_not_visible_while_peek_open() {
+        XCTAssertEqual(
+            resolve(.pip, isFocusedPane: false, isPeekOpen: true),
+            TerminalSurfaceActivity(keepsRuntimeLive: true, isVisible: false, isFocused: false)
+        )
+    }
+
+    func test_tile_unaffected_by_peek_open() {
+        XCTAssertEqual(
+            resolve(.tile, isPeekOpen: true),
+            TerminalSurfaceActivity(keepsRuntimeLive: true, isVisible: true, isFocused: true)
+        )
+    }
+
     // MARK: - Minimized
 
     func test_minimized_never_visible_even_when_window_becomes_key() {
@@ -154,7 +177,8 @@ final class PaneActivityResolverTests: XCTestCase {
         isPeekVisible: Bool = false,
         windowIsVisible: Bool = true,
         windowIsKey: Bool = true,
-        isFocusedPane: Bool = true
+        isFocusedPane: Bool = true,
+        isPeekOpen: Bool = false
     ) -> TerminalSurfaceActivity {
         PaneActivityResolver.activity(
             for: PaneActivityInput(
@@ -164,7 +188,8 @@ final class PaneActivityResolverTests: XCTestCase {
                 isPeekVisible: isPeekVisible,
                 windowIsVisible: windowIsVisible,
                 windowIsKey: windowIsKey,
-                isFocusedPane: isFocusedPane
+                isFocusedPane: isFocusedPane,
+                isPeekOpen: isPeekOpen
             )
         )
     }

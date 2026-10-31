@@ -30,6 +30,9 @@ struct PaneActivityInput: Equatable, Sendable {
     var windowIsKey: Bool
     /// The pane is its worklane's float-aware `focusedPaneID`.
     var isFocusedPane: Bool
+    /// A Worklane Peek session is open in the window. The float layer is
+    /// hidden while it is, so floats and PiPs are not drawn.
+    var isPeekOpen: Bool = false
 }
 
 /// Decides Ghostty occlusion and focus for one pane. The registry recomputes
@@ -39,7 +42,8 @@ struct PaneActivityInput: Equatable, Sendable {
 /// - tile: visible when the window is visible and the worklane is active or
 ///   peek-visible; focused when also active, key and the focused pane.
 /// - floating: visible only in the active worklane (peek previews render the
-///   strip, not floats) and only while floats are shown; focused like a tile.
+///   strip, not floats), only while floats are shown and never while a peek
+///   is open (the float layer is hidden then); focused like a tile.
 /// - pip: visible like a floating pane, never focused.
 /// - minimized: never visible, never focused.
 ///
@@ -53,10 +57,10 @@ enum PaneActivityResolver {
             isVisible = input.windowIsVisible && (input.isActiveWorklane || input.isPeekVisible)
             canTakeFocus = true
         case .floating:
-            isVisible = input.windowIsVisible && input.isActiveWorklane && !input.floatsHidden
+            isVisible = Self.floatLayerIsDrawn(for: input)
             canTakeFocus = true
         case .pip:
-            isVisible = input.windowIsVisible && input.isActiveWorklane && !input.floatsHidden
+            isVisible = Self.floatLayerIsDrawn(for: input)
             canTakeFocus = false
         case .minimized:
             isVisible = false
@@ -73,5 +77,9 @@ enum PaneActivityResolver {
             isVisible: isVisible,
             isFocused: isFocused
         )
+    }
+
+    private static func floatLayerIsDrawn(for input: PaneActivityInput) -> Bool {
+        input.windowIsVisible && input.isActiveWorklane && !input.floatsHidden && !input.isPeekOpen
     }
 }
