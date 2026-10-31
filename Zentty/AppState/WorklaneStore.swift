@@ -744,9 +744,11 @@ final class WorklaneStore {
 
     // MARK: - Focus History Navigation
 
-    private var currentPaneReference: PaneReference? {
+    /// The pane that owns focus, float-aware (a focused `.floating` float
+    /// wins over the strip focus), so history records the pane really left.
+    var currentPaneReference: PaneReference? {
         guard let worklane = activeWorklane,
-              let paneID = worklane.paneStripState.focusedPaneID else { return nil }
+              let paneID = worklane.focusedPaneID else { return nil }
         return PaneReference(worklaneID: worklane.id, paneID: paneID)
     }
 
@@ -756,7 +758,7 @@ final class WorklaneStore {
 
     private var allLivePaneReferences: Set<PaneReference> {
         Set(worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map {
+            worklane.allPanes.map {
                 PaneReference(worklaneID: worklane.id, paneID: $0.id)
             }
         })
@@ -838,7 +840,7 @@ final class WorklaneStore {
         }
     }
 
-    private func recordFocusTransition(from previous: PaneReference?) {
+    func recordFocusTransition(from previous: PaneReference?) {
         guard !isNavigatingHistory, let previous else { return }
         focusHistoryController.recordFocusChange(from: previous)
     }
@@ -1853,7 +1855,7 @@ final class WorklaneStore {
         )
     }
 
-    private func applySessionRequestOverride(
+    func applySessionRequestOverride(
         _ override: TerminalSessionRequest?,
         to pane: inout PaneState
     ) {
@@ -2032,9 +2034,14 @@ final class WorklaneStore {
             return
         }
 
+        if worklane.isFloating(id) {
+            focusFloat(id)
+            return
+        }
+
         let previousWorklane = worklane
         let previousPaneRef = currentPaneReference
-        let wasFocusedPaneID = worklane.paneStripState.focusedPaneID
+        let wasFocusedPaneID = worklane.focusedPaneID
         let hadReadyStatus = worklane.auxiliaryStateByPaneID[id]?.raw.showsReadyStatus == true
             || worklane.auxiliaryStateByPaneID[id]?.raw.wantsReadyStatus == true
         if wasFocusedPaneID == id, !hadReadyStatus {
@@ -2042,6 +2049,10 @@ final class WorklaneStore {
         }
 
         worklane.paneStripState.focusPane(id: id)
+        if worklane.paneStripState.focusedPaneID == id {
+            // Focusing a tile takes focus off any float.
+            worklane.focusedFloatID = nil
+        }
         clearReadyStatusIfNeeded(for: id, in: &worklane)
         activeWorklane = worklane
         refreshLastFocusedLocalWorkingDirectory()
@@ -2223,7 +2234,7 @@ final class WorklaneStore {
     }
     #endif
 
-    private func makePane(in worklane: inout WorklaneState, existingPaneCount: Int) -> PaneState {
+    func makePane(in worklane: inout WorklaneState, existingPaneCount: Int) -> PaneState {
         defer {
             worklane.nextPaneNumber += 1
         }
