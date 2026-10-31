@@ -115,8 +115,10 @@ struct OpenCodeHistorySessionContent: Equatable, Sendable {
 }
 
 /// The SQL the opencode adapter runs. Every statement is a plain read; table names are literals
-/// and values are bound. JSON goes through `json_extract`/`json_each` behind a `json_valid`
-/// guard, so one malformed row is skipped instead of failing the whole read.
+/// and values are bound. Every `json_extract`/`json_each` argument sits inside a `CASE` that
+/// yields NULL (or `[]`) for malformed JSON or a non-object item, so one bad row or content item
+/// is skipped instead of failing the whole read. SQLite does not promise the order of `AND`
+/// terms, so a `json_valid` filter beside the extract would not be enough on its own.
 enum OpenCodeHistoryQueries {
     static let gitCommitOutputPattern = "%git%commit%"
 
@@ -330,11 +332,13 @@ enum OpenCodeHistoryQueries {
         var indexByID: [String: Int] = [:]
         try db.query(
             """
-            SELECT id, time_created, time_updated, json_extract(data, '$.role'),
-                   COALESCE(json_extract(data, '$.providerID'), json_extract(data, '$.model.providerID')),
-                   COALESCE(json_extract(data, '$.modelID'), json_extract(data, '$.model.modelID')),
-                   json_extract(data, '$.variant')
-            FROM message WHERE session_id = ? AND json_valid(data)
+            SELECT id, time_created, time_updated, json_extract(doc, '$.role'),
+                   COALESCE(json_extract(doc, '$.providerID'), json_extract(doc, '$.model.providerID')),
+                   COALESCE(json_extract(doc, '$.modelID'), json_extract(doc, '$.model.modelID')),
+                   json_extract(doc, '$.variant')
+            FROM (SELECT id, time_created, time_updated, \(validDocument("data")) AS doc
+                  FROM message WHERE session_id = ?)
+            WHERE doc IS NOT NULL
             ORDER BY time_created, id
             """,
             [.text(sessionID)]
@@ -356,14 +360,15 @@ enum OpenCodeHistoryQueries {
         }
         try db.query(
             """
-            SELECT message_id, time_updated, json_extract(data, '$.type'), json_extract(data, '$.text'),
-                   json_extract(data, '$.synthetic'), json_extract(data, '$.tool'),
-                   json_extract(data, '$.state.input.command'), json_extract(data, '$.state.input.filePath'),
-                   json_extract(data, '$.state.input.patchText'),
-                   CASE WHEN json_extract(data, '$.state.input.command') LIKE ?2
-                        THEN json_extract(data, '$.state.output') END
-            FROM part WHERE session_id = ?1 AND json_valid(data)
-              AND json_extract(data, '$.type') IN ('text', 'tool')
+            SELECT message_id, time_updated, json_extract(doc, '$.type'), json_extract(doc, '$.text'),
+                   json_extract(doc, '$.synthetic'), json_extract(doc, '$.tool'),
+                   json_extract(doc, '$.state.input.command'), json_extract(doc, '$.state.input.filePath'),
+                   json_extract(doc, '$.state.input.patchText'),
+                   CASE WHEN json_extract(doc, '$.state.input.command') LIKE ?2
+                        THEN json_extract(doc, '$.state.output') END
+            FROM (SELECT id, message_id, time_updated, \(validDocument("data")) AS doc
+                  FROM part WHERE session_id = ?1)
+            WHERE json_extract(doc, '$.type') IN ('text', 'tool')
             ORDER BY message_id, id
             """,
             [.text(sessionID), .text(gitCommitOutputPattern)]
@@ -393,10 +398,12 @@ enum OpenCodeHistoryQueries {
         var indexByID: [String: Int] = [:]
         try db.query(
             """
-            SELECT id, type, time_created, time_updated, json_extract(data, '$.text'),
-                   json_extract(data, '$.model.providerID'), json_extract(data, '$.model.id'),
-                   json_extract(data, '$.model.variant'), json_extract(data, '$.command')
-            FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant', 'shell') AND json_valid(data)
+            SELECT id, type, time_created, time_updated, json_extract(doc, '$.text'),
+                   json_extract(doc, '$.model.providerID'), json_extract(doc, '$.model.id'),
+                   json_extract(doc, '$.model.variant'), json_extract(doc, '$.command')
+            FROM (SELECT id, type, time_created, time_updated, \(validDocument("data")) AS doc
+                  FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant', 'shell'))
+            WHERE doc IS NOT NULL
             ORDER BY time_created, id
             """,
             [.text(sessionID)]
@@ -426,17 +433,24 @@ enum OpenCodeHistoryQueries {
             indexByID[id] = messages.count
             messages.append(message)
         }
+        // `content` must be an array and each item an object; anything else reads as no items.
+        let content = """
+            CASE WHEN NOT json_valid(m.data) THEN '[]'
+                 WHEN json_type(m.data, '$.content') = 'array' THEN json_extract(m.data, '$.content')
+                 ELSE '[]' END
+            """
+        let item = "(CASE WHEN c.type = 'object' THEN c.value END)"
         try db.query(
             """
-            SELECT m.id, json_extract(c.value, '$.type'), json_extract(c.value, '$.text'),
-                   json_extract(c.value, '$.name'), json_extract(c.value, '$.state.input.command'),
-                   json_extract(c.value, '$.state.input.filePath'), json_extract(c.value, '$.state.input.patchText'),
-                   CASE WHEN json_extract(c.value, '$.state.input.command') LIKE ?2
-                        THEN COALESCE(json_extract(c.value, '$.state.metadata.output'),
-                                      json_extract(c.value, '$.state.content')) END
-            FROM session_message m, json_each(m.data, '$.content') c
-            WHERE m.session_id = ?1 AND m.type = 'assistant' AND json_valid(m.data)
-              AND json_extract(c.value, '$.type') IN ('text', 'tool')
+            SELECT m.id, json_extract(\(item), '$.type'), json_extract(\(item), '$.text'),
+                   json_extract(\(item), '$.name'), json_extract(\(item), '$.state.input.command'),
+                   json_extract(\(item), '$.state.input.filePath'), json_extract(\(item), '$.state.input.patchText'),
+                   CASE WHEN json_extract(\(item), '$.state.input.command') LIKE ?2
+                        THEN COALESCE(json_extract(\(item), '$.state.metadata.output'),
+                                      json_extract(\(item), '$.state.content')) END
+            FROM session_message m, json_each(\(content)) c
+            WHERE m.session_id = ?1 AND m.type = 'assistant'
+              AND json_extract(\(item), '$.type') IN ('text', 'tool')
             ORDER BY m.time_created, m.id, c.key
             """,
             [.text(sessionID), .text(gitCommitOutputPattern)]
@@ -455,6 +469,11 @@ enum OpenCodeHistoryQueries {
             }
         }
         return messages
+    }
+
+    /// `column` when it holds well-formed JSON, else NULL (every extract over NULL is NULL).
+    private static func validDocument(_ column: String) -> String {
+        "(CASE WHEN json_valid(\(column)) THEN \(column) END)"
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

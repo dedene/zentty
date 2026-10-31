@@ -38,17 +38,26 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
     let adapterVersion = 1
     var agent: AgentHistoryAgent { .opencode }
 
+    /// Reads one session in an open snapshot; a seam so tests can make one session fail.
+    typealias SessionLoader = @Sendable (AgentHistoryDatabase, OpenCodeHistorySchema, String) throws
+        -> OpenCodeHistorySessionContent?
+
     private let sessionsPerBatch: Int
     private let now: @Sendable () -> Int64
+    private let loadSession: SessionLoader
 
     init(
         root: AgentHistorySourceRoot,
         sessionsPerBatch: Int = OpenCodeHistorySource.defaultSessionsPerBatch,
-        now: @escaping @Sendable () -> Int64 = { Int64((Date().timeIntervalSince1970 * 1_000).rounded()) }
+        now: @escaping @Sendable () -> Int64 = { Int64((Date().timeIntervalSince1970 * 1_000).rounded()) },
+        loadSession: @escaping SessionLoader = { db, schema, id in
+            try OpenCodeHistoryQueries.loadSession(db, schema: schema, sessionID: id)
+        }
     ) {
         self.root = root
         self.sessionsPerBatch = max(sessionsPerBatch, 1)
         self.now = now
+        self.loadSession = loadSession
     }
 
     var databasePath: String { root.path + "/" + Self.databaseFileName }
@@ -258,7 +267,10 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
     }
 
     /// Reads the next sessions of the full pass or the pending queue into `batch`. Returns true
-    /// when it stopped early (cancelled or a read failed); the unread sessions stay queued.
+    /// when it stopped early (cancelled); the unread sessions stay queued. A session whose own
+    /// rows cannot be read is skipped as `.unreadable` and retried only once it changes, so it
+    /// never blocks the sessions behind it; database-wide failures (busy, gone, not a database)
+    /// are thrown and stop the call.
     private func ingestNextSessions(
         url: URL,
         schema: OpenCodeHistorySchema,
@@ -289,8 +301,14 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
             do {
                 sourceBytes += try ingestSession(id: entry.id, url: url, schema: schema, state: &state,
                                                  batch: &batch, context: context)
-            } catch let error as AgentHistoryDatabaseError where error.kind == .interrupted {
-                return true
+            } catch {
+                guard Self.isSessionLocal(error) else {
+                    if (error as? AgentHistoryDatabaseError)?.kind == .interrupted {
+                        return true
+                    }
+                    throw error
+                }
+                skipUnreadable(entry, error: error, url: url, schema: schema, state: &state, batch: &batch, nowMs: nowMs)
             }
             processed += 1
             state.markProcessed(entry)
@@ -319,9 +337,10 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
             return 0
         }
         let isCancelled = context.isCancelled
+        let loadSession = loadSession
         let content = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
             db.setProgressHandler(everyInstructions: Self.progressCheckInstructions, isCancelled)
-            return try OpenCodeHistoryQueries.loadSession(db, schema: schema, sessionID: id)
+            return try loadSession(db, schema, id)
         }
         guard let content else {
             state.lastChange[id] = nil
@@ -332,7 +351,43 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         return OpenCodeHistorySessionBuilder.add(content, nativeID: nativeID, to: &batch, context: context)
     }
 
+    /// Records a session whose read failed and remembers its newest change, so the hot set and
+    /// the reconcile retry it only after opencode writes to it again. Its stored rows stay.
+    private func skipUnreadable(
+        _ entry: OpenCodeHistoryKeyset,
+        error: Error,
+        url: URL,
+        schema: OpenCodeHistorySchema,
+        state: inout OpenCodeHistoryAdapterState,
+        batch: inout AgentHistoryIngestBatch,
+        nowMs: Int64
+    ) {
+        let code = (error as? AgentHistoryDatabaseError)?.code ?? 0
+        AgentHistoryLog.indexer.info("opencode session unreadable code=\(code, privacy: .public)")
+        batch.diagnostics.skippedSessions[agent.normalizedSessionID(entry.id) ?? entry.id] =
+            .unreadable("opencode session read failed (SQLite \(code))")
+        let latest = try? AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+            try OpenCodeHistoryQueries.lastChange(db, schema: schema, sessionID: entry.id)
+        }
+        let known = max(entry.lastChangeMs, state.lastChange[entry.id] ?? 0)
+        state.lastChange[entry.id] = latest.flatMap { $0 } ?? (known > 0 ? known : nowMs)
+    }
+
     // MARK: - Errors
+
+    /// Failures confined to one session's rows (malformed JSON reaching SQL, a corrupt page):
+    /// skip that session. Everything else concerns the whole database or the call.
+    static func isSessionLocal(_ error: Error) -> Bool {
+        guard let error = error as? AgentHistoryDatabaseError else {
+            return true
+        }
+        switch error.kind {
+        case .corrupt, .other, .constraint:
+            return true
+        case .notADatabase, .full, .busy, .readOnly, .cantOpen, .interrupted, .schemaTooNew, .misuse:
+            return false
+        }
+    }
 
     private func finish(
         batch: inout AgentHistoryIngestBatch,

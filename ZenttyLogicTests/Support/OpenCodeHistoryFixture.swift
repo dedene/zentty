@@ -171,6 +171,28 @@ final class OpenCodeHistoryFixture: @unchecked Sendable {
         )
     }
 
+    /// A `session_message` row whose `data` is written verbatim (malformed or odd JSON).
+    func addRawSessionMessage(
+        _ id: String, session: String, type: String, seq: Int, rawData: String, createdMs: Int64
+    ) throws {
+        try db.run(
+            """
+            INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [.text(id), .text(session), .text(type), .integer(Int64(seq)), .integer(createdMs),
+             .integer(createdMs), .text(rawData)]
+        )
+    }
+
+    /// A `part` row whose `data` is written verbatim.
+    func addRawPart(_ id: String, message: String, session: String, rawData: String, createdMs: Int64) throws {
+        try db.run(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)",
+            [.text(id), .text(message), .text(session), .integer(createdMs), .integer(createdMs), .text(rawData)]
+        )
+    }
+
     /// Checkpoints everything into the main file, closes the writer and removes `-wal`/`-shm`
     /// if this SQLite build kept them: the database looks like opencode after a clean quit.
     func close() {
