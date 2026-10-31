@@ -384,6 +384,10 @@ final class AppCanvasView: NSView {
         addSubview(paneStripView)
         addSubview(floatLayerView)
         addSubview(quickActionOverlayContainer)
+        floatLayerView.dockColumnsProvider = { [weak paneStripView, weak floatLayerView] in
+            guard let paneStripView, let floatLayerView else { return [] }
+            return paneStripView.dockHitTestColumns(in: floatLayerView)
+        }
 
         NSLayoutConstraint.activate([
             paneStripView.topAnchor.constraint(equalTo: topAnchor),

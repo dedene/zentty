@@ -110,6 +110,14 @@ final class FloatLayerView: NSView {
     private var floatHosts: [PaneID: FloatContainerView] = [:]
     /// Back-most subview: dims the strip while a float has focus.
     private let scrimView = FloatScrimView()
+    /// Dock previews: above the scrim, below every float.
+    let dockPreviewView = FloatDockPreviewHostView()
+    /// The strip's columns in this layer's coordinates (dock targeting).
+    var dockColumnsProvider: (() -> [ColumnPresentation])?
+    lazy var dockCoordinator = FloatDockCoordinator(
+        previewHost: dockPreviewView,
+        columnsProvider: { [weak self] in self?.dockColumnsProvider?() ?? [] }
+    )
     private var shortcutManager: ShortcutManager?
     private var content = FloatLayerContent.empty
     private var currentTheme = ZenttyTheme.fallback(for: nil)
@@ -129,8 +137,9 @@ final class FloatLayerView: NSView {
         self.runtimeRegistry = runtimeRegistry
         super.init(frame: .zero)
         wantsLayer = true
-        // Unranked in `sortMountedViews`, so it stays behind every float.
+        // Ranked below every float in `sortMountedViews`.
         addSubview(scrimView, positioned: .below, relativeTo: nil)
+        addSubview(dockPreviewView, positioned: .above, relativeTo: scrimView)
     }
 
     @available(*, unavailable)
@@ -146,6 +155,7 @@ final class FloatLayerView: NSView {
     override func layout() {
         super.layout()
         scrimView.frame = bounds
+        dockPreviewView.frame = bounds
         applyPlacements(duringLayout: true)
     }
 
@@ -166,9 +176,13 @@ final class FloatLayerView: NSView {
             containers.values.forEach { $0.apply(theme: theme, animated: false) }
         }
         scrimView.frame = bounds
+        dockPreviewView.frame = bounds
         scrimView.setVisible(FloatScrimPolicy.isVisible(content), animated: window != nil)
         applyPlacements(duringLayout: false)
         syncFocus(force: false)
+        // Strip renders reach the layer right after the strip: keep a live
+        // dock preview on its (possibly moved or gone) target.
+        dockCoordinator.stripDidChange()
     }
 
     func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
@@ -385,12 +399,14 @@ final class FloatLayerView: NSView {
     /// Reorders mounted views back to front without removing them (removal
     /// would make a focused terminal resign first responder).
     private func sortMountedViews(by order: [PaneID]) {
-        let rankByView = Dictionary(
+        var rankByView = Dictionary(
             uniqueKeysWithValues: order.enumerated().compactMap { index, paneID -> (ObjectIdentifier, Int)? in
                 guard let view: NSView = pipHosts[paneID] ?? floatHosts[paneID] else { return nil }
                 return (ObjectIdentifier(view), index)
             }
         )
+        rankByView[ObjectIdentifier(scrimView)] = -2
+        rankByView[ObjectIdentifier(dockPreviewView)] = -1
         let current = subviews.compactMap { rankByView[ObjectIdentifier($0)] }
         guard current != current.sorted() else { return }
 
@@ -399,8 +415,8 @@ final class FloatLayerView: NSView {
         sortSubviews({ lhs, rhs, context in
             guard let context else { return .orderedSame }
             let ranks = Unmanaged<RankBox>.fromOpaque(context).takeUnretainedValue().ranks
-            let left = ranks[ObjectIdentifier(lhs)] ?? -1
-            let right = ranks[ObjectIdentifier(rhs)] ?? -1
+            let left = ranks[ObjectIdentifier(lhs)] ?? -3
+            let right = ranks[ObjectIdentifier(rhs)] ?? -3
             return left < right ? .orderedAscending : (left > right ? .orderedDescending : .orderedSame)
         }, context: box.toOpaque())
     }

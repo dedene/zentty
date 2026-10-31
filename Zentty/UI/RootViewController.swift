@@ -3481,6 +3481,29 @@ extension RootViewController: AppActionRouterEnvironment {
             worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: frame, in: canvas))
         case .throwToPip(let corner):
             worklaneStore.pipPane(paneID, corner: corner)
+        case .dock(let target, let frame):
+            handleFloatDock(paneID, target: target, dropFrame: frame, canvas: canvas)
+        }
+    }
+
+    /// Docks a float released over `target`. The pane lands from its float
+    /// frame into the new slot while the strip reflows; a refused dock (the
+    /// target went away) leaves it a float at `dropFrame`.
+    private func handleFloatDock(_ paneID: PaneID, target: FloatDockTarget, dropFrame: CGRect, canvas: CGRect) {
+        let paneStripView = appCanvasView.paneStripView
+        let floatLayer = appCanvasView.floatLayerView
+        paneStripView.beginDropSettle(paneID: nil) { [weak paneStripView, weak floatLayer] in
+            guard let paneStripView, let floatLayer else { return }
+            paneStripView.settleDockedPane(paneID, fromFrame: dropFrame, in: floatLayer) {}
+        }
+        let motion = FloatMotion.reflowMotion
+        var docked = false
+        renderCoordinator.withCanvasMotion(duration: motion.duration, timing: motion.timing) {
+            docked = worklaneStore.dockPane(paneID, target: target)
+        }
+        if !docked {
+            paneStripView.endDropSettle()
+            worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: dropFrame, in: canvas))
         }
     }
 

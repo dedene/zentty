@@ -78,6 +78,70 @@ final class FloatLayerViewInteractionTests: AppKitTestCase {
         XCTAssertEqual(adapters[floatID]?.view.isSuspended, false, "the lift's freeze is undone")
     }
 
+    func test_dock_mode_release_over_target_becomes_dock_outcome() throws {
+        let layer = makeLayer()
+        let column = CGRect(x: 0, y: 0, width: 400, height: 700)
+        layer.dockColumnsProvider = {
+            [ColumnPresentation(
+                columnID: PaneColumnID("col_a"),
+                frame: column,
+                panes: [PanePresentation(paneID: PaneID("a"), columnID: PaneColumnID("col_a"), frame: column, emphasis: 1, isFocused: false)]
+            )]
+        }
+        layer.render(content(frame: NormalizedRect(x: 0.5, y: 0.3, width: 0.4, height: 0.4)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
+        var session = FloatDragSession(startMouse: CGPoint(x: 700, y: 600), startFrame: host.paneFrame, timestamp: 0)
+        // Past A's right edge: the gap after the last column.
+        session.move(to: CGPoint(x: 420, y: 300), timestamp: 1)
+        host.activeGesture = ActiveFloatGesture(kind: .move, session: session, didBegin: true, startedOverLegend: false, isDockMode: true)
+        var ended: [FloatGestureOutcome] = []
+        layer.onFloatGestureEnded = { _, outcome, _ in ended.append(outcome) }
+
+        host.onGestureBegan?(.move)
+        host.onDockModeChanged?(true)
+        let dropped = host.paneFrame.offsetBy(dx: -280, dy: -300)
+        host.onGestureChanged?(dropped)
+
+        XCTAssertEqual(host.alphaValue, FloatLayerView.dockModeAlpha, accuracy: 0.001)
+        XCTAssertEqual(layer.dockCoordinator.currentTarget, .columnGap(index: 1))
+        XCTAssertTrue(layer.dockPreviewView.subviews.contains { $0 is FloatDockLabelView })
+
+        host.activeGesture = nil
+        host.onGestureEnded?(.move(frame: dropped), .zero)
+
+        XCTAssertEqual(ended, [.dock(target: .columnGap(index: 1), frame: dropped)])
+        XCTAssertFalse(layer.dockCoordinator.isActive)
+        XCTAssertEqual(host.alphaValue, 1, accuracy: 0.001)
+        XCTAssertTrue(layer.dockPreviewView.subviews.isEmpty)
+    }
+
+    func test_dock_mode_toggled_off_restores_plain_move() throws {
+        let layer = makeLayer()
+        layer.render(content(frame: NormalizedRect(x: 0.5, y: 0.3, width: 0.4, height: 0.4)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
+        host.activeGesture = ActiveFloatGesture(
+            kind: .move,
+            session: FloatDragSession(startMouse: CGPoint(x: 700, y: 600), startFrame: host.paneFrame, timestamp: 0),
+            didBegin: true,
+            startedOverLegend: false
+        )
+        var ended: [FloatGestureOutcome] = []
+        layer.onFloatGestureEnded = { _, outcome, _ in ended.append(outcome) }
+        host.onGestureBegan?(.move)
+
+        host.setDockMode(true)
+        XCTAssertTrue(layer.dockCoordinator.isActive)
+        XCTAssertEqual(layer.dockCoordinator.currentTarget, .columnGap(index: 0), "no columns: the strip is empty")
+        host.setDockMode(false)
+        XCTAssertFalse(layer.dockCoordinator.isActive)
+        XCTAssertEqual(host.alphaValue, 1, accuracy: 0.001)
+
+        let moved = host.paneFrame.offsetBy(dx: -40, dy: 0)
+        host.activeGesture = nil
+        host.onGestureEnded?(.move(frame: moved), .zero)
+        XCTAssertEqual(ended, [.move(frame: moved)])
+    }
+
     func test_prepareLift_mounts_at_tile_frame() throws {
         let layer = makeLayer()
         let tileFrame = CGRect(x: 0, y: 20, width: 500, height: 640)

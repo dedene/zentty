@@ -57,6 +57,31 @@ final class FloatGestureTests: XCTestCase {
         XCTAssertNil(own(CGPoint(x: 500, y: 160), modifiers: [.control, .command]))
     }
 
+    // MARK: - Dock mode
+
+    func test_option_at_mouse_down_starts_dock_mode() {
+        let kind = own(CGPoint(x: 210, y: 310), modifiers: [.option])
+        XCTAssertEqual(kind, .move, "⌥ on the band still owns the move")
+        XCTAssertTrue(FloatGesture.startsDockMode(kind: .move, modifiers: [.option]))
+        XCTAssertTrue(FloatGesture.startsDockMode(kind: .move, modifiers: [.control, .command, .option]))
+        XCTAssertFalse(FloatGesture.startsDockMode(kind: .move, modifiers: []))
+        XCTAssertFalse(FloatGesture.startsDockMode(kind: .resize(.bottomRight), modifiers: [.option]), "resizes never dock")
+        XCTAssertNil(own(CGPoint(x: 210, y: 160), modifiers: [.option]), "⌥ alone on content stays the terminal's")
+    }
+
+    func test_dock_mode_release_never_throws() {
+        var session = FloatDragSession(
+            startMouse: CGPoint(x: 500, y: 350),
+            startFrame: CGRect(x: 350, y: 250, width: 300, height: 200),
+            timestamp: 10
+        )
+        session.move(to: CGPoint(x: 515, y: 335), timestamp: 10.01)
+        XCTAssertEqual(
+            FloatGesture.outcome(session: session, kind: .move, canvas: canvas, dockMode: true),
+            .move(frame: CGRect(x: 365, y: 235, width: 300, height: 200))
+        )
+    }
+
     // MARK: - Outcome
 
     func test_small_movement_is_click() {

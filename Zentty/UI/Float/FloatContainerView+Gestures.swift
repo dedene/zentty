@@ -8,6 +8,8 @@ struct ActiveFloatGesture {
     var didBegin: Bool
     /// A plain press on the cwd legend: a click copies the path.
     let startedOverLegend: Bool
+    /// ⌥ is held during a move: the float docks where it is released.
+    var isDockMode = false
 }
 
 /// Move, resize and throw. The container only gets these events for presses
@@ -34,7 +36,8 @@ extension FloatContainerView {
             kind: kind,
             session: FloatDragSession(startMouse: pointInSuperview, startFrame: paneFrame, timestamp: event.timestamp),
             didBegin: false,
-            startedOverLegend: overLegend
+            startedOverLegend: overLegend,
+            isDockMode: FloatGesture.startsDockMode(kind: kind, modifiers: event.modifierFlags)
         )
         installGestureMonitors()
         onPressed?()
@@ -50,9 +53,15 @@ extension FloatContainerView {
         activeGesture = gesture
         if starts {
             onGestureBegan?(gesture.kind)
+            if gesture.isDockMode, activeGesture != nil {
+                onDockModeChanged?(true)
+            }
         }
-        guard gesture.didBegin, activeGesture != nil else { return }
-        onGestureChanged?(FloatGesture.liveFrame(session: gesture.session, kind: gesture.kind, canvas: superview.bounds))
+        // Drags carry the live modifiers: a missed flags change can't leave
+        // dock mode stuck.
+        setDockMode(event.modifierFlags.contains(FloatGesture.dockModifier))
+        guard let current = activeGesture, current.didBegin else { return }
+        onGestureChanged?(FloatGesture.liveFrame(session: current.session, kind: current.kind, canvas: superview.bounds))
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -61,7 +70,12 @@ extension FloatContainerView {
         // a slow release, not as the last fast drag.
         gesture.session.move(to: superview.convert(event.locationInWindow, from: nil), timestamp: event.timestamp)
         endGestureTracking()
-        let outcome = FloatGesture.outcome(session: gesture.session, kind: gesture.kind, canvas: superview.bounds)
+        let outcome = FloatGesture.outcome(
+            session: gesture.session,
+            kind: gesture.kind,
+            canvas: superview.bounds,
+            dockMode: gesture.isDockMode
+        )
         if outcome == .click, gesture.startedOverLegend {
             hostedContainer?.onBorderContextClicked?(paneID)
         }
@@ -80,6 +94,24 @@ extension FloatContainerView {
         activeGesture != nil
     }
 
+    var isDockModeForTesting: Bool {
+        activeGesture?.isDockMode ?? false
+    }
+
+    /// Enters or leaves dock mode on the live move (⌥ toggled). Resizes
+    /// never dock. The layer hears it once the drag has begun; a press that
+    /// is still a click just remembers it.
+    func setDockMode(_ isDockMode: Bool) {
+        guard var gesture = activeGesture, gesture.kind == .move, gesture.isDockMode != isDockMode else {
+            return
+        }
+        gesture.isDockMode = isDockMode
+        activeGesture = gesture
+        if gesture.didBegin {
+            onDockModeChanged?(isDockMode)
+        }
+    }
+
     private func endGestureTracking() {
         activeGesture = nil
         for monitor in gestureMonitors {
@@ -94,6 +126,13 @@ extension FloatContainerView {
             guard event.keyCode == 53, let self, self.activeGesture != nil else { return event }
             self.cancelGesture()
             return nil
+        }) {
+            gestureMonitors.append(monitor)
+        }
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { [weak self] event in
+            guard let self, self.activeGesture != nil else { return event }
+            self.setDockMode(event.modifierFlags.contains(FloatGesture.dockModifier))
+            return event
         }) {
             gestureMonitors.append(monitor)
         }

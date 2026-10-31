@@ -31,6 +31,9 @@ extension FloatLayerView {
         host.onGestureCancelled = { [weak self] in
             self?.floatGestureCancelled(paneID)
         }
+        host.onDockModeChanged = { [weak self] isDockMode in
+            self?.floatDockModeChanged(paneID, isDockMode: isDockMode)
+        }
     }
 
     // MARK: - Gesture phases
@@ -57,14 +60,16 @@ extension FloatLayerView {
         guard let host = floatHost(paneID) else { return }
         interactiveFrames[paneID] = frame
         host.setPaneFrame(frame)
+        updateDock(host)
     }
 
     private func floatGestureEnded(_ paneID: PaneID, outcome: FloatGestureOutcome, velocity: CGVector) {
         let lastFrame = interactiveFrames.removeValue(forKey: paneID)
+        let outcome = resolveDockRelease(paneID, outcome: outcome)
         if let host = floatHost(paneID) {
             let finalFrame: CGRect
             switch outcome {
-            case .move(let frame), .resize(let frame):
+            case .move(let frame), .resize(let frame), .dock(_, let frame):
                 finalFrame = frame
             case .click, .throwToPip:
                 // A throw leaves the float where it was let go; the PiP
@@ -78,6 +83,7 @@ extension FloatLayerView {
 
     private func floatGestureCancelled(_ paneID: PaneID) {
         interactiveFrames.removeValue(forKey: paneID)
+        endDockMode(paneID)
         guard let host = floatHost(paneID) else { return }
         settle(host, to: storeFrame(for: paneID) ?? host.paneFrame, velocity: .zero)
     }

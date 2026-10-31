@@ -53,6 +53,8 @@ final class FloatContainerView: NSView {
     /// Outcome plus the release velocity (pt/s).
     var onGestureEnded: ((FloatGestureOutcome, CGVector) -> Void)?
     var onGestureCancelled: (() -> Void)?
+    /// The live move entered (true) or left (false) dock mode.
+    var onDockModeChanged: ((Bool) -> Void)?
     /// The press being tracked (see `+Gestures`).
     var activeGesture: ActiveFloatGesture?
     var gestureMonitors: [Any] = []

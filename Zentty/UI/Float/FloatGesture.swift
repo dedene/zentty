@@ -15,6 +15,9 @@ enum FloatGestureOutcome: Equatable, Sendable {
     case resize(frame: CGRect)
     /// Released fast enough toward a corner: becomes a PiP there.
     case throwToPip(corner: FloatCorner)
+    /// Released in dock mode over a target: dock there. `frame` is where it
+    /// was dropped (it stays a float there if the dock is refused).
+    case dock(target: FloatDockTarget, frame: CGRect)
 }
 
 /// Pure ownership and outcome rules for float gestures. Coordinates are
@@ -25,6 +28,8 @@ enum FloatGesture {
     static let band: CGFloat = 20
     static let cornerZone: CGFloat = 18
     static let anywhereMoveModifiers: NSEvent.ModifierFlags = [.control, .command]
+    /// Held during a move (at mouse-down or toggled mid-drag): dock mode.
+    static let dockModifier: NSEvent.ModifierFlags = .option
 
     /// Which gesture a press at `point` starts, or nil when the press belongs
     /// to the terminal (or to a legend button). Only left-mouse-downs are
@@ -53,6 +58,12 @@ enum FloatGesture {
         }
     }
 
+    /// Whether a press starting `kind` with `modifiers` starts in dock mode.
+    /// Only moves dock; ⌥ during a resize means nothing.
+    static func startsDockMode(kind: FloatGestureKind, modifiers: NSEvent.ModifierFlags) -> Bool {
+        kind == .move && modifiers.contains(dockModifier)
+    }
+
     /// The live frame while dragging (also the basis of the end frame).
     static func liveFrame(session: FloatDragSession, kind: FloatGestureKind, canvas: CGRect) -> CGRect {
         switch kind {
@@ -72,13 +83,20 @@ enum FloatGesture {
         }
     }
 
-    static func outcome(session: FloatDragSession, kind: FloatGestureKind, canvas: CGRect) -> FloatGestureOutcome {
+    /// In dock mode a move never throws: the dock target (if any) is decided
+    /// by the float layer, and without one the float stays where it dropped.
+    static func outcome(
+        session: FloatDragSession,
+        kind: FloatGestureKind,
+        canvas: CGRect,
+        dockMode: Bool = false
+    ) -> FloatGestureOutcome {
         guard !session.isClick else {
             return .click
         }
         switch kind {
         case .move:
-            if let corner = FloatThrowProjection.throwCorner(
+            if !dockMode, let corner = FloatThrowProjection.throwCorner(
                 velocity: session.velocity,
                 position: session.currentCenter,
                 in: canvas

@@ -2332,6 +2332,91 @@ final class PaneStripView: NSView {
         return viewportView.convert(union, to: target)
     }
 
+    // MARK: - Float docking
+
+    /// The strip's columns with their live (model) frames in `view`'s
+    /// coordinates, for float dock targeting. A column's frame is its
+    /// presentation frame (stack gaps sit between its edge and its panes),
+    /// shifted like its panes; unmounted panes are skipped.
+    func dockHitTestColumns(in view: NSView) -> [ColumnPresentation] {
+        guard let state = currentState else { return [] }
+        let presentedColumns = Dictionary(
+            (currentPresentation?.columns ?? []).map { ($0.columnID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return state.columns.compactMap { column -> ColumnPresentation? in
+            let panes = column.panes.compactMap { pane -> PanePresentation? in
+                guard let frame = livePaneFrame(pane.id) else { return nil }
+                return PanePresentation(
+                    paneID: pane.id,
+                    columnID: column.id,
+                    frame: viewportView.convert(frame, to: view),
+                    emphasis: 1,
+                    isFocused: pane.id == state.focusedPaneID
+                )
+            }
+            guard let firstPane = panes.first else { return nil }
+            let union = panes.dropFirst().reduce(firstPane.frame) { $0.union($1.frame) }
+            var columnFrame = union
+            if let presented = presentedColumns[column.id],
+               let presentedPane = presented.panes.first(where: { $0.paneID == firstPane.paneID }),
+               let liveFrame = livePaneFrame(firstPane.paneID) {
+                let shifted = presented.frame.offsetBy(
+                    dx: liveFrame.minX - presentedPane.frame.minX,
+                    dy: liveFrame.minY - presentedPane.frame.minY
+                )
+                columnFrame = viewportView.convert(shifted, to: view).union(union)
+            }
+            return ColumnPresentation(columnID: column.id, frame: columnFrame, panes: panes)
+        }
+    }
+
+    /// Lands a pane that just docked from a float: after the docking render,
+    /// its new tile container starts at the float's frame (`fromFrame` in
+    /// `sourceView`) and animates to its slot with the float reflow motion.
+    /// The grid stays frozen until it lands. Reduce Motion snaps.
+    func settleDockedPane(
+        _ paneID: PaneID,
+        fromFrame: CGRect,
+        in sourceView: NSView,
+        completion: @escaping @MainActor @Sendable () -> Void
+    ) {
+        // The render that docked it has run; nothing is covered.
+        endDropSettle()
+        guard let paneView = paneViews[paneID] else {
+            completion()
+            return
+        }
+        let finalFrame = paneView.frame
+        let startFrame = viewportView.convert(fromFrame, from: sourceView)
+        let motion = FloatMotion.reflowMotion
+        guard !FloatMotion.reduceMotion, startFrame != finalFrame,
+              startFrame.width > 0, startFrame.height > 0 else {
+            completion()
+            return
+        }
+        paneView.setTerminalViewportSyncSuspended(true)
+        paneView.layer?.removeAllAnimations()
+        paneView.frame = startFrame
+        paneView.syncInsetBorderNow()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = motion.duration
+            context.timingFunction = motion.timing
+            context.allowsImplicitAnimation = true
+            paneView.animateInsetBorder(to: finalFrame.size)
+            paneView.animator().frame = finalFrame
+        } completionHandler: { [weak self, weak paneView] in
+            Task { @MainActor [weak self, weak paneView] in
+                if let self, let paneView, self.paneViews[paneID] === paneView {
+                    paneView.syncInsetBorderNow()
+                    paneView.setTerminalViewportSyncSuspended(false)
+                    paneView.forceTerminalViewportSync()
+                }
+                completion()
+            }
+        }
+    }
+
     /// Enter peek zoom-out using the same approach drag-zoom uses
     /// for *non-dragged* panes: only `setTerminalViewportSyncSuspended(true)`,
     /// no `beginVerticalFreeze`. The vertical freeze is needed when a pane is
