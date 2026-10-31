@@ -198,7 +198,7 @@ final class AgentHistoryController {
             completion()
         }
         withStateStore { store in
-            indexer?.stop(timeout: 5)
+            indexer?.stopAndWait()
             storage.readers.closeAll()
             if deleteIndex {
                 do {
@@ -281,28 +281,42 @@ final class AgentHistoryController {
         }
     }
 
-    /// Brings the indexer in line with `next`: purges agents that went off, pushes the new
-    /// configuration, and starts or stops it when Agent History was turned on or off.
+    /// Brings the indexer in line with `next`: purges agents that went off (D4, also when that
+    /// stops the indexer or none runs), pushes the new configuration, and starts or stops it
+    /// when Agent History was turned on or off.
     private func applyState(_ loaded: AgentHistoryLoadedState) {
         let next = loaded.state
         let previous = persistedState
         persistedState = next
         stateStore = loaded.store
+        let removed = previous.map { $0.enabledAgents.subtracting(next.enabledAgents) } ?? []
         guard let indexer else {
+            // A new indexer purges every agent that is off when it starts.
             if !startIfAllowed() {
+                purgeWithoutIndexer(removed)
                 publishOffStatus()
             }
             return
+        }
+        // Queued before any stop, so the purge runs before the teardown.
+        for agent in AgentHistoryAgent.allCases where removed.contains(agent) {
+            indexer.purgeSource(agent: agent)
         }
         guard Self.allowsIndexing(next) else {
             stopOffMain(indexer)
             return
         }
-        let removed = (previous?.enabledAgents ?? Set(AgentHistoryAgent.allCases)).subtracting(next.enabledAgents)
-        for agent in AgentHistoryAgent.allCases where removed.contains(agent) {
-            indexer.purgeSource(agent: agent)
-        }
         indexer.update(configuration: configuration(for: next))
+    }
+
+    /// On the control queue, behind any stop still tearing down.
+    private func purgeWithoutIndexer(_ agents: Set<AgentHistoryAgent>) {
+        guard !agents.isEmpty, let storage = storageInstance else {
+            return
+        }
+        controlQueue.async {
+            AgentHistoryIndexer.purgeSourcesWithoutIndexer(agents, storage: storage)
+        }
     }
 
     private static func allowsIndexing(_ state: AgentHistoryState) -> Bool {
@@ -348,10 +362,10 @@ final class AgentHistoryController {
         let indexer = makeIndexer(storage, stateStore, configuration(for: state), callbacks)
         self.indexer = indexer
         mirror.storage = storage
-        indexer.start()
-        // An agent turned off while the indexer was not running still has rows to purge (D4).
-        for agent in AgentHistoryAgent.allCases where !state.isSourceEnabled(agent) {
-            indexer.purgeSource(agent: agent)
+        // Behind any previous indexer's teardown on the control queue, so two writers never
+        // overlap. The indexer purges agents that are off when it starts (D4).
+        controlQueue.async {
+            indexer.start()
         }
         AgentHistoryLog.indexer.info("Agent History controller started the indexer")
         return true
@@ -369,14 +383,21 @@ final class AgentHistoryController {
         return detached
     }
 
+    /// The control queue waits for the whole teardown, so a start queued after it never runs
+    /// next to this indexer's writer.
     private func stopOffMain(_ indexer: AgentHistoryIndexer) {
         _ = detachIndexer()
         let storage = storageInstance
         controlQueue.async {
-            indexer.stop(timeout: 5)
+            indexer.stopAndWait()
             storage?.readers.closeAll()
         }
         publishOffStatus()
+    }
+
+    /// Waits until everything queued on the control queue (stops, starts, purges) has run.
+    func drainControlQueueForTesting() {
+        controlQueue.sync {}
     }
 
     private func receive(_ next: AgentHistoryStatus, generation: UInt64) {

@@ -359,6 +359,47 @@ extension AgentHistoryIndexer {
         }
     }
 
+    /// Purges agents turned off while no indexer runs (Agent History off, or the last agent
+    /// turned off), so their text does not stay on disk until a later start. Off the main
+    /// thread. Skipped (start purges them) when there is no index, another instance owns it,
+    /// or it is not at the current schema.
+    static func purgeSourcesWithoutIndexer(_ agents: Set<AgentHistoryAgent>, storage: AgentHistoryStorage) {
+        guard !agents.isEmpty, FileManager.default.fileExists(atPath: storage.paths.databaseURL.path) else {
+            return
+        }
+        do {
+            let lock = try storage.acquireWriterLock(timeout: 2)
+            defer { lock.release() }
+            let database = try AgentHistoryDatabase(
+                url: storage.paths.databaseURL, mode: .readWrite,
+                busyTimeoutMilliseconds: storage.options.busyTimeoutMilliseconds
+            )
+            defer { database.close() }
+            guard try database.userVersion() == AgentHistorySchema.currentVersion else {
+                return
+            }
+            let store = AgentHistoryStore(database: database)
+            let removed = try database.transaction { () -> Int in
+                var removed = 0
+                for row in try store.sources() where agents.contains(row.agent) {
+                    removed += try store.deleteSessions(sourceID: row.id).count
+                    try store.deleteCursors(sourceID: row.id)
+                    try store.setSourceEnabled(id: row.id, false)
+                }
+                return removed
+            }
+            AgentHistoryLog.indexer.info(
+                "Agent History purged turned-off agents without an indexer count=\(agents.count, privacy: .public) sessions=\(removed, privacy: .public)"
+            )
+        } catch let error as AgentHistoryDatabaseError {
+            AgentHistoryLog.indexer.error(
+                "Agent History could not purge turned-off agents now; the next start will \(error.description, privacy: .public)"
+            )
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History could not purge turned-off agents now; the next start will")
+        }
+    }
+
     /// At start: agents that are off but still have enabled `sources` rows (turned off while
     /// no indexer ran, or a purge that never completed).
     func purgeSourcesOfDisabledAgents() {

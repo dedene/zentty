@@ -12,6 +12,7 @@ final class AgentHistoryControllerTests: XCTestCase {
         private var configurations: [AgentHistoryIndexerConfiguration] = []
 
         var count: Int { lock.lock(); defer { lock.unlock() }; return made.count }
+        var last: AgentHistoryIndexer? { lock.lock(); defer { lock.unlock() }; return made.last }
         var lastConfiguration: AgentHistoryIndexerConfiguration? {
             lock.lock(); defer { lock.unlock() }; return configurations.last
         }
@@ -305,5 +306,91 @@ final class AgentHistoryControllerTests: XCTestCase {
         }
         XCTAssertEqual(codexRows, 0)
         XCTAssertTrue(fixture.controller.status.sources.allSatisfy { $0.agent != .codex })
+    }
+
+    private func storedNativeIDs(_ paths: AgentHistoryPaths) throws -> Set<String> {
+        let db = try AgentHistoryDatabase(url: paths.databaseURL, mode: .readOnly, busyTimeoutMilliseconds: 2_000)
+        defer { db.close() }
+        return Set(try db.query("SELECT native_id FROM sessions") { $0.string(0) })
+    }
+
+    func test_turning_off_the_last_agent_purges_it_before_stopping() throws {
+        let fixture = makeFixture()
+        XCTAssertFalse(launch(fixture.controller))
+        fixture.controller.enable(agents: [.claude])
+        waitForSnapshot(fixture.controller, "claude indexed") { $0 == ["claude-outside", "claude-inside"] }
+
+        fixture.controller.setAgentEnabled(.claude, false)
+        waitForStatus(fixture.controller, "off without agents") { $0.state == .off && $0.enabledAgents.isEmpty }
+        fixture.controller.drainControlQueueForTesting()
+
+        XCTAssertNil(fixture.controller.storage)
+        XCTAssertEqual(try storedNativeIDs(fixture.paths), [], "turning the agent off purged its rows (D4)")
+    }
+
+    func test_turning_an_agent_off_while_history_is_off_purges_it() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
+        fixture.controller.setEnabled(false)
+        waitForStatus(fixture.controller, "off") { $0.state == .off && !$0.isEnabled }
+
+        fixture.controller.setAgentEnabled(.codex, false)
+        waitForStatus(fixture.controller, "codex off") { !$0.enabledAgents.contains(.codex) }
+        fixture.controller.drainControlQueueForTesting()
+
+        XCTAssertEqual(try storedNativeIDs(fixture.paths), ["claude-outside", "claude-inside"])
+        XCTAssertEqual(fixture.factory.count, 1, "no indexer was started for the purge")
+    }
+
+    func test_turning_history_off_and_on_starts_the_new_indexer_after_the_old_one_stopped() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+        let first = try XCTUnwrap(fixture.factory.last)
+
+        // The old indexer is stuck in a batch longer than the writer-lock wait and ignores
+        // cancellation meanwhile.
+        let entered = expectation(description: "slow batch entered")
+        let blocked = Flag()
+        fixture.claude.setIngestHook { unitKey, _, _ in
+            guard unitKey == "claude-slow", !blocked.value else {
+                return
+            }
+            blocked.value = true
+            entered.fulfill()
+            Thread.sleep(forTimeInterval: 2.5)
+            throw CancellationError()
+        }
+        fixture.claude.setUnits([.single("claude-slow", mtimeNs: 9)])
+        first.requestReconcile()
+        wait(for: [entered], timeout: 5)
+
+        var seen: [AgentHistoryIndexerState] = []
+        let observer = fixture.controller.addStatusObserver { seen.append($0.state) }
+        fixture.controller.setEnabled(false)
+        fixture.controller.setEnabled(true)
+        waitForStatus(fixture.controller, "second indexer watching") { [factory = fixture.factory] status in
+            factory.count == 2 && status.state == .watching
+        }
+        fixture.controller.removeObserver(observer)
+
+        XCTAssertFalse(seen.contains { state in
+            if case .paused(.anotherInstance, _) = state { return true }
+            return false
+        }, "the new indexer never found the old one still owning the index")
+        XCTAssertFalse(first.isWriterOpenForTesting)
+        XCTAssertTrue(try XCTUnwrap(fixture.factory.last).isWriterOpenForTesting)
+    }
+
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = false
+        var value: Bool {
+            get { lock.lock(); defer { lock.unlock() }; return stored }
+            set { lock.lock(); stored = newValue; lock.unlock() }
+        }
     }
 }

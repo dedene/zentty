@@ -240,6 +240,16 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         }
     }
 
+    /// Cancels in-flight work and waits for the teardown to finish, however long the current
+    /// step takes. Never on main: the controller's control queue uses it so the next indexer
+    /// starts only once this one has closed its writer.
+    func stopAndWait() {
+        cancellation.set()
+        queue.sync {
+            teardownOnQueue()
+        }
+    }
+
     func update(configuration: AgentHistoryIndexerConfiguration) {
         queue.async { [self] in
             applyConfiguration(configuration)
