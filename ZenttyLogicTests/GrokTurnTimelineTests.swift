@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import Zentty
 
-/// `GrokTurnTimelineCache` incremental reads and invalidation, and the source using it across
-/// live appends.
+/// `GrokTurnTimelineCache` incremental reads and invalidation, `GrokTurnStart.match`, and the
+/// source using both across live appends.
 final class GrokTurnTimelineTests: XCTestCase {
     private let sessionID = "01a07283-b64e-77b3-b235-8cc132de66ed"
 
@@ -194,6 +194,46 @@ final class GrokTurnTimelineTests: XCTestCase {
         // An evicted path still answers, from the start.
         XCTAssertEqual(cache.turns(eventsPath: paths[0]).count, 1)
     }
+
+    // MARK: - match
+
+    func test_match_without_prompt_index_takes_next_turn_after_last() {
+        let turns = [
+            GrokTurnStart(turnNumber: 0, atMs: 100),
+            GrokTurnStart(turnNumber: 1, atMs: 200),
+            GrokTurnStart(turnNumber: 2, atMs: 300),
+        ]
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: nil, after: nil), 100)
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: nil, after: 100), 200)
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: nil, after: 250), 300)
+        XCTAssertNil(GrokTurnStart.match(in: turns, promptIndex: nil, after: 300))
+    }
+
+    func test_match_repeated_turn_numbers_resolve_in_order() {
+        // A resumed session restarts its numbering.
+        let turns = [
+            GrokTurnStart(turnNumber: 0, atMs: 100),
+            GrokTurnStart(turnNumber: 1, atMs: 200),
+            GrokTurnStart(turnNumber: 0, atMs: 300),
+            GrokTurnStart(turnNumber: 1, atMs: 400),
+        ]
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: 0, after: nil), 100)
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: 1, after: 100), 200)
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: 0, after: 200), 300)
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: 1, after: 300), 400)
+        XCTAssertNil(GrokTurnStart.match(in: turns, promptIndex: 0, after: 300))
+        XCTAssertNil(GrokTurnStart.match(in: turns, promptIndex: 7, after: nil))
+    }
+
+    func test_match_never_reuses_an_equal_timestamp() {
+        let turns = [
+            GrokTurnStart(turnNumber: 0, atMs: 100),
+            GrokTurnStart(turnNumber: 1, atMs: 100),
+            GrokTurnStart(turnNumber: 1, atMs: 150),
+        ]
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: 1, after: 100), 150)
+        XCTAssertEqual(GrokTurnStart.match(in: turns, promptIndex: nil, after: 100), 150)
+    }
 }
 
 // MARK: - Source
@@ -207,6 +247,27 @@ extension GrokTurnTimelineTests {
             root: root, id: sessionID, cwd: project.path, chat: chat, events: events
         )
         return (AgentHistoryFixtures.grokSource(root: root), directory)
+    }
+
+    func test_prompt_without_index_between_numbered_prompts() throws {
+        let t0 = "2026-09-05T17:01:00.000Z"
+        let t1 = "2026-09-05T17:02:00.000Z"
+        let t2 = "2026-09-05T17:03:00.000Z"
+        let (source, _) = try makeSession(
+            chat: [
+                try AgentHistoryFixtures.grokChat("user", text: "first", promptIndex: 0),
+                try AgentHistoryFixtures.grokChat("assistant", text: "a"),
+                try AgentHistoryFixtures.grokChat("user", text: "follow-up without index"),
+                try AgentHistoryFixtures.grokChat("assistant", text: "b"),
+                try AgentHistoryFixtures.grokChat("user", text: "third", promptIndex: 2),
+                try AgentHistoryFixtures.grokChat("assistant", text: "c"),
+            ],
+            events: [try turn(0, t0), try turn(1, t1), try turn(2, t2)]
+        )
+
+        let batch = try AgentHistoryFixtures.grokIngest(source, id: sessionID)
+        XCTAssertEqual(batch.messages.map(\.text), ["first", "a", "follow-up without index", "b", "third", "c"])
+        XCTAssertEqual(batch.messages.map(\.atMs), [ms(t0), ms(t0) + 1, ms(t1), ms(t1) + 1, ms(t2), ms(t2) + 1])
     }
 
     func test_live_append_uses_appended_turn_start() throws {
