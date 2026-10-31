@@ -3,7 +3,8 @@ import Foundation
 /// Applying ingest batches, purges and the counts the indexer and status need.
 extension AgentHistoryStore {
     /// Writes one adapter batch atomically (its own transaction, or a savepoint inside the
-    /// caller's): upsert sessions (setting `unit_key`) → clear `replaceContentOf` → upsert
+    /// caller's): upsert sessions (setting `unit_key`; with `updatesExistingSessionsOnly`, only
+    /// stored sessions, `unit_key` kept) → clear `replaceContentOf` → upsert
     /// messages and artifacts → delete `removedNativeIDs` → recount turns of touched sessions.
     /// Messages and artifacts whose session is neither in the batch nor stored are dropped.
     @discardableResult
@@ -28,9 +29,12 @@ extension AgentHistoryStore {
             }
 
             for draft in batch.sessions {
+                if batch.updatesExistingSessionsOnly, try resolve(draft.nativeID) == nil {
+                    continue
+                }
                 let bounds = messageBounds[draft.nativeID]
                 let id = try upsertSession(
-                    sourceID: sourceID, unitKey: unitKey, draft,
+                    sourceID: sourceID, unitKey: batch.updatesExistingSessionsOnly ? nil : unitKey, draft,
                     firstMessageAtMs: bounds?.first, lastMessageAtMs: bounds?.last
                 )
                 rowIDs[draft.nativeID] = id

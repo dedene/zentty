@@ -88,6 +88,29 @@ final class AgentHistoryStoreIngestTests: XCTestCase {
                        "a removed session is not reported as touched")
     }
 
+    func test_update_only_batch_skips_unknown_sessions_and_keeps_unit_key() throws {
+        let index = AgentHistoryTestIndex(testCase: self)
+        let store = try index.makeStore()
+        let db = store.database
+        let sourceID = try index.makeSource(.codex, root: "/fixtures/codex")
+        try store.apply(F.batch(
+            sourceID: sourceID, unitKey: "rollout:a",
+            sessions: [F.session("a", title: "first ask")],
+            messages: [F.message("a", seq: 0, atMs: t, text: "first ask")]
+        ), sourceID: sourceID, unitKey: "rollout:a")
+
+        var batch = F.batch(
+            sourceID: sourceID, unitKey: "state",
+            sessions: [F.session("a", title: "Renamed", kind: .custom), F.session("b", title: "Never indexed", kind: .custom)]
+        )
+        batch.updatesExistingSessionsOnly = true
+        try store.apply(batch, sourceID: sourceID, unitKey: "state")
+
+        XCTAssertEqual(try db.query("SELECT native_id, title, unit_key FROM sessions") { [$0.string(0), $0.string(1), $0.string(2)] },
+                       [["a", "Renamed", "rollout:a"]])
+        XCTAssertEqual(try store.deleteSessions(sourceID: sourceID, unitKey: "state"), [])
+    }
+
     func test_apply_rolls_back_whole_batch_on_failure() throws {
         let index = AgentHistoryTestIndex(testCase: self)
         let store = try index.makeStore()

@@ -231,6 +231,10 @@ struct AgentHistoryIngestBatch: Sendable {
     /// Purge stored rows (became child, excluded or gone).
     var removedNativeIDs: Set<String> = []
     var rejected: [String: AgentHistoryAdmissionDecision] = [:]
+    /// Metadata-only batches from a catalog unit (Codex `state`): `sessions` only update rows that
+    /// are already stored and keep their `unit_key`, so the catalog never creates rows of its own
+    /// and never re-points a session away from the transcript unit that owns it.
+    var updatesExistingSessionsOnly = false
     /// Complete state to persist after this batch.
     var cursor: AgentHistoryCursor
     var hasMore: Bool

@@ -204,14 +204,16 @@ enum CodexTranscriptQuestionExtractor {
         return false
     }
 
-    private static func responsePayload(from object: [String: Any]) -> [String: Any]? {
+    /// The `payload` of a `response_item` record, else the record itself. Shared with Agent History.
+    static func responsePayload(from object: [String: Any]) -> [String: Any]? {
         if (object["type"] as? String) == "response_item" {
             return object["payload"] as? [String: Any]
         }
         return object
     }
 
-    private static func toolInput(fromArguments arguments: Any?) -> [String: Any]? {
+    /// Tool arguments as an object, decoding a JSON string when needed. Shared with Agent History.
+    static func toolInput(fromArguments arguments: Any?) -> [String: Any]? {
         if let dictionary = arguments as? [String: Any] {
             return dictionary
         }
