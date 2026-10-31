@@ -496,6 +496,7 @@
 		93C6376E7FFEF2FC641F4DCE /* FloatGeometryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFFD5CA764A873EAE678EA3 /* FloatGeometryStoreTests.swift */; };
 		942A7073EB30E8FDE967795E /* WorklaneHeaderSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E9E7AF610F36B91C077C324 /* WorklaneHeaderSummary.swift */; };
 		948FF3321AF5D47C542A2297 /* RemoteImagePasteDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE6082DFE772670E457EB1F4 /* RemoteImagePasteDecisionTests.swift */; };
+		949334574B1F7C9226825C24 /* FloatDockResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01726A5B582A472B53D0CE1F /* FloatDockResolver.swift */; };
 		94BBC28314AE0995D6D66069 /* AgentTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60ED50BB95D91FF371689ADA /* AgentTool.swift */; };
 		954386A2A2B7468FA9D1EA45 /* AgentIPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1762B3BE208D5BC1F3BDA20 /* AgentIPCProtocol.swift */; };
 		956645D7FA3810989313C3A7 /* CodexTitlePromotionReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172E7F852B70FDD655345CF4 /* CodexTitlePromotionReducer.swift */; };
@@ -763,6 +764,7 @@
 		E343BE3ED11F29B4B335DCEE /* ServerListenerScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91380A1B682CF707751392D2 /* ServerListenerScanner.swift */; };
 		E35D333286219155A79F8E92 /* GhosttyThemeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F182C0E58D8DC4249303AA /* GhosttyThemeResolver.swift */; };
 		E391420162BCB17C55D336B8 /* PaneAvailabilityCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91B028F86C560DC49D715AC /* PaneAvailabilityCounts.swift */; };
+		E3F8BF8D7AAFDEC2E775EBBC /* FloatDockResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC6E45D5B7D49498D05FC9F /* FloatDockResolverTests.swift */; };
 		E4446C6218C913AA4425740A /* DefaultWorklaneReviewCommandRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB0DBA0B81F5992DC657404 /* DefaultWorklaneReviewCommandRunnerTests.swift */; };
 		E445F2D11B56410F2C85C6F4 /* ClosedPaneRestoreCommandResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555A3E876B04160BA692FCFB /* ClosedPaneRestoreCommandResolverTests.swift */; };
 		E4DC3C68F7A49F94B7843556 /* FuzzyMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810F6A39773D41286D4D344F /* FuzzyMatcherTests.swift */; };
@@ -898,6 +900,7 @@
 		00BE7F5B8B9377313F695EAE /* FloatResizeMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatResizeMathTests.swift; sourceTree = "<group>"; };
 		00FE6D2FE3D589C3CEF772F6 /* PaneFocusHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusHistoryTests.swift; sourceTree = "<group>"; };
 		014F7BDC20BD640AC8D4273A /* PaneKeyNamesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneKeyNamesTests.swift; sourceTree = "<group>"; };
+		01726A5B582A472B53D0CE1F /* FloatDockResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatDockResolver.swift; sourceTree = "<group>"; };
 		017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanePresentationStateTests.swift; sourceTree = "<group>"; };
 		02126D22E8F87E9B608D3CB9 /* SidebarStatusResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarStatusResolver.swift; sourceTree = "<group>"; };
 		027478C5A85CA873AA3CB514 /* TerminalOverlaySession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOverlaySession.swift; sourceTree = "<group>"; };
@@ -1507,6 +1510,7 @@
 		BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsSectionViewController.swift; sourceTree = "<group>"; };
 		BF6932CD53AF150CC4656051 /* WorklaneSidebarSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneSidebarSummaryTests.swift; sourceTree = "<group>"; };
 		BF858A2AAD656DC571D60389 /* ProcessInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessInspection.swift; sourceTree = "<group>"; };
+		BFC6E45D5B7D49498D05FC9F /* FloatDockResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatDockResolverTests.swift; sourceTree = "<group>"; };
 		BFE28087CB8A8A0F579745CA /* PaneShellContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneShellContext.swift; sourceTree = "<group>"; };
 		BFF869D6D306AFE18589C8CF /* WorklaneStoreTeamAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreTeamAnchorTests.swift; sourceTree = "<group>"; };
 		C15A14BDE2EEBB8C5AA0F3DD /* TmuxCompatCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatCLITests.swift; sourceTree = "<group>"; };
@@ -1967,6 +1971,7 @@
 				1F9E5B2BD74C36092CA5F6B8 /* FloatContainerView.swift */,
 				4FE59C9498D424395EC021F1 /* FloatContainerView+Gestures.swift */,
 				7A2C55F6EE2780799D1DD2CC /* FloatDisplayName.swift */,
+				01726A5B582A472B53D0CE1F /* FloatDockResolver.swift */,
 				6B58A2409AE6C13ECD77F240 /* FloatDragSession.swift */,
 				FEDBA0948EBAE3E172B02AA7 /* FloatFrameRegion.swift */,
 				AFCBB189965EB11DACCAC6AB /* FloatGesture.swift */,
@@ -2719,6 +2724,7 @@
 				D8B61C65D9981C56285E4CC8 /* FloatConsumerSurfaceTests.swift */,
 				7B5BE380B4C8979B5594B93D /* FloatContainerViewTests.swift */,
 				09D5BD5D05F43E217B794FB1 /* FloatDisplayNameTests.swift */,
+				BFC6E45D5B7D49498D05FC9F /* FloatDockResolverTests.swift */,
 				3D88DAC388331DC567BC1CEB /* FloatDragSessionTests.swift */,
 				9858277C10DD7E5005F87B95 /* FloatFrameRegionTests.swift */,
 				307F192C57E0A93747963EB8 /* FloatGeometryPreferenceTests.swift */,
@@ -3264,6 +3270,7 @@
 				C31068BF39D01A42D646DF04 /* FloatConsumerSurfaceTests.swift in Sources */,
 				D7FE745F01C0D954F39E3272 /* FloatContainerViewTests.swift in Sources */,
 				9CCE7DF2531BA3BDC37B85EA /* FloatDisplayNameTests.swift in Sources */,
+				E3F8BF8D7AAFDEC2E775EBBC /* FloatDockResolverTests.swift in Sources */,
 				787FEB20F1A6331799563158 /* FloatDragSessionTests.swift in Sources */,
 				AA786504336797023E4C0C20 /* FloatFrameRegionTests.swift in Sources */,
 				436AE9FC2873BD130E369BB7 /* FloatGeometryPreferenceTests.swift in Sources */,
@@ -3631,6 +3638,7 @@
 				6140634B30E29BF65C3E34E8 /* FloatContainerView+Gestures.swift in Sources */,
 				D530995E435EEA21012DDCC1 /* FloatContainerView.swift in Sources */,
 				CCAB4C7721D68AF4F9D04479 /* FloatDisplayName.swift in Sources */,
+				949334574B1F7C9226825C24 /* FloatDockResolver.swift in Sources */,
 				57CD4D5D08246ADE7B530C3E /* FloatDragSession.swift in Sources */,
 				46567691EE6535EB7A8387DD /* FloatFrameRegion.swift in Sources */,
 				561899E84B2F4CEA1B31665C /* FloatGeometryPreference.swift in Sources */,

@@ -63,11 +63,13 @@ extension WorklaneStore {
     }
 
     /// Puts a float back into the strip. A temporary pane becomes persistent.
-    /// An unusable target (column gone, too little height) leaves it floating.
-    func dockPane(_ id: PaneID, target: FloatDockTarget) {
+    /// An unusable target (column gone, too little height) leaves it floating
+    /// and returns false.
+    @discardableResult
+    func dockPane(_ id: PaneID, target: FloatDockTarget) -> Bool {
         guard var worklane = activeWorklane,
               let floatIndex = worklane.floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
-            return
+            return false
         }
         let original = worklane
         let float = worklane.floatingPanes[floatIndex]
@@ -78,7 +80,7 @@ extension WorklaneStore {
             : layoutContext.newPaneWidth(existingPaneCount: previousColumnCount)
 
         guard insert(pane, into: &worklane.paneStripState, target: target, origin: float.origin) else {
-            return
+            return false
         }
         worklane.floatingPanes.remove(at: floatIndex)
         Self.compactFloatOrders(in: &worklane)
@@ -93,6 +95,7 @@ extension WorklaneStore {
             singleColumnWidth: layoutContext.singlePaneWidth
         )
         commitFloatChange(from: original, to: worklane)
+        return true
     }
 
     /// Opens a new pane directly as a float (never in the strip). Returns nil

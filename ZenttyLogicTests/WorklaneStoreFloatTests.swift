@@ -204,6 +204,42 @@ final class WorklaneStoreFloatTests: XCTestCase {
         XCTAssertEqual(stripIDs(store), ["a"])
     }
 
+    func test_dockPane_returns_false_and_keeps_float_for_vanished_target() {
+        let store = makeStore(tiles: ["a", "b"])
+        let id = addFloat(store)
+        let floatBefore = worklane(store).floatingPane(id: id)
+        let recorder = recordChanges(store)
+
+        let docked = store.dockPane(id, target: .split(target: PaneID("gone"), axis: .vertical, leading: true))
+
+        XCTAssertFalse(docked)
+        XCTAssertEqual(worklane(store).floatingPane(id: id), floatBefore, "the float is untouched")
+        XCTAssertEqual(stripIDs(store), ["a", "b"])
+        XCTAssertTrue(recorder.changes().isEmpty, "a refused dock notifies nothing")
+        withExtendedLifetime(recorder.subscription) {}
+    }
+
+    func test_dockPane_returns_true_when_docked() {
+        let store = makeStore(tiles: ["a"])
+        let id = addFloat(store)
+
+        XCTAssertTrue(store.dockPane(id, target: .columnGap(index: 1)))
+        XCTAssertEqual(stripIDs(store), ["a", id.rawValue])
+    }
+
+    func test_dock_split_keeps_pane_id_and_lifetime_promotion() {
+        let store = makeStore(tiles: ["a", "b"])
+        let id = addFloat(store, lifetime: .temporary(owner: PaneID("a"), placement: .pane, waitAfterCommand: false))
+
+        XCTAssertTrue(store.dockPane(id, target: .split(target: PaneID("b"), axis: .vertical, leading: false)))
+
+        let columnB = worklane(store).paneStripState.columns.first { $0.id == PaneColumnID("col_b") }
+        XCTAssertEqual(columnB?.panes.map(\.id), [PaneID("b"), id], "the same pane id lands below b")
+        XCTAssertFalse(worklane(store).isFloating(id))
+        XCTAssertEqual(worklane(store).auxiliaryStateByPaneID[id]?.lifetime, .persistent)
+        XCTAssertEqual(worklane(store).paneStripState.focusedPaneID, id)
+    }
+
     // MARK: - PiP
 
     func test_pip_defaults_to_bottom_right_and_drops_focus() {
