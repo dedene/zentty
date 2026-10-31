@@ -8866,6 +8866,38 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(try store.taskProgress(sessionID: "session-1"), expected)
     }
 
+    func test_claude_hook_post_tool_use_task_update_deleted_last_task_sends_complete_sentinel() throws {
+        let store = try makeClaudeHookSessionStore()
+        let environment = [
+            "ZENTTY_WORKLANE_ID": "worklane-main",
+            "ZENTTY_PANE_ID": "worklane-main-shell",
+        ]
+        try store.upsert(
+            sessionID: "session-1",
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("worklane-main-shell"),
+            cwd: "/tmp/project",
+            pid: 4242
+        )
+        _ = try store.updateTask(sessionID: "session-1", taskID: "1", subject: "Drop me", status: .pending)
+
+        let payload = try XCTUnwrap(
+            AgentEventBridge.claudeMakePayloads(
+                from: AgentEventBridge.claudeParseInput(Data(
+                    """
+                    {"hook_event_name":"PostToolUse","session_id":"session-1","tool_name":"TaskUpdate","tool_use_id":"toolu_1","tool_input":{"taskId":"1","status":"deleted"},"tool_response":{"success":true,"taskId":"1","updatedFields":["deleted"]}}
+                    """.utf8
+                )),
+                environment: environment,
+                sessionStore: store
+            ).first
+        )
+
+        // nil would read as "unchanged" and keep the stale list on screen.
+        XCTAssertEqual(payload.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 1))
+        XCTAssertNil(try store.taskProgress(sessionID: "session-1"))
+    }
+
     func test_claude_hook_task_update_without_status_keeps_existing_status() throws {
         let store = try makeClaudeHookSessionStore()
         try store.upsert(
