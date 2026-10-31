@@ -31,7 +31,13 @@ final class AgentHistoryDatabase: @unchecked Sendable {
     private var savepointDepth = 0
     private var progressHandlerBox: ProgressHandlerBox?
 
-    init(url: URL, mode: Mode, busyTimeoutMilliseconds: Int32, journalMode: JournalMode = .wal) throws {
+    convenience init(url: URL, mode: Mode, busyTimeoutMilliseconds: Int32, journalMode: JournalMode = .wal) throws {
+        try self.init(url: url, mode: mode, busyTimeoutMilliseconds: busyTimeoutMilliseconds,
+                      journalMode: journalMode, immutable: false)
+    }
+
+    /// `immutable` applies to `.externalReadOnly` only (see `openExternalReadOnly`).
+    private init(url: URL, mode: Mode, busyTimeoutMilliseconds: Int32, journalMode: JournalMode, immutable: Bool) throws {
         self.url = url
         self.mode = mode
 
@@ -45,7 +51,7 @@ final class AgentHistoryDatabase: @unchecked Sendable {
             target = Self.readOnlyURI(forPath: Self.pathWithResolvedParent(url))
             flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_NOFOLLOW
         case .externalReadOnly:
-            target = Self.readOnlyURI(forPath: url.path)
+            target = Self.readOnlyURI(forPath: url.path, immutable: immutable)
             flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
         }
         flags |= SQLITE_OPEN_EXRESCODE
@@ -87,8 +93,18 @@ final class AgentHistoryDatabase: @unchecked Sendable {
 
     /// Opens another program's database read-only (`mode=ro` URI): never creates the file,
     /// never sets `journal_mode`, never checkpoints. Keep read transactions short.
-    static func openExternalReadOnly(url: URL, busyTimeoutMilliseconds: Int32 = 250) throws -> AgentHistoryDatabase {
-        try AgentHistoryDatabase(url: url, mode: .externalReadOnly, busyTimeoutMilliseconds: busyTimeoutMilliseconds)
+    ///
+    /// `immutable` adds `immutable=1`: no locks, no `-wal`/`-shm`, and changes made by others while
+    /// open are not seen. It exists for WAL databases whose `-wal` is absent, which a plain
+    /// read-only connection cannot read; use it only through `readExternalSnapshot`, which
+    /// re-checks the file afterwards.
+    static func openExternalReadOnly(
+        url: URL,
+        busyTimeoutMilliseconds: Int32 = 250,
+        immutable: Bool = false
+    ) throws -> AgentHistoryDatabase {
+        try AgentHistoryDatabase(url: url, mode: .externalReadOnly, busyTimeoutMilliseconds: busyTimeoutMilliseconds,
+                                 journalMode: .wal, immutable: immutable)
     }
 
     deinit {
@@ -414,8 +430,8 @@ final class AgentHistoryDatabase: @unchecked Sendable {
         unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     }
 
-    static func readOnlyURI(forPath path: String) -> String {
-        "file:\(percentEncodedPath(path))?mode=ro"
+    static func readOnlyURI(forPath path: String, immutable: Bool = false) -> String {
+        "file:\(percentEncodedPath(path))?mode=ro" + (immutable ? "&immutable=1" : "")
     }
 
     /// `SQLITE_OPEN_NOFOLLOW` rejects a symlink anywhere in the path, and system locations such as
