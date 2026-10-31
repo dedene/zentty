@@ -171,6 +171,11 @@ final class OpenCodeHistoryFixture: @unchecked Sendable {
         )
     }
 
+    /// Runs arbitrary writes on the fixture connection.
+    func write(_ body: (AgentHistoryDatabase) throws -> Void) throws {
+        try body(try db)
+    }
+
     /// A `session_message` row whose `data` is written verbatim (malformed or odd JSON).
     func addRawSessionMessage(
         _ id: String, session: String, type: String, seq: Int, rawData: String, createdMs: Int64

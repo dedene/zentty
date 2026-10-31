@@ -6,16 +6,20 @@ import Foundation
 ///
 /// The whole database is one `.database` unit (`db`). Each `ingest` call does one step of a
 /// small state machine kept in `cursor.adapterState` (`OpenCodeHistoryAdapterState`):
-/// - **Full pass** (first run, `.fromStart`, or a stored rowid above the current maximum after a
-///   delete or VACUUM): sessions newest first by keyset over `(lastChange DESC, id DESC)`, with
+/// - **Full pass** (first run, `.fromStart`, missing or undecodable state, or a database file
+///   that was replaced): sessions newest first by keyset over `(lastChange DESC, id DESC)`, with
 ///   the target watermarks fixed when the pass starts; `sessionsPerBatch` sessions per call.
 /// - **Incremental poll**: sessions with rows past the rowid watermarks of `part`, `message` and
 ///   `session_message`, or a session row whose `time_updated` passed the watermark; plus the hot
 ///   set (sessions touched in the last 10 minutes), whose in-place updates keep their rowids and
 ///   are found by re-reading each one's newest `time_updated`.
-/// - **Reconcile** (every 15 minutes): a full `GROUP BY session_id` scan in 20k-rowid chunks,
-///   each its own read transaction, re-queues sessions whose newest change moved and removes
-///   sessions that are gone.
+/// - **Rowids went backwards** (opencode deleted its newest rows: undo/revert cleanup, deleting
+///   the latest session, or a VACUUM renumbering them): the watermarks drop to the current
+///   maxima, every hot session is re-read (the deleted rows most likely were its own), and the
+///   reconcile runs at once. No full pass.
+/// - **Reconcile** (every 15 minutes, or at once after rowids went backwards): a full
+///   `GROUP BY session_id` scan in 20k-rowid chunks, each its own read transaction, re-queues
+///   sessions whose newest change moved and removes sessions that are gone.
 ///
 /// Every ingested session is replaced whole (`replaceContentOf`). Messages are the union of both
 /// generations, deduped by message id (newer `time_updated` wins), in `(time_created, id)` order.
@@ -144,10 +148,15 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
             return batch
         }
 
-        if state.backfill == nil {
-            if let stored = state.watermarks, !stored.isAhead(of: current) {
+        if Self.isReplacement(of: cursor?.identity, by: identity) {
+            state.startFullPass(target: current)
+        } else if state.backfill == nil {
+            if let stored = state.watermarks {
                 state.enqueue(changed)
                 state.watermarks = current
+                if stored.isAhead(of: current) {
+                    state.lastReconcileAtMs = nil
+                }
             } else {
                 state.startFullPass(target: current)
             }
@@ -193,8 +202,19 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         case unsupported(String)
     }
 
+    /// A different file now sits at the database path (restored backup, re-created database):
+    /// nothing stored about the old one applies.
+    static func isReplacement(of stored: AgentHistoryFileIdentity?, by current: AgentHistoryFileIdentity?) -> Bool {
+        guard let stored, let current else {
+            return false
+        }
+        return stored.dev != current.dev || stored.ino != current.ino
+    }
+
     /// One snapshot: schema, current watermarks, and (when incremental) the changed and hot
-    /// sessions. Pure, so a retried snapshot cannot double-apply anything.
+    /// sessions. Pure, so a retried snapshot cannot double-apply anything. When rowids went
+    /// backwards, detection runs from the lower of the stored and current maxima per table, and
+    /// every hot session counts as changed.
     private func detect(url: URL, state: OpenCodeHistoryAdapterState, nowMs: Int64) throws -> Detection {
         try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
             let schema: OpenCodeHistorySchema
@@ -205,11 +225,17 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
                 schema = probed
             }
             let current = try OpenCodeHistoryQueries.watermarks(db, schema: schema)
-            guard state.backfill == nil, let stored = state.watermarks, !stored.isAhead(of: current) else {
+            guard state.backfill == nil, let stored = state.watermarks else {
                 return .supported(schema, current: current, changed: [])
             }
-            var changed = try OpenCodeHistoryQueries.changedSessionIDs(db, schema: schema, after: stored)
+            let wentBack = stored.isAhead(of: current)
+            var changed = try OpenCodeHistoryQueries.changedSessionIDs(db, schema: schema,
+                                                                       after: stored.clamped(to: current))
             for (id, last) in state.lastChange where last >= nowMs - Self.hotWindowMs && !changed.contains(id) {
+                if wentBack {
+                    changed.insert(id)
+                    continue
+                }
                 let latest = try OpenCodeHistoryQueries.lastChange(db, schema: schema, sessionID: id)
                 if latest.map({ $0 > last }) ?? true {
                     changed.insert(id)

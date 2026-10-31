@@ -52,12 +52,23 @@ struct OpenCodeHistoryWatermarks: Codable, Equatable, Sendable {
     var sessionMessageRowID: Int64 = 0
     var sessionUpdatedMs: Int64 = 0
 
-    /// A stored rowid above the current maximum: rows were deleted or the file was vacuumed,
-    /// so rowids are no longer a reliable "after" marker.
+    /// A stored rowid above the current maximum: the newest rows were deleted (or a VACUUM
+    /// renumbered them), and new rows may reuse rowids at or below the stored marks.
     func isAhead(of current: OpenCodeHistoryWatermarks) -> Bool {
         partRowID > current.partRowID
             || messageRowID > current.messageRowID
             || sessionMessageRowID > current.sessionMessageRowID
+    }
+
+    /// Per table, the lower of these marks and `current`: the "after" position that still finds
+    /// rows inserted past whichever maximum survived.
+    func clamped(to current: OpenCodeHistoryWatermarks) -> OpenCodeHistoryWatermarks {
+        OpenCodeHistoryWatermarks(
+            partRowID: min(partRowID, current.partRowID),
+            messageRowID: min(messageRowID, current.messageRowID),
+            sessionMessageRowID: min(sessionMessageRowID, current.sessionMessageRowID),
+            sessionUpdatedMs: min(sessionUpdatedMs, current.sessionUpdatedMs)
+        )
     }
 }
 

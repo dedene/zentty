@@ -279,29 +279,6 @@ final class OpenCodeHistorySourceTests: OpenCodeHistorySourceTestCase {
         XCTAssertEqual(texts(reconciled.batches, "ses_cold"), ["edited cold prompt", "late reply"])
     }
 
-    func test_vacuum_lower_rowid_forces_full_pass() throws {
-        let fixture = try OpenCodeHistoryFixture(testCase: self, v2: false)
-        let t = Self.t0 - Self.day
-        for index in 0..<3 {
-            let id = "ses_\(index)"
-            try fixture.addSession(id, createdMs: t + Int64(index), updatedMs: t + Int64(index))
-            try fixture.addMessage("msg_\(index)", session: id, role: "user", createdMs: t + Int64(index))
-            try fixture.addTextPart("prt_\(index)", message: "msg_\(index)", session: id, text: "prompt \(index)",
-                                    createdMs: t + Int64(index))
-        }
-        try fixture.addTextPart("prt_extra", message: "msg_2", session: "ses_2", text: "more", createdMs: t + 10)
-        let source = makeSource(fixture)
-        let (_, afterPass) = try drain(source)
-
-        try fixture.deletePart("prt_extra")
-        let state = OpenCodeHistoryAdapterState.decode(afterPass.adapterState)
-        XCTAssertNotNil(state.watermarks)
-        let rerun = try drain(source, cursor: afterPass)
-        XCTAssertEqual(Set(rerun.batches.flatMap(\.sessions).map(\.nativeID)), ["ses_0", "ses_1", "ses_2"])
-        XCTAssertEqual(texts(rerun.batches, "ses_2"), ["prompt 2"])
-        XCTAssertNil(OpenCodeHistoryAdapterState.decode(rerun.cursor.adapterState).backfill, "the pass completed")
-    }
-
     func test_backfill_keyset_newest_first() throws {
         let fixture = try OpenCodeHistoryFixture(testCase: self, v2: false)
         let t = Self.t0 - Self.day
