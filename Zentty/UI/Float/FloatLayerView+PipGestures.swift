@@ -99,6 +99,7 @@ extension FloatLayerView {
             guard pip.swipeOffset != .zero else { return }
             settlePip(pip, velocity: .zero)
         case .bounce(let toward):
+            onPipTouched?(paneID)
             guard !reduceMotion else {
                 settlePip(pip, velocity: .zero)
                 return
@@ -118,6 +119,7 @@ extension FloatLayerView {
     private func movePip(_ pip: PipContainerView, to corner: FloatCorner, velocity: CGVector) {
         let paneID = pip.paneID
         let visible = pip.frame
+        onPipTouched?(paneID)
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak pip] in
             pip?.layer?.zPosition = 0

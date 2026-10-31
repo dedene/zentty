@@ -15,6 +15,9 @@ final class FloatLayerView: NSView {
     var onPipClicked: ((PaneID) -> Void)?
     /// A dragged or swiped PiP asks for a corner (see +PipGestures).
     var onPipMoveRequested: ((PaneID, FloatCorner) -> Void)?
+    /// The user dragged, flicked or bounced a PiP (wherever it ends up), so
+    /// an auto-popped PiP stays put once its agent moves on.
+    var onPipTouched: ((PaneID) -> Void)?
     var onFloatActionRequested: ((PaneID, PaneBorderAction) -> Void)?
     /// A move/resize/throw gesture ended; the canvas is the layer's bounds
     /// (normalize the frames against it). `.click` needs no store change.

@@ -343,6 +343,9 @@ final class RootViewController: NSViewController {
             programStatusEnabledProvider: { [weak configStore] in
                 configStore?.current.panes.programStatusEnabled ?? true
             },
+            autoPopNeedsInputProvider: { [weak configStore] in
+                configStore?.current.floats.autoPopNeedsInput ?? true
+            },
             claudeHookSessionStoreProvider: { ClaudeHookSessionStore() }
         )
         self.peekController = WorklanePeekController(
@@ -740,6 +743,13 @@ final class RootViewController: NSViewController {
             }
 
             switch change {
+            case .paneStructure, .worklaneListChanged, .activeWorklaneChanged, .floats:
+                self.updateFloatVisibilityChromeState()
+            default:
+                break
+            }
+
+            switch change {
             case .paneStructure, .worklaneListChanged:
                 self.remotePaste.cancelUploadsForRemovedPanes()
                 if self.isGlobalSearchSessionActive {
@@ -848,6 +858,9 @@ final class RootViewController: NSViewController {
         }
         floatLayer.onPipMoveRequested = { [weak self] paneID, corner in
             self?.worklaneStore.movePip(paneID, to: corner)
+        }
+        floatLayer.onPipTouched = { [weak self] paneID in
+            self?.worklaneStore.markFloatTouched(paneID)
         }
         floatLayer.onFloatActionRequested = { [weak self] paneID, action in
             self?.handlePaneBorderAction(action, paneID: paneID)
@@ -1432,11 +1445,15 @@ final class RootViewController: NSViewController {
         windowChromeView.onServerMenuAction = { [weak self] in
             self?.onServerMenuRequested?()
         }
+        windowChromeView.onFloatVisibilityToggle = { [weak self] in
+            self?.routeToggleFloatsHidden()
+        }
         windowChromeView.onRefreshPullRequestStatus = { [weak self] in
             self?.handle(.refreshPullRequestStatus, syncingFocusWith: nil)
         }
         updateOpenWithChromeState()
         updateServerChromeState()
+        updateFloatVisibilityChromeState()
         serverCommands.schedulePassiveServerDetectionRefresh()
     }
 
@@ -2828,6 +2845,10 @@ final class RootViewController: NSViewController {
             appCanvasView
         }
 
+        var windowChromeViewForTesting: WindowChromeView {
+            windowChromeView
+        }
+
         var peekControllerForTesting: WorklanePeekController {
             peekController
         }
@@ -3172,6 +3193,11 @@ final class RootViewController: NSViewController {
                 isPrimaryEnabled: canOpenFocusedPane,
                 isMenuEnabled: true
             ))
+    }
+
+    /// Title-bar hide-all capsule: floats + PiPs of the active worklane.
+    private func updateFloatVisibilityChromeState() {
+        windowChromeView.render(floatVisibility: FloatVisibilityCapsuleState(worklane: worklaneStore.activeWorklane))
     }
 
     private func updateServerChromeState() {

@@ -313,6 +313,14 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = Agents(forkDestination: .default)
     }
 
+    /// Floating panes, PiPs and pills.
+    struct Floats: Equatable, Sendable {
+        /// Pop a minimized pane up as a PiP while its agent needs input.
+        var autoPopNeedsInput: Bool
+
+        static let `default` = Floats(autoPopNeedsInput: true)
+    }
+
     struct MenuBar: Equatable, Sendable {
         var showStatusItem: Bool
 
@@ -361,6 +369,7 @@ struct AppConfig: Equatable, Sendable {
     var menuBar: MenuBar
     var agentIntegrations: AgentIntegrations
     var agents: Agents = .default
+    var floats: Floats = .default
     /// config.toml content this build doesn't model, kept so saves don't drop it.
     var preservedTOML: AppConfigPreservedTOML = .empty
 

@@ -434,6 +434,9 @@ final class WorklaneStore {
     private let serverDetectionProvider: @MainActor () -> AppConfig.ServerDetection
     /// `panes.program_status`: whether OSC 9;4 sets a program status.
     let programStatusEnabledProvider: @MainActor () -> Bool
+    /// `floats.auto_pop_needs_input`: whether a pill pops up as a PiP while
+    /// its agent needs input.
+    let autoPopNeedsInputProvider: @MainActor () -> Bool
     /// Reaches the Claude hook bridge's on-disk session store so in-app
     /// resumes (spinner title after a prompt) can drop the pending prompt the
     /// bridge remembered. `nil` (tests, previews) leaves the store alone.
@@ -484,6 +487,12 @@ final class WorklaneStore {
 
     /// Reentrancy guard for `reconcileOverlayFloats`, which runs from `notify`.
     var isReconcilingOverlayFloats = false
+
+    /// Floats last seen needing input. Auto-pop acts on the edges: a float
+    /// joining this set may pop, one leaving it may go back to its pill.
+    var autoPopNeedsInputPaneIDs: Set<PaneID> = []
+    /// Reentrancy guard for `reconcileAutoPop`, which runs from `notify`.
+    var isReconcilingAutoPop = false
 
     /// Overlay floats opened out of sight with `--notify`, shown by the first
     /// navigation to their owner.
@@ -541,6 +550,7 @@ final class WorklaneStore {
         agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false },
         serverDetectionProvider: @escaping @MainActor () -> AppConfig.ServerDetection = { .default },
         programStatusEnabledProvider: @escaping @MainActor () -> Bool = { true },
+        autoPopNeedsInputProvider: @escaping @MainActor () -> Bool = { true },
         claudeHookSessionStoreProvider: @escaping @MainActor () -> ClaudeHookSessionStore? = { nil }
     ) {
         self.windowID = windowID
@@ -560,6 +570,7 @@ final class WorklaneStore {
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.serverDetectionProvider = serverDetectionProvider
         self.programStatusEnabledProvider = programStatusEnabledProvider
+        self.autoPopNeedsInputProvider = autoPopNeedsInputProvider
         self.claudeHookSessionStoreProvider = claudeHookSessionStoreProvider
         self.runtimeIdentity = runtimeIdentity
         self.serverRegistry = serverRegistry
@@ -584,6 +595,7 @@ final class WorklaneStore {
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
+        seedAutoPopNeedsInput()
 
         focusHistoryController.onChange = { [weak self] in
             self?.notify(.historyChanged)
@@ -2451,6 +2463,7 @@ final class WorklaneStore {
         normalizeAllPanePresentationState()
         refreshLastFocusedLocalWorkingDirectory()
         refreshAllPaneGitContexts()
+        seedAutoPopNeedsInput()
         notify(.worklaneListChanged)
     }
     #endif
@@ -2732,6 +2745,11 @@ final class WorklaneStore {
             // Before subscribers render: an overlay whose owner just left
             // closes, follows or re-anchors in the same pass.
             reconcileOverlayFloats()
+        }
+        if Self.mayChangeAutoPop(change) {
+            // Before subscribers render, like the overlay pass: a pill that
+            // pops (or a PiP that goes back) lands in the same pass.
+            reconcileAutoPop()
         }
         for subscriber in subscribers {
             subscriber.handler(change)

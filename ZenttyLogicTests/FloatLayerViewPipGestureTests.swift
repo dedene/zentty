@@ -152,12 +152,15 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         let start = CGPoint(x: resting.midX, y: resting.midY)
         var settled: [FloatCorner] = []
         layer.onPipSettledForTesting = { settled.append($1) }
+        var touched: [PaneID] = []
+        layer.onPipTouched = { touched.append($0) }
 
         pip.mouseDown(with: mouse(.leftMouseDown, at: start))
         pip.mouseDragged(with: mouse(.leftMouseDragged, at: start.offsetBy(dx: -40, dy: 30), after: 0.2))
         pip.mouseUp(with: mouse(.leftMouseUp, at: start.offsetBy(dx: -40, dy: 30), after: 0.3))
 
         XCTAssertTrue(moveRequests.isEmpty, "same corner: nothing to ask the store")
+        XCTAssertEqual(touched, [pipID], "a drag home still counts as the user touching it")
         XCTAssertEqual(settled, [.bottomRight])
         assertFrame(pip.frame, resting)
         XCTAssertFalse(pip.isLifted)
@@ -226,12 +229,15 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
     }
 
     func test_swipe_toward_a_wall_bounces() throws {
-        let (_, pip) = try makePip()
+        let (layer, pip) = try makePip()
+        var touched: [PaneID] = []
+        layer.onPipTouched = { touched.append($0) }
 
         pip.handleSwipe(swipe(.began, fingerDX: 40))
         pip.handleSwipe(swipe(.changed, fingerDX: 40))
 
         XCTAssertTrue(moveRequests.isEmpty)
+        XCTAssertEqual(touched, [pipID])
         XCTAssertEqual(pip.swipeOffset, .zero)
         let bounce = try XCTUnwrap(pip.layer?.animation(forKey: FloatLayerView.settleAnimationKey) as? CAKeyframeAnimation)
         let peak = try XCTUnwrap((bounce.values?[1] as? NSValue)?.caTransform3DValue)
@@ -239,8 +245,10 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
     }
 
     func test_lifting_below_the_threshold_springs_back() throws {
-        let (_, pip) = try makePip()
+        let (layer, pip) = try makePip()
         let resting = pip.frame
+        var touched: [PaneID] = []
+        layer.onPipTouched = { touched.append($0) }
 
         pip.handleSwipe(swipe(.began, fingerDX: -30))
         pip.handleSwipe(swipe(.ended))
@@ -248,6 +256,7 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         assertFrame(pip.frame, resting)
         XCTAssertTrue(pip.layer?.animation(forKey: FloatLayerView.settleAnimationKey) is CASpringAnimation)
         XCTAssertTrue(moveRequests.isEmpty)
+        XCTAssertTrue(touched.isEmpty, "an aborted swipe is not a touch")
     }
 
     func test_reduce_motion_swipe_has_no_rubber_band_or_bounce_but_still_flicks() throws {
