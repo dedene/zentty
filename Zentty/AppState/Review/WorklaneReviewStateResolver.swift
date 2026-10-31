@@ -240,7 +240,7 @@ final class WorklaneReviewStateResolver {
         update: @escaping (PaneID, WorklaneReviewResolution) -> Void
     ) {
         for worklane in worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 guard
                     let repoRoot = auxiliaryState?.presentation.repoRoot,
@@ -313,7 +313,7 @@ final class WorklaneReviewStateResolver {
         var updates: [PaneID: WorklaneReviewResolution] = [:]
 
         for worklane in worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 guard
                     let repoRoot = auxiliaryState?.presentation.repoRoot,

@@ -22,7 +22,7 @@ struct CloseConfirmationSelectionSnapshot: Equatable, Sendable {
         }
         return CloseConfirmationSelectionSnapshot(
             worklaneID: worklane.id,
-            paneID: worklane.paneStripState.focusedPaneID
+            paneID: worklane.focusedPaneID
         )
     }
 
@@ -34,11 +34,11 @@ struct CloseConfirmationSelectionSnapshot: Equatable, Sendable {
         }
 
         let paneStillExists = paneID.map { id in
-            worklane.paneStripState.panes.contains { $0.id == id }
+            worklane.containsPane(id: id)
         } ?? false
 
         if activeWorklaneID == worklaneID {
-            guard let paneID, paneStillExists, worklane.paneStripState.focusedPaneID != paneID else {
+            guard let paneID, paneStillExists, worklane.focusedPaneID != paneID else {
                 return .none
             }
             return .selectWorklaneAndFocusPane(worklaneID, paneID)

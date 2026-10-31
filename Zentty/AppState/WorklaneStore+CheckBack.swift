@@ -4,7 +4,7 @@ import Foundation
 /// survives until the pane is visited again (#76).
 extension WorklaneStore {
     func unreadToggle(for paneID: PaneID) -> PaneUnreadToggle? {
-        guard let index = checkBackWorklaneIndex(for: paneID),
+        guard let index = worklaneIndex(containingPane: paneID),
               let presentation = worklanes[index].auxiliaryStateByPaneID[paneID]?.presentation
         else {
             return nil
@@ -17,7 +17,7 @@ extension WorklaneStore {
     @discardableResult
     func toggleUnread(paneID: PaneID) -> Bool {
         guard let toggle = unreadToggle(for: paneID),
-              let index = checkBackWorklaneIndex(for: paneID)
+              let index = worklaneIndex(containingPane: paneID)
         else {
             return false
         }
@@ -27,7 +27,7 @@ extension WorklaneStore {
         switch toggle {
         case .markUnread:
             let isCurrentVisit = worklane.id == activeWorklaneID
-                && worklane.paneStripState.focusedPaneID == paneID
+                && worklane.focusedPaneID == paneID
             worklane.auxiliaryStateByPaneID[paneID]?.raw.checkBackReminder =
                 PaneCheckBackReminder(hasLeftPane: !isCurrentVisit)
             recomputePresentation(for: paneID, in: &worklane)
@@ -44,7 +44,7 @@ extension WorklaneStore {
     /// leaving a marked pane arms it, and returning to an armed pane clears it.
     func reconcileCheckBackVisits() {
         let markedPanes = worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.compactMap { pane in
+            worklane.allPanes.compactMap { pane in
                 worklane.auxiliaryStateByPaneID[pane.id]?.raw.checkBackReminder == nil
                     ? nil
                     : PaneReference(worklaneID: worklane.id, paneID: pane.id)
@@ -60,7 +60,7 @@ extension WorklaneStore {
             }
 
             let isCurrentVisit = reference.worklaneID == activeWorklaneID
-                && worklanes[index].paneStripState.focusedPaneID == reference.paneID
+                && worklanes[index].focusedPaneID == reference.paneID
             if !isCurrentVisit {
                 if !reminder.hasLeftPane {
                     worklanes[index].auxiliaryStateByPaneID[reference.paneID]?.raw.checkBackReminder?.hasLeftPane = true
@@ -106,10 +106,6 @@ extension WorklaneStore {
         if !impacts.isEmpty {
             notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
         }
-    }
-
-    private func checkBackWorklaneIndex(for paneID: PaneID) -> Int? {
-        worklanes.firstIndex { $0.paneStripState.panes.contains { $0.id == paneID } }
     }
 }
 

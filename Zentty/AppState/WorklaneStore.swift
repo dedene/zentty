@@ -1476,7 +1476,7 @@ final class WorklaneStore {
 
     /// Pane data (title, session request) changed in place: the strip renders
     /// on `.paneStructure`, the float layer on `.floats`.
-    private func notifyPaneDataChanged(_ paneID: PaneID, in worklane: WorklaneState) {
+    func notifyPaneDataChanged(_ paneID: PaneID, in worklane: WorklaneState) {
         batchUpdate {
             notify(.paneStructure(worklane.id))
             if worklane.isFloating(paneID) {

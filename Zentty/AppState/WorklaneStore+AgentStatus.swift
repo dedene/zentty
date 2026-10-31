@@ -69,9 +69,7 @@ final class AgentSessionSweepContext {
 
 extension WorklaneStore {
     func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 
@@ -366,9 +364,7 @@ extension WorklaneStore {
     }
 
     func applyAgentStatusPayload(_ payload: AgentStatusPayload) {
-        let ownsPayloadPane = worklanes.contains { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
-        }
+        let ownsPayloadPane = self.worklaneIndex(containingPane: payload.paneID) != nil
         if let payloadWindowID = payload.windowID, payloadWindowID != windowID, !ownsPayloadPane {
             return
         }
@@ -388,12 +384,10 @@ extension WorklaneStore {
         let worklaneIndex: Int
         if let exact = worklanes.firstIndex(where: { worklane in
             worklane.id == payload.worklaneID
-                && worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
+                && worklane.containsPane(id: payload.paneID)
         }) {
             worklaneIndex = exact
-        } else if let fallback = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == payload.paneID })
-        }) {
+        } else if let fallback = self.worklaneIndex(containingPane: payload.paneID) {
             worklaneStoreLogger.debug(
                 "Agent status fallback routing payload pane=\(payload.paneID.rawValue, privacy: .public) payloadWorklane=\(payload.worklaneID.rawValue, privacy: .public) actualWorklane=\(self.worklanes[fallback].id.rawValue, privacy: .public)"
             )
@@ -660,7 +654,7 @@ extension WorklaneStore {
                     } else if Self.shouldClearRestoredAgentRestoreDraftOnCommandRunning(
                         restoredDraft: restoredDraft,
                         payload: payload,
-                        pane: worklane.paneStripState.panes.first { $0.id == payload.paneID },
+                        pane: worklane.pane(id: payload.paneID),
                         auxiliaryState: auxiliaryState
                     ) {
                         auxiliaryState.raw.restoredAgentRestoreDraft = nil
@@ -1442,7 +1436,7 @@ extension WorklaneStore {
         }
 
         let isActivelyViewed = worklane.id == activeWorklaneID
-            && worklane.paneStripState.focusedPaneID == paneID
+            && worklane.focusedPaneID == paneID
         let shellActivity = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.shellActivityState.rawValue ?? "unknown"
         let progressState = worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress?.state
         let progressLabel = progressState.map(String.init(describing:)) ?? "none"

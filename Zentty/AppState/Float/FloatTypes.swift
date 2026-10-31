@@ -63,6 +63,15 @@ enum FloatingPaneMode: Equatable, Sendable {
         if case .floating = self { return true }
         return false
     }
+
+    /// Stable wire name (`floating`, `pip`, `minimized`) for IPC and CLI output.
+    var wireName: String {
+        switch self {
+        case .floating: "floating"
+        case .pip: "pip"
+        case .minimized: "minimized"
+        }
+    }
 }
 
 /// A pane that lives outside the strip. Owns its `PaneState`; the pane's

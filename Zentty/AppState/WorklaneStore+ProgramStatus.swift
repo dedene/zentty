@@ -91,9 +91,7 @@ extension WorklaneStore {
     }
 
     func dropStaleProgramStatus(for paneID: PaneID) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }),
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID),
             let auxiliaryState = worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID],
             auxiliaryState.raw.programStatus?.isStale(now: currentDateProvider()) == true
         else {

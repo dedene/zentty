@@ -6,6 +6,12 @@ import Foundation
 /// duplicating a focused float.
 extension WorklaneStore {
 
+    /// Index of the worklane holding `paneID` as a tile or a float.
+    /// Non-allocating; safe on the metadata/terminal-event hot paths.
+    func worklaneIndex(containingPane paneID: PaneID) -> Int? {
+        worklanes.firstIndex { $0.containsPane(id: paneID) }
+    }
+
     /// The canvas the store assumes for float geometry it derives itself
     /// (e.g. the duplicate offset). Width is the strip viewport; height is the
     /// pane viewport once known. Frames are stored normalized, so only the
@@ -51,19 +57,46 @@ extension WorklaneStore {
     /// Opens a copy of float `sourceID` (same cwd and command) as a new float,
     /// offset down-right from it, focused.
     func duplicateFloat(_ sourceID: PaneID) {
-        guard var worklane = activeWorklane,
-              let source = worklane.floatingPane(id: sourceID),
+        guard let worklane = activeWorklane,
               let info = duplicateSourceInfo(for: sourceID, in: worklane) else {
             return
         }
-        let original = worklane
-        let pane = makePaneWithDirectory(
-            in: &worklane,
-            existingPaneCount: worklane.paneStripState.columns.count,
+        openFloat(
+            besideFloat: sourceID,
+            in: worklane.id,
             workingDirectory: info.workingDirectory,
             sourceShellContext: info.shellContext,
             command: info.command
         )
+    }
+
+    /// Opens a new focused `.floating` pane offset down-right from float
+    /// `sourceID` in worklane `worklaneID` (active or not). `configure` runs
+    /// on the new pane before it is stored. Returns nil when the source is
+    /// not a float in that worklane.
+    @discardableResult
+    func openFloat(
+        besideFloat sourceID: PaneID,
+        in worklaneID: WorklaneID,
+        workingDirectory: String?,
+        sourceShellContext: PaneShellContext?,
+        command: String?,
+        configure: (inout PaneState) -> Void = { _ in }
+    ) -> PaneID? {
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == worklaneID }),
+              let source = worklanes[worklaneIndex].floatingPane(id: sourceID) else {
+            return nil
+        }
+        let original = worklanes[worklaneIndex]
+        var worklane = original
+        var pane = makePaneWithDirectory(
+            in: &worklane,
+            existingPaneCount: worklane.paneStripState.columns.count,
+            workingDirectory: workingDirectory,
+            sourceShellContext: sourceShellContext,
+            command: command
+        )
+        configure(&pane)
         let canvas = floatCanvasEstimate
         let frame = FloatLayout.splitOffsetFrame(from: source.floatFrame.resolved(in: canvas), canvas: canvas)
         worklane.floatingPanes.append(
@@ -77,6 +110,12 @@ extension WorklaneStore {
         )
         worklane.floatsHidden = false
         worklane.focusedFloatID = pane.id
-        commitFloatChange(from: original, to: worklane)
+        if worklaneID == activeWorklaneID {
+            commitFloatChange(from: original, to: worklane)
+        } else {
+            worklanes[worklaneIndex] = worklane
+            notify(.floats(worklaneID))
+        }
+        return pane.id
     }
 }

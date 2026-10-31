@@ -16,6 +16,16 @@ extension WorklaneState {
         return floatingPane(id: id)?.pane
     }
 
+    /// Non-allocating membership check over strip columns and floats. Prefer
+    /// this over `allPanes.contains` / `pane(id:) != nil` on hot paths
+    /// (metadata, terminal events, agent status routing).
+    func containsPane(id: PaneID) -> Bool {
+        for column in paneStripState.columns where column.panes.contains(where: { $0.id == id }) {
+            return true
+        }
+        return floatingPanes.contains { $0.pane.id == id }
+    }
+
     func floatingPane(id: PaneID) -> FloatingPaneState? {
         floatingPanes.first { $0.pane.id == id }
     }

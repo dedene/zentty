@@ -130,7 +130,7 @@ enum TmuxCompatTopologyBuilder {
             )
             let split = TmuxTopology.splittingPaneGroups(
                 window,
-                focusedPaneID: worklane.paneStripState.focusedPaneID?.rawValue,
+                focusedPaneID: worklane.focusedPaneID?.rawValue,
                 groupOf: state.paneGroup(for:),
                 groupNumber: state.windowNumber(for:),
                 nextGroupIndex: &nextGroupIndex
@@ -162,40 +162,50 @@ enum TmuxCompatTopologyBuilder {
         state: TmuxCompatSessionState
     ) -> TmuxTopology.Window {
         let strip = worklane.paneStripState
-        let knownActive = activePaneID.flatMap { id in strip.panes.contains(where: { $0.id.rawValue == id }) ? id : nil }
-        let resolvedActive = knownActive ?? strip.focusedPaneID?.rawValue
+        let knownActive = activePaneID.flatMap { id in worklane.containsPane(id: PaneID(id)) ? id : nil }
+        let resolvedActive = knownActive ?? worklane.focusedPaneID?.rawValue
 
         var panes: [TmuxTopology.Pane] = []
+        func appendPane(_ pane: PaneState, left: Int, top: Int) -> (columns: Int, rows: Int) {
+            let grid = windowController.terminalGridSize(for: pane.id) ?? fallbackGridSize
+            let auxiliary = worklane.auxiliaryStateByPaneID[pane.id]
+            panes.append(TmuxTopology.Pane(
+                id: pane.id.rawValue,
+                number: state.paneNumber(for: pane.id.rawValue),
+                index: panes.count,
+                title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
+                workingDirectory: auxiliary?.shellContext?.path ?? pane.sessionRequest.workingDirectory,
+                isActive: pane.id.rawValue == resolvedActive,
+                pid: state.pinnedPanePID(for: pane.id.rawValue, observed: auxiliary?.raw.paneRootPID),
+                columns: grid.columns,
+                rows: grid.rows,
+                left: left,
+                top: top,
+                startCommand: state.startCommand(for: pane.id.rawValue) ?? pane.sessionRequest.command ?? "",
+                isLaunchDeferred: pane.sessionRequest.isLaunchDeferred
+            ))
+            return grid
+        }
+
         var left = 0
         var windowRows = 0
         for column in strip.columns {
             var top = 0
             var columnCells = 0
             for pane in column.panes {
-                let grid = windowController.terminalGridSize(for: pane.id) ?? fallbackGridSize
-                let columns = grid.columns
-                let rows = grid.rows
-                let auxiliary = worklane.auxiliaryStateByPaneID[pane.id]
-                panes.append(TmuxTopology.Pane(
-                    id: pane.id.rawValue,
-                    number: state.paneNumber(for: pane.id.rawValue),
-                    index: panes.count,
-                    title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
-                    workingDirectory: auxiliary?.shellContext?.path ?? pane.sessionRequest.workingDirectory,
-                    isActive: pane.id.rawValue == resolvedActive,
-                    pid: state.pinnedPanePID(for: pane.id.rawValue, observed: auxiliary?.raw.paneRootPID),
-                    columns: columns,
-                    rows: rows,
-                    left: left,
-                    top: top,
-                    startCommand: state.startCommand(for: pane.id.rawValue) ?? pane.sessionRequest.command ?? "",
-                    isLaunchDeferred: pane.sessionRequest.isLaunchDeferred
-                ))
-                top += rows + 1
-                columnCells = max(columnCells, columns)
+                let grid = appendPane(pane, left: left, top: top)
+                top += grid.rows + 1
+                columnCells = max(columnCells, grid.columns)
             }
             windowRows = max(windowRows, max(top - 1, 0))
             left += columnCells + 1
+        }
+        // Floats have no grid position; each gets a synthetic trailing column
+        // so list-panes and target resolution still see them as alive.
+        for float in worklane.floatingPanes {
+            let grid = appendPane(float.pane, left: left, top: 0)
+            windowRows = max(windowRows, grid.rows)
+            left += grid.columns + 1
         }
 
         return TmuxTopology.Window(

@@ -6,7 +6,7 @@ enum WorklaneAttentionSummaryBuilder {
     }
 
     static func summaries(for worklane: WorklaneState) -> [WorklaneAttentionSummary] {
-        worklane.paneStripState.panes
+        worklane.allPanes
             .compactMap { pane in
                 summary(for: pane, in: worklane)
             }
