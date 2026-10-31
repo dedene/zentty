@@ -6,7 +6,9 @@ import Foundation
 /// 2. rejected cursor: same dev/ino → `.unchanged`, else `.new`
 /// 3. dev/ino differ (or no stored identity) → `.rewrite`
 /// 4. file shorter than the read offset → `.rewrite`
-/// 5. same size and mtime → `.unchanged`
+/// 5. same size and mtime, and the read offset reached that size → `.unchanged`. A cursor
+///    that stopped short (batch limit hit, then the app quit before the continuation ran)
+///    falls through, so the rest of the file is read even if the agent never writes again.
 /// 6. read offset > 0 and the bytes before it changed (fingerprint) → `.rewrite`
 /// 7. otherwise → `.append(fromOffset: byteOffset, nextSeq:)` (a 0-byte append refreshes metadata)
 ///
@@ -35,7 +37,7 @@ enum AgentHistoryUnitChangeClassifier {
         if current.size < cursor.byteOffset {
             return .rewrite
         }
-        if current.size == stored.size, current.mtimeNs == stored.mtimeNs {
+        if current.size == stored.size, current.mtimeNs == stored.mtimeNs, cursor.byteOffset >= current.size {
             return .unchanged
         }
         if cursor.byteOffset > 0, fingerprintAtCursor() != cursor.fingerprint {

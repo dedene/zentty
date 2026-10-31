@@ -62,6 +62,20 @@ final class AgentHistoryUnitChangeClassifierTests: XCTestCase {
         XCTAssertEqual(fingerprintCalls, 0, "unchanged files are never read")
     }
 
+    func test_partially_read_unchanged_file_resumes_from_offset() {
+        // Batch 1 of a large file was committed (cursor short of the stat'ed size) and the
+        // continuation was lost on quit: the file must resume, not be treated as done.
+        let stored = identity(size: 10_000_000, mtimeNs: 1_000)
+        let change = classify(cursor(identity: stored, byteOffset: 8_000_000, nextSeq: 500), stored)
+        XCTAssertEqual(change, .append(fromOffset: 8_000_000, nextSeq: 500))
+
+        // The bytes before the offset changed under the same identity: still a rewrite.
+        XCTAssertEqual(
+            classify(cursor(identity: stored, byteOffset: 8_000_000, nextSeq: 500), stored, fingerprint: 7),
+            .rewrite
+        )
+    }
+
     func test_same_size_new_mtime_is_zero_byte_append() {
         let stored = identity(size: 100, mtimeNs: 1_000)
         let change = classify(cursor(identity: stored, byteOffset: 100, nextSeq: 3), identity(size: 100, mtimeNs: 5_000))
