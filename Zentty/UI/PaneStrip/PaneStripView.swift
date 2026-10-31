@@ -162,6 +162,13 @@ final class PaneStripView: NSView {
             renderCurrentState(currentState, animated: false)
         }
     }
+    /// Set while a float owns keyboard focus: no strip pane draws as focused
+    /// or takes first responder. Applied on the next render (no re-render of
+    /// its own, so it can be set right before an animated render).
+    var floatHoldsFocus = false
+    private var hidesFocusEmphasis: Bool {
+        suppressesFocusEmphasis || floatHoldsFocus
+    }
     private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
     private var pendingHoverFocusWorkItem: DispatchWorkItem?
@@ -1319,7 +1326,7 @@ final class PaneStripView: NSView {
             paneView.render(
                 pane: pane,
                 emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
+                isFocused: panePresentation.isFocused && !hidesFocusEmphasis,
                 borderContext: currentShowsPaneLabels
                     ? currentPaneBorderContextByPaneID[panePresentation.paneID]
                     : nil,
@@ -1408,7 +1415,7 @@ final class PaneStripView: NSView {
                     width: panePresentation.frame.width,
                     height: panePresentation.frame.height,
                     emphasis: panePresentation.emphasis,
-                    isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
+                    isFocused: panePresentation.isFocused && !hidesFocusEmphasis,
                     runtime: runtime,
                     theme: currentTheme,
                     initialViewportSyncSuspended: startsWithViewportSyncSuspended,
@@ -1667,6 +1674,15 @@ final class PaneStripView: NSView {
             return
         }
 
+        if floatHoldsFocus {
+            // Forget the last focus so the strip takes it back once the
+            // float lets go, even when its focused pane did not change.
+            lastFocusedPaneID = nil
+            pendingProgrammaticFocusPaneID = nil
+            focusGeneration &+= 1
+            return
+        }
+
         guard force || paneID != lastFocusedPaneID else {
             return
         }
@@ -1689,6 +1705,13 @@ final class PaneStripView: NSView {
 
     private func attemptFocus(paneID: PaneID, generation: UInt64, retryCount: Int) {
         guard generation == focusGeneration else { return }
+        if floatHoldsFocus {
+            if pendingProgrammaticFocusPaneID == paneID {
+                pendingProgrammaticFocusPaneID = nil
+            }
+            lastFocusedPaneID = nil
+            return
+        }
         if shouldSuppressProgrammaticTerminalFocus?() == true {
             if pendingProgrammaticFocusPaneID == paneID {
                 pendingProgrammaticFocusPaneID = nil

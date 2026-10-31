@@ -283,6 +283,7 @@ final class AppDelegateTests: XCTestCase {
                 "Add Pane Right",
                 "New Pane Below",
                 "Move Pane to New Window",
+                "Float or Dock Pane",
                 "Arrange Width",
                 "Arrange Height",
                 "Resize Pane Left",

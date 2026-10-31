@@ -959,6 +959,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func toggleFloat(_ sender: Any?) {
+        handle(.toggleFloat)
+    }
+
+    @objc
     func movePaneToNewWindow(_ sender: Any?) {
         onMovePaneToNewWindowRequested?(self, representedPaneID(from: sender) ?? rootViewController.focusedPaneID())
     }

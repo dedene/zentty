@@ -24,6 +24,26 @@ extension WorklaneStore {
         return CGRect(x: 0, y: 0, width: width, height: height)
     }
 
+    /// Float/dock toggle for the focused pane of the active worklane: a
+    /// focused tile lifts in place (`tileFrame` in `canvas` coordinates, nil
+    /// centres it); a focused float docks back to its origin column. An empty
+    /// canvas (layout not done yet) falls back to `floatCanvasEstimate`.
+    func toggleFloat(canvas: CGRect, tileFrame: (PaneID) -> CGRect?) {
+        guard let worklane = activeWorklane, let paneID = worklane.focusedPaneID else {
+            return
+        }
+        if worklane.isFloating(paneID) {
+            dockPane(paneID, target: .origin)
+            return
+        }
+        let usableCanvas = canvas.width > 0 && canvas.height > 0
+        floatPane(
+            paneID,
+            canvas: usableCanvas ? canvas : floatCanvasEstimate,
+            tileFrame: usableCanvas ? tileFrame(paneID) : nil
+        )
+    }
+
     /// Removes float `id` from `worklane` (the strip is untouched): drops its
     /// auxiliary state and servers, keeps PiP/pill orders dense and moves
     /// focus away when it was focused. Returns the removed float.

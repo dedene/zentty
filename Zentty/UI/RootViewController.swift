@@ -826,6 +826,38 @@ final class RootViewController: NSViewController {
         }
     }
 
+    private func requestPaneClose(_ paneID: PaneID) {
+        if configStore.current.confirmations.confirmBeforeClosingPane,
+            let context = paneCloseConfirmationContext(paneID)
+        {
+            showClosePaneConfirmation(
+                context: context,
+                highlighting: { self.worklaneStore.focusPane(id: paneID) }
+            ) {
+                self.paneCommands.closePane(id: paneID)
+            }
+        } else {
+            paneCommands.closePane(id: paneID)
+        }
+    }
+
+    private func setupFloatLayerCallbacks() {
+        let floatLayer = appCanvasView.floatLayerView
+        floatLayer.shouldSuppressProgrammaticTerminalFocus = { [weak self] in
+            self?.globalSearchChoreographer.shouldRetainFocus ?? false
+        }
+        floatLayer.onFloatSelected = { [weak self] paneID in
+            self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
+            self?.worklaneStore.focusPane(id: paneID)
+        }
+        floatLayer.onFloatCloseRequested = { [weak self] paneID in
+            self?.requestPaneClose(paneID)
+        }
+        floatLayer.onPipClicked = { [weak self] paneID in
+            self?.worklaneStore.restoreFloat(paneID)
+        }
+    }
+
     private func setupCanvasCallbacks() {
         appCanvasView.paneStripView.onHostDrivenResizeRenderRequested = { [weak self] in
             self?.renderCoordinator.renderCanvas(animated: false)
@@ -847,20 +879,9 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
-            guard let self else { return }
-            if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let context = self.paneCloseConfirmationContext(paneID)
-            {
-                self.showClosePaneConfirmation(
-                    context: context,
-                    highlighting: { self.worklaneStore.focusPane(id: paneID) }
-                ) {
-                    self.paneCommands.closePane(id: paneID)
-                }
-            } else {
-                self.paneCommands.closePane(id: paneID)
-            }
+            self?.requestPaneClose(paneID)
         }
+        setupFloatLayerCallbacks()
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
             self?.worklaneStore.markDividerInteraction(divider)
         }
@@ -3311,6 +3332,14 @@ extension RootViewController: AppActionRouterEnvironment {
         onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.focusedPaneID)
     }
 
+    func routeToggleFloat() {
+        guard !isWorklanePeekActive else { return }
+        appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
+        worklaneStore.toggleFloat(canvas: appCanvasView.floatLayerView.bounds) { [appCanvasView] paneID in
+            appCanvasView.tileFrameInFloatLayer(for: paneID)
+        }
+    }
+
     func routeNavigateBack() {
         worklaneStore.navigateBack()
     }
@@ -3910,6 +3939,7 @@ extension RootViewController: WorklanePeekControllerDelegate {
         )
         peekView.attach(paneStripView: appCanvasView.paneStripView)
         peekView.isHidden = false
+        appCanvasView.floatLayerView.isHidden = true
         // Force layout so the overlay's bounds reflect AppCanvasView's frame
         // before we compute the HUD position from those bounds.
         peekView.layoutSubtreeIfNeeded()
@@ -4007,6 +4037,7 @@ extension RootViewController: WorklanePeekControllerDelegate {
             centerOnPaneID: committedPaneID
         )
         peekView.isHidden = true
+        appCanvasView.floatLayerView.isHidden = false
         peekView.detach()
         peekKeyMonitor.uninstall()
     }

@@ -27,6 +27,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeToggleFocusedPaneUnread()
     func routePaneCommand(_ command: PaneCommand)
     func routeMoveFocusedPaneToNewWindow()
+    func routeToggleFloat()
     func routeNavigateBack()
     func routeNavigateForward()
     func routeShowCommandPalette()
@@ -97,6 +98,8 @@ struct AppActionRouter {
             environment.routePaneCommand(command)
         case .moveFocusedPaneToNewWindow:
             environment.routeMoveFocusedPaneToNewWindow()
+        case .toggleFloat:
+            environment.routeToggleFloat()
         case .navigateBack:
             environment.routeNavigateBack()
         case .navigateForward:

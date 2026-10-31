@@ -323,6 +323,9 @@ final class AppCanvasView: NSView {
         }
     }
     let paneStripView: PaneStripView
+    /// Floats and PiPs of the active worklane, above the strip and below
+    /// worklane overlays.
+    let floatLayerView: FloatLayerView
     let quickActionOverlayContainer = QuickActionOverlayContainerView()
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
@@ -335,6 +338,7 @@ final class AppCanvasView: NSView {
             runtimeRegistry: runtimeRegistry,
             backingScaleFactorProvider: backingScaleFactorProvider
         )
+        self.floatLayerView = FloatLayerView(runtimeRegistry: runtimeRegistry)
         super.init(frame: frameRect)
         setup()
     }
@@ -353,6 +357,7 @@ final class AppCanvasView: NSView {
 
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneStripView)
+        addSubview(floatLayerView)
         addSubview(quickActionOverlayContainer)
 
         NSLayoutConstraint.activate([
@@ -373,14 +378,19 @@ final class AppCanvasView: NSView {
 
     private func layoutOverlayContainer() {
         let inset = min(max(0, leadingVisibleInset), bounds.width)
-        quickActionOverlayContainer.frame = NSRect(
+        let frame = NSRect(
             x: bounds.minX + inset, y: bounds.minY,
             width: bounds.width - inset, height: bounds.height
         )
+        quickActionOverlayContainer.frame = frame
+        if floatLayerView.frame != frame {
+            floatLayerView.frame = frame
+        }
     }
 
     func render(
         state: PaneStripState,
+        floats: FloatLayerContent = .empty,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
@@ -398,7 +408,18 @@ final class AppCanvasView: NSView {
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
         apply(theme: theme, animated: animated)
-        defer { layoutOverlayContainer() }
+        paneStripView.floatHoldsFocus = floats.ownsFocus
+        defer {
+            // Strip first (it releases a lifted pane's host view), then the
+            // layer at its final frame (it borrows that host view).
+            layoutOverlayContainer()
+            floatLayerView.render(
+                floats,
+                theme: theme,
+                showPaneBorders: showPaneBorders,
+                smoothScrollingEnabled: smoothScrollingEnabled
+            )
+        }
         if let leadingVisibleInset,
            abs(paneStripView.leadingVisibleInset - leadingVisibleInset) > 0.001 {
             paneStripView.transition(
@@ -442,7 +463,16 @@ final class AppCanvasView: NSView {
     }
 
     func focusCurrentPaneIfNeeded() {
+        if floatLayerView.focusOwningFloatIfNeeded() {
+            return
+        }
         paneStripView.focusCurrentPaneIfNeeded()
+    }
+
+    /// A strip pane's frame in float-layer coordinates (where a lifted float
+    /// starts), or nil when the pane is not mounted in the strip.
+    func tileFrameInFloatLayer(for paneID: PaneID) -> CGRect? {
+        paneStripView.convertPaneFrame(paneID, to: floatLayerView)
     }
 
     func cancelPendingPaneStripScrollSwitchGesture() {

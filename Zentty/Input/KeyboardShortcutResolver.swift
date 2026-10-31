@@ -49,6 +49,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case duplicateFocusedPane = "pane.duplicate"
     case forkAgentConversation = "pane.fork_agent_conversation"
     case movePaneToNewWindow = "pane.move_to_new_window"
+    case toggleFloat = "float.toggle"
     case splitHorizontally = "pane.split.horizontal"
     case forceSplitRight = "pane.split.right.force"
     case forceAddPaneRight = "pane.add_right.force"
@@ -152,6 +153,7 @@ enum AppAction: Equatable, Sendable {
     case toggleFocusedPaneUnread
     case pane(PaneCommand)
     case moveFocusedPaneToNewWindow
+    case toggleFloat
     case navigateBack
     case navigateForward
     case showCommandPalette
@@ -494,6 +496,18 @@ enum AppCommandRegistry {
                 section: .view,
                 title: "Move Pane to New Window",
                 selector: #selector(MainWindowController.movePaneToNewWindow(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .toggleFloat,
+            title: "Float or Dock Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .character("f"), modifiers: [.command, .option]),
+            action: .toggleFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Float or Dock Pane",
+                selector: #selector(MainWindowController.toggleFloat(_:))
             )
         ),
         AppCommandDefinition(
@@ -1091,6 +1105,7 @@ enum AppCommandRegistry {
             .command(.splitHorizontally),
             .command(.splitVertically),
             .command(.movePaneToNewWindow),
+            .command(.toggleFloat),
             .separator,
             .submenu("Arrange Width", [
                 .command(.arrangeWidthFull),
@@ -1196,6 +1211,8 @@ extension AppCommandDefinition {
             "Mark the focused agent pane as Check back until you visit it again, or mark it as read."
         case .duplicateFocusedPane:
             "Duplicate the focused pane in a new column, keeping its working directory."
+        case .toggleFloat:
+            "Lift the focused pane out of the strip as a float, or dock a focused float back."
         case .forkAgentConversation:
             "Continue the focused agent's conversation in a new pane, leaving the original running."
         case .movePaneToNewWindow:

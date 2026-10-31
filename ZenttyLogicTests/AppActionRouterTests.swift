@@ -31,6 +31,7 @@ final class AppActionRouterTests: XCTestCase {
             (.toggleFocusedPaneUnread, "routeToggleFocusedPaneUnread"),
             (.pane(.resetLayout), "routePaneCommand"),
             (.moveFocusedPaneToNewWindow, "routeMoveFocusedPaneToNewWindow"),
+            (.toggleFloat, "routeToggleFloat"),
             (.navigateBack, "routeNavigateBack"),
             (.navigateForward, "routeNavigateForward"),
             (.showCommandPalette, "routeShowCommandPalette"),
@@ -117,6 +118,7 @@ private final class MockEnvironment: AppActionRouterEnvironment {
         lastPaneCommand = command
     }
     func routeMoveFocusedPaneToNewWindow() { calls.append("routeMoveFocusedPaneToNewWindow") }
+    func routeToggleFloat() { calls.append("routeToggleFloat") }
     func routeNavigateBack() { calls.append("routeNavigateBack") }
     func routeNavigateForward() { calls.append("routeNavigateForward") }
     func routeShowCommandPalette() { calls.append("routeShowCommandPalette") }

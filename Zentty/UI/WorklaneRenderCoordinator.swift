@@ -393,13 +393,18 @@ final class WorklaneRenderCoordinator {
             let memberPaneIDs: Set<PaneID> = teamAnchor
                 .map { Set($0.columnPaneIDs.map(PaneID.init)) }
                 ?? []
+            let paneBorderContextByPaneID = worklane.paneBorderContextDisplayByPaneID(
+                leaderPaneID: leaderPaneID,
+                memberPaneIDs: memberPaneIDs
+            )
             views.appCanvasView.render(
                 state: worklane.paneStripState,
-                metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
-                paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID(
-                    leaderPaneID: leaderPaneID,
-                    memberPaneIDs: memberPaneIDs
+                floats: FloatLayerContent(
+                    worklane: worklane,
+                    borderContextByPaneID: paneBorderContextByPaneID
                 ),
+                metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
+                paneBorderContextByPaneID: paneBorderContextByPaneID,
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
                 smoothScrollingEnabled: paneSettings.smoothScrollingEnabled,

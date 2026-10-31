@@ -155,6 +155,8 @@ enum CommandAvailabilityResolver {
             return context.activePaneCount >= 1
         case .duplicateFocusedPane:
             return context.activePaneCount >= 1
+        case .toggleFloat:
+            return context.activePaneCount >= 1
         case .forkAgentConversation:
             return context.focusedPaneAgentFork != nil
         case .movePaneToNewWindow:
