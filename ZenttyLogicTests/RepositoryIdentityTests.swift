@@ -150,6 +150,38 @@ final class RepositoryIdentityTests: XCTestCase {
         XCTAssertEqual(identity.headBranch, "develop")
     }
 
+    func test_submodule_in_linked_worktree_main_is_self() throws {
+        let base = try makeDirectory()
+        let main = base.appendingPathComponent("main", isDirectory: true)
+        try makeMainRepository(at: main)
+        let worktree = base.appendingPathComponent("wt", isDirectory: true)
+        try makeLinkedWorktree(at: worktree, mainRepository: main, name: "wt", branch: "topic")
+        // Git keeps a linked worktree's submodule gitdirs under the worktree admin dir, with no commondir.
+        let moduleGit = main.appendingPathComponent(".git/worktrees/wt/modules/sub", isDirectory: true)
+        try makeFolder(moduleGit)
+        try write("ref: refs/heads/lib\n", to: moduleGit.appendingPathComponent("HEAD"))
+        let submodule = worktree.appendingPathComponent("sub", isDirectory: true)
+        try makeFolder(submodule)
+        try write("gitdir: \(moduleGit.path)\n", to: submodule.appendingPathComponent(".git"))
+
+        let expected = RepositoryIdentity(
+            repoRoot: submodule.path,
+            mainRepoRoot: submodule.path,
+            isLinkedWorktree: false,
+            headBranch: "lib"
+        )
+        XCTAssertEqual(RepositoryIdentityResolver.resolve(directory: submodule.path), expected)
+
+        // Same with the relative gitdir git writes.
+        try write("gitdir: ../../main/.git/worktrees/wt/modules/sub\n", to: submodule.appendingPathComponent(".git"))
+        XCTAssertEqual(RepositoryIdentityResolver.resolve(directory: submodule.path), expected)
+
+        // The worktree itself still resolves to the main repo.
+        let worktreeIdentity = try XCTUnwrap(RepositoryIdentityResolver.resolve(directory: worktree.path))
+        XCTAssertEqual(worktreeIdentity.mainRepoRoot, main.path)
+        XCTAssertTrue(worktreeIdentity.isLinkedWorktree)
+    }
+
     func test_bare_common_dir_is_main() throws {
         let base = try makeDirectory()
         let bare = base.appendingPathComponent("project.git", isDirectory: true)

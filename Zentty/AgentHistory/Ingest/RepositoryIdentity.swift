@@ -21,8 +21,9 @@ struct RepositoryIdentity: Equatable, Sendable {
 /// - `.git` file (≤ 4 KB, `gitdir: X`, X relative to the folder holding the file):
 ///   - `X/commondir` readable: resolve it relative to X; the main tree is the common dir's
 ///     parent when the common dir is named `.git`, otherwise the common dir itself (bare).
-///   - no readable commondir but X contains `/.git/worktrees/`: the main tree is the part
-///     before that marker.
+///   - no readable commondir but X is a worktree admin dir (`<main>/.git/worktrees/<name>`,
+///     nothing after `<name>`): the main tree is `<main>`. Nested gitdirs such as a linked
+///     worktree's submodule (`…/.git/worktrees/<name>/modules/<sub>`) do not match.
 ///   - otherwise (submodule): the main tree is the folder itself.
 ///
 /// Nothing is read under a TCC-protected location (`AgentHistoryPath.isProtected`, A-18): a
@@ -126,18 +127,25 @@ enum RepositoryIdentityResolver {
         return RepositoryIdentity(repoRoot: root, mainRepoRoot: root, isLinkedWorktree: false, headBranch: branch)
     }
 
-    /// The main tree named by the first candidate that contains `/.git/worktrees/`: the part
-    /// before that marker, canonicalized. nil when no candidate has the marker.
+    /// The main tree named by the first candidate shaped like a worktree admin dir,
+    /// `<main>/.git/worktrees/<name>` with a single component after the marker: `<main>`,
+    /// canonicalized. nil when no candidate has that shape (submodules, including a linked
+    /// worktree's own `…/.git/worktrees/<name>/modules/<sub>`).
     private static func worktreeMarkerMain(_ candidates: [String], homeDirectory: String) -> String? {
         let worktreesMarker = "/.git/worktrees/"
-        guard
-            let source = candidates.first(where: { $0.contains(worktreesMarker) }),
-            let markerRange = source.range(of: worktreesMarker)
-        else {
-            return nil
+        for candidate in candidates {
+            let source = (candidate as NSString).standardizingPath
+            guard let markerRange = source.range(of: worktreesMarker, options: .backwards) else {
+                continue
+            }
+            let name = source[markerRange.upperBound...]
+            guard !name.isEmpty, !name.contains("/") else {
+                continue
+            }
+            let prefix = String(source[source.startIndex..<markerRange.lowerBound])
+            return AgentHistoryPath.canonical(prefix.isEmpty ? "/" : prefix, homeDirectory: homeDirectory)
         }
-        let prefix = String(source[source.startIndex..<markerRange.lowerBound])
-        return AgentHistoryPath.canonical(prefix.isEmpty ? "/" : prefix, homeDirectory: homeDirectory)
+        return nil
     }
 
     /// The value of a `gitdir: <path>` line; nil for anything else.
