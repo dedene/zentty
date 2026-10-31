@@ -3,7 +3,8 @@ import XCTest
 @testable import Zentty
 
 final class RepositoryIdentityTests: XCTestCase {
-    /// A fresh temp directory with symlinks resolved (`/var` → `/private/var`), removed on teardown.
+    /// A fresh temp directory, removed on teardown. `resolvingSymlinksInPath()` strips `/private`,
+    /// so on macOS the path stays under `/var/folders/...`, which is also the canonical form.
     private func makeDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-history-\(UUID().uuidString)", isDirectory: true)
@@ -266,14 +267,12 @@ final class RepositoryIdentityTests: XCTestCase {
         XCTAssertEqual(viaLink, direct)
         XCTAssertEqual(viaLink.repoRoot, AgentHistoryPath.canonical(root.path))
 
-        // The unresolved temp path (`/var/...`) resolves to the same `/private/var/...` identity.
-        let unresolvedBase = FileManager.default.temporaryDirectory
-        if unresolvedBase.path != unresolvedBase.resolvingSymlinksInPath().path {
-            let unresolved = unresolvedBase
-                .appendingPathComponent(base.lastPathComponent)
-                .appendingPathComponent("repo/src")
-            XCTAssertEqual(RepositoryIdentityResolver.resolve(directory: unresolved.path), direct)
-        }
+        // The `/private/var/...` spelling (FSEvents, realpath) folds onto the same `/var/...` identity.
+        XCTAssertTrue(direct.repoRoot.hasPrefix("/var/"), direct.repoRoot)
+        let privateSpelling = "/private" + direct.repoRoot + "/src"
+        XCTAssertEqual(RepositoryIdentityResolver.resolve(directory: privateSpelling), direct)
+        XCTAssertEqual(RepositoryIdentityCache().identity(for: privateSpelling), direct)
+        XCTAssertEqual(RepositoryIdentityCache().identity(for: root.appendingPathComponent("src").path), direct)
     }
 
     func test_non_repo_and_missing_dir_nil() throws {
