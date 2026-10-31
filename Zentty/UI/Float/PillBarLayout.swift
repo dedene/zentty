@@ -46,22 +46,25 @@ struct PillBarContent: Equatable {
         .sorted { $0.order < $1.order }
         .map(\.float)
 
-        self.items = minimized.map { float in
-            let auxiliaryState = worklane.auxiliaryStateByPaneID[float.pane.id]
-            let name = FloatDisplayName.resolve(
-                pane: float.pane,
-                presentation: auxiliaryState?.presentation,
-                metadata: auxiliaryState?.metadata
-            ) ?? Self.fallbackName(for: float.pane)
-            return PillBarItem(
-                paneID: float.pane.id,
-                name: name,
-                subtitle: Self.shortLocation(auxiliaryState?.shellContext, name: name),
-                attention: auxiliaryState.flatMap {
-                    WorklaneAttentionSummaryBuilder.attentionState(for: $0.presentation)
-                }
-            )
-        }
+        self.items = minimized.map { Self.item(for: $0, in: worklane) }
+    }
+
+    /// Name, short cwd and status of `float` (pills and PiP status strips).
+    static func item(for float: FloatingPaneState, in worklane: WorklaneState) -> PillBarItem {
+        let auxiliaryState = worklane.auxiliaryStateByPaneID[float.pane.id]
+        let name = FloatDisplayName.resolve(
+            pane: float.pane,
+            presentation: auxiliaryState?.presentation,
+            metadata: auxiliaryState?.metadata
+        ) ?? fallbackName(for: float.pane)
+        return PillBarItem(
+            paneID: float.pane.id,
+            name: name,
+            subtitle: shortLocation(auxiliaryState?.shellContext, name: name),
+            attention: auxiliaryState.flatMap {
+                WorklaneAttentionSummaryBuilder.attentionState(for: $0.presentation)
+            }
+        )
     }
 
     var isEmpty: Bool {

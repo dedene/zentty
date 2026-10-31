@@ -1412,7 +1412,9 @@ final class PaneContainerView: NSView {
     }
 
     private func updateBorderContextView() {
-        guard !bounds.isEmpty else {
+        // Scaled down in a PiP the legend is unreadable; the PiP's status
+        // strip names the pane instead.
+        guard !bounds.isEmpty, chromeKind != .pip else {
             borderContextView.isHidden = true
             setBorderLabelGap(width: 0)
             setLegendGlowCutout(.zero)
@@ -1490,7 +1492,8 @@ final class PaneContainerView: NSView {
     }
 
     private var visibleBorderActions: [PaneBorderAction] {
-        guard !bounds.isEmpty, !isZoomedOutBackdropVisible else { return [] }
+        // A PiP draws its legend unscaled on its own host (`PipContainerView`).
+        guard !bounds.isEmpty, !isZoomedOutBackdropVisible, chromeKind != .pip else { return [] }
         guard PaneBorderActionsLayout.isVisible(
             kind: chromeKind,
             isHovered: isHovered,

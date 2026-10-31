@@ -5,7 +5,7 @@ import QuartzCore
 /// gesture runs (`interactiveFrames`); the store hears exactly one outcome on
 /// mouse-up through `onFloatGestureEnded`.
 extension FloatLayerView {
-    private static let settleAnimationKey = "zentty.float.settle"
+    static let settleAnimationKey = "zentty.float.settle"
 
     /// The next mount of `paneID` starts at `fromTileFrame` (layer
     /// coordinates) and animates to its float frame with the strip reflow.
@@ -71,10 +71,13 @@ extension FloatLayerView {
             switch outcome {
             case .move(let frame), .resize(let frame), .dock(_, let frame):
                 finalFrame = frame
-            case .click, .throwToPip:
-                // A throw leaves the float where it was let go; the PiP
-                // mount takes it from there.
+            case .click:
                 finalFrame = lastFrame ?? host.paneFrame
+            case .throwToPip:
+                // The float stays where it was let go; the PiP mount flies
+                // it into the corner, seeded with the throw's velocity.
+                finalFrame = lastFrame ?? host.paneFrame
+                pendingPipEntries[paneID] = PipEntry(fromFrame: finalFrame, velocity: velocity)
             }
             settle(host, to: finalFrame, velocity: velocity)
         }
@@ -109,11 +112,12 @@ extension FloatLayerView {
         )
     }
 
-    /// Animates the host's layer from looking like `fromVisibleFrame` to its
+    /// Animates the view's layer from looking like `fromVisibleFrame` to its
     /// model frame with a presentation-only transform (AppKit resets model
-    /// transforms on layout; an added animation is left alone).
-    private func animateSettle(
-        _ host: FloatContainerView,
+    /// transforms on layout; an added animation is left alone). Floats use
+    /// it to settle, PiPs to enter and leave their corner.
+    func animateSettle(
+        _ host: NSView,
         fromVisibleFrame: CGRect,
         velocity: CGVector,
         spring: Bool,

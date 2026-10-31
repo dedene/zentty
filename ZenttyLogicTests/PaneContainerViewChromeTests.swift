@@ -208,7 +208,9 @@ final class PaneContainerViewChromeTests: AppKitTestCase {
         )
     }
 
-    func test_pip_actions_follow_hover() {
+    /// Scaled down in a PiP the container's own legend would be unreadable:
+    /// the PiP host draws the legend (on hover) and the name unscaled.
+    func test_pip_container_draws_no_legend_of_its_own() {
         let (container, _) = makeContainer()
         container.chromeKind = .pip
         container.layoutSubtreeIfNeeded()
@@ -216,7 +218,8 @@ final class PaneContainerViewChromeTests: AppKitTestCase {
 
         container.setHovered(true)
 
-        XCTAssertNotNil(container.borderActionsViewForTesting.buttonForTesting(.restore))
+        XCTAssertNil(container.borderActionsFrameForTesting)
+        XCTAssertTrue(container.borderActionsViewForTesting.isHidden)
     }
 }
 

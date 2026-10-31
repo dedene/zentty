@@ -156,9 +156,10 @@ final class FloatLifecycleHostedTests: XCTestCase {
         let layer = canvas(controller).floatLayerView
         let pipHost = try XCTUnwrap(layer.pipHostForTesting(floatID))
         let container = try XCTUnwrap(layer.containerForTesting(floatID))
-        XCTAssertTrue(container.superview === pipHost, "the container moves under the PiP host")
+        XCTAssertTrue(container.superview === pipHost.scaleViewForTesting, "the container moves under the PiP host")
         XCTAssertTrue(spyView.isDescendant(of: pipHost))
-        XCTAssertNotEqual(pipHost.bounds.size, pipHost.frame.size, "the PiP draws the float scaled")
+        let scaleView = pipHost.scaleViewForTesting
+        XCTAssertNotEqual(scaleView.bounds.size, scaleView.frame.size, "the PiP draws the float scaled")
         XCTAssertEqual(spyView.isViewportSyncSuspended, true, "the grid stays frozen while scaled")
         let firstSuspend = try XCTUnwrap(spyView.suspensionLog.first)
         XCTAssertTrue(firstSuspend.suspended)

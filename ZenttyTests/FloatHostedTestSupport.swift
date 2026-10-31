@@ -50,6 +50,16 @@ final class HostedSpyTerminalView: NSView, TerminalFocusReporting, TerminalViewp
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var isViewportSyncSuspended: Bool?
     var suspensionLog: [SuspensionCall] = []
+    /// Forced viewport syncs (`suspended` = state at the time).
+    var forcedSyncLog: [SuspensionCall] = []
+
+    func forceViewportSync() {
+        forcedSyncLog.append(SuspensionCall(
+            suspended: isViewportSyncSuspended ?? false,
+            wasInPip: ancestor(of: PipContainerView.self) != nil,
+            containerSize: ancestor(of: PaneContainerView.self)?.frame.size
+        ))
+    }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
         isViewportSyncSuspended = suspended

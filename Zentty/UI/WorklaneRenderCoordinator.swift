@@ -625,9 +625,17 @@ final class WorklaneRenderCoordinator {
             renderCanvasForCurrentWorklane(animated: false)
         } else if worklaneID == worklaneStore.activeWorklaneID,
                   let worklane = worklaneStore.activeWorklane,
-                  case .minimized = worklane.floatingPane(id: paneID)?.mode {
-            // A pill's status dot, name and cwd follow its pane's state.
-            views.appCanvasView.updatePills(PillBarContent(worklane: worklane))
+                  let mode = worklane.floatingPane(id: paneID)?.mode {
+            // A pill's or PiP's status dot, name and cwd follow its pane's
+            // state without a canvas render.
+            switch mode {
+            case .minimized:
+                views.appCanvasView.updatePills(PillBarContent(worklane: worklane))
+            case .pip:
+                views.appCanvasView.floatLayerView.updatePipStatuses(FloatLayerContent.pipStatuses(worklane: worklane))
+            case .floating:
+                break
+            }
         }
 
         if impacts.contains(.attention) {

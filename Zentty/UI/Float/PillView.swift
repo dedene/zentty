@@ -162,8 +162,14 @@ final class PillView: NSView {
 
     /// Working pills pulse their dot softly (not under Reduce Motion).
     private func updatePulse() {
-        let pulses = item.attention == .running && !FloatMotion.reduceMotion
-        if pulses, dotLayer.animation(forKey: Self.pulseKey) == nil {
+        Self.updatePulse(on: dotLayer, attention: item.attention)
+    }
+
+    /// Pulses `dotLayer` softly while `attention` is working (pills and PiP
+    /// status strips), never under Reduce Motion.
+    static func updatePulse(on dotLayer: CALayer, attention: WorklaneAttentionState?) {
+        let pulses = attention == .running && !FloatMotion.reduceMotion
+        if pulses, dotLayer.animation(forKey: pulseKey) == nil {
             let pulse = CABasicAnimation(keyPath: "opacity")
             pulse.fromValue = 1
             pulse.toValue = 0.35
@@ -171,9 +177,9 @@ final class PillView: NSView {
             pulse.autoreverses = true
             pulse.repeatCount = .infinity
             pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            dotLayer.add(pulse, forKey: Self.pulseKey)
+            dotLayer.add(pulse, forKey: pulseKey)
         } else if !pulses {
-            dotLayer.removeAnimation(forKey: Self.pulseKey)
+            dotLayer.removeAnimation(forKey: pulseKey)
         }
     }
 
