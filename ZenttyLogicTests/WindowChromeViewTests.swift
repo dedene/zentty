@@ -67,6 +67,24 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertEqual(snapshot.iconFrame.midX, button.bounds.midX, accuracy: 0.5)
     }
 
+    func test_history_toolbar_button_tooltip_uses_configured_shortcut() {
+        let button = HistoryToolbarButton()
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .showAgentHistory,
+                        shortcut: .init(key: .character("y"), modifiers: [.command, .option])
+                    ),
+                ]
+            )
+        )
+
+        button.updateShortcutTooltip(shortcutManager)
+
+        XCTAssertEqual(button.toolTip, "Agent History (⌘⌥Y)")
+    }
+
     func test_search_hud_tooltips_use_configured_find_shortcuts() {
         let shortcutManager = ShortcutManager(shortcuts: .default)
         let localHUD = PaneSearchHUDView()

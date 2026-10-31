@@ -123,6 +123,7 @@ final class RootViewController: NSViewController {
     private let sidebarOuterResizeHandleView = SidebarResizeHandleView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
+    private let historyToolbarButton = HistoryToolbarButton()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let agentStatusCenter = AgentStatusCenter()
     private let agentCaffeinationController = AgentCaffeinationController.shared
@@ -211,7 +212,8 @@ final class RootViewController: NSViewController {
         toggle: sidebarToggleButton,
         layoutMenu: paneLayoutMenuCoordinator.menuButton,
         navigation: paneNavigationButtons,
-        inbox: notificationCoordinator.inboxButton
+        inbox: notificationCoordinator.inboxButton,
+        history: historyToolbarButton
     )
     private lazy var globalSearchCoordinator = GlobalSearchCoordinator(
         orderedTargetsProvider: { [weak self] in
@@ -820,6 +822,13 @@ final class RootViewController: NSViewController {
         notificationCoordinator.onNavigateToNotification = { [weak self] notification in
             self?.navigateToNotification(notification)
         }
+
+        // Routes through the same seam as the shortcut and View menu; the
+        // palette coordinator (UI5) takes over `routeShowAgentHistory`.
+        historyToolbarButton.onClick = { [weak self] in
+            self?.routeShowAgentHistory()
+        }
+        historyToolbarButton.configure(theme: currentTheme, animated: false)
 
         appCanvasView.paneStripView.onPaneBorderContextClicked = { [weak self] paneID in
             self?.copyPath(forPaneID: paneID)
@@ -2308,6 +2317,7 @@ final class RootViewController: NSViewController {
         paneLayoutMenuCoordinator.applyTheme(theme, animated: animated)
         paneNavigationButtons.configure(theme: theme, animated: animated)
         notificationCoordinator.applyTheme(theme, animated: animated)
+        historyToolbarButton.configure(theme: theme, animated: animated)
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
@@ -3033,6 +3043,7 @@ final class RootViewController: NSViewController {
 
     private func refreshShortcutTooltips() {
         sidebarToggleButton.updateShortcutTooltip(shortcutManager)
+        historyToolbarButton.updateShortcutTooltip(shortcutManager)
         paneNavigationButtons.updateShortcutTooltips(shortcutManager)
         sidebarView.updateShortcutTooltips(shortcutManager)
         windowChromeView.updateShortcutTooltips(shortcutManager)
