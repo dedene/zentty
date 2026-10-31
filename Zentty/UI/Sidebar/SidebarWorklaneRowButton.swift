@@ -106,6 +106,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
+    var onAgentHistoryRequested: ((WorklaneID) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -326,6 +327,7 @@ final class SidebarWorklaneRowButton: NSButton {
         menuController.onWorklaneColorChanged = onWorklaneColorChanged
         menuController.onWorklaneMoveRequested = onWorklaneMoveRequested
         menuController.onBookmarkAction = onBookmarkAction
+        menuController.onAgentHistoryRequested = onAgentHistoryRequested
         menuController.bookmarkNameLookup = bookmarkNameLookup
     }
 

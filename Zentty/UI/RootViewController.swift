@@ -1231,6 +1231,11 @@ final class RootViewController: NSViewController {
         sidebarView.onBookmarkAction = { [weak self] worklaneID, action in
             self?.handleSidebarBookmarkAction(worklaneID: worklaneID, action: action)
         }
+        // Same placeholder seam as the shortcut, menu and toolbar; the palette
+        // coordinator (UI5) opens scoped to this worklane's project instead.
+        sidebarView.onAgentHistoryRequested = { [weak self] worklaneID in
+            self?.routeShowAgentHistory(forWorklaneID: worklaneID)
+        }
         sidebarView.bookmarkNameLookup = { [weak self] id in
             self?.bookmarkStore.template(withID: id)?.name
         }
@@ -3401,6 +3406,14 @@ extension RootViewController: AppActionRouterEnvironment {
     /// (UI5) replaces this body; until then the command only logs.
     func routeShowAgentHistory() {
         AgentHistoryLog.indexer.debug("Agent History requested; palette not available yet")
+    }
+
+    /// Worklane context-menu entry ("Agent History for This Project"). UI5
+    /// replaces this with a palette open scoped to the worklane's project.
+    func routeShowAgentHistory(forWorklaneID worklaneID: WorklaneID) {
+        AgentHistoryLog.indexer.debug(
+            "Agent History requested for worklane \(worklaneID.rawValue, privacy: .public); palette not available yet"
+        )
     }
 }
 

@@ -219,6 +219,12 @@ final class SidebarView: NSView {
     var onGlobalSearchFocusChanged: ((Bool) -> Void)?
     var onOpenBookmarksPopoverRequested: ((NSView) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
+    /// Nil keeps "Agent History for This Project" out of worklane menus.
+    var onAgentHistoryRequested: ((WorklaneID) -> Void)? {
+        didSet {
+            worklaneButtons.forEach(wireAgentHistoryRelay)
+        }
+    }
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -646,6 +652,18 @@ final class SidebarView: NSView {
         }
     }
 
+    /// Relays the row's Agent History request only while the sidebar itself is
+    /// wired, so unwired sidebars never offer the menu item.
+    private func wireAgentHistoryRelay(_ button: SidebarWorklaneRowButton) {
+        guard onAgentHistoryRequested != nil else {
+            button.onAgentHistoryRequested = nil
+            return
+        }
+        button.onAgentHistoryRequested = { [weak self] id in
+            self?.onAgentHistoryRequested?(id)
+        }
+    }
+
     /// Creates a new row button with all callback closures wired up.
     private func makeWorklaneButton(
         for summary: WorklaneSidebarSummary
@@ -724,6 +742,7 @@ final class SidebarView: NSView {
         button.onBookmarkAction = { [weak self] id, action in
             self?.onBookmarkAction?(id, action)
         }
+        wireAgentHistoryRelay(button)
         button.bookmarkNameLookup = { [weak self] id in
             self?.bookmarkNameLookup?(id)
         }

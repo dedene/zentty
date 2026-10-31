@@ -864,6 +864,31 @@ final class SidebarViewRenderTests: AppKitTestCase {
         )
     }
 
+    func test_worklaneContextMenu_relaysAgentHistoryOnlyWhileSidebarIsWired() throws {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let event = try makeContextMenuEvent()
+        let buttons = try sidebarWorklaneButtons(in: sidebar)
+        let title = "Agent History for This Project"
+        XCTAssertNil(try XCTUnwrap(buttons[1].menu(for: event)).item(withTitle: title))
+
+        var requested: [WorklaneID] = []
+        sidebar.onAgentHistoryRequested = { requested.append($0) }
+
+        let item = try XCTUnwrap(try XCTUnwrap(buttons[1].menu(for: event)).item(withTitle: title))
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        XCTAssertEqual(requested, [WorklaneID("B")])
+
+        sidebar.onAgentHistoryRequested = nil
+        XCTAssertNil(try XCTUnwrap(buttons[1].menu(for: event)).item(withTitle: title))
+    }
+
     func test_worklaneContextMoveCommandsCommitAdjacentTargetIndexes() throws {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)
