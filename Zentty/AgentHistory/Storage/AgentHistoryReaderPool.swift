@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 /// Availability and tokenizer shared by `AgentHistoryStorage` and its reader pool.
 /// Every member is guarded by `lock`, so any thread may read or update it.
@@ -51,7 +52,9 @@ final class AgentHistoryAvailabilityBox: @unchecked Sendable {
 /// (at most `readerCount` are checked out). A connection is owned by exactly one caller while
 /// checked out (the `AgentHistoryDatabase` confinement rule); the pool's own bookkeeping is
 /// guarded by `lock`. Connections open lazily. `closeAll()` bumps the generation: idle connections
-/// close at once, checked-out ones close when they come back.
+/// close at once, checked-out ones close when they come back. `fenced` does the same around a file
+/// operation and refuses new checkouts until it ends, so no connection to a removed or moved file
+/// is ever pooled.
 final class AgentHistoryReaderPool: @unchecked Sendable {
     let databaseURL: URL
     let readerCount: Int
@@ -61,6 +64,7 @@ final class AgentHistoryReaderPool: @unchecked Sendable {
     private let slots: DispatchSemaphore
     private let lock = NSLock()
     private var generation: UInt64 = 0
+    private var fenceDepth = 0
     private var idle: [AgentHistoryDatabase] = []
     private var checkedOut: [ObjectIdentifier: AgentHistoryDatabase] = [:]
 
@@ -125,6 +129,28 @@ final class AgentHistoryReaderPool: @unchecked Sendable {
         }
     }
 
+    /// Runs `body` (removing or moving the index files) with the pool fenced: idle connections close
+    /// now, checked-out ones when they come back, and `withReader` throws `.busy` until `body`
+    /// returns. A reader that got past the fence check just before it closed still opens under the
+    /// old generation, so it is closed on return instead of pooled against a deleted file.
+    func fenced<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        fenceDepth += 1
+        generation &+= 1
+        let closing = idle
+        idle.removeAll()
+        lock.unlock()
+        for database in closing {
+            database.close()
+        }
+        defer {
+            lock.lock()
+            fenceDepth -= 1
+            lock.unlock()
+        }
+        return try body()
+    }
+
     var openConnectionCountForTesting: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -135,6 +161,11 @@ final class AgentHistoryReaderPool: @unchecked Sendable {
 
     private func checkOut() throws -> (AgentHistoryDatabase, UInt64) {
         lock.lock()
+        if fenceDepth > 0 {
+            lock.unlock()
+            throw AgentHistoryDatabaseError(kind: .busy, code: SQLITE_BUSY, extendedCode: SQLITE_BUSY,
+                                            message: "index files are being replaced")
+        }
         let checkoutGeneration = generation
         if let reused = idle.popLast() {
             checkedOut[ObjectIdentifier(reused)] = reused

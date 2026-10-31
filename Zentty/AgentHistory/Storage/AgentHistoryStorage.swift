@@ -235,9 +235,8 @@ final class AgentHistoryStorage: @unchecked Sendable {
         AgentHistoryLog.indexer.error(
             "Agent History index unusable code=\(error.code, privacy: .public)/\(error.extendedCode, privacy: .public); moving it aside"
         )
-        readers.closeAll()
         do {
-            try quarantineCorruptDatabase()
+            try readers.fenced { try quarantineCorruptDatabase() }
         } catch {
             // Permission denied, a read-only volume, a locked file: the unusable index stays put.
             throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
@@ -304,20 +303,23 @@ final class AgentHistoryStorage: @unchecked Sendable {
         }
     }
 
-    /// Removes `index.sqlite` and its -wal/-shm; keeps `state.json`. Closes idle readers first.
+    /// Removes `index.sqlite` and its -wal/-shm; keeps `state.json`. Readers are fenced while the
+    /// files go (see `AgentHistoryReaderPool.fenced`).
     func removeIndexFiles() throws {
-        readers.closeAll()
-        for url in [paths.databaseURL, paths.walURL, paths.shmURL] where fileManager.fileExists(atPath: url.path) {
-            try fileManager.removeItem(at: url)
+        try readers.fenced {
+            for url in [paths.databaseURL, paths.walURL, paths.shmURL] where fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+            }
         }
         availabilityBox.update(availability: .ready, tokenizer: nil)
     }
 
-    /// Closes readers and removes the whole directory (index, corrupt copies, `state.json`).
+    /// Removes the whole directory (index, corrupt copies, `state.json`) with readers fenced.
     func removeEverything() throws {
-        readers.closeAll()
-        if fileManager.fileExists(atPath: paths.directoryURL.path) {
-            try fileManager.removeItem(at: paths.directoryURL)
+        try readers.fenced {
+            if fileManager.fileExists(atPath: paths.directoryURL.path) {
+                try fileManager.removeItem(at: paths.directoryURL)
+            }
         }
         availabilityBox.update(availability: .ready, tokenizer: nil)
     }
