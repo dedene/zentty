@@ -76,6 +76,8 @@ final class FakeHistorySource: AgentHistorySource, @unchecked Sendable {
     private var hook: IngestHook?
     private var ingested: [String] = []
     private var discoveries = 0
+    private var existingIDs: Set<String>?
+    private var discoveryError: (any Error)?
 
     init(agent: AgentHistoryAgent = .claude, rootPath: String = "/fake/root", adapterVersion: Int = 1) {
         self.agent = agent
@@ -101,16 +103,33 @@ final class FakeHistorySource: AgentHistorySource, @unchecked Sendable {
         withLock { self.hook = hook }
     }
 
+    /// What `existingNativeIDs()` reports; nil (the default) behaves like a file source.
+    func setExistingNativeIDs(_ ids: Set<String>?) {
+        withLock { existingIDs = ids }
+    }
+
+    /// Makes `discoverUnits()` throw until cleared.
+    func setDiscoveryError(_ error: (any Error)?) {
+        withLock { discoveryError = error }
+    }
+
     var ingestedKeys: [String] { withLock { ingested } }
     var discoverCount: Int { withLock { discoveries } }
 
     // MARK: AgentHistorySource
 
     func discoverUnits() throws -> [AgentHistoryUnit] {
-        withLock {
+        try withLock {
             discoveries += 1
+            if let discoveryError {
+                throw discoveryError
+            }
             return units.values.map(\.unit).sorted { $0.key < $1.key }
         }
+    }
+
+    func existingNativeIDs() throws -> Set<String>? {
+        withLock { existingIDs }
     }
 
     func eventTarget(forCanonicalPath path: String) -> AgentHistoryEventTarget? {
@@ -325,31 +344,61 @@ final class AgentHistoryPublishedRecorder: @unchecked Sendable {
     }
 }
 
+/// A settable clock for indexer tests (grace periods, root-missing intervals).
+final class AgentHistoryTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Date
+
+    init(_ start: Date = AgentHistoryTestIndex.fixedNow) {
+        current = start
+    }
+
+    var now: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        current = current.addingTimeInterval(interval)
+        lock.unlock()
+    }
+}
+
 /// A temp index, a state store and indexers over one fake source; every indexer is stopped in
-/// teardown before the index directory is removed.
+/// teardown before the index directory is removed. The default source's root is an existing
+/// temp folder (`rootURL`), so reconciles see a present root.
 final class AgentHistoryIndexerHarness {
     let index: AgentHistoryTestIndex
     let stateStore: AgentHistoryStateStore
+    let rootURL: URL
     let source: FakeHistorySource
+    let clock = AgentHistoryTestClock()
     let recorder = AgentHistoryPublishedRecorder()
     private unowned let testCase: XCTestCase
 
-    init(testCase: XCTestCase, source: FakeHistorySource = FakeHistorySource()) {
+    init(testCase: XCTestCase, source: FakeHistorySource? = nil) {
         self.testCase = testCase
         self.index = AgentHistoryTestIndex(testCase: testCase)
         self.stateStore = AgentHistoryStateStore(fileURL: index.paths.stateURL)
-        self.source = source
+        let rootURL = index.directoryURL.appendingPathComponent("fake-root", isDirectory: true)
+        try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        self.rootURL = rootURL
+        self.source = source ?? FakeHistorySource(rootPath: rootURL.path)
     }
 
     func makeIndexer(
         messageLimit: Int = 500,
         excludedFolders: [String] = [],
-        conditions: any AgentHistorySystemConditions = FakeSystemConditions()
+        conditions: any AgentHistorySystemConditions = FakeSystemConditions(),
+        source overrideSource: FakeHistorySource? = nil
     ) -> AgentHistoryIndexer {
         var limits = AgentHistoryIngestLimits()
         limits.messages = messageLimit
-        let source = self.source
+        let source = overrideSource ?? self.source
         let recorder = self.recorder
+        let clock = self.clock
         let indexer = AgentHistoryIndexer(
             storage: index.storage,
             stateStore: stateStore,
@@ -358,7 +407,7 @@ final class AgentHistoryIndexerHarness {
                 enabledAgents: Set(AgentHistoryAgent.allCases), excludedFolders: excludedFolders, limits: limits
             ),
             systemConditions: conditions,
-            now: { AgentHistoryTestIndex.fixedNow },
+            now: { clock.now },
             onStatusChange: { recorder.record($0) },
             onSnapshotChange: { recorder.record($0) }
         )
@@ -374,5 +423,21 @@ final class AgentHistoryIndexerHarness {
 
     func count(_ sql: String, _ bindings: [AgentHistoryValue] = []) throws -> Int {
         try read { try AgentHistoryFixtures.count($0, sql, bindings) }
+    }
+
+    /// Records usage the way the launcher would, on a second connection while the indexer idles.
+    func setOpens(_ opens: Int, nativeID: String) throws {
+        let db = try AgentHistoryDatabase(url: index.paths.databaseURL, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        defer { db.close() }
+        try db.run("UPDATE sessions SET opens = ?, last_opened_at = ? WHERE native_id = ?",
+                   [.of(opens), .integer(1_793_000_000_000), .text(nativeID)])
+    }
+
+    func sessionRowID(_ nativeID: String) throws -> Int64? {
+        try read { try $0.scalarInt64("SELECT id FROM sessions WHERE native_id = ?", [.text(nativeID)]) }
+    }
+
+    func messageTexts() throws -> [String] {
+        try read { try $0.query("SELECT text FROM messages ORDER BY session_id, seq") { $0.string(0) } }
     }
 }

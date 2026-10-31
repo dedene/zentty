@@ -9,20 +9,31 @@ extension AgentHistoryIndexer {
     // MARK: - Sources and discovery
 
     /// Registers each source of an enabled agent (a `sources` row per root), loads its cursors
-    /// and queues its changed units.
+    /// and reconciles it (queues its changed units, mirrors deletions). A source whose stored
+    /// adapter version differs from the adapter's loses its cursors, so every unit with rows is
+    /// replaced whole; the new version is stored once the source has drained (`becomeIdle`).
     func activateSources(_ sources: [any AgentHistorySource]) {
         guard let store else {
             return
         }
+        var activated: [Int64] = []
         for source in sources where configuration.enabledAgents.contains(source.agent) {
             let row: AgentHistorySourceRow
             let cursors: [String: AgentHistoryCursor]
+            var pendingAdapterVersion: Int?
             do {
                 row = try store.upsertSource(
                     agent: source.agent, root: source.root.path, currentAdapterVersion: source.adapterVersion
                 )
                 guard sourceStates[row.id] == nil else {
                     continue
+                }
+                if row.adapterVersion != source.adapterVersion {
+                    try store.deleteCursors(sourceID: row.id)
+                    pendingAdapterVersion = source.adapterVersion
+                    AgentHistoryLog.indexer.info(
+                        "Agent History adapter version changed agent=\(source.agent.rawValue, privacy: .public) from=\(row.adapterVersion, privacy: .public) to=\(source.adapterVersion, privacy: .public); re-ingesting"
+                    )
                 }
                 cursors = try store.cursors(sourceID: row.id)
                 if !row.enabled {
@@ -37,15 +48,21 @@ extension AgentHistoryIndexer {
                 continue
             }
             let sourceState = AgentHistoryIndexerSourceState(source: source, id: row.id, cursors: cursors)
+            sourceState.pendingAdapterVersion = pendingAdapterVersion
             sourceStates[row.id] = sourceState
             sourceOrder.append(row.id)
-            discover(sourceState)
+            activated.append(row.id)
+        }
+        if !activated.isEmpty {
+            reconcile(sourceIDs: activated, isFull: true)
         }
     }
 
     /// Stat-only listing of a source; every unit whose change is not `.unchanged` goes to the
-    /// backfill lane, newest first. A failed discovery records a problem and deletes nothing.
-    func discover(_ sourceState: AgentHistoryIndexerSourceState) {
+    /// backfill lane, newest first. A failed discovery records a problem, keeps the previous
+    /// unit list and returns false.
+    @discardableResult
+    func discover(_ sourceState: AgentHistoryIndexerSourceState) -> Bool {
         sourceState.lastScanAt = now()
         sourceState.countersDirty = true
         let units: [AgentHistoryUnit]
@@ -58,7 +75,7 @@ extension AgentHistoryIndexer {
             AgentHistoryLog.indexer.info(
                 "Agent History discovery failed agent=\(sourceState.source.agent.rawValue, privacy: .public) rootExists=\(rootExists, privacy: .public)"
             )
-            return
+            return false
         }
         sourceState.units = Dictionary(units.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         var pending: [(ref: AgentHistoryUnitRef, mtimeNs: Int64)] = []
@@ -72,6 +89,7 @@ extension AgentHistoryIndexer {
         AgentHistoryLog.indexer.debug(
             "Agent History discovered agent=\(sourceState.source.agent.rawValue, privacy: .public) units=\(units.count, privacy: .public) queued=\(pending.count, privacy: .public)"
         )
+        return true
     }
 
     // MARK: - Step loop
@@ -137,6 +155,7 @@ extension AgentHistoryIndexer {
         if recheckMissingUnits() {
             return true
         }
+        storePendingAdapterVersions()
         persistCounters()
         hasDrainedOnce = true
         if !isBackfillComplete {
@@ -238,6 +257,9 @@ extension AgentHistoryIndexer {
         }
         didCommit(sourceState, ref: ref, result: result, alsoTouched: cleared, batches: [batch], cursor: saved)
         continueIfNeeded(ref, tier: tier, hasMore: batch.hasMore, before: cursor, after: saved)
+        if !batch.hasMore, batchedRewrites.remove(ref) != nil {
+            checkpointAfterBatchedRewrite()
+        }
     }
 
     /// Rewrite (or a `.new` unit that already has rows): clear the unit's content and read it
@@ -253,7 +275,8 @@ extension AgentHistoryIndexer {
         guard let writer, let store else {
             return
         }
-        if (unit.identity?.size ?? 0) > Self.wholeUnitReplaceMaxBytes {
+        if (unit.identity?.size ?? 0) > wholeUnitReplaceMaxBytes {
+            batchedRewrites.insert(ref)
             try ingestBatch(sourceState, ref: ref, unit: unit, cursor: cursor, mode: .fromStart, tier: tier, clearUnitContent: true)
             return
         }
@@ -430,49 +453,6 @@ extension AgentHistoryIndexer {
             redactor: redactor,
             isCancelled: { cancellation.isSet }
         )
-    }
-
-    // MARK: - Missing units
-
-    func noteMissing(_ ref: AgentHistoryUnitRef) {
-        if missingSince[ref] == nil {
-            missingSince[ref] = now()
-        }
-    }
-
-    func clearMissing(_ ref: AgentHistoryUnitRef) {
-        missingSince[ref] = nil
-        missingRechecked.remove(ref)
-    }
-
-    /// A unit that went missing may have moved (archived, compressed, renamed): one fresh
-    /// discovery per affected source finds it under its new path and queues it. Units still
-    /// missing stay on the list; deleting their rows (after the grace period and the
-    /// mass-deletion guard) is the reconcile's job. Returns true when it queued work.
-    func recheckMissingUnits() -> Bool {
-        let unchecked = missingSince.keys.filter { !missingRechecked.contains($0) }
-        guard !unchecked.isEmpty else {
-            return false
-        }
-        var queued: [(ref: AgentHistoryUnitRef, mtimeNs: Int64)] = []
-        for sourceID in Set(unchecked.map(\.sourceID)) {
-            let refs = unchecked.filter { $0.sourceID == sourceID }
-            missingRechecked.formUnion(refs)
-            guard let sourceState = sourceStates[sourceID],
-                  let units = try? sourceState.source.discoverUnits() else {
-                continue
-            }
-            let byKey = Dictionary(units.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-            for ref in refs {
-                guard let unit = byKey[ref.unitKey], unit.identity != nil else {
-                    continue
-                }
-                sourceState.units[ref.unitKey] = unit
-                queued.append((ref, unit.identity?.mtimeNs ?? 0))
-            }
-        }
-        workQueue.enqueueBackfill(queued)
-        return !queued.isEmpty
     }
 
     // MARK: - Backfill completion

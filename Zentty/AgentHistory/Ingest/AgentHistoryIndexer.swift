@@ -43,6 +43,15 @@ final class AgentHistoryIndexerSourceState {
     var indexed = 0
     var lastScanAt: Date?
     var countersDirty = true
+    /// When a full reconcile first found the root missing; cleared once it is back. The source
+    /// is purged only when a later full reconcile, `schedule.interval` on, still misses it.
+    var rootMissingSince: Date?
+    /// Missing units (keys) held back by the mass-deletion guard until the next full reconcile.
+    var deferredMissingUnits: Set<String>?
+    /// Vanished database sessions (native ids) held back by the mass-deletion guard.
+    var deferredVanishedIDs: Set<String>?
+    /// The adapter version to store once the source has drained after a version bump.
+    var pendingAdapterVersion: Int?
 
     init(source: any AgentHistorySource, id: Int64, cursors: [String: AgentHistoryCursor]) {
         self.source = source
@@ -75,7 +84,7 @@ final class AgentHistoryIndexerSourceState {
 final class AgentHistoryIndexer: @unchecked Sendable {
     static let queueLabel = "be.zenjoy.zentty.agent-history.indexer"
     /// Larger units are rewritten in normal batch commits instead of one transaction (A-8).
-    static let wholeUnitReplaceMaxBytes: Int64 = 64 << 20
+    static let defaultWholeUnitReplaceMaxBytes: Int64 = 64 << 20
     static let snapshotPublishThreshold = 50
     /// Unchanged units classified per step before yielding the queue.
     static let unchangedUnitsPerStep = 256
@@ -127,6 +136,10 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     var reachedSnapshotThreshold = false
     var lastUpdatedAt: Date?
     var revision: UInt64 = 0
+    /// Rewrites too large for one transaction, in progress; a WAL checkpoint follows the last batch.
+    var batchedRewrites: Set<AgentHistoryUnitRef> = []
+    /// Set before `start()` (tests shrink it).
+    var wholeUnitReplaceMaxBytes = AgentHistoryIndexer.defaultWholeUnitReplaceMaxBytes
     /// Runs inside each commit transaction right before the cursor is saved; throwing rolls the
     /// batch back. Set before `start()`.
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
@@ -186,18 +199,14 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         }
     }
 
-    /// Re-discovers one source (or all) and queues every unit that changed.
+    /// Re-discovers one source (or all, a full reconcile), queues every unit that changed and
+    /// mirrors upstream deletions (see `AgentHistoryIndexer+Reconcile.swift`).
     func requestReconcile(sourceID: Int64? = nil) {
         queue.async { [self] in
             guard lifecycle == .running else {
                 return
             }
-            let ids = sourceID.map { [$0] } ?? sourceOrder
-            for id in ids {
-                if let sourceState = sourceStates[id] {
-                    discover(sourceState)
-                }
-            }
+            reconcile(sourceIDs: sourceID.map { [$0] } ?? sourceOrder, isFull: sourceID == nil)
             updateProgressState()
             publish()
             scheduleStep()
