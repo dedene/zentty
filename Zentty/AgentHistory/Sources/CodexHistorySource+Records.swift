@@ -10,8 +10,10 @@ import Foundation
 /// - `response_item` `message`: `user` `input_text` and `assistant` `output_text` parts.
 ///   Skipped: other roles (`developer`), inherited parent messages
 ///   (`metadata.inherited_user_message`) and injected envelope parts.
-/// - tool calls: `exec_command.cmd`, `shell`/`local_shell_call` commands → command artifacts;
-///   `apply_patch` headers → path artifacts; outputs of pending `git commit` calls → commits.
+/// - tool calls: code-mode `exec` inputs (every literal `tools.exec_command` `cmd`, see
+///   `CodexExecInput`), legacy `exec_command.cmd`, `shell`/`local_shell_call` commands → command
+///   artifacts; `apply_patch` headers → path artifacts; outputs of pending `git commit` calls
+///   (plain text or a list of text parts) → commits.
 ///   PR links in assistant text → pr artifacts.
 /// Everything else (`agent_message` (D20), `reasoning`, `compacted`, `event_msg`,
 /// `token_usage_record`, `world_state`) is skipped without decoding.
@@ -218,8 +220,18 @@ struct CodexRolloutLineProcessor {
         case "local_shell_call":
             addCommand(Self.commandText((payload["action"] as? [String: Any])?["command"]), callID: callID, atMs: atMs)
         case "custom_tool_call":
-            if name == "apply_patch", let patch = payload["input"] as? String {
-                addPatchPaths(patch, atMs: atMs)
+            guard let input = payload["input"] as? String else {
+                return
+            }
+            switch name {
+            case "exec":
+                for command in CodexExecInput.commands(in: input) {
+                    addCommand(command, callID: callID, atMs: atMs)
+                }
+            case "apply_patch":
+                addPatchPaths(input, atMs: atMs)
+            default:
+                break
             }
         default:
             let arguments = CodexTranscriptQuestionExtractor.toolInput(fromArguments: payload["arguments"]) ?? [:]

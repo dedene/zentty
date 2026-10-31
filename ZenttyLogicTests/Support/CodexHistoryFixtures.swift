@@ -91,6 +91,29 @@ enum CodexHistoryFixtures {
         ])
     }
 
+    /// A code-mode `exec` call as current Codex writes it: one `tools.exec_command` per command,
+    /// `cmd` as a JSON-escaped string literal (or a template literal when `template` is set).
+    static func execToolCall(_ commands: [String], template: Bool = false, callID: String, at offsetMs: Int64) -> String {
+        let input = commands.map { command -> String in
+            let array = try! JSONSerialization.data(withJSONObject: [command], options: [.withoutEscapingSlashes])
+            let literal = template ? "`" + command + "`" : String(String(decoding: array, as: UTF8.self).dropFirst().dropLast())
+            return "text(await tools.exec_command({cmd:\(literal),\"max_output_tokens\":6000}));\n"
+        }.joined()
+        return customToolCall("exec", input: input, callID: callID, at: offsetMs)
+    }
+
+    /// The `exec` result: a list of text parts, the command output JSON-encoded in the last one.
+    static func execToolCallOutput(_ callID: String, output: String, at offsetMs: Int64) -> String {
+        let result = try! F.jsonLine(["chunk_id": "abc123", "exit_code": 0, "output": output])
+        return line("response_item", at: offsetMs, payload: [
+            "type": "custom_tool_call_output", "call_id": callID,
+            "output": [
+                ["type": "input_text", "text": "Script completed\nWall time 0.4 seconds\nOutput:\n"],
+                ["type": "input_text", "text": result],
+            ],
+        ])
+    }
+
     static func functionCallOutput(_ callID: String, output: String, at offsetMs: Int64) -> String {
         line("response_item", at: offsetMs, payload: ["type": "function_call_output", "call_id": callID, "output": output])
     }

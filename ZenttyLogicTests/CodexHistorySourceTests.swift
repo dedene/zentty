@@ -308,6 +308,33 @@ final class CodexHistorySourceTests: XCTestCase {
         XCTAssertEqual(CodexRolloutState.decode(batch.cursor.adapterState)?.pendingCommitCallIDs, [])
     }
 
+    func test_artifacts_from_code_mode_exec_calls() throws {
+        let (root, source) = try C.makeRoot(self)
+        let id = C.newThreadID()
+        try C.writeRollout(root: root, id: id, lines: [
+            C.sessionMeta(id, cwd: "/work/proj"),
+            C.user("ship it", at: 1),
+            C.execToolCall(["git status --short", "swift test --filter \"Parser\""], callID: "x1", at: 2),
+            C.execToolCallOutput("x1", output: "[main deadbee] not a commit call", at: 3),
+            C.execToolCall(["git add -A", "git commit -m 'Fix parser'"], callID: "x2", at: 4),
+            C.user("next", at: 5),
+            C.execToolCallOutput("x2", output: "[main 1a2b3c4] Fix parser\n 1 file changed", at: 6),
+            C.execToolCall(["gh pr view ${number}"], template: true, callID: "x3", at: 7),
+        ])
+        let batches = try C.ingestAll(source, unit: try C.unit(source, key: key(id)), context: F.context(messageLimit: 1))
+        XCTAssertGreaterThan(batches.count, 1, "the commit output arrives in a later batch")
+        let artifacts = batches.flatMap(\.artifacts).map { "\($0.kind.rawValue):\($0.value)" }
+        XCTAssertEqual(artifacts, [
+            "command:git status --short",
+            "command:swift test --filter \"Parser\"",
+            "command:git add -A",
+            "command:git commit -m 'Fix parser'",
+            "commit:1a2b3c4",
+            "command:gh pr view ${number}",
+        ])
+        XCTAssertEqual(CodexRolloutState.decode(try XCTUnwrap(batches.last).cursor.adapterState)?.pendingCommitCallIDs, [])
+    }
+
     func test_pending_commit_call_survives_batch_boundary() throws {
         let (root, source) = try C.makeRoot(self)
         let id = C.newThreadID()
