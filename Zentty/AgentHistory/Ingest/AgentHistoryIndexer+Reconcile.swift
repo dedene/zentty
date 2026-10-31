@@ -30,6 +30,8 @@ extension AgentHistoryIndexer {
         if isFull {
             schedule.recordReconcile(at: now())
         }
+        // A root may have appeared or gone; the stream follows on a later queue turn.
+        scheduleStreamRefresh()
     }
 
     func reconcile(_ sourceState: AgentHistoryIndexerSourceState, isFull: Bool) {

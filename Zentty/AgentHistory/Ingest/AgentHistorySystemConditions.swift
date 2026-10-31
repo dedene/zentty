@@ -1,6 +1,7 @@
 import Foundation
 
-/// Machine conditions that pause backfill (low power, thermal pressure, a full disk).
+/// Machine conditions that pause backfill (low power, thermal pressure, a full disk), plus the
+/// wake-from-sleep signal that triggers a reconcile.
 ///
 /// The indexer reads `pauseReason` on its queue before each step and re-evaluates whenever the
 /// `onChange` handler fires (from any thread). Live events keep running while paused.
@@ -9,18 +10,22 @@ protocol AgentHistorySystemConditions: AnyObject, Sendable {
     var pauseReason: AgentHistoryPauseReason? { get }
     /// Starts reporting changes. Calling it again replaces the handler.
     func startObserving(_ onChange: @escaping @Sendable () -> Void)
-    /// Stops reporting; idempotent.
+    /// Starts reporting wake from sleep (from any thread). Calling it again replaces the handler.
+    func startObservingWake(_ onWake: @escaping @Sendable () -> Void)
+    /// Stops reporting changes and wakes; idempotent.
     func stopObserving()
 }
 
-/// Production conditions. Until the real power, thermal and disk monitoring lands it never
-/// pauses.
+/// Production conditions. Until the real power, thermal, disk and wake monitoring lands it
+/// never pauses and never reports a wake (the periodic reconcile still runs).
 final class LiveAgentHistorySystemConditions: AgentHistorySystemConditions {
     init() {}
 
     var pauseReason: AgentHistoryPauseReason? { nil }
 
     func startObserving(_ onChange: @escaping @Sendable () -> Void) {}
+
+    func startObservingWake(_ onWake: @escaping @Sendable () -> Void) {}
 
     func stopObserving() {}
 }

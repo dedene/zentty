@@ -78,6 +78,7 @@ final class FakeHistorySource: AgentHistorySource, @unchecked Sendable {
     private var discoveries = 0
     private var existingIDs: Set<String>?
     private var discoveryError: (any Error)?
+    private var eventTargets: [String: AgentHistoryEventTarget] = [:]
 
     init(agent: AgentHistoryAgent = .claude, rootPath: String = "/fake/root", adapterVersion: Int = 1) {
         self.agent = agent
@@ -113,6 +114,11 @@ final class FakeHistorySource: AgentHistorySource, @unchecked Sendable {
         withLock { discoveryError = error }
     }
 
+    /// What `eventTarget(forCanonicalPath:)` answers for an exact path; other paths are noise.
+    func setEventTarget(_ target: AgentHistoryEventTarget?, forPath path: String) {
+        withLock { eventTargets[path] = target }
+    }
+
     var ingestedKeys: [String] { withLock { ingested } }
     var discoverCount: Int { withLock { discoveries } }
 
@@ -133,7 +139,7 @@ final class FakeHistorySource: AgentHistorySource, @unchecked Sendable {
     }
 
     func eventTarget(forCanonicalPath path: String) -> AgentHistoryEventTarget? {
-        nil
+        withLock { eventTargets[path] }
     }
 
     func refreshUnit(_ unit: AgentHistoryUnit) -> AgentHistoryUnit {
@@ -270,6 +276,7 @@ final class FakeSystemConditions: AgentHistorySystemConditions, @unchecked Senda
     private let lock = NSLock()
     private var reason: AgentHistoryPauseReason?
     private var handler: (@Sendable () -> Void)?
+    private var wakeHandler: (@Sendable () -> Void)?
 
     var pauseReason: AgentHistoryPauseReason? {
         lock.lock()
@@ -291,9 +298,24 @@ final class FakeSystemConditions: AgentHistorySystemConditions, @unchecked Senda
         lock.unlock()
     }
 
+    func startObservingWake(_ onWake: @escaping @Sendable () -> Void) {
+        lock.lock()
+        wakeHandler = onWake
+        lock.unlock()
+    }
+
+    /// Reports a wake from sleep the way the system notification would.
+    func simulateWake() {
+        lock.lock()
+        let wakeHandler = self.wakeHandler
+        lock.unlock()
+        wakeHandler?()
+    }
+
     func stopObserving() {
         lock.lock()
         handler = nil
+        wakeHandler = nil
         lock.unlock()
     }
 }
@@ -392,20 +414,24 @@ final class AgentHistoryIndexerHarness {
         messageLimit: Int = 500,
         excludedFolders: [String] = [],
         conditions: any AgentHistorySystemConditions = FakeSystemConditions(),
-        source overrideSource: FakeHistorySource? = nil
+        source overrideSource: FakeHistorySource? = nil,
+        extraSources: [FakeHistorySource] = [],
+        fileEventLatency: TimeInterval = 2.0
     ) -> AgentHistoryIndexer {
         var limits = AgentHistoryIngestLimits()
         limits.messages = messageLimit
-        let source = overrideSource ?? self.source
+        let sources = [overrideSource ?? self.source] + extraSources
         let recorder = self.recorder
         let clock = self.clock
+        var configuration = AgentHistoryIndexerConfiguration(
+            enabledAgents: Set(AgentHistoryAgent.allCases), excludedFolders: excludedFolders, limits: limits
+        )
+        configuration.fileEventLatency = fileEventLatency
         let indexer = AgentHistoryIndexer(
             storage: index.storage,
             stateStore: stateStore,
-            makeSources: { [source] },
-            configuration: AgentHistoryIndexerConfiguration(
-                enabledAgents: Set(AgentHistoryAgent.allCases), excludedFolders: excludedFolders, limits: limits
-            ),
+            makeSources: { sources },
+            configuration: configuration,
             systemConditions: conditions,
             now: { clock.now },
             onStatusChange: { recorder.record($0) },
@@ -415,6 +441,13 @@ final class AgentHistoryIndexerHarness {
             indexer.stop(timeout: 2)
         }
         return indexer
+    }
+
+    /// A second existing root folder (for a second fake source).
+    func makeRoot(_ name: String) -> URL {
+        let url = index.directoryURL.appendingPathComponent(name, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     func read<T>(_ body: (AgentHistoryDatabase) throws -> T) throws -> T {

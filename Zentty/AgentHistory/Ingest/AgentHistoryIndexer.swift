@@ -144,6 +144,20 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     /// batch back. Set before `start()`.
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
 
+    // MARK: Freshness (AgentHistoryIndexer+Events.swift)
+
+    var fileEventStream: FileEventStream?
+    /// Longest canonical path first.
+    var watchRoots: [AgentHistoryWatchRoot] = []
+    var streamRefreshScheduled = false
+    var streamRestartRequested = false
+    var lastDatabasePollAt: [AgentHistoryUnitRef: Date] = [:]
+    var pendingDatabasePolls: Set<AgentHistoryUnitRef> = []
+    /// Event keys discovery did not list, with when that was checked.
+    var unknownEventUnitsCheckedAt: [AgentHistoryUnitRef: Date] = [:]
+    var periodicTimer: (any DispatchSourceTimer)?
+    var wakeReconcileScheduled = false
+
     // MARK: Published (lock-protected)
 
     private let publishedLock = NSLock()
@@ -206,10 +220,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
             guard lifecycle == .running else {
                 return
             }
-            reconcile(sourceIDs: sourceID.map { [$0] } ?? sourceOrder, isFull: sourceID == nil)
-            updateProgressState()
-            publish()
-            scheduleStep()
+            reconcileAndContinue(sourceIDs: sourceID.map { [$0] } ?? sourceOrder, isFull: sourceID == nil)
         }
     }
 
@@ -265,6 +276,18 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         queue.sync { sourceOrder }
     }
 
+    /// Handles file events as if the stream delivered them, synchronously on the queue.
+    func handleFileEventsForTesting(_ events: [FileEvent]) {
+        queue.sync {
+            handleFileEvents(events)
+        }
+    }
+
+    /// Canonical paths the FSEvents stream watches right now (empty when it is not running).
+    var watchedPathsForTesting: [String] {
+        queue.sync { fileEventStream?.watchedPaths ?? [] }
+    }
+
     // MARK: - Lifecycle on the queue
 
     func startOnQueue() {
@@ -317,6 +340,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
                 self?.conditionsChanged()
             }
         }
+        startFreshness()
         updateProgressState()
         publish(force: true)
         scheduleStep()
@@ -328,6 +352,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         }
         lifecycle = .stopped
         systemConditions.stopObserving()
+        stopFreshness()
         writer?.close()
         writer = nil
         store = nil
@@ -338,6 +363,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     }
 
     func fail(_ reason: AgentHistoryFailureReason) {
+        systemConditions.stopObserving()
+        stopFreshness()
         writer?.close()
         writer = nil
         store = nil
@@ -378,12 +405,17 @@ final class AgentHistoryIndexer: @unchecked Sendable {
                 workQueue.removeAll(sourceID: id)
                 sourceStates[id] = nil
                 missingSince = missingSince.filter { $0.key.sourceID != id }
+                forgetEventState(sourceID: id)
             }
             sourceOrder.removeAll { sourceStates[$0] == nil }
             let added = next.enabledAgents.subtracting(previous.enabledAgents)
             if !added.isEmpty {
                 activateSources(makeSources().filter { added.contains($0.agent) })
             }
+            scheduleStreamRefresh()
+        }
+        if next.fileEventLatency != previous.fileEventLatency {
+            scheduleStreamRefresh(force: true)
         }
         updateProgressState()
         publish(force: true)
