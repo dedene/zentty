@@ -1227,6 +1227,9 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     var presentation: PanePresentationState
     /// `.temporary` for overlay-style panes that close with their command.
     var lifetime: PaneLifetime = .persistent
+    /// Exit status of the last finished command; cleared when a new one is
+    /// submitted. `zentty overlay list` reports it.
+    var lastCommandExitCode: Int?
     /// True when the pane was surfaced automatically (e.g. a needs-input pop).
     var autoPopped = false
 

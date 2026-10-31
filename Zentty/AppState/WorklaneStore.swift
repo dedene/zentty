@@ -482,6 +482,13 @@ final class WorklaneStore {
     /// distinct from `batchDepth`.
     private var suppressionDepth = 0
 
+    /// Reentrancy guard for `reconcileOverlayFloats`, which runs from `notify`.
+    var isReconcilingOverlayFloats = false
+
+    /// Overlay floats opened out of sight with `--notify`, shown by the first
+    /// navigation to their owner.
+    var overlayFloatsAwaitingReveal: Set<PaneID> = []
+
     @discardableResult
     func subscribe(_ handler: @escaping (WorklaneChange) -> Void) -> WorklaneChangeSubscription {
         let id = UUID()
@@ -2288,8 +2295,9 @@ final class WorklaneStore {
         var worklane = worklanes[worklaneIndex]
 
         // Only the worklane's last live pane (tile or float) takes the
-        // worklane — or the window — with it.
-        if worklane.allPanes.count == 1 {
+        // worklane — or the window — with it. Overlay floats don't count:
+        // they close with it.
+        if worklane.isLastPersistentPane(paneID) || worklane.allPanes.count == 1 {
             if worklanes.count == 1 {
                 worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
                 worklanes[worklaneIndex] = worklane
@@ -2368,8 +2376,9 @@ final class WorklaneStore {
         }
 
         // The worklane's last live pane: a lone tile, or the last float of a
-        // float-only worklane. A last tile with floats left only removes it.
-        let isLastLivePane = worklane.allPanes.count == 1
+        // float-only worklane. A last tile with floats left only removes it;
+        // overlay floats don't count, they close with it.
+        let isLastLivePane = worklane.isLastPersistentPane(id) || worklane.allPanes.count == 1
 
         // Closing the last pane in the only worklane just signals the view
         // layer to close the window — the pane itself isn't removed here, and
@@ -2718,6 +2727,11 @@ final class WorklaneStore {
         guard batchDepth == 0 else {
             pendingBatchedChanges.append(change)
             return
+        }
+        if Self.mayMoveOverlayOwners(change) {
+            // Before subscribers render: an overlay whose owner just left
+            // closes, follows or re-anchors in the same pass.
+            reconcileOverlayFloats()
         }
         for subscriber in subscribers {
             subscriber.handler(change)

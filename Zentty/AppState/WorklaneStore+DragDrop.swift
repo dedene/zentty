@@ -527,8 +527,9 @@ extension WorklaneStore {
         worklanes[sourceIndex] = sourceWorklane
 
         let sourceWorklaneID = sourceWorklane.id
-        // Floats keep the worklane (and the window) alive.
-        let sourceIsEmpty = !sourceWorklane.hasLivePanes
+        // Floats keep the worklane (and the window) alive; overlay floats
+        // don't, and close with it (their owner just left this window).
+        let sourceIsEmpty = !sourceWorklane.hasPersistentPanes
         var sourceWorklaneRemoved = false
 
         if sourceIsEmpty {
@@ -539,7 +540,7 @@ extension WorklaneStore {
             }
         }
 
-        let sourceWindowShouldClose = worklanes.allSatisfy { !$0.hasLivePanes }
+        let sourceWindowShouldClose = worklanes.allSatisfy { !$0.hasPersistentPanes }
 
         refreshLastFocusedLocalWorkingDirectory()
 

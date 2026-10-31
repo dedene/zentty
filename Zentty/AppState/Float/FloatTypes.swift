@@ -117,8 +117,10 @@ extension FloatingPaneState {
     }
 }
 
-/// Where a temporary (overlay-style) pane is anchored.
-enum OverlayPlacement: String, Equatable, Sendable {
+/// Where a temporary (overlay-style) pane is anchored: `worklane` re-anchors
+/// to the focused pane when its owner closes; `pane` follows its owner and
+/// closes with it. Wire names are the `zentty overlay open --placement` values.
+enum OverlayPlacement: String, Equatable, Sendable, CaseIterable {
     case worklane
     case pane
 }

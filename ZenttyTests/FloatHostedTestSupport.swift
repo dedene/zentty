@@ -16,6 +16,8 @@ final class HostedSpyTerminalAdapter: TerminalAdapter {
     private(set) var closeCount = 0
     private(set) var startCount = 0
     private(set) var lastActivity: TerminalSurfaceActivity?
+    private(set) var lastRequest: TerminalSessionRequest?
+    var needsConfirmQuit = false
 
     func makeTerminalView() -> NSView {
         terminalView
@@ -23,6 +25,7 @@ final class HostedSpyTerminalAdapter: TerminalAdapter {
 
     func startSession(using request: TerminalSessionRequest) throws {
         startCount += 1
+        lastRequest = request
     }
 
     func close() {

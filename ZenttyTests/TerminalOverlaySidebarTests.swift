@@ -17,7 +17,7 @@ final class TerminalOverlaySidebarTests: XCTestCase {
         let root = controller.rootViewControllerForTesting
         let lane = controller.worklaneStore.activeWorklaneID
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        let overlayID = try controller.openOverlay(on: pane, options: PaneOverlayIPCOptions(
+        let overlayID = try controller.legacyOpenOverlay(on: pane, options: PaneOverlayIPCOptions(
             command: "", workingDirectory: "/tmp", wait: false,
             follow: false, notify: false, sizePercent: 100, placement: .pane
         ))
@@ -45,7 +45,7 @@ final class TerminalOverlaySidebarTests: XCTestCase {
         let strip = root.appCanvasViewForTesting.paneStripView
         let lane = controller.worklaneStore.activeWorklaneID
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        let overlayID = try controller.openOverlay(on: pane, options: PaneOverlayIPCOptions(
+        let overlayID = try controller.legacyOpenOverlay(on: pane, options: PaneOverlayIPCOptions(
             command: "", workingDirectory: "/tmp", wait: false,
             follow: false, notify: false, sizePercent: 100, placement: .pane
         ))

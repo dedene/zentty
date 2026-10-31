@@ -159,7 +159,7 @@ final class TerminalOverlayLayoutTests: AppKitTestCase {
         XCTAssertEqual(canvas.quickActionOverlayContainer.frame, canvas.bounds)
     }
 
-    private func makeOverlay(placement: PaneOverlayIPCOptions.Placement) -> TerminalOverlaySession {
+    private func makeOverlay(placement: OverlayPlacement) -> TerminalOverlaySession {
         TerminalOverlaySession(paneID: PaneID("p_test"), worklaneID: WorklaneID("w_test"),
                                command: "git log", workingDirectory: nil, wait: true,
                                sizePercent: 100, placement: placement,

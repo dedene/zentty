@@ -1,21 +1,5 @@
 import AppKit
 
-enum TerminalOverlayError: LocalizedError, Equatable {
-    case paneNotFound
-    case alreadyOpen
-    case notOpen
-    case invalidWorkingDirectory(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .paneNotFound: "Target pane not found."
-        case .alreadyOpen: "An overlay already exists for this placement and target."
-        case .notOpen: "This pane has no overlay."
-        case .invalidWorkingDirectory(let path): "Overlay directory does not exist: \(path)"
-        }
-    }
-}
-
 /// Root view of an overlay. Clicks on its chrome must not fall through to the
 /// pane it covers, whose `mouseDown` would focus the hidden terminal.
 final class TerminalOverlayContainerView: NSView {
@@ -34,7 +18,7 @@ final class TerminalOverlaySession: NSObject {
     let id = "ov_\(UUID().uuidString.lowercased())"
     var paneID: PaneID
     var worklaneID: WorklaneID
-    let placement: PaneOverlayIPCOptions.Placement
+    let placement: OverlayPlacement
     /// The command the overlay runs; empty for an interactive shell.
     let command: String
     let view = TerminalOverlayContainerView()
@@ -87,7 +71,7 @@ final class TerminalOverlaySession: NSObject {
         workingDirectory: String?,
         wait: Bool,
         sizePercent: Int,
-        placement: PaneOverlayIPCOptions.Placement,
+        placement: OverlayPlacement,
         gitContextResolver: any PaneGitContextResolving = WorklaneGitContextResolver(),
         environment: (PaneID) -> [String: String] = { _ in [:] },
         adapterFactory: (PaneID) -> any TerminalAdapter = { LibghosttyAdapter(paneID: $0) }

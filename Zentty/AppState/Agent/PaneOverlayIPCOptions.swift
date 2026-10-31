@@ -1,17 +1,13 @@
 import Foundation
 
 struct PaneOverlayIPCOptions: Equatable {
-    enum Placement: String, CaseIterable {
-        case worklane
-        case pane
-    }
     let command: String
     let workingDirectory: String?
     let wait: Bool
     let follow: Bool
     let notify: Bool
     let sizePercent: Int
-    var placement: Placement = .worklane
+    var placement: OverlayPlacement = .worklane
 
     enum ParseError: LocalizedError, Equatable {
         case missingValue(String)
@@ -36,7 +32,7 @@ struct PaneOverlayIPCOptions: Equatable {
         var follow = false
         var notify = false
         var sizePercent = 100
-        var placement = Placement.worklane
+        var placement = OverlayPlacement.worklane
         var index = 0
         while index < arguments.count {
             let option = arguments[index]
@@ -57,7 +53,7 @@ struct PaneOverlayIPCOptions: Equatable {
                     }
                     sizePercent = parsed
                 case "--placement":
-                    guard let parsed = Placement(rawValue: value) else {
+                    guard let parsed = OverlayPlacement(rawValue: value) else {
                         throw ParseError.invalidValue(option)
                     }
                     placement = parsed
@@ -86,6 +82,21 @@ struct PaneOverlayIPCOptions: Equatable {
             notify: notify,
             sizePercent: sizePercent,
             placement: placement
+        )
+    }
+}
+
+extension PaneOverlayIPCOptions {
+    /// The store-side request `zentty overlay open` turns into.
+    var floatRequest: OverlayFloatRequest {
+        OverlayFloatRequest(
+            command: command,
+            workingDirectory: workingDirectory,
+            waitAfterCommand: wait,
+            placement: placement,
+            sizePercent: sizePercent,
+            follow: follow,
+            notify: notify
         )
     }
 }

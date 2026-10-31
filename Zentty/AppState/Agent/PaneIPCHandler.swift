@@ -509,8 +509,8 @@ enum PaneIPCHandler {
             )
         case .overlayOpen:
             let options = try PaneOverlayIPCOptions.parse(arguments: request.arguments)
-            let id = try windowController.openOverlay(on: target.paneID, options: options)
-            if options.notify, let windowID = target.windowID {
+            let opened = try windowController.openOverlay(on: target.paneID, options: options)
+            if opened.isNew, options.notify, let windowID = target.windowID {
                 appDelegate.deliverPaneNotification(PaneNotificationRequest(
                     title: "Quick action opened",
                     subtitle: nil,
@@ -522,7 +522,7 @@ enum PaneIPCHandler {
                     paneID: target.paneID
                 ))
             }
-            return AgentIPCResponseResult(stdout: "\(id)\n")
+            return AgentIPCResponseResult(stdout: "\(opened.id.rawValue)\n")
         case .overlayList:
             return AgentIPCResponseResult(stdout: try windowController.overlayListJSON(on: target.paneID))
         case .overlayShow:

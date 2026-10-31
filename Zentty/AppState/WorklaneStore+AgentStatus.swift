@@ -83,6 +83,14 @@ extension WorklaneStore {
             auxiliaryState: worklane.auxiliaryStateByPaneID[paneID]
         )
         switch event {
+        case .commandFinished(let exitCode, _):
+            worklane.auxiliaryStateByPaneID[paneID]?.lastCommandExitCode = exitCode
+        case .userSubmittedInput:
+            worklane.auxiliaryStateByPaneID[paneID]?.lastCommandExitCode = nil
+        default:
+            break
+        }
+        switch event {
         case .shellReady:
             clearProgramStatus(.shellReady, paneID: paneID, in: &worklane)
             clearTransientAgentStateForFreshShellIfNeeded(paneID: paneID, in: &worklane)

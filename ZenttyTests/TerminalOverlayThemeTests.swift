@@ -14,7 +14,7 @@ final class TerminalOverlayThemeTests: XCTestCase {
         addTeardownBlock { controller.closeWindowBypassingConfirmation() }
         controller.showWindow(nil)
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: PaneOverlayIPCOptions(
+        _ = try controller.legacyOpenOverlay(on: pane, options: PaneOverlayIPCOptions(
             command: "", workingDirectory: "/tmp", wait: false,
             follow: false, notify: false, sizePercent: 100, placement: .pane
         ))

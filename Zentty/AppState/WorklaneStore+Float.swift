@@ -433,7 +433,7 @@ extension WorklaneStore {
         (worklane.floatingPanes.map(\.sequence).max() ?? -1) + 1
     }
 
-    private static func nextMinimizedOrder(in worklane: WorklaneState) -> Int {
+    static func nextMinimizedOrder(in worklane: WorklaneState) -> Int {
         (worklane.floatingPanes.compactMap { minimizedOrder(of: $0.mode) }.max() ?? -1) + 1
     }
 

@@ -10,11 +10,11 @@ final class TerminalOverlaySessionTests: XCTestCase {
         controller.showWindow(nil)
         let paneID = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
 
-        for placement in PaneOverlayIPCOptions.Placement.allCases {
+        for placement in OverlayPlacement.allCases {
             let options = PaneOverlayIPCOptions(command: "/bin/sleep 5", workingDirectory: "/tmp",
                                                 wait: true, follow: false, notify: false,
                                                 sizePercent: 100, placement: placement)
-            let id = try controller.openOverlay(on: paneID, options: options)
+            let id = try controller.legacyOpenOverlay(on: paneID, options: options)
             let overlayView = try XCTUnwrap(findOverlay(id, in: try XCTUnwrap(controller.window.contentView)))
             let anchor = try XCTUnwrap(overlayView.superview)
             XCTAssertTrue(overlayView.window === controller.window)
@@ -25,7 +25,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
             } else {
                 XCTAssertTrue(anchor is PaneContainerView)
             }
-            try controller.closeOverlay(on: paneID)
+            try controller.legacyCloseOverlay(on: paneID)
         }
     }
 
@@ -40,23 +40,23 @@ final class TerminalOverlaySessionTests: XCTestCase {
         return controller
     }
 
-    private func options(placement: PaneOverlayIPCOptions.Placement = .worklane,
+    private func options(placement: OverlayPlacement = .worklane,
                          cwd: String? = "/tmp", follow: Bool = false, wait: Bool = true) -> PaneOverlayIPCOptions {
         PaneOverlayIPCOptions(command: "test command", workingDirectory: cwd, wait: wait,
                               follow: follow, notify: false, sizePercent: 100, placement: placement)
     }
 
     private func entries(_ controller: MainWindowController, on paneID: PaneID? = nil) throws -> [[String: Any]] {
-        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try controller.overlayListJSON(on: paneID).utf8)) as? [[String: Any]])
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try controller.legacyOverlayListJSON(on: paneID).utf8)) as? [[String: Any]])
     }
 
     func test_open_show_and_close_report_missing_panes_and_sessions() throws {
         let controller = mockController()
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        XCTAssertThrowsError(try controller.openOverlay(on: PaneID("unknown"), options: options())) {
+        XCTAssertThrowsError(try controller.legacyOpenOverlay(on: PaneID("unknown"), options: options())) {
             XCTAssertEqual($0 as? TerminalOverlayError, .paneNotFound)
         }
-        for action in [controller.showOverlay(on:), controller.closeOverlay(on:)] {
+        for action in [controller.legacyShowOverlay(on:), controller.legacyCloseOverlay(on:)] {
             XCTAssertThrowsError(try action(pane)) {
                 XCTAssertEqual($0 as? TerminalOverlayError, .notOpen)
             }
@@ -71,7 +71,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         try Data("file".utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
         for path in [file.path, file.appendingPathComponent("missing").path] {
-            XCTAssertThrowsError(try controller.openOverlay(on: pane, options: options(cwd: path))) {
+            XCTAssertThrowsError(try controller.legacyOpenOverlay(on: pane, options: options(cwd: path))) {
                 XCTAssertEqual($0 as? TerminalOverlayError, .invalidWorkingDirectory(path))
             }
             XCTAssertTrue(try self.entries(controller).isEmpty)
@@ -83,7 +83,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         adapter.startError = OverlayTestAdapter.Failure.start
         let controller = mockController(adapterFactory: { _ in adapter })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        XCTAssertThrowsError(try controller.openOverlay(on: pane, options: options())) {
+        XCTAssertThrowsError(try controller.legacyOpenOverlay(on: pane, options: options())) {
             XCTAssertTrue($0 is OverlayTestAdapter.Failure)
         }
         XCTAssertEqual(adapter.closeCount, 1)
@@ -95,7 +95,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let adapter = OverlayTestAdapter()
         let controller = mockController(adapterFactory: { _ in adapter })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         let removeSession = session.onClose
         var closeCallbacks = 0
@@ -112,7 +112,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let adapter = OverlayTestAdapter()
         let controller = mockController(adapterFactory: { _ in adapter })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         adapter.eventDidOccur?(.surfaceClosed)
         XCTAssertEqual(adapter.closeCount, 1)
         XCTAssertTrue(try self.entries(controller).isEmpty)
@@ -122,7 +122,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let adapter = OverlayTestAdapter()
         let controller = mockController(adapterFactory: { _ in adapter })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options(wait: false))
+        _ = try controller.legacyOpenOverlay(on: pane, options: options(wait: false))
         XCTAssertEqual(adapter.request?.waitAfterNativeCommand, false)
         adapter.eventDidOccur?(.commandFinished(exitCode: 17, durationNanoseconds: 123))
         XCTAssertEqual(try self.entries(controller).first?["exitCode"] as? Int, 17)
@@ -135,9 +135,9 @@ final class TerminalOverlaySessionTests: XCTestCase {
             let adapter = OverlayTestAdapter(); adapters.append(adapter); return adapter
         })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         let worklaneOverlay = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
-        _ = try controller.openOverlay(on: pane, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: pane, options: options(placement: .pane))
         let paneOverlay = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         var restores = 0
         worklaneOverlay.onRestoreFocus = { restores += 1 }
@@ -154,7 +154,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let controller = mockController(adapterFactory: { _ in adapter })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         _ = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
-        _ = try controller.openOverlay(on: pane, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: pane, options: options(placement: .pane))
         _ = controller.worklaneStore.closePane(id: pane)
         XCTAssertEqual(adapter.closeCount, 1)
         XCTAssertTrue(try self.entries(controller).isEmpty)
@@ -164,7 +164,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let controller = mockController()
         let source = controller.worklaneStore.activeWorklaneID
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: pane, options: options(placement: .pane))
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         controller.newWorklane(nil)
         let destination = controller.worklaneStore.activeWorklaneID
@@ -180,7 +180,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let controller = mockController(adapterFactory: { _ in adapter })
         let source = controller.worklaneStore.activeWorklaneID
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         controller.newWorklane(nil)
         controller.focusWorklane(id: source)
         controller.worklaneStore.closeActiveWorklane()
@@ -191,7 +191,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
     func test_hide_restores_focus_only_when_overlay_holds_focus() throws {
         let controller = mockController()
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         let restore = session.onRestoreFocus
         var restores = 0
@@ -201,7 +201,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         XCTAssertFalse((controller.window.firstResponder as? NSView)?.isDescendant(of: session.view) == true)
         session.hide()
         XCTAssertEqual(restores, 1)
-        try controller.showOverlay(on: pane)
+        try controller.legacyShowOverlay(on: pane)
         _ = controller.window.makeFirstResponder(nil)
         session.hide()
         XCTAssertEqual(restores, 1)
@@ -213,13 +213,13 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         controller.newWorklane(nil)
         let destination = controller.worklaneStore.activeWorklaneID
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         XCTAssertEqual(controller.worklaneStore.activeWorklaneID, destination)
-        try controller.showOverlay(on: pane)
+        try controller.legacyShowOverlay(on: pane)
         XCTAssertEqual(controller.worklaneStore.activeWorklaneID, source)
-        try controller.closeOverlay(on: pane)
+        try controller.legacyCloseOverlay(on: pane)
         controller.focusWorklane(id: destination)
-        _ = try controller.openOverlay(on: pane, options: options(follow: true))
+        _ = try controller.legacyOpenOverlay(on: pane, options: options(follow: true))
         XCTAssertEqual(controller.worklaneStore.activeWorklaneID, source)
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         XCTAssertTrue((controller.window.firstResponder as? NSView)?.isDescendant(of: session.view) == true)
@@ -298,7 +298,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let lane = controller.worklaneStore.activeWorklaneID
         let paneA = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
-        _ = try controller.openOverlay(on: paneB, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: paneB, options: options(placement: .pane))
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: paneB))
 
         controller.focusPane(id: paneA, in: lane)
@@ -316,7 +316,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let lane = controller.worklaneStore.activeWorklaneID
         let paneA = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
-        _ = try controller.openOverlay(on: paneB, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: paneB, options: options(placement: .pane))
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: paneB))
         controller.focusPane(id: paneA, in: lane)
         settleFocus()
@@ -339,7 +339,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         controller.newWorklane(nil)
         let notifyOptions = PaneOverlayIPCOptions(command: "test command", workingDirectory: "/tmp", wait: true,
                                                   follow: false, notify: true, sizePercent: 100)
-        _ = try controller.openOverlay(on: pane, options: notifyOptions)
+        _ = try controller.legacyOpenOverlay(on: pane, options: notifyOptions)
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         XCTAssertFalse(session.isShowing)
 
@@ -357,7 +357,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let source = controller.worklaneStore.activeWorklaneID
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         controller.newWorklane(nil)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
 
         controller.navigateToPane(worklaneID: source, paneID: pane)
@@ -369,14 +369,14 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let controller = mockController(adapterFactory: { _ in adapter })
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
-        _ = try controller.openOverlay(on: pane, options: options())
+        _ = try controller.legacyOpenOverlay(on: pane, options: options())
         XCTAssertFalse(controller.anyPaneHasRunningProcessForQuitConfirmation)
 
         adapter.needsConfirmQuit = true
         XCTAssertTrue(controller.anyPaneRequiresQuitConfirmation)
         XCTAssertTrue(controller.anyPaneHasRunningProcessForQuitConfirmation)
 
-        try controller.closeOverlay(on: pane)
+        try controller.legacyCloseOverlay(on: pane)
         XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
         XCTAssertFalse(controller.anyPaneHasRunningProcessForQuitConfirmation)
     }
@@ -385,7 +385,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let controller = mockController()
         controller.toggleQuickActionOverlay(nil)
         let list = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(try controller.overlayListJSON().utf8)) as? [[String: Any]]
+            JSONSerialization.jsonObject(with: Data(try controller.legacyOverlayListJSON().utf8)) as? [[String: Any]]
         )
         let id = try XCTUnwrap(list.first?["id"] as? String)
         let overlayView = try XCTUnwrap(findOverlay(id, in: try XCTUnwrap(controller.window.contentView)))
@@ -394,12 +394,12 @@ final class TerminalOverlaySessionTests: XCTestCase {
         controller.toggleQuickActionOverlay(nil)
         XCTAssertTrue(overlayView.isHidden)
         XCTAssertNotNil(overlayView.superview)
-        XCTAssertTrue(try controller.overlayListJSON().contains(id))
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(id))
         XCTAssertFalse((controller.window.firstResponder as? NSView)?.isDescendant(of: overlayView) == true)
 
         controller.toggleQuickActionOverlay(nil)
         XCTAssertFalse(overlayView.isHidden)
-        XCTAssertTrue(try controller.overlayListJSON().contains(id))
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(id))
         XCTAssertTrue((controller.window.firstResponder as? NSView)?.isDescendant(of: overlayView) == true)
     }
 
@@ -407,7 +407,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let controller = mockController()
         let firstWorklaneID = controller.worklaneStore.activeWorklaneID
         controller.toggleQuickActionOverlay(nil)
-        let firstList = try controller.overlayListJSON()
+        let firstList = try controller.legacyOverlayListJSON()
         let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(firstList.utf8)) as? [[String: Any]])
         let firstID = try XCTUnwrap(entries.first?["id"] as? String)
         let firstView = try XCTUnwrap(findOverlay(firstID, in: try XCTUnwrap(controller.window.contentView)))
@@ -415,7 +415,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         controller.newWorklane(nil)
         XCTAssertTrue(firstView.isHidden)
         controller.toggleQuickActionOverlay(nil)
-        let bothEntries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try controller.overlayListJSON().utf8)) as? [[String: Any]])
+        let bothEntries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try controller.legacyOverlayListJSON().utf8)) as? [[String: Any]])
         XCTAssertEqual(bothEntries.count, 2)
         let secondID = try XCTUnwrap(bothEntries.first { $0["id"] as? String != firstID }?["id"] as? String)
         let secondView = try XCTUnwrap(findOverlay(secondID, in: try XCTUnwrap(controller.window.contentView)))
@@ -435,7 +435,7 @@ final class TerminalOverlaySessionTests: XCTestCase {
         let worklaneID = controller.worklaneStore.activeWorklaneID
         let originalPaneID = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         controller.toggleQuickActionOverlay(nil)
-        let originalList = try controller.overlayListJSON()
+        let originalList = try controller.legacyOverlayListJSON()
         let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(originalList.utf8)) as? [[String: Any]])
         let id = try XCTUnwrap(entries.first?["id"] as? String)
         let overlayView = try XCTUnwrap(findOverlay(id, in: try XCTUnwrap(controller.window.contentView)))
@@ -445,15 +445,15 @@ final class TerminalOverlaySessionTests: XCTestCase {
         controller.focusPane(id: secondPaneID, in: worklaneID)
         controller.toggleQuickActionOverlay(nil)
         XCTAssertFalse(overlayView.isHidden)
-        XCTAssertEqual(try controller.overlayListJSON(), originalList)
+        XCTAssertEqual(try controller.legacyOverlayListJSON(), originalList)
         controller.toggleQuickActionOverlay(nil)
 
         _ = controller.worklaneStore.closePane(id: originalPaneID)
         controller.toggleQuickActionOverlay(nil)
         XCTAssertFalse(overlayView.isHidden)
-        XCTAssertTrue(try controller.overlayListJSON().contains(id))
-        XCTAssertFalse(try controller.overlayListJSON().contains(originalPaneID.rawValue))
-        try controller.closeOverlay(on: secondPaneID)
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(id))
+        XCTAssertFalse(try controller.legacyOverlayListJSON().contains(originalPaneID.rawValue))
+        try controller.legacyCloseOverlay(on: secondPaneID)
         XCTAssertNil(overlayView.superview)
         XCTAssertTrue(try self.entries(controller).isEmpty)
     }
@@ -465,20 +465,20 @@ final class TerminalOverlaySessionTests: XCTestCase {
             var overlayView: NSView?
             if hasExistingSession {
                 controller.toggleQuickActionOverlay(nil)
-                let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try controller.overlayListJSON().utf8)) as? [[String: Any]])
+                let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try controller.legacyOverlayListJSON().utf8)) as? [[String: Any]])
                 let id = try XCTUnwrap(entries.first?["id"] as? String)
                 overlayView = try XCTUnwrap(findOverlay(id, in: try XCTUnwrap(controller.window.contentView)))
                 controller.toggleQuickActionOverlay(nil)
             }
-            let originalList = try controller.overlayListJSON()
+            let originalList = try controller.legacyOverlayListJSON()
 
             root.routeNextWorklane()
             XCTAssertTrue(root.isWorklanePeekActive)
             controller.toggleQuickActionOverlay(nil)
-            XCTAssertEqual(try controller.overlayListJSON(), originalList)
+            XCTAssertEqual(try controller.legacyOverlayListJSON(), originalList)
             root.routeNextWorklane()
             controller.toggleQuickActionOverlay(nil)
-            XCTAssertEqual(try controller.overlayListJSON(), originalList)
+            XCTAssertEqual(try controller.legacyOverlayListJSON(), originalList)
             if let overlayView { XCTAssertTrue(overlayView.isHidden) }
 
             var overlayRequests = 0
@@ -498,17 +498,17 @@ final class TerminalOverlaySessionTests: XCTestCase {
                                            follow: false, notify: false, sizePercent: 100)
         var paneOptions = shared
         paneOptions.placement = .pane
-        let sharedID = try controller.openOverlay(on: paneA, options: shared)
-        XCTAssertThrowsError(try controller.openOverlay(on: paneB, options: shared))
-        let paneAID = try controller.openOverlay(on: paneA, options: paneOptions)
-        let paneBID = try controller.openOverlay(on: paneB, options: paneOptions)
-        XCTAssertThrowsError(try controller.openOverlay(on: paneB, options: paneOptions))
+        let sharedID = try controller.legacyOpenOverlay(on: paneA, options: shared)
+        XCTAssertThrowsError(try controller.legacyOpenOverlay(on: paneB, options: shared))
+        let paneAID = try controller.legacyOpenOverlay(on: paneA, options: paneOptions)
+        let paneBID = try controller.legacyOpenOverlay(on: paneB, options: paneOptions)
+        XCTAssertThrowsError(try controller.legacyOpenOverlay(on: paneB, options: paneOptions))
 
-        let listA = try controller.overlayListJSON(on: paneA)
+        let listA = try controller.legacyOverlayListJSON(on: paneA)
         XCTAssertTrue(listA.contains(sharedID))
         XCTAssertTrue(listA.contains(paneAID))
         XCTAssertFalse(listA.contains(paneBID))
-        let listB = try controller.overlayListJSON(on: paneB)
+        let listB = try controller.legacyOverlayListJSON(on: paneB)
         XCTAssertTrue(listB.contains(sharedID))
         XCTAssertTrue(listB.contains(paneBID))
         XCTAssertFalse(listB.contains(paneAID))
@@ -516,14 +516,14 @@ final class TerminalOverlaySessionTests: XCTestCase {
         controller.newWorklane(nil)
         let otherPane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         XCTAssertTrue(try self.entries(controller, on: otherPane).isEmpty)
-        try controller.closeOverlay(on: paneB)
-        XCTAssertFalse(try controller.overlayListJSON().contains(paneBID))
-        XCTAssertTrue(try controller.overlayListJSON().contains(sharedID))
-        try controller.showOverlay(on: paneB)
+        try controller.legacyCloseOverlay(on: paneB)
+        XCTAssertFalse(try controller.legacyOverlayListJSON().contains(paneBID))
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(sharedID))
+        try controller.legacyShowOverlay(on: paneB)
         XCTAssertEqual(controller.worklaneStore.activeWorklaneID, laneID)
-        try controller.closeOverlay(on: paneB)
-        XCTAssertFalse(try controller.overlayListJSON().contains(sharedID))
-        XCTAssertTrue(try controller.overlayListJSON().contains(paneAID))
+        try controller.legacyCloseOverlay(on: paneB)
+        XCTAssertFalse(try controller.legacyOverlayListJSON().contains(sharedID))
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(paneAID))
     }
 
     func test_background_overlay_stays_on_source_worklane_without_stealing_selection() throws {
@@ -543,12 +543,12 @@ final class TerminalOverlaySessionTests: XCTestCase {
             notify: false,
             sizePercent: 70
         )
-        let id = try controller.openOverlay(on: sourcePaneID, options: options)
-        addTeardownBlock { try? controller.closeOverlay(on: sourcePaneID) }
+        let id = try controller.legacyOpenOverlay(on: sourcePaneID, options: options)
+        addTeardownBlock { try? controller.legacyCloseOverlay(on: sourcePaneID) }
 
         XCTAssertEqual(controller.worklaneStore.activeWorklaneID, selectedWorklaneID)
-        XCTAssertTrue(try controller.overlayListJSON().contains(id))
-        XCTAssertTrue(try controller.overlayListJSON().contains(sourceWorklaneID.rawValue))
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(id))
+        XCTAssertTrue(try controller.legacyOverlayListJSON().contains(sourceWorklaneID.rawValue))
     }
 }
 

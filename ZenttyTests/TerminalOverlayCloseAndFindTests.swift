@@ -19,7 +19,7 @@ final class TerminalOverlayCloseAndFindTests: XCTestCase {
         return controller
     }
 
-    private func options(placement: PaneOverlayIPCOptions.Placement) -> PaneOverlayIPCOptions {
+    private func options(placement: OverlayPlacement) -> PaneOverlayIPCOptions {
         PaneOverlayIPCOptions(command: "test command", workingDirectory: "/tmp", wait: true,
                               follow: false, notify: false, sizePercent: 100, placement: placement)
     }
@@ -37,7 +37,7 @@ final class TerminalOverlayCloseAndFindTests: XCTestCase {
         let controller = mockController(adapter: adapter)
         let lane = controller.worklaneStore.activeWorklaneID
         let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
-        _ = try controller.openOverlay(on: paneB, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: paneB, options: options(placement: .pane))
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: paneB))
         session.hide()
         controller.focusPane(id: paneB, in: lane)
@@ -64,8 +64,8 @@ final class TerminalOverlayCloseAndFindTests: XCTestCase {
         let lane = controller.worklaneStore.activeWorklaneID
         let paneA = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
         let paneB = try XCTUnwrap(controller.splitWithLayout(placement: .afterFocused, isHorizontal: true, layout: .equal))
-        _ = try controller.openOverlay(on: paneA, options: options(placement: .worklane))
-        _ = try controller.openOverlay(on: paneB, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: paneA, options: options(placement: .worklane))
+        _ = try controller.legacyOpenOverlay(on: paneB, options: options(placement: .pane))
         let running = RunningQuickAction(command: "test command")
 
         XCTAssertEqual(root.runningQuickActionsClosingWithWorklane?(lane), [], "idle overlays need no prompt")
@@ -86,7 +86,7 @@ final class TerminalOverlayCloseAndFindTests: XCTestCase {
         let controller = mockController()
         let root = controller.rootViewControllerForTesting
         let pane = try XCTUnwrap(controller.worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
-        _ = try controller.openOverlay(on: pane, options: options(placement: .pane))
+        _ = try controller.legacyOpenOverlay(on: pane, options: options(placement: .pane))
         let session = try XCTUnwrap(controller.overlaySessionForTesting(on: pane))
         XCTAssertTrue(session.holdsKeyboardFocus)
 

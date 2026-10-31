@@ -353,10 +353,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self?.overlays.interceptTerminalFocus(paneID: paneID) ?? false
         }
         rootViewController.runningQuickActionsClosingWithPane = { [weak self] paneID in
-            self?.overlays.runningQuickActions(closingWithPane: paneID) ?? []
+            guard let self else { return [] }
+            return self.overlays.runningQuickActions(closingWithPane: paneID)
+                + self.runningOverlayFloats(self.worklaneStore.temporaryFloatIDs(closingWithPane: paneID))
         }
         rootViewController.runningQuickActionsClosingWithWorklane = { [weak self] worklaneID in
-            self?.overlays.runningQuickActions(closingWithWorklane: worklaneID) ?? []
+            guard let self else { return [] }
+            return self.overlays.runningQuickActions(closingWithWorklane: worklaneID)
+                + self.runningOverlayFloats(self.worklaneStore.temporaryFloatIDs(closingWithWorklane: worklaneID))
         }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
             self?.refreshWindowTitle()
@@ -893,6 +897,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
         overlays.revealOverlayAwaitingNavigation(on: paneID)
+        worklaneStore.revealOverlayFloatAwaitingNavigation(on: paneID)
     }
 
     /// Selects a pane without activating Zentty or stealing key status. Used
@@ -1310,9 +1315,19 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.paneCommands.focusPaneByID(id, in: worklaneID)
     }
 
+    // MARK: - `zentty overlay` (temporary floats)
+
+    /// Opens a temporary float over `paneID`'s worklane or pane, or returns
+    /// the one already open for that owner and placement.
     @discardableResult
-    func openOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> String {
-        try overlays.open(on: paneID, options: options)
+    func openOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> OverlayFloatOpenResult {
+        let placement = rootViewController.overlayFloatPlacement(owner: paneID)
+        return try worklaneStore.openOverlayFloat(
+            on: paneID,
+            request: options.floatRequest,
+            canvas: placement.canvas,
+            ownerFrame: placement.ownerFrame
+        )
     }
 
     @objc
@@ -1321,16 +1336,49 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func showOverlay(on paneID: PaneID) throws {
-        try overlays.show(on: paneID)
+        try worklaneStore.showOverlayFloat(targeting: paneID)
     }
 
     func closeOverlay(on paneID: PaneID) throws {
-        try overlays.close(on: paneID)
+        try worklaneStore.closeOverlayFloat(targeting: paneID)
     }
 
     func overlayListJSON(on paneID: PaneID? = nil) throws -> String {
+        try OverlayFloatEntry.json(worklaneStore.overlayFloatEntries(targeting: paneID))
+    }
+
+    /// Overlay floats among `ids` whose process would die unasked.
+    private func runningOverlayFloats(_ ids: [PaneID]) -> [RunningQuickAction] {
+        ids.compactMap { id in
+            guard runtimeRegistry.runtime(for: id)?.adapter.needsConfirmQuit == true else {
+                return nil
+            }
+            let command = worklaneStore.worklaneIndex(containingPane: id)
+                .flatMap { worklaneStore.worklanes[$0].pane(id: id)?.sessionRequest.nativeCommand }
+            return RunningQuickAction(command: command?.isEmpty == false ? command : nil)
+        }
+    }
+
+    #if DEBUG
+    // The quick-action toggle still runs on the legacy overlay host until
+    // "New Float" replaces it; its tests open overlays through these.
+    @discardableResult
+    func legacyOpenOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> String {
+        try overlays.open(on: paneID, options: options)
+    }
+
+    func legacyShowOverlay(on paneID: PaneID) throws {
+        try overlays.show(on: paneID)
+    }
+
+    func legacyCloseOverlay(on paneID: PaneID) throws {
+        try overlays.close(on: paneID)
+    }
+
+    func legacyOverlayListJSON(on paneID: PaneID? = nil) throws -> String {
         try overlays.listJSON(on: paneID)
     }
+    #endif
 
     func closePane(id: PaneID) {
         rootViewController.paneCommands.closePane(id: id)

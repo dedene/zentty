@@ -265,7 +265,7 @@ extension WorklaneStore {
 
     /// Writes `worklane` back: through `commitFloatChange` when it is the
     /// active worklane, else in place with a `.floats` notification.
-    private func commitFloat(_ worklane: WorklaneState, from original: WorklaneState, at worklaneIndex: Int) {
+    func commitFloat(_ worklane: WorklaneState, from original: WorklaneState, at worklaneIndex: Int) {
         if worklane.id == activeWorklaneID {
             commitFloatChange(from: original, to: worklane)
         } else {

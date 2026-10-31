@@ -1436,11 +1436,19 @@ final class RootViewController: NSViewController {
         updateWindowChromeLeadingControlsInset()
     }
 
-    func quickActionOverlayAnchor(for paneID: PaneID, placement: PaneOverlayIPCOptions.Placement) -> NSView? {
+    func quickActionOverlayAnchor(for paneID: PaneID, placement: OverlayPlacement) -> NSView? {
         switch placement {
         case .worklane: appCanvasView.quickActionOverlayContainer
         case .pane: appCanvasView.paneStripView.quickActionOverlayAnchor(for: paneID)
         }
+    }
+
+    /// Where an overlay float for `ownerID` opens: the float layer's bounds,
+    /// and the owner's tile frame in them when the owner is on screen.
+    func overlayFloatPlacement(owner ownerID: PaneID) -> (canvas: CGRect, ownerFrame: CGRect?) {
+        let canvas = appCanvasView.floatLayerView.bounds
+        let ownerIsTileOnScreen = worklaneStore.activeWorklane?.paneStripState.panes.contains { $0.id == ownerID } == true
+        return (canvas, ownerIsTileOnScreen ? appCanvasView.tileFrameInFloatLayer(for: ownerID) : nil)
     }
 
     func restoreTerminalFocusAfterOverlay() {
