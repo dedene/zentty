@@ -77,6 +77,38 @@ final class AgentHistoryExternalDatabaseTests: XCTestCase {
         }
     }
 
+    /// A WAL database whose newest commits live only in `-wal`, with no `-shm` beside it: the
+    /// state left when `-shm` is lost (cleanup tools, copies, syncs) but `-wal` survives. Built in
+    /// `agent/` from a live writer's files; returns the copy and the rows it must read as.
+    private func makeWALDatabaseWithoutSHM(in directory: URL) throws -> (url: URL, titles: [String]) {
+        let source = directory.appendingPathComponent("writer", isDirectory: true)
+        let agent = directory.appendingPathComponent("agent", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: agent, withIntermediateDirectories: true)
+        let writer = try makeFixture("state_5.sqlite", in: source)
+        try writer.execute("PRAGMA wal_autocheckpoint = 0")
+        try writer.execute("CREATE TABLE threads(id TEXT PRIMARY KEY, title TEXT)")
+        try writer.run("INSERT INTO threads(id, title) VALUES (?, ?)", ["t1", "checkpointed"])
+        try writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        try writer.run("INSERT INTO threads(id, title) VALUES (?, ?)", ["t2", "only in wal"])
+        try writer.run("INSERT INTO threads(id, title) VALUES (?, ?)", ["t3", "also only in wal"])
+        let url = agent.appendingPathComponent("state_5.sqlite")
+        try FileManager.default.copyItem(at: writer.url, to: url)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: writer.url.path + "-wal"),
+                                         to: URL(fileURLWithPath: url.path + "-wal"))
+        return (url, ["checkpointed", "only in wal", "also only in wal"])
+    }
+
+    private func makeSnapshotParent(in directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("snapshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func copyPolicy(_ parent: URL, allowsClone: Bool = true, limit: Int64 = 64 * 1024 * 1024) -> ExternalSnapshotCopyPolicy {
+        ExternalSnapshotCopyPolicy(parentDirectory: parent, fullCopyByteLimit: limit, allowsClone: allowsClone)
+    }
+
     // MARK: - Writes, rows, errors
 
     func test_external_open_write_fails() throws {
@@ -255,6 +287,74 @@ final class AgentHistoryExternalDatabaseTests: XCTestCase {
 
         XCTAssertEqual(try listing(directory), before)
         XCTAssertEqual(try bytes(url), beforeBytes)
+    }
+
+    /// `-wal` present but `-shm` missing: a plain `mode=ro` open would create `-shm` beside the
+    /// agent's database, and `immutable=1` would drop the commits in `-wal`. The read must see
+    /// every committed row and leave the agent directory exactly as it was.
+    func test_wal_present_shm_missing_reads_wal_rows_without_creating_files_in_source_dir() throws {
+        let directory = try AgentHistoryFixtures.makeTemporaryDirectory(self)
+        let (url, expected) = try makeWALDatabaseWithoutSHM(in: directory)
+        let agent = url.deletingLastPathComponent()
+        let walURL = URL(fileURLWithPath: url.path + "-wal")
+        let before = try listing(agent)
+        let mainBytes = try bytes(url)
+        let walBytes = try bytes(walURL)
+        XCTAssertEqual(before, ["state_5.sqlite", "state_5.sqlite-wal"])
+
+        let scratch = try makeSnapshotParent(in: directory)
+        var calls = 0
+        let titles = try AgentHistoryDatabase.readExternalSnapshot(url: url, copyPolicy: copyPolicy(scratch)) { database in
+            calls += 1
+            XCTAssertEqual(database.mode, .externalReadOnly)
+            XCTAssertNotEqual(database.url.deletingLastPathComponent().standardizedFileURL.path,
+                              agent.standardizedFileURL.path, "the agent's own file must not be opened")
+            return try database.query("SELECT title FROM threads ORDER BY id") { $0.string(0) }
+        }
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(titles, expected, "commits that live only in -wal must not be dropped")
+        XCTAssertEqual(try listing(agent), before, "no -shm (or anything else) may appear beside the agent database")
+        XCTAssertEqual(try bytes(url), mainBytes)
+        XCTAssertEqual(try bytes(walURL), walBytes)
+        XCTAssertEqual(try listing(scratch), [], "the private copy is removed after the read")
+    }
+
+    func test_wal_present_shm_missing_full_copy_without_clone_reads_wal_rows() throws {
+        let directory = try AgentHistoryFixtures.makeTemporaryDirectory(self)
+        let (url, expected) = try makeWALDatabaseWithoutSHM(in: directory)
+        let agent = url.deletingLastPathComponent()
+        let before = try listing(agent)
+        let scratch = try makeSnapshotParent(in: directory)
+
+        let titles = try AgentHistoryDatabase.readExternalSnapshot(
+            url: url, copyPolicy: copyPolicy(scratch, allowsClone: false)
+        ) { database in
+            try database.query("SELECT title FROM threads ORDER BY id") { $0.string(0) }
+        }
+        XCTAssertEqual(titles, expected)
+        XCTAssertEqual(try listing(agent), before)
+        XCTAssertEqual(try listing(scratch), [])
+    }
+
+    func test_wal_present_shm_missing_over_copy_limit_throws_busy_and_touches_nothing() throws {
+        let directory = try AgentHistoryFixtures.makeTemporaryDirectory(self)
+        let (url, _) = try makeWALDatabaseWithoutSHM(in: directory)
+        let agent = url.deletingLastPathComponent()
+        let before = try listing(agent)
+        let scratch = try makeSnapshotParent(in: directory)
+
+        var calls = 0
+        XCTAssertThrowsError(try AgentHistoryDatabase.readExternalSnapshot(
+            url: url, copyPolicy: copyPolicy(scratch, allowsClone: false, limit: 1)
+        ) { database -> Int64? in
+            calls += 1
+            return try database.scalarInt64("SELECT count(*) FROM threads")
+        }) { error in
+            XCTAssertEqual((error as? AgentHistoryDatabaseError)?.kind, .busy)
+        }
+        XCTAssertEqual(calls, 0, "the agent's database is never opened in place")
+        XCTAssertEqual(try listing(agent), before)
+        XCTAssertEqual(try listing(scratch), [])
     }
 
     func test_snapshot_retries_without_immutable_when_a_writer_appears_during_the_read() throws {

@@ -23,54 +23,189 @@ extension AgentHistoryDatabase {
     /// Opens another agent's database read-only, runs `body` in one short read transaction, and
     /// closes the connection. `body` must not keep the database or its rows.
     ///
-    /// A WAL database whose `-wal` file is absent (its writer closed cleanly) cannot be read by a
-    /// plain read-only connection: SQLite would have to create `-wal`/`-shm` next to it. That case
-    /// opens with `immutable=1`, which reads the main file only and creates nothing.
+    /// Nothing is ever created or changed beside the agent's database. The open mode follows the
+    /// sidecar files found before the open:
+    /// - no `-wal` on a WAL database (its writer closed cleanly): a plain read-only connection
+    ///   would have to create `-wal`/`-shm`, so the main file is read with `immutable=1`;
+    /// - `-wal` present but `-shm` missing (lost to a cleanup tool, copy or sync): a plain
+    ///   read-only connection would create `-shm` next to the database, and `immutable=1` would
+    ///   drop the commits still in `-wal`. The main file and `-wal` are copied into a private
+    ///   0700 directory (an APFS clone when possible, else a full copy capped by `copyPolicy`)
+    ///   and the copy is read and then removed. Over the cap the read throws `.busy`;
+    /// - otherwise (rollback journal, or `-wal` and `-shm` both present): a plain `mode=ro` open.
     ///
     /// Every read is re-checked afterwards and counts as unstable when
-    /// - immutable: the main file or its `-wal` changed (a writer appeared or checkpointed);
+    /// - immutable: the main file or its sidecars changed (a writer appeared or checkpointed);
+    /// - private copy: the main file or its sidecars changed while they were being copied;
     /// - regular: the `-wal` seen before the open vanished or was replaced (the writer closed
     ///   between the check and the open, so the open met the no-`-wal` state above).
     /// An unstable result is discarded, and so is an error thrown by an unstable read (a torn
     /// read, or the open failing in that window); the read runs once more, choosing the mode
     /// from the new state. Two unstable reads throw `.busy` so the caller retries later. Errors
-    /// from a stable read propagate as-is. Sidecar files are never deleted here: one that this
-    /// read may have created cannot be told apart from one a writer just created.
+    /// from a stable read propagate as-is.
     static func readExternalSnapshot<T>(
         url: URL,
         busyTimeoutMilliseconds: Int32 = 250,
+        copyPolicy: ExternalSnapshotCopyPolicy = .standard,
         _ body: (AgentHistoryDatabase) throws -> T
     ) throws -> T {
         for attempt in 1...2 {
             let before = ExternalDatabaseFileState(path: url.path)
-            let immutable = before.needsImmutableOpen
+            let strategy = before.openStrategy
             let outcome: Result<T, Error>
-            do {
-                let database = try openExternalReadOnly(
-                    url: url,
-                    busyTimeoutMilliseconds: busyTimeoutMilliseconds,
-                    immutable: immutable
+            let stable: Bool
+            switch strategy {
+            case .regular, .immutable:
+                let immutable = strategy == .immutable
+                outcome = Result {
+                    try readOnce(url: url, busyTimeoutMilliseconds: busyTimeoutMilliseconds, immutable: immutable, body)
+                }
+                stable = !before.isUnstableRead(immutable: immutable, after: ExternalDatabaseFileState(path: url.path))
+            case .privateCopy:
+                (outcome, stable) = try readPrivateCopy(
+                    of: url, before: before, policy: copyPolicy,
+                    busyTimeoutMilliseconds: busyTimeoutMilliseconds, body
                 )
-                defer { database.close() }
-                outcome = .success(try database.readTransaction { try body(database) })
-            } catch {
-                outcome = .failure(error)
             }
-            let after = ExternalDatabaseFileState(path: url.path)
-            guard before.isUnstableRead(immutable: immutable, after: after) else {
+            if stable {
                 return try outcome.get()
             }
             AgentHistoryLog.indexer.info(
-                "External database changed during a read immutable=\(immutable, privacy: .public) attempt=\(attempt, privacy: .public)"
+                "External database changed during a read mode=\(strategy.logName, privacy: .public) attempt=\(attempt, privacy: .public)"
             )
         }
-        throw AgentHistoryDatabaseError(kind: .busy, code: SQLITE_BUSY, extendedCode: SQLITE_BUSY,
-                                        message: "database changed during the read")
+        throw changedDuringRead
+    }
+
+    private static var changedDuringRead: AgentHistoryDatabaseError {
+        AgentHistoryDatabaseError(kind: .busy, code: SQLITE_BUSY, extendedCode: SQLITE_BUSY,
+                                  message: "database changed during the read")
+    }
+
+    private static func readOnce<T>(
+        url: URL,
+        busyTimeoutMilliseconds: Int32,
+        immutable: Bool,
+        _ body: (AgentHistoryDatabase) throws -> T
+    ) throws -> T {
+        let database = try openExternalReadOnly(url: url, busyTimeoutMilliseconds: busyTimeoutMilliseconds,
+                                                immutable: immutable)
+        defer { database.close() }
+        return try database.readTransaction { try body(database) }
+    }
+
+    /// Copies the main file and `-wal` into a private directory and reads the copy there, where
+    /// SQLite may create its `-shm`. The copy is stable when the originals did not change while
+    /// being copied; after that nothing else can write to it. A copy over the cap throws `.busy`.
+    private static func readPrivateCopy<T>(
+        of url: URL,
+        before: ExternalDatabaseFileState,
+        policy: ExternalSnapshotCopyPolicy,
+        busyTimeoutMilliseconds: Int32,
+        _ body: (AgentHistoryDatabase) throws -> T
+    ) throws -> (Result<T, Error>, stable: Bool) {
+        let copy: ExternalDatabasePrivateCopy
+        do {
+            copy = try ExternalDatabasePrivateCopy(of: url, expectedBytes: before.size + before.walSize, policy: policy)
+        } catch let error as AgentHistoryDatabaseError where error.kind == .busy {
+            throw error // over the copy cap: retrying now would not help
+        } catch {
+            return (.failure(error), stable: ExternalDatabaseFileState(path: url.path) == before)
+        }
+        defer { copy.remove() }
+        guard ExternalDatabaseFileState(path: url.path) == before else {
+            return (.failure(changedDuringRead), stable: false)
+        }
+        return (Result {
+            try readOnce(url: copy.databaseURL, busyTimeoutMilliseconds: busyTimeoutMilliseconds, immutable: false, body)
+        }, stable: true)
+    }
+}
+
+/// How `readExternalSnapshot` copies a WAL database whose `-shm` is missing.
+struct ExternalSnapshotCopyPolicy: Sendable {
+    /// Parent of the private per-read directory, which is created 0700 and removed after the read.
+    var parentDirectory: URL
+    /// Cap on main file + `-wal` bytes for a full data copy. APFS clones share blocks with the
+    /// originals, cost no space up front, and are not capped.
+    var fullCopyByteLimit: Int64
+    /// Tests turn cloning off to exercise the full-copy path and its cap.
+    var allowsClone: Bool
+
+    static let standard = ExternalSnapshotCopyPolicy(
+        parentDirectory: FileManager.default.temporaryDirectory,
+        fullCopyByteLimit: 256 * 1024 * 1024,
+        allowsClone: true
+    )
+}
+
+/// A private copy of an external database and its `-wal`, named so SQLite pairs them.
+private struct ExternalDatabasePrivateCopy {
+    let directory: URL
+    let databaseURL: URL
+
+    init(of source: URL, expectedBytes: Int64, policy: ExternalSnapshotCopyPolicy) throws {
+        var template = Array(policy.parentDirectory
+            .appendingPathComponent("zentty-agent-history-read.XXXXXX").path.utf8CString)
+        // mkdtemp(3) creates the directory with mode 0700.
+        guard let created = template.withUnsafeMutableBufferPointer({ mkdtemp($0.baseAddress) }) else {
+            throw Self.copyError("could not create a private snapshot directory", errno: errno)
+        }
+        directory = URL(fileURLWithPath: String(cString: created), isDirectory: true)
+        databaseURL = directory.appendingPathComponent("snapshot.sqlite")
+        do {
+            let pairs = [(source.path, databaseURL.path), (source.path + "-wal", databaseURL.path + "-wal")]
+            var cloned = false
+            if policy.allowsClone {
+                cloned = pairs.allSatisfy { clonefile($0.0, $0.1, UInt32(CLONE_NOOWNERCOPY)) == 0 }
+            }
+            if !cloned {
+                guard expectedBytes <= policy.fullCopyByteLimit else {
+                    throw AgentHistoryDatabaseError(
+                        kind: .busy, code: SQLITE_BUSY, extendedCode: SQLITE_BUSY,
+                        message: "database without -shm is too large to copy (\(expectedBytes) bytes)"
+                    )
+                }
+                for (from, to) in pairs {
+                    unlink(to)
+                    guard copyfile(from, to, nil, copyfile_flags_t(COPYFILE_DATA)) == 0 else {
+                        throw Self.copyError("could not copy the database", errno: errno)
+                    }
+                }
+            }
+        } catch {
+            remove()
+            throw error
+        }
+    }
+
+    /// Removes the private directory, including the `-shm` SQLite created there.
+    func remove() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private static func copyError(_ message: String, errno code: Int32) -> AgentHistoryDatabaseError {
+        AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
+                                  message: "\(message): \(String(cString: strerror(code)))")
+    }
+}
+
+/// How `readExternalSnapshot` opens an external database (see its documentation).
+private enum ExternalOpenStrategy {
+    case regular, immutable, privateCopy
+
+    var logName: String {
+        switch self {
+        case .regular: "regular"
+        case .immutable: "immutable"
+        case .privateCopy: "privateCopy"
+        }
     }
 }
 
 /// What `readExternalSnapshot` compares before and after a read: the main file's identity,
-/// size and mtime, whether its header says WAL, and whether (and as which inode) `-wal` exists.
+/// size and mtime, whether its header says WAL, `-wal`'s identity, size and mtime, and whether
+/// `-shm` exists.
 private struct ExternalDatabaseFileState: Equatable {
     private static let headerMagic = Array("SQLite format 3\0".utf8)
 
@@ -82,9 +217,17 @@ private struct ExternalDatabaseFileState: Equatable {
     let isWALDatabase: Bool
     let walExists: Bool
     let walInode: UInt64
+    let walSize: Int64
+    let walModifiedNanoseconds: Int64
+    let shmExists: Bool
 
-    /// A WAL-mode database with no `-wal`: plain read-only opens fail on it.
-    var needsImmutableOpen: Bool { exists && isWALDatabase && !walExists }
+    /// - A WAL database with no `-wal`: plain read-only opens fail on it.
+    /// - A `-wal` with no `-shm`: a plain read-only open creates `-shm` beside the database.
+    var openStrategy: ExternalOpenStrategy {
+        guard exists, isWALDatabase || walExists else { return .regular }
+        if !walExists { return .immutable }
+        return shmExists ? .regular : .privateCopy
+    }
 
     /// Immutable reads need the whole state unchanged. Regular reads only need the `-wal` seen
     /// before the open to still be the same file: a live writer may checkpoint freely.
@@ -102,7 +245,7 @@ private struct ExternalDatabaseFileState: Equatable {
             device = Int64(info.st_dev)
             inode = UInt64(info.st_ino)
             size = Int64(info.st_size)
-            modifiedNanoseconds = Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec)
+            modifiedNanoseconds = Self.nanoseconds(info.st_mtimespec)
             isWALDatabase = Self.headerSaysWAL(path: path)
         } else {
             exists = false
@@ -115,6 +258,14 @@ private struct ExternalDatabaseFileState: Equatable {
         var walInfo = stat()
         walExists = stat(path + "-wal", &walInfo) == 0
         walInode = walExists ? UInt64(walInfo.st_ino) : 0
+        walSize = walExists ? Int64(walInfo.st_size) : 0
+        walModifiedNanoseconds = walExists ? Self.nanoseconds(walInfo.st_mtimespec) : 0
+        var shmInfo = stat()
+        shmExists = stat(path + "-shm", &shmInfo) == 0
+    }
+
+    private static func nanoseconds(_ time: timespec) -> Int64 {
+        Int64(time.tv_sec) * 1_000_000_000 + Int64(time.tv_nsec)
     }
 
     /// Header bytes 18/19 (file format write/read version) are 2 for WAL mode.
