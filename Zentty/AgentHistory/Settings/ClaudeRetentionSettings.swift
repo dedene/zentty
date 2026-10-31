@@ -118,18 +118,18 @@ enum ClaudeRetentionSettings {
 
         // Managed settings win over the user's file. An unreadable or malformed managed file
         // is treated as absent: it isn't ours to report on.
-        if case let .success(object?) = readObject(at: managedSettingsURL, fileManager: fileManager),
-           case let .success(days?) = retentionDays(in: object, path: managedSettingsURL.path) {
+        if case let .success(settings?) = readSettings(at: managedSettingsURL, fileManager: fileManager),
+           case let .success(days?) = retentionDays(in: settings, path: managedSettingsURL.path) {
             return make(days, .managedSettings)
         }
 
-        switch readObject(at: settingsURL, fileManager: fileManager) {
+        switch readSettings(at: settingsURL, fileManager: fileManager) {
         case let .failure(error):
             return make(defaultDays, .defaultValue, error)
         case .success(nil):
             return make(defaultDays, .defaultValue)
-        case let .success(object?):
-            switch retentionDays(in: object, path: settingsURL.path) {
+        case let .success(settings?):
+            switch retentionDays(in: settings, path: settingsURL.path) {
             case let .failure(error):
                 return make(defaultDays, .defaultValue, error)
             case .success(nil):
@@ -208,7 +208,8 @@ enum ClaudeRetentionSettings {
             return .write(Data("{\n  \"\(key)\": \(days)\n}\n".utf8))
         }
         let object = try parseObject(original, path: reportedPath).get()
-        if let current = try retentionDays(in: object, path: reportedPath).get(), current >= days {
+        let settings = ParsedSettings(data: original, object: object)
+        if let current = try retentionDays(in: settings, path: reportedPath).get(), current >= days {
             return .alreadySufficient(current)
         }
 
@@ -299,7 +300,13 @@ enum ClaudeRetentionSettings {
         return data
     }
 
-    private static func readObject(at url: URL, fileManager: FileManager) -> Result<[String: Any]?, ClaudeRetentionSettingsError> {
+    /// A parsed settings file plus its bytes: the bytes decide which duplicate key wins.
+    private struct ParsedSettings {
+        let data: Data
+        let object: [String: Any]
+    }
+
+    private static func readSettings(at url: URL, fileManager: FileManager) -> Result<ParsedSettings?, ClaudeRetentionSettingsError> {
         let data: Data?
         do {
             data = try readBytes(at: url, reportedPath: url.path, fileManager: fileManager)
@@ -311,7 +318,7 @@ enum ClaudeRetentionSettings {
         guard let data else {
             return .success(nil)
         }
-        return parseObject(data, path: url.path).map { Optional($0) }
+        return parseObject(data, path: url.path).map { ParsedSettings(data: data, object: $0) }
     }
 
     private static func parseObject(_ data: Data, path: String) -> Result<[String: Any], ClaudeRetentionSettingsError> {
@@ -331,10 +338,10 @@ enum ClaudeRetentionSettings {
         return .success(object)
     }
 
-    /// The top-level value: an integer, or a double with no fractional part. Booleans, strings,
-    /// fractions and anything else are `unexpectedValueType`. Missing → `nil`.
-    private static func retentionDays(in object: [String: Any], path: String) -> Result<Int?, ClaudeRetentionSettingsError> {
-        guard let value = object[key] else {
+    /// The effective top-level value: an integer, or a double with no fractional part. Booleans,
+    /// strings, fractions and anything else are `unexpectedValueType`. Missing → `nil`.
+    private static func retentionDays(in settings: ParsedSettings, path: String) -> Result<Int?, ClaudeRetentionSettingsError> {
+        guard let value = effectiveValue(in: settings) else {
             return .success(nil)
         }
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
@@ -348,5 +355,28 @@ enum ClaudeRetentionSettings {
             return .success(integer)
         }
         return .success(Int(clamping: number.int64Value))
+    }
+
+    /// Claude Code parses settings with `JSON.parse`, where the last duplicate key wins;
+    /// `JSONSerialization` keeps the first. Read the last top-level occurrence so Zentty sees
+    /// the retention Claude Code actually applies. Falls back to the parsed object when the
+    /// text can't be scanned.
+    private static func effectiveValue(in settings: ParsedSettings) -> Any? {
+        guard let parsedValue = settings.object[key] else {
+            return nil
+        }
+        guard let text = decodedText(settings.data),
+              let literal = lastTopLevelValueText(in: text),
+              let value = try? JSONSerialization.jsonObject(with: Data(literal.utf8), options: [.fragmentsAllowed]) else {
+            return parsedValue
+        }
+        return value
+    }
+
+    /// The file's text in any encoding `JSONSerialization` accepts with a BOM or as UTF-8.
+    private static func decodedText(_ data: Data) -> String? {
+        String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .utf16)
+            ?? String(data: data, encoding: .utf32)
     }
 }

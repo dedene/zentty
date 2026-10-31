@@ -47,6 +47,17 @@ extension ClaudeRetentionSettings {
         return String(decoding: result, as: UTF8.self)
     }
 
+    /// The raw text of the last top-level `cleanupPeriodDays` value, or `nil` when the key is
+    /// absent at the top level or the scanner can't read the object.
+    static func lastTopLevelValueText(in text: String) -> String? {
+        let bytes = Array(text.utf8)
+        var scanner = TopLevelObjectScanner(bytes: bytes, key: key)
+        guard let span = scanner.scan()?.valueSpans.last else {
+            return nil
+        }
+        return String(decoding: bytes[span], as: UTF8.self)
+    }
+
     /// True when a `,` is followed (after whitespace) by `}` or `]` outside a string.
     /// `JSONSerialization` accepts that; strict JSON does not.
     static func containsTrailingComma(_ data: Data) -> Bool {

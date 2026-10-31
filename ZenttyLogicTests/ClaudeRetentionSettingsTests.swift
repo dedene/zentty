@@ -312,6 +312,71 @@ final class ClaudeRetentionSettingsTests: XCTestCase {
         XCTAssertEqual(try read(), "{\"cleanupPeriodDays\": 365, \"theme\": \"dark\", \"cleanupPeriodDays\": 365}")
     }
 
+    // Claude Code reads settings with JSON.parse, so the last duplicate key wins.
+
+    func test_status_reads_last_duplicate_key_like_claude_code() throws {
+        try write(#"{"cleanupPeriodDays": 30, "theme": "dark", "cleanupPeriodDays": 400}"#)
+        XCTAssertEqual(status().effectiveDays, 400)
+        XCTAssertEqual(status().source, .userSettings)
+        XCTAssertFalse(status().isNudgeEligible)
+
+        try write(#"{"cleanupPeriodDays": 400, "theme": "dark", "cleanupPeriodDays": 30}"#)
+        XCTAssertEqual(status().effectiveDays, 30)
+        XCTAssertTrue(status().isNudgeEligible)
+
+        try write(#"{"cleanupPeriodDays": true, "cleanupPeriodDays": 90}"#)
+        XCTAssertNil(status().readError)
+        XCTAssertEqual(status().effectiveDays, 90)
+
+        try write(#"{"cleanupPeriodDays": 90, "cleanupPeriodDays": true}"#)
+        XCTAssertEqual(status().readError, .unexpectedValueType(path: settingsURL.path))
+        XCTAssertFalse(status().isNudgeEligible)
+    }
+
+    func test_raise_never_lowers_when_last_duplicate_is_larger() throws {
+        let original = #"{"cleanupPeriodDays": 30, "theme": "dark", "cleanupPeriodDays": 400}"#
+        try write(original)
+
+        let outcome = try raise()
+
+        XCTAssertEqual(outcome, .alreadySufficient(currentDays: 400))
+        XCTAssertEqual(try read(), original)
+        XCTAssertEqual(try listing(), ["settings.json"])
+    }
+
+    func test_raise_raises_when_last_duplicate_is_smaller() throws {
+        try write(#"{"cleanupPeriodDays": 400, "theme": "dark", "cleanupPeriodDays": 30}"#)
+
+        let outcome = try raise()
+
+        guard case .written = outcome else {
+            return XCTFail("expected a write, got \(outcome)")
+        }
+        XCTAssertEqual(try read(), #"{"cleanupPeriodDays": 365, "theme": "dark", "cleanupPeriodDays": 365}"#)
+        XCTAssertEqual(status().effectiveDays, 365)
+    }
+
+    func test_status_managed_file_reads_last_duplicate_key() throws {
+        let managedURL = root.appendingPathComponent("managed.json")
+        try Data(#"{"cleanupPeriodDays": 400, "cleanupPeriodDays": 14}"#.utf8).write(to: managedURL)
+
+        let status = ClaudeRetentionSettings.status(configDirectory: configDirectory, managedSettingsURL: managedURL)
+
+        XCTAssertEqual(status.effectiveDays, 14)
+        XCTAssertEqual(status.source, .managedSettings)
+    }
+
+    func test_last_top_level_value_text_skips_nested_and_string_occurrences() {
+        XCTAssertEqual(
+            ClaudeRetentionSettings.lastTopLevelValueText(
+                in: #"{"cleanupPeriodDays": 1, "nested": {"cleanupPeriodDays": 2}, "cleanupPeriodDays": 3.0, "s": "cleanupPeriodDays"}"#
+            ),
+            "3.0"
+        )
+        XCTAssertNil(ClaudeRetentionSettings.lastTopLevelValueText(in: #"{"nested": {"cleanupPeriodDays": 2}}"#))
+        XCTAssertNil(ClaudeRetentionSettings.lastTopLevelValueText(in: "[1]"))
+    }
+
     func test_raise_handles_empty_and_single_line_objects() throws {
         try write("{}")
         try raise()
