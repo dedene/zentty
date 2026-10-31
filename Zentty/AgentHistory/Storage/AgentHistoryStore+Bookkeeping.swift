@@ -174,6 +174,14 @@ extension AgentHistoryStore {
         }.compactMap { $0 })
     }
 
+    /// The stored removals with their removal times (agents this build doesn't know are left out).
+    func tombstoneEntries() throws -> [AgentHistoryRebuildCarryOver.Tombstone] {
+        try database.query("SELECT agent, native_id, removed_at FROM tombstones") { row -> AgentHistoryRebuildCarryOver.Tombstone? in
+            guard let agent = AgentHistoryAgent(rawValue: row.string(0)) else { return nil }
+            return .init(key: AgentHistorySessionKey(agent: agent, nativeID: row.string(1)), removedAtMs: row.int64(2))
+        }.compactMap { $0 }
+    }
+
     func tombstoneCount() throws -> Int {
         Int(try database.scalarInt64("SELECT count(*) FROM tombstones") ?? 0)
     }

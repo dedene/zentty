@@ -17,6 +17,9 @@ enum AgentHistoryFailureReason: Equatable, Sendable {
     /// The file was written by a newer build; it is never read or modified (D14, A-16).
     case newerSchema(found: Int32)
     case corrupt
+    /// `removals.json` exists but can't be read: nothing is indexed, so no removed session comes
+    /// back. "Delete Index" clears it.
+    case removalsUnreadable
 }
 
 /// Sessions indexed so far against the sessions discovered by the current backfill.

@@ -344,6 +344,17 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         setState(.starting)
         publish(force: true)
 
+        // Before the index opens: an open that quarantines the old file leaves this list as
+        // the only record of what the user removed.
+        let recordedRemovals: [AgentHistoryRebuildCarryOver.Tombstone]
+        do {
+            recordedRemovals = try removalLedger.tombstones()
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History could not read the removed-sessions list; not indexing")
+            fail(.removalsUnreadable)
+            return
+        }
+
         let handle: AgentHistoryWriterHandle
         do {
             handle = try storage.openWriter()
@@ -359,9 +370,10 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         tokenizer = handle.tokenizer
         let store = AgentHistoryStore(database: handle.database, now: now)
         self.store = store
-        restorePendingCarryOver(into: store)
 
         do {
+            try adoptRecordedRemovals(recordedRemovals, store: store)
+            restorePendingCarryOver(into: store)
             admission = AgentHistoryAdmission(
                 exclusions: AgentHistoryExclusionMatcher(folders: configuration.excludedFolders),
                 tombstones: try tombstonesInForce(store: store)

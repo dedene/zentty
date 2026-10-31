@@ -10,6 +10,7 @@ struct AgentHistoryPaths: Equatable, Sendable {
 
     static let databaseFileName = "index.sqlite"
     static let stateFileName = "state.json"
+    static let removalsFileName = "removals.json"
     static let lockFileName = "index.lock"
     static let writerLockFileName = "index.writer.lock"
     static let corruptFilePrefix = "index.corrupt-"
@@ -21,6 +22,8 @@ struct AgentHistoryPaths: Equatable, Sendable {
     var walURL: URL { directoryURL.appendingPathComponent(Self.databaseFileName + "-wal", isDirectory: false) }
     var shmURL: URL { directoryURL.appendingPathComponent(Self.databaseFileName + "-shm", isDirectory: false) }
     var stateURL: URL { directoryURL.appendingPathComponent(Self.stateFileName, isDirectory: false) }
+    /// The removed-sessions list (`AgentHistoryRemovalLedger`); survives Rebuild and quarantine.
+    var removalsURL: URL { directoryURL.appendingPathComponent(Self.removalsFileName, isDirectory: false) }
     /// `flock`ed while one process creates, migrates or quarantines the index.
     var lockURL: URL { directoryURL.appendingPathComponent(Self.lockFileName, isDirectory: false) }
     /// `flock`ed for as long as one process's indexer owns the index (`AgentHistoryWriterLock`).

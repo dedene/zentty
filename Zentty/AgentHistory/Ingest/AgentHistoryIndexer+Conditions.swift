@@ -112,6 +112,7 @@ extension AgentHistoryIndexer {
         )
         // Removals and usage outlive the corrupt file (what it still yields, plus this run's).
         pendingCarryOver = collectCarryOver()
+        recordCarriedRemovals()
         systemConditions.stopObserving()
         stopFreshness()
         writer?.close()

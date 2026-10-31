@@ -56,10 +56,15 @@ struct AgentHistoryRebuildCarryOver: Sendable {
 /// usage in the snapshot). `startOnQueue` writes it into the new file before it reconciles, and
 /// the tombstones are in force even when that write fails; a failed write is retried when the
 /// indexer goes idle.
+///
+/// Usage lives only in memory across the swap. Removals also live in `removals.json`
+/// (`AgentHistoryRemovalLedger`), which every removal writes and Rebuild fills before it deletes
+/// anything, so a quarantine at open or a run that ends mid-rebuild still keeps them.
 extension AgentHistoryIndexer {
     // MARK: - Rebuild
 
-    /// Collect the carry-over → close the writer → close readers → remove the index files →
+    /// Collect the carry-over → add its removals to `removals.json` (no rebuild when that
+    /// fails) → close the writer → close readers → remove the index files →
     /// reopen through `startOnQueue`, which writes the carry-over into the new file before it
     /// loads tombstones and reconciles every source.
     func rebuildOnQueue() {
@@ -76,7 +81,18 @@ extension AgentHistoryIndexer {
                 return
             }
         }
-        pendingCarryOver = collectCarryOver()
+        let carryOver = collectCarryOver()
+        // The old file is about to go: its removals must be on disk elsewhere first.
+        do {
+            try removalLedger.record(carryOver.tombstones)
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History rebuild skipped: the removed-sessions list could not be saved")
+            if lifecycle == .failed {
+                releaseWriterLock()
+            }
+            return
+        }
+        pendingCarryOver = carryOver
         AgentHistoryLog.indexer.info(
             "Agent History rebuilding the index tombstones=\(self.pendingCarryOver?.tombstones.count ?? 0, privacy: .public) usage=\(self.pendingCarryOver?.usage.count ?? 0, privacy: .public)"
         )
@@ -249,6 +265,51 @@ extension AgentHistoryIndexer {
             )
             """
         )
+    }
+
+    // MARK: - Removals list
+
+    var removalLedger: AgentHistoryRemovalLedger {
+        AgentHistoryRemovalLedger(fileURL: storage.paths.removalsURL)
+    }
+
+    /// At start, both ways: removals the list holds but the index lacks (the file was quarantined
+    /// or deleted) join the pending carry-over; removals only the index holds (an index from
+    /// before the list, a list write that failed) are added to the list, best effort.
+    func adoptRecordedRemovals(_ recorded: [AgentHistoryRebuildCarryOver.Tombstone], store: AgentHistoryStore) throws {
+        let stored = try store.tombstoneEntries()
+        let storedKeys = Set(stored.map(\.key))
+        let missing = recorded.filter { !storedKeys.contains($0.key) }
+        if !missing.isEmpty {
+            AgentHistoryLog.indexer.info(
+                "Agent History restoring removals the index lost count=\(missing.count, privacy: .public)"
+            )
+            var carryOver = pendingCarryOver ?? AgentHistoryRebuildCarryOver()
+            carryOver.merge(AgentHistoryRebuildCarryOver(tombstones: missing))
+            pendingCarryOver = carryOver
+        }
+        let recordedKeys = Set(recorded.map(\.key))
+        let unrecorded = stored.filter { !recordedKeys.contains($0.key) }
+        if !unrecorded.isEmpty {
+            do {
+                try removalLedger.record(unrecorded)
+            } catch {
+                AgentHistoryLog.indexer.error("Agent History could not add stored removals to the removed-sessions list")
+            }
+        }
+    }
+
+    /// Corruption recovery: the pending carry-over's removals go to the list before the file is
+    /// moved aside. Best effort; the corrupt file has to go either way.
+    func recordCarriedRemovals() {
+        guard let tombstones = pendingCarryOver?.tombstones, !tombstones.isEmpty else {
+            return
+        }
+        do {
+            try removalLedger.record(tombstones)
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History could not save the removed-sessions list before recovery")
+        }
     }
 
     /// The tombstones in force for a freshly opened index: the stored ones plus a carry-over

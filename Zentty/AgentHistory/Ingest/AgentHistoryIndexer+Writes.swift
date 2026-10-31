@@ -165,6 +165,9 @@ extension AgentHistoryIndexer {
                 for (sourceID, unitKeys) in sorted {
                     try store.markCursorsRejected(sourceID: sourceID, unitKeys: unitKeys)
                 }
+                // Last, so a list that can't be written rolls the removal back. A commit that
+                // fails after it leaves the session listed: the next start removes it.
+                try removalLedger.record([.init(key: key, removedAtMs: nowMs)])
                 return (rowIDs, sorted)
             }
             markRejectedInCache(rejectedUnits)
@@ -194,7 +197,12 @@ extension AgentHistoryIndexer {
             return
         }
         do {
-            let count = try writer.transaction { try store.removeAllTombstones() }
+            let count = try writer.transaction { () -> Int in
+                let count = try store.removeAllTombstones()
+                try removalLedger.clear()
+                return count
+            }
+            pendingCarryOver?.tombstones = []
             admission = AgentHistoryAdmission(exclusions: admission.exclusions, tombstones: [])
             AgentHistoryLog.indexer.info("Agent History restored removed sessions count=\(count, privacy: .public)")
         } catch {

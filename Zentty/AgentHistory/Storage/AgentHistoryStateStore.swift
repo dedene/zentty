@@ -138,27 +138,8 @@ final class AgentHistoryStateStore: @unchecked Sendable {
     }
 
     private func write(_ state: AgentHistoryState, extraFields: [String: Any]) throws {
-        let data = try Self.encode(state, extraFields: extraFields)
-        let directoryURL = fileURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true,
-                                        attributes: [.posixPermissions: 0o700])
-        // Private temp file first, so the content is never readable by others before the rename.
-        let temporaryURL = directoryURL.appendingPathComponent(".state-\(UUID().uuidString).tmp", isDirectory: false)
-        guard fileManager.createFile(atPath: temporaryURL.path, contents: data,
-                                     attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        do {
-            if fileManager.fileExists(atPath: fileURL.path) {
-                _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL)
-            } else {
-                try fileManager.moveItem(at: temporaryURL, to: fileURL)
-            }
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-        } catch {
-            try? fileManager.removeItem(at: temporaryURL)
-            throw error
-        }
+        try AgentHistoryPrivateFile.write(Self.encode(state, extraFields: extraFields), to: fileURL,
+                                          fileManager: fileManager)
     }
 
     private static let knownKeys = Set(AgentHistoryState.CodingKeys.allCases.map(\.rawValue))
