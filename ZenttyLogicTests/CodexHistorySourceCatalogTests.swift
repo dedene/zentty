@@ -75,6 +75,40 @@ final class CodexHistorySourceCatalogTests: XCTestCase {
         XCTAssertEqual(source.catalog.lookup().snapshot?.rows[id]?.title, "After")
     }
 
+    func test_catalog_sees_rows_that_live_only_in_the_wal() throws {
+        let (root, source) = try C.makeRoot(self)
+        let id = C.newThreadID()
+        var row = C.ThreadRow(id: id)
+        row.title = "Before"
+        try C.writeCatalog(root: root, rows: [row])
+        let unit = try C.unit(source, key: "state")
+        let first = try source.ingest(unit: unit, cursor: nil, mode: .fromStart, context: F.context())
+        XCTAssertEqual(first.sessions.first?.title, "Before")
+
+        // Codex keeps its writer open and checkpoints rarely: changes sit in `-wal` only.
+        let databaseURL = root.appendingPathComponent(CodexThreadCatalog.databaseFileName)
+        let writer = try AgentHistoryDatabase(url: databaseURL, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        addTeardownBlock { writer.close() }
+        try writer.execute("PRAGMA wal_autocheckpoint=0")
+        let mainIdentity = AgentHistoryFileIdentity.stat(path: databaseURL.path)
+
+        try writer.run("UPDATE threads SET title = 'In the wal' WHERE id = ?", [.text(id)])
+        XCTAssertNotNil(AgentHistoryFileIdentity.stat(path: databaseURL.path + "-wal"))
+        XCTAssertEqual(source.catalog.lookup().snapshot?.rows[id]?.title, "In the wal")
+
+        // A rename that changes only the `-wal` (same main file identity) is seen, and the state
+        // unit reports it.
+        try writer.run("UPDATE threads SET name = 'Renamed in the wal', updated_at_ms = ? WHERE id = ?",
+                       [.integer(C.baseMs + 9_000), .text(id)])
+        XCTAssertEqual(AgentHistoryFileIdentity.stat(path: databaseURL.path), mainIdentity, "nothing was checkpointed")
+        XCTAssertEqual(source.catalog.lookup().snapshot?.rows[id]?.name, "Renamed in the wal")
+        let renamed = try source.ingest(unit: unit, cursor: first.cursor, mode: .fromOffset(0, nextSeq: 0), context: F.context())
+        XCTAssertEqual(renamed.sessions.map(\.nativeID), [id])
+        XCTAssertEqual(renamed.sessions.first?.title, "Renamed in the wal")
+        XCTAssertEqual(renamed.sessions.first?.titleKind, .custom)
+        XCTAssertEqual(renamed.cursor.watermark, C.baseMs + 9_000)
+    }
+
     // MARK: - state unit
 
     func test_state_unit_emits_renames_archives_since_watermark() throws {
