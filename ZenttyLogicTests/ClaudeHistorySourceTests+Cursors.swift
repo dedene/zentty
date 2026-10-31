@@ -5,6 +5,9 @@ import XCTest
 /// Batching, cursors, admission and robustness tests of `ClaudeHistorySource`
 /// (helpers live in `ClaudeHistorySourceTests.swift`).
 extension ClaudeHistorySourceTests {
+    /// A cwd outside `F.claudeCwd` and outside its project folder encoding.
+    var elsewhereCwd: String { "/Users/example/elsewhere" }
+
     // MARK: - Batching and cursors
 
     func test_batch_limit_has_more_resumable() throws {
@@ -41,7 +44,9 @@ extension ClaudeHistorySourceTests {
         XCTAssertFalse(first.cursor.isRejected)
         XCTAssertEqual(fixture.source.classifyChange(unit: try unit(fixture), cursor: first.cursor), .unchanged)
 
-        try F.append(try F.claudeUser("three", atMs: t + 2) + "\n" + "{\"type\":\"user\",\"mess", to: url)
+        // The appended record carries a different cwd (the user cd'd mid-session): the session
+        // cwd must still come from adapterState, not from a rescan of the appended bytes.
+        try F.append(try F.claudeUser("three", atMs: t + 2, cwd: elsewhereCwd) + "\n" + "{\"type\":\"user\",\"mess", to: url)
         let grown = try unit(fixture)
         let change = fixture.source.classifyChange(unit: grown, cursor: first.cursor)
         XCTAssertEqual(change, .append(fromOffset: identity.size, nextSeq: 2))
@@ -51,10 +56,32 @@ extension ClaudeHistorySourceTests {
         XCTAssertEqual(next.messages.map(\.seq), [2])
         XCTAssertEqual(next.messages.map(\.text), ["three"])
         XCTAssertEqual(next.replaceContentOf, [])
-        XCTAssertEqual(next.sessions.first?.cwd, AgentHistoryPath.canonical(F.claudeCwd), "cwd carried in adapterState")
+        XCTAssertEqual(next.sessions.first?.cwd, AgentHistoryPath.canonical(F.claudeCwd),
+                       "cwd carried in adapterState, not rescanned from the appended record")
         XCTAssertLessThan(next.cursor.byteOffset, try XCTUnwrap(grown.identity).size, "the partial trailing line waits")
         XCTAssertEqual(next.cursor.nextSeq, 3)
         XCTAssertFalse(next.hasMore)
+    }
+
+    func test_append_admission_uses_cwd_from_adapter_state() throws {
+        let fixture = try makeFixture()
+        let url = try writeTranscript([try F.claudeUser("one", atMs: t)], in: fixture)
+        let first = try XCTUnwrap(ingestAll(fixture, unit: try unit(fixture)).last)
+        let offset = first.cursor.byteOffset
+
+        try F.append(try F.claudeUser("two", atMs: t + 1, cwd: elsewhereCwd) + "\n", to: url)
+        // Covers the original cwd (/Users/example/dev/app) but not the appended one.
+        let admission = AgentHistoryAdmission(
+            exclusions: AgentHistoryExclusionMatcher(folders: ["/Users/example/dev"]),
+            tombstones: []
+        )
+        let next = try fixture.source.ingest(unit: try unit(fixture), cursor: first.cursor,
+                                             mode: .fromOffset(offset, nextSeq: first.cursor.nextSeq),
+                                             context: context(admission: admission))
+        XCTAssertEqual(next.rejected, [id: .excludedFolder], "admission runs on the session cwd, not the appended one")
+        XCTAssertEqual(next.sessions, [])
+        XCTAssertEqual(next.messages, [])
+        XCTAssertEqual(next.removedNativeIDs, [id])
     }
 
     func test_truncation_classifies_rewrite() throws {
