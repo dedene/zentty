@@ -139,7 +139,114 @@ final class FloatLifecycleHostedTests: XCTestCase {
         XCTAssertNil(registry?.runtime(for: floatID))
     }
 
+    // MARK: - PiP mount and viewport suspension
+
+    func test_enter_pip_suspends_before_reparenting_into_scaled_host() throws {
+        let controller = try makeSeededController()
+        controller.toggleFloat(nil)
+        waitForLayout("floated")
+        let spyView = try spyTerminalView(floatID)
+        XCTAssertEqual(spyView.isViewportSyncSuspended, false, "a floating pane syncs its viewport")
+        spyView.suspensionLog.removeAll()
+
+        store(controller).pipPane(floatID)
+        waitForLayout("pip")
+
+        let layer = canvas(controller).floatLayerView
+        let pipHost = try XCTUnwrap(layer.pipHostForTesting(floatID))
+        let container = try XCTUnwrap(layer.containerForTesting(floatID))
+        XCTAssertTrue(container.superview === pipHost, "the container moves under the PiP host")
+        XCTAssertTrue(spyView.isDescendant(of: pipHost))
+        XCTAssertNotEqual(pipHost.bounds.size, pipHost.frame.size, "the PiP draws the float scaled")
+        XCTAssertEqual(spyView.isViewportSyncSuspended, true, "the grid stays frozen while scaled")
+        let firstSuspend = try XCTUnwrap(spyView.suspensionLog.first)
+        XCTAssertTrue(firstSuspend.suspended)
+        XCTAssertFalse(firstSuspend.wasInPip, "suspend happens before the container is scaled")
+        XCTAssertFalse(
+            spyView.suspensionLog.contains { !$0.suspended && $0.wasInPip },
+            "never unsuspended while scaled"
+        )
+    }
+
+    func test_leave_pip_reparents_unscaled_then_unsuspends() throws {
+        let controller = try makeSeededController()
+        controller.toggleFloat(nil)
+        waitForLayout("floated")
+        store(controller).pipPane(floatID)
+        waitForLayout("pip")
+        let spyView = try spyTerminalView(floatID)
+        spyView.suspensionLog.removeAll()
+
+        store(controller).restoreFloat(floatID)
+        waitForLayout("restored")
+
+        let layer = canvas(controller).floatLayerView
+        XCTAssertNil(layer.pipHostForTesting(floatID))
+        let container = try XCTUnwrap(layer.containerForTesting(floatID))
+        XCTAssertTrue(container.superview === layer)
+        XCTAssertEqual(spyView.isViewportSyncSuspended, false)
+        let resume = try XCTUnwrap(spyView.suspensionLog.last { !$0.suspended })
+        XCTAssertFalse(resume.wasInPip, "re-parented out of the PiP before resuming")
+        XCTAssertEqual(resume.containerSize, container.frame.size, "resumes at the unscaled float size")
+    }
+
+    func test_pip_click_restores_float() throws {
+        let controller = try makeSeededController()
+        controller.toggleFloat(nil)
+        waitForLayout("floated")
+        store(controller).pipPane(floatID)
+        waitForLayout("pip")
+        let pipHost = try XCTUnwrap(canvas(controller).floatLayerView.pipHostForTesting(floatID))
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pipHost.convert(CGPoint(x: pipHost.bounds.midX, y: pipHost.bounds.midY), to: nil),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: controller.window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        pipHost.mouseDown(with: event)
+        waitForLayout("clicked")
+
+        let float = try XCTUnwrap(store(controller).activeWorklane?.floatingPane(id: floatID))
+        XCTAssertEqual(float.mode, .floating)
+        XCTAssertNil(canvas(controller).floatLayerView.pipHostForTesting(floatID))
+    }
+
+    /// Regression: suspension lives on the shared surface. A float re-mounted
+    /// after leaving the layer while suspended (PiP → minimize → restore) used
+    /// to keep the PiP's frozen grid for its whole life.
+    func test_float_remounted_from_suspended_surface_resumes_viewport_sync() throws {
+        let controller = try makeSeededController()
+        controller.toggleFloat(nil)
+        waitForLayout("floated")
+        store(controller).pipPane(floatID)
+        waitForLayout("pip")
+        let spyView = try spyTerminalView(floatID)
+        XCTAssertEqual(spyView.isViewportSyncSuspended, true)
+
+        store(controller).minimizePane(floatID)
+        waitForLayout("minimized")
+        XCTAssertEqual(spyView.isViewportSyncSuspended, true, "unmounted while suspended")
+
+        store(controller).restoreFloat(floatID)
+        waitForLayout("restored")
+
+        let container = try XCTUnwrap(canvas(controller).floatLayerView.containerForTesting(floatID))
+        XCTAssertTrue(container.superview === canvas(controller).floatLayerView)
+        XCTAssertTrue(spyView.isDescendant(of: container))
+        XCTAssertEqual(spyView.isViewportSyncSuspended, false, "a new floating container resumes sync")
+    }
+
     // MARK: - Fixtures
+
+    private func spyTerminalView(_ paneID: PaneID) throws -> SpyTerminalView {
+        try XCTUnwrap(adapters[paneID]?.spyView)
+    }
 
     private func makeSeededController() throws -> MainWindowController {
         let registry = PaneRuntimeRegistry(adapterFactory: { [unowned self] paneID in
@@ -191,6 +298,7 @@ final class FloatLifecycleHostedTests: XCTestCase {
 @MainActor
 private final class SpyTerminalAdapter: TerminalAdapter {
     private let terminalView = SpyTerminalView()
+    var spyView: SpyTerminalView { terminalView }
 
     var hasScrollback = false
     var cellWidth: CGFloat = 0
@@ -220,8 +328,35 @@ private final class SpyTerminalAdapter: TerminalAdapter {
     }
 }
 
-private final class SpyTerminalView: NSView, TerminalFocusReporting {
+private final class SpyTerminalView: NSView, TerminalFocusReporting, TerminalViewportSyncControlling {
+    struct SuspensionCall {
+        let suspended: Bool
+        /// Whether the view sat under a scaled PiP host at the time.
+        let wasInPip: Bool
+        let containerSize: CGSize?
+    }
+
     var onFocusDidChange: ((Bool) -> Void)?
+    private(set) var isViewportSyncSuspended: Bool?
+    var suspensionLog: [SuspensionCall] = []
+
+    func setViewportSyncSuspended(_ suspended: Bool) {
+        isViewportSyncSuspended = suspended
+        suspensionLog.append(SuspensionCall(
+            suspended: suspended,
+            wasInPip: ancestor(of: PipContainerView.self) != nil,
+            containerSize: ancestor(of: PaneContainerView.self)?.frame.size
+        ))
+    }
+
+    private func ancestor<T: NSView>(of type: T.Type) -> T? {
+        var view = superview
+        while let current = view {
+            if let match = current as? T { return match }
+            view = current.superview
+        }
+        return nil
+    }
 
     override var acceptsFirstResponder: Bool {
         true

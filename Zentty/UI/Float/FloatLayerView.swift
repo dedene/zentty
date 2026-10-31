@@ -173,7 +173,13 @@ final class FloatLayerView: NSView {
             if !duringLayout {
                 layoutSubtreeIfNeeded()
             }
+            // Viewport suspension lives on the shared surface, not on the
+            // container: a surface the strip (animated render) or an earlier
+            // PiP left suspended stays frozen at its old grid until someone
+            // clears it. A new `.floating` container is the sole owner now, so
+            // clear it here. PiP containers (under a PipContainerView) keep it.
             for container in newlyMounted where container.superview === self {
+                container.setTerminalViewportSyncSuspended(false)
                 container.forceTerminalViewportSync()
             }
         }

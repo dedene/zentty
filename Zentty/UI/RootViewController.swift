@@ -3333,7 +3333,9 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeToggleFloat() {
-        guard !isWorklanePeekActive else { return }
+        // Mid-drag the canvas render bails out, so a toggle would change the
+        // store (possibly floating the dragged pane) without the UI following.
+        guard !isWorklanePeekActive, !appCanvasView.paneStripView.isDragActive else { return }
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         worklaneStore.toggleFloat(canvas: appCanvasView.floatLayerView.bounds) { [appCanvasView] paneID in
             appCanvasView.tileFrameInFloatLayer(for: paneID)
