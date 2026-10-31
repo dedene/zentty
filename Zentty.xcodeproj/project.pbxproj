@@ -568,6 +568,7 @@
 		9D6D9337A2705767B3702D5C /* CommandPaletteBackdropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */; };
 		9D7CF3435362B15C9801875B /* PaneFocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54894343178398AA618315E4 /* PaneFocusHistory.swift */; };
 		9DD40EDD3E3E8C67BB115B53 /* TaskManagerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7DDB5C51065221110FF22C3 /* TaskManagerModels.swift */; };
+		9DF4742482D2AD74C40A21AA /* AgentHistoryIndexerPublishingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB36BAB0D16DB204EB1BAC28 /* AgentHistoryIndexerPublishingTests.swift */; };
 		9E4EE6F720A08E0254758C0A /* BookmarkStoreLiveReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67E086EA97DD76AFFAA9A25C /* BookmarkStoreLiveReloadTests.swift */; };
 		9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */; };
 		9F1FB182E98F22E9F961AFE0 /* KimiHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */; };
@@ -1563,6 +1564,7 @@
 		AAEEA79E63463D7882B80FE0 /* SessionRestoreStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreStore.swift; sourceTree = "<group>"; };
 		AAEEE6EDBC73B9A55E684093 /* AgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus.swift; sourceTree = "<group>"; };
 		AB2D48FA0772881220D4EFED /* PaneDropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropResolver.swift; sourceTree = "<group>"; };
+		AB36BAB0D16DB204EB1BAC28 /* AgentHistoryIndexerPublishingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryIndexerPublishingTests.swift; sourceTree = "<group>"; };
 		AB5FC2AFBC2BB1C60DCC9ACA /* RuntimeStateRelocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeStateRelocation.swift; sourceTree = "<group>"; };
 		AB7FF718B0E0C3314C57BFC5 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
 		AC4C1F56E8C3A787C0F4EAA8 /* WorklaneStore+DragDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneStore+DragDrop.swift"; sourceTree = "<group>"; };
@@ -2912,6 +2914,7 @@
 				481FC063F60E7D0C8007034B /* AgentHistoryIndexerLiveIntegrationTests.swift */,
 				BB7CDC5197A2C9B5E88EDD55 /* AgentHistoryIndexerOwnershipTests.swift */,
 				CB84C3503418E3575143FABD /* AgentHistoryIndexerPolicyTests.swift */,
+				AB36BAB0D16DB204EB1BAC28 /* AgentHistoryIndexerPublishingTests.swift */,
 				57A4AB0806B38C0A178CC138 /* AgentHistoryIndexerReconcileTests.swift */,
 				93818EA9FFF3138B1C76CDB8 /* AgentHistoryIndexerRewriteTests.swift */,
 				D72C6E320F94C9773C3AC1C9 /* AgentHistoryIndexerRootsTests.swift */,
@@ -3491,6 +3494,7 @@
 				61F6357222B05D57C2E9A48B /* AgentHistoryIndexerLiveIntegrationTests.swift in Sources */,
 				B3A13C1255ED67FC3806E6C5 /* AgentHistoryIndexerOwnershipTests.swift in Sources */,
 				27FB1312F329E232DC4CE213 /* AgentHistoryIndexerPolicyTests.swift in Sources */,
+				9DF4742482D2AD74C40A21AA /* AgentHistoryIndexerPublishingTests.swift in Sources */,
 				94004B88E12F8DCC2E7D9C20 /* AgentHistoryIndexerReconcileTests.swift in Sources */,
 				DAE1224B5E630BF0B6FD0ADE /* AgentHistoryIndexerRewriteTests.swift in Sources */,
 				A663B078F51648B62B31184F /* AgentHistoryIndexerRootsTests.swift in Sources */,
