@@ -25,17 +25,28 @@ struct RepositoryIdentity: Equatable, Sendable {
 ///     before that marker.
 ///   - otherwise (submodule): the main tree is the folder itself.
 ///
+/// Nothing is read under a TCC-protected location (`AgentHistoryPath.isProtected`, A-18): a
+/// starting folder there resolves to nil, and a gitdir there is used as a string only (main
+/// tree from the `/.git/worktrees/` marker, no `HEAD`, so `headBranch` is nil).
+///
 /// Only existing folders resolve; the indexer keeps stored values once a folder is gone.
 enum RepositoryIdentityResolver {
     static let maxLevels = 64
     static let maxGitFileBytes = 4096
 
-    static func resolve(directory: String, fileManager: FileManager = .default) -> RepositoryIdentity? {
+    static func resolve(
+        directory: String,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> RepositoryIdentity? {
         guard directory.hasPrefix("/") else {
             return nil
         }
-        let start = AgentHistoryPath.canonical(directory)
-        guard isDirectory(start, fileManager: fileManager) else {
+        let start = AgentHistoryPath.canonical(directory, homeDirectory: homeDirectory)
+        guard
+            !AgentHistoryPath.isProtected(start, homeDirectory: homeDirectory),
+            isDirectory(start, fileManager: fileManager)
+        else {
             return nil
         }
 
@@ -52,7 +63,7 @@ enum RepositoryIdentityResolver {
                         headBranch: headBranch(gitDirectory: marker)
                     )
                 }
-                return identity(gitFile: marker, root: current)
+                return identity(gitFile: marker, root: current, homeDirectory: homeDirectory)
             }
             guard current != "/" else {
                 return nil
@@ -64,20 +75,33 @@ enum RepositoryIdentityResolver {
 
     // MARK: - Private
 
-    private static func identity(gitFile: String, root: String) -> RepositoryIdentity? {
+    private static func identity(gitFile: String, root: String, homeDirectory: String) -> RepositoryIdentity? {
         guard
             let contents = readSmallFile(gitFile, limit: maxGitFileBytes),
             let gitdirValue = gitdirValue(contents)
         else {
             return nil
         }
-        let gitDirectory = AgentHistoryPath.canonical(absolute(gitdirValue, relativeTo: root))
+        let rawGitDirectory = absolute(gitdirValue, relativeTo: root)
+        let gitDirectory = AgentHistoryPath.canonical(rawGitDirectory, homeDirectory: homeDirectory)
+
+        // A-18: never open anything under a TCC-protected gitdir; use the gitdir string only.
+        // `canonical` is lexical-only when the standardized path is protected, so this one
+        // check also covers a gitdir that only resolves into a protected location.
+        if AgentHistoryPath.isProtected(gitDirectory, homeDirectory: homeDirectory) {
+            let main = worktreeMarkerMain([gitDirectory, rawGitDirectory], homeDirectory: homeDirectory) ?? root
+            return RepositoryIdentity(repoRoot: root, mainRepoRoot: main, isLinkedWorktree: main != root, headBranch: nil)
+        }
+
         let branch = headBranch(gitDirectory: gitDirectory)
 
         if let commondirContents = readSmallFile(join(gitDirectory, "commondir"), limit: maxGitFileBytes) {
             let value = commondirContents.trimmingCharacters(in: .whitespacesAndNewlines)
             if !value.isEmpty {
-                let commonDirectory = AgentHistoryPath.canonical(absolute(value, relativeTo: gitDirectory))
+                let commonDirectory = AgentHistoryPath.canonical(
+                    absolute(value, relativeTo: gitDirectory),
+                    homeDirectory: homeDirectory
+                )
                 let main = lastComponent(commonDirectory) == ".git" ? parent(of: commonDirectory) : commonDirectory
                 return RepositoryIdentity(
                     repoRoot: root,
@@ -89,14 +113,7 @@ enum RepositoryIdentityResolver {
         }
 
         // No readable commondir: fall back to the worktree admin-dir marker in the gitdir string.
-        let worktreesMarker = "/.git/worktrees/"
-        let candidates = [gitDirectory, absolute(gitdirValue, relativeTo: root)]
-        if
-            let source = candidates.first(where: { $0.contains(worktreesMarker) }),
-            let markerRange = source.range(of: worktreesMarker)
-        {
-            let prefix = String(source[source.startIndex..<markerRange.lowerBound])
-            let main = AgentHistoryPath.canonical(prefix.isEmpty ? "/" : prefix)
+        if let main = worktreeMarkerMain([gitDirectory, rawGitDirectory], homeDirectory: homeDirectory) {
             return RepositoryIdentity(
                 repoRoot: root,
                 mainRepoRoot: main,
@@ -107,6 +124,20 @@ enum RepositoryIdentityResolver {
 
         // Submodule (or any other gitfile without a common dir): its own main tree.
         return RepositoryIdentity(repoRoot: root, mainRepoRoot: root, isLinkedWorktree: false, headBranch: branch)
+    }
+
+    /// The main tree named by the first candidate that contains `/.git/worktrees/`: the part
+    /// before that marker, canonicalized. nil when no candidate has the marker.
+    private static func worktreeMarkerMain(_ candidates: [String], homeDirectory: String) -> String? {
+        let worktreesMarker = "/.git/worktrees/"
+        guard
+            let source = candidates.first(where: { $0.contains(worktreesMarker) }),
+            let markerRange = source.range(of: worktreesMarker)
+        else {
+            return nil
+        }
+        let prefix = String(source[source.startIndex..<markerRange.lowerBound])
+        return AgentHistoryPath.canonical(prefix.isEmpty ? "/" : prefix, homeDirectory: homeDirectory)
     }
 
     /// The value of a `gitdir: <path>` line; nil for anything else.
@@ -179,7 +210,8 @@ enum RepositoryIdentityResolver {
 /// Safe from any thread: the memo is guarded by an `NSLock`; resolution runs outside the lock.
 /// Folders under TCC-protected locations (`AgentHistoryPath.isProtected`) and folders whose
 /// parent does not exist are skipped without touching the disk beyond one `stat` and are not
-/// memoized, so they resolve once they appear.
+/// memoized, so they resolve once they appear. The default resolver uses the same
+/// `homeDirectory`, so gitdirs under protected locations are not read either.
 final class RepositoryIdentityCache: @unchecked Sendable {
     static let maxEntries = 4096
 
@@ -197,12 +229,12 @@ final class RepositoryIdentityCache: @unchecked Sendable {
 
     init(
         ttl: TimeInterval = 60,
-        resolve: @escaping @Sendable (String) -> RepositoryIdentity? = { RepositoryIdentityResolver.resolve(directory: $0) },
+        resolve: (@Sendable (String) -> RepositoryIdentity?)? = nil,
         now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         homeDirectory: String = NSHomeDirectory()
     ) {
         self.ttl = ttl
-        self.resolve = resolve
+        self.resolve = resolve ?? { RepositoryIdentityResolver.resolve(directory: $0, homeDirectory: homeDirectory) }
         self.now = now
         self.homeDirectory = homeDirectory
     }

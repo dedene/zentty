@@ -167,6 +167,60 @@ final class RepositoryIdentityTests: XCTestCase {
         XCTAssertTrue(identity.isLinkedWorktree)
     }
 
+    func test_gitdir_in_protected_location_is_not_read() throws {
+        let base = try makeDirectory()
+        let home = base.appendingPathComponent("home", isDirectory: true)
+        // The main repo lives under the fixture home's Documents. Its admin dir has a readable
+        // HEAD and a decoy commondir: reading either would change the result.
+        let protectedMain = home.appendingPathComponent("Documents/proj", isDirectory: true)
+        let adminDirectory = protectedMain.appendingPathComponent(".git/worktrees/wt", isDirectory: true)
+        try makeFolder(adminDirectory)
+        try write("ref: refs/heads/topic\n", to: adminDirectory.appendingPathComponent("HEAD"))
+        try write("../../../../decoy/.git\n", to: adminDirectory.appendingPathComponent("commondir"))
+        let worktree = home.appendingPathComponent("dev/wt", isDirectory: true)
+        try makeFolder(worktree)
+        try write("gitdir: \(adminDirectory.path)\n", to: worktree.appendingPathComponent(".git"))
+
+        let expected = RepositoryIdentity(
+            repoRoot: worktree.path,
+            mainRepoRoot: protectedMain.path,
+            isLinkedWorktree: true,
+            headBranch: nil
+        )
+        XCTAssertEqual(RepositoryIdentityResolver.resolve(directory: worktree.path, homeDirectory: home.path), expected)
+        XCTAssertEqual(RepositoryIdentityCache(homeDirectory: home.path).identity(for: worktree.path), expected)
+
+        // A relative gitdir that lands in the protected folder is not read either.
+        let relative = home.appendingPathComponent("dev/rel", isDirectory: true)
+        try makeFolder(relative)
+        try write("gitdir: ../../Documents/proj/.git/worktrees/wt\n", to: relative.appendingPathComponent(".git"))
+        XCTAssertEqual(
+            RepositoryIdentityResolver.resolve(directory: relative.path, homeDirectory: home.path),
+            RepositoryIdentity(repoRoot: relative.path, mainRepoRoot: protectedMain.path, isLinkedWorktree: true, headBranch: nil)
+        )
+
+        // A gitdir on another volume: lexical marker only.
+        let external = home.appendingPathComponent("dev/external", isDirectory: true)
+        try makeFolder(external)
+        try write("gitdir: /Volumes/External/repo/.git/worktrees/external\n", to: external.appendingPathComponent(".git"))
+        XCTAssertEqual(
+            RepositoryIdentityResolver.resolve(directory: external.path, homeDirectory: home.path),
+            RepositoryIdentity(repoRoot: external.path, mainRepoRoot: "/Volumes/External/repo", isLinkedWorktree: true, headBranch: nil)
+        )
+
+        // A protected submodule-style gitdir (no marker): the folder is its own main tree.
+        let module = home.appendingPathComponent("dev/module", isDirectory: true)
+        try makeFolder(module)
+        try write("gitdir: \(protectedMain.path)/.git/modules/lib\n", to: module.appendingPathComponent(".git"))
+        XCTAssertEqual(
+            RepositoryIdentityResolver.resolve(directory: module.path, homeDirectory: home.path),
+            RepositoryIdentity(repoRoot: module.path, mainRepoRoot: module.path, isLinkedWorktree: false, headBranch: nil)
+        )
+
+        // Starting inside the protected folder resolves to nothing.
+        XCTAssertNil(RepositoryIdentityResolver.resolve(directory: protectedMain.path, homeDirectory: home.path))
+    }
+
     func test_symlinked_cwd_canonical_equal() throws {
         let base = try makeDirectory()
         let root = base.appendingPathComponent("repo", isDirectory: true)
