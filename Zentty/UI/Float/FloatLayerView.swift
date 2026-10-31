@@ -108,6 +108,8 @@ final class FloatLayerView: NSView {
     private var containers: [PaneID: PaneContainerView] = [:]
     private var pipHosts: [PaneID: PipContainerView] = [:]
     private var floatHosts: [PaneID: FloatContainerView] = [:]
+    /// Back-most subview: dims the strip while a float has focus.
+    private let scrimView = FloatScrimView()
     private var shortcutManager: ShortcutManager?
     private var content = FloatLayerContent.empty
     private var currentTheme = ZenttyTheme.fallback(for: nil)
@@ -127,6 +129,8 @@ final class FloatLayerView: NSView {
         self.runtimeRegistry = runtimeRegistry
         super.init(frame: .zero)
         wantsLayer = true
+        // Unranked in `sortMountedViews`, so it stays behind every float.
+        addSubview(scrimView, positioned: .below, relativeTo: nil)
     }
 
     @available(*, unavailable)
@@ -141,6 +145,7 @@ final class FloatLayerView: NSView {
 
     override func layout() {
         super.layout()
+        scrimView.frame = bounds
         applyPlacements(duringLayout: true)
     }
 
@@ -160,6 +165,8 @@ final class FloatLayerView: NSView {
         if themeChanged {
             containers.values.forEach { $0.apply(theme: theme, animated: false) }
         }
+        scrimView.frame = bounds
+        scrimView.setVisible(FloatScrimPolicy.isVisible(content), animated: window != nil)
         applyPlacements(duringLayout: false)
         syncFocus(force: false)
     }
@@ -435,6 +442,10 @@ final class FloatLayerView: NSView {
     }
 
     // MARK: - Testing
+
+    var scrimViewForTesting: FloatScrimView {
+        scrimView
+    }
 
     func containerForTesting(_ paneID: PaneID) -> PaneContainerView? {
         containers[paneID]

@@ -2840,6 +2840,10 @@ final class RootViewController: NSViewController {
             appCanvasView
         }
 
+        var peekControllerForTesting: WorklanePeekController {
+            peekController
+        }
+
         var pathCopiedToastViewForTesting: PathCopiedToastView? {
             toasts.currentToastViewForTesting
         }
