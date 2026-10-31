@@ -27,6 +27,8 @@ final class GrokHistorySource: AgentHistorySource, @unchecked Sendable {
 
     let root: AgentHistorySourceRoot
     let adapterVersion = 1
+    /// `ingest` rejects a session without a usable cwd while any folder is excluded.
+    let holdsBackSessionsWithoutFolder = true
     var agent: AgentHistoryAgent { .grok }
 
     let timelines = GrokTurnTimelineCache()

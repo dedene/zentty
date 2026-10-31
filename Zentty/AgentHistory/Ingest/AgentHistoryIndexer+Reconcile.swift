@@ -258,17 +258,19 @@ extension AgentHistoryIndexer {
 
     // MARK: - Exclusion purge
 
-    /// Deletes stored sessions under an excluded folder and marks their single-session units
-    /// rejected (a database unit's shared cursor never is). Idempotent; cheap when nothing
-    /// matches.
+    /// Deletes stored sessions under an excluded folder (and, for adapters that hold them back,
+    /// sessions without a folder) and marks their single-session units rejected (a database
+    /// unit's shared cursor never is). Idempotent; cheap when nothing matches.
     func purgeExcludedSessions() {
         let folders = admission.exclusions.canonicalFolders
         guard !folders.isEmpty, let writer, let store else {
             return
         }
+        let holdingBack = sourceOrder.filter { sourceStates[$0]?.source.holdsBackSessionsWithoutFolder == true }
         do {
             let rejected = try writer.transaction { () -> [(sourceID: Int64, rowIDs: [Int64], unitKeys: [String])] in
                 let removed = try store.deleteSessions(underFolders: folders)
+                    + store.deleteSessionsWithoutFolder(sourceIDs: holdingBack)
                 var bySource: [Int64: (rowIDs: [Int64], unitKeys: [String])] = [:]
                 for row in removed {
                     var entry = bySource[row.sourceID] ?? ([], [])

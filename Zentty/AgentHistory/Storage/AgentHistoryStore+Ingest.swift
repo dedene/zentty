@@ -137,6 +137,25 @@ extension AgentHistoryStore {
         }
     }
 
+    /// Deletes the sessions of `sourceIDs` that have no stored `cwd` (adapters that hold such
+    /// sessions back while any folder is excluded).
+    func deleteSessionsWithoutFolder(sourceIDs: [Int64]) throws -> [(rowID: Int64, sourceID: Int64, unitKey: String?)] {
+        try database.transaction {
+            var removed: [(rowID: Int64, sourceID: Int64, unitKey: String?)] = []
+            for sourceID in sourceIDs {
+                let rows = try database.query(
+                    "SELECT id, source_id, unit_key FROM sessions WHERE source_id = ? AND cwd IS NULL",
+                    [.integer(sourceID)]
+                ) { (rowID: $0.int64(0), sourceID: $0.int64(1), unitKey: $0.optionalString(2)) }
+                for row in rows {
+                    try deleteSession(id: row.rowID)
+                    removed.append(row)
+                }
+            }
+            return removed
+        }
+    }
+
     /// Deletes every session of a source (source turned off, or its root gone twice).
     func deleteSessions(sourceID: Int64) throws -> [Int64] {
         try database.transaction {

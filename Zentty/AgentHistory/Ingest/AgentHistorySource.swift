@@ -75,6 +75,10 @@ protocol AgentHistorySource: AnyObject, Sendable {
     func existingNativeIDs() throws -> Set<String>?
     /// Pre-consent probe; nil when counting would mean opening a database.
     func estimatedSessionCount() -> Int?
+    /// True when the adapter holds back sessions without a usable folder while any folder is
+    /// excluded (an exclusion might cover them). The indexer then purges such stored sessions
+    /// when the first exclusion is added, so the live index matches a fresh one.
+    var holdsBackSessionsWithoutFolder: Bool { get }
 }
 
 extension AgentHistorySource {
@@ -98,5 +102,9 @@ extension AgentHistorySource {
 
     func existingNativeIDs() throws -> Set<String>? {
         nil
+    }
+
+    var holdsBackSessionsWithoutFolder: Bool {
+        false
     }
 }
