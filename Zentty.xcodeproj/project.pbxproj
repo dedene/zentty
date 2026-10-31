@@ -542,6 +542,7 @@
 		A2E1D5ACE6E7BC410965913B /* GhosttySeededColorHealerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C840BD9D30B672B23B832BE4 /* GhosttySeededColorHealerTests.swift */; };
 		A313F3492C53D5CEF8A025F5 /* PaneFocusHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FE6D2FE3D589C3CEF772F6 /* PaneFocusHistoryTests.swift */; };
 		A31E0FD93C75D6B6059E3809 /* SidebarMotionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162C940D9CBDBBB47552AA86 /* SidebarMotionCoordinator.swift */; };
+		A36DB5BC69DA9376DFA0C399 /* GrokHistoryPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ABE9F4C419078A26FFF2665 /* GrokHistoryPromptTests.swift */; };
 		A3B9E7C21732F8FBD1AFF6B4 /* WorklaneStore+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5362E171051471B00419EB85 /* WorklaneStore+Restore.swift */; };
 		A3DF172F7DBD4AD8B215E680 /* PaneSSHProcessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B681E0E2004A0AECC6C405B /* PaneSSHProcessProbe.swift */; };
 		A3EC32493550CDCC5875D93E /* AppMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E33FF8DDD0088600F542E4B1 /* AppMenuBuilderTests.swift */; };
@@ -1217,6 +1218,7 @@
 		59677834FA13260977C6A987 /* TmuxCompatSessionStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatSessionStateTests.swift; sourceTree = "<group>"; };
 		599A5796CE02C9D0701F88B7 /* WorklaneStoreReorderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreReorderingTests.swift; sourceTree = "<group>"; };
 		5A25A54E396143EB0EB347D1 /* AgentManifestRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentManifestRegistryTests.swift; sourceTree = "<group>"; };
+		5ABE9F4C419078A26FFF2665 /* GrokHistoryPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokHistoryPromptTests.swift; sourceTree = "<group>"; };
 		5AFCA2B8C7CCCEF9A040B1D1 /* TerminalScrollFrameSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollFrameSampler.swift; sourceTree = "<group>"; };
 		5B49052740ADB2D8348CB0D7 /* AgentEventAdapters+Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentEventAdapters+Shared.swift"; sourceTree = "<group>"; };
 		5B57876C4F8C1763BD4E8DBD /* SettingsSidebarRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarRowView.swift; sourceTree = "<group>"; };
@@ -2858,6 +2860,7 @@
 				F32F85F7274DE278E845FF4A /* GhosttyThemeResolverTests.swift */,
 				4483B8E7BA05745883A993C0 /* GlobalSearchCoordinatorTests.swift */,
 				D95ED44A37CDE51882628D20 /* GlobalSearchFocusChoreographerTests.swift */,
+				5ABE9F4C419078A26FFF2665 /* GrokHistoryPromptTests.swift */,
 				21A3FE6550E9246E785E57AC /* GrokHistorySourceTests.swift */,
 				8C5DD0889100A659EF463861 /* HermesHooksInstallerTests.swift */,
 				8062E55664628AC4197A39C3 /* HermesTitleStatusTests.swift */,
@@ -3413,6 +3416,7 @@
 				68971AE9A84508C3E111C8E7 /* GhosttyThemeResolverTests.swift in Sources */,
 				2F54A7D7AD63E93CC841317F /* GlobalSearchCoordinatorTests.swift in Sources */,
 				49E1E625DF9A0E03063EFD81 /* GlobalSearchFocusChoreographerTests.swift in Sources */,
+				A36DB5BC69DA9376DFA0C399 /* GrokHistoryPromptTests.swift in Sources */,
 				C1AF19B83286DCF4471C6DE2 /* GrokHistorySourceTests.swift in Sources */,
 				ABF3F2C69E6010129E48D97C /* HermesHooksInstallerTests.swift in Sources */,
 				F628AB05637878BE72ED3491 /* HermesTitleStatusTests.swift in Sources */,

@@ -34,21 +34,27 @@ extension AgentHistoryFixtures {
         return summary
     }
 
-    /// One `chat_history.jsonl` record. `user`: `text` becomes one text part (or pass `parts`);
-    /// `assistant`: `text` is the `content` string.
+    /// One `chat_history.jsonl` record. `user`: `text` becomes one text part (or pass `parts`).
+    /// Like interactive Grok, a non-synthetic `text` is wrapped as
+    /// `<user_query>\n…\n</user_query>`; pass `plain: true` for a headless `-p` prompt or an
+    /// envelope stored as is. `assistant`: `text` is the `content` string. `extra` adds keys.
     static func grokChat(
         _ type: String,
         text: String? = nil,
         parts: [[String: Any]]? = nil,
         promptIndex: Int? = nil,
         syntheticReason: String? = nil,
+        plain: Bool = false,
         toolCalls: [(id: String, name: String, arguments: [String: Any])] = [],
-        toolCallID: String? = nil
+        toolCallID: String? = nil,
+        extra: [String: Any] = [:]
     ) throws -> String {
         var record: [String: Any] = ["type": type]
         switch type {
         case "user":
-            record["content"] = parts ?? [["type": "text", "text": text ?? ""]]
+            let raw = text ?? ""
+            let wrapped = plain || syntheticReason != nil ? raw : grokUserQuery(raw)
+            record["content"] = parts ?? [["type": "text", "text": wrapped]]
             record["prompt_index"] = promptIndex
             record["synthetic_reason"] = syntheticReason
         case "assistant":
@@ -73,7 +79,13 @@ extension AgentHistoryFixtures {
         default:
             record["content"] = text ?? ""
         }
+        record.merge(extra) { _, new in new }
         return try jsonLine(record)
+    }
+
+    /// `text` as interactive Grok stores a typed prompt.
+    static func grokUserQuery(_ text: String) -> String {
+        "<user_query>\n\(text)\n</user_query>"
     }
 
     /// One `events.jsonl` record; `turn_started` carries `turnNumber`.
@@ -85,6 +97,29 @@ extension AgentHistoryFixtures {
             record["schema_version"] = "1.0"
         }
         return try jsonLine(record)
+    }
+
+    /// A source over the Grok home `root` (never the real `~/.grok`).
+    static func grokSource(root: URL) -> GrokHistorySource {
+        GrokHistorySource(root: AgentHistorySourceRoot(
+            agent: .grok,
+            path: AgentHistoryPath.canonical(root.path),
+            isDefault: false
+        ))
+    }
+
+    static func grokUnit(_ source: GrokHistorySource, id: String) throws -> AgentHistoryUnit {
+        try XCTUnwrap(try source.discoverUnits().first { $0.nativeSessionID == id })
+    }
+
+    /// Ingests `id` from the start, or from `cursor` when given.
+    static func grokIngest(
+        _ source: GrokHistorySource,
+        id: String,
+        cursor: AgentHistoryCursor? = nil
+    ) throws -> AgentHistoryIngestBatch {
+        let mode: AgentHistoryIngestMode = cursor.map { .fromOffset($0.byteOffset, nextSeq: $0.nextSeq) } ?? .fromStart
+        return try source.ingest(unit: try grokUnit(source, id: id), cursor: cursor, mode: mode, context: context())
     }
 
     /// Creates `<root>/sessions/<encoded cwd>/<id>/` with the given files; returns the session dir.

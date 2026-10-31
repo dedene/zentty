@@ -18,10 +18,13 @@ struct GrokTimeInterpolation {
 
 /// Reads one batch of `chat_history.jsonl` records into a batch builder.
 ///
-/// - `user`: text parts, joined by newlines. Records with a `synthetic_reason` (system
-///   reminders, project instructions, compaction summaries, task notifications) and pure tag
-///   envelopes (`<user_info>…`) are not indexed. A record with a `prompt_index`, or a typed one,
-///   starts a turn.
+/// - `user`: text parts, joined by newlines. Interactive Grok wraps what the user typed in
+///   `<user_query>…</user_query>`, sometimes after an `<image_files>` block or inside an
+///   interrupt preamble (`prior_turn_interrupt`); only the query body is indexed. Text without
+///   a `<user_query>` (headless `-p` prompts) is indexed as is unless it is a pure tag envelope
+///   (`<user_info>…`). Records with a `synthetic_reason` (system reminders, project
+///   instructions, compaction summaries, task notifications) are not indexed. A record with a
+///   `prompt_index`, or a typed one, starts a turn.
 /// - `assistant`: the `content` string; `tool_calls[].arguments` give artifacts
 ///   (`run_terminal_command.command` → command, `search_replace`/`write` `file_path` → path);
 ///   PR links in the reply → pr.
@@ -131,9 +134,8 @@ struct GrokChatReader {
     private mutating func handleUser(_ record: [String: Any], endOffset: Int64) {
         let promptIndex = (record["prompt_index"] as? NSNumber)?.intValue
         let isSynthetic = (record["synthetic_reason"] as? String).map { !$0.isEmpty } ?? false
-        let text = Self.text(of: record["content"])
-        let isTyped = !isSynthetic && text.map { !AgentHistoryDisplayText.isEnvelope($0) } ?? false
-        guard promptIndex != nil || isTyped else {
+        let typed = isSynthetic ? nil : Self.text(of: record["content"]).flatMap(Self.typedText)
+        guard promptIndex != nil || typed != nil else {
             return
         }
 
@@ -146,9 +148,9 @@ struct GrokChatReader {
         }
         state.turnAtMs = atMs
 
-        if isTyped, let text, builder.addMessage(role: .user, atMs: atMs, rawText: text) {
+        if let typed, builder.addMessage(role: .user, atMs: atMs, rawText: typed) {
             if state.promptCount == 0 {
-                builder.noteFirstPrompt(AgentHistoryDisplayText.displayText(text) ?? text)
+                builder.noteFirstPrompt(AgentHistoryDisplayText.displayText(typed) ?? typed)
             }
             state.promptCount += 1
         }
@@ -221,6 +223,25 @@ struct GrokChatReader {
         for hash in AgentHistoryArtifactExtractor.commitHashes(inGitOutput: output) {
             builder.addArtifact(.commit, rawValue: hash, atMs: atMs)
         }
+    }
+
+    static let queryOpenTag = "<user_query>"
+    static let queryCloseTag = "</user_query>"
+
+    /// What the user typed in a non-synthetic user record's text, or nil when it is plumbing.
+    ///
+    /// With a `<user_query>` element: its body, from the first opening tag to the last closing
+    /// tag (to the end when unterminated), so `<image_files>` blocks, the interrupt preamble and
+    /// trailing `<system-reminder>`s are dropped; nil when the body is blank. Without one: the
+    /// text itself unless it is a pure tag envelope (`AgentHistoryDisplayText.isEnvelope`).
+    static func typedText(_ text: String) -> String? {
+        guard let open = text.range(of: queryOpenTag) else {
+            return AgentHistoryDisplayText.isEnvelope(text) ? nil : text
+        }
+        let rest = text[open.upperBound...]
+        let body = rest.range(of: queryCloseTag, options: .backwards).map { rest[..<$0.lowerBound] } ?? rest
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// A string, or the `text` parts of a content array joined by newlines; nil when empty.

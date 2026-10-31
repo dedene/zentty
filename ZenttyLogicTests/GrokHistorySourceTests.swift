@@ -49,8 +49,14 @@ final class GrokHistorySourceTests: XCTestCase {
         AgentHistoryTimestamp.milliseconds(iso8601: iso)!
     }
 
-    private func chat(_ type: String, _ text: String? = nil, promptIndex: Int? = nil, synthetic: String? = nil) throws -> String {
-        try AgentHistoryFixtures.grokChat(type, text: text, promptIndex: promptIndex, syntheticReason: synthetic)
+    private func chat(
+        _ type: String,
+        _ text: String? = nil,
+        promptIndex: Int? = nil,
+        synthetic: String? = nil,
+        plain: Bool = false
+    ) throws -> String {
+        try AgentHistoryFixtures.grokChat(type, text: text, promptIndex: promptIndex, syntheticReason: synthetic, plain: plain)
     }
 
     // MARK: - Discovery
@@ -121,7 +127,7 @@ final class GrokHistorySourceTests: XCTestCase {
     func test_skips_synthetic_reasoning_tool_backend_system() throws {
         try AgentHistoryFixtures.writeGrokSession(root: root, id: sessionID, cwd: cwd, chat: [
             try chat("system", "You are Grok."),
-            try chat("user", "<user_info>\nOS Version: macos\n</user_info>"),
+            try chat("user", "<user_info>\nOS Version: macos\n</user_info>", plain: true),
             try chat("user", "<system-reminder>todo list</system-reminder>", synthetic: "system_reminder"),
             try chat("user", "Real question", promptIndex: 0),
             try chat("reasoning", "thinking hard"),
@@ -178,12 +184,13 @@ final class GrokHistorySourceTests: XCTestCase {
         try AgentHistoryFixtures.writeGrokSession(
             root: root, id: sessionID, cwd: cwd,
             summary: AgentHistoryFixtures.grokSummary(id: sessionID, cwd: cwd, kind: "headless"),
-            chat: [try chat("user", "run headless", promptIndex: 0), try chat("assistant", "ran")]
+            // Headless `-p` prompts are stored without the `<user_query>` wrapper.
+            chat: [try chat("user", "run headless", promptIndex: 0, plain: true), try chat("assistant", "ran")]
         )
 
         let source = makeSource()
         let batch = try ingest(source, unit: try unit(source))
-        XCTAssertEqual(batch.messages.count, 2)
+        XCTAssertEqual(batch.messages.map(\.text), ["run headless", "ran"])
         XCTAssertEqual(batch.sessions.count, 1)
     }
 
