@@ -235,6 +235,49 @@ final class ClaudeRetentionSettingsTests: XCTestCase {
         }
     }
 
+    func test_raise_inserts_key_with_crlf_line_endings() throws {
+        try write("{\r\n  \"theme\": \"dark\"\r\n}\r\n")
+
+        let outcome = try raise()
+
+        guard case .written = outcome else {
+            return XCTFail("expected a write, got \(outcome)")
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: settingsURL),
+            Data("{\r\n  \"cleanupPeriodDays\": 365,\r\n  \"theme\": \"dark\"\r\n}\r\n".utf8)
+        )
+    }
+
+    /// `JSONSerialization` reads UTF-16 with a BOM but the text patch only handles UTF-8, so
+    /// this goes through the re-serialization fallback: formatting is lost, data is kept.
+    func test_raise_reserializes_utf16_file_keeping_every_key() throws {
+        let original = #"{"theme": "dark", "env": {"A": "1"}, "list": [1, "two"], "cleanupPeriodDays": 30}"#
+        var data = Data([0xFF, 0xFE])
+        data.append(try XCTUnwrap(original.data(using: .utf16LittleEndian)))
+        try data.write(to: settingsURL)
+        XCTAssertNil(String(data: data, encoding: .utf8))
+        XCTAssertEqual(status().effectiveDays, 30)
+        XCTAssertEqual(status().source, .userSettings)
+
+        let outcome = try raise()
+
+        guard case let .written(backupURL?) = outcome else {
+            return XCTFail("expected a write with a backup, got \(outcome)")
+        }
+        XCTAssertEqual(try Data(contentsOf: backupURL), data)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any]
+        )
+        XCTAssertEqual(Set(object.keys), ["theme", "env", "list", "cleanupPeriodDays"])
+        XCTAssertEqual(object["cleanupPeriodDays"] as? Int, 365)
+        XCTAssertEqual(object["theme"] as? String, "dark")
+        XCTAssertEqual(object["env"] as? [String: String], ["A": "1"])
+        XCTAssertEqual(object["list"] as? NSArray, [1, "two"] as NSArray)
+        XCTAssertEqual(status().effectiveDays, 365)
+        XCTAssertNil(status().readError)
+    }
+
     func test_raise_replaces_smaller_value_in_place() throws {
         try write("{\n  \"theme\": \"dark\",\n  \"cleanupPeriodDays\": 30,\n  \"model\": \"opus\"\n}\n")
 
