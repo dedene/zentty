@@ -81,9 +81,40 @@ struct FloatingPaneState: Equatable, Sendable {
     var mode: FloatingPaneMode
     /// Frame while `.floating` (also the size a PiP/pill restores to).
     var floatFrame: NormalizedRect
-    /// Z-order among floats; higher is in front.
+    /// Z-order among floats; higher is in front. Raising changes it, so
+    /// never number or list floats by it (see `sequence`).
     var stackOrder: Int
     var origin: FloatOrigin?
+    /// Creation order within the worklane; never changes while the pane
+    /// stays a float. `WorklaneState.allPanes` (CLI numbering, tmux
+    /// topology, sidebar order) lists floats by it, so a click that raises a
+    /// float does not renumber the others.
+    var sequence: Int = 0
+}
+
+extension FloatingPaneState {
+    /// `floats` back to front: by `stackOrder`, stored order on ties.
+    static func byStackOrder(_ floats: [FloatingPaneState]) -> [FloatingPaneState] {
+        sorted(floats, by: \.stackOrder)
+    }
+
+    /// `floats` in creation order: by `sequence`, stored order on ties.
+    static func bySequence(_ floats: [FloatingPaneState]) -> [FloatingPaneState] {
+        sorted(floats, by: \.sequence)
+    }
+
+    private static func sorted(
+        _ floats: [FloatingPaneState],
+        by key: KeyPath<FloatingPaneState, Int>
+    ) -> [FloatingPaneState] {
+        floats.enumerated()
+            .sorted { lhs, rhs in
+                lhs.element[keyPath: key] == rhs.element[keyPath: key]
+                    ? lhs.offset < rhs.offset
+                    : lhs.element[keyPath: key] < rhs.element[keyPath: key]
+            }
+            .map(\.element)
+    }
 }
 
 /// Where a temporary (overlay-style) pane is anchored.

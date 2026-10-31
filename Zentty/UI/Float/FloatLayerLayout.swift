@@ -38,13 +38,8 @@ enum FloatLayerLayout {
             bottomInset: bottomInset
         )
 
-        return floats.enumerated()
-            .sorted { lhs, rhs in
-                lhs.element.stackOrder == rhs.element.stackOrder
-                    ? lhs.offset < rhs.offset
-                    : lhs.element.stackOrder < rhs.element.stackOrder
-            }
-            .compactMap { _, float -> FloatLayerPlacement? in
+        return FloatingPaneState.byStackOrder(floats)
+            .compactMap { float -> FloatLayerPlacement? in
                 switch float.mode {
                 case .floating:
                     return FloatLayerPlacement(

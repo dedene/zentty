@@ -19,6 +19,9 @@ extension WorkspaceRecipe {
         /// Dense per-corner order (PiP) or pill-bar order (minimized).
         var order: Int? = nil
         var originColumnIndex: Int? = nil
+        /// `FloatingPaneState.sequence` (creation order). Optional: early v5
+        /// recipes lack it and fall back to `stackOrder` on import.
+        var sequence: Int? = nil
     }
 }
 
@@ -46,7 +49,8 @@ extension WorkspaceRecipe.FloatingPane {
             stackOrder: state.stackOrder,
             corner: corner,
             order: order,
-            originColumnIndex: state.origin?.columnIndex
+            originColumnIndex: state.origin?.columnIndex,
+            sequence: state.sequence
         )
     }
 
@@ -200,7 +204,8 @@ extension WorkspaceRecipeImporter {
                     mode: recipeFloat.floatingMode,
                     floatFrame: recipeFloat.normalizedFrame,
                     stackOrder: recipeFloat.stackOrder,
-                    origin: recipeFloat.originColumnIndex.map { FloatOrigin(columnIndex: max($0, 0)) }
+                    origin: recipeFloat.originColumnIndex.map { FloatOrigin(columnIndex: max($0, 0)) },
+                    sequence: recipeFloat.sequence ?? recipeFloat.stackOrder
                 )
             )
         }

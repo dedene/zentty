@@ -11,14 +11,16 @@ final class WorklaneStateFloatAccessorTests: XCTestCase {
     private func float(
         _ pane: PaneState,
         mode: FloatingPaneMode = .floating,
-        stackOrder: Int
+        stackOrder: Int,
+        sequence: Int = 0
     ) -> FloatingPaneState {
         FloatingPaneState(
             pane: pane,
             mode: mode,
             floatFrame: NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5),
             stackOrder: stackOrder,
-            origin: FloatOrigin(columnIndex: 0)
+            origin: FloatOrigin(columnIndex: 0),
+            sequence: sequence
         )
     }
 
@@ -51,13 +53,37 @@ final class WorklaneStateFloatAccessorTests: XCTestCase {
         XCTAssertEqual(state.visibleFloatCount, 0)
     }
 
-    func test_allPanes_lists_strip_then_floats() {
-        // Floats are stored out of stack order on purpose: allPanes sorts by stackOrder.
+    func test_allPanes_lists_strip_then_floats_in_creation_order() {
+        // Stored order, stack order and creation order all differ on purpose:
+        // allPanes numbers by `sequence`, never by z-order.
         let state = worklane(
             tiles: [tileA, tileB],
-            floats: [float(floatY, stackOrder: 2), float(floatX, stackOrder: 1)]
+            floats: [
+                float(floatY, stackOrder: 1, sequence: 1),
+                float(floatX, stackOrder: 2, sequence: 0),
+            ]
         )
         XCTAssertEqual(state.allPanes.map(\.id), [tileA.id, tileB.id, floatX.id, floatY.id])
+    }
+
+    func test_floatsByStackOrder_lists_floats_back_to_front() {
+        let state = worklane(
+            tiles: [tileA],
+            floats: [
+                float(floatX, stackOrder: 2, sequence: 0),
+                float(floatY, stackOrder: 1, sequence: 1),
+            ]
+        )
+        XCTAssertEqual(state.floatsByStackOrder.map(\.pane.id), [floatY.id, floatX.id])
+    }
+
+    func test_float_ties_keep_stored_order() {
+        let state = worklane(
+            tiles: [],
+            floats: [float(floatY, stackOrder: 0), float(floatX, stackOrder: 0)]
+        )
+        XCTAssertEqual(state.allPanes.map(\.id), [floatY.id, floatX.id])
+        XCTAssertEqual(state.floatsByStackOrder.map(\.pane.id), [floatY.id, floatX.id])
     }
 
     func test_pane_id_finds_float() {

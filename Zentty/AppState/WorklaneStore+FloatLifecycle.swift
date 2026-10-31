@@ -125,7 +125,8 @@ extension WorklaneStore {
                 mode: .floating,
                 floatFrame: NormalizedRect(rect: frame, in: canvas),
                 stackOrder: Self.nextStackOrder(in: worklane),
-                origin: nil
+                origin: nil,
+                sequence: Self.nextFloatSequence(in: worklane)
             )
         )
         worklane.floatsHidden = false

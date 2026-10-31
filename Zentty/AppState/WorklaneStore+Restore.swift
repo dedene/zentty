@@ -311,7 +311,8 @@ extension WorklaneStore {
                 mode: .floating,
                 floatFrame: frame,
                 stackOrder: Self.nextStackOrder(in: worklane),
-                origin: FloatOrigin(columnIndex: originColumnIndex)
+                origin: FloatOrigin(columnIndex: originColumnIndex),
+                sequence: Self.nextFloatSequence(in: worklane)
             )
         )
         worklane.floatsHidden = false

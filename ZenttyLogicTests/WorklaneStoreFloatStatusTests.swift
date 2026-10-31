@@ -224,6 +224,31 @@ final class WorklaneStoreFloatStatusTests: XCTestCase {
         XCTAssertNil(executor.resolvePaneID("3", in: worklaneID))
     }
 
+    /// Clicking a float raises it (`stackOrder`), which must not renumber
+    /// floats: `zentty pane close 2` after `pane list` must hit the same pane.
+    func test_pane_numbering_is_stable_when_a_float_is_raised() throws {
+        let store = makeStore()
+        floatAgent(store)
+        let laterFloat = try XCTUnwrap(store.newFloat(
+            request: TerminalSessionRequest(workingDirectory: "/tmp"),
+            canvas: canvas,
+            lifetime: .persistent
+        ))
+        let executor = makeExecutor(store: store)
+        XCTAssertEqual(executor.resolvePaneID("2", in: worklaneID), agentID, "precondition")
+        XCTAssertEqual(executor.resolvePaneID("3", in: worklaneID), laterFloat, "precondition")
+
+        store.focusPane(id: agentID)
+
+        XCTAssertEqual(executor.resolvePaneID("2", in: worklaneID), agentID)
+        XCTAssertEqual(executor.resolvePaneID("3", in: worklaneID), laterFloat)
+        XCTAssertEqual(
+            executor.paneListEntries(for: worklaneID).map(\.id),
+            [tileID.rawValue, agentID.rawValue, laterFloat.rawValue]
+        )
+        XCTAssertEqual(main(store)?.floatsByStackOrder.last?.pane.id, agentID, "raise still changes z-order")
+    }
+
     func test_pane_list_entry_mode_is_optional_on_the_wire() throws {
         let legacy = #"{"index":1,"id":"pn_a","column":1,"title":"a","isFocused":true}"#
         let decoded = try JSONDecoder().decode(PaneListEntry.self, from: Data(legacy.utf8))

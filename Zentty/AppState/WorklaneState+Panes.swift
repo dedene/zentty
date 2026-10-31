@@ -4,9 +4,10 @@ import Foundation
 /// "does this pane exist / which pane is focused" question; keep
 /// `paneStripState` for strip-only geometry and navigation.
 extension WorklaneState {
-    /// Strip panes in strip order, then floats by `stackOrder` (back to front).
+    /// Strip panes in strip order, then floats in creation order
+    /// (`sequence`). Stable across raises, so it is safe for numbering.
     var allPanes: [PaneState] {
-        paneStripState.panes + floatsByStackOrder.map(\.pane)
+        paneStripState.panes + FloatingPaneState.bySequence(floatingPanes).map(\.pane)
     }
 
     func pane(id: PaneID) -> PaneState? {
@@ -111,13 +112,9 @@ extension WorklaneState {
         }.count
     }
 
-    private var floatsByStackOrder: [FloatingPaneState] {
-        floatingPanes.enumerated()
-            .sorted { lhs, rhs in
-                lhs.element.stackOrder == rhs.element.stackOrder
-                    ? lhs.offset < rhs.offset
-                    : lhs.element.stackOrder < rhs.element.stackOrder
-            }
-            .map(\.element)
+    /// Floats back to front (`stackOrder`). For z-order only; number and
+    /// list panes with `allPanes`.
+    var floatsByStackOrder: [FloatingPaneState] {
+        FloatingPaneState.byStackOrder(floatingPanes)
     }
 }

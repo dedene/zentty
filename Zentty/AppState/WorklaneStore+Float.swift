@@ -52,7 +52,8 @@ extension WorklaneStore {
                 mode: .floating,
                 floatFrame: NormalizedRect(rect: frame, in: canvas),
                 stackOrder: Self.nextStackOrder(in: worklane),
-                origin: FloatOrigin(columnIndex: removal.columnIndex)
+                origin: FloatOrigin(columnIndex: removal.columnIndex),
+                sequence: Self.nextFloatSequence(in: worklane)
             )
         )
         worklane.floatsHidden = false
@@ -127,7 +128,8 @@ extension WorklaneStore {
                 mode: .floating,
                 floatFrame: NormalizedRect(rect: frame, in: canvas),
                 stackOrder: Self.nextStackOrder(in: worklane),
-                origin: nil
+                origin: nil,
+                sequence: Self.nextFloatSequence(in: worklane)
             )
         )
         worklane.floatsHidden = false
@@ -418,6 +420,11 @@ extension WorklaneStore {
 
     static func nextStackOrder(in worklane: WorklaneState) -> Int {
         (worklane.floatingPanes.map(\.stackOrder).max() ?? -1) + 1
+    }
+
+    /// Creation order for a new float: after every live float.
+    static func nextFloatSequence(in worklane: WorklaneState) -> Int {
+        (worklane.floatingPanes.map(\.sequence).max() ?? -1) + 1
     }
 
     private static func nextMinimizedOrder(in worklane: WorklaneState) -> Int {

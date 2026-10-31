@@ -368,7 +368,20 @@ final class WorklaneStoreFloatTests: XCTestCase {
             state.floatingPane(id: back)?.stackOrder ?? -1,
             state.floatingPane(id: front)?.stackOrder ?? Int.max
         )
-        XCTAssertEqual(state.allPanes.last?.id, back)
+        XCTAssertEqual(state.floatsByStackOrder.last?.pane.id, back)
+        XCTAssertEqual(state.allPanes.last?.id, front, "raising never renumbers floats")
+    }
+
+    func test_new_floats_get_increasing_sequences() {
+        let store = makeStore(tiles: ["a", "b"])
+        let first = addFloat(store)
+        store.floatPane(PaneID("b"), canvas: canvas, tileFrame: nil)
+        let third = addFloat(store)
+
+        let sequences = [first, PaneID("b"), third].map { worklane(store).floatingPane(id: $0)?.sequence ?? -1 }
+        XCTAssertEqual(sequences, sequences.sorted())
+        XCTAssertEqual(Set(sequences).count, 3)
+        XCTAssertEqual(worklane(store).allPanes.map(\.id), [PaneID("a"), first, PaneID("b"), third])
     }
 
     func test_focusPane_on_tile_clears_float_focus() {

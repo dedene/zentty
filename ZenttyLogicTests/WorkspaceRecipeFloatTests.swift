@@ -138,6 +138,39 @@ final class WorkspaceRecipeFloatTests: XCTestCase {
         XCTAssertEqual(restored.focusedPaneID, pipID, "a float-only worklane comes back focused on its front float")
     }
 
+    func test_export_import_round_trips_float_sequence() throws {
+        let directory = try makeDirectory()
+        var front = makeFloat(floatID, mode: .floating, stackOrder: 1)
+        front.sequence = 7
+        var back = makeFloat(pipID, mode: .floating, stackOrder: 0)
+        back.sequence = 3
+        let worklane = makeWorklane(directory: directory, floats: [front, back])
+
+        let restored = try roundTrip([worklane], directory: directory).worklanes[0]
+
+        XCTAssertEqual(restored.floatingPanes.map(\.sequence), [7, 3])
+        XCTAssertEqual(restored.allPanes.map(\.id), [tileID, pipID, floatID])
+    }
+
+    func test_import_without_sequence_falls_back_to_stack_order() {
+        var first = recipeFloat(id: floatID.rawValue)
+        first.stackOrder = 4
+        var second = recipeFloat(id: pipID.rawValue)
+        second.stackOrder = 2
+        XCTAssertNil(first.sequence)
+
+        let restored = importWindow(recipeWindow(worklane: recipeWorklane(floats: [first, second]))).worklanes[0]
+
+        XCTAssertEqual(restored.floatingPanes.map(\.sequence), [4, 2])
+    }
+
+    func test_float_sequence_is_optional_on_the_wire() throws {
+        let legacy = #"{"pane":{"id":"pn_a","workingDirectory":"/tmp"},"mode":"floating","frame":[0.1,0.1,0.5,0.5],"stackOrder":3}"#
+        let decoded = try JSONDecoder().decode(WorkspaceRecipe.FloatingPane.self, from: Data(legacy.utf8))
+        XCTAssertNil(decoded.sequence)
+        XCTAssertEqual(decoded.stackOrder, 3)
+    }
+
     // MARK: - Lenient import
 
     func test_import_drops_float_whose_id_is_already_a_tile() {
