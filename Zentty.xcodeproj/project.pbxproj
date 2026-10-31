@@ -512,6 +512,7 @@
 		9D6D9337A2705767B3702D5C /* CommandPaletteBackdropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */; };
 		9D7CF3435362B15C9801875B /* PaneFocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54894343178398AA618315E4 /* PaneFocusHistory.swift */; };
 		9DD40EDD3E3E8C67BB115B53 /* TaskManagerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7DDB5C51065221110FF22C3 /* TaskManagerModels.swift */; };
+		9E424B9269FF542435B38B15 /* WorklaneStoreFloatFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F1E133A8D93AB94C7554A18 /* WorklaneStoreFloatFocusTests.swift */; };
 		9E4EE6F720A08E0254758C0A /* BookmarkStoreLiveReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67E086EA97DD76AFFAA9A25C /* BookmarkStoreLiveReloadTests.swift */; };
 		9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */; };
 		9F1FB182E98F22E9F961AFE0 /* KimiHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1703E7CBF1D46D10D30281FC /* KimiHooksInstaller.swift */; };
@@ -912,6 +913,7 @@
 		0EA071E0AD16A044F7C2F644 /* BookmarkStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStoreTests.swift; sourceTree = "<group>"; };
 		0EC3C3E57E52AACEA9F6C90C /* SidebarWorklaneRowPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowPresentation.swift; sourceTree = "<group>"; };
 		0F0174FCC4D7311A6EC6F1C3 /* ShellIntegrationMiseBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationMiseBoundaryTests.swift; sourceTree = "<group>"; };
+		0F1E133A8D93AB94C7554A18 /* WorklaneStoreFloatFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreFloatFocusTests.swift; sourceTree = "<group>"; };
 		0F597D5D537AA313CD34C8FA /* GeminiEventAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiEventAdapter.swift; sourceTree = "<group>"; };
 		0F5C60D4800BDD040F2D5B12 /* AgentWrapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWrapperTests.swift; sourceTree = "<group>"; };
 		1012EBCE933DB55124BA2AEB /* FloatTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatTypes.swift; sourceTree = "<group>"; };
@@ -2862,6 +2864,7 @@
 				0AF5B9241156382C39C53043 /* WorklaneStoreCodexWriteBackTests.swift */,
 				0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */,
 				9E981E6DAD0FE2A00554CEEA /* WorklaneStoreCrossWindowTransferTests.swift */,
+				0F1E133A8D93AB94C7554A18 /* WorklaneStoreFloatFocusTests.swift */,
 				798F234102C6DDBA6E68D631 /* WorklaneStoreFloatLifecycleTests.swift */,
 				FE294CA433038226D3CD75B8 /* WorklaneStoreFloatStatusTests.swift */,
 				6B986FFD8EA52B6238A0DBE0 /* WorklaneStoreFloatTests.swift */,
@@ -3394,6 +3397,7 @@
 				EE24FB9D4987F1969F41B0D5 /* WorklaneStoreCodexWriteBackTests.swift in Sources */,
 				E1386EB98808607C67C5A1DF /* WorklaneStoreColorTests.swift in Sources */,
 				166E5E086FD1CCBD36F1FB4C /* WorklaneStoreCrossWindowTransferTests.swift in Sources */,
+				9E424B9269FF542435B38B15 /* WorklaneStoreFloatFocusTests.swift in Sources */,
 				F6E54A4B5B5C1567D0FAE557 /* WorklaneStoreFloatLifecycleTests.swift in Sources */,
 				776DB2DBCE525039951246ED /* WorklaneStoreFloatStatusTests.swift in Sources */,
 				A3904589D88B72A324714605 /* WorklaneStoreFloatTests.swift in Sources */,

@@ -765,6 +765,20 @@ final class WorklaneStore {
         })
     }
 
+    /// Live panes focus may land on: tiles, plus `.floating` floats while
+    /// floats are shown. History navigation skips (and drops) the rest, so it
+    /// never resurrects a PiP, a pill or a hidden float.
+    private var focusTargetPaneReferences: Set<PaneReference> {
+        Set(worklanes.flatMap { worklane in
+            worklane.allPanes.compactMap { pane -> PaneReference? in
+                guard Self.isEligibleFocusTarget(pane.id, in: worklane) else {
+                    return nil
+                }
+                return PaneReference(worklaneID: worklane.id, paneID: pane.id)
+            }
+        })
+    }
+
     var recentPaneReferencesForCommandPalette: [PaneReference] {
         focusHistoryController.history.recentReferences(allPaneIDs: allLivePaneReferences)
     }
@@ -797,12 +811,14 @@ final class WorklaneStore {
         notify(.auxiliaryStateUpdated(worklanes[worklaneIndex].id, paneID, .sidebar))
     }
 
-    /// Strip tiles, then `.floating` floats, per worklane. PiPs and pills are
-    /// not cycle targets: they never hold keyboard focus.
+    /// Strip tiles, then `.floating` floats in creation order, per worklane.
+    /// PiPs, pills and hidden floats are not cycle targets: they never hold
+    /// keyboard focus.
     private var paneReferencesInSidebarOrder: [PaneReference] {
         worklanes.flatMap { worklane in
             let floatIDs = worklane.allPanes.compactMap { pane -> PaneID? in
-                worklane.floatingPane(id: pane.id)?.mode.isFloating == true ? pane.id : nil
+                worklane.isFloating(pane.id) && Self.isEligibleFocusTarget(pane.id, in: worklane)
+                    ? pane.id : nil
             }
             return (worklane.paneStripState.panes.map(\.id) + floatIDs).map { paneID in
                 PaneReference(worklaneID: worklane.id, paneID: paneID)
@@ -814,7 +830,7 @@ final class WorklaneStore {
         guard let current = currentPaneReference else { return }
         guard let target = focusHistoryController.navigateBack(
             current: current,
-            allPaneIDs: allLivePaneReferences
+            allPaneIDs: focusTargetPaneReferences
         ) else { return }
 
         isNavigatingHistory = true
@@ -831,7 +847,7 @@ final class WorklaneStore {
         guard let current = currentPaneReference else { return }
         guard let target = focusHistoryController.navigateForward(
             current: current,
-            allPaneIDs: allLivePaneReferences
+            allPaneIDs: focusTargetPaneReferences
         ) else { return }
 
         isNavigatingHistory = true
@@ -971,11 +987,17 @@ final class WorklaneStore {
             changeType = .paneStructure(activeWorklaneID)
         case .splitVertically:
             worklane.focusedFloatID = nil
-            insertNewPaneVertically(into: &worklane, placement: .afterFocused)
+            // A refused insert (empty strip, column too short) changes nothing.
+            guard insertNewPaneVertically(into: &worklane, placement: .afterFocused) else {
+                return
+            }
             changeType = .paneStructure(activeWorklaneID)
         case .splitVerticallyBefore:
             worklane.focusedFloatID = nil
-            insertNewPaneVertically(into: &worklane, placement: .beforeFocused)
+            // A refused insert (empty strip, column too short) changes nothing.
+            guard insertNewPaneVertically(into: &worklane, placement: .beforeFocused) else {
+                return
+            }
             changeType = .paneStructure(activeWorklaneID)
         case .splitBeforeFocusedPane:
             worklane.focusedFloatID = nil
@@ -992,6 +1014,10 @@ final class WorklaneStore {
             return
         case _ where worklane.floatOwnsFocus && Self.isStripFocusMove(command):
             // Strip navigation from a float first returns to the strip focus.
+            // With an empty strip there is nothing to return to: keep the float.
+            guard worklane.paneStripState.focusedPaneID != nil else {
+                return
+            }
             worklane.focusedFloatID = nil
             clearReadyStatusForFocusedPane(in: &worklane)
             changeType = .focusChanged(activeWorklaneID)
@@ -1156,6 +1182,8 @@ final class WorklaneStore {
 
         let isActiveWorklane = worklaneID == activeWorklaneID
         let previousPaneRef = isActiveWorklane ? currentPaneReference : nil
+        let priorStripFocusID = worklane.paneStripState.focusedPaneID
+        let priorFocusedFloatID = worklane.floatOwnsFocus ? worklane.focusedFloatID : nil
         // A floated target can't be split in the strip: split at the strip
         // focus instead (an empty strip just gains its first column).
         if let targetPaneID, !worklane.isFloating(targetPaneID) {
@@ -1166,7 +1194,14 @@ final class WorklaneStore {
         if isHorizontal {
             insertNewPaneHorizontally(into: &worklane, placement: placement, sessionRequest: sessionRequest)
         } else {
-            insertNewPaneVertically(into: &worklane, placement: placement, sessionRequest: sessionRequest)
+            // A refused insert (empty strip, column too short) changes nothing.
+            guard insertNewPaneVertically(
+                into: &worklane,
+                placement: placement,
+                sessionRequest: sessionRequest
+            ) else {
+                return nil
+            }
         }
         let newPaneID = worklane.paneStripState.focusedPaneID
 
@@ -1210,10 +1245,17 @@ final class WorklaneStore {
         }
 
         if let preserveFocusPaneID {
-            if worklane.isFloating(preserveFocusPaneID) {
+            if !worklane.isFloating(preserveFocusPaneID) {
+                worklane.paneStripState.focusPane(id: preserveFocusPaneID)
+            } else if Self.isEligibleFocusTarget(preserveFocusPaneID, in: worklane) {
                 worklane.focusedFloatID = preserveFocusPaneID
             } else {
-                worklane.paneStripState.focusPane(id: preserveFocusPaneID)
+                // A PiP, pill or hidden float can't take focus: keep the
+                // focus the worklane had before the split.
+                if let priorStripFocusID {
+                    worklane.paneStripState.focusPane(id: priorStripFocusID)
+                }
+                worklane.focusedFloatID = priorFocusedFloatID
             }
         }
 
@@ -1937,11 +1979,14 @@ final class WorklaneStore {
         worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: .afterFocused)
     }
 
+    /// Returns false when the strip refuses the pane (no focused column, or
+    /// the column would drop below the minimum height); `worklane` is then
+    /// partially mutated and must not be committed.
     private func insertNewPaneVertically(
         into worklane: inout WorklaneState,
         placement: PanePlacement = .afterFocused,
         sessionRequest: TerminalSessionRequest? = nil
-    ) {
+    ) -> Bool {
         let existingPaneCount = worklane.paneStripState.panes.count
         let sourceWidth = worklane.paneStripState.focusedColumn?.width
             ?? worklane.paneStripState.panes.first?.width
@@ -1949,7 +1994,7 @@ final class WorklaneStore {
         var insertedPane = makePane(in: &worklane, existingPaneCount: existingPaneCount)
         applySessionRequestOverride(sessionRequest, to: &insertedPane)
         insertedPane.width = sourceWidth
-        _ = worklane.paneStripState.insertPaneVertically(
+        return worklane.paneStripState.insertPaneVertically(
             insertedPane,
             placement: placement,
             availableHeight: paneViewportHeight

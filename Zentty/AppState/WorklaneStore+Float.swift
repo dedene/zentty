@@ -237,7 +237,8 @@ extension WorklaneStore {
     }
 
     /// Hides or shows every float and PiP of the active worklane (pills stay).
-    /// Hiding drops float focus back to the strip.
+    /// Hiding drops float focus back to the strip; showing hands focus to the
+    /// front float when nothing else holds it (empty strip).
     func setFloatsHidden(_ hidden: Bool) {
         guard var worklane = activeWorklane, worklane.floatsHidden != hidden else {
             return
@@ -246,6 +247,8 @@ extension WorklaneStore {
         worklane.floatsHidden = hidden
         if hidden {
             worklane.focusedFloatID = nil
+        } else {
+            Self.focusFrontFloatIfUnfocused(in: &worklane)
         }
         commitFloatChange(from: original, to: worklane)
     }

@@ -91,7 +91,8 @@ final class PaneFocusHistoryController {
         pendingEntry = nil
     }
 
-    private func commitPending() {
+    /// Records the debounced entry now. Internal so tests can commit history.
+    func commitPending() {
         guard let entry = pendingEntry else { return }
         pendingEntry = nil
         debounceHandle = nil
