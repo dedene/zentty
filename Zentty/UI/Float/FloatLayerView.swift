@@ -124,6 +124,8 @@ final class FloatLayerView: NSView {
     private var showPaneBorders = AppConfig.Panes.default.showBorders
     private var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var lastFocusedFloatID: PaneID?
+    /// Room at the bottom the PiPs keep clear (the pill bar while it shows).
+    var bottomInset: CGFloat = 0
     private var focusGeneration: UInt64 = 0
     /// Frames of floats under a live gesture. They win over the store until
     /// the gesture ends, so a re-render mid-drag (agent status, the raise on
@@ -207,7 +209,8 @@ final class FloatLayerView: NSView {
         let placements = FloatLayerLayout.placements(
             floats: content.floats,
             floatsHidden: content.floatsHidden,
-            canvas: bounds
+            canvas: bounds,
+            bottomInset: bottomInset
         )
         let floatsByID = Dictionary(
             content.floats.map { ($0.pane.id, $0) },

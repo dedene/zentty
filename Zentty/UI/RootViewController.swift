@@ -858,6 +858,33 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onPaneBorderActionRequested = { [weak self] paneID, action in
             self?.handlePaneBorderAction(action, paneID: paneID)
         }
+        setupPillBarCallbacks()
+    }
+
+    private func setupPillBarCallbacks() {
+        let pillBar = appCanvasView.pillBarView
+        pillBar.onPillClicked = { [weak self] paneID in
+            guard let self, !self.isFloatCommandBlocked else { return }
+            self.appCanvasView.pillPeekView.hide()
+            self.worklaneStore.restoreFloat(paneID)
+        }
+        pillBar.onPillPromoted = { [weak self] paneID, pointInBar in
+            guard let self, !self.isFloatCommandBlocked else { return }
+            let floatLayer = self.appCanvasView.floatLayerView
+            let point = floatLayer.convert(pointInBar, from: self.appCanvasView.pillBarView)
+            self.worklaneStore.pipPane(paneID, corner: FloatLayout.nearestCorner(to: point, in: floatLayer.bounds))
+        }
+        appCanvasView.pillPeekView.textProvider = { [weak self] paneID in
+            guard let reader = self?.runtimeRegistry.runtime(for: paneID)?.adapter as? TerminalTextReading else {
+                return nil
+            }
+            // The whole visible screen: the peek drops trailing blank rows
+            // before it takes the last lines.
+            return reader.readStyledText(includeScrollback: false, lineLimit: nil)
+        }
+        appCanvasView.onPaneViewportHeightChanged = { [weak self] in
+            self?.updatePaneViewportHeight()
+        }
     }
 
     /// Gives a float container what strip panes get from `PaneStripView`:
@@ -928,7 +955,7 @@ final class RootViewController: NSViewController {
             return self.worklaneStore.resize(
                 target,
                 delta: delta,
-                availableSize: self.appCanvasView.bounds.size,
+                availableSize: self.appCanvasView.paneStripView.bounds.size,
                 leadingVisibleInset: self.appCanvasView.leadingVisibleInset,
                 minimumSizeByPaneID: self.paneCommands.paneMinimumSizesByPaneID()
             )
@@ -938,7 +965,7 @@ final class RootViewController: NSViewController {
                 return
             }
             self.worklaneStore.equalizeDivider(
-                divider, availableSize: self.appCanvasView.bounds.size)
+                divider, availableSize: self.appCanvasView.paneStripView.bounds.size)
         }
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
@@ -1050,7 +1077,7 @@ final class RootViewController: NSViewController {
                     paneID: paneID,
                     toColumnID: columnID,
                     atPaneIndex: paneIndex,
-                    availableHeight: appCanvasView.bounds.height,
+                    availableHeight: appCanvasView.paneViewportHeight,
                     singleColumnWidth: singleColumnWidth
                 )
             } else {
@@ -1069,7 +1096,7 @@ final class RootViewController: NSViewController {
                     ontoTargetPaneID: targetPaneID,
                     axis: axis,
                     leading: leading,
-                    availableHeight: appCanvasView.bounds.height,
+                    availableHeight: appCanvasView.paneViewportHeight,
                     singleColumnWidth: singleColumnWidth
                 )
             } else {
@@ -1078,7 +1105,7 @@ final class RootViewController: NSViewController {
                     ontoTargetPaneID: targetPaneID,
                     axis: axis,
                     leading: leading,
-                    availableHeight: appCanvasView.bounds.height,
+                    availableHeight: appCanvasView.paneViewportHeight,
                     singleColumnWidth: singleColumnWidth
                 )
             }
@@ -2773,7 +2800,7 @@ final class RootViewController: NSViewController {
     }
 
     private func updatePaneViewportHeight() {
-        worklaneStore.updatePaneViewportHeight(appCanvasView.bounds.height)
+        worklaneStore.updatePaneViewportHeight(appCanvasView.paneViewportHeight)
     }
 
     var chromeView: WindowChromeView {
@@ -4060,6 +4087,8 @@ extension RootViewController: WorklanePeekControllerDelegate {
         peekView.attach(paneStripView: appCanvasView.paneStripView)
         peekView.isHidden = false
         appCanvasView.floatLayerView.isHidden = true
+        appCanvasView.pillBarView.alphaValue = 0
+        appCanvasView.pillPeekView.hide()
         // Force layout so the overlay's bounds reflect AppCanvasView's frame
         // before we compute the HUD position from those bounds.
         peekView.layoutSubtreeIfNeeded()
@@ -4158,6 +4187,7 @@ extension RootViewController: WorklanePeekControllerDelegate {
         )
         peekView.isHidden = true
         appCanvasView.floatLayerView.isHidden = false
+        appCanvasView.pillBarView.alphaValue = 1
         peekView.detach()
         peekKeyMonitor.uninstall()
     }

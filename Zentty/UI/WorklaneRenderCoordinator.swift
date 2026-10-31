@@ -423,6 +423,7 @@ final class WorklaneRenderCoordinator {
                     worklane: worklane,
                     borderContextByPaneID: paneBorderContextByPaneID
                 ),
+                pills: PillBarContent(worklane: worklane),
                 metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
                 paneBorderContextByPaneID: paneBorderContextByPaneID,
                 showsPaneLabels: paneSettings.showLabels,
@@ -622,6 +623,11 @@ final class WorklaneRenderCoordinator {
         if impacts.contains(.canvas),
            worklaneID == worklaneStore.activeWorklaneID {
             renderCanvasForCurrentWorklane(animated: false)
+        } else if worklaneID == worklaneStore.activeWorklaneID,
+                  let worklane = worklaneStore.activeWorklane,
+                  case .minimized = worklane.floatingPane(id: paneID)?.mode {
+            // A pill's status dot, name and cwd follow its pane's state.
+            views.appCanvasView.updatePills(PillBarContent(worklane: worklane))
         }
 
         if impacts.contains(.attention) {

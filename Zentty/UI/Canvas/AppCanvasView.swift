@@ -350,6 +350,15 @@ final class AppCanvasView: NSView {
     let paneStripView: PaneStripView
     /// Floats and PiPs of the active worklane, above the strip.
     let floatLayerView: FloatLayerView
+    /// Minimized floats of the active worklane, in flow below the strip.
+    let pillBarView = PillBarView()
+    /// Hover peek above a pill; front-most.
+    let pillPeekView = PillPeekView()
+    /// Height the pill bar takes from the strip (0 while there are no pills).
+    private(set) var pillBarReservedHeight: CGFloat = 0
+    /// The strip's height changed because the pill bar showed or left.
+    var onPaneViewportHeightChanged: (() -> Void)?
+    private var stripBottomConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     init(
@@ -381,20 +390,30 @@ final class AppCanvasView: NSView {
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneStripView)
         addSubview(floatLayerView)
+        // Above the floats: a float can sit behind the bar, never on its pills.
+        addSubview(pillBarView)
+        addSubview(pillPeekView)
+        pillBarView.isHidden = true
+        pillBarView.onPeekChanged = { [weak self] item, pillFrame in
+            self?.updatePeek(item, pillFrame: pillFrame)
+        }
         floatLayerView.dockColumnsProvider = { [weak paneStripView, weak floatLayerView] in
             guard let paneStripView, let floatLayerView else { return [] }
             return paneStripView.dockHitTestColumns(in: floatLayerView)
         }
 
+        let stripBottomConstraint = paneStripView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        self.stripBottomConstraint = stripBottomConstraint
         NSLayoutConstraint.activate([
             paneStripView.topAnchor.constraint(equalTo: topAnchor),
             paneStripView.leadingAnchor.constraint(equalTo: leadingAnchor),
             paneStripView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            paneStripView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stripBottomConstraint,
         ])
 
         paneStripView.apply(theme: currentTheme, animated: false)
         paneStripView.setLeadingVisibleInset(0, animated: false)
+        pillPeekView.apply(theme: currentTheme)
     }
 
     override func layout() {
@@ -402,7 +421,8 @@ final class AppCanvasView: NSView {
         layoutFloatLayer()
     }
 
-    /// The float layer covers the visible canvas, right of the sidebar inset.
+    /// The float layer covers the visible canvas, right of the sidebar inset;
+    /// the pill bar is its bottom `PillBarLayout.barHeight`.
     private func layoutFloatLayer() {
         let inset = min(max(0, leadingVisibleInset), bounds.width)
         let frame = NSRect(
@@ -412,11 +432,57 @@ final class AppCanvasView: NSView {
         if floatLayerView.frame != frame {
             floatLayerView.frame = frame
         }
+        let barFrame = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: PillBarLayout.barHeight)
+        if pillBarView.frame != barFrame {
+            pillBarView.frame = barFrame
+        }
+    }
+
+    /// The strip's height: the canvas minus the pill bar while it shows.
+    var paneViewportHeight: CGFloat {
+        max(0, bounds.height - pillBarReservedHeight)
+    }
+
+    /// Shows the pill bar (strip shrinks) or removes it (strip grows). The
+    /// strip frame changes right away so the render that follows animates
+    /// the reflow instead of a layout pass snapping it.
+    private func setPillBarReservedHeight(_ height: CGFloat, animated: Bool) {
+        guard height != pillBarReservedHeight else { return }
+        pillBarReservedHeight = height
+        stripBottomConstraint?.constant = -height
+        if bounds.height > 0 {
+            paneStripView.frame = NSRect(
+                x: bounds.minX,
+                y: bounds.minY + height,
+                width: bounds.width,
+                height: max(0, bounds.height - height)
+            )
+        }
+        paneStripView.animatesNextViewportResize = animated
+        floatLayerView.bottomInset = height
+        onPaneViewportHeightChanged?()
+    }
+
+    /// Refreshes the pills (status, name, cwd) without a canvas render. The
+    /// set of pills must be unchanged; structure changes render the canvas.
+    func updatePills(_ pills: PillBarContent) {
+        guard pills.items.map(\.paneID) == pillBarView.content.items.map(\.paneID) else { return }
+        pillBarView.render(pills, theme: currentTheme)
+    }
+
+    private func updatePeek(_ item: PillBarItem?, pillFrame: CGRect) {
+        // No peek while the bar is hidden or faded out (worklane peek).
+        guard let item, !pillBarView.isHidden, pillBarView.alphaValue > 0 else {
+            pillPeekView.hide()
+            return
+        }
+        pillPeekView.show(item, above: convert(pillFrame, from: pillBarView))
     }
 
     func render(
         state: PaneStripState,
         floats: FloatLayerContent = .empty,
+        pills: PillBarContent = .empty,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
@@ -436,10 +502,13 @@ final class AppCanvasView: NSView {
         apply(theme: theme, animated: animated)
         paneStripView.floatHoldsFocus = floats.ownsFocus
         paneStripView.showsEmptyStripHint = state.panes.isEmpty && !floats.floats.isEmpty
+        setPillBarReservedHeight(pills.isEmpty ? 0 : PillBarLayout.barHeight, animated: animated)
         defer {
+            paneStripView.animatesNextViewportResize = false
             // Strip first (it releases a lifted pane's host view), then the
             // layer at its final frame (it borrows that host view).
             layoutFloatLayer()
+            pillBarView.render(pills, theme: theme)
             floatLayerView.render(
                 floats,
                 theme: theme,
@@ -570,6 +639,7 @@ final class AppCanvasView: NSView {
 
         if didChange {
             paneStripView.apply(theme: theme, animated: animated)
+            pillPeekView.apply(theme: theme)
         }
 
         performThemeAnimation(animated: animated) {

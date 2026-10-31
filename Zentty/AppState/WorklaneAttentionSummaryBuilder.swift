@@ -112,7 +112,7 @@ enum WorklaneAttentionSummaryBuilder {
         return nil
     }
 
-    private static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {
+    static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {
         if presentation.isReady {
             return .ready
         }

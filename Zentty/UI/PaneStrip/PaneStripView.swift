@@ -223,6 +223,10 @@ final class PaneStripView: NSView {
     private var pendingTargetOffsetOverride: PendingTargetOffsetOverride?
     private var hostDrivenResizeRenderRequestPending = false
     var prefersHostDrivenResizeRendering = false
+    /// One-shot: the next render animates even though the viewport size
+    /// changed since the last one (the pill bar showing or leaving shrinks
+    /// or grows the strip with the usual reflow). Consumed by that render.
+    var animatesNextViewportResize = false
     var onHostDrivenResizeRenderRequested: (() -> Void)?
     #if DEBUG
         private(set) var renderSnapshotsForTesting: [RenderSnapshot] = []
@@ -486,7 +490,7 @@ final class PaneStripView: NSView {
         guard bounds.size != .zero else {
             return
         }
-        if hasViewportSizeChangeSinceLastRender {
+        if hasViewportSizeChangeSinceLastRender, !animatesNextViewportResize {
             markResizeAnimationSuppressionPending()
         }
         renderCurrentState(
@@ -1008,7 +1012,10 @@ final class PaneStripView: NSView {
             previousOffset: previousOffset,
             targetOffsetOverride: targetOffsetOverride
         )
+        let animatesViewportResize = animatesNextViewportResize
+        animatesNextViewportResize = false
         let isResizeSuppressedRender = animated
+            && !animatesViewportResize
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
             && (renderGuard.isResizeSuppressed || hasViewportSizeChangeSinceLastRender)
         let shouldAnimate = animated
@@ -1019,6 +1026,11 @@ final class PaneStripView: NSView {
             && !isResizeSuppressedRender
             && !isZoomedOut
         lastRenderWasAnimated = shouldAnimate
+        if animatesViewportResize {
+            // This render owns the new size: a layout pass it triggers must
+            // not re-render it without animation.
+            lastRenderedSize = bounds.size
+        }
         let removalTransition = shouldAnimate && !suppressDiffBasedTransitions
             ? removalTransition(from: previousPresentation, to: presentation)
             : nil
