@@ -1185,8 +1185,12 @@ final class WorklaneStore {
         let priorStripFocusID = worklane.paneStripState.focusedPaneID
         let priorFocusedFloatID = worklane.floatOwnsFocus ? worklane.focusedFloatID : nil
         // A floated target can't be split in the strip: split at the strip
-        // focus instead (an empty strip just gains its first column).
-        if let targetPaneID, !worklane.isFloating(targetPaneID) {
+        // focus instead (an empty strip just gains its first column). The
+        // layout arranges the strip around the target, so with no target
+        // slot it is skipped: the user's columns keep their sizes (a tmux
+        // team led by a float must not squeeze them).
+        let targetIsFloating = targetPaneID.map(worklane.isFloating) ?? false
+        if let targetPaneID, !targetIsFloating {
             worklane.paneStripState.focusPane(id: targetPaneID)
         }
         worklane.focusedFloatID = nil
@@ -1205,7 +1209,7 @@ final class WorklaneStore {
         }
         let newPaneID = worklane.paneStripState.focusedPaneID
 
-        switch layout {
+        switch targetIsFloating ? SplitLayoutAction.none : layout {
         case .none:
             break
         case .equal:

@@ -131,12 +131,53 @@ extension WorklaneStore {
         )
         worklane.floatsHidden = false
         worklane.focusedFloatID = pane.id
-        if worklaneID == activeWorklaneID {
+        commitFloat(worklane, from: original, at: worklaneIndex)
+        return pane.id
+    }
+
+    /// Opens a replacement for float `oldID` (tmux `respawn-pane -k`): a new
+    /// pane running `sessionRequest` in the old float's place — same mode,
+    /// frame, z-order, origin and creation order — that takes focus when the
+    /// old float had it. The caller closes the old float right after, which
+    /// leaves PiP and pill orders dense again. Returns nil when `oldID` is not
+    /// a float in worklane `worklaneID`.
+    @discardableResult
+    func openReplacementFloat(
+        for oldID: PaneID,
+        in worklaneID: WorklaneID,
+        sessionRequest: TerminalSessionRequest
+    ) -> PaneID? {
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == worklaneID }),
+              let oldIndex = worklanes[worklaneIndex].floatingPanes.firstIndex(where: { $0.pane.id == oldID }) else {
+            return nil
+        }
+        let original = worklanes[worklaneIndex]
+        var worklane = original
+        let old = worklane.floatingPanes[oldIndex]
+        var pane = makePane(in: &worklane, existingPaneCount: worklane.paneStripState.columns.count)
+        applySessionRequestOverride(sessionRequest, to: &pane)
+        pane.width = old.pane.width
+        if let lifetime = worklane.auxiliaryStateByPaneID[oldID]?.lifetime {
+            worklane.auxiliaryStateByPaneID[pane.id]?.lifetime = lifetime
+        }
+        var replacement = old
+        replacement.pane = pane
+        worklane.floatingPanes.insert(replacement, at: oldIndex + 1)
+        if worklane.focusedFloatID == oldID {
+            worklane.focusedFloatID = pane.id
+        }
+        commitFloat(worklane, from: original, at: worklaneIndex)
+        return pane.id
+    }
+
+    /// Writes `worklane` back: through `commitFloatChange` when it is the
+    /// active worklane, else in place with a `.floats` notification.
+    private func commitFloat(_ worklane: WorklaneState, from original: WorklaneState, at worklaneIndex: Int) {
+        if worklane.id == activeWorklaneID {
             commitFloatChange(from: original, to: worklane)
         } else {
             worklanes[worklaneIndex] = worklane
-            notify(.floats(worklaneID))
+            notify(.floats(worklane.id))
         }
-        return pane.id
     }
 }
