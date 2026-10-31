@@ -1012,10 +1012,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
-    func paneCount(in worklaneID: WorklaneID) -> Int {
+    /// Live panes (tiles + floats) in the worklane: moving one out leaves the
+    /// worklane alive while this is above 1.
+    func livePaneCount(in worklaneID: WorklaneID) -> Int {
         rootViewController.worklaneStore.worklanes
             .first(where: { $0.id == worklaneID })?
-            .paneStripState.panes.count ?? 0
+            .allPanes.count ?? 0
+    }
+
+    /// Floats stay in their worklane in v1; move-to-worklane/window is tile-only.
+    func isFloatingPane(_ paneID: PaneID) -> Bool {
+        rootViewController.worklaneStore.worklanes.contains { $0.isFloating(paneID) }
     }
 
     func transferPaneToWorklaneInThisWindow(paneID: PaneID, targetWorklaneID: WorklaneID) {
@@ -1042,12 +1049,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// (or any context where the right-clicked pane isn't in the active
     /// worklane), pre-select so the transfer targets the right source.
     private func ensureSourceWorklaneActive(for paneID: PaneID, in store: WorklaneStore) {
-        guard let sourceWorklaneID = store.worklanes.first(where: { worklane in
-            worklane.paneStripState.panes.contains { $0.id == paneID }
-        })?.id, sourceWorklaneID != store.activeWorklaneID else {
+        guard let sourceWorklaneIndex = store.worklaneIndex(containingPane: paneID),
+              store.worklanes[sourceWorklaneIndex].id != store.activeWorklaneID else {
             return
         }
-        store.selectWorklane(id: sourceWorklaneID)
+        store.selectWorklane(id: store.worklanes[sourceWorklaneIndex].id)
     }
 
     func extractPaneForCrossWindowTransfer(
@@ -2211,7 +2217,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     var focusedPaneEnvironmentForTesting: [String: String]? {
-        rootViewController.paneStripStateForTesting.focusedPane?.sessionRequest.environmentVariables
+        rootViewController.focusedPaneEnvironmentForTesting
     }
 
     func openWithMenuForTesting() -> NSMenu {

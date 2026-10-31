@@ -24,6 +24,12 @@ struct CommandAvailabilityContext: Equatable {
     /// Fork state of the focused pane's agent; `nil` (no agent) hides the
     /// fork command, an unavailable value shows it disabled with its reason.
     let focusedPaneAgentFork: AgentForkAvailability?
+    /// Strip panes in the active worklane. `activePaneCount` counts every
+    /// live pane (tiles and floats); strip-only commands gate on this one.
+    let activeTiledPaneCount: Int
+    /// A `.floating` float owns keyboard focus: strip-relative move, resize
+    /// and move-to-window commands would act on a tile the user isn't using.
+    let focusedPaneIsFloat: Bool
 
     init(
         worklaneCount: Int,
@@ -39,7 +45,9 @@ struct CommandAvailabilityContext: Equatable {
         activeWorklaneHasReviewLookup: Bool = false,
         focusedPaneUnreadToggle: PaneUnreadToggle? = nil,
         isQuickActionFocused: Bool = false,
-        focusedPaneAgentFork: AgentForkAvailability? = nil
+        focusedPaneAgentFork: AgentForkAvailability? = nil,
+        activeTiledPaneCount: Int? = nil,
+        focusedPaneIsFloat: Bool = false
     ) {
         self.worklaneCount = worklaneCount
         self.activePaneCount = activePaneCount
@@ -55,6 +63,8 @@ struct CommandAvailabilityContext: Equatable {
         self.focusedPaneUnreadToggle = focusedPaneUnreadToggle
         self.isQuickActionFocused = isQuickActionFocused
         self.focusedPaneAgentFork = focusedPaneAgentFork
+        self.activeTiledPaneCount = activeTiledPaneCount ?? activePaneCount
+        self.focusedPaneIsFloat = focusedPaneIsFloat
     }
 }
 
@@ -148,24 +158,31 @@ enum CommandAvailabilityResolver {
         case .forkAgentConversation:
             return context.focusedPaneAgentFork != nil
         case .movePaneToNewWindow:
-            return context.activePaneCount >= 1
+            // Floats stay in their worklane in v1.
+            return !context.focusedPaneIsFloat
+                && context.activePaneCount >= 1
                 && !(context.worklaneCount == 1 && context.activePaneCount == 1)
-        case .focusLeftPane,
-             .focusRightPane,
-             .movePaneLeft,
+        case .focusLeftPane, .focusRightPane:
+            // From a float, strip navigation first returns to the strip focus.
+            return context.activeTiledPaneCount > 1
+                || (context.focusedPaneIsFloat && context.activeTiledPaneCount >= 1)
+        case .movePaneLeft,
              .movePaneRight,
              .movePaneUp,
              .movePaneDown,
              .resizePaneLeft,
              .resizePaneRight,
              .resizePaneUp,
-             .resizePaneDown,
-             .resetPaneLayout:
-            return context.activePaneCount > 1
+             .resizePaneDown:
+            return !context.focusedPaneIsFloat && context.activeTiledPaneCount > 1
+        case .resetPaneLayout:
+            return context.activeTiledPaneCount > 1
         case .focusUpInColumn, .focusDownInColumn:
-            return context.activePaneCount > 1 || context.worklaneCount > 1
+            return context.activeTiledPaneCount > 1
+                || context.worklaneCount > 1
+                || (context.focusedPaneIsFloat && context.activeTiledPaneCount >= 1)
         case .arrangeWidthFull:
-            return context.activePaneCount >= 2
+            return context.activeTiledPaneCount >= 2
         case .arrangeWidthHalves:
             return context.activeColumnCount >= 2
         case .arrangeWidthThirds:
@@ -173,15 +190,16 @@ enum CommandAvailabilityResolver {
         case .arrangeWidthQuarters:
             return context.activeColumnCount >= 4
         case .arrangeHeightFull, .arrangeHeightTwoPerColumn:
-            return context.activePaneCount >= 2
+            return context.activeTiledPaneCount >= 2
         case .arrangeHeightThreePerColumn:
-            return context.activePaneCount >= 3
+            return context.activeTiledPaneCount >= 3
         case .arrangeHeightFourPerColumn:
-            return context.activePaneCount >= 4
+            return context.activeTiledPaneCount >= 4
         case .arrangeWidthGoldenFocusWide, .arrangeWidthGoldenFocusNarrow:
-            return context.activeColumnCount >= 2
+            // Golden presets size the focused column; a focused float has none.
+            return !context.focusedPaneIsFloat && context.activeColumnCount >= 2
         case .arrangeHeightGoldenFocusTall, .arrangeHeightGoldenFocusShort:
-            return context.focusedColumnPaneCount >= 2
+            return !context.focusedPaneIsFloat && context.focusedColumnPaneCount >= 2
         case .worklaneMoveUp, .worklaneMoveDown:
             return context.worklaneCount > 1
         case .renameCurrentWorklane:

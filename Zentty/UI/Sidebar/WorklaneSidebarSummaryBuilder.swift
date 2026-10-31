@@ -118,14 +118,17 @@ enum WorklaneSidebarSummaryBuilder {
         serverContext: WorklaneServerContext? = nil
     ) -> WorklaneSidebarSummary {
         let orderedPaneContexts = orderedPaneContexts(for: worklane)
-        let focusedPaneID = effectiveFocusedPaneID(
+        // Row highlight follows keyboard focus (a focused float included);
+        // the worklane's name and detail lines follow the strip so they don't
+        // flip each time a float takes focus.
+        let identityPaneID = effectiveIdentityPaneID(
             for: worklane,
             focusOverride: focusOverride
         )
         let paneRows = paneRows(
             for: worklane,
             orderedPaneContexts: orderedPaneContexts,
-            focusedPaneID: focusedPaneID,
+            focusedPaneID: effectiveFocusedPaneID(for: worklane, focusOverride: focusOverride),
             serverContext: serverContext
         )
         let isWorking = paneRows.contains(where: \.isWorking) || worklaneIsWorking(for: worklane)
@@ -138,14 +141,14 @@ enum WorklaneSidebarSummaryBuilder {
         let primaryText = identity.primaryText
         let focusedPaneLineIndex = focusedPaneLineIndex(
             orderedPaneContexts: orderedPaneContexts,
-            focusedPaneID: focusedPaneID
+            focusedPaneID: identityPaneID
         )
         let topLabel = worklane.title
         let sidebarDetailLines = detailLines(
             for: worklane,
             primaryText: primaryText,
             orderedPaneContexts: orderedPaneContexts,
-            focusedPaneID: focusedPaneID
+            focusedPaneID: identityPaneID
         )
         let statusPresentation = paneRows.isEmpty
             ? sidebarStatusPresentation(
@@ -335,7 +338,7 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func worklaneIsWorking(for worklane: WorklaneState) -> Bool {
-        worklane.paneStripState.panes.contains { pane in
+        worklane.allPanes.contains { pane in
             paneIsWorkingInSidebar(paneID: pane.id, worklane: worklane)
         }
     }
@@ -352,7 +355,7 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func worklaneAgentTool(for worklane: WorklaneState) -> AgentTool? {
-        for pane in worklane.paneStripState.panes {
+        for pane in worklane.allPanes {
             if let recognized = worklane.paneContext(for: pane.id)?.presentation.recognizedTool {
                 return recognized
             }
@@ -362,7 +365,7 @@ enum WorklaneSidebarSummaryBuilder {
     }
 
     private static func workingAgentTool(for worklane: WorklaneState) -> AgentTool? {
-        for pane in worklane.paneStripState.panes {
+        for pane in worklane.allPanes {
             guard let presentation = worklane.paneContext(for: pane.id)?.presentation,
                   presentation.isWorking else {
                 continue
@@ -383,7 +386,7 @@ enum WorklaneSidebarSummaryBuilder {
 
         if let focusedPaneContext = focusedPaneContext(
             orderedPaneContexts: orderedPaneContexts,
-            focusedPaneID: effectiveFocusedPaneID(for: worklane, focusOverride: focusOverride)
+            focusedPaneID: effectiveIdentityPaneID(for: worklane, focusOverride: focusOverride)
         ) {
             return identity(for: focusedPaneContext, isSinglePane: isSinglePane)
                 ?? fallbackIdentity(for: focusedPaneContext)
@@ -395,7 +398,7 @@ enum WorklaneSidebarSummaryBuilder {
         }
 
         return WorklaneSidebarIdentity(
-            paneID: worklane.paneStripState.focusedPaneID,
+            paneID: worklane.focusedPaneID,
             primaryText: "Shell",
             cwdPath: nil,
             isCwdDerived: false
@@ -413,7 +416,7 @@ enum WorklaneSidebarSummaryBuilder {
             return []
         }
 
-        let focusedPaneID = candidateFocusedPaneID ?? worklane.paneStripState.focusedPaneID
+        let focusedPaneID = candidateFocusedPaneID ?? effectiveIdentityPaneID(for: worklane, focusOverride: nil)
         let candidates = paneContexts.compactMap { paneContext -> PaneDetailCandidate? in
             guard paneContext.paneID != focusedPaneID else {
                 return nil
@@ -926,8 +929,9 @@ enum WorklaneSidebarSummaryBuilder {
         paneContext.presentation.cwd
     }
 
+    /// Strip panes in strip order, then floats (back to front).
     private static func orderedPaneContexts(for worklane: WorklaneState) -> [WorklanePaneContext] {
-        worklane.paneStripState.panes.compactMap { pane in
+        worklane.allPanes.compactMap { pane in
             worklane.paneContext(for: pane.id)
         }
     }
@@ -938,7 +942,7 @@ enum WorklaneSidebarSummaryBuilder {
     ) -> WorklaneSidebarFocusOverride? {
         guard let focusOverride,
               let worklane = worklanes.first(where: { $0.id == focusOverride.worklaneID }),
-              worklane.paneStripState.panes.contains(where: { $0.id == focusOverride.paneID })
+              worklane.containsPane(id: focusOverride.paneID)
         else {
             return nil
         }
@@ -951,7 +955,20 @@ enum WorklaneSidebarSummaryBuilder {
         focusOverride: WorklaneSidebarFocusOverride?
     ) -> PaneID? {
         guard focusOverride?.worklaneID == worklane.id else {
-            return worklane.paneStripState.focusedPaneID
+            return worklane.focusedPaneID
+        }
+
+        return focusOverride?.paneID
+    }
+
+    /// The pane that names the worklane: the strip focus, or the keyboard
+    /// focus (a float) when the worklane has no tiles.
+    private static func effectiveIdentityPaneID(
+        for worklane: WorklaneState,
+        focusOverride: WorklaneSidebarFocusOverride?
+    ) -> PaneID? {
+        guard focusOverride?.worklaneID == worklane.id else {
+            return worklane.paneStripState.focusedPaneID ?? worklane.focusedPaneID
         }
 
         return focusOverride?.paneID

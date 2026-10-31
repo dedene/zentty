@@ -14,7 +14,7 @@ enum FocusedTerminalInterruptBridge {
         guard matchesInterrupt,
               isFocusedPaneTerminalFocused,
               let activeWorklane,
-              let paneID = activeWorklane.paneStripState.focusedPaneID,
+              let paneID = activeWorklane.focusedPaneID,
               let status = activeWorklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
               status.tool == .kimi,
               status.source == .explicit,
@@ -216,14 +216,14 @@ final class RootViewController: NSViewController {
     private lazy var globalSearchCoordinator = GlobalSearchCoordinator(
         orderedTargetsProvider: { [weak self] in
             self?.worklaneStore.worklanes.flatMap { worklane in
-                worklane.paneStripState.panes.map { pane in
+                worklane.allPanes.map { pane in
                     GlobalSearchTarget(worklaneID: worklane.id, paneID: pane.id)
                 }
             } ?? []
         },
         currentTargetProvider: { [weak self] in
             guard let worklane = self?.worklaneStore.activeWorklane,
-                  let paneID = worklane.paneStripState.focusedPaneID
+                  let paneID = worklane.focusedPaneID
             else {
                 return nil
             }
@@ -1742,7 +1742,7 @@ final class RootViewController: NSViewController {
 
     private func endAllLocalSearches() {
         for worklane in worklaneStore.worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 runtimeRegistry.runtime(for: pane.id)?.endSearch()
             }
         }
@@ -1770,17 +1770,17 @@ final class RootViewController: NSViewController {
             activeWorklane?.focusedPaneContext?.presentation.branchDisplayText
         )
         let focusedPanePath: String? = {
-            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            guard let paneID = activeWorklane?.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
         let focusedPaneCopyTarget: PaneCopyTarget? = {
             if isQuickActionFocused { return focusedQuickActionCopyTarget?() }
-            guard let paneID = activeWorklane?.paneStripState.focusedPaneID,
+            guard let paneID = activeWorklane?.focusedPaneID,
                   let auxiliaryState = activeWorklane?.auxiliaryStateByPaneID[paneID] else { return nil }
             return PaneCopyTargetResolver.target(for: auxiliaryState)
         }()
         let focusedRestoredCommand: String? = {
-            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            guard let paneID = activeWorklane?.focusedPaneID else { return nil }
             return worklaneStore.restoredRerunnableCommand(for: paneID)
         }()
 
@@ -1836,7 +1836,7 @@ final class RootViewController: NSViewController {
 
     @discardableResult
     func runLastCommandAgain(in requestedPaneID: PaneID? = nil) -> Bool {
-        guard let paneID = requestedPaneID ?? worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+        guard let paneID = requestedPaneID ?? worklaneStore.activeWorklane?.focusedPaneID,
               let command = worklaneStore.restoredRerunnableCommand(for: paneID),
               let runtime = runtimeRegistry.runtime(for: paneID)
         else {
@@ -1916,7 +1916,7 @@ final class RootViewController: NSViewController {
         guard
             action.environment.isEmpty,
             let activeWorklane = worklaneStore.activeWorklane,
-            let focusedPaneID = activeWorklane.paneStripState.focusedPaneID,
+            let focusedPaneID = activeWorklane.focusedPaneID,
             runtimeRegistry.runtime(for: focusedPaneID) != nil,
             let auxiliaryState = activeWorklane.auxiliaryStateByPaneID[focusedPaneID],
             auxiliaryState.shellActivityState == .promptIdle,
@@ -1932,7 +1932,7 @@ final class RootViewController: NSViewController {
         let request = TerminalSessionRequest(
             workingDirectory: action.workingDirectory,
             command: action.executionCommand,
-            inheritFromPaneID: worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+            inheritFromPaneID: worklaneStore.activeWorklane?.focusedPaneID,
             environmentVariables: action.environment
         )
         guard let paneID = paneCommands.splitWithLayout(
@@ -1965,7 +1965,7 @@ final class RootViewController: NSViewController {
             return
         }
         guard
-            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+            let focusedPaneID = worklaneStore.activeWorklane?.focusedPaneID
         else {
             return
         }
@@ -2044,17 +2044,8 @@ final class RootViewController: NSViewController {
     }
 
     private func commandAvailabilityContext() -> CommandAvailabilityContext {
-        let activeWorklane = worklaneStore.activeWorklane
-        let paneStripState = activeWorklane?.paneStripState
-        let totalPaneCount = worklaneStore.worklanes.reduce(0) { partialResult, worklane in
-            partialResult + worklane.paneStripState.panes.count
-        }
-        return CommandAvailabilityContext(
-            worklaneCount: worklaneStore.worklanes.count,
-            activePaneCount: paneStripState?.panes.count ?? 0,
-            totalPaneCount: totalPaneCount,
-            activeColumnCount: paneStripState?.columns.count ?? 0,
-            focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
+        CommandAvailabilityContext(
+            counts: PaneAvailabilityCounts(worklaneStore: worklaneStore),
             focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
             globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
             activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL,
@@ -2077,11 +2068,11 @@ final class RootViewController: NSViewController {
     }
 
     var focusedPaneAgentForkAvailability: AgentForkAvailability? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.agentForkAvailability(for:))
+        worklaneStore.activeWorklane?.focusedPaneID.flatMap(worklaneStore.agentForkAvailability(for:))
     }
 
     var focusedPaneUnreadToggle: PaneUnreadToggle? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.unreadToggle(for:))
+        worklaneStore.activeWorklane?.focusedPaneID.flatMap(worklaneStore.unreadToggle(for:))
     }
 
     private var activeWorklaneHasReviewLookup: Bool {
@@ -2172,7 +2163,7 @@ final class RootViewController: NSViewController {
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
         guard let paneID = paneID(containing: responder),
-            worklaneStore.activeWorklane?.paneStripState.focusedPaneID != paneID
+            worklaneStore.activeWorklane?.focusedPaneID != paneID
         else {
             return
         }
@@ -2262,7 +2253,7 @@ final class RootViewController: NSViewController {
         guard let worklane = worklaneStore.activeWorklane else {
             return
         }
-        for pane in worklane.paneStripState.panes {
+        for pane in worklane.allPanes {
             runtimeRegistry.runtime(for: pane.id)?.forceViewportSync()
         }
     }
@@ -2613,33 +2604,28 @@ final class RootViewController: NSViewController {
     }
 
     func focusedPaneID(in worklaneID: WorklaneID) -> PaneID? {
-        worklaneStore.worklanes.first { $0.id == worklaneID }?.paneStripState.focusedPaneID
+        worklaneStore.worklanes.first { $0.id == worklaneID }?.focusedPaneID
     }
 
     func isPaneFocused(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
         guard let active = worklaneStore.activeWorklane, active.id == worklaneID else {
             return false
         }
-        return active.paneStripState.focusedPaneID == paneID
+        return active.focusedPaneID == paneID
     }
 
     func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
         worklaneStore.worklanes.contains { worklane in
-            worklane.id == worklaneID
-                && worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+            worklane.id == worklaneID && worklane.containsPane(id: paneID)
         }
     }
 
     func containsPane(_ paneID: PaneID) -> Bool {
-        worklaneStore.worklanes.contains { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }
+        worklaneStore.worklaneIndex(containingPane: paneID) != nil
     }
 
     func worklaneID(containing paneID: PaneID) -> WorklaneID? {
-        worklaneStore.worklanes.first { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }?.id
+        worklaneStore.worklaneIndex(containingPane: paneID).map { worklaneStore.worklanes[$0].id }
     }
 
     /// Token of the pane's current attention, as carried by the notification
@@ -2654,7 +2640,7 @@ final class RootViewController: NSViewController {
     }
 
     func focusedPaneID() -> PaneID? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.focusedPaneID
     }
 
     func canSplitOutPaneToNewWindow(paneID: PaneID) -> Bool {
@@ -2684,11 +2670,11 @@ final class RootViewController: NSViewController {
     }
 
     var activePaneTitles: [String] {
-        worklaneStore.activeWorklane?.paneStripState.panes.map(\.title) ?? []
+        worklaneStore.activeWorklane?.allPanes.map(\.title) ?? []
     }
 
     var focusedPaneTitle: String? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPane?.title
+        worklaneStore.activeWorklane?.focusedPane?.title
     }
 
     var focusedOpenWithContext: WorklaneOpenWithContext? {
@@ -2709,7 +2695,7 @@ final class RootViewController: NSViewController {
     }
 
     var focusedPaneIDForTesting: PaneID? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.focusedPaneID
     }
 
     var focusedPaneSearchStateForTesting: PaneSearchState? {
@@ -2721,7 +2707,7 @@ final class RootViewController: NSViewController {
     }
 
     private func focusedPaneRuntime() -> PaneRuntime? {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else {
             return nil
         }
 
@@ -2758,7 +2744,7 @@ final class RootViewController: NSViewController {
         }
 
         var focusedPaneEnvironmentForTesting: [String: String]? {
-            worklaneStore.activeWorklane?.paneStripState.focusedPane?.sessionRequest
+            worklaneStore.activeWorklane?.focusedPane?.sessionRequest
                 .environmentVariables
         }
 
@@ -3135,7 +3121,7 @@ final class RootViewController: NSViewController {
     private func preloadProjectIcons() {
         guard configStore.current.panes.showProjectIcons else { return }
         for worklane in worklaneStore.worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 guard let cwd = worklane.auxiliaryStateByPaneID[pane.id]?.presentation.cwd else {
                     continue
                 }
@@ -3248,7 +3234,11 @@ extension RootViewController: AppActionRouterEnvironment {
     private func selectWorklaneFromNavigation(id worklaneID: WorklaneID) {
         if case .peeking = peekController.phase,
            let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
-           let paneID = worklane.paneStripState.focusedPaneID ?? worklane.paneStripState.panes.first?.id {
+           // Peek thumbnails are the strip; a float-only lane falls back to a live pane.
+           let paneID = worklane.paneStripState.focusedPaneID
+               ?? worklane.paneStripState.panes.first?.id
+               ?? worklane.focusedPaneID
+               ?? worklane.allPanes.first?.id {
             peekController.handleClick(at: .init(worklaneID: worklaneID, paneID: paneID))
             return
         }
@@ -3309,7 +3299,7 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeToggleFocusedPaneUnread() {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else { return }
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else { return }
         worklaneStore.toggleUnread(paneID: paneID)
     }
 
@@ -3318,7 +3308,7 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeMoveFocusedPaneToNewWindow() {
-        onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.focusedPaneID)
     }
 
     func routeNavigateBack() {
@@ -3554,7 +3544,7 @@ private extension RootViewController {
     }
 
     private func beginRenameActivePane() {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else {
             return
         }
         beginRenamePane(id: paneID)
@@ -3565,7 +3555,7 @@ private extension RootViewController {
             return
         }
         let pane = worklaneStore.worklanes
-            .flatMap(\.paneStripState.panes)
+            .flatMap(\.allPanes)
             .first(where: { $0.id == paneID })
         let alert = NSAlert()
         alert.messageText = "Rename Pane"

@@ -148,7 +148,7 @@ final class PaneCommandExecutor {
         case .resetLayout:
             worklaneStore.resetActiveWorklaneLayout()
         case .closeFocusedPane:
-            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+            let focusedPaneID = worklaneStore.activeWorklane?.focusedPaneID
             if configStore.current.confirmations.confirmBeforeClosingPane,
                 let focusedPaneID,
                 let context = worklaneStore.paneCloseConfirmationContext(
@@ -186,7 +186,7 @@ final class PaneCommandExecutor {
     }
 
     private func performForkAgentConversation() {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else {
             return
         }
         do {
@@ -519,7 +519,7 @@ final class PaneCommandExecutor {
 
     func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
         worklaneStore.worklanes.enumerated().flatMap { worklaneIndex, worklane in
-            worklane.paneStripState.panes.map { pane in
+            worklane.allPanes.map { pane in
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 return TaskManagerPaneSource(
                     windowID: windowID,

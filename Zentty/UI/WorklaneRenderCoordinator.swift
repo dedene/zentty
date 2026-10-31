@@ -215,7 +215,7 @@ final class WorklaneRenderCoordinator {
     }
 
     private var activePaneID: PaneID? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.focusedPaneID
     }
 
     private func renderSidebar(in views: ViewBindings) {
@@ -279,7 +279,7 @@ final class WorklaneRenderCoordinator {
     ) {
         guard let views,
               let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
-              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }),
+              let pane = worklane.pane(id: paneID),
               PaneDisplayIdentityResolver.hasCustomTitle(for: pane) == false,
               let metadata = worklane.auxiliaryStateByPaneID[paneID]?.metadata,
               let titleText = WorklaneContextFormatter.trimmed(metadata.title)
@@ -294,7 +294,7 @@ final class WorklaneRenderCoordinator {
         )
 
         if worklaneID == worklaneStore.activeWorklaneID,
-           worklane.paneStripState.focusedPaneID == paneID {
+           worklane.focusedPaneID == paneID {
             views.windowChromeView.setFocusedLabelText(titleText)
         }
     }
@@ -387,7 +387,7 @@ final class WorklaneRenderCoordinator {
             let focusFollowsMouseEnabled = paneSettings.focusFollowsMouse
                 && paneLayout.allowsFocusFollowsMouse
 
-            terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
+            terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.focusedPaneID)
             let teamAnchor = worklaneStore.teamAnchorByWorklaneID[worklane.id]
             let leaderPaneID = teamAnchor.map { PaneID($0.leaderPaneID) }
             let memberPaneIDs: Set<PaneID> = teamAnchor
@@ -553,7 +553,7 @@ final class WorklaneRenderCoordinator {
         let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
         guard windowState.isVisible, windowState.isKeyWindow,
               let worklane = worklaneStore.activeWorklane,
-              let paneID = worklane.paneStripState.focusedPaneID,
+              let paneID = worklane.focusedPaneID,
               let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
               let repoRoot = auxiliaryState.presentation.repoRoot,
               let branch = auxiliaryState.presentation.lookupBranch
@@ -678,7 +678,7 @@ final class WorklaneRenderCoordinator {
     func refreshFocusedReviewState(forceReload: Bool = true) {
         guard
             let worklane = worklaneStore.activeWorklane,
-            let paneID = worklane.paneStripState.focusedPaneID
+            let paneID = worklane.focusedPaneID
         else {
             return
         }

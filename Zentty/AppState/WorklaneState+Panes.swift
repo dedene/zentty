@@ -63,6 +63,11 @@ extension WorklaneState {
         return paneStripState.focusedPaneID
     }
 
+    /// Float-aware counterpart of `paneStripState.focusedPane`.
+    var focusedPane: PaneState? {
+        focusedPaneID.flatMap { pane(id: $0) }
+    }
+
     /// True when a `.floating` float, not the strip, owns keyboard focus.
     /// Strip-relative commands (focus moves, reorder, resize) check this.
     var floatOwnsFocus: Bool {

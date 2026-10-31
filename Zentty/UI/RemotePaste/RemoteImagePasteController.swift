@@ -335,7 +335,7 @@ final class RemoteImagePasteController {
         refreshForegroundSSH: Bool = false
     ) -> RemoteImagePastePaneState? {
         guard let worklane = worklaneStore.worklanes.first(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+            worklane.containsPane(id: paneID)
         }),
             var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
         else {
@@ -375,7 +375,7 @@ final class RemoteImagePasteController {
 
     func cancelUploadsForRemovedPanes() {
         let livePaneIDs = Set(worklaneStore.worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map(\.id)
+            worklane.allPanes.map(\.id)
         })
         for paneID in Array(remoteImageUploadTasksByPaneID.keys) where !livePaneIDs.contains(paneID) {
             cancelRemoteImageUpload(for: paneID)
@@ -480,7 +480,7 @@ final class RemoteImagePasteController {
 
     private func foregroundSSHProbeSources() -> [ForegroundSSHProbeSource] {
         worklaneStore.worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map { pane in
+            worklane.allPanes.map { pane in
                 ForegroundSSHProbeSource(
                     paneID: pane.id,
                     rootPID: worklane.auxiliaryStateByPaneID[pane.id]?.raw.paneRootPID

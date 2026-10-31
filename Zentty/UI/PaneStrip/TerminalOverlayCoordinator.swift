@@ -31,7 +31,7 @@ final class TerminalOverlayCoordinator {
     func open(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> String {
         guard let worklaneID = rootViewController.worklaneID(containing: paneID),
               let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
-              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+              let pane = worklane.pane(id: paneID) else {
             throw TerminalOverlayError.paneNotFound
         }
         guard !sessions.values.contains(where: {
@@ -261,7 +261,8 @@ final class TerminalOverlayCoordinator {
               let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
             return []
         }
-        let closesWorklane = worklane.paneStripState.panes.count == 1
+        // The worklane closes only with its last live pane (tile or float).
+        let closesWorklane = worklane.allPanes.count == 1
         return runningQuickActions {
             $0.placement == .pane ? $0.paneID == paneID : closesWorklane && $0.worklaneID == worklaneID
         }
@@ -297,8 +298,8 @@ final class TerminalOverlayCoordinator {
                     overlay.close()
                     continue
                 }
-                if !worklane.paneStripState.panes.contains(where: { $0.id == overlay.paneID }),
-                   let replacement = worklane.paneStripState.focusedPaneID {
+                if !worklane.containsPane(id: overlay.paneID),
+                   let replacement = worklane.focusedPaneID ?? worklane.allPanes.first?.id {
                     overlay.paneID = replacement
                 }
             } else {
