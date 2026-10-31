@@ -248,6 +248,7 @@ extension CodexHistorySource {
                 reader = continuation.reader
                 window = continuation.window
             } else {
+                noteZstdStreamOpened()
                 let recorder = CodexWindowRecordingSource(
                     base: try ZstdByteSource(path: unit.path), startOffset: 0, capacity: Self.windowCapacity
                 )

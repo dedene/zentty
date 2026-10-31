@@ -36,7 +36,7 @@ final class CodexHistorySourceZstdTests: XCTestCase {
         let id = C.newThreadID()
         try C.writeRollout(root: root, id: id, lines: conversation(id, turns: 40), compressed: true)
         let unit = try C.unit(source, key: "rollout:" + id)
-        let batches = try C.ingestAll(source, unit: unit, context: F.context(messageLimit: 7))
+        let batches = try ingestAssertingReuse(source, unit: unit, context: F.context(messageLimit: 7))
         XCTAssertEqual(batches.flatMap(\.messages).count, 80)
         XCTAssertEqual(batches.flatMap(\.messages).map(\.seq), Array(0 ..< 80))
         for batch in batches {
@@ -51,6 +51,61 @@ final class CodexHistorySourceZstdTests: XCTestCase {
         let resumed = try C.ingestAll(source, unit: unit, cursor: midway, mode: .fromOffset(midway.byteOffset, nextSeq: midway.nextSeq),
                                       context: F.context(messageLimit: 7))
         XCTAssertEqual(resumed.flatMap(\.messages).map(\.text), batches[4...].flatMap(\.messages).map(\.text))
+    }
+
+    /// Ingests to the end like `CodexHistoryFixtures.ingestAll`, asserting after every batch that
+    /// stops short that the decoder is parked exactly at the batch's cursor (so the next batch
+    /// continues it instead of decompressing from byte 0).
+    private func ingestAssertingReuse(
+        _ source: CodexHistorySource, unit: AgentHistoryUnit, context: AgentHistoryIngestContext,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws -> [AgentHistoryIngestBatch] {
+        let identity = try XCTUnwrap(unit.identity)
+        let opensBefore = source.zstdStreamOpenCount
+        var batches: [AgentHistoryIngestBatch] = []
+        var mode = AgentHistoryIngestMode.fromStart
+        while true {
+            let batch = try source.ingest(unit: unit, cursor: batches.last?.cursor, mode: mode, context: context)
+            batches.append(batch)
+            guard batch.hasMore, batches.count < 1_000 else {
+                XCTAssertNil(source.takeZstdContinuation(key: unit.key, identity: identity, offset: batch.cursor.byteOffset),
+                             "a finished rollout parks nothing", file: file, line: line)
+                XCTAssertEqual(source.zstdStreamOpenCount - opensBefore, 1, "one decoder for the whole rollout", file: file, line: line)
+                return batches
+            }
+            let parked = source.takeZstdContinuation(key: unit.key, identity: identity, offset: batch.cursor.byteOffset)
+            XCTAssertNotNil(parked, "batch \(batches.count) parks its decoder at the cursor", file: file, line: line)
+            if let parked {
+                source.storeZstdContinuation(parked)
+            }
+            mode = .fromOffset(batch.cursor.byteOffset, nextSeq: batch.cursor.nextSeq)
+        }
+    }
+
+    func test_zst_rollout_larger_than_a_reader_chunk_continues_across_chunks() throws {
+        let (root, source) = try C.makeRoot(self)
+        let id = C.newThreadID()
+        let padding = String(repeating: "lorem ipsum ", count: 90)
+        let turns = 600
+        let lines = [C.sessionMeta(id)] + (0 ..< turns).flatMap { index -> [String] in
+            let at = 1 + Int64(index) * 10
+            return [C.user("question \(index) \(padding)", at: at), C.assistant("answer \(index) \(padding)", at: at + 1)]
+        }
+        try C.writeRollout(root: root, id: id, lines: lines, compressed: true)
+        let decompressed = Int64(lines.map { $0 + "\n" }.joined().utf8.count)
+        XCTAssertGreaterThan(decompressed, Int64(CodexHistorySource.readerChunkSize) * 3, "spans several reader chunks")
+        let unit = try C.unit(source, key: "rollout:" + id)
+
+        // 250 messages ≈ 310 KB of decompressed lines per batch: every batch crosses a chunk.
+        let batches = try ingestAssertingReuse(source, unit: unit, context: F.context(messageLimit: 250))
+        XCTAssertGreaterThanOrEqual(batches.count, 5)
+        let messages = batches.flatMap(\.messages)
+        XCTAssertEqual(messages.map(\.seq), Array(0 ..< turns * 2))
+        XCTAssertTrue(messages.last?.text.hasPrefix("answer \(turns - 1) lorem") == true)
+        for batch in batches {
+            XCTAssertEqual(batch.cursor.fingerprint, ZstdByteSource.fingerprint(path: unit.path, endOffset: batch.cursor.byteOffset))
+        }
+        XCTAssertEqual(batches.last?.cursor.byteOffset, decompressed)
     }
 
     func test_plain_ingests_and_other_rejects_keep_the_parked_stream() throws {

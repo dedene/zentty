@@ -35,6 +35,8 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
     /// `maxZstdContinuations` in all, so a live compressed rollout and a compressed backfill
     /// stream do not evict each other.
     private var zstdContinuations: [CodexZstdContinuation] = []
+    /// Fresh decoders opened (a cache miss decompresses from byte 0); read by tests.
+    private var openedZstdStreams = 0
 
     init(root: AgentHistorySourceRoot) {
         self.root = root
@@ -265,6 +267,18 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
         if zstdContinuations.count > Self.maxZstdContinuations {
             zstdContinuations.removeFirst(zstdContinuations.count - Self.maxZstdContinuations)
         }
+    }
+
+    var zstdStreamOpenCount: Int {
+        continuationLock.lock()
+        defer { continuationLock.unlock() }
+        return openedZstdStreams
+    }
+
+    func noteZstdStreamOpened() {
+        continuationLock.lock()
+        openedZstdStreams += 1
+        continuationLock.unlock()
     }
 
     func dropZstdContinuation(key: String) {
