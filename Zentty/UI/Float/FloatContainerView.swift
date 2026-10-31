@@ -22,9 +22,14 @@ enum FloatShadowStyle {
 
 /// Hosts one floating `PaneContainerView`. Its frame is the pane frame grown
 /// by `chromeOutset` on every side, so the move band (centred on the top
-/// border, Task 11) and the border legends, which sit half outside the pane,
-/// stay inside it. The shadows live on sibling layers behind the pane with a
+/// border) and the border legends, which sit half outside the pane, stay
+/// inside it. The shadows live on sibling layers behind the pane with a
 /// rounded `shadowPath`: never on the terminal's Metal layer.
+///
+/// Gestures latch through `hitTest`: a left-mouse-down in the band, a resize
+/// zone, or anywhere with ⌃⌘ returns this view, so AppKit sends the whole
+/// press (drags, up, the ⌃-click menu question) here and the terminal never
+/// sees it. See `FloatContainerView+Gestures.swift`.
 @MainActor
 final class FloatContainerView: NSView {
     static let chromeOutset: CGFloat = 10
@@ -32,7 +37,25 @@ final class FloatContainerView: NSView {
     let paneID: PaneID
     private(set) weak var hostedContainer: PaneContainerView?
     private(set) var isLifted = false
+    /// The pane's frame in the superview's coordinates (the model frame; a
+    /// lift draws it larger without changing it).
+    private(set) var paneFrame: CGRect = .zero
+    /// Lift scale (1 = resting). Drawn by bounds scaling: the frame grows,
+    /// the bounds keep the unscaled size, so nothing inside is laid out anew.
+    private(set) var liftScale: CGFloat = 1
     private let shadowLayers: [CALayer]
+
+    /// A press landed on the float (focus and raise right away).
+    var onPressed: (() -> Void)?
+    var onGestureBegan: ((FloatGestureKind) -> Void)?
+    /// The live pane frame while dragging (float-layer coordinates).
+    var onGestureChanged: ((CGRect) -> Void)?
+    /// Outcome plus the release velocity (pt/s).
+    var onGestureEnded: ((FloatGestureOutcome, CGVector) -> Void)?
+    var onGestureCancelled: (() -> Void)?
+    /// The press being tracked (see `+Gestures`).
+    var activeGesture: ActiveFloatGesture?
+    var gestureMonitors: [Any] = []
 
     init(paneID: PaneID) {
         self.paneID = paneID
@@ -54,15 +77,37 @@ final class FloatContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The pane's frame in the superview's coordinates.
-    var paneFrame: CGRect {
-        frame.insetBy(dx: Self.chromeOutset, dy: Self.chromeOutset)
+    func setPaneFrame(_ paneFrame: CGRect) {
+        self.paneFrame = paneFrame
+        applyGeometry()
     }
 
-    func setPaneFrame(_ paneFrame: CGRect) {
-        let target = paneFrame.insetBy(dx: -Self.chromeOutset, dy: -Self.chromeOutset)
+    /// Draws the float `scale` times larger about its centre (lift on move).
+    /// Viewport sync is suspended before scaling and resumed only once the
+    /// bounds are unscaled again, so the terminal grid never changes.
+    func applyLiftScale(_ scale: CGFloat) {
+        guard liftScale != scale else { return }
+        if scale != 1 {
+            hostedContainer?.setTerminalViewportSyncSuspended(true)
+        }
+        liftScale = scale
+        applyGeometry()
+        if scale == 1 {
+            hostedContainer?.setTerminalViewportSyncSuspended(false)
+        }
+    }
+
+    private func applyGeometry() {
+        let outset = paneFrame.insetBy(dx: -Self.chromeOutset, dy: -Self.chromeOutset)
+        let target = liftScale == 1 ? outset : FloatMotion.scaled(outset, by: liftScale)
         if frame != target {
             frame = target
+        }
+        // Bounds must be re-set after every frame change, or AppKit drops
+        // the scale (spike 0a).
+        let unscaledBounds = CGRect(origin: .zero, size: outset.size)
+        if bounds != unscaledBounds {
+            bounds = unscaledBounds
         }
         layoutHostedContainer()
     }
@@ -93,14 +138,51 @@ final class FloatContainerView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden else { return nil }
-        if let hostedContainer, let superview,
-           let chromeHit = hostedContainer.hitTestBorderChrome(point, from: superview) {
-            return chromeHit
+        guard !isHidden, frame.contains(point) else { return nil }
+        if activeGesture != nil {
+            return self
         }
-        // The outset itself is transparent until the move band lands.
+        let actionsHit = superview.flatMap { hostedContainer?.hitTestBorderActions(point, from: $0) }
+        if let event = Self.currentEvent(),
+           gestureKind(at: convert(point, from: superview), event: event, isOverBorderChrome: actionsHit != nil) != nil {
+            return self
+        }
+        if let actionsHit {
+            return actionsHit
+        }
+        if let hostedContainer, let superview,
+           let legendHit = hostedContainer.hitTestBorderContext(point, from: superview) {
+            return legendHit
+        }
+        // The rest of the outset is transparent.
         let hit = super.hitTest(point)
         return hit === self ? nil : hit
+    }
+
+    /// This view is only the hit view for presses it owns, and none of them
+    /// opens a context menu (⌃⌘-drag must not become a ⌃-click menu).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        nil
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    func gestureKind(at pointInSelf: CGPoint, event: NSEvent, isOverBorderChrome: Bool) -> FloatGestureKind? {
+        FloatGesture.ownership(
+            at: pointInSelf,
+            outsetBounds: bounds,
+            eventType: event.type,
+            modifiers: event.modifierFlags,
+            isOverBorderChrome: isOverBorderChrome
+        )
+    }
+
+    /// The event being dispatched. AppKit hit-tests a mouse-down while it is
+    /// `NSApp.currentEvent`.
+    private static func currentEvent() -> NSEvent? {
+        NSApp?.currentEvent
     }
 
     var shadowLayersForTesting: [CALayer] {
@@ -129,7 +211,17 @@ final class FloatContainerView: NSView {
             transform: nil
         )
         CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        // Inside an implicit AppKit animation (lift in place) the shadow
+        // follows the pane with the same curve; otherwise it snaps.
+        let context = NSAnimationContext.current
+        if context.allowsImplicitAnimation {
+            CATransaction.setAnimationDuration(context.duration)
+            if let timing = context.timingFunction {
+                CATransaction.setAnimationTimingFunction(timing)
+            }
+        } else {
+            CATransaction.setDisableActions(true)
+        }
         for shadowLayer in shadowLayers where shadowLayer.frame != paneRect || shadowLayer.shadowPath != path {
             shadowLayer.frame = paneRect
             shadowLayer.shadowPath = path

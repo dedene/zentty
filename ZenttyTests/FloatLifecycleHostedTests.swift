@@ -12,7 +12,7 @@ final class FloatLifecycleHostedTests: XCTestCase {
 
     private var controller: MainWindowController?
     private var registry: PaneRuntimeRegistry?
-    private var adapters: [PaneID: SpyTerminalAdapter] = [:]
+    private var adapters: [PaneID: HostedSpyTerminalAdapter] = [:]
 
     override func tearDown() {
         controller?.closeWindowBypassingConfirmation()
@@ -144,7 +144,8 @@ final class FloatLifecycleHostedTests: XCTestCase {
     func test_enter_pip_suspends_before_reparenting_into_scaled_host() throws {
         let controller = try makeSeededController()
         controller.toggleFloat(nil)
-        waitForLayout("floated")
+        // Floating in place keeps the grid frozen until the lift lands.
+        waitForLayout("floated", delay: 0.6)
         let spyView = try spyTerminalView(floatID)
         XCTAssertEqual(spyView.isViewportSyncSuspended, false, "a floating pane syncs its viewport")
         spyView.suspensionLog.removeAll()
@@ -246,13 +247,13 @@ final class FloatLifecycleHostedTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func spyTerminalView(_ paneID: PaneID) throws -> SpyTerminalView {
+    private func spyTerminalView(_ paneID: PaneID) throws -> HostedSpyTerminalView {
         try XCTUnwrap(adapters[paneID]?.spyView)
     }
 
     private func makeSeededController() throws -> MainWindowController {
         let registry = PaneRuntimeRegistry(adapterFactory: { [unowned self] paneID in
-            let adapter = SpyTerminalAdapter()
+            let adapter = HostedSpyTerminalAdapter()
             self.adapters[paneID] = adapter
             return adapter
         })
@@ -293,84 +294,5 @@ final class FloatLifecycleHostedTests: XCTestCase {
         let settled = expectation(description: description)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { settled.fulfill() }
         wait(for: [settled], timeout: 2.0)
-    }
-}
-
-/// Mock terminal that records what the registry does to it.
-@MainActor
-private final class SpyTerminalAdapter: TerminalAdapter {
-    private let terminalView = SpyTerminalView()
-    var spyView: SpyTerminalView { terminalView }
-
-    var hasScrollback = false
-    var cellWidth: CGFloat = 0
-    var cellHeight: CGFloat = 0
-    var metadataDidChange: ((TerminalMetadata) -> Void)?
-    var eventDidOccur: ((TerminalEvent) -> Void)?
-    private(set) var closeCount = 0
-    private(set) var startCount = 0
-    private(set) var lastActivity: TerminalSurfaceActivity?
-
-    func makeTerminalView() -> NSView {
-        terminalView
-    }
-
-    func startSession(using request: TerminalSessionRequest) throws {
-        startCount += 1
-    }
-
-    func close() {
-        closeCount += 1
-    }
-
-    func sendText(_ text: String) {}
-
-    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {
-        lastActivity = activity
-    }
-}
-
-private final class SpyTerminalView: NSView, TerminalFocusReporting, TerminalViewportSyncControlling {
-    struct SuspensionCall {
-        let suspended: Bool
-        /// Whether the view sat under a scaled PiP host at the time.
-        let wasInPip: Bool
-        let containerSize: CGSize?
-    }
-
-    var onFocusDidChange: ((Bool) -> Void)?
-    private(set) var isViewportSyncSuspended: Bool?
-    var suspensionLog: [SuspensionCall] = []
-
-    func setViewportSyncSuspended(_ suspended: Bool) {
-        isViewportSyncSuspended = suspended
-        suspensionLog.append(SuspensionCall(
-            suspended: suspended,
-            wasInPip: ancestor(of: PipContainerView.self) != nil,
-            containerSize: ancestor(of: PaneContainerView.self)?.frame.size
-        ))
-    }
-
-    private func ancestor<T: NSView>(of type: T.Type) -> T? {
-        var view = superview
-        while let current = view {
-            if let match = current as? T { return match }
-            view = current.superview
-        }
-        return nil
-    }
-
-    override var acceptsFirstResponder: Bool {
-        true
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        onFocusDidChange?(true)
-        return true
-    }
-
-    override func resignFirstResponder() -> Bool {
-        onFocusDidChange?(false)
-        return true
     }
 }

@@ -202,6 +202,69 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_focus_follows_mouse_ignores_hover_under_a_float() throws {
+        let paneStripView = makePaneStripView()
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        let state = PaneStripState(
+            panes: [
+                makePane("shell"),
+                makePane("editor"),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            state,
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        // Pane tracking areas are geometric: they still fire under a float.
+        let floatLayer = FloatLayerView(runtimeRegistry: stubRegistry())
+        floatLayer.frame = paneStripView.bounds
+        paneStripView.addSubview(floatLayer, positioned: .above, relativeTo: nil)
+        floatLayer.render(
+            FloatLayerContent(
+                floats: [
+                    FloatingPaneState(
+                        pane: PaneState(id: PaneID("float"), title: "float"),
+                        mode: .floating,
+                        floatFrame: NormalizedRect(x: 0.3, y: 0.3, width: 0.4, height: 0.4),
+                        stackOrder: 0,
+                        origin: nil
+                    ),
+                ],
+                floatsHidden: false,
+                focusedFloatID: nil
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            showPaneBorders: true,
+            smoothScrollingEnabled: false
+        )
+        XCTAssertNotNil(floatLayer.floatHostForTesting(PaneID("float")))
+        paneStripView.hoverFocusMouseLocationForTesting = paneStripView.convert(
+            NSPoint(x: paneStripView.bounds.midX, y: paneStripView.bounds.midY),
+            to: nil
+        )
+
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+        XCTAssertTrue(selectedPaneIDs.isEmpty, "hover under a float never focuses the tile")
+
+        // Off the float (the layer is hit-transparent there) hover still focuses.
+        paneStripView.simulatePaneHoverExitedForTesting(PaneID("editor"))
+        paneStripView.hoverFocusMouseLocationForTesting = paneStripView.convert(
+            NSPoint(x: paneStripView.bounds.maxX - 40, y: paneStripView.bounds.midY),
+            to: nil
+        )
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+        XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
+    }
+
+    @MainActor
     func test_focus_follows_mouse_ignores_hover_when_window_is_not_key() {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)

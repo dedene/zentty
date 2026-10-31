@@ -96,6 +96,9 @@ final class FloatLayerView: NSView {
     var onFloatCloseRequested: ((PaneID) -> Void)?
     var onPipClicked: ((PaneID) -> Void)?
     var onFloatActionRequested: ((PaneID, PaneBorderAction) -> Void)?
+    /// A move/resize/throw gesture ended; the canvas is the layer's bounds
+    /// (normalize the frames against it). `.click` needs no store change.
+    var onFloatGestureEnded: ((PaneID, FloatGestureOutcome, CGRect) -> Void)?
     var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
     /// Wires a new float container like a strip pane (providers, copy path).
     /// Runs once per container, right after it is created.
@@ -112,6 +115,13 @@ final class FloatLayerView: NSView {
     private var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var lastFocusedFloatID: PaneID?
     private var focusGeneration: UInt64 = 0
+    /// Frames of floats under a live gesture. They win over the store until
+    /// the gesture ends, so a re-render mid-drag (agent status, the raise on
+    /// mouse-down) can't snap the float back.
+    var interactiveFrames: [PaneID: CGRect] = [:]
+    /// Tile frames of panes about to float in place (`prepareLift`).
+    var pendingLiftSources: [PaneID: CGRect] = [:]
+    var onLiftInPlaceFinishedForTesting: ((PaneID) -> Void)?
 
     init(runtimeRegistry: PaneRuntimeRegistry) {
         self.runtimeRegistry = runtimeRegistry
@@ -189,6 +199,7 @@ final class FloatLayerView: NSView {
         }
 
         var newlyMounted: [PaneContainerView] = []
+        var liftsInPlace: [(paneID: PaneID, container: PaneContainerView, frame: CGRect)] = []
         for placement in placements {
             guard let float = floatsByID[placement.paneID] else { continue }
             let (container, isNew) = container(for: float, size: placement.contentSize)
@@ -198,7 +209,19 @@ final class FloatLayerView: NSView {
             switch placement.kind {
             case .floating:
                 container.chromeKind = .float
-                mountFloating(container, paneID: placement.paneID, frame: placement.frame)
+                if isNew, !duringLayout, let tileFrame = pendingLiftSources[placement.paneID] {
+                    liftsInPlace.append((placement.paneID, container, placement.frame))
+                    // Held like a gesture frame so the layout pass below
+                    // keeps the tile slot until the lift animation starts.
+                    interactiveFrames[placement.paneID] = tileFrame
+                    mountFloating(container, paneID: placement.paneID, frame: tileFrame)
+                } else {
+                    mountFloating(
+                        container,
+                        paneID: placement.paneID,
+                        frame: interactiveFrames[placement.paneID] ?? placement.frame
+                    )
+                }
             case .pip(let contentSize):
                 container.chromeKind = .pip
                 mountPip(container, paneID: placement.paneID, frame: placement.frame, contentSize: contentSize)
@@ -214,6 +237,9 @@ final class FloatLayerView: NSView {
         }
 
         sortMountedViews(by: placements.map(\.paneID))
+        if !duringLayout {
+            pendingLiftSources.removeAll()
+        }
 
         if !newlyMounted.isEmpty {
             if !duringLayout {
@@ -224,10 +250,17 @@ final class FloatLayerView: NSView {
             // PiP left suspended stays frozen at its old grid until someone
             // clears it. A new `.floating` container is the sole owner now, so
             // clear it here. PiP containers (under a PipContainerView) keep it.
-            for container in newlyMounted where container.superview is FloatContainerView {
+            // A float lifting in place keeps the tile's grid until its
+            // animation lands (`animateLiftInPlace`).
+            let liftingContainers = Set(liftsInPlace.map { ObjectIdentifier($0.container) })
+            for container in newlyMounted where container.superview is FloatContainerView
+                && !liftingContainers.contains(ObjectIdentifier(container)) {
                 container.setTerminalViewportSyncSuspended(false)
                 container.forceTerminalViewportSync()
             }
+        }
+        for lift in liftsInPlace {
+            animateLiftInPlace(paneID: lift.paneID, container: lift.container, to: lift.frame)
         }
     }
 
@@ -294,6 +327,7 @@ final class FloatLayerView: NSView {
             return existing
         }
         let host = FloatContainerView(paneID: paneID)
+        wireGestures(of: host)
         floatHosts[paneID] = host
         addSubview(host)
         return host
@@ -318,12 +352,20 @@ final class FloatLayerView: NSView {
             container.frame = CGRect(origin: .zero, size: contentSize)
             pip.addSubview(container)
         }
-        floatHosts.removeValue(forKey: paneID)?.removeFromSuperview()
+        if let host = floatHosts.removeValue(forKey: paneID) {
+            host.cancelGesture()
+            host.removeFromSuperview()
+        }
+        interactiveFrames.removeValue(forKey: paneID)
         pip.apply(frame: frame, contentSize: contentSize)
     }
 
     private func unmount(_ paneID: PaneID) {
         guard let container = containers.removeValue(forKey: paneID) else { return }
+        // A live gesture ends here, uncommitted; its lift is undone before
+        // the container leaves.
+        floatHosts[paneID]?.cancelGesture()
+        interactiveFrames.removeValue(forKey: paneID)
         container.prepareForRemoval()
         container.removeFromSuperview()
         pipHosts.removeValue(forKey: paneID)?.removeFromSuperview()
@@ -404,6 +446,28 @@ final class FloatLayerView: NSView {
 
     func floatHostForTesting(_ paneID: PaneID) -> FloatContainerView? {
         floatHosts[paneID]
+    }
+
+    func interactiveFrameForTesting(_ id: PaneID) -> CGRect? {
+        interactiveFrames[id]
+    }
+
+    // MARK: - Interaction support (see +Interaction)
+
+    func floatHost(_ paneID: PaneID) -> FloatContainerView? {
+        floatHosts[paneID]
+    }
+
+    func mountedContainer(_ paneID: PaneID) -> PaneContainerView? {
+        containers[paneID]
+    }
+
+    /// The store's frame for a mounted `.floating` float.
+    func storeFrame(for paneID: PaneID) -> CGRect? {
+        guard let float = content.floats.first(where: { $0.pane.id == paneID }), float.mode.isFloating else {
+            return nil
+        }
+        return FloatLayerLayout.floatFrame(for: float, canvas: bounds)
     }
 }
 

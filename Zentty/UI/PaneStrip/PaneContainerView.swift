@@ -1233,13 +1233,16 @@ final class PaneContainerView: NSView {
     /// something above the pane (the strip's drag zones, a float's container)
     /// ask here first.
     func hitTestBorderChrome(_ point: NSPoint, from coordinateSpaceView: NSView) -> NSView? {
-        if !borderActionsView.isHidden {
-            let pointInSelf = convert(point, from: coordinateSpaceView)
-            if borderActionsView.frame.contains(pointInSelf) {
-                return borderActionsView.hitTest(pointInSelf)
-            }
-        }
-        return hitTestBorderContext(point, from: coordinateSpaceView)
+        hitTestBorderActions(point, from: coordinateSpaceView)
+            ?? hitTestBorderContext(point, from: coordinateSpaceView)
+    }
+
+    /// The right-legend button under `point`, if the buttons show.
+    func hitTestBorderActions(_ point: NSPoint, from coordinateSpaceView: NSView) -> NSView? {
+        guard !borderActionsView.isHidden else { return nil }
+        let pointInSelf = convert(point, from: coordinateSpaceView)
+        guard borderActionsView.frame.contains(pointInSelf) else { return nil }
+        return borderActionsView.hitTest(pointInSelf)
     }
 
     var borderLabelGapWidthForTesting: CGFloat {

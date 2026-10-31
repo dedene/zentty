@@ -93,6 +93,8 @@ final class WorklaneRenderCoordinator {
     private var worklaneStoreSubscription: WorklaneChangeSubscription?
     private let reviewPollingScheduler: ReviewPollingScheduler
     private var previousActiveWorklaneID: WorklaneID?
+    /// Canvas motion for animated renders inside `withCanvasMotion`.
+    private var canvasMotionOverride: (duration: TimeInterval, timing: CAMediaTimingFunction)?
 
     weak var environment: RenderEnvironmentProviding?
 
@@ -174,6 +176,21 @@ final class WorklaneRenderCoordinator {
         )
     }
 
+    /// Runs `body` (a store change) so every animated canvas render it
+    /// triggers uses `duration`/`timing`. A float op notifies `.paneStructure`
+    /// before `.floats`, so the strip reflow happens in the first render; this
+    /// gives all of them the same curve.
+    func withCanvasMotion(
+        duration: TimeInterval,
+        timing: CAMediaTimingFunction,
+        _ body: () -> Void
+    ) {
+        let previous = canvasMotionOverride
+        canvasMotionOverride = (duration, timing)
+        defer { canvasMotionOverride = previous }
+        body()
+    }
+
     func updateSurfaceActivities() {
         updateReviewPolling()
         updateRuntimeSurfaceActivities()
@@ -242,9 +259,14 @@ final class WorklaneRenderCoordinator {
 
     private func handleWorklaneChange(_ change: WorklaneChange) {
         switch change {
-        case .paneStructure, .floats:
+        case .paneStructure:
             needsRuntimeSynchronization = true
             renderCurrentWorklane(animated: true)
+            updateRuntimeSurfaceActivities()
+        case .floats:
+            needsRuntimeSynchronization = true
+            let motion = canvasMotionOverride ?? FloatMotion.reflowMotion
+            renderCurrentWorklane(animated: true, duration: motion.duration, timingFunction: motion.timing)
             updateRuntimeSurfaceActivities()
         case .focusChanged:
             renderCurrentWorklane(animated: true)
@@ -299,7 +321,11 @@ final class WorklaneRenderCoordinator {
         }
     }
 
-    private func renderCurrentWorklane(animated: Bool = false) {
+    private func renderCurrentWorklane(
+        animated: Bool = false,
+        duration: TimeInterval? = nil,
+        timingFunction: CAMediaTimingFunction? = nil
+    ) {
         ZenttyPerformanceSignposts.interval("WorklaneRenderCurrent") {
             guard let views else {
                 return
@@ -346,7 +372,15 @@ final class WorklaneRenderCoordinator {
                 let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
                 terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
                 renderWindowChrome(headerSummary, in: views)
-                renderCanvasForCurrentWorklane(animated: animated, transitionDirection: transitionDirection)
+                let motion = canvasMotionOverride
+                renderCanvasForCurrentWorklane(
+                    animated: animated,
+                    transitionDirection: transitionDirection,
+                    duration: duration ?? motion?.duration ?? PaneStripMotionController.defaultAnimationDuration,
+                    timingFunction: timingFunction
+                        ?? motion?.timing
+                        ?? PaneStripMotionController.defaultAnimationTimingFunction
+                )
                 let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
                 attentionNotificationCoordinator.update(
                     windowID: windowID,

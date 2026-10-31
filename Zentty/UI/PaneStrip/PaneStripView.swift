@@ -173,6 +173,14 @@ final class PaneStripView: NSView {
     /// or takes first responder. Applied on the next render (no re-render of
     /// its own, so it can be set right before an animated render).
     var floatHoldsFocus = false
+    /// "No tiled panes", shown while every pane of the worklane floats.
+    var showsEmptyStripHint = false {
+        didSet {
+            guard oldValue != showsEmptyStripHint else { return }
+            updateEmptyStripHint()
+        }
+    }
+    private var emptyStripHintLabel: NSTextField?
     private var hidesFocusEmphasis: Bool {
         suppressesFocusEmphasis || floatHoldsFocus
     }
@@ -625,6 +633,36 @@ final class PaneStripView: NSView {
         paneViews.values.forEach { paneView in
             paneView.apply(theme: theme, animated: animated)
         }
+        emptyStripHintLabel?.textColor = theme.tertiaryText
+    }
+
+    private func updateEmptyStripHint() {
+        guard showsEmptyStripHint else {
+            emptyStripHintLabel?.isHidden = true
+            return
+        }
+        let label: NSTextField
+        if let existing = emptyStripHintLabel {
+            label = existing
+        } else {
+            label = NSTextField(labelWithString: "No tiled panes")
+            label.font = .systemFont(ofSize: NSFont.systemFontSize)
+            label.alignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label, positioned: .above, relativeTo: viewportView)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            emptyStripHintLabel = label
+        }
+        label.textColor = currentTheme.tertiaryText
+        label.isHidden = false
+    }
+
+    var emptyStripHintTextForTesting: String? {
+        guard let label = emptyStripHintLabel, !label.isHidden else { return nil }
+        return label.stringValue
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -770,7 +808,9 @@ final class PaneStripView: NSView {
         // The frame view has no superview, so hitTest takes window coordinates.
         var view = frameView.hitTest(mouseLocation)
         while let current = view {
-            if current is TerminalOverlayContainerView {
+            // Quick-action overlays, and floats/PiPs (the float layer is
+            // hit-transparent over empty space, so a hit inside it is a float).
+            if current is TerminalOverlayContainerView || current is FloatLayerView {
                 return true
             }
             view = current.superview

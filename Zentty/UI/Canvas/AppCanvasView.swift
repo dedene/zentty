@@ -434,6 +434,7 @@ final class AppCanvasView: NSView {
     ) {
         apply(theme: theme, animated: animated)
         paneStripView.floatHoldsFocus = floats.ownsFocus
+        paneStripView.showsEmptyStripHint = state.panes.isEmpty && !floats.floats.isEmpty
         defer {
             // Strip first (it releases a lifted pane's host view), then the
             // layer at its final frame (it borrows that host view).

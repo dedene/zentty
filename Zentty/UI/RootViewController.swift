@@ -861,6 +861,9 @@ final class RootViewController: NSViewController {
         floatLayer.onFloatActionRequested = { [weak self] paneID, action in
             self?.handlePaneBorderAction(action, paneID: paneID)
         }
+        floatLayer.onFloatGestureEnded = { [weak self] paneID, outcome, canvas in
+            self?.commitFloatGesture(paneID, outcome: outcome, canvas: canvas)
+        }
         floatLayer.containerConfigurator = { [weak self] container, _ in
             self?.configureFloatContainer(container)
         }
@@ -3407,8 +3410,30 @@ extension RootViewController: AppActionRouterEnvironment {
               !paneStripView.isDragActive,
               !paneStripView.isDividerDragActive else { return }
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
-        worklaneStore.toggleFloat(paneID, canvas: appCanvasView.floatLayerView.bounds) { [appCanvasView] paneID in
-            appCanvasView.tileFrameInFloatLayer(for: paneID)
+        let floatLayer = appCanvasView.floatLayerView
+        let motion = FloatMotion.reflowMotion
+        renderCoordinator.withCanvasMotion(duration: motion.duration, timing: motion.timing) {
+            worklaneStore.toggleFloat(paneID, canvas: floatLayer.bounds) { [appCanvasView] paneID in
+                guard let tileFrame = appCanvasView.tileFrameInFloatLayer(for: paneID) else {
+                    return nil
+                }
+                // The float mounts at the tile's slot and grows to its frame
+                // in the same motion as the strip reflow.
+                floatLayer.prepareLift(paneID: paneID, fromTileFrame: tileFrame)
+                return tileFrame
+            }
+        }
+    }
+
+    /// Commits a finished float gesture: one store change per gesture.
+    private func commitFloatGesture(_ paneID: PaneID, outcome: FloatGestureOutcome, canvas: CGRect) {
+        switch outcome {
+        case .click:
+            break
+        case .move(let frame), .resize(let frame):
+            worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: frame, in: canvas))
+        case .throwToPip(let corner):
+            worklaneStore.pipPane(paneID, corner: corner)
         }
     }
 
