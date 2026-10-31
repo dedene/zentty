@@ -54,7 +54,8 @@ final class WorkspaceRecipeFloatTests: XCTestCase {
         XCTAssertEqual(restored.floatingPanes.map(\.stackOrder), [2, 0, 1])
         XCTAssertEqual(restored.floatingPanes.map(\.origin), [FloatOrigin(columnIndex: 1), nil, nil])
         XCTAssertTrue(restored.floatsHidden)
-        XCTAssertEqual(restored.focusedFloatID, floatID)
+        // Hidden floats never own focus, as in the live store.
+        XCTAssertNil(restored.focusedFloatID)
         for id in [floatID, pipID, pillID] {
             XCTAssertNotNil(restored.auxiliaryStateByPaneID[id], "float \(id.rawValue) needs its aux state")
             XCTAssertEqual(restored.pane(id: id)?.sessionRequest.workingDirectory, directory.path)
@@ -208,6 +209,70 @@ final class WorkspaceRecipeFloatTests: XCTestCase {
         )
         XCTAssertEqual(restored.floatingPanes[0].floatFrame, WorkspaceRecipe.FloatingPane.defaultFrame)
         XCTAssertEqual(restored.floatingPanes[2].origin, FloatOrigin(columnIndex: 0))
+    }
+
+    func test_import_moves_pips_beyond_the_corner_cap_to_the_pill_bar() {
+        var oldest = recipeFloat(id: "pane-pip-0")
+        oldest.mode = "pip"
+        oldest.corner = "bottomRight"
+        oldest.order = 0
+        var middle = recipeFloat(id: "pane-pip-1")
+        middle.mode = "pip"
+        middle.corner = "bottomRight"
+        middle.order = 1
+        var newest = recipeFloat(id: "pane-pip-2")
+        newest.mode = "pip"
+        newest.corner = "bottomRight"
+        newest.order = 2
+        var pill = recipeFloat(id: pillID.rawValue)
+        pill.mode = "minimized"
+        pill.order = 0
+
+        let restored = importWindow(recipeWindow(worklane: recipeWorklane(floats: [newest, oldest, pill, middle])))
+            .worklanes[0]
+
+        let modes = Dictionary(uniqueKeysWithValues: restored.floatingPanes.map { ($0.pane.id.rawValue, $0.mode) })
+        XCTAssertEqual(modes["pane-pip-1"], .pip(corner: .bottomRight, order: 0))
+        XCTAssertEqual(modes["pane-pip-2"], .pip(corner: .bottomRight, order: 1))
+        XCTAssertEqual(modes[pillID.rawValue], .minimized(order: 0))
+        XCTAssertEqual(modes["pane-pip-0"], .minimized(order: 1), "the oldest PiP goes to the pill bar, like a live eviction")
+        XCTAssertLessThanOrEqual(
+            FloatLayout.pips(in: restored.floatingPanes, corner: .bottomRight).count,
+            FloatLayout.maxPipsPerCorner
+        )
+    }
+
+    func test_import_drops_saved_float_focus_while_floats_are_hidden() {
+        var worklane = recipeWorklane(floats: [recipeFloat(id: floatID.rawValue)])
+        worklane.floatsHidden = true
+        worklane.focusedFloatID = floatID.rawValue
+
+        let restored = importWindow(recipeWindow(worklane: worklane)).worklanes[0]
+
+        XCTAssertTrue(restored.floatsHidden)
+        XCTAssertNil(restored.focusedFloatID)
+    }
+
+    func test_import_keeps_saved_float_focus_while_floats_are_shown() {
+        var worklane = recipeWorklane(floats: [recipeFloat(id: floatID.rawValue)])
+        worklane.focusedFloatID = floatID.rawValue
+
+        let restored = importWindow(recipeWindow(worklane: worklane)).worklanes[0]
+
+        XCTAssertEqual(restored.focusedFloatID, floatID)
+    }
+
+    func test_import_clamps_float_frames_into_the_canvas() {
+        var oversized = recipeFloat(id: floatID.rawValue)
+        oversized.frame = [-0.2, 0.9, 1.4, 0.5]
+        var offCanvas = recipeFloat(id: pipID.rawValue)
+        offCanvas.frame = [0.8, 0.7, 0.5, 0.5]
+
+        let restored = importWindow(recipeWindow(worklane: recipeWorklane(floats: [oversized, offCanvas])))
+            .worklanes[0]
+
+        XCTAssertEqual(restored.floatingPanes[0].floatFrame, NormalizedRect(x: 0, y: 0.5, width: 1, height: 0.5))
+        XCTAssertEqual(restored.floatingPanes[1].floatFrame, NormalizedRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5))
     }
 
     // MARK: - Meaningfulness

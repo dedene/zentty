@@ -75,7 +75,8 @@ extension WorkspaceRecipe.FloatingPane {
         }
     }
 
-    /// The stored frame, or the default centred frame when the entry is
+    /// The stored frame kept inside the canvas (size at most 1, origin moved
+    /// so the frame fits), or the default centred frame when the entry is
     /// malformed (wrong length, non-finite, empty).
     var normalizedFrame: NormalizedRect {
         guard frame.count == 4,
@@ -85,7 +86,14 @@ extension WorkspaceRecipe.FloatingPane {
             recipeFloatsLogger.warning("Recipe float frame malformed; using the default centred frame")
             return Self.defaultFrame
         }
-        return NormalizedRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3])
+        let width = min(frame[2], 1)
+        let height = min(frame[3], 1)
+        return NormalizedRect(
+            x: min(max(frame[0], 0), 1 - width),
+            y: min(max(frame[1], 0), 1 - height),
+            width: width,
+            height: height
+        )
     }
 
     static var defaultFrame: NormalizedRect {
@@ -166,7 +174,8 @@ extension WorkspaceRecipeImporter {
     /// Builds the worklane's floats, sharing `auxiliaryStateByPaneID` and the
     /// restore drafts with the tiles. A float whose pane ID is already taken
     /// (by a tile or an earlier float) is dropped. PiP and pill orders come
-    /// back dense even when the saved ones have gaps.
+    /// back dense even when the saved ones have gaps, with at most
+    /// `FloatLayout.maxPipsPerCorner` PiPs per corner.
     static func makeFloatingPanes(
         _ recipe: WorkspaceRecipe.Worklane,
         tiledPaneIDs: Set<PaneID>,
@@ -214,31 +223,46 @@ extension WorkspaceRecipeImporter {
 
     /// The saved focused float when it is still a `.floating` float; for a
     /// worklane without tiles, the front-most `.floating` float, so a
-    /// float-only worklane never comes back with no focus.
+    /// float-only worklane never comes back with no focus. Nil while floats
+    /// are hidden: like the live store, a hidden float never owns focus.
     static func focusedFloatID(
         _ recipe: WorkspaceRecipe.Worklane,
         floats: [FloatingPaneState],
         hasTiles: Bool,
         floatsHidden: Bool
     ) -> PaneID? {
+        guard !floatsHidden else {
+            return nil
+        }
         if let saved = recipe.focusedFloatID.map(PaneID.init),
            floats.contains(where: { $0.pane.id == saved && $0.mode.isFloating }) {
             return saved
         }
-        guard !hasTiles, !floatsHidden else {
+        guard !hasTiles else {
             return nil
         }
         return floats.filter(\.mode.isFloating).max { $0.stackOrder < $1.stackOrder }?.pane.id
     }
 
+    /// Makes PiP (per corner) and pill orders dense and enforces
+    /// `FloatLayout.maxPipsPerCorner`: a corner holding more PiPs sends its
+    /// oldest (lowest order) ones to the end of the pill bar, as a live
+    /// eviction would.
     static func densifiedOrders(_ floats: [FloatingPaneState]) -> [FloatingPaneState] {
         var result = floats
+        var evicted: [Int] = []
         for corner in FloatCorner.allCases {
             let ranked = result.indices.compactMap { index -> (index: Int, order: Int)? in
                 guard case .pip(corner, let order) = result[index].mode else { return nil }
                 return (index, order)
             }
-            for (dense, entry) in ranked.sorted(by: Self.byOrderThenIndex).enumerated() {
+            .sorted(by: Self.byOrderThenIndex)
+            let overflow = max(0, ranked.count - FloatLayout.maxPipsPerCorner)
+            if overflow > 0 {
+                recipeFloatsLogger.warning("Recipe corner \(corner.rawValue, privacy: .public) holds \(ranked.count) PiPs; moving \(overflow) to the pill bar")
+            }
+            evicted += ranked.prefix(overflow).map(\.index)
+            for (dense, entry) in ranked.dropFirst(overflow).enumerated() {
                 result[entry.index].mode = .pip(corner: corner, order: dense)
             }
         }
@@ -246,8 +270,9 @@ extension WorkspaceRecipeImporter {
             guard case .minimized(let order) = result[index].mode else { return nil }
             return (index, order)
         }
-        for (dense, entry) in minimized.sorted(by: Self.byOrderThenIndex).enumerated() {
-            result[entry.index].mode = .minimized(order: dense)
+        let pillIndices = minimized.sorted(by: Self.byOrderThenIndex).map(\.index) + evicted
+        for (dense, index) in pillIndices.enumerated() {
+            result[index].mode = .minimized(order: dense)
         }
         return result
     }
