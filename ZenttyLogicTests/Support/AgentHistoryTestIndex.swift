@@ -17,13 +17,15 @@ final class AgentHistoryTestIndex: @unchecked Sendable {
         testCase: XCTestCase,
         options: AgentHistoryStorage.Options = .init(),
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_793_000_000) },
-        appVersion: String = "test"
+        appVersion: String = "test",
+        fileManager: FileManager = .default
     ) {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-history-\(UUID().uuidString)", isDirectory: true)
         self.directoryURL = directoryURL
         self.paths = AgentHistoryPaths(directoryURL: directoryURL.appendingPathComponent("AgentHistory", isDirectory: true))
-        self.storage = AgentHistoryStorage(paths: paths, options: options, now: now, appVersion: appVersion)
+        self.storage = AgentHistoryStorage(paths: paths, options: options, fileManager: fileManager, now: now,
+                                           appVersion: appVersion)
         let storage = self.storage
         testCase.addTeardownBlock { [weak self] in
             self?.writerHandle?.database.close()

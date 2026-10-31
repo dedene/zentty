@@ -108,6 +108,12 @@ final class AgentHistoryStorage: @unchecked Sendable {
                 AgentHistoryLog.indexer.error("Agent History index open failed \(error.description, privacy: .public)")
             }
             throw error
+        } catch {
+            // Anything else (a file operation outside SQLite) still leaves no writer: readers must
+            // not keep serving the file this open gave up on.
+            availabilityBox.update(availability: .unavailable(.cantOpen), tokenizer: nil)
+            AgentHistoryLog.indexer.error("Agent History index open failed outside SQLite")
+            throw error
         }
     }
 
@@ -230,7 +236,13 @@ final class AgentHistoryStorage: @unchecked Sendable {
             "Agent History index unusable code=\(error.code, privacy: .public)/\(error.extendedCode, privacy: .public); moving it aside"
         )
         readers.closeAll()
-        try quarantineCorruptDatabase()
+        do {
+            try quarantineCorruptDatabase()
+        } catch {
+            // Permission denied, a read-only volume, a locked file: the unusable index stays put.
+            throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
+                                            message: "cannot move the unusable index aside")
+        }
         return try openWriter(recovered: true)
     }
 
