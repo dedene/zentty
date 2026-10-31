@@ -144,6 +144,14 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     /// batch back. Set before `start()`.
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
 
+    // MARK: Writes (AgentHistoryIndexer+Writes.swift)
+
+    /// Tombstones and usage read before a rebuild, written into the new index once it opens.
+    var pendingCarryOver: AgentHistoryRebuildCarryOver?
+    /// Database units that have not been read cleanly since the admission rules tightened; when
+    /// the rules relax first, they are read again from the start.
+    var admissionPendingUnits: Set<AgentHistoryUnitRef> = []
+
     // MARK: Conditions (AgentHistoryIndexer+Conditions.swift)
 
     /// SQLite reported a full disk: nothing writes until a retry finds space again.
@@ -323,6 +331,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         tokenizer = handle.tokenizer
         let store = AgentHistoryStore(database: handle.database, now: now)
         self.store = store
+        restorePendingCarryOver(into: store)
 
         do {
             admission = AgentHistoryAdmission(
@@ -344,6 +353,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         AgentHistoryLog.indexer.info("Agent History indexer started sessions=\(self.snapshotBuilder.count, privacy: .public)")
 
         activateSources(makeSources())
+        reconcileStoredExclusions()
         let conditionsQueue = queue
         systemConditions.startObserving { [weak self] in
             conditionsQueue.async {
@@ -400,12 +410,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
             return
         }
         if next.excludedFolders != previous.excludedFolders {
-            // Purging stored sessions under new exclusions and re-reading lifted ones is
-            // routed through the indexer's write path; this keeps admission current.
-            admission = AgentHistoryAdmission(
-                exclusions: AgentHistoryExclusionMatcher(folders: next.excludedFolders),
-                tombstones: admission.tombstones
-            )
+            applyExclusionChange(from: previous.excludedFolders, to: next.excludedFolders)
         }
         if next.enabledAgents != previous.enabledAgents {
             for id in sourceOrder {

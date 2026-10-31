@@ -139,6 +139,7 @@ extension AgentHistoryIndexer {
         missingSince = [:]
         missingRechecked = []
         batchedRewrites = []
+        admissionPendingUnits = []
         isDiskFull = false
         tokenizer = nil
         admission = .admitAll

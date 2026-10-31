@@ -429,6 +429,10 @@ extension AgentHistoryIndexer {
         // transcripts) arrive as `batch.problem` with partial results: keep the rows, show the
         // problem, retry on the next pass.
         sourceState.unitProblems[ref.unitKey] = batches.last?.problem
+        if batches.last?.problem == nil {
+            // A clean read applied the current admission rules (see `pollDatabaseUnits`).
+            admissionPendingUnits.remove(ref)
+        }
         sourceState.countersDirty = true
         lastUpdatedAt = now()
     }
