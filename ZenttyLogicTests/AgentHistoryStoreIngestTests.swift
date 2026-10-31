@@ -191,6 +191,61 @@ final class AgentHistoryStoreIngestTests: XCTestCase {
         XCTAssertEqual(try store.sessionSummaries(rowIDs: []), [])
     }
 
+    func test_summary_reads_every_column_into_its_own_field() throws {
+        let index = AgentHistoryTestIndex(testCase: self)
+        let store = try index.makeStore()
+        let sourceID = try index.makeSource(.grok, root: "/fixtures/grok")
+        var draft = AgentHistorySessionDraft(nativeID: "every-column")
+        draft.title = "Distinct title"
+        draft.titleKind = .custom
+        draft.cwd = "/work/cwd-folder"
+        draft.repoRoot = "/work/linked-root"
+        draft.mainRepoRoot = "/work/main-root"
+        draft.branch = "distinct-branch"
+        draft.model = "distinct-model"
+        draft.effort = "distinct-effort"
+        draft.generation = "distinct-generation"
+        draft.transcriptPath = "/transcripts/distinct.jsonl"
+        draft.createdAtMs = t
+        draft.updatedAtMs = t + 9
+        draft.lastUserAtMs = t + 5
+        draft.archived = true
+        try store.apply(F.batch(
+            sourceID: sourceID, unitKey: "u", sessions: [draft],
+            messages: [F.message("every-column", seq: 0, atMs: t + 5, text: "ask")]
+        ), sourceID: sourceID, unitKey: "u")
+        let id = try XCTUnwrap(store.sessionID(sourceID: sourceID, nativeID: "every-column"))
+        XCTAssertTrue(try store.recordOpen(sessionID: id, atMs: t + 20))
+        XCTAssertTrue(try store.recordOpen(sessionID: id, atMs: t + 30))
+
+        let summary = try XCTUnwrap(store.allVisibleSessionSummaries().first)
+        XCTAssertEqual(try store.sessionSummaries(rowIDs: [id]), [summary])
+        XCTAssertEqual(summary.id, id)
+        XCTAssertEqual(summary.sourceID, sourceID)
+        XCTAssertEqual(summary.sourceRoot, "/fixtures/grok")
+        XCTAssertEqual(summary.agent, .grok)
+        XCTAssertEqual(summary.nativeID, "every-column")
+        XCTAssertEqual(summary.title, "Distinct title")
+        XCTAssertEqual(summary.titleKind, .custom)
+        XCTAssertEqual(summary.cwd, "/work/cwd-folder")
+        XCTAssertEqual(summary.repoRoot, "/work/linked-root")
+        XCTAssertEqual(summary.mainRepoRoot, "/work/main-root")
+        XCTAssertEqual(summary.branch, "distinct-branch")
+        XCTAssertEqual(summary.model, "distinct-model")
+        XCTAssertEqual(summary.effort, "distinct-effort")
+        XCTAssertEqual(summary.generation, "distinct-generation")
+        XCTAssertEqual(summary.transcriptPath, "/transcripts/distinct.jsonl")
+        XCTAssertEqual(summary.createdAtMs, t)
+        XCTAssertEqual(summary.updatedAtMs, t + 9)
+        XCTAssertEqual(summary.lastUserAtMs, t + 5)
+        XCTAssertEqual(summary.turnCount, 1)
+        XCTAssertTrue(summary.isArchived)
+        XCTAssertEqual(summary.opens, 2)
+        XCTAssertEqual(summary.lastOpenedAtMs, t + 30)
+        XCTAssertEqual(summary.repoName, "main-root", "repo name comes from main_repo_root")
+        XCTAssertEqual(summary.folderName, "cwd-folder")
+    }
+
     func test_session_summaries_span_multiple_chunks() throws {
         let index = AgentHistoryTestIndex(testCase: self)
         let store = try index.makeStore()

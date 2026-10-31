@@ -4,9 +4,10 @@ import XCTest
 
 /// Shared merge table for `AgentHistorySessionDraft.merged` and the SQL session upsert.
 ///
-/// Every row's `existing` draft is fully populated (title, kind, created, updated, archived)
-/// so the storage layer can insert it as a real row and run `update` through the SQL upsert;
-/// the expected result must match in both places.
+/// Every row's `existing` draft is fully populated (title, kind, every location and run column with
+/// a distinct value, created, updated, archived) so the storage layer can insert it as a real row
+/// and run `update` through the SQL upsert; the expected result must match in both places.
+/// Distinct values per column make a swapped or mis-numbered column in the SQL fail.
 enum AgentHistoryMergeTable {
     struct Case {
         let name: String
@@ -21,42 +22,62 @@ enum AgentHistoryMergeTable {
         title: String? = nil,
         kind: AgentHistoryTitleKind? = nil,
         cwd: String? = nil,
+        repoRoot: String? = nil,
+        mainRepoRoot: String? = nil,
         branch: String? = nil,
         model: String? = nil,
+        effort: String? = nil,
+        generation: String? = nil,
+        transcriptPath: String? = nil,
         createdAtMs: Int64? = nil,
         updatedAtMs: Int64? = nil,
         lastUserAtMs: Int64? = nil,
-        archived: Bool? = nil
+        archived: Bool? = nil,
+        parentNativeID: String? = nil
     ) -> AgentHistorySessionDraft {
         var draft = AgentHistorySessionDraft(nativeID: nativeID)
         draft.title = title
         draft.titleKind = kind
         draft.cwd = cwd
+        draft.repoRoot = repoRoot
+        draft.mainRepoRoot = mainRepoRoot
         draft.branch = branch
         draft.model = model
+        draft.effort = effort
+        draft.generation = generation
+        draft.transcriptPath = transcriptPath
         draft.createdAtMs = createdAtMs
         draft.updatedAtMs = updatedAtMs
         draft.lastUserAtMs = lastUserAtMs
         draft.archived = archived
+        draft.parentNativeID = parentNativeID
         return draft
     }
 
-    /// A stored row: first prompt title, created 1000, updated 2000, not archived.
+    /// A stored row: first prompt title, a distinct value in every location and run column,
+    /// created 1000, updated 2000, not archived.
     static func stored(
         title: String = "first prompt",
         kind: AgentHistoryTitleKind = .firstPrompt,
         cwd: String? = "/repo",
+        repoRoot: String? = "/work/linked-root",
+        mainRepoRoot: String? = "/work/main-root",
         branch: String? = "main",
-        model: String? = nil,
+        model: String? = "stored-model",
+        effort: String? = "stored-effort",
+        generation: String? = "stored-generation",
+        transcriptPath: String? = "/transcripts/stored.jsonl",
         createdAtMs: Int64 = 1_000,
         updatedAtMs: Int64 = 2_000,
         lastUserAtMs: Int64? = nil,
-        archived: Bool = false
+        archived: Bool = false,
+        parentNativeID: String? = "stored-parent"
     ) -> AgentHistorySessionDraft {
         draft(
-            title: title, kind: kind, cwd: cwd, branch: branch, model: model,
-            createdAtMs: createdAtMs, updatedAtMs: updatedAtMs, lastUserAtMs: lastUserAtMs,
-            archived: archived
+            title: title, kind: kind, cwd: cwd, repoRoot: repoRoot, mainRepoRoot: mainRepoRoot,
+            branch: branch, model: model, effort: effort, generation: generation,
+            transcriptPath: transcriptPath, createdAtMs: createdAtMs, updatedAtMs: updatedAtMs,
+            lastUserAtMs: lastUserAtMs, archived: archived, parentNativeID: parentNativeID
         )
     }
 
@@ -177,6 +198,36 @@ enum AgentHistoryMergeTable {
             existing: stored(cwd: "/repo", branch: "main", model: "old"),
             update: draft(),
             expected: stored(cwd: "/repo", branch: "main", model: "old")
+        ),
+        Case(
+            name: "non-nil location and run fields replace",
+            existing: stored(),
+            update: draft(
+                repoRoot: "/next/linked-root", mainRepoRoot: "/next/main-root", effort: "next-effort",
+                generation: "next-generation", transcriptPath: "/transcripts/next.jsonl", parentNativeID: "next-parent"
+            ),
+            expected: stored(
+                repoRoot: "/next/linked-root", mainRepoRoot: "/next/main-root", effort: "next-effort",
+                generation: "next-generation", transcriptPath: "/transcripts/next.jsonl", parentNativeID: "next-parent"
+            )
+        ),
+        Case(
+            name: "repo root alone leaves main repo root",
+            existing: stored(),
+            update: draft(repoRoot: "/next/linked-root"),
+            expected: stored(repoRoot: "/next/linked-root")
+        ),
+        Case(
+            name: "main repo root alone leaves repo root",
+            existing: stored(),
+            update: draft(mainRepoRoot: "/next/main-root"),
+            expected: stored(mainRepoRoot: "/next/main-root")
+        ),
+        Case(
+            name: "nil location and run fields never clear",
+            existing: stored(),
+            update: draft(title: "Generated", kind: .generated),
+            expected: stored(title: "Generated", kind: .generated)
         ),
         Case(
             name: "archived is set by the update",
