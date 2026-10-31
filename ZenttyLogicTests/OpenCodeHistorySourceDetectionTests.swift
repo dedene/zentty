@@ -48,6 +48,67 @@ final class OpenCodeHistorySourceDetectionTests: OpenCodeHistorySourceTestCase {
         XCTAssertTrue(idle.batches.flatMap(\.sessions).isEmpty)
     }
 
+    func test_v2_incremental_rowid_hot_update_reconcile_and_deleted_tail() throws {
+        let fixture = try OpenCodeHistoryFixture(testCase: self)
+        let clock = Clock(Self.t0)
+        let hot = Self.t0 - 2 * Self.minute
+        let cold = Self.t0 - Self.day
+        func reply(_ text: String) -> [String: Any] { ["content": [["type": "text", "text": text]]] }
+        try fixture.addSession("ses_live", in: .v2, version: "2.0.0", createdMs: hot, updatedMs: hot)
+        try fixture.addSessionMessage("msg_lu", session: "ses_live", type: "user", seq: 1,
+                                      data: ["text": "question"], createdMs: hot)
+        try fixture.addSessionMessage("msg_la", session: "ses_live", type: "assistant", seq: 2,
+                                      data: reply("partial"), createdMs: hot + 1)
+        try fixture.addSession("ses_idle", in: .v2, version: "2.0.0", createdMs: cold, updatedMs: cold)
+        try fixture.addSessionMessage("msg_iu", session: "ses_idle", type: "user", seq: 1,
+                                      data: ["text": "old question"], createdMs: cold)
+        let source = makeSource(fixture, clock: clock)
+        let (_, afterPass) = try drain(source)
+
+        // A new session_message row on the cold session: found by its rowid.
+        try fixture.addSessionMessage("msg_ia", session: "ses_idle", type: "assistant", seq: 2,
+                                      data: reply("old answer"), createdMs: cold + 1)
+        let inserted = try drain(source, cursor: afterPass)
+        XCTAssertEqual(inserted.batches.flatMap(\.sessions).map(\.nativeID), ["ses_idle"])
+        XCTAssertEqual(texts(inserted.batches, "ses_idle"), ["old question", "old answer"])
+
+        // The live assistant row streams in place (same rowid): only the hot set sees it.
+        try fixture.updateSessionMessage("msg_la", data: reply("complete answer"), updatedMs: Self.t0)
+        let streamed = try drain(source, cursor: inserted.cursor)
+        XCTAssertEqual(streamed.batches.flatMap(\.sessions).map(\.nativeID), ["ses_live"])
+        XCTAssertEqual(texts(streamed.batches, "ses_live"), ["question", "complete answer"])
+
+        // Outside the hot window an in-place edit waits for the reconcile.
+        clock.nowMs = Self.t0 + 11 * Self.minute
+        try fixture.updateSessionMessage("msg_ia", data: reply("edited answer"), updatedMs: clock.nowMs)
+        let quiet = try drain(source, cursor: streamed.cursor)
+        XCTAssertTrue(quiet.batches.flatMap(\.sessions).isEmpty)
+        clock.nowMs = Self.t0 + 16 * Self.minute
+        let reconciled = try drain(source, cursor: quiet.cursor)
+        XCTAssertEqual(reconciled.batches.flatMap(\.sessions).map(\.nativeID), ["ses_idle"])
+        XCTAssertEqual(texts(reconciled.batches, "ses_idle"), ["old question", "edited answer"])
+
+        // A new row on the live session, then /undo deletes it (the top session_message rowid).
+        clock.nowMs = Self.t0 + 17 * Self.minute
+        try fixture.addSessionMessage("msg_lu2", session: "ses_live", type: "user", seq: 3,
+                                      data: ["text": "follow-up"], createdMs: clock.nowMs)
+        let followUp = try drain(source, cursor: reconciled.cursor)
+        XCTAssertEqual(texts(followUp.batches, "ses_live"), ["question", "complete answer", "follow-up"])
+        let before = try XCTUnwrap(state(followUp.cursor).watermarks)
+
+        clock.nowMs = Self.t0 + 18 * Self.minute
+        try fixture.deleteSessionMessage("msg_lu2")
+        let undone = try drain(source, cursor: followUp.cursor)
+        XCTAssertEqual(undone.batches.count, 1, "no full pass")
+        XCTAssertEqual(Set(undone.batches.flatMap(\.sessions).map(\.nativeID)), ["ses_live", "ses_idle"],
+                       "every hot session is re-read (ses_idle changed at +11 minutes)")
+        XCTAssertEqual(texts(undone.batches, "ses_live"), ["question", "complete answer"])
+        let after = state(undone.cursor)
+        XCTAssertNil(after.backfill)
+        XCTAssertEqual(after.lastReconcileAtMs, clock.nowMs, "the reconcile ran at once")
+        XCTAssertLessThan(try XCTUnwrap(after.watermarks).sessionMessageRowID, before.sessionMessageRowID)
+    }
+
     func test_deleting_newest_session_removes_it_without_full_pass() throws {
         let fixture = try OpenCodeHistoryFixture(testCase: self, v2: false)
         let t = Self.t0 - Self.day

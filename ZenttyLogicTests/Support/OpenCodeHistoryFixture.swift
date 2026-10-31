@@ -176,6 +176,17 @@ final class OpenCodeHistoryFixture: @unchecked Sendable {
         try body(try db)
     }
 
+    /// Rewrites a `session_message` row in place (same rowid), the way opencode v2 streams an
+    /// assistant reply.
+    func updateSessionMessage(_ id: String, data: [String: Any], updatedMs: Int64) throws {
+        try db.run("UPDATE session_message SET data = ?, time_updated = ? WHERE id = ?",
+                   [.text(try Self.json(data)), .integer(updatedMs), .text(id)])
+    }
+
+    func deleteSessionMessage(_ id: String) throws {
+        try db.run("DELETE FROM session_message WHERE id = ?", [.text(id)])
+    }
+
     /// A `session_message` row whose `data` is written verbatim (malformed or odd JSON).
     func addRawSessionMessage(
         _ id: String, session: String, type: String, seq: Int, rawData: String, createdMs: Int64
