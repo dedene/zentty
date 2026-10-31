@@ -131,6 +131,7 @@ targets:
         product: Sparkle
       - package: FuzzyMatch
         product: FuzzyMatch
+      - sdk: libsqlite3.tbd
     info:
       path: Zentty/Info.plist
       properties:
