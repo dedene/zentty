@@ -9,6 +9,9 @@ enum WorkspaceTemplateCapture {
         "login",
     ]
 
+    /// Templates do not model floats (v1): persistent floats are captured as
+    /// tiles, each in its own column, so a bookmark update never drops a
+    /// floated pane and a float-only worklane still yields panes.
     static func capture(
         worklane: WorklaneState,
         kind: WorkspaceTemplate.Kind,
@@ -16,24 +19,32 @@ enum WorkspaceTemplateCapture {
         capturedReadableWidth: Double? = nil,
         processTreeProvider: ProcessTreeProvider? = nil
     ) -> WorkspaceTemplate {
-        let columns = worklane.paneStripState.columns.map { column -> WorkspaceTemplate.Column in
-            let panes = column.panes.map { pane -> WorkspaceTemplate.Pane in
-                makePane(
-                    pane: pane,
-                    auxiliary: worklane.auxiliaryStateByPaneID[pane.id],
-                    kind: kind,
-                    processTreeProvider: processTreeProvider
-                )
-            }
-            return WorkspaceTemplate.Column(
+        let makeTemplatePane = { (pane: PaneState) -> WorkspaceTemplate.Pane in
+            makePane(
+                pane: pane,
+                auxiliary: worklane.auxiliaryStateByPaneID[pane.id],
+                kind: kind,
+                processTreeProvider: processTreeProvider
+            )
+        }
+        var columns = worklane.paneStripState.columns.map { column -> WorkspaceTemplate.Column in
+            WorkspaceTemplate.Column(
                 id: column.id.rawValue,
                 width: Double(column.width),
                 focusedPaneID: column.focusedPaneID?.rawValue,
                 lastFocusedPaneID: column.lastFocusedPaneID?.rawValue,
                 paneHeights: column.paneHeights.map(Double.init),
-                panes: panes
+                panes: column.panes.map(makeTemplatePane)
             )
         }
+        let floatColumnIDs = insertFloatColumns(
+            from: worklane,
+            into: &columns,
+            makePane: makeTemplatePane
+        )
+        let focusedColumnID = worklane.paneStripState.focusedColumnID?.rawValue
+            ?? worklane.focusedFloatID.flatMap { floatColumnIDs[$0] }
+            ?? columns.first?.id
 
         let cwds = columns
             .flatMap(\.panes)
@@ -48,9 +59,51 @@ enum WorkspaceTemplateCapture {
             projectRoot: projectRoot,
             capturedReadableWidth: capturedReadableWidth,
             nextPaneNumber: worklane.nextPaneNumber,
-            focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
+            focusedColumnID: focusedColumnID,
             columns: columns
         )
+    }
+
+    /// Adds each persistent float to `columns` as a one-pane column: at its
+    /// `FloatOrigin` index when known (newest first, so floats lifted from
+    /// the same index come back in their old strip order), else at the end
+    /// in creation order. Returns the column ID given to each float.
+    private static func insertFloatColumns(
+        from worklane: WorklaneState,
+        into columns: inout [WorkspaceTemplate.Column],
+        makePane: (PaneState) -> WorkspaceTemplate.Pane
+    ) -> [PaneID: String] {
+        let floats = FloatingPaneState.bySequence(worklane.floatingPanes)
+            .filter { worklane.isPersistent($0.pane.id) }
+        var usedIDs = Set(columns.map(\.id))
+        var columnIDByPaneID: [PaneID: String] = [:]
+        func makeColumn(_ float: FloatingPaneState) -> WorkspaceTemplate.Column {
+            var id = "float-\(float.pane.id.rawValue)"
+            var suffix = 2
+            while !usedIDs.insert(id).inserted {
+                id = "float-\(float.pane.id.rawValue)-\(suffix)"
+                suffix += 1
+            }
+            columnIDByPaneID[float.pane.id] = id
+            return WorkspaceTemplate.Column(
+                id: id,
+                width: Double(float.pane.width),
+                focusedPaneID: float.pane.id.rawValue,
+                lastFocusedPaneID: float.pane.id.rawValue,
+                paneHeights: [],
+                panes: [makePane(float.pane)]
+            )
+        }
+        for float in floats.reversed() {
+            guard let columnIndex = float.origin?.columnIndex else {
+                continue
+            }
+            columns.insert(makeColumn(float), at: min(max(columnIndex, 0), columns.count))
+        }
+        for float in floats where float.origin == nil {
+            columns.append(makeColumn(float))
+        }
+        return columnIDByPaneID
     }
 
     static func bookmarkWorkingDirectory(

@@ -126,6 +126,29 @@ final class WorkspaceTemplateImporterTests: XCTestCase {
         XCTAssertEqual(result.worklane.paneStripState.panes.first?.sessionRequest.workingDirectory, temporaryDirectoryURL.path)
     }
 
+    func test_import_of_a_template_without_panes_opens_one_default_pane() {
+        // Saved from a float-only worklane before floats were captured.
+        let template = WorkspaceTemplate(name: "Empty", kind: .bookmark, columns: [])
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: temporaryDirectoryURL.path,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        XCTAssertEqual(result.worklane.paneStripState.columns.count, 1)
+        XCTAssertEqual(result.worklane.paneStripState.panes.count, 1)
+        XCTAssertNotNil(result.worklane.paneStripState.focusedPaneID)
+        XCTAssertEqual(
+            result.worklane.paneStripState.panes.first?.sessionRequest.workingDirectory,
+            temporaryDirectoryURL.path
+        )
+    }
+
     func test_imported_worklane_carries_template_id_as_origin() {
         let template = makeTemplate(
             kind: .bookmark,
