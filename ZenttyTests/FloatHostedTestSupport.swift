@@ -118,6 +118,14 @@ final class HostedSpyTerminalView: NSView, TerminalFocusReporting, TerminalViewp
         super.rightMouseDown(with: event)
     }
 
+    /// Scroll events AppKit delivered to the terminal itself.
+    private(set) var scrollEventCount = 0
+
+    override func scrollWheel(with event: NSEvent) {
+        scrollEventCount += 1
+        super.scrollWheel(with: event)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         menuRequestCount += 1
         return super.menu(for: event)

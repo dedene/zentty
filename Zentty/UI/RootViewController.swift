@@ -846,6 +846,9 @@ final class RootViewController: NSViewController {
         floatLayer.onPipClicked = { [weak self] paneID in
             self?.worklaneStore.restoreFloat(paneID)
         }
+        floatLayer.onPipMoveRequested = { [weak self] paneID, corner in
+            self?.worklaneStore.movePip(paneID, to: corner)
+        }
         floatLayer.onFloatActionRequested = { [weak self] paneID, action in
             self?.handlePaneBorderAction(action, paneID: paneID)
         }

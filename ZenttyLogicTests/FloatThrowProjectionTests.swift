@@ -127,4 +127,32 @@ final class FloatThrowProjectionTests: XCTestCase {
             in: canvas
         ), .topLeft)
     }
+
+    // MARK: - PiP release
+
+    func testPipReleaseWithoutVelocityStaysInItsQuadrant() {
+        XCTAssertEqual(FloatThrowProjection.pipReleaseCorner(
+            center: CGPoint(x: 700, y: 200),
+            velocity: .zero,
+            in: canvas
+        ), .bottomRight)
+    }
+
+    func testPipReleaseProjectsTheCentreAcrossTheCanvas() {
+        // 1000 pt/s left coasts ≈499pt: from x 700 to ≈201, the left half.
+        XCTAssertEqual(FloatThrowProjection.pipReleaseCorner(
+            center: CGPoint(x: 700, y: 200),
+            velocity: CGVector(dx: -1000, dy: 0),
+            in: canvas
+        ), .bottomLeft)
+    }
+
+    func testSlowPipReleaseDoesNotCrossTheMiddle() {
+        // 200 pt/s up coasts ≈100pt: y 200 → ≈300, still the bottom half.
+        XCTAssertEqual(FloatThrowProjection.pipReleaseCorner(
+            center: CGPoint(x: 700, y: 200),
+            velocity: CGVector(dx: 0, dy: 200),
+            in: canvas
+        ), .bottomRight)
+    }
 }

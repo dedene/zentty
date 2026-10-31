@@ -13,13 +13,36 @@ import QuartzCore
 /// reads at PiP size.
 ///
 /// Owns every click: the scaled terminal must never receive mouse events at
-/// scaled coordinates. Only the legend buttons are passed through.
+/// scaled coordinates. Only the legend buttons are passed through. Drags
+/// and two-finger swipes move it between corners (see `+Gestures`).
 @MainActor
 final class PipContainerView: NSView {
     let paneID: PaneID
+    /// A press let go without moving.
     var onClicked: ((PaneID) -> Void)?
     var onActionRequested: ((PaneID, PaneBorderAction) -> Void)?
+    /// A drag left the click threshold.
+    var onDragBegan: ((PaneID) -> Void)?
+    /// The dragged model frame (superview coordinates, unclamped).
+    var onDragChanged: ((PaneID, CGRect) -> Void)?
+    /// Let go after a drag: the model frame and the release velocity (pt/s).
+    var onDragEnded: ((PaneID, CGRect, CGVector) -> Void)?
+    /// A drag was dropped without a release (unmount).
+    var onDragCancelled: ((PaneID) -> Void)?
+    var onSwipe: ((PaneID, PipSwipeResolver.Action) -> Void)?
+    /// The corner the PiP sits in (swipe direction is relative to it).
+    var corner: FloatCorner = .bottomRight
     private(set) var contentSize: CGSize = .zero
+    /// Where the PiP sits (superview coordinates). What is drawn adds the
+    /// lift and the swipe's rubber band.
+    private(set) var modelFrame: CGRect = .zero
+    private(set) var isLifted = false
+    private(set) var swipeOffset: CGVector = .zero
+    /// The press being tracked, from mouse-down to mouse-up.
+    var drag: PipDrag?
+    var swipeResolver = PipSwipeResolver()
+    /// Swallows the rest of a swipe that flicked or bounced (see `+Gestures`).
+    var swipeCaptureMonitor: Any?
     private(set) weak var hostedContainer: PaneContainerView?
     private(set) var isHovered = false
     private(set) var status: PillBarItem?
@@ -47,9 +70,7 @@ final class PipContainerView: NSView {
             layer?.addSublayer(decoration)
         }
         shadowLayer.shadowColor = NSColor.black.cgColor
-        shadowLayer.shadowOffset = CGSize(width: 0, height: PipChrome.shadowOffsetY)
-        shadowLayer.shadowRadius = PipChrome.shadowRadius
-        shadowLayer.shadowOpacity = PipChrome.shadowOpacity
+        applyShadow(lifted: false)
         glowLayer.shadowOffset = .zero
         glowLayer.shadowRadius = PipChrome.glowRadius
         glowLayer.shadowOpacity = PipChrome.glowOpacity
@@ -113,8 +134,38 @@ final class PipContainerView: NSView {
     /// Places the PiP at `frame` and scales `contentSize` into it.
     func apply(frame: CGRect, contentSize: CGSize) {
         self.contentSize = contentSize
-        if self.frame != frame {
-            self.frame = frame
+        modelFrame = frame
+        applyDrawnFrame()
+    }
+
+    /// Lift for a drag: drawn `PipChrome.liftScale` larger about its centre
+    /// with a deeper shadow. Bounds scaling, like a float's lift: the frame
+    /// grows, the bounds keep the PiP size, nothing inside is laid out anew
+    /// (the terminal is already frozen under `.pip`).
+    func setLifted(_ lifted: Bool) {
+        guard lifted != isLifted else { return }
+        isLifted = lifted
+        applyShadow(lifted: lifted)
+        applyDrawnFrame()
+    }
+
+    /// The swipe's rubber band: drawn this far from the model frame.
+    func setSwipeOffset(_ offset: CGVector) {
+        guard offset != swipeOffset else { return }
+        swipeOffset = offset
+        applyDrawnFrame()
+    }
+
+    /// The frame drawn for the model frame, lift and swipe offset.
+    var drawnFrame: CGRect {
+        let lifted = isLifted ? FloatMotion.scaled(modelFrame, by: PipChrome.liftScale) : modelFrame
+        return lifted.offsetBy(dx: swipeOffset.dx, dy: swipeOffset.dy)
+    }
+
+    private func applyDrawnFrame() {
+        let target = drawnFrame
+        if frame != target {
+            frame = target
         }
         applyGeometry()
     }
@@ -136,6 +187,11 @@ final class PipContainerView: NSView {
     }
 
     private func applyGeometry() {
+        // Lifted, the bounds keep the resting PiP size inside a larger frame.
+        let unscaled = CGRect(origin: .zero, size: isLifted ? modelFrame.size : frame.size)
+        if bounds != unscaled {
+            bounds = unscaled
+        }
         let local = bounds
         if clipView.frame != local {
             clipView.frame = local
@@ -172,6 +228,16 @@ final class PipContainerView: NSView {
             cornerHeight: glowLayer.cornerRadius,
             transform: nil
         )
+        CATransaction.commit()
+    }
+
+    private func applyShadow(lifted: Bool) {
+        let style = lifted ? PipChrome.liftedShadow : PipChrome.restingShadow
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(FloatMotion.liftDuration)
+        shadowLayer.shadowOffset = CGSize(width: 0, height: style.offsetY)
+        shadowLayer.shadowRadius = style.radius
+        shadowLayer.shadowOpacity = style.opacity
         CATransaction.commit()
     }
 
@@ -262,14 +328,6 @@ final class PipContainerView: NSView {
         true
     }
 
-    override func mouseDown(with event: NSEvent) {
-        onClicked?(paneID)
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        // Swallowed: a scaled terminal must not scroll from here.
-    }
-
     override func menu(for event: NSEvent) -> NSMenu? {
         nil
     }
@@ -301,115 +359,8 @@ final class PipContainerView: NSView {
     var ringColorForTesting: CGColor? {
         clipView.layer?.borderColor
     }
-}
 
-/// The PiP's bottom overlay: status dot, name, and the status word on the
-/// right, over a gradient that fades the terminal out underneath.
-@MainActor
-final class PipStatusStripView: NSView {
-    static let nameFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
-    static let statusFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
-
-    private let gradientLayer = CAGradientLayer()
-    private let dotLayer = CALayer()
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
-    private(set) var status: PillBarItem?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        // y-up layer: transparent at the top, opaque from 45% down.
-        gradientLayer.startPoint = CGPoint(x: 0.5, y: 1)
-        gradientLayer.endPoint = CGPoint(x: 0.5, y: 0)
-        gradientLayer.locations = [0, 0.45, 1]
-        layer?.addSublayer(gradientLayer)
-        dotLayer.cornerRadius = PipChrome.statusDotSize / 2
-        layer?.addSublayer(dotLayer)
-        for label in [nameLabel, statusLabel] {
-            label.lineBreakMode = .byTruncatingTail
-            label.maximumNumberOfLines = 1
-            label.cell?.truncatesLastVisibleLine = true
-            addSubview(label)
-        }
-        nameLabel.font = Self.nameFont
-        statusLabel.font = Self.statusFont
-        statusLabel.alignment = .right
-        setAccessibilityElement(false)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-
-    func configure(status: PillBarItem?, theme: ZenttyTheme) {
-        self.status = status
-        nameLabel.stringValue = status?.name ?? ""
-        statusLabel.stringValue = status?.statusWord ?? ""
-        statusLabel.isHidden = status?.statusWord == nil
-        nameLabel.textColor = theme.primaryText
-        statusLabel.textColor = SidebarWorklaneRowStyleResolver.statusTextColor(
-            attentionState: status?.attention,
-            theme: theme
-        )
-        let backdrop = theme.paneOpaqueBackdrop
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        gradientLayer.colors = [
-            backdrop.withAlphaComponent(0).cgColor,
-            backdrop.withAlphaComponent(0.95).cgColor,
-            backdrop.withAlphaComponent(0.95).cgColor,
-        ]
-        dotLayer.backgroundColor = PillView.dotColor(for: status?.attention, theme: theme).cgColor
-        CATransaction.commit()
-        PillView.updatePulse(on: dotLayer, attention: status?.attention)
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let height = bounds.height
-        let padding = PipChrome.statusHorizontalPadding
-        let dot = PipChrome.statusDotSize
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        gradientLayer.frame = bounds
-        dotLayer.frame = CGRect(x: padding, y: ((height - dot) / 2).rounded(), width: dot, height: dot)
-        CATransaction.commit()
-
-        let statusSize = statusLabel.isHidden ? .zero : statusLabel.intrinsicContentSize
-        let statusWidth = min(ceil(statusSize.width), bounds.width / 2)
-        statusLabel.frame = CGRect(
-            x: bounds.maxX - padding - statusWidth,
-            y: ((height - statusSize.height) / 2).rounded(),
-            width: statusWidth,
-            height: statusSize.height
-        )
-        let nameX = padding + dot + PipChrome.statusGap
-        let nameMaxX = statusLabel.isHidden ? bounds.maxX - padding : statusLabel.frame.minX - PipChrome.statusGap
-        let nameSize = nameLabel.intrinsicContentSize
-        nameLabel.frame = CGRect(
-            x: nameX,
-            y: ((height - nameSize.height) / 2).rounded(),
-            width: max(0, min(ceil(nameSize.width), nameMaxX - nameX)),
-            height: nameSize.height
-        )
-    }
-
-    var nameForTesting: String {
-        nameLabel.stringValue
-    }
-
-    var statusWordForTesting: String? {
-        statusLabel.isHidden ? nil : statusLabel.stringValue
-    }
-
-    var dotLayerForTesting: CALayer {
-        dotLayer
+    var shadowLayerForTesting: CALayer {
+        shadowLayer
     }
 }

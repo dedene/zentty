@@ -28,6 +28,12 @@ enum FloatThrowProjection {
         corner(isLeft: point.x < canvas.midX, isBottom: point.y < canvas.midY)
     }
 
+    /// The corner a dragged PiP settles in when let go: the quadrant its
+    /// centre would coast to. Any release speed counts.
+    static func pipReleaseCorner(center: CGPoint, velocity: CGVector, in canvas: CGRect) -> FloatCorner {
+        nearestCorner(to: projectedPoint(from: center, velocity: velocity), in: canvas)
+    }
+
     /// The corner a throw lands in, or `nil` when the release speed is below
     /// ``pipThreshold``. Each axis takes its side from the velocity sign when
     /// that component is strong enough, otherwise from `position`.

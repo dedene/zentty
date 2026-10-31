@@ -13,6 +13,8 @@ final class FloatLayerView: NSView {
     var onFloatSelected: ((PaneID) -> Void)?
     var onFloatCloseRequested: ((PaneID) -> Void)?
     var onPipClicked: ((PaneID) -> Void)?
+    /// A dragged or swiped PiP asks for a corner (see +PipGestures).
+    var onPipMoveRequested: ((PaneID, FloatCorner) -> Void)?
     var onFloatActionRequested: ((PaneID, PaneBorderAction) -> Void)?
     /// A move/resize/throw gesture ended; the canvas is the layer's bounds
     /// (normalize the frames against it). `.click` needs no store change.
@@ -55,6 +57,11 @@ final class FloatLayerView: NSView {
     var pendingLiftSources: [PaneID: CGRect] = [:]
     /// PiPs about to mount and where they enter from (see +Pip).
     var pendingPipEntries: [PaneID: PipEntry] = [:]
+    /// Each mounted PiP's slot from the last placement: where a drag or a
+    /// swipe settles when the store keeps it in its corner.
+    var pipRestingFrames: [PaneID: CGRect] = [:]
+    /// A PiP gesture settled (pane, the corner it asked for).
+    var onPipSettledForTesting: ((PaneID, FloatCorner) -> Void)?
     var onLiftInPlaceFinishedForTesting: ((PaneID) -> Void)?
     /// A PiP entered (PiP pane, from frame) or left (float pane, from frame)
     /// with motion.
@@ -167,10 +174,12 @@ final class FloatLayerView: NSView {
                     interactiveFrames[placement.paneID] = tileFrame
                     mountFloating(container, paneID: placement.paneID, frame: tileFrame)
                 } else {
+                    // A PiP's drag frame never carries over to the float.
+                    let leavesPip = pipHosts[placement.paneID] != nil
                     mountFloating(
                         container,
                         paneID: placement.paneID,
-                        frame: interactiveFrames[placement.paneID] ?? placement.frame
+                        frame: leavesPip ? placement.frame : interactiveFrames[placement.paneID] ?? placement.frame
                     )
                 }
             case .pip(let contentSize):
@@ -180,7 +189,8 @@ final class FloatLayerView: NSView {
                     paneID: placement.paneID,
                     frame: placement.frame,
                     contentSize: contentSize,
-                    isNew: isNew
+                    isNew: isNew,
+                    animatesMoves: !duringLayout
                 )
             }
             container.render(
@@ -271,6 +281,9 @@ final class FloatLayerView: NSView {
         if let pip = pipHosts.removeValue(forKey: paneID) {
             // Leave PiP: re-parent at the final unscaled frame, then resume
             // viewport sync, so the grid never sees the scaled size.
+            pipRestingFrames.removeValue(forKey: paneID)
+            interactiveFrames.removeValue(forKey: paneID)
+            pip.cancelDrag()
             let pipFrame = pip.frame
             host.host(container)
             pip.removeFromSuperview()
@@ -302,7 +315,11 @@ final class FloatLayerView: NSView {
         interactiveFrames.removeValue(forKey: paneID)
         container.prepareForRemoval()
         container.removeFromSuperview()
-        pipHosts.removeValue(forKey: paneID)?.removeFromSuperview()
+        if let pip = pipHosts.removeValue(forKey: paneID) {
+            pip.cancelDrag()
+            pip.removeFromSuperview()
+        }
+        pipRestingFrames.removeValue(forKey: paneID)
         floatHosts.removeValue(forKey: paneID)?.removeFromSuperview()
         if lastFocusedFloatID == paneID {
             lastFocusedFloatID = nil
@@ -394,9 +411,10 @@ final class FloatLayerView: NSView {
 
     // MARK: - Interaction support (see +Interaction)
 
-    /// A move/resize/throw press is in progress on some float.
+    /// A move/resize/throw press is in progress on some float or PiP.
     var isGestureActive: Bool {
         floatHosts.values.contains { $0.activeGesture != nil }
+            || pipHosts.values.contains { $0.drag != nil }
     }
 
     func floatHost(_ paneID: PaneID) -> FloatContainerView? {

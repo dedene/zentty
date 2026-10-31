@@ -12,7 +12,9 @@ struct PipEntry: Equatable {
 /// a fresh container, and the corner spring in and out.
 extension FloatLayerView {
     /// Mounts `container` as a PiP at `frame`, scaling `contentSize` (the
-    /// float's unscaled size) into it.
+    /// float's unscaled size) into it. With `animatesMoves`, a mounted PiP
+    /// whose slot changed (a neighbour left its corner, the pill bar came
+    /// or went) springs to it; a PiP under a drag stays under the pointer.
     ///
     /// Order (spike 0a): a fresh container is first primed unscaled at the
     /// float size, so its grid matches the float and not whatever the
@@ -23,7 +25,8 @@ extension FloatLayerView {
         paneID: PaneID,
         frame: CGRect,
         contentSize: CGSize,
-        isNew: Bool
+        isNew: Bool,
+        animatesMoves: Bool = false
     ) {
         let floatHost = floatHosts[paneID]
         let entry = pendingPipEntries.removeValue(forKey: paneID)
@@ -47,12 +50,33 @@ extension FloatLayerView {
             floatHost.relinquishHostedContainer()
             floatHost.removeFromSuperview()
         }
-        interactiveFrames.removeValue(forKey: paneID)
-        pip.configure(status: content.pipStatusByPaneID[paneID], theme: currentTheme)
-        pip.apply(frame: frame, contentSize: contentSize)
-        if isNewPip, let entry {
-            animateEnter(pip, from: entry)
+        if isNewPip {
+            // A float's gesture frame; a PiP's own drag frame is kept.
+            interactiveFrames.removeValue(forKey: paneID)
         }
+        let previousFrame = pipRestingFrames[paneID]
+        pipRestingFrames[paneID] = frame
+        if let corner = pipCorner(paneID) {
+            pip.corner = corner
+        }
+        pip.configure(status: content.pipStatusByPaneID[paneID], theme: currentTheme)
+        let drawnBefore = pip.frame
+        let dragFrame = interactiveFrames[paneID]
+        pip.apply(frame: dragFrame ?? frame, contentSize: contentSize)
+        let moved = previousFrame != nil && previousFrame != frame
+        if let entry, isNewPip || moved {
+            animateEnter(pip, from: entry)
+        } else if animatesMoves, moved, dragFrame == nil {
+            animateEnter(pip, from: PipEntry(fromFrame: drawnBefore, velocity: .zero))
+        }
+    }
+
+    private func pipCorner(_ paneID: PaneID) -> FloatCorner? {
+        guard let float = content.floats.first(where: { $0.pane.id == paneID }),
+              case .pip(let corner, _) = float.mode else {
+            return nil
+        }
+        return corner
     }
 
     /// Refreshes the PiPs' status strips without a canvas render.
@@ -71,6 +95,7 @@ extension FloatLayerView {
         pip.onActionRequested = { [weak self] id, action in
             self?.onFloatActionRequested?(id, action)
         }
+        wirePipGestures(of: pip)
         if let shortcutManager {
             pip.updateShortcutTooltips(shortcutManager)
         }

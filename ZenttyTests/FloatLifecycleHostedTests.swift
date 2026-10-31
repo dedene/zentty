@@ -200,19 +200,23 @@ final class FloatLifecycleHostedTests: XCTestCase {
         store(controller).pipPane(floatID)
         waitForLayout("pip")
         let pipHost = try XCTUnwrap(canvas(controller).floatLayerView.pipHostForTesting(floatID))
-        let event = try XCTUnwrap(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: pipHost.convert(CGPoint(x: pipHost.bounds.midX, y: pipHost.bounds.midY), to: nil),
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: controller.window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        ))
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(
+                with: type,
+                location: pipHost.convert(CGPoint(x: pipHost.bounds.midX, y: pipHost.bounds.midY), to: nil),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: controller.window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ))
+        }
 
-        pipHost.mouseDown(with: event)
+        // A click fires on release (the press could still become a drag).
+        pipHost.mouseDown(with: try event(.leftMouseDown))
+        pipHost.mouseUp(with: try event(.leftMouseUp))
         waitForLayout("clicked")
 
         let float = try XCTUnwrap(store(controller).activeWorklane?.floatingPane(id: floatID))

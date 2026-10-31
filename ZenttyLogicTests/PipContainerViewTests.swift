@@ -92,19 +92,23 @@ final class PipContainerViewTests: AppKitTestCase {
         let pip = makePip()
         var clicked: [PaneID] = []
         pip.onClicked = { clicked.append($0) }
-        let event = try XCTUnwrap(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        ))
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(
+                with: type,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ))
+        }
 
-        pip.mouseDown(with: event)
+        pip.mouseDown(with: try event(.leftMouseDown))
+        XCTAssertEqual(clicked, [], "a press may still become a drag")
+        pip.mouseUp(with: try event(.leftMouseUp))
 
         XCTAssertEqual(clicked, [paneID])
         XCTAssertTrue(pip.accessibilityPerformPress())

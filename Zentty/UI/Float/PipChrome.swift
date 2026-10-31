@@ -17,10 +17,11 @@ enum PipChrome {
     static let ringWidth: CGFloat = 1
     static let glowRadius: CGFloat = 11
     static let glowOpacity: Float = 0.45
-    /// Resting drop shadow (y-up: negative drops it below).
-    static let shadowOffsetY: CGFloat = -14
-    static let shadowRadius: CGFloat = 18
-    static let shadowOpacity: Float = 0.55
+    /// Drop shadow at rest and while dragged (y-up: negative drops it below).
+    static let restingShadow = FloatShadowStyle.Layer(offsetY: -14, radius: 18, opacity: 0.55)
+    static let liftedShadow = FloatShadowStyle.Layer(offsetY: -24, radius: 30, opacity: 0.65)
+    /// A dragged PiP is drawn this much larger.
+    static let liftScale: CGFloat = 1.06
 
     /// The right-legend buttons a PiP shows on hover.
     static var actions: [PaneBorderAction] {
