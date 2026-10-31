@@ -12,6 +12,7 @@ final class ThirdPartyLicenseCatalogTests: XCTestCase {
         XCTAssertEqual(versionsByID["sentry-cocoa"], "9.13.0")
         XCTAssertEqual(versionsByID["sparkle"], "2.9.2")
         XCTAssertEqual(versionsByID["swift-argument-parser"], "1.7.1")
+        XCTAssertEqual(versionsByID["zstd"], "1.5.7")
     }
 
     func test_bundled_catalog_entries_have_required_fields() throws {

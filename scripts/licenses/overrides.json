@@ -28,6 +28,17 @@
       "licenseNameOverride": "MIT License",
       "spdxIDOverride": "MIT",
       "licenseTextPath": "ZenttyResources/licenses/iTerm2-Color-Schemes/LICENSE"
+    },
+    {
+      "id": "zstd",
+      "displayName": "Zstandard",
+      "repositoryURL": "https://github.com/meta/zstd",
+      "homepageURLString": "https://facebook.github.io/zstd/",
+      "versionOverride": "1.5.7",
+      "sourceURLString": "https://github.com/meta/zstd/blob/v1.5.7/LICENSE",
+      "licenseNameOverride": "BSD 3-Clause License",
+      "spdxIDOverride": "BSD-3-Clause",
+      "licenseTextPath": "Vendor/Zstd/LICENSE"
     }
   ]
 }

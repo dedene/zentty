@@ -58,6 +58,16 @@
       "sourceURLString" : "https://github.com/apple/swift-argument-parser/blob/626b5b7b2f45e1b0b1c6f4a309296d1d21d7311b/LICENSE.txt",
       "spdxID" : "Apache-2.0",
       "version" : "1.7.1"
+    },
+    {
+      "displayName" : "Zstandard",
+      "fullText" : "BSD License\n\nFor Zstandard software\n\nCopyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.\n\nRedistribution and use in source and binary forms, with or without modification,\nare permitted provided that the following conditions are met:\n\n * Redistributions of source code must retain the above copyright notice, this\n   list of conditions and the following disclaimer.\n\n * Redistributions in binary form must reproduce the above copyright notice,\n   this list of conditions and the following disclaimer in the documentation\n   and/or other materials provided with the distribution.\n\n * Neither the name Facebook, nor Meta, nor the names of its contributors may\n   be used to endorse or promote products derived from this software without\n   specific prior written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR\nANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON\nANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n",
+      "homepageURLString" : "https://facebook.github.io/zstd/",
+      "id" : "zstd",
+      "licenseName" : "BSD 3-Clause License",
+      "sourceURLString" : "https://github.com/meta/zstd/blob/v1.5.7/LICENSE",
+      "spdxID" : "BSD-3-Clause",
+      "version" : "1.5.7"
     }
   ]
 }

@@ -283,6 +283,7 @@
 		5365E6551200CE825AC61854 /* AgentForkCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9801774C7075EFA3C18E958C /* AgentForkCommandBuilder.swift */; };
 		53A5FEA4F303782A33EFB427 /* WorklaneStore+Reordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 201F759D378A9A4EC12F40A7 /* WorklaneStore+Reordering.swift */; };
 		53C04E574AF84DBCF050718B /* PaneStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94042661C850159F74FC9F69 /* PaneStripViewTests.swift */; };
+		53CF1FB475BF4125BDAE153E /* ZstdByteSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 230FFA21BA12AECC2469BEB0 /* ZstdByteSource.swift */; };
 		53CFBCA09DB9326D0B8592CD /* TmuxCommandLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251D866C696C4237F3605EDB /* TmuxCommandLine.swift */; };
 		5409FF284008886CB8F87B1F /* GeneralSettingsRestoreScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259F6CA9592F972CEF74C72C /* GeneralSettingsRestoreScrollbackTests.swift */; };
 		542ED51FD16476C6BB46F285 /* ProgramStatusReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D6C82013D77D024CA440F2 /* ProgramStatusReducer.swift */; };
@@ -345,6 +346,7 @@
 		65ADCFA85CAA56E91E14C014 /* PaneDragEdgeScrollDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC113A53E86E67BCA330D9A /* PaneDragEdgeScrollDriver.swift */; };
 		65C0729CCCDB639440DD90EF /* WindowChromeCenteringInterleavingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C222FA689B8B7C8E932BE43D /* WindowChromeCenteringInterleavingTests.swift */; };
 		65C5388D0DFD8FB84B5FCD14 /* AppConfigTOML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C38CE6BD2D5F5D24B1B7FE /* AppConfigTOML.swift */; };
+		65C962DD10AB522297434215 /* ZstdByteSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6096ACF10F3B56F2E25270B3 /* ZstdByteSourceTests.swift */; };
 		65F7A5CB3F1EF2571AADB53F /* CloseConfirmationCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6FB8F60EA767D7F7E3C4E2F /* CloseConfirmationCopy.swift */; };
 		661F1B3E5187816B392E2100 /* CommandAvailabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */; };
 		667A04C8CFE0127371DF68C6 /* BookmarksPopoverViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483D9BCEB73BBB83700BF024 /* BookmarksPopoverViewModel.swift */; };
@@ -454,6 +456,7 @@
 		885360CBF357D8C8F7885E24 /* DevinEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BABB304BF9B7A3002AC6C6 /* DevinEventAdapter.swift */; };
 		8966A8B33DAEDF9AB8A8DECA /* ShellIntegrationSSHCacheAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5FF4A62DCF952CE2C4614C /* ShellIntegrationSSHCacheAssertions.swift */; };
 		896C64D6775F0BC9025F0F7D /* MuseTitleActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10A716310C76D826E85C53E /* MuseTitleActivity.swift */; };
+		8987DCF8F2EDB488FD21BC6B /* CZstd in Frameworks */ = {isa = PBXBuildFile; productRef = 3028A2387F354F40207B61F3 /* CZstd */; };
 		89C27D0B5F2C658F845594F6 /* CopilotAgentStatusFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20402675E4D6065CC165E00D /* CopilotAgentStatusFlowTests.swift */; };
 		8ADEEF68A08B51BFD3AD2CA9 /* DevinEventAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F7B9D0B9226983C2481488D /* DevinEventAdapterTests.swift */; };
 		8B1430D7C662CD2D1CC2E080 /* RootViewCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D24F62AFB71CBBAE4BC9B5A1 /* RootViewCompositionTests.swift */; };
@@ -991,6 +994,7 @@
 		20951EA69B03694C17C61738 /* LibghosttySurfaceActionCoalescerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurfaceActionCoalescerTests.swift; sourceTree = "<group>"; };
 		20A236782CF61D4D5B4FC361 /* LeadingChromeControlsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeadingChromeControlsBar.swift; sourceTree = "<group>"; };
 		22586DAF5BCA79D05DC53E1F /* CursorEventAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorEventAdapter.swift; sourceTree = "<group>"; };
+		230FFA21BA12AECC2469BEB0 /* ZstdByteSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZstdByteSource.swift; sourceTree = "<group>"; };
 		233D493A53D80ADC3053E6D3 /* LicensesWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensesWindowControllerTests.swift; sourceTree = "<group>"; };
 		239D19C1C465BA5197EBC394 /* WorklaneHeaderSummaryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneHeaderSummaryBuilder.swift; sourceTree = "<group>"; };
 		240CC203167EC1DDFBE0E4C7 /* MenuBarStatusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusController.swift; sourceTree = "<group>"; };
@@ -1102,6 +1106,7 @@
 		4466B21374C931CC40BB1AB6 /* AgentNotificationReply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationReply.swift; sourceTree = "<group>"; };
 		4483B8E7BA05745883A993C0 /* GlobalSearchCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchCoordinatorTests.swift; sourceTree = "<group>"; };
 		44842E2A20002BF99C5C8A55 /* AgentHistoryRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryRedactor.swift; sourceTree = "<group>"; };
+		44D7A2B190655A2D95F0E980 /* Zstd */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Zstd; path = Vendor/Zstd; sourceTree = SOURCE_ROOT; };
 		44F1EAAE17FA9FAA8E34852D /* TerminalOverlayThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOverlayThemeTests.swift; sourceTree = "<group>"; };
 		457C3E3EB1160148D4CA02E7 /* RemoteImagePasteDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImagePasteDecision.swift; sourceTree = "<group>"; };
 		45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolver.swift; sourceTree = "<group>"; };
@@ -1201,6 +1206,7 @@
 		5EEF748059F59CD2590E1C2C /* LibghosttySurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttySurface.swift; sourceTree = "<group>"; };
 		5F8A4AE1A76BD2C3991B34AB /* DirectoryChangeWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryChangeWatcher.swift; sourceTree = "<group>"; };
 		6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButton.swift; sourceTree = "<group>"; };
+		6096ACF10F3B56F2E25270B3 /* ZstdByteSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZstdByteSourceTests.swift; sourceTree = "<group>"; };
 		609771315B7DE1068E588518 /* AppActionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppActionRouter.swift; sourceTree = "<group>"; };
 		60B3AD9AA8F799603B573B28 /* ServerWatchRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerWatchRunner.swift; sourceTree = "<group>"; };
 		60ED50BB95D91FF371689ADA /* AgentTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTool.swift; sourceTree = "<group>"; };
@@ -1725,6 +1731,7 @@
 				750B3753803EBABD25361C40 /* Sentry in Frameworks */,
 				B22ACD7ABE0FB7A703022BC4 /* Sparkle in Frameworks */,
 				DD1FBB3CA62ACE6EFBA1E7AD /* FuzzyMatch in Frameworks */,
+				8987DCF8F2EDB488FD21BC6B /* CZstd in Frameworks */,
 				116F1C388CAD92205E226BBF /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2339,6 +2346,7 @@
 			isa = PBXGroup;
 			children = (
 				7D85A32FF838B668D61586CA /* FuzzyMatch */,
+				44D7A2B190655A2D95F0E980 /* Zstd */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -2395,6 +2403,7 @@
 				0CD565F0C23536F41FE6E8AC /* JSONLineSniffer.swift */,
 				F67B00CBD5F9E3D9841E2DE0 /* JSONLTailReader.swift */,
 				759AA2C53A0F74B3673633DD /* RepositoryIdentity.swift */,
+				230FFA21BA12AECC2469BEB0 /* ZstdByteSource.swift */,
 			);
 			path = Ingest;
 			sourceTree = "<group>";
@@ -2984,6 +2993,7 @@
 				9B4AE87CC3F4EB591D08B9A7 /* WorkspaceTemplateExporterTests.swift */,
 				7B94B2DF866815028261F94B /* WorkspaceTemplateImporterTests.swift */,
 				7647C38A27362015CB6F81B0 /* ZenttyBuildFlavorTests.swift */,
+				6096ACF10F3B56F2E25270B3 /* ZstdByteSourceTests.swift */,
 				25ABFB16744E1D8ACEAEC446 /* Support */,
 			);
 			path = ZenttyLogicTests;
@@ -3086,6 +3096,7 @@
 				7B6C0F6F7A5305E09ECE2C65 /* Sentry */,
 				C3FED8AC4087BC3A3CFCC755 /* Sparkle */,
 				1783CDCC7848CB005D3A519C /* FuzzyMatch */,
+				3028A2387F354F40207B61F3 /* CZstd */,
 			);
 			productName = Zentty;
 			productReference = EE4A79EE9DA488020E7D0C71 /* Zentty.app */;
@@ -3135,6 +3146,7 @@
 				878A54334D2B91363EA6D039 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				1CA4AE4566F84BDDF088EC1B /* XCRemoteSwiftPackageReference "Sparkle" */,
 				22D33C9D88CFE82F64B70138 /* XCLocalSwiftPackageReference "Vendor/FuzzyMatch" */,
+				3B5C1F82758B0B9312FB172A /* XCLocalSwiftPackageReference "Vendor/Zstd" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 77D242A536F1FD4B6EE328F9 /* Products */;
@@ -3525,6 +3537,7 @@
 				CE2B404DBF241C89DDD59410 /* WorkspaceTemplateExporterTests.swift in Sources */,
 				651B2031755C9F3C1B83C49A /* WorkspaceTemplateImporterTests.swift in Sources */,
 				B9B0963FB0A8776D8CC76ECB /* ZenttyBuildFlavorTests.swift in Sources */,
+				65C962DD10AB522297434215 /* ZstdByteSourceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3999,6 +4012,7 @@
 				EDE18C0DA4C79997711F2528 /* ZenttyBreadcrumbs.swift in Sources */,
 				58668F2345A801D0614F17BC /* ZenttyBuildFlavor.swift in Sources */,
 				73B63BE60A1C45AFC26AAA4D /* ZenttyPerformanceSignposts.swift in Sources */,
+				53CF1FB475BF4125BDAE153E /* ZstdByteSource.swift in Sources */,
 				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4269,6 +4283,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Vendor/Zstd/Sources/CZstd/include";
 				TEST_HOST = "";
 			};
 			name = Debug;
@@ -4293,6 +4308,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Vendor/Zstd/Sources/CZstd/include";
 				TEST_HOST = "";
 			};
 			name = Debug;
@@ -4333,6 +4349,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyIntegrationTests;
 				PRODUCT_NAME = ZenttyIntegrationTests;
 				SDKROOT = macosx;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Vendor/Zstd/Sources/CZstd/include";
 				TEST_HOST = "";
 			};
 			name = Release;
@@ -4371,6 +4388,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = be.zenjoy.zenttyLogicTests;
 				PRODUCT_NAME = ZenttyLogicTests;
 				SDKROOT = macosx;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Vendor/Zstd/Sources/CZstd/include";
 				TEST_HOST = "";
 			};
 			name = Release;
@@ -4571,6 +4589,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/FuzzyMatch;
 		};
+		3B5C1F82758B0B9312FB172A /* XCLocalSwiftPackageReference "Vendor/Zstd" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/Zstd;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -4604,6 +4626,10 @@
 		1783CDCC7848CB005D3A519C /* FuzzyMatch */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FuzzyMatch;
+		};
+		3028A2387F354F40207B61F3 /* CZstd */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CZstd;
 		};
 		7B6C0F6F7A5305E09ECE2C65 /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;
