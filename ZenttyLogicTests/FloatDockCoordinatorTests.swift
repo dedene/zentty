@@ -119,6 +119,30 @@ final class FloatDockCoordinatorTests: AppKitTestCase {
         XCTAssertFalse(coordinator.isActive)
     }
 
+    func test_pointer_outside_the_preview_host_targets_and_commits_nothing() {
+        let (coordinator, _) = makeCoordinator()
+        coordinator.enter(paneID: floatID, cursor: CGPoint(x: 1250, y: 400))
+        XCTAssertNil(coordinator.currentTarget, "past the canvas: not the gap after the last column")
+        XCTAssertNil(coordinator.previewForTesting.geometry)
+
+        coordinator.update(cursor: CGPoint(x: 900, y: 400))
+        XCTAssertEqual(coordinator.currentTarget, .columnGap(index: 2))
+
+        XCTAssertNil(coordinator.commit(cursor: CGPoint(x: 1250, y: 400)), "released outside the canvas")
+    }
+
+    func test_empty_strip_targets_only_inside_the_canvas() {
+        columns = []
+        let (coordinator, _) = makeCoordinator()
+        coordinator.enter(paneID: floatID, cursor: CGPoint(x: -30, y: 400))
+        XCTAssertNil(coordinator.currentTarget)
+
+        coordinator.update(cursor: CGPoint(x: 600, y: 400))
+        XCTAssertEqual(coordinator.currentTarget, .columnGap(index: 0))
+
+        XCTAssertNil(coordinator.commit(cursor: CGPoint(x: 600, y: 900)), "released below the canvas")
+    }
+
     func test_strip_change_clears_vanished_target_and_keeps_live_one() throws {
         let (coordinator, _) = makeCoordinator()
         coordinator.enter(paneID: floatID, cursor: CGPoint(x: 608, y: 760))

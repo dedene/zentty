@@ -115,6 +115,29 @@ final class FloatLayerViewInteractionTests: AppKitTestCase {
         XCTAssertTrue(layer.dockPreviewView.subviews.isEmpty)
     }
 
+    /// Review finding: the release point decides, not the last drag sample.
+    /// Letting go outside the canvas leaves the float floating.
+    func test_dock_mode_release_outside_the_canvas_stays_a_move() throws {
+        let layer = makeLayer()
+        layer.render(content(frame: NormalizedRect(x: 0.5, y: 0.3, width: 0.4, height: 0.4)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
+        let session = FloatDragSession(startMouse: CGPoint(x: 700, y: 600), startFrame: host.paneFrame, timestamp: 0)
+        host.activeGesture = ActiveFloatGesture(kind: .move, session: session, didBegin: true, startedOverLegend: false, isDockMode: true)
+        var ended: [FloatGestureOutcome] = []
+        layer.onFloatGestureEnded = { _, outcome, _ in ended.append(outcome) }
+        host.onGestureBegan?(.move)
+        host.onDockModeChanged?(true)
+        XCTAssertEqual(layer.dockCoordinator.currentTarget, .columnGap(index: 0), "inside: the empty strip is a target")
+
+        host.activeGesture = nil
+        host.lastReleasePoint = CGPoint(x: 700, y: canvas.maxY + 40)
+        let moved = host.paneFrame
+        host.onGestureEnded?(.move(frame: moved), .zero)
+
+        XCTAssertEqual(ended, [.move(frame: moved)])
+        XCTAssertFalse(layer.dockCoordinator.isActive)
+    }
+
     func test_dock_mode_toggled_off_restores_plain_move() throws {
         let layer = makeLayer()
         layer.render(content(frame: NormalizedRect(x: 0.5, y: 0.3, width: 0.4, height: 0.4)))

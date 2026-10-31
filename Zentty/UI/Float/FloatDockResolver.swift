@@ -35,7 +35,7 @@ enum FloatDockPreviewGeometry: Equatable, Sendable {
 /// remove, like the ⌥ duplicate path): column gap with hysteresis (dropped
 /// when a prospective split owns that edge), then a stack gap, then a split
 /// once the dwell has passed. The resolution never duplicates and never
-/// targets the sidebar.
+/// targets the sidebar, and a pointer outside the canvas targets nothing.
 enum FloatDockResolver {
     static let splitDwellDuration: TimeInterval = 0.25
     /// Insertion line thickness (the tile drag's 6pt at zoom 1).
@@ -45,6 +45,9 @@ enum FloatDockResolver {
 
     struct Input: Equatable {
         var cursor: CGPoint
+        /// The eligible canvas (the float layer's bounds). A drag keeps
+        /// reporting the pointer past it; there it docks nowhere.
+        var canvas: CGRect
         var columns: [ColumnPresentation]
         var draggedPaneID: PaneID
         var previous: FloatDockHits
@@ -53,6 +56,7 @@ enum FloatDockResolver {
 
         init(
             cursor: CGPoint,
+            canvas: CGRect,
             columns: [ColumnPresentation],
             draggedPaneID: PaneID,
             previous: FloatDockHits = .none,
@@ -60,6 +64,7 @@ enum FloatDockResolver {
             minimumPaneHeight: CGFloat = PaneStripState.minimumVerticalPaneHeight
         ) {
             self.cursor = cursor
+            self.canvas = canvas
             self.columns = columns
             self.draggedPaneID = draggedPaneID
             self.previous = previous
@@ -78,6 +83,9 @@ enum FloatDockResolver {
     }
 
     static func resolve(_ input: Input) -> Result {
+        guard input.canvas.contains(input.cursor) else {
+            return Result(hits: .none, target: nil, pendingSplit: nil, resolution: nil)
+        }
         guard !input.columns.isEmpty else {
             return Result(hits: .none, target: .columnGap(index: 0), pendingSplit: nil, resolution: nil)
         }

@@ -163,6 +163,7 @@ final class FloatDockCoordinator {
     private func resolve(cursor: CGPoint, columns: [ColumnPresentation], paneID: PaneID) -> FloatDockResolver.Result {
         FloatDockResolver.resolve(FloatDockResolver.Input(
             cursor: cursor,
+            canvas: previewHost?.bounds ?? .zero,
             columns: columns,
             draggedPaneID: paneID,
             previous: hits,

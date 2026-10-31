@@ -52,6 +52,7 @@ final class FloatDockResolverTests: XCTestCase {
     ) -> FloatDockResolver.Result {
         FloatDockResolver.resolve(FloatDockResolver.Input(
             cursor: cursor,
+            canvas: canvas,
             columns: columns,
             draggedPaneID: dragged,
             previous: previous,
@@ -65,6 +66,22 @@ final class FloatDockResolverTests: XCTestCase {
         let result = resolve(CGPoint(x: 600, y: 400), [])
         XCTAssertEqual(result.target, .columnGap(index: 0))
         XCTAssertEqual(result.hits, .none)
+    }
+
+    /// Review finding: a pointer dragged past the canvas (out of the window,
+    /// over chrome) never targets a gap, also not on an empty strip.
+    func test_cursor_outside_the_canvas_has_no_target() {
+        let outside = [
+            CGPoint(x: -20, y: 400), CGPoint(x: 1220, y: 400),
+            CGPoint(x: 600, y: -20), CGPoint(x: 600, y: 820),
+        ]
+        for cursor in outside {
+            XCTAssertNil(resolve(cursor, []).target, "empty strip, \(cursor)")
+            let populated = resolve(cursor, twoColumns, dwell: true)
+            XCTAssertNil(populated.target, "\(cursor)")
+            XCTAssertEqual(populated.hits, .none, "\(cursor)")
+            XCTAssertNil(populated.pendingSplit, "\(cursor)")
+        }
     }
 
     func test_gap_between_columns_uses_raw_index() {

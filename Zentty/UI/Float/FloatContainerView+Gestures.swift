@@ -30,6 +30,7 @@ extension FloatContainerView {
             return
         }
         cancelGesture()
+        lastReleasePoint = nil
         let overLegend = !event.modifierFlags.isSuperset(of: FloatGesture.anywhereMoveModifiers)
             && hostedContainer?.hitTestBorderContext(pointInSuperview, from: superview) != nil
         activeGesture = ActiveFloatGesture(
@@ -69,6 +70,7 @@ extension FloatContainerView {
         // The release itself is a sample: a pause before letting go reads as
         // a slow release, not as the last fast drag.
         gesture.session.move(to: superview.convert(event.locationInWindow, from: nil), timestamp: event.timestamp)
+        lastReleasePoint = gesture.session.lastMouse
         endGestureTracking()
         let outcome = FloatGesture.outcome(
             session: gesture.session,

@@ -26,8 +26,9 @@ extension FloatLayerView {
     }
 
     /// A move released in dock mode becomes `.dock` when the coordinator
-    /// still resolves a target; otherwise the plain outcome stands (the float
-    /// stays where it dropped). Always leaves dock mode.
+    /// still resolves a target at the release point; otherwise the plain
+    /// outcome stands (the float stays where it dropped, also when it was let
+    /// go outside the canvas). Always leaves dock mode.
     func resolveDockRelease(_ paneID: PaneID, outcome: FloatGestureOutcome) -> FloatGestureOutcome {
         guard dockCoordinator.isActive else {
             endDockMode(paneID)
@@ -35,7 +36,9 @@ extension FloatLayerView {
         }
         var resolved = outcome
         if case .move(let frame) = outcome,
-           let target = dockCoordinator.commit(cursor: dockCoordinator.lastCursor) {
+           let target = dockCoordinator.commit(
+               cursor: floatHost(paneID)?.lastReleasePoint ?? dockCoordinator.lastCursor
+           ) {
             resolved = .dock(target: target, frame: frame)
         }
         endDockMode(paneID)

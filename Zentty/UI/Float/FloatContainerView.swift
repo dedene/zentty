@@ -57,6 +57,10 @@ final class FloatContainerView: NSView {
     var onDockModeChanged: ((Bool) -> Void)?
     /// The press being tracked (see `+Gestures`).
     var activeGesture: ActiveFloatGesture?
+    /// Where the last press was let go (superview coordinates), set just
+    /// before `onGestureEnded`: a dock release resolves here, not at the last
+    /// drag sample.
+    var lastReleasePoint: CGPoint?
     var gestureMonitors: [Any] = []
 
     init(paneID: PaneID) {
