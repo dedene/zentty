@@ -14,7 +14,7 @@ import Foundation
 /// Child threads (subagents, guardian reviews) are dropped at discovery when the thread
 /// catalog knows them, else at ingest from the rollout's `session_meta` (D13).
 ///
-/// Confined to the indexer queue; the zstd continuation and the catalog cache sit behind locks
+/// Confined to the indexer queue; the zstd continuations and the catalog cache sit behind locks
 /// so the instance stays `Sendable`.
 final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
     static let stateUnitKey = "state"
@@ -31,7 +31,10 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
     /// (FSEvents reports `/private/var/…` where the canonical form is `/var/…`).
     private let rootPrefixes: [String]
     private let continuationLock = NSLock()
-    private var zstdContinuation: CodexZstdContinuation?
+    /// Parked decompressing readers, oldest first, at most one per unit key and
+    /// `maxZstdContinuations` in all, so a live compressed rollout and a compressed backfill
+    /// stream do not evict each other.
+    private var zstdContinuations: [CodexZstdContinuation] = []
 
     init(root: AgentHistorySourceRoot) {
         self.root = root
@@ -235,24 +238,39 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
 
     // MARK: - Zstd continuation cache
 
-    /// Takes the cached stream when it continues exactly where `unit` was left.
+    static let maxZstdContinuations = 2
+
+    /// Takes the cached stream of `key` when it continues exactly where the unit was left. Any
+    /// stream of `key` is dropped either way (it is stale when it does not match).
     func takeZstdContinuation(key: String, identity: AgentHistoryFileIdentity, offset: Int64) -> CodexZstdContinuation? {
         continuationLock.lock()
         defer { continuationLock.unlock() }
-        guard let continuation = zstdContinuation else {
+        guard let index = zstdContinuations.firstIndex(where: { $0.key == key }) else {
             return nil
         }
-        zstdContinuation = nil
-        guard continuation.key == key, continuation.identity == identity, continuation.offset == offset else {
+        let continuation = zstdContinuations.remove(at: index)
+        guard continuation.identity == identity, continuation.offset == offset else {
             return nil
         }
         return continuation
     }
 
-    func storeZstdContinuation(_ continuation: CodexZstdContinuation?) {
+    /// Parks a stream, replacing any other stream of the same key and evicting the oldest one
+    /// past `maxZstdContinuations`.
+    func storeZstdContinuation(_ continuation: CodexZstdContinuation) {
         continuationLock.lock()
-        zstdContinuation = continuation
-        continuationLock.unlock()
+        defer { continuationLock.unlock() }
+        zstdContinuations.removeAll { $0.key == continuation.key }
+        zstdContinuations.append(continuation)
+        if zstdContinuations.count > Self.maxZstdContinuations {
+            zstdContinuations.removeFirst(zstdContinuations.count - Self.maxZstdContinuations)
+        }
+    }
+
+    func dropZstdContinuation(key: String) {
+        continuationLock.lock()
+        defer { continuationLock.unlock() }
+        zstdContinuations.removeAll { $0.key == key }
     }
 }
 

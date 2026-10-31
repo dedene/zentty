@@ -45,12 +45,44 @@ final class CodexHistorySourceZstdTests: XCTestCase {
 
         // A resume without the cached stream (e.g. after relaunch) starts a fresh decoder.
         let midway = batches[3].cursor
-        source.storeZstdContinuation(nil)
+        source.dropZstdContinuation(key: unit.key)
         XCTAssertEqual(source.classifyChange(unit: unit, cursor: midway), .append(fromOffset: midway.byteOffset, nextSeq: midway.nextSeq),
                        "a cursor that stopped short resumes")
         let resumed = try C.ingestAll(source, unit: unit, cursor: midway, mode: .fromOffset(midway.byteOffset, nextSeq: midway.nextSeq),
                                       context: F.context(messageLimit: 7))
         XCTAssertEqual(resumed.flatMap(\.messages).map(\.text), batches[4...].flatMap(\.messages).map(\.text))
+    }
+
+    func test_plain_ingests_and_other_rejects_keep_the_parked_stream() throws {
+        let (root, source) = try C.makeRoot(self)
+        let backfill = C.newThreadID(), live = C.newThreadID(), otherZst = C.newThreadID(), tombstoned = C.newThreadID()
+        try C.writeRollout(root: root, id: backfill, lines: conversation(backfill, turns: 20), compressed: true)
+        try C.writeRollout(root: root, id: live, lines: conversation(live, turns: 2))
+        try C.writeRollout(root: root, id: otherZst, lines: conversation(otherZst, turns: 20), compressed: true)
+        try C.writeRollout(root: root, id: tombstoned, lines: conversation(tombstoned, turns: 2), compressed: true)
+        let backfillUnit = try C.unit(source, key: "rollout:" + backfill)
+        let context = F.context(messageLimit: 5)
+
+        let first = try source.ingest(unit: backfillUnit, cursor: nil, mode: .fromStart, context: context)
+        XCTAssertTrue(first.hasMore)
+
+        // A live append to a plain rollout, a compressed rollout of another thread, and a
+        // rejected compressed rollout run between two backfill batches.
+        _ = try C.ingestAll(source, unit: try C.unit(source, key: "rollout:" + live), context: context)
+        let other = try source.ingest(unit: try C.unit(source, key: "rollout:" + otherZst), cursor: nil, mode: .fromStart, context: context)
+        XCTAssertTrue(other.hasMore)
+        let admission = AgentHistoryAdmission(exclusions: AgentHistoryExclusionMatcher(folders: []),
+                                              tombstones: [AgentHistorySessionKey(agent: .codex, nativeID: tombstoned)])
+        let rejected = try source.ingest(unit: try C.unit(source, key: "rollout:" + tombstoned), cursor: nil, mode: .fromStart,
+                                         context: F.context(admission: admission))
+        XCTAssertEqual(rejected.rejected, [tombstoned: .tombstoned])
+
+        let identity = try XCTUnwrap(backfillUnit.identity)
+        let parked = try XCTUnwrap(source.takeZstdContinuation(key: backfillUnit.key, identity: identity, offset: first.cursor.byteOffset),
+                                   "the backfill stream survives unrelated ingests")
+        source.storeZstdContinuation(parked)
+        XCTAssertNotNil(source.takeZstdContinuation(key: "rollout:" + otherZst, identity: try XCTUnwrap(try C.unit(source, key: "rollout:" + otherZst).identity),
+                                                    offset: other.cursor.byteOffset), "two compressed streams fit side by side")
     }
 
     func test_jsonl_to_zst_equal_size_is_identity_only() throws {

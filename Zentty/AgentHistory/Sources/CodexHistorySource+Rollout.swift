@@ -234,7 +234,9 @@ extension CodexHistorySource {
 
         // Tombstones (and exclusions, when the folder is already known) reject before any read.
         if !processor.state.isChild, let decision = processor.decideEarly(), decision != .admit {
-            storeZstdContinuation(nil)
+            if kind == .zst {
+                dropZstdContinuation(key: unit.key)
+            }
             return Self.rejected(finish(byteOffset: startOffset, fingerprint: base.fingerprint), nativeID: nativeID, decision: decision)
         }
 
@@ -284,10 +286,10 @@ extension CodexHistorySource {
         } else {
             fingerprint = AgentHistoryFileFingerprint.compute(path: unit.path, endOffset: committed)
         }
+        // Plain rollouts never touch the parked streams; `takeZstdContinuation` already removed
+        // this unit's stream, so a finished or rejected compressed rollout leaves nothing behind.
         if let window, !stats.reachedEOF, outcome == .continue || outcome == .child {
             storeZstdContinuation(CodexZstdContinuation(key: unit.key, identity: identity, offset: committed, reader: reader, window: window))
-        } else {
-            storeZstdContinuation(nil)
         }
 
         if outcome == .rejected, let decision = processor.decision {
