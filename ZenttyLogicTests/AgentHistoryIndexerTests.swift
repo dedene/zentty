@@ -354,11 +354,15 @@ final class AgentHistoryIndexerTests: XCTestCase {
         XCTAssertEqual(try harness.count("SELECT count(*) FROM messages"), 5)
 
         let entered = DispatchSemaphore(value: 0)
+        let cancelledAt = Box<Date?>(nil)
         harness.source.setIngestHook { _, _, context in
             entered.signal()
             let deadline = Date().addingTimeInterval(10)
             while !context.isCancelled(), Date() < deadline {
-                usleep(5_000)
+                usleep(2_000)
+            }
+            if context.isCancelled() {
+                cancelledAt.value = Date()
             }
             throw CancellationError()
         }
@@ -367,11 +371,52 @@ final class AgentHistoryIndexerTests: XCTestCase {
         XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
 
         let started = Date()
-        indexer.stop(timeout: 1)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5)
+        indexer.stop(timeout: 5)
+        let elapsed = Date().timeIntervalSince(started)
 
+        XCTAssertLessThan(elapsed, 1, "teardown finished early instead of running into the timeout")
+        let cancelled = try XCTUnwrap(cancelledAt.value, "the adapter saw the cancellation")
+        XCTAssertLessThan(cancelled.timeIntervalSince(started), 0.5)
+        XCTAssertFalse(indexer.isWriterOpenForTesting)
         XCTAssertEqual(try harness.count("SELECT count(*) FROM messages"), 5, "the cancelled rewrite rolled back")
         XCTAssertEqual(try harness.count("SELECT turn_count FROM sessions WHERE native_id = 's1'"), 3)
+        XCTAssertEqual(try harness.count("SELECT ino FROM cursors WHERE unit_key = 's1'"), 1)
+    }
+
+    func test_stop_between_rewrite_batches_rolls_back_without_reading_further() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1", messages: ["a", "b", "c", "d", "e"], ino: 1)])
+        let indexer = harness.makeIndexer(messageLimit: 1)
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+        XCTAssertEqual(try harness.count("SELECT count(*) FROM messages"), 5)
+
+        // The second batch of the one-transaction rewrite waits for the stop, then returns
+        // normally: only the rewrite loop's own check can abort the transaction.
+        let entered = DispatchSemaphore(value: 0)
+        let calls = Counter()
+        harness.source.setIngestHook { _, _, context in
+            guard calls.next() == 2 else {
+                return
+            }
+            entered.signal()
+            let deadline = Date().addingTimeInterval(10)
+            while !context.isCancelled(), Date() < deadline {
+                usleep(2_000)
+            }
+        }
+        let ingestedBefore = harness.source.ingestedKeys.count
+        harness.source.setUnits([.single("s1", messages: ["x", "y", "z"], ino: 2)])
+        indexer.requestReconcile()
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+
+        let started = Date()
+        indexer.stop(timeout: 5)
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+        XCTAssertFalse(indexer.isWriterOpenForTesting)
+        XCTAssertEqual(harness.source.ingestedKeys.count - ingestedBefore, 2, "no batch read after the stop")
+        XCTAssertEqual(try harness.messageTexts(), ["a", "b", "c", "d", "e"], "the rewrite rolled back")
         XCTAssertEqual(try harness.count("SELECT ino FROM cursors WHERE unit_key = 's1'"), 1)
     }
 
