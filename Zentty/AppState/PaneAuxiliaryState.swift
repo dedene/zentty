@@ -1429,11 +1429,9 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
         }
     }
 
+    /// Shared with Agent History so stored repository roots compare equal to pane git contexts.
     private func canonicalRepositoryRoot(_ value: String) -> String {
-        URL(fileURLWithPath: value, isDirectory: true)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
+        AgentHistoryPath.canonical(value)
     }
 }
 
