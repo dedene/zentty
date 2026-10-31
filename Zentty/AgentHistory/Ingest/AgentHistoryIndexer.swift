@@ -89,9 +89,11 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     /// Unchanged units classified per step before yielding the queue.
     static let unchangedUnitsPerStep = 256
     static let backfillCompletedMetaKey = "backfill_completed_at"
+    static let busyRetryDelay: TimeInterval = 1
 
     enum Lifecycle: Equatable {
-        case idle, running, failed, stopped
+        /// `standby`: another instance owns the index; retried every `standbyRetryInterval`.
+        case idle, standby, running, failed, stopped
     }
 
     let queue = DispatchQueue(label: AgentHistoryIndexer.queueLabel, qos: .utility)
@@ -110,6 +112,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
 
     var lifecycle: Lifecycle = .idle
     var configuration: AgentHistoryIndexerConfiguration
+    /// Held from start to stop (`AgentHistoryWriterLock`); released on failure.
+    var writerLock: AgentHistoryWriterLock?
     var writer: AgentHistoryDatabase?
     var store: AgentHistoryStore?
     var tokenizer: AgentHistoryTokenizer?
@@ -145,6 +149,11 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
     /// Runs inside the carry-over restore transaction; throwing makes the restore fail.
     var beforeCarryOverRestoreForTesting: (() throws -> Void)?
+    /// How long `start` waits for the writer lock before standing by. Set before `start()`.
+    var writerLockWait: TimeInterval = 2
+    /// How often a standby indexer tries to take over. Set before `start()`.
+    var standbyRetryInterval: TimeInterval = 15
+    var standbyRetryScheduled = false
 
     // MARK: Writes (AgentHistoryIndexer+Writes.swift)
 
@@ -311,7 +320,10 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     // MARK: - Lifecycle on the queue
 
     func startOnQueue() {
-        guard lifecycle == .idle, !cancellation.isSet else {
+        guard lifecycle == .idle || lifecycle == .standby, !cancellation.isSet else {
+            return
+        }
+        guard acquireWriterLockOrStandBy() else {
             return
         }
         lifecycle = .running
@@ -378,6 +390,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         writer?.close()
         writer = nil
         store = nil
+        releaseWriterLock()
         workQueue = AgentHistoryWorkQueue()
         setState(.off)
         publish(force: true)
@@ -390,6 +403,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         writer?.close()
         writer = nil
         store = nil
+        // Another instance may manage where this one failed; Rebuild takes the lock again.
+        releaseWriterLock()
         lifecycle = .failed
         setState(.failed(reason))
         publish(force: true)

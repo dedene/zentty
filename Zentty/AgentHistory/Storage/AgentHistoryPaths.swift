@@ -11,6 +11,7 @@ struct AgentHistoryPaths: Equatable, Sendable {
     static let databaseFileName = "index.sqlite"
     static let stateFileName = "state.json"
     static let lockFileName = "index.lock"
+    static let writerLockFileName = "index.writer.lock"
     static let corruptFilePrefix = "index.corrupt-"
     static let corruptFileSuffix = ".sqlite"
 
@@ -22,6 +23,8 @@ struct AgentHistoryPaths: Equatable, Sendable {
     var stateURL: URL { directoryURL.appendingPathComponent(Self.stateFileName, isDirectory: false) }
     /// `flock`ed while one process creates, migrates or quarantines the index.
     var lockURL: URL { directoryURL.appendingPathComponent(Self.lockFileName, isDirectory: false) }
+    /// `flock`ed for as long as one process's indexer owns the index (`AgentHistoryWriterLock`).
+    var writerLockURL: URL { directoryURL.appendingPathComponent(Self.writerLockFileName, isDirectory: false) }
 
     /// `index.corrupt-20261031T101500Z.sqlite`: UTC, ISO 8601 basic format.
     func corruptDatabaseURL(at date: Date) -> URL {

@@ -8,6 +8,9 @@ import Foundation
 ///   back, the unit is re-queued first, and every `schedule.diskFullRetry` the indexer checks
 ///   the volume; once more than `diskFullResumeMinimumBytes` are free it resumes (an unknown
 ///   amount resumes too, and SQLite reports again if it is still full).
+/// - Another Zentty instance owns the index (`AgentHistoryWriterLock`): stand by read-only,
+///   `.paused(.anotherInstance)`, show the stored sessions and try to take over every
+///   `standbyRetryInterval`.
 /// - Corruption found mid-run: close the writer, move the file aside (`index.corrupt-*`), open a
 ///   fresh index and reconcile every source from scratch, at most
 ///   `maxCorruptionRecoveriesPerRun` times before failing with `.corrupt`. Tombstones and usage
@@ -146,5 +149,80 @@ extension AgentHistoryIndexer {
         isDiskFull = false
         tokenizer = nil
         admission = .admitAll
+    }
+
+    // MARK: - Index ownership
+
+    /// True when this indexer owns the index (now, or already). A busy lock means another
+    /// instance indexes: stand by. Any other failure fails the indexer.
+    func acquireWriterLockOrStandBy() -> Bool {
+        if writerLock?.isHeld == true {
+            return true
+        }
+        do {
+            writerLock = try storage.acquireWriterLock(timeout: writerLockWait)
+            if lifecycle == .standby {
+                AgentHistoryLog.indexer.info("Agent History took over the index from another instance")
+            }
+            return true
+        } catch let error as AgentHistoryDatabaseError where error.kind == .busy {
+            enterStandby()
+        } catch let error as AgentHistoryDatabaseError {
+            AgentHistoryLog.indexer.error("Agent History could not lock the index \(error.description, privacy: .public)")
+            fail(Self.failureReason(for: error))
+        } catch {
+            fail(.openFailed(code: -1))
+        }
+        return false
+    }
+
+    func releaseWriterLock() {
+        writerLock?.release()
+        writerLock = nil
+    }
+
+    func enterStandby() {
+        if lifecycle != .standby {
+            lifecycle = .standby
+            AgentHistoryLog.indexer.info("Agent History index owned by another instance; standing by")
+        }
+        loadStandbySnapshot()
+        setState(.paused(.anotherInstance, nil))
+        publish(force: true)
+        scheduleStandbyRetry()
+    }
+
+    /// The sessions the owning instance stored, read through the reader pool.
+    func loadStandbySnapshot() {
+        do {
+            let (summaries, isComplete) = try storage.readers.withReader { database in
+                let store = AgentHistoryStore(database: database, now: now)
+                return (try store.allVisibleSessionSummaries(), try store.meta(Self.backfillCompletedMetaKey) != nil)
+            }
+            if Set(summaries) != Set(snapshotBuilder.allSessions) || isComplete != isBackfillComplete {
+                snapshotBuilder.replaceAll(summaries)
+                isBackfillComplete = isComplete
+                snapshotDirty = true
+            }
+        } catch {
+            AgentHistoryLog.indexer.info("Agent History standby could not read the index yet")
+        }
+    }
+
+    func scheduleStandbyRetry() {
+        guard !standbyRetryScheduled else {
+            return
+        }
+        standbyRetryScheduled = true
+        queue.asyncAfter(deadline: .now() + standbyRetryInterval) { [weak self] in
+            guard let self else {
+                return
+            }
+            standbyRetryScheduled = false
+            guard lifecycle == .standby, !cancellation.isSet else {
+                return
+            }
+            startOnQueue()
+        }
     }
 }

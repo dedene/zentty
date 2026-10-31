@@ -14,7 +14,7 @@ final class AgentHistorySetupLock {
 
     /// Waits up to `timeout` for the lock. Throws `.busy` when another holder keeps it that long and
     /// `.cantOpen` when the lock file can't be opened.
-    init(url: URL, timeout: TimeInterval) throws {
+    init(url: URL, timeout: TimeInterval, busyMessage: String = "another process is setting up the index") throws {
         let fd = Darwin.open(url.path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else {
             throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
@@ -28,7 +28,7 @@ final class AgentHistorySetupLock {
                 Darwin.close(fd)
                 if failure == EWOULDBLOCK {
                     throw AgentHistoryDatabaseError(kind: .busy, code: SQLITE_BUSY, extendedCode: SQLITE_BUSY,
-                                                    message: "another process is setting up the index")
+                                                    message: busyMessage)
                 }
                 throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
                                                 message: "cannot lock the index lock file")
@@ -47,5 +47,43 @@ final class AgentHistorySetupLock {
         flock(descriptor, LOCK_UN)
         Darwin.close(descriptor)
         descriptor = -1
+    }
+}
+
+/// Exclusive ownership of the index for writing: an `flock` on `index.writer.lock`, held by one
+/// indexer from start to stop. Zentty instances of one flavor share the index; only the holder
+/// opens a writer, rebuilds, quarantines or purges, so no instance ever deletes or renames files
+/// another one is writing (a second instance would keep committing to an unlinked inode and,
+/// on close, remove the new index's WAL by path). The others wait read-only (standby).
+///
+/// Like the setup lock it excludes other holders in this process too, so an indexer that is
+/// still tearing down keeps the next one out. Thread-safe.
+final class AgentHistoryWriterLock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: AgentHistorySetupLock?
+
+    /// Waits up to `timeout`; throws `.busy` when another indexer owns the index.
+    init(url: URL, timeout: TimeInterval) throws {
+        held = try AgentHistorySetupLock(url: url, timeout: timeout,
+                                         busyMessage: "another Zentty is indexing")
+    }
+
+    var isHeld: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return held != nil
+    }
+
+    /// Idempotent.
+    func release() {
+        lock.lock()
+        let released = held
+        held = nil
+        lock.unlock()
+        released?.unlock()
+    }
+
+    deinit {
+        release()
     }
 }

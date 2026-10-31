@@ -172,6 +172,8 @@ extension AgentHistoryIndexer {
             if error.kind == .full {
                 // The transaction rolled back; the unit goes first once there is space again.
                 workQueue.setContinuation(ref, tier: tier)
+            } else if error.kind == .busy {
+                retryAfterBusy(ref, tier: tier)
             }
             handleStorageFailure(error)
             return .skipped
@@ -183,6 +185,19 @@ extension AgentHistoryIndexer {
                 "Agent History ingest failed agent=\(sourceState.source.agent.rawValue, privacy: .public)"
             )
             return .skipped
+        }
+    }
+
+    /// The index was busy past its timeout (an outside connection held it): the unit goes back
+    /// first after `busyRetryDelay` instead of dropping out until the next reconcile.
+    func retryAfterBusy(_ ref: AgentHistoryUnitRef, tier: AgentHistoryWorkQueue.Tier) {
+        queue.asyncAfter(deadline: .now() + Self.busyRetryDelay) { [weak self] in
+            guard let self, lifecycle == .running, !cancellation.isSet, sourceStates[ref.sourceID] != nil else {
+                return
+            }
+            workQueue.setContinuation(ref, tier: tier)
+            updateProgressState()
+            scheduleStep()
         }
     }
 

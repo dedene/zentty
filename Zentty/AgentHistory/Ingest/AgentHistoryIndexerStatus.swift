@@ -5,6 +5,9 @@ enum AgentHistoryPauseReason: String, Sendable {
     case lowPower
     case thermal
     case diskFull
+    /// Another Zentty instance of this flavor owns the index (it keeps it fresh); this one
+    /// shows the stored sessions read-only and takes over once that instance stops.
+    case anotherInstance
 }
 
 /// Why the index can't be used at all.

@@ -29,7 +29,9 @@ struct AgentHistoryWriterHandle: Sendable {
 /// creation and migration, corruption quarantine, newer-schema refusal, and the reader pool.
 ///
 /// Confinement: `openWriter`, `quarantineCorruptDatabase`, `removeIndexFiles` and
-/// `removeEverything` run on the indexer queue (the writer's owner). `availability`, `tokenizer`
+/// `removeEverything` run on the indexer queue (the writer's owner); the first three only while
+/// holding the writer lock (`acquireWriterLock`), so another instance's writer never loses its
+/// files. `availability`, `tokenizer`
 /// and `readers` are safe from any thread (lock-protected).
 final class AgentHistoryStorage: @unchecked Sendable {
     struct Options: Sendable {
@@ -122,6 +124,18 @@ final class AgentHistoryStorage: @unchecked Sendable {
             AgentHistoryLog.indexer.error("Agent History index open failed outside SQLite")
             throw error
         }
+    }
+
+    /// Takes exclusive ownership of the index for writing (see `AgentHistoryWriterLock`),
+    /// creating the directory first. Throws `.busy` when another indexer keeps it past `timeout`.
+    func acquireWriterLock(timeout: TimeInterval) throws -> AgentHistoryWriterLock {
+        do {
+            try ensureDirectory()
+        } catch {
+            throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
+                                            message: "cannot create index directory")
+        }
+        return try AgentHistoryWriterLock(url: paths.writerLockURL, timeout: timeout)
     }
 
     /// Creates the directory and holds the cross-process setup lock (`AgentHistorySetupLock`)

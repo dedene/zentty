@@ -66,6 +66,16 @@ extension AgentHistoryIndexer {
         guard lifecycle == .running || lifecycle == .failed, !cancellation.isSet else {
             return
         }
+        // Deleting files another instance writes would orphan its writer (a failed indexer
+        // released the lock).
+        if writerLock?.isHeld != true {
+            do {
+                writerLock = try storage.acquireWriterLock(timeout: writerLockWait)
+            } catch {
+                AgentHistoryLog.indexer.error("Agent History rebuild skipped: another instance owns the index")
+                return
+            }
+        }
         pendingCarryOver = collectCarryOver()
         AgentHistoryLog.indexer.info(
             "Agent History rebuilding the index tombstones=\(self.pendingCarryOver?.tombstones.count ?? 0, privacy: .public) usage=\(self.pendingCarryOver?.usage.count ?? 0, privacy: .public)"
