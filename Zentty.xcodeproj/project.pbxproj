@@ -686,6 +686,7 @@
 		D737EBF7DF106CC48AC0E1CE /* ClaudeEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E9037893B162FC1AD87A0DF /* ClaudeEventAdapter.swift */; };
 		D7A424E45B49A50C3CB9704D /* DockerCLIInspectorProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5C8AC76C427A5B4E6D5CB94 /* DockerCLIInspectorProcessTests.swift */; };
 		D7D69913E6869588E74D6C25 /* PaneSSHProcessProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4942E91A4F9D34EB0C281FA9 /* PaneSSHProcessProbeTests.swift */; };
+		D84787C1B4815768E5B2E0D9 /* WorklaneState+Panes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609EB02B022DFBCA8204A319 /* WorklaneState+Panes.swift */; };
 		D90B030DC3BB4F5D7E28FBAF /* ThemeCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CB7FE3B87F05DE3D6B4426 /* ThemeCatalogService.swift */; };
 		D98E6C5AEF79D2E83ECF770E /* TmuxCompatIPCHandler+SendKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68F9E2F01BD03818D24B9B2 /* TmuxCompatIPCHandler+SendKeys.swift */; };
 		D9A1A3C088104C66542D80F2 /* FloatNameInferrer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551BCB26C402A52477F955AA /* FloatNameInferrer.swift */; };
@@ -714,6 +715,7 @@
 		E101B246A7ECE252EE8CAD68 /* TmuxCompatIPCHandler+Panes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 807177ECA882B4E66F4B55EE /* TmuxCompatIPCHandler+Panes.swift */; };
 		E1386EB98808607C67C5A1DF /* WorklaneStoreColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */; };
 		E1A94D74E0101FEB0BB2C79C /* PaneDragHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F876089DABC0460791806F3E /* PaneDragHitTesting.swift */; };
+		E20A9D6B71641BA2F1116451 /* WorklaneStateFloatAccessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC40D190F80D6085837CC8B4 /* WorklaneStateFloatAccessorTests.swift */; };
 		E270DCB043F4B942C5DAF42B /* SubprocessRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BC9EED84FE9E345309065D /* SubprocessRunnerTests.swift */; };
 		E2A2053AF99C0387818EE8D8 /* WorklaneAttentionNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6243B7C8B8AE57798C0BFC0 /* WorklaneAttentionNotificationCoordinator.swift */; };
 		E343BE3ED11F29B4B335DCEE /* ServerListenerScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91380A1B682CF707751392D2 /* ServerListenerScanner.swift */; };
@@ -1144,6 +1146,7 @@
 		5F8A4AE1A76BD2C3991B34AB /* DirectoryChangeWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryChangeWatcher.swift; sourceTree = "<group>"; };
 		6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButton.swift; sourceTree = "<group>"; };
 		609771315B7DE1068E588518 /* AppActionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppActionRouter.swift; sourceTree = "<group>"; };
+		609EB02B022DFBCA8204A319 /* WorklaneState+Panes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneState+Panes.swift"; sourceTree = "<group>"; };
 		60B3AD9AA8F799603B573B28 /* ServerWatchRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerWatchRunner.swift; sourceTree = "<group>"; };
 		60ED50BB95D91FF371689ADA /* AgentTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTool.swift; sourceTree = "<group>"; };
 		60F71980F96DC3B2B50A8482 /* OnePasswordPromptAttributorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePasswordPromptAttributorTests.swift; sourceTree = "<group>"; };
@@ -1604,6 +1607,7 @@
 		FAC4ADDC4B7DF5E375DC95F8 /* NotificationSoundManager+SharedCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundManager+SharedCopy.swift"; sourceTree = "<group>"; };
 		FB5154316309F374526C5D5C /* SidebarWorklaneRowButtonColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowButtonColorTests.swift; sourceTree = "<group>"; };
 		FBB77B77BCACDE8C2DDA5E0E /* WorklaneColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneColor.swift; sourceTree = "<group>"; };
+		FC40D190F80D6085837CC8B4 /* WorklaneStateFloatAccessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStateFloatAccessorTests.swift; sourceTree = "<group>"; };
 		FC4A3980D8AB50389B834490 /* TmuxShimLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxShimLauncher.swift; sourceTree = "<group>"; };
 		FC4C8BA27DE89609B50C437C /* TerminalOpenURLResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOpenURLResolver.swift; sourceTree = "<group>"; };
 		FC6575E65B3E99957183F02B /* TerminalScrollFrameSamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollFrameSamplerTests.swift; sourceTree = "<group>"; };
@@ -1750,6 +1754,7 @@
 				9E9E7AF610F36B91C077C324 /* WorklaneHeaderSummary.swift */,
 				239D19C1C465BA5197EBC394 /* WorklaneHeaderSummaryBuilder.swift */,
 				E6F07CFD4C44251C24400B38 /* WorklaneSessionEnvironment.swift */,
+				609EB02B022DFBCA8204A319 /* WorklaneState+Panes.swift */,
 				F1CA54C85F2342CD81275B11 /* WorklaneStore.swift */,
 				49F261635D69413774455E4A /* WorklaneStore+AgentFork.swift */,
 				C67EAA92DF59DD9D42DF7FE4 /* WorklaneStore+AgentStatus.swift */,
@@ -2795,6 +2800,7 @@
 				BBFDC162D1B103A8097293EB /* WorklaneSidebarCustomTitleTests.swift */,
 				BF6932CD53AF150CC4656051 /* WorklaneSidebarSummaryTests.swift */,
 				FFA39255E836211E35CAFF5F /* WorklaneState+Testing.swift */,
+				FC40D190F80D6085837CC8B4 /* WorklaneStateFloatAccessorTests.swift */,
 				5B6A1FB8334298378C9D6257 /* WorklaneStoreAgentForkTests.swift */,
 				A3284D0E745C4F976D593E2B /* WorklaneStoreBatchUpdateTests.swift */,
 				0B7DFA52E9F279C81A803C23 /* WorklaneStoreClosedPaneRestoreTests.swift */,
@@ -3316,6 +3322,7 @@
 				F816A0603E61CBBC198F657B /* WorklaneSidebarCustomTitleTests.swift in Sources */,
 				95A3A7116CE13BB739E4C940 /* WorklaneSidebarSummaryTests.swift in Sources */,
 				63EE5118B588FB5B28430AAF /* WorklaneState+Testing.swift in Sources */,
+				E20A9D6B71641BA2F1116451 /* WorklaneStateFloatAccessorTests.swift in Sources */,
 				137EBB3231C0AAB40E2F2CD4 /* WorklaneStoreAgentForkTests.swift in Sources */,
 				3AE92E0885178E51B735D878 /* WorklaneStoreBatchUpdateTests.swift in Sources */,
 				37683223FAC33E2284C333DB /* WorklaneStoreClosedPaneRestoreTests.swift in Sources */,
@@ -3769,6 +3776,7 @@
 				FE6E54DADED7765503A5F503 /* WorklaneSidebarOverlay.swift in Sources */,
 				D30BFC88CE52F92960ADE15C /* WorklaneSidebarSummary.swift in Sources */,
 				C81F06F705D6F4A67A3DAE8F /* WorklaneSidebarSummaryBuilder.swift in Sources */,
+				D84787C1B4815768E5B2E0D9 /* WorklaneState+Panes.swift in Sources */,
 				0549CC55A01F2B00FDB4316E /* WorklaneStore+AgentFork.swift in Sources */,
 				36227752A555BD401C021F8E /* WorklaneStore+AgentStatus.swift in Sources */,
 				A95D45C9C360B3B7B8186067 /* WorklaneStore+CheckBack.swift in Sources */,

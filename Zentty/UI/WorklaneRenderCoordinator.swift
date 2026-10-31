@@ -242,7 +242,7 @@ final class WorklaneRenderCoordinator {
 
     private func handleWorklaneChange(_ change: WorklaneChange) {
         switch change {
-        case .paneStructure:
+        case .paneStructure, .floats:
             needsRuntimeSynchronization = true
             renderCurrentWorklane(animated: true)
             updateRuntimeSurfaceActivities()

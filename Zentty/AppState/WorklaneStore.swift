@@ -42,6 +42,13 @@ struct WorklaneState: Equatable, Sendable {
     var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState]
     var color: WorklaneColor?
     var bookmarkOriginID: UUID?
+    /// Panes that left the strip. Invariant: a PaneID lives in either
+    /// `paneStripState` or here, never both.
+    var floatingPanes: [FloatingPaneState]
+    var floatsHidden: Bool
+    /// The float that owns focus when it is `.floating` and floats are shown;
+    /// otherwise focus falls back to the strip (see `focusedPaneID`).
+    var focusedFloatID: PaneID?
 
     init(
         id: WorklaneID,
@@ -50,7 +57,10 @@ struct WorklaneState: Equatable, Sendable {
         nextPaneNumber: Int = 1,
         auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:],
         color: WorklaneColor? = nil,
-        bookmarkOriginID: UUID? = nil
+        bookmarkOriginID: UUID? = nil,
+        floatingPanes: [FloatingPaneState] = [],
+        floatsHidden: Bool = false,
+        focusedFloatID: PaneID? = nil
     ) {
         self.id = id
         self.title = WorklaneContextFormatter.trimmed(title)
@@ -59,6 +69,9 @@ struct WorklaneState: Equatable, Sendable {
         self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
         self.color = color
         self.bookmarkOriginID = bookmarkOriginID
+        self.floatingPanes = floatingPanes
+        self.floatsHidden = floatsHidden
+        self.focusedFloatID = focusedFloatID
     }
 }
 
@@ -325,6 +338,9 @@ enum WorklaneChange: Equatable, Sendable {
     /// its column membership changes. Title-strip views redraw to add/remove
     /// the leader star.
     case teamAnchorsChanged(WorklaneID)
+    /// Float membership, mode, frame, stacking, visibility or float focus
+    /// changed. Emitted alongside `.paneStructure` when the strip changed too.
+    case floats(WorklaneID)
     case activeWorklaneChanged
     case worklaneListChanged
     case historyChanged

@@ -9,3 +9,82 @@ struct FloatName: Hashable, Sendable {
 enum FloatCorner: String, Equatable, Sendable, CaseIterable {
     case topLeft, topRight, bottomLeft, bottomRight
 }
+
+/// A rect stored as fractions of the canvas, so a float keeps its relative
+/// position and size across window resizes and relaunch.
+struct NormalizedRect: Equatable, Sendable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    /// Normalizes `rect` against `canvas`. A degenerate canvas axis maps to 0
+    /// rather than producing NaN/inf.
+    init(rect: CGRect, in canvas: CGRect) {
+        let canvasWidth = Double(canvas.width)
+        let canvasHeight = Double(canvas.height)
+        self.x = canvasWidth > 0 ? Double(rect.minX - canvas.minX) / canvasWidth : 0
+        self.y = canvasHeight > 0 ? Double(rect.minY - canvas.minY) / canvasHeight : 0
+        self.width = canvasWidth > 0 ? Double(rect.width) / canvasWidth : 0
+        self.height = canvasHeight > 0 ? Double(rect.height) / canvasHeight : 0
+    }
+
+    func resolved(in canvas: CGRect) -> CGRect {
+        CGRect(
+            x: canvas.minX + CGFloat(x) * canvas.width,
+            y: canvas.minY + CGFloat(y) * canvas.height,
+            width: CGFloat(width) * canvas.width,
+            height: CGFloat(height) * canvas.height
+        )
+    }
+}
+
+/// Where a float came from in the strip, so "dock to origin" can return it.
+struct FloatOrigin: Equatable, Sendable {
+    var columnIndex: Int
+}
+
+/// How a pane that left the strip is presented.
+enum FloatingPaneMode: Equatable, Sendable {
+    case floating
+    /// Picture-in-picture; `order` is dense per corner (0 = closest to the corner).
+    case pip(corner: FloatCorner, order: Int)
+    /// Put away as a pill; `order` is dense across minimized floats.
+    case minimized(order: Int)
+
+    var isFloating: Bool {
+        if case .floating = self { return true }
+        return false
+    }
+}
+
+/// A pane that lives outside the strip. Owns its `PaneState`; the pane's
+/// auxiliary state stays in `WorklaneState.auxiliaryStateByPaneID`.
+struct FloatingPaneState: Equatable, Sendable {
+    var pane: PaneState
+    var mode: FloatingPaneMode
+    /// Frame while `.floating` (also the size a PiP/pill restores to).
+    var floatFrame: NormalizedRect
+    /// Z-order among floats; higher is in front.
+    var stackOrder: Int
+    var origin: FloatOrigin?
+}
+
+/// Where a temporary (overlay-style) pane is anchored.
+enum OverlayPlacement: String, Equatable, Sendable {
+    case worklane
+    case pane
+}
+
+/// Whether a pane outlives its command.
+enum PaneLifetime: Equatable, Sendable {
+    case persistent
+    case temporary(owner: PaneID?, placement: OverlayPlacement, waitAfterCommand: Bool)
+}

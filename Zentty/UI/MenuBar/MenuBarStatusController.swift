@@ -197,7 +197,7 @@ final class MenuBarStatusController: NSObject, NSMenuDelegate {
 
     private static func isMenuRelevant(_ change: WorklaneChange) -> Bool {
         switch change {
-        case .paneStructure, .activeWorklaneChanged, .worklaneListChanged:
+        case .paneStructure, .floats, .activeWorklaneChanged, .worklaneListChanged:
             return true
         case .auxiliaryStateUpdated:
             return true

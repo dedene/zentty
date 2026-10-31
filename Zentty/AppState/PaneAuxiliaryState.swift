@@ -1225,6 +1225,10 @@ enum PanePresentationNormalizer {
 struct PaneAuxiliaryState: Equatable, Sendable {
     var raw: PaneRawState
     var presentation: PanePresentationState
+    /// `.temporary` for overlay-style panes that close with their command.
+    var lifetime: PaneLifetime = .persistent
+    /// True when the pane was surfaced automatically (e.g. a needs-input pop).
+    var autoPopped = false
 
     init(
         raw: PaneRawState = PaneRawState(),

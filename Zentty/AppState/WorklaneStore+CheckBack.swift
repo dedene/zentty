@@ -117,7 +117,7 @@ extension WorklaneChange {
     /// Changes after which the focused pane of the active worklane may differ.
     var mayMoveFocus: Bool {
         switch self {
-        case .paneStructure, .focusChanged, .activeWorklaneChanged, .worklaneListChanged:
+        case .paneStructure, .floats, .focusChanged, .activeWorklaneChanged, .worklaneListChanged:
             true
         case .layoutResized, .auxiliaryStateUpdated, .volatileAgentTitleUpdated, .teamAnchorsChanged, .historyChanged:
             false
