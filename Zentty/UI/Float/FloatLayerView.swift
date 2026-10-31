@@ -465,6 +465,11 @@ final class FloatLayerView: NSView {
 
     // MARK: - Interaction support (see +Interaction)
 
+    /// A move/resize/throw press is in progress on some float.
+    var isGestureActive: Bool {
+        floatHosts.values.contains { $0.activeGesture != nil }
+    }
+
     func floatHost(_ paneID: PaneID) -> FloatContainerView? {
         floatHosts[paneID]
     }

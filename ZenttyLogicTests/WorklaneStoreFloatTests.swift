@@ -444,4 +444,136 @@ final class WorklaneStoreFloatTests: XCTestCase {
         let frame = id.flatMap { worklane(store).floatingPane(id: $0)?.floatFrame.resolved(in: canvas) }
         assertRect(frame, CGRect(x: 900, y: 630, width: 300, height: 170))
     }
+
+    // MARK: - Float commands (Task 14)
+
+    func test_cycle_float_focus_uses_stable_sequence_not_stack_order() {
+        let store = makeStore(tiles: ["a"])
+        let f0 = addFloat(store)
+        let f1 = addFloat(store)
+        let f2 = addFloat(store)
+        XCTAssertEqual(worklane(store).focusedPaneID, f2)
+
+        var visited: [PaneID?] = []
+        for _ in 0..<4 {
+            store.cycleFloatFocus()
+            visited.append(worklane(store).focusedPaneID)
+        }
+
+        XCTAssertEqual(visited, [f0, f1, f2, f0], "each focus raises, but the cycle follows creation order")
+        XCTAssertEqual(worklane(store).floatsByStackOrder.last?.pane.id, f0)
+    }
+
+    func test_cycle_from_strip_focuses_front_most_float() {
+        let store = makeStore(tiles: ["a"])
+        let f0 = addFloat(store)
+        _ = addFloat(store)
+        store.focusFloat(f0)
+        store.focusPane(id: PaneID("a"))
+        XCTAssertFalse(worklane(store).floatOwnsFocus)
+
+        store.cycleFloatFocus()
+
+        XCTAssertEqual(worklane(store).focusedPaneID, f0, "the raised float is front-most")
+    }
+
+    func test_cycle_skips_pip_and_minimized() {
+        let store = makeStore(tiles: ["a"])
+        let f0 = addFloat(store)
+        let f1 = addFloat(store)
+        let f2 = addFloat(store)
+        let f3 = addFloat(store)
+        store.pipPane(f1)
+        store.minimizePane(f2)
+        store.focusFloat(f0)
+
+        store.cycleFloatFocus()
+        XCTAssertEqual(worklane(store).focusedPaneID, f3)
+        store.cycleFloatFocus()
+        XCTAssertEqual(worklane(store).focusedPaneID, f0)
+        XCTAssertEqual(mode(store, f1), .pip(corner: .bottomRight, order: 0))
+        XCTAssertEqual(mode(store, f2), .minimized(order: 0))
+    }
+
+    func test_cycle_with_no_floating_float_is_a_no_op() {
+        let store = makeStore(tiles: ["a"])
+        let f0 = addFloat(store)
+        store.pipPane(f0)
+        let before = worklane(store)
+
+        store.cycleFloatFocus()
+
+        XCTAssertEqual(worklane(store), before)
+    }
+
+    func test_cycle_unhides_hidden_floats() {
+        let store = makeStore(tiles: ["a"])
+        let f0 = addFloat(store)
+        store.setFloatsHidden(true)
+        XCTAssertFalse(worklane(store).floatOwnsFocus)
+
+        store.cycleFloatFocus()
+
+        XCTAssertFalse(worklane(store).floatsHidden)
+        XCTAssertEqual(worklane(store).focusedPaneID, f0)
+    }
+
+    func test_toggle_floats_hidden_round_trips() {
+        let store = makeStore(tiles: ["a"])
+        let f0 = addFloat(store)
+
+        store.toggleFloatsHidden()
+        XCTAssertTrue(worklane(store).floatsHidden)
+        XCTAssertEqual(worklane(store).focusedPaneID, PaneID("a"), "hiding drops float focus")
+
+        store.toggleFloatsHidden()
+        XCTAssertFalse(worklane(store).floatsHidden)
+        XCTAssertEqual(mode(store, f0), .floating)
+    }
+
+    func test_newFloatFromFocus_inherits_focused_float_cwd() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        setCwd(store, PaneID("a"), "/tmp/a")
+        setCwd(store, PaneID("b"), "/tmp/b")
+        store.floatPane(PaneID("b"), canvas: canvas, tileFrame: nil)
+        store.focusPane(id: PaneID("b"))
+        XCTAssertTrue(worklane(store).floatOwnsFocus)
+
+        let id = try XCTUnwrap(store.newFloatFromFocus(canvas: canvas))
+
+        let float = try XCTUnwrap(worklane(store).floatingPane(id: id))
+        XCTAssertEqual(float.pane.sessionRequest.workingDirectory, "/tmp/b")
+        XCTAssertNil(float.pane.sessionRequest.command, "a new shell, not a duplicate")
+        XCTAssertEqual(worklane(store).focusedPaneID, id)
+        XCTAssertEqual(worklane(store).auxiliaryStateByPaneID[id]?.lifetime, .persistent)
+        XCTAssertEqual(stripIDs(store), ["a"], "the strip is untouched")
+    }
+
+    func test_newFloatFromFocus_centred_60_percent() throws {
+        let store = makeStore(tiles: ["a"])
+        setCwd(store, PaneID("a"), "/tmp/a")
+
+        let id = try XCTUnwrap(store.newFloatFromFocus(canvas: canvas))
+
+        let frame = worklane(store).floatingPane(id: id)?.floatFrame.resolved(in: canvas)
+        assertRect(frame, CGRect(x: 240, y: 160, width: 720, height: 480))
+        XCTAssertEqual(worklane(store).floatingPane(id: id)?.pane.sessionRequest.workingDirectory, "/tmp/a")
+    }
+
+    func test_newFloatFromFocus_opens_in_empty_worklane() throws {
+        let store = makeStore(tiles: [])
+
+        let id = try XCTUnwrap(store.newFloatFromFocus(canvas: canvas))
+
+        XCTAssertEqual(worklane(store).focusedPaneID, id)
+        XCTAssertTrue(worklane(store).floatOwnsFocus)
+    }
+
+    private func setCwd(_ store: WorklaneStore, _ id: PaneID, _ path: String) {
+        var worklanes = store.worklanes
+        worklanes[0].auxiliaryStateByPaneID[id] = PaneAuxiliaryState(
+            shellContext: PaneShellContext(scope: .local, path: path, home: nil, user: nil, host: nil)
+        )
+        store.replaceWorklanes(worklanes, activeWorklaneID: worklaneID)
+    }
 }

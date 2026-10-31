@@ -283,7 +283,7 @@ final class AppDelegateTests: XCTestCase {
                 "Add Pane Right",
                 "New Pane Below",
                 "Move Pane to New Window",
-                "Float or Dock Pane",
+                "Floating Panes",
                 "Arrange Width",
                 "Arrange Height",
                 "Resize Pane Left",
@@ -304,6 +304,19 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNil(controlCommandFullScreenItem.target)
         XCTAssertEqual(controlCommandFullScreenItem.keyEquivalent, "f")
         XCTAssertTrue(controlCommandFullScreenItem.allowsKeyEquivalentWhenHidden)
+
+        let floatingPanesMenu = try XCTUnwrap(submenu(named: "Floating Panes", in: viewMenu))
+        XCTAssertEqual(
+            floatingPanesMenu.items.filter { !$0.isSeparatorItem }.map(\.title),
+            [
+                "Float or Dock Pane",
+                "Minimize Float",
+                "Picture in Picture",
+                "Hide Floating Panes",
+                "New Float",
+                "Cycle Floating Panes",
+            ]
+        )
 
         let arrangeWidthMenu = try XCTUnwrap(submenu(named: "Arrange Width", in: viewMenu))
         XCTAssertEqual(

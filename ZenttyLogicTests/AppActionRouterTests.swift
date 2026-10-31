@@ -32,6 +32,11 @@ final class AppActionRouterTests: XCTestCase {
             (.pane(.resetLayout), "routePaneCommand"),
             (.moveFocusedPaneToNewWindow, "routeMoveFocusedPaneToNewWindow"),
             (.toggleFloat, "routeToggleFloat"),
+            (.minimizeFloat, "routeMinimizeFloat"),
+            (.pipFloat, "routePipFloat"),
+            (.toggleFloatsHidden, "routeToggleFloatsHidden"),
+            (.newFloat, "routeNewFloat"),
+            (.cycleFloatFocus, "routeCycleFloatFocus"),
             (.navigateBack, "routeNavigateBack"),
             (.navigateForward, "routeNavigateForward"),
             (.showCommandPalette, "routeShowCommandPalette"),
@@ -119,6 +124,11 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     }
     func routeMoveFocusedPaneToNewWindow() { calls.append("routeMoveFocusedPaneToNewWindow") }
     func routeToggleFloat() { calls.append("routeToggleFloat") }
+    func routeMinimizeFloat() { calls.append("routeMinimizeFloat") }
+    func routePipFloat() { calls.append("routePipFloat") }
+    func routeToggleFloatsHidden() { calls.append("routeToggleFloatsHidden") }
+    func routeNewFloat() { calls.append("routeNewFloat") }
+    func routeCycleFloatFocus() { calls.append("routeCycleFloatFocus") }
     func routeNavigateBack() { calls.append("routeNavigateBack") }
     func routeNavigateForward() { calls.append("routeNavigateForward") }
     func routeShowCommandPalette() { calls.append("routeShowCommandPalette") }

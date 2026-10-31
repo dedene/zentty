@@ -53,6 +53,73 @@ extension WorklaneStore {
         )
     }
 
+    // MARK: - Float commands
+
+    /// ⌥⌘`: focuses the next `.floating` float in creation order (`sequence`;
+    /// raising never changes it, so cycling never ping-pongs) and wraps. From
+    /// the strip, or with floats hidden, it un-hides and focuses the
+    /// front-most float. PiPs and pills are skipped; no floats is a no-op.
+    func cycleFloatFocus() {
+        guard let worklane = activeWorklane else {
+            return
+        }
+        let floating = worklane.floatingPanes
+            .filter { $0.mode.isFloating }
+            .sorted { $0.sequence < $1.sequence }
+        guard let frontMost = worklane.floatsByStackOrder.last(where: { $0.mode.isFloating }) else {
+            return
+        }
+        var target = frontMost.pane.id
+        if !worklane.floatsHidden, worklane.floatOwnsFocus,
+           let current = worklane.focusedFloatID,
+           let index = floating.firstIndex(where: { $0.pane.id == current }) {
+            target = floating[(index + 1) % floating.count].pane.id
+        }
+        focusFloat(target)
+    }
+
+    /// ⌥⌘.: hides or shows the active worklane's floats and PiPs.
+    func toggleFloatsHidden() {
+        guard let worklane = activeWorklane else {
+            return
+        }
+        setFloatsHidden(!worklane.floatsHidden)
+    }
+
+    /// ⌥⌘N: opens a new shell as a focused float, centred at 60% of `canvas`,
+    /// in the cwd and shell context of the focused pane (tile or float). An
+    /// empty canvas (layout not done yet) falls back to `floatCanvasEstimate`.
+    @discardableResult
+    func newFloatFromFocus(canvas: CGRect) -> PaneID? {
+        guard var worklane = activeWorklane else {
+            return nil
+        }
+        let original = worklane
+        let canvas = canvas.width > 0 && canvas.height > 0 ? canvas : floatCanvasEstimate
+        let source = worklane.focusedPaneID.flatMap { duplicateSourceInfo(for: $0, in: worklane) }
+        let pane = makePaneWithDirectory(
+            in: &worklane,
+            existingPaneCount: worklane.paneStripState.columns.count,
+            workingDirectory: source?.workingDirectory,
+            sourceShellContext: source?.shellContext
+        )
+        let frame = FloatLayout.centeredFrame(size: FloatLayout.defaultFloatSize(canvas: canvas), canvas: canvas)
+        worklane.floatingPanes.append(
+            FloatingPaneState(
+                pane: pane,
+                mode: .floating,
+                floatFrame: NormalizedRect(rect: frame, in: canvas),
+                stackOrder: Self.nextStackOrder(in: worklane),
+                origin: nil,
+                sequence: Self.nextFloatSequence(in: worklane)
+            )
+        )
+        worklane.floatsHidden = false
+        worklane.focusedFloatID = pane.id
+        commitFloatChange(from: original, to: worklane)
+        return pane.id
+    }
+
     /// Removes float `id` from `worklane` (the strip is untouched): drops its
     /// auxiliary state and servers, keeps PiP/pill orders dense and moves
     /// focus away when it was focused. Returns the removed float.

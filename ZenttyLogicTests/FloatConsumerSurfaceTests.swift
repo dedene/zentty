@@ -178,6 +178,89 @@ final class FloatConsumerSurfaceTests: XCTestCase {
         )
     }
 
+    // MARK: - Float command availability
+
+    private func isAvailable(_ commandID: AppCommandID, _ store: WorklaneStore) -> Bool {
+        CommandAvailabilityResolver.isCommandAvailable(commandID, for: availabilityContext(store))
+    }
+
+    func test_minimize_and_pip_need_focused_float() {
+        let store = makeStoreWithFloat()
+        XCTAssertTrue(isAvailable(.minimizeFloat, store))
+        XCTAssertTrue(isAvailable(.pipFloat, store))
+
+        store.focusPane(id: leftID)
+
+        XCTAssertFalse(isAvailable(.minimizeFloat, store), "a tile has focus")
+        XCTAssertFalse(isAvailable(.pipFloat, store))
+        XCTAssertFalse(isAvailable(.minimizeFloat, makeStore()), "no floats at all")
+    }
+
+    func test_hide_all_needs_shown_float_or_hidden_state() {
+        XCTAssertFalse(isAvailable(.toggleFloatsHidden, makeStore()))
+
+        let store = makeStoreWithFloat()
+        XCTAssertTrue(isAvailable(.toggleFloatsHidden, store))
+
+        store.setFloatsHidden(true)
+        XCTAssertTrue(isAvailable(.toggleFloatsHidden, store), "Show Floating Panes stays on while hidden")
+
+        store.setFloatsHidden(false)
+        store.pipPane(floatID)
+        XCTAssertTrue(isAvailable(.toggleFloatsHidden, store), "a PiP alone can be hidden")
+
+        store.minimizePane(floatID)
+        XCTAssertFalse(isAvailable(.toggleFloatsHidden, store), "a pill alone isn't hidden by it")
+    }
+
+    func test_cycle_needs_floating_float() {
+        XCTAssertFalse(isAvailable(.cycleFloatFocus, makeStore()))
+
+        let store = makeStoreWithFloat()
+        XCTAssertTrue(isAvailable(.cycleFloatFocus, store))
+
+        store.setFloatsHidden(true)
+        XCTAssertTrue(isAvailable(.cycleFloatFocus, store), "cycling un-hides")
+
+        store.pipPane(floatID)
+        XCTAssertFalse(isAvailable(.cycleFloatFocus, store), "PiPs are not cycled")
+    }
+
+    func test_focus_next_ignores_pip_and_minimized() throws {
+        let store = makeStore()
+        store.floatPane(floatID, canvas: canvas, tileFrame: nil)
+        store.pipPane(floatID)
+        store.floatPane(rightID, canvas: canvas, tileFrame: nil)
+        store.minimizePane(rightID)
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.map(\.id), [leftID], "precondition: 1 tile")
+
+        XCTAssertEqual(PaneAvailabilityCounts(worklaneStore: store).navigablePaneCount, 1)
+        XCTAssertFalse(isAvailable(.focusNextPane, store), "PiP and pill are no navigation targets")
+        XCTAssertFalse(isAvailable(.focusPreviousPane, store))
+
+        store.restoreFloat(rightID)
+        XCTAssertTrue(isAvailable(.focusNextPane, store), "a visible float is a target")
+        store.setFloatsHidden(true)
+        XCTAssertFalse(isAvailable(.focusNextPane, store), "hidden floats are not")
+    }
+
+    func test_new_float_available_with_empty_worklane() {
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: nil,
+                    paneStripState: PaneStripState(panes: [], focusedPaneID: nil),
+                    nextPaneNumber: 1,
+                    auxiliaryStateByPaneID: [:]
+                ),
+            ],
+            activeWorklaneID: worklaneID
+        )
+        XCTAssertTrue(isAvailable(.newFloat, store))
+        XCTAssertFalse(isAvailable(.minimizeFloat, store))
+    }
+
     // MARK: - Helpers
 
     private func availabilityContext(_ store: WorklaneStore) -> CommandAvailabilityContext {

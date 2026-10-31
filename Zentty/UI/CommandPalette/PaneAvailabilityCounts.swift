@@ -15,6 +15,12 @@ struct PaneAvailabilityCounts: Equatable, Sendable {
     let activeColumnCount: Int
     let focusedColumnPaneCount: Int
     let focusedPaneIsFloat: Bool
+    /// `.floating` floats in the active worklane.
+    let floatingFloatCount: Int
+    /// `.floating` + PiP floats in the active worklane, ignoring `floatsHidden`.
+    let shownFloatCount: Int
+    /// Tiles + visible `.floating` floats across worklanes (next/previous pane).
+    let navigablePaneCount: Int
 
     init(worklanes: [WorklaneState], activeWorklane: WorklaneState?) {
         let strip = activeWorklane?.paneStripState
@@ -25,6 +31,18 @@ struct PaneAvailabilityCounts: Equatable, Sendable {
         activeColumnCount = strip?.columns.count ?? 0
         focusedColumnPaneCount = strip?.focusedColumn?.panes.count ?? 0
         focusedPaneIsFloat = activeWorklane?.floatOwnsFocus ?? false
+        let floats = activeWorklane?.floatingPanes ?? []
+        floatingFloatCount = floats.count { $0.mode.isFloating }
+        shownFloatCount = floats.count { float in
+            if case .minimized = float.mode { return false }
+            return true
+        }
+        navigablePaneCount = worklanes.reduce(0) { count, worklane in
+            let unreachableFloats = worklane.floatingPanes.count { float in
+                !float.mode.isFloating || worklane.floatsHidden
+            }
+            return count + worklane.allPanes.count - unreachableFloats
+        }
     }
 
     @MainActor
@@ -62,7 +80,10 @@ extension CommandAvailabilityContext {
             isQuickActionFocused: isQuickActionFocused,
             focusedPaneAgentFork: focusedPaneAgentFork,
             activeTiledPaneCount: counts.activeTiledPaneCount,
-            focusedPaneIsFloat: counts.focusedPaneIsFloat
+            focusedPaneIsFloat: counts.focusedPaneIsFloat,
+            floatingFloatCount: counts.floatingFloatCount,
+            shownFloatCount: counts.shownFloatCount,
+            navigablePaneCount: counts.navigablePaneCount
         )
     }
 }

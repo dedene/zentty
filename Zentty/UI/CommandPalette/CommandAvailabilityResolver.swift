@@ -30,6 +30,14 @@ struct CommandAvailabilityContext: Equatable {
     /// A `.floating` float owns keyboard focus: strip-relative move, resize
     /// and move-to-window commands would act on a tile the user isn't using.
     let focusedPaneIsFloat: Bool
+    /// `.floating` floats in the active worklane (hidden or not).
+    let floatingFloatCount: Int
+    /// `.floating` + PiP floats in the active worklane, hidden or not: what
+    /// Hide/Show Floating Panes acts on.
+    let shownFloatCount: Int
+    /// Panes next/previous pane can land on, across worklanes: tiles plus
+    /// visible `.floating` floats (never PiPs, pills or hidden floats).
+    let navigablePaneCount: Int
 
     init(
         worklaneCount: Int,
@@ -47,7 +55,10 @@ struct CommandAvailabilityContext: Equatable {
         isQuickActionFocused: Bool = false,
         focusedPaneAgentFork: AgentForkAvailability? = nil,
         activeTiledPaneCount: Int? = nil,
-        focusedPaneIsFloat: Bool = false
+        focusedPaneIsFloat: Bool = false,
+        floatingFloatCount: Int = 0,
+        shownFloatCount: Int = 0,
+        navigablePaneCount: Int? = nil
     ) {
         self.worklaneCount = worklaneCount
         self.activePaneCount = activePaneCount
@@ -65,6 +76,9 @@ struct CommandAvailabilityContext: Equatable {
         self.focusedPaneAgentFork = focusedPaneAgentFork
         self.activeTiledPaneCount = activeTiledPaneCount ?? activePaneCount
         self.focusedPaneIsFloat = focusedPaneIsFloat
+        self.floatingFloatCount = floatingFloatCount
+        self.shownFloatCount = shownFloatCount
+        self.navigablePaneCount = navigablePaneCount ?? totalPaneCount
     }
 }
 
@@ -146,7 +160,7 @@ enum CommandAvailabilityResolver {
             return !context.isQuickActionFocused
                 && (context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch)
         case .focusPreviousPane, .focusNextPane:
-            return context.totalPaneCount > 1
+            return context.navigablePaneCount > 1
         case .closeFocusedPane:
             // Available whenever there's a pane to close — closing the last
             // pane in the last worklane closes the window.
@@ -157,6 +171,14 @@ enum CommandAvailabilityResolver {
             return context.activePaneCount >= 1
         case .toggleFloat:
             return context.activePaneCount >= 1
+        case .minimizeFloat, .pipFloat:
+            return context.focusedPaneIsFloat
+        case .toggleFloatsHidden:
+            return context.shownFloatCount >= 1
+        case .newFloat:
+            return context.worklaneCount >= 1
+        case .cycleFloatFocus:
+            return context.floatingFloatCount >= 1
         case .forkAgentConversation:
             return context.focusedPaneAgentFork != nil
         case .movePaneToNewWindow:

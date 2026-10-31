@@ -60,5 +60,7 @@ final class PaneBorderActionsLayoutTests: XCTestCase {
         XCTAssertEqual(PaneBorderAction.float.commandID, .toggleFloat)
         XCTAssertEqual(PaneBorderAction.dock.commandID, .toggleFloat)
         XCTAssertEqual(PaneBorderAction.close.commandID, .closeFocusedPane)
+        XCTAssertEqual(PaneBorderAction.pip.commandID, .pipFloat)
+        XCTAssertEqual(PaneBorderAction.minimize.commandID, .minimizeFloat)
     }
 }

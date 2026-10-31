@@ -37,12 +37,14 @@ enum PaneBorderAction: String, Equatable, Sendable, CaseIterable {
         }
     }
 
-    /// Command whose shortcut the tooltip shows. Task 14 fills pip/minimize.
+    /// Command whose shortcut the tooltip shows.
     var commandID: AppCommandID? {
         switch self {
         case .float, .dock: .toggleFloat
         case .close: .closeFocusedPane
-        case .pip, .minimize, .restore: nil
+        case .pip: .pipFloat
+        case .minimize: .minimizeFloat
+        case .restore: nil
         }
     }
 }

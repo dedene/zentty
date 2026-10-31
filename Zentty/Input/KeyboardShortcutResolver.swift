@@ -50,6 +50,11 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case forkAgentConversation = "pane.fork_agent_conversation"
     case movePaneToNewWindow = "pane.move_to_new_window"
     case toggleFloat = "float.toggle"
+    case minimizeFloat = "float.minimize"
+    case pipFloat = "float.pip"
+    case toggleFloatsHidden = "float.hideAll"
+    case newFloat = "float.new"
+    case cycleFloatFocus = "float.cycleFocus"
     case splitHorizontally = "pane.split.horizontal"
     case forceSplitRight = "pane.split.right.force"
     case forceAddPaneRight = "pane.add_right.force"
@@ -154,6 +159,11 @@ enum AppAction: Equatable, Sendable {
     case pane(PaneCommand)
     case moveFocusedPaneToNewWindow
     case toggleFloat
+    case minimizeFloat
+    case pipFloat
+    case toggleFloatsHidden
+    case newFloat
+    case cycleFloatFocus
     case navigateBack
     case navigateForward
     case showCommandPalette
@@ -508,6 +518,66 @@ enum AppCommandRegistry {
                 section: .view,
                 title: "Float or Dock Pane",
                 selector: #selector(MainWindowController.toggleFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .minimizeFloat,
+            title: "Minimize Float",
+            category: .panes,
+            defaultShortcut: .init(key: .character("m"), modifiers: [.command, .option]),
+            action: .minimizeFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Minimize Float",
+                selector: #selector(MainWindowController.minimizeFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .pipFloat,
+            title: "Picture in Picture",
+            category: .panes,
+            defaultShortcut: .init(key: .character("p"), modifiers: [.command, .option]),
+            action: .pipFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Picture in Picture",
+                selector: #selector(MainWindowController.pipFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .toggleFloatsHidden,
+            title: "Hide Floating Panes",
+            category: .panes,
+            defaultShortcut: .init(key: .character("."), modifiers: [.command, .option]),
+            action: .toggleFloatsHidden,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Hide Floating Panes",
+                selector: #selector(MainWindowController.toggleFloatsHidden(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .newFloat,
+            title: "New Float",
+            category: .panes,
+            defaultShortcut: .init(key: .character("n"), modifiers: [.command, .option]),
+            action: .newFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "New Float",
+                selector: #selector(MainWindowController.newFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .cycleFloatFocus,
+            title: "Cycle Floating Panes",
+            category: .panes,
+            defaultShortcut: .init(key: .character("`"), modifiers: [.command, .option]),
+            action: .cycleFloatFocus,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Cycle Floating Panes",
+                selector: #selector(MainWindowController.cycleFloatFocus(_:))
             )
         ),
         AppCommandDefinition(
@@ -1105,7 +1175,15 @@ enum AppCommandRegistry {
             .command(.splitHorizontally),
             .command(.splitVertically),
             .command(.movePaneToNewWindow),
-            .command(.toggleFloat),
+            .submenu("Floating Panes", [
+                .command(.toggleFloat),
+                .command(.minimizeFloat),
+                .command(.pipFloat),
+                .command(.toggleFloatsHidden),
+                .separator,
+                .command(.newFloat),
+                .command(.cycleFloatFocus),
+            ]),
             .separator,
             .submenu("Arrange Width", [
                 .command(.arrangeWidthFull),
@@ -1213,6 +1291,16 @@ extension AppCommandDefinition {
             "Duplicate the focused pane in a new column, keeping its working directory."
         case .toggleFloat:
             "Lift the focused pane out of the strip as a float, or dock a focused float back."
+        case .minimizeFloat:
+            "Put the focused float away; it keeps running."
+        case .pipFloat:
+            "Shrink the focused float into a picture-in-picture corner; it keeps running."
+        case .toggleFloatsHidden:
+            "Hide the floats and picture-in-picture panes of this worklane, or show them again."
+        case .newFloat:
+            "Open a new shell as a float in the focused pane's working directory."
+        case .cycleFloatFocus:
+            "Focus the next floating pane, or the front float when a tiled pane has focus."
         case .forkAgentConversation:
             "Continue the focused agent's conversation in a new pane, leaving the original running."
         case .movePaneToNewWindow:
@@ -1334,6 +1422,10 @@ extension AppCommandDefinition {
                 .lowercased()
         case .toggleFocusedPaneUnread:
             [title, detailDescription, PaneUnreadToggle.markRead.title, "unread read remind later revisit flag"]
+                .joined(separator: " ")
+                .lowercased()
+        case .toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatsHidden, .newFloat, .cycleFloatFocus:
+            [title, detailDescription, "floating float overlay window pip picture in picture"]
                 .joined(separator: " ")
                 .lowercased()
         default:

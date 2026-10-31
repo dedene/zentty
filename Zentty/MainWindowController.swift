@@ -964,6 +964,31 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func minimizeFloat(_ sender: Any?) {
+        handle(.minimizeFloat)
+    }
+
+    @objc
+    func pipFloat(_ sender: Any?) {
+        handle(.pipFloat)
+    }
+
+    @objc
+    func toggleFloatsHidden(_ sender: Any?) {
+        handle(.toggleFloatsHidden)
+    }
+
+    @objc
+    func newFloat(_ sender: Any?) {
+        handle(.newFloat)
+    }
+
+    @objc
+    func cycleFloatFocus(_ sender: Any?) {
+        handle(.cycleFloatFocus)
+    }
+
+    @objc
     func movePaneToNewWindow(_ sender: Any?) {
         onMovePaneToNewWindowRequested?(self, representedPaneID(from: sender) ?? rootViewController.focusedPaneID())
     }
@@ -2279,6 +2304,11 @@ extension MainWindowController: NSMenuItemValidation {
                 let toggle = rootViewController.focusedPaneUnreadToggle
                 menuItem.title = (toggle ?? .markUnread).title
                 return toggle != nil
+            case .toggleFloatsHidden:
+                menuItem.title = rootViewController.floatsAreHidden
+                    ? "Show Floating Panes"
+                    : AppCommandRegistry.definition(for: .toggleFloatsHidden).title
+                return rootViewController.isCommandAvailable(commandID)
             default:
                 return rootViewController.isCommandAvailable(commandID)
             }

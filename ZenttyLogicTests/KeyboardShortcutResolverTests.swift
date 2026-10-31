@@ -833,6 +833,12 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             .movePaneDown: .init(key: .downArrow, modifiers: [.command, .control, .option]),
             .resetPaneLayout: .init(key: .character("0"), modifiers: [.command, .control, .option]),
             .openBookmarksPopover: .init(key: .character("b"), modifiers: [.command, .shift]),
+            .toggleFloat: .init(key: .character("f"), modifiers: [.command, .option]),
+            .minimizeFloat: .init(key: .character("m"), modifiers: [.command, .option]),
+            .pipFloat: .init(key: .character("p"), modifiers: [.command, .option]),
+            .toggleFloatsHidden: .init(key: .character("."), modifiers: [.command, .option]),
+            .newFloat: .init(key: .character("n"), modifiers: [.command, .option]),
+            .cycleFloatFocus: .init(key: .character("`"), modifiers: [.command, .option]),
             .selectWorklane1: .init(key: .character("1"), modifiers: [.command]),
             .selectWorklane2: .init(key: .character("2"), modifiers: [.command]),
             .selectWorklane3: .init(key: .character("3"), modifiers: [.command]),
@@ -1320,6 +1326,84 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
     private func appMenu(named title: String, in mainMenu: NSMenu) -> NSMenu? {
         mainMenu.items.first { $0.submenu?.title == title }?.submenu
+    }
+
+    // MARK: - Floating panes
+
+    private static let floatShortcuts: [(AppCommandID, String, AppAction)] = [
+        (.toggleFloat, "f", .toggleFloat),
+        (.minimizeFloat, "m", .minimizeFloat),
+        (.pipFloat, "p", .pipFloat),
+        (.toggleFloatsHidden, ".", .toggleFloatsHidden),
+        (.newFloat, "n", .newFloat),
+        (.cycleFloatFocus, "`", .cycleFloatFocus),
+    ]
+
+    func test_float_commands_have_default_shortcuts() {
+        for (commandID, key, action) in Self.floatShortcuts {
+            let shortcut = KeyboardShortcut(key: .character(key), modifiers: [.command, .option])
+            XCTAssertEqual(AppCommandRegistry.definition(for: commandID).defaultShortcut, shortcut, "\(commandID)")
+            XCTAssertEqual(KeyboardShortcutResolver.resolve(shortcut), action, "\(commandID)")
+            XCTAssertFalse(AppCommandRegistry.definition(for: commandID).detailDescription.isEmpty)
+        }
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(.init(key: .character("m"), modifiers: [.command])),
+            nil,
+            "⌘M stays the window's Minimize"
+        )
+    }
+
+    func test_cycle_floats_matches_option_command_backtick() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "`",
+            charactersIgnoringModifiers: "`",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Grave)
+        ))
+        let shortcut = try XCTUnwrap(KeyboardShortcut(event: event))
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(shortcut), .cycleFloatFocus)
+    }
+
+    func test_float_commands_survive_every_preset() {
+        for preset in ShortcutPreset.allCases {
+            let manager = ShortcutManager(
+                shortcuts: AppConfig.Shortcuts(bindings: ShortcutPresetResolver().resolve(preset))
+            )
+            for (commandID, key, _) in Self.floatShortcuts {
+                XCTAssertEqual(
+                    manager.shortcut(for: commandID),
+                    KeyboardShortcut(key: .character(key), modifiers: [.command, .option]),
+                    "\(preset) unbinds \(commandID)"
+                )
+            }
+        }
+    }
+
+    func test_view_menu_has_floating_panes_submenu() throws {
+        let viewEntries = AppCommandRegistry.menuEntriesBySection[.view] ?? []
+        let submenu = viewEntries.compactMap { entry -> [AppMenuEntry]? in
+            if case .submenu("Floating Panes", let entries) = entry { return entries }
+            return nil
+        }.first
+        let entries = try XCTUnwrap(submenu)
+        let commandIDs = entries.compactMap { entry -> AppCommandID? in
+            if case .command(let id) = entry { return id }
+            return nil
+        }
+        XCTAssertEqual(
+            commandIDs,
+            [.toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatsHidden, .newFloat, .cycleFloatFocus]
+        )
+        XCTAssertFalse(viewEntries.contains { entry in
+            if case .command(.toggleFloat) = entry { return true }
+            return false
+        }, "Float or Dock moved into the submenu")
     }
 }
 

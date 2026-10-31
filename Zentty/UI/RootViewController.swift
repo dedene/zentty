@@ -3404,15 +3404,58 @@ extension RootViewController: AppActionRouterEnvironment {
         routeFloatPane(paneID)
     }
 
+    func routeMinimizeFloat() {
+        guard !isFloatCommandBlocked, let paneID = focusedFloatID else { return }
+        worklaneStore.minimizePane(paneID)
+    }
+
+    func routePipFloat() {
+        guard !isFloatCommandBlocked, let paneID = focusedFloatID else { return }
+        worklaneStore.pipPane(paneID)
+    }
+
+    func routeToggleFloatsHidden() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.toggleFloatsHidden()
+    }
+
+    func routeNewFloat() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.newFloatFromFocus(canvas: appCanvasView.floatLayerView.bounds)
+    }
+
+    func routeCycleFloatFocus() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.cycleFloatFocus()
+    }
+
+    /// Whether the active worklane's floats are hidden (View menu title).
+    var floatsAreHidden: Bool {
+        worklaneStore.activeWorklane?.floatsHidden ?? false
+    }
+
+    /// The float that owns keyboard focus, if any.
+    private var focusedFloatID: PaneID? {
+        guard let worklane = worklaneStore.activeWorklane, worklane.floatOwnsFocus else { return nil }
+        return worklane.focusedFloatID
+    }
+
+    /// Float commands wait while a drag owns the canvas: mid strip drag the
+    /// canvas render bails out (the store would change without the UI
+    /// following), a divider drag's cancel restores the strip from before
+    /// the command, peek hides the float layer, and a float gesture commits
+    /// its own store change on mouse-up.
+    private var isFloatCommandBlocked: Bool {
+        let paneStripView = appCanvasView.paneStripView
+        return isWorklanePeekActive
+            || paneStripView.isDragActive
+            || paneStripView.isDividerDragActive
+            || appCanvasView.floatLayerView.isGestureActive
+    }
+
     /// Floats tile `paneID` in place, or docks it when it already floats.
     func routeFloatPane(_ paneID: PaneID) {
-        // Mid-drag the canvas render bails out, so a toggle would change the
-        // store (possibly floating the dragged pane) without the UI following.
-        // A divider drag's cancel restores the strip from before the toggle.
-        let paneStripView = appCanvasView.paneStripView
-        guard !isWorklanePeekActive,
-              !paneStripView.isDragActive,
-              !paneStripView.isDividerDragActive else { return }
+        guard !isFloatCommandBlocked else { return }
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         let floatLayer = appCanvasView.floatLayerView
         let motion = FloatMotion.reflowMotion

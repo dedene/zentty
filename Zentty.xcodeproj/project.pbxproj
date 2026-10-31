@@ -461,6 +461,7 @@
 		865BA7699998731277DEB055 /* DockerServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD9358115A4FC9B526DE30A /* DockerServerDiscovery.swift */; };
 		8788243DE8CD13BCFE0D3BE1 /* LicensesWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B5FBD6A49E1AC7F9DB7BB3C /* LicensesWindowController.swift */; };
 		87AEE34924DEAC5AB72933A7 /* PaneDragSidebarEdgeScrollDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA47D32BA165D8930DF1C3D6 /* PaneDragSidebarEdgeScrollDriver.swift */; };
+		87E9F4E6144335CA7317E5D2 /* FloatCommandsHostedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18A481E2FBE741E929870D68 /* FloatCommandsHostedTests.swift */; };
 		880EF4CC0E61299FC43869BC /* AgentIPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1762B3BE208D5BC1F3BDA20 /* AgentIPCProtocol.swift */; };
 		885360CBF357D8C8F7885E24 /* DevinEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BABB304BF9B7A3002AC6C6 /* DevinEventAdapter.swift */; };
 		8966A8B33DAEDF9AB8A8DECA /* ShellIntegrationSSHCacheAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5FF4A62DCF952CE2C4614C /* ShellIntegrationSSHCacheAssertions.swift */; };
@@ -972,6 +973,7 @@
 		172E7F852B70FDD655345CF4 /* CodexTitlePromotionReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTitlePromotionReducer.swift; sourceTree = "<group>"; };
 		1750C0A516E7016E42B94EC2 /* SidebarWorklaneDragGestureTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneDragGestureTracker.swift; sourceTree = "<group>"; };
 		186ADFD7C4E5EC05B9F02340 /* FakeExecutableFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeExecutableFixture.swift; sourceTree = "<group>"; };
+		18A481E2FBE741E929870D68 /* FloatCommandsHostedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatCommandsHostedTests.swift; sourceTree = "<group>"; };
 		18DB1479DBB0D102F1372877 /* WindowServerCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowServerCommandService.swift; sourceTree = "<group>"; };
 		1950AE3041C1DC410E2DCD11 /* SidebarGlobalSearchButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGlobalSearchButton.swift; sourceTree = "<group>"; };
 		1973D41434D3540DC3A5D582 /* SidebarWorklaneRowStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowStyleResolver.swift; sourceTree = "<group>"; };
@@ -2295,6 +2297,7 @@
 				BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */,
 				8132E7564D882D85A155D2B5 /* DiscoveryIPCHandlerTests.swift */,
 				ADD671487A5E95B5EBF14615 /* FloatChromeHostedTests.swift */,
+				18A481E2FBE741E929870D68 /* FloatCommandsHostedTests.swift */,
 				94029D2BD29ADC9B4FDC52B7 /* FloatHostedTestSupport.swift */,
 				D75483427CD6DD980092D250 /* FloatInteractionHostedTests.swift */,
 				91D1D17FE2E26F8E9F3B6E42 /* FloatLifecycleHostedTests.swift */,
@@ -3999,6 +4002,7 @@
 				EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */,
 				2A08D5A8D71D847DA5EBB8FC /* DiscoveryIPCHandlerTests.swift in Sources */,
 				207E333893FE3486C2FE1CFE /* FloatChromeHostedTests.swift in Sources */,
+				87E9F4E6144335CA7317E5D2 /* FloatCommandsHostedTests.swift in Sources */,
 				26F12E910E0ACEED870D9C0C /* FloatHostedTestSupport.swift in Sources */,
 				35A72FBC73ED929D14CE44FE /* FloatInteractionHostedTests.swift in Sources */,
 				370C71942F86B3B84786F861 /* FloatLifecycleHostedTests.swift in Sources */,

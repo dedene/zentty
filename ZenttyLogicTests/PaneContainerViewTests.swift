@@ -397,7 +397,7 @@ final class PaneContainerViewTests: AppKitTestCase {
                 bindings: [
                     ShortcutBindingOverride(
                         commandID: .copyFocusedPanePath,
-                        shortcut: .init(key: .character("p"), modifiers: [.command, .option])
+                        shortcut: .init(key: .character("y"), modifiers: [.command, .option])
                     ),
                 ]
             )
@@ -417,7 +417,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
         let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
 
-        XCTAssertEqual(clickTarget.toolTip, "Copy Path (⌘⌥P)")
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path (⌘⌥Y)")
 
         paneView.updateShortcutTooltips(ShortcutManager(
             shortcuts: AppConfig.Shortcuts(
