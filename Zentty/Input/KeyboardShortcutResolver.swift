@@ -103,6 +103,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case copyMarkdown = "clipboard.copy_markdown"
     case reloadConfig = "app.reload_config"
     case openBookmarksPopover = "bookmarks.openPopover"
+    case showAgentHistory = "agent_history.show"
 
     static let selectWorklaneIDs: [AppCommandID] = [
         .selectWorklane1, .selectWorklane2, .selectWorklane3, .selectWorklane4, .selectWorklane5,
@@ -167,6 +168,7 @@ enum AppAction: Equatable, Sendable {
     case closeWindow
     case reloadConfig
     case openBookmarksPopover
+    case showAgentHistory
 }
 
 enum AppMenuSection: String, CaseIterable {
@@ -1009,6 +1011,19 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
+            id: .showAgentHistory,
+            title: "Agent History…",
+            category: .general,
+            defaultShortcut: .init(key: .character("h"), modifiers: [.command, .shift]),
+            action: .showAgentHistory,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Agent History…",
+                selector: #selector(MainWindowController.showAgentHistory(_:)),
+                systemImageName: "clock.arrow.circlepath"
+            )
+        ),
+        AppCommandDefinition(
             id: .showTaskManager,
             title: "Task Manager",
             category: .general,
@@ -1086,6 +1101,7 @@ enum AppCommandRegistry {
             .command(.toggleQuickActionOverlay),
             .separator,
             .command(.openBookmarksPopover),
+            .command(.showAgentHistory),
             .command(.toggleSidebar),
             .separator,
             .command(.splitHorizontally),
@@ -1298,6 +1314,8 @@ extension AppCommandDefinition {
             "Reload the config file from disk."
         case .openBookmarksPopover:
             "Open the bookmarks and presets popover."
+        case .showAgentHistory:
+            "Search past agent conversations and resume them."
         }
     }
 
@@ -1309,6 +1327,10 @@ extension AppCommandDefinition {
                 .lowercased()
         case .refreshPullRequestStatus:
             [title, detailDescription, "refresh pull request pr status checks review ci reload"]
+                .joined(separator: " ")
+                .lowercased()
+        case .showAgentHistory:
+            [title, detailDescription, "history sessions resume find session past conversations"]
                 .joined(separator: " ")
                 .lowercased()
         case .forkAgentConversation:

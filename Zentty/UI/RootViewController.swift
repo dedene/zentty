@@ -3385,6 +3385,12 @@ extension RootViewController: AppActionRouterEnvironment {
     func routeOpenBookmarksPopover() {
         toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
     }
+
+    /// Placeholder seam for the Agent History palette. The palette coordinator
+    /// (UI5) replaces this body; until then the command only logs.
+    func routeShowAgentHistory() {
+        AgentHistoryLog.indexer.debug("Agent History requested; palette not available yet")
+    }
 }
 
 @MainActor

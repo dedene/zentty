@@ -46,6 +46,7 @@ final class AppActionRouterTests: XCTestCase {
             (.closeWindow, "routeCloseWindow"),
             (.reloadConfig, "routeReloadConfig"),
             (.openBookmarksPopover, "routeOpenBookmarksPopover"),
+            (.showAgentHistory, "routeShowAgentHistory"),
         ]
 
         for (action, expected) in cases {
@@ -135,4 +136,5 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     func routeCloseWindow() { calls.append("routeCloseWindow") }
     func routeReloadConfig() { calls.append("routeReloadConfig") }
     func routeOpenBookmarksPopover() { calls.append("routeOpenBookmarksPopover") }
+    func routeShowAgentHistory() { calls.append("routeShowAgentHistory") }
 }

@@ -261,6 +261,7 @@ extension ShortcutPreset {
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_J), keyKind: .character, modifiers: [.command]),
         .init(commandID: .toggleFocusedPaneUnread, keyCode: UInt16(kVK_ANSI_U), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_Comma), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .showAgentHistory, keyCode: UInt16(kVK_ANSI_H), keyKind: .character, modifiers: [.command, .shift]),
     ]
 
     // MARK: - Right-Hand Preset
@@ -317,6 +318,7 @@ extension ShortcutPreset {
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_Semicolon), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .toggleFocusedPaneUnread, keyCode: UInt16(kVK_ANSI_U), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_O), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .showAgentHistory, keyCode: UInt16(kVK_ANSI_H), keyKind: .character, modifiers: [.command, .shift]),
     ]
 
     // MARK: - Ghostty-Compatible Preset
@@ -393,5 +395,6 @@ extension ShortcutPreset {
         .init(commandID: .movePaneDown, key: .downArrow, modifiers: [.command, .control, .option]),
         .init(commandID: .resetPaneLayout, keyCode: UInt16(kVK_ANSI_0), keyKind: .character, modifiers: [.command, .control, .option]),
         .init(commandID: .openBookmarksPopover, key: .character("b"), modifiers: [.command, .shift]),
+        .init(commandID: .showAgentHistory, key: .character("h"), modifiers: [.command, .shift]),
     ]
 }

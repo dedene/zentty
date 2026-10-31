@@ -833,6 +833,7 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             .movePaneDown: .init(key: .downArrow, modifiers: [.command, .control, .option]),
             .resetPaneLayout: .init(key: .character("0"), modifiers: [.command, .control, .option]),
             .openBookmarksPopover: .init(key: .character("b"), modifiers: [.command, .shift]),
+            .showAgentHistory: .init(key: .character("h"), modifiers: [.command, .shift]),
             .selectWorklane1: .init(key: .character("1"), modifiers: [.command]),
             .selectWorklane2: .init(key: .character("2"), modifiers: [.command]),
             .selectWorklane3: .init(key: .character("3"), modifiers: [.command]),

@@ -828,6 +828,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func showAgentHistory(_ sender: Any?) {
+        handle(.showAgentHistory)
+    }
+
+    @objc
     func openSettings(_ sender: Any?) {
         handle(.openSettings)
     }

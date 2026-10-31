@@ -279,6 +279,7 @@ final class AppDelegateTests: XCTestCase {
                 "Command Palette…",
                 "Toggle Quick Action Overlay",
                 "Show Bookmarks & Presets",
+                "Agent History…",
                 "Toggle Sidebar",
                 "Add Pane Right",
                 "New Pane Below",
