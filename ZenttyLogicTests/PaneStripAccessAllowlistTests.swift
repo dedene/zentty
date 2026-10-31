@@ -30,7 +30,6 @@ final class PaneStripAccessAllowlistTests: XCTestCase {
         "Bookmarks/BookmarkNameSuggester.swift": "names a bookmark from the captured strip",
         "Bookmarks/WorkspaceTemplateCapture.swift": "captures the strip into a template",
         // Pending: later phase-1 tasks make these float-aware and drop them here.
-        "Terminal/TerminalPaneHostView.swift": "pending Task 7: runtime registry sync and surface activity",
         "Restore/WorkspaceRecipe.swift": "pending Task 8: recipe v5 exports floats",
         "Restore/SessionRestoreStore.swift": "pending Task 8: drafts for floated panes",
         "AppDelegate.swift": "pending Task 8: scrollback capture source",

@@ -463,6 +463,192 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(worklaneAdapter.preparedContexts, [.tab])
     }
 
+    func test_synchronize_keeps_runtime_for_floated_pane() throws {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let editor = PaneState(id: PaneID("worklane-main-editor"), title: "editor")
+        let worklaneID = WorklaneID("worklane-main")
+
+        registry.synchronize(with: [
+            WorklaneState(
+                id: worklaneID,
+                title: nil,
+                paneStripState: PaneStripState(panes: [shell, editor], focusedPaneID: editor.id)
+            )
+        ])
+        let editorRuntime = try XCTUnwrap(registry.runtime(for: editor.id))
+
+        // The editor leaves the strip as a float; its runtime must survive.
+        registry.synchronize(with: [
+            WorklaneState(
+                id: worklaneID,
+                title: nil,
+                paneStripState: PaneStripState(panes: [shell], focusedPaneID: shell.id),
+                floatingPanes: [makeFloat(editor, mode: .floating)],
+                focusedFloatID: editor.id
+            )
+        ])
+
+        XCTAssertTrue(registry.runtime(for: editor.id) === editorRuntime)
+        XCTAssertFalse(adapterFactory.adaptersByPaneID[editor.id]?.eventLog.contains("close") ?? true)
+
+        // Float-only worklane (every tile closed) still keeps the float alive.
+        registry.synchronize(with: [
+            WorklaneState(
+                id: worklaneID,
+                title: nil,
+                paneStripState: PaneStripState(panes: [], focusedPaneID: nil),
+                floatingPanes: [makeFloat(editor, mode: .minimized(order: 0))]
+            )
+        ])
+
+        XCTAssertTrue(registry.runtime(for: editor.id) === editorRuntime)
+        XCTAssertNil(registry.runtime(for: shell.id))
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[shell.id]?.eventLog.last, "close")
+        XCTAssertFalse(adapterFactory.adaptersByPaneID[editor.id]?.eventLog.contains("close") ?? true)
+    }
+
+    func test_updateSurfaceActivities_occludes_minimized_float() {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        })
+        let shell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let floating = PaneState(id: PaneID("worklane-main-float"), title: "float")
+        let pip = PaneState(id: PaneID("worklane-main-pip"), title: "pip")
+        let minimized = PaneState(id: PaneID("worklane-main-min"), title: "min")
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: nil,
+                paneStripState: PaneStripState(panes: [shell], focusedPaneID: shell.id),
+                floatingPanes: [
+                    makeFloat(floating, mode: .floating, stackOrder: 0),
+                    makeFloat(pip, mode: .pip(corner: .bottomRight, order: 0), stackOrder: 1),
+                    makeFloat(minimized, mode: .minimized(order: 0), stackOrder: 2),
+                ],
+                focusedFloatID: floating.id
+            )
+        ]
+
+        registry.synchronize(with: worklanes)
+        registry.updateSurfaceActivities(
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        XCTAssertEqual(
+            adapterFactory.activity(for: shell.id),
+            TerminalSurfaceActivity(isVisible: true, isFocused: false)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: floating.id),
+            TerminalSurfaceActivity(isVisible: true, isFocused: true)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: pip.id),
+            TerminalSurfaceActivity(isVisible: true, isFocused: false)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: minimized.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+        // Active-worklane floats start immediately, like tiles.
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[minimized.id]?.startSessionCallCount, 1)
+
+        // Window becomes key again with floats hidden: focus falls back to the strip.
+        var hiddenWorklanes = worklanes
+        hiddenWorklanes[0].floatsHidden = true
+        registry.updateSurfaceActivities(
+            worklanes: hiddenWorklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        XCTAssertEqual(
+            adapterFactory.activity(for: shell.id),
+            TerminalSurfaceActivity(isVisible: true, isFocused: true)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: floating.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: pip.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+        XCTAssertEqual(
+            adapterFactory.activity(for: minimized.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+    }
+
+    func test_updateSurfaceActivities_defers_floats_of_inactive_worklane() {
+        let adapterFactory = PaneRuntimeAdapterFactorySpy()
+        let deferredScheduler = PaneRuntimeDeferredStartSchedulerSpy()
+        let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
+            adapterFactory.makeAdapter(for: paneID)
+        }, deferredStartScheduler: deferredScheduler.schedule)
+        let mainShell = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let otherShell = PaneState(id: PaneID("worklane-2-shell"), title: "shell")
+        let otherFloat = PaneState(id: PaneID("worklane-2-float"), title: "float")
+        let worklanes = [
+            WorklaneState(
+                id: WorklaneID("worklane-main"),
+                title: nil,
+                paneStripState: PaneStripState(panes: [mainShell], focusedPaneID: mainShell.id)
+            ),
+            WorklaneState(
+                id: WorklaneID("worklane-2"),
+                title: nil,
+                paneStripState: PaneStripState(panes: [otherShell], focusedPaneID: otherShell.id),
+                floatingPanes: [makeFloat(otherFloat, mode: .floating)],
+                focusedFloatID: otherFloat.id
+            ),
+        ]
+
+        registry.synchronize(with: worklanes)
+        registry.updateSurfaceActivities(
+            worklanes: worklanes,
+            activeWorklaneID: WorklaneID("worklane-main"),
+            windowIsVisible: true,
+            windowIsKey: true
+        )
+
+        XCTAssertEqual(
+            adapterFactory.activity(for: otherFloat.id),
+            TerminalSurfaceActivity(isVisible: false, isFocused: false)
+        )
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[otherFloat.id]?.startSessionCallCount, 0)
+
+        // Deferred order: strip panes first, then floats.
+        deferredScheduler.fireNext()
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[otherShell.id]?.startSessionCallCount, 1)
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[otherFloat.id]?.startSessionCallCount, 0)
+        deferredScheduler.fireNext()
+        XCTAssertEqual(adapterFactory.adaptersByPaneID[otherFloat.id]?.startSessionCallCount, 1)
+    }
+
+    private func makeFloat(
+        _ pane: PaneState,
+        mode: FloatingPaneMode,
+        stackOrder: Int = 0
+    ) -> FloatingPaneState {
+        FloatingPaneState(
+            pane: pane,
+            mode: mode,
+            floatFrame: NormalizedRect(x: 0.2, y: 0.2, width: 0.6, height: 0.6),
+            stackOrder: stackOrder,
+            origin: nil
+        )
+    }
+
     func test_registry_destroyAll_removes_all_runtimes() {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in

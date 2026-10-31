@@ -1105,7 +1105,9 @@ final class PaneRuntimeRegistry {
             var nextPaneIDs = Set<PaneID>()
 
             for worklane in worklanes {
-                for pane in worklane.paneStripState.panes {
+                // Every live pane, floats included: a pane missing here gets
+                // its surface closed below.
+                for pane in worklane.allPanes {
                     nextPaneIDs.insert(pane.id)
                     let runtime = runtime(for: pane)
                     let sourcePaneID = pane.sessionRequest.configInheritanceSourcePaneID
@@ -1249,18 +1251,8 @@ final class PaneRuntimeRegistry {
         windowIsKey: Bool,
         peekVisibleWorklaneIDs: Set<WorklaneID> = []
     ) {
-        let visiblePaneCount = worklanes
-            .first(where: { $0.id == activeWorklaneID && windowIsVisible })?
-            .paneStripState
-            .panes
-            .count ?? 0
-        diagnostics.recordRuntimeTopology(
-            liveRuntimeCount: runtimes.count,
-            visiblePaneCount: visiblePaneCount,
-            windowVisible: windowIsVisible,
-            windowKey: windowIsKey
-        )
-
+        let liveRuntimeCount = runtimes.count
+        var visiblePaneCount = 0
         let activeWorklaneIndex = worklanes.firstIndex { $0.id == activeWorklaneID } ?? 0
         var deferredCandidates: [(distance: Int, worklaneIndex: Int, paneIndex: Int, paneID: PaneID)] = []
 
@@ -1270,22 +1262,35 @@ final class PaneRuntimeRegistry {
             // keeps streaming frames) when the window is visible AND the
             // worklane is either the active one OR currently rendered as a
             // Worklane Peek neighbor preview. Focus stays gated on active.
+            // Floats follow their mode (see PaneActivityResolver).
             let isPeekVisible = peekVisibleWorklaneIDs.contains(worklane.id)
-            for (paneIndex, pane) in worklane.paneStripState.panes.enumerated() {
-                let isVisible = windowIsVisible && (isActiveWorklane || isPeekVisible)
-                let isFocused = isVisible && windowIsKey && isActiveWorklane
-                    && pane.id == worklane.paneStripState.focusedPaneID
+            let focusedPaneID = worklane.focusedPaneID
+            let floatModes = Dictionary(
+                worklane.floatingPanes.map { ($0.pane.id, $0.mode) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for (paneIndex, pane) in worklane.allPanes.enumerated() {
+                let mode = floatModes[pane.id].map(PanePresentationMode.init) ?? .tile
+                let activity = PaneActivityResolver.activity(
+                    for: PaneActivityInput(
+                        mode: mode,
+                        floatsHidden: worklane.floatsHidden,
+                        isActiveWorklane: isActiveWorklane,
+                        isPeekVisible: isPeekVisible,
+                        windowIsVisible: windowIsVisible,
+                        windowIsKey: windowIsKey,
+                        isFocusedPane: pane.id == focusedPaneID
+                    )
+                )
+                if isActiveWorklane, activity.isVisible {
+                    visiblePaneCount += 1
+                }
                 let runtime = runtime(for: pane)
                 let startsImmediately = isActiveWorklane || isPeekVisible
                 if startsImmediately {
                     removeDeferredStart(for: pane.id)
                 }
 
-                let activity = TerminalSurfaceActivity(
-                    keepsRuntimeLive: true,
-                    isVisible: isVisible,
-                    isFocused: isFocused
-                )
                 runtime.setSurfaceActivity(
                     activity,
                     startupPolicy: startsImmediately ? .immediate : .deferred
@@ -1302,6 +1307,13 @@ final class PaneRuntimeRegistry {
                 }
             }
         }
+
+        diagnostics.recordRuntimeTopology(
+            liveRuntimeCount: liveRuntimeCount,
+            visiblePaneCount: visiblePaneCount,
+            windowVisible: windowIsVisible,
+            windowKey: windowIsKey
+        )
 
         replaceDeferredStartQueue(
             with: deferredCandidates
