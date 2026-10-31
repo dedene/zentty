@@ -11,6 +11,7 @@
 		00CF9936D142F07E510AE8B1 /* AgentManifestRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73EC6370D27165D2795D56B2 /* AgentManifestRegistry.swift */; };
 		0129C725DE1BC687AA4B9EFF /* SidebarActiveWorklaneAutoScrollerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C05F7BE9ED093DD4CC4CA4 /* SidebarActiveWorklaneAutoScrollerTests.swift */; };
 		01439B6BF3F83A663BC90F30 /* RemoteImageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E23E0F7DE3F0B5A6D98FF8EB /* RemoteImageUploader.swift */; };
+		0188E4E475636E9D4F6A9A4A /* AppConfig+AgentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAA2B189E7BAE8EE47FD56F8 /* AppConfig+AgentHistory.swift */; };
 		02829CEB5ACDD7FDEAF1D50E /* ShellIntegrationRestoredScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23A22DF352C0C8F1D75E9B4 /* ShellIntegrationRestoredScrollbackTests.swift */; };
 		028F1F462FC45BC0DFB33F15 /* TerminalClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F71D1415EE0BF0891E75B0 /* TerminalClipboardTests.swift */; };
 		033F73402D6B37BE6D34C0F6 /* ServerWatchRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60B3AD9AA8F799603B573B28 /* ServerWatchRunner.swift */; };
@@ -430,6 +431,7 @@
 		820A7E0C5B5B33F9FAA80699 /* AppearanceSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E4530192DE360F32303E65 /* AppearanceSettingsSectionViewController.swift */; };
 		823E76AAB26EB40EB60908ED /* MenuBarFleetSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FBE996639899C1B264848CE /* MenuBarFleetSummary.swift */; };
 		8245A5A1336710207AB3DD17 /* MenuBarStatusMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B761568FFEEF65421C52232 /* MenuBarStatusMenuBuilder.swift */; };
+		83479EBBC56AB0B2549C1CB7 /* AppConfigAgentHistoryTOMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37472EA260ABA5660D04633C /* AppConfigAgentHistoryTOMLTests.swift */; };
 		834B6339AE9EE794ED76CDF9 /* AgentConsentCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B657E64F86B3DD0085CCD5E /* AgentConsentCoordinatorTests.swift */; };
 		83951F6CBB1AEE312F1A0D68 /* WorklaneStoreMetadataVolatileFastPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCCEFAE8FF676F5051157D3E /* WorklaneStoreMetadataVolatileFastPathTests.swift */; };
 		83BF166AF639CD6444EC9DED /* SidebarWorklaneReorderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A414B0A7FAAB8464A6432C77 /* SidebarWorklaneReorderModel.swift */; };
@@ -1043,6 +1045,7 @@
 		3694678FD430F7F0BA69C707 /* AgentHistoryFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryFixtures.swift; sourceTree = "<group>"; };
 		36B139BDD98C09FA077C41A6 /* TmuxFormatContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxFormatContext.swift; sourceTree = "<group>"; };
 		36B183F16CB963D13B16B5D0 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		37472EA260ABA5660D04633C /* AppConfigAgentHistoryTOMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigAgentHistoryTOMLTests.swift; sourceTree = "<group>"; };
 		375AC0B113C926F9F58086EC /* WorklaneContextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneContextFormatter.swift; sourceTree = "<group>"; };
 		37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerViewTests.swift; sourceTree = "<group>"; };
 		37FEDC5ACCE392A113BBE81E /* BookmarkRestoreBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkRestoreBannerView.swift; sourceTree = "<group>"; };
@@ -1530,6 +1533,7 @@
 		CA3810175E866C6CB11A8C87 /* SidebarMotionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMotionCoordinatorTests.swift; sourceTree = "<group>"; };
 		CA40FC14CFDB525CB2065ECC /* ScrollSwitchGestureHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollSwitchGestureHandlerTests.swift; sourceTree = "<group>"; };
 		CA5FF4A62DCF952CE2C4614C /* ShellIntegrationSSHCacheAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationSSHCacheAssertions.swift; sourceTree = "<group>"; };
+		CAA2B189E7BAE8EE47FD56F8 /* AppConfig+AgentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppConfig+AgentHistory.swift"; sourceTree = "<group>"; };
 		CAC113A53E86E67BCA330D9A /* PaneDragEdgeScrollDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragEdgeScrollDriver.swift; sourceTree = "<group>"; };
 		CB5382921BB166EEA584F3E6 /* ProcessSignaling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSignaling.swift; sourceTree = "<group>"; };
 		CB8E940C5BA5732292398845 /* FallbackTitleHeuristicReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FallbackTitleHeuristicReducer.swift; sourceTree = "<group>"; };
@@ -2055,6 +2059,7 @@
 			isa = PBXGroup;
 			children = (
 				C917E13A98AEBA7EDD90654E /* AppConfig.swift */,
+				CAA2B189E7BAE8EE47FD56F8 /* AppConfig+AgentHistory.swift */,
 				9D0458613F1580B46DFCD331 /* AppConfigPreservedTOML.swift */,
 				C491850BAA79B14AE9C4FF56 /* AppConfigStore.swift */,
 				25C38CE6BD2D5F5D24B1B7FE /* AppConfigTOML.swift */,
@@ -2707,6 +2712,7 @@
 				2FED3179D3B717E218F78E4C /* AgentSubagentTrackingTests.swift */,
 				A2EE42F8FEB23D0CF10CA377 /* AgyHooksInstallerTests.swift */,
 				7050471CCD4F04FFCCAE4F47 /* AppActionRouterTests.swift */,
+				37472EA260ABA5660D04633C /* AppConfigAgentHistoryTOMLTests.swift */,
 				288F2452125BCCDB961229C9 /* AppConfigAgentIntegrationsTOMLTests.swift */,
 				572D24277117B5669628A1C7 /* AppConfigAgentListsTOMLTests.swift */,
 				87F66585FDFDFE4560B7F3B1 /* AppConfigClipboardTOMLTests.swift */,
@@ -3247,6 +3253,7 @@
 				D2BD827625AC63F83A22C7E8 /* AgentsSettingsSectionViewControllerTests.swift in Sources */,
 				73DF3F48A4FDC64C88FCBE2E /* AgyHooksInstallerTests.swift in Sources */,
 				FE4B04996B50503CD36CC954 /* AppActionRouterTests.swift in Sources */,
+				83479EBBC56AB0B2549C1CB7 /* AppConfigAgentHistoryTOMLTests.swift in Sources */,
 				0C598E3C54E30B5CC4466E2D /* AppConfigAgentIntegrationsTOMLTests.swift in Sources */,
 				20C0AC254336E544C02147DA /* AppConfigAgentListsTOMLTests.swift in Sources */,
 				4E6C281C24DBF15136375A41 /* AppConfigClipboardTOMLTests.swift in Sources */,
@@ -3571,6 +3578,7 @@
 				2C6C6FCC081720E010745882 /* AmpResumeArgumentSanitizer.swift in Sources */,
 				BA2E11FD5E7F4E71D7BF48D9 /* AppActionRouter.swift in Sources */,
 				166BEE11322EC8809FACB201 /* AppCanvasView.swift in Sources */,
+				0188E4E475636E9D4F6A9A4A /* AppConfig+AgentHistory.swift in Sources */,
 				D59DA89E6E0CE0E9766052F0 /* AppConfig.swift in Sources */,
 				8CD71AAD6A41F72F14EC9F52 /* AppConfigPreservedTOML.swift in Sources */,
 				21E006D9ECF19B42A661D6C1 /* AppConfigStore.swift in Sources */,

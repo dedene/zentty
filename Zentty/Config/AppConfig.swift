@@ -361,6 +361,7 @@ struct AppConfig: Equatable, Sendable {
     var menuBar: MenuBar
     var agentIntegrations: AgentIntegrations
     var agents: Agents = .default
+    var agentHistory: AgentHistory = .default
     /// config.toml content this build doesn't model, kept so saves don't drop it.
     var preservedTOML: AppConfigPreservedTOML = .empty
 
@@ -427,6 +428,7 @@ struct AppConfig: Equatable, Sendable {
         normalized.serverDetection = normalized.serverDetection.normalized()
         normalized.shortcuts = normalized.shortcuts.normalized()
         normalized.notifications = normalized.notifications.normalized()
+        normalized.agentHistory = normalized.agentHistory.normalized()
         return normalized
     }
 }
