@@ -91,6 +91,25 @@ final class OverlayFloatHostedTests: XCTestCase {
         XCTAssertEqual(adapters[result.id]?.closeCount, 1)
     }
 
+    func test_a_running_overlay_float_requires_quit_and_window_close_confirmation() throws {
+        let controller = try makeSeededController()
+        XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
+        let result = try controller.openOverlay(on: tileID, options: options(placement: .worklane))
+        waitForLayout("overlay mounted")
+        XCTAssertFalse(controller.anyPaneHasRunningProcessForQuitConfirmation)
+
+        adapters[result.id]?.needsConfirmQuit = true
+
+        XCTAssertTrue(controller.anyPaneRequiresQuitConfirmation)
+        XCTAssertTrue(controller.anyPaneHasRunningProcessForQuitConfirmation)
+
+        try controller.closeOverlay(on: tileID)
+        waitForLayout("overlay closed")
+
+        XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
+        XCTAssertFalse(controller.anyPaneHasRunningProcessForQuitConfirmation)
+    }
+
     func test_following_a_notify_overlay_to_its_pane_reveals_and_focuses_it() throws {
         let controller = try makeSeededController()
         controller.newWorklane(nil)

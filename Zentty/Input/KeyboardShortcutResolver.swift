@@ -91,7 +91,6 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
-    case toggleQuickActionOverlay = "overlay.toggle"
     case showTaskManager = "task_manager.show"
     case openWithSelectedApp = "open_with.selected_app"
     case openSelectedServer = "server.open_selected"
@@ -127,6 +126,21 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
             return nil
         }
         return index + 1
+    }
+
+    /// Retired command ids a saved config may still bind, mapped to the
+    /// command that replaced them. Re-saving the config writes the new id.
+    static let retiredConfigIDs: [String: AppCommandID] = [
+        // "Toggle Quick Action Overlay" became "New Float".
+        "overlay.toggle": .newFloat,
+    ]
+
+    /// Decodes a command id from a config file, accepting retired ids.
+    init?(configValue: String) {
+        guard let commandID = AppCommandID(rawValue: configValue) ?? Self.retiredConfigIDs[configValue] else {
+            return nil
+        }
+        self = commandID
     }
 }
 
@@ -167,7 +181,6 @@ enum AppAction: Equatable, Sendable {
     case navigateBack
     case navigateForward
     case showCommandPalette
-    case toggleQuickActionOverlay
     case showTaskManager
     case openWithSelectedApp
     case openSelectedServer
@@ -981,18 +994,6 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
-            id: .toggleQuickActionOverlay,
-            title: "Toggle Quick Action Overlay",
-            category: .general,
-            defaultShortcut: nil,
-            action: .toggleQuickActionOverlay,
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Toggle Quick Action Overlay",
-                selector: #selector(MainWindowController.toggleQuickActionOverlay(_:))
-            )
-        ),
-        AppCommandDefinition(
             id: .openBranchOnRemote,
             title: "Open Branch on Remote",
             category: .general,
@@ -1167,7 +1168,6 @@ enum AppCommandRegistry {
         ],
         .view: [
             .command(.showCommandPalette),
-            .command(.toggleQuickActionOverlay),
             .separator,
             .command(.openBookmarksPopover),
             .command(.toggleSidebar),
@@ -1373,8 +1373,6 @@ extension AppCommandDefinition {
             "Reset pane sizes to their defaults."
         case .showCommandPalette:
             "Open the command palette."
-        case .toggleQuickActionOverlay:
-            "Open or close a shell overlay on the focused pane."
         case .showTaskManager:
             "Show CPU and memory usage for live panes."
         case .openWithSelectedApp:
@@ -1424,7 +1422,11 @@ extension AppCommandDefinition {
             [title, detailDescription, PaneUnreadToggle.markRead.title, "unread read remind later revisit flag"]
                 .joined(separator: " ")
                 .lowercased()
-        case .toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatsHidden, .newFloat, .cycleFloatFocus:
+        case .newFloat:
+            [title, detailDescription, "floating float overlay quick action shell window"]
+                .joined(separator: " ")
+                .lowercased()
+        case .toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatsHidden, .cycleFloatFocus:
             [title, detailDescription, "floating float overlay window pip picture in picture"]
                 .joined(separator: " ")
                 .lowercased()

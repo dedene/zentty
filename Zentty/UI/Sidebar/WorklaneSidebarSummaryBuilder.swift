@@ -68,7 +68,8 @@ enum WorklaneSidebarSummaryBuilder {
         for worklanes: [WorklaneState],
         activeWorklaneID: WorklaneID,
         focusOverride: WorklaneSidebarFocusOverride? = nil,
-        serverContextsByWorklaneID: [WorklaneID: WorklaneServerContext] = [:]
+        serverContextsByWorklaneID: [WorklaneID: WorklaneServerContext] = [:],
+        showsTemporaryFloats: Bool = true
     ) -> [WorklaneSidebarSummary] {
         let focusOverride = validFocusOverride(focusOverride, in: worklanes)
         let effectiveActiveWorklaneID = focusOverride?.worklaneID ?? activeWorklaneID
@@ -84,7 +85,8 @@ enum WorklaneSidebarSummaryBuilder {
                 identity: identitiesByWorklaneID[worklane.id],
                 displayOrder: index + 1,
                 focusOverride: focusOverride,
-                serverContext: serverContextsByWorklaneID[worklane.id]
+                serverContext: serverContextsByWorklaneID[worklane.id],
+                showsTemporaryFloats: showsTemporaryFloats
             )
         }
 
@@ -115,9 +117,10 @@ enum WorklaneSidebarSummaryBuilder {
         identity: WorklaneSidebarIdentity?,
         displayOrder: Int,
         focusOverride: WorklaneSidebarFocusOverride? = nil,
-        serverContext: WorklaneServerContext? = nil
+        serverContext: WorklaneServerContext? = nil,
+        showsTemporaryFloats: Bool = true
     ) -> WorklaneSidebarSummary {
-        let orderedPaneContexts = orderedPaneContexts(for: worklane)
+        let orderedPaneContexts = orderedPaneContexts(for: worklane, showsTemporaryFloats: showsTemporaryFloats)
         // Row highlight follows keyboard focus (a focused float included);
         // the worklane's name and detail lines follow the strip so they don't
         // flip each time a float takes focus.
@@ -260,8 +263,11 @@ enum WorklaneSidebarSummaryBuilder {
         serverContext: WorklaneServerContext?
     ) -> [WorklaneSidebarPaneRow] {
         orderedPaneContexts.map { paneContext in
-            paneRow(for: paneContext, isFocused: focusedPaneID == paneContext.paneID,
-                    isSinglePane: orderedPaneContexts.count == 1, serverContext: serverContext)
+            var row = paneRow(for: paneContext, isFocused: focusedPaneID == paneContext.paneID,
+                              isSinglePane: orderedPaneContexts.count == 1, serverContext: serverContext)
+            row.floatMode = worklane.floatingPane(id: paneContext.paneID).map { WorklaneSidebarFloatMode($0.mode) }
+            row.isTemporaryFloat = !worklane.isPersistent(paneContext.paneID)
+            return row
         }
     }
 
@@ -929,10 +935,15 @@ enum WorklaneSidebarSummaryBuilder {
         paneContext.presentation.cwd
     }
 
-    /// Strip panes in strip order, then floats (back to front).
-    private static func orderedPaneContexts(for worklane: WorklaneState) -> [WorklanePaneContext] {
+    /// Strip panes in strip order, then floats in creation order. With the
+    /// sidebar's `show_overlays` off, temporary (overlay) floats are left out.
+    private static func orderedPaneContexts(
+        for worklane: WorklaneState,
+        showsTemporaryFloats: Bool = true
+    ) -> [WorklanePaneContext] {
         worklane.allPanes.compactMap { pane in
-            worklane.paneContext(for: pane.id)
+            guard showsTemporaryFloats || worklane.isPersistent(pane.id) else { return nil }
+            return worklane.paneContext(for: pane.id)
         }
     }
 

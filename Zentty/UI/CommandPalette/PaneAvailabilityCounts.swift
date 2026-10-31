@@ -61,7 +61,6 @@ extension CommandAvailabilityContext {
         activeWorklaneHasPrimaryServer: Bool = false,
         activeWorklaneHasReviewLookup: Bool = false,
         focusedPaneUnreadToggle: PaneUnreadToggle? = nil,
-        isQuickActionFocused: Bool = false,
         focusedPaneAgentFork: AgentForkAvailability? = nil
     ) {
         self.init(
@@ -77,7 +76,6 @@ extension CommandAvailabilityContext {
             activeWorklaneHasPrimaryServer: activeWorklaneHasPrimaryServer,
             activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
             focusedPaneUnreadToggle: focusedPaneUnreadToggle,
-            isQuickActionFocused: isQuickActionFocused,
             focusedPaneAgentFork: focusedPaneAgentFork,
             activeTiledPaneCount: counts.activeTiledPaneCount,
             focusedPaneIsFloat: counts.focusedPaneIsFloat,

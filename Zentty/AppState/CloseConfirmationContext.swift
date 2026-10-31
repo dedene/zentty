@@ -30,8 +30,9 @@ enum CloseConfirmationActivity: Equatable, Sendable {
     }
 }
 
-/// A quick-action overlay with a live process. Overlays live outside the
-/// worklane store, so callers pass in the ones a close would terminate.
+/// An overlay float (`zentty overlay open`) with a live process. Its command
+/// is the session's native command, which the store's shell state may not
+/// see, so callers ask the terminal and pass in the ones a close would end.
 struct RunningQuickAction: Equatable, Sendable {
     /// The command the overlay was opened with; nil for an interactive shell.
     let command: String?

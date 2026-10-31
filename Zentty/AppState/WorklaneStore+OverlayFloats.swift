@@ -3,16 +3,12 @@ import Foundation
 
 enum TerminalOverlayError: LocalizedError, Equatable {
     case paneNotFound
-    /// Only the legacy quick-action overlay raises this; `zentty overlay open`
-    /// returns the existing float instead.
-    case alreadyOpen
     case notOpen
     case invalidWorkingDirectory(String)
 
     var errorDescription: String? {
         switch self {
         case .paneNotFound: "Target pane not found."
-        case .alreadyOpen: "An overlay already exists for this placement and target."
         case .notOpen: "This pane has no overlay."
         case .invalidWorkingDirectory(let path): "Overlay directory does not exist: \(path)"
         }

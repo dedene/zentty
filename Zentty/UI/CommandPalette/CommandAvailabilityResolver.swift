@@ -18,9 +18,6 @@ struct CommandAvailabilityContext: Equatable {
     let activeWorklaneHasReviewLookup: Bool
     /// What Mark as Unread would do for the focused pane; `nil` hides it.
     let focusedPaneUnreadToggle: PaneUnreadToggle?
-    /// A quick-action overlay holds keyboard focus. Pane search would act on
-    /// the terminal hidden under it, so it is off until focus leaves the overlay.
-    let isQuickActionFocused: Bool
     /// Fork state of the focused pane's agent; `nil` (no agent) hides the
     /// fork command, an unavailable value shows it disabled with its reason.
     let focusedPaneAgentFork: AgentForkAvailability?
@@ -52,7 +49,6 @@ struct CommandAvailabilityContext: Equatable {
         activeWorklaneHasPrimaryServer: Bool = false,
         activeWorklaneHasReviewLookup: Bool = false,
         focusedPaneUnreadToggle: PaneUnreadToggle? = nil,
-        isQuickActionFocused: Bool = false,
         focusedPaneAgentFork: AgentForkAvailability? = nil,
         activeTiledPaneCount: Int? = nil,
         focusedPaneIsFloat: Bool = false,
@@ -72,7 +68,6 @@ struct CommandAvailabilityContext: Equatable {
         self.activeWorklaneHasPrimaryServer = activeWorklaneHasPrimaryServer
         self.activeWorklaneHasReviewLookup = activeWorklaneHasReviewLookup
         self.focusedPaneUnreadToggle = focusedPaneUnreadToggle
-        self.isQuickActionFocused = isQuickActionFocused
         self.focusedPaneAgentFork = focusedPaneAgentFork
         self.activeTiledPaneCount = activeTiledPaneCount ?? activePaneCount
         self.focusedPaneIsFloat = focusedPaneIsFloat
@@ -155,17 +150,14 @@ enum CommandAvailabilityResolver {
         case .toggleFocusedPaneUnread:
             return context.focusedPaneUnreadToggle != nil
         case .find, .useSelectionForFind:
-            return !context.isQuickActionFocused
+            return true
         case .findNext, .findPrevious:
-            return !context.isQuickActionFocused
-                && (context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch)
+            return context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch
         case .focusPreviousPane, .focusNextPane:
             return context.navigablePaneCount > 1
         case .closeFocusedPane:
             // Available whenever there's a pane to close — closing the last
             // pane in the last worklane closes the window.
-            return context.activePaneCount >= 1
-        case .toggleQuickActionOverlay:
             return context.activePaneCount >= 1
         case .duplicateFocusedPane:
             return context.activePaneCount >= 1

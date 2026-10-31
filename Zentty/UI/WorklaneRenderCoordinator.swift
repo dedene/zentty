@@ -103,7 +103,6 @@ final class WorklaneRenderCoordinator {
     /// previews keep streaming live instead of freezing on a still frame.
     /// Default returns an empty set (nothing peek-visible).
     var peekVisibleWorklaneIDsProvider: () -> Set<WorklaneID> = { [] }
-    var sidebarOverlaysByWorklaneID: [WorklaneID: [WorklaneSidebarOverlay]] = [:]
     var sidebarFocusOverrideProvider: () -> WorklaneSidebarFocusOverride? = { nil }
 
     init(
@@ -212,21 +211,6 @@ final class WorklaneRenderCoordinator {
 
     // MARK: - Internal
 
-    private func withOverlayRows(_ summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
-        guard configStore?.current.sidebar.showOverlays ?? true,
-              let overlays = sidebarOverlaysByWorklaneID[summary.worklaneID], !overlays.isEmpty else {
-            return summary
-        }
-        let worklane = worklaneStore.worklanes.first { $0.id == summary.worklaneID }
-        var summary = summary
-        summary.overlayRows = overlays.map { overlay in
-            overlay.sidebarRow(
-                anchorWorkingDirectory: worklane?.auxiliaryStateByPaneID[overlay.anchorPaneID]?.presentation.cwd
-            )
-        }
-        return summary
-    }
-
     private var currentTheme: ZenttyTheme {
         environment?.renderTheme ?? ZenttyTheme.fallback(for: nil)
     }
@@ -242,8 +226,10 @@ final class WorklaneRenderCoordinator {
                 for: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 focusOverride: sidebarFocusOverrideProvider(),
-                serverContextsByWorklaneID: serverContextsByWorklaneID()
-            ).map(withOverlayRows),
+                serverContextsByWorklaneID: serverContextsByWorklaneID(),
+                // `show_overlays` now hides temporary (overlay) floats only.
+                showsTemporaryFloats: configStore?.current.sidebar.showOverlays ?? true
+            ),
             theme: currentTheme
         )
         environment?.renderSidebarSyncNeeded()

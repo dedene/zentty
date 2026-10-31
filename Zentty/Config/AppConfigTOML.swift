@@ -794,7 +794,7 @@ enum AppConfigTOML {
         switch assignment.key {
         case "command_id":
             guard let raw = decodeString(assignment.value),
-                  let commandID = AppCommandID(rawValue: raw) else {
+                  let commandID = AppCommandID(configValue: raw) else {
                 return false
             }
 

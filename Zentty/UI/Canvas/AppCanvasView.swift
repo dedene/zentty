@@ -344,14 +344,12 @@ final class AppCanvasView: NSView {
         get { paneStripView.leadingVisibleInset }
         set {
             paneStripView.setLeadingVisibleInset(newValue, animated: false)
-            layoutOverlayContainer()
+            layoutFloatLayer()
         }
     }
     let paneStripView: PaneStripView
-    /// Floats and PiPs of the active worklane, above the strip and below
-    /// worklane overlays.
+    /// Floats and PiPs of the active worklane, above the strip.
     let floatLayerView: FloatLayerView
-    let quickActionOverlayContainer = QuickActionOverlayContainerView()
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     init(
@@ -383,7 +381,6 @@ final class AppCanvasView: NSView {
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneStripView)
         addSubview(floatLayerView)
-        addSubview(quickActionOverlayContainer)
         floatLayerView.dockColumnsProvider = { [weak paneStripView, weak floatLayerView] in
             guard let paneStripView, let floatLayerView else { return [] }
             return paneStripView.dockHitTestColumns(in: floatLayerView)
@@ -402,16 +399,16 @@ final class AppCanvasView: NSView {
 
     override func layout() {
         super.layout()
-        layoutOverlayContainer()
+        layoutFloatLayer()
     }
 
-    private func layoutOverlayContainer() {
+    /// The float layer covers the visible canvas, right of the sidebar inset.
+    private func layoutFloatLayer() {
         let inset = min(max(0, leadingVisibleInset), bounds.width)
         let frame = NSRect(
             x: bounds.minX + inset, y: bounds.minY,
             width: bounds.width - inset, height: bounds.height
         )
-        quickActionOverlayContainer.frame = frame
         if floatLayerView.frame != frame {
             floatLayerView.frame = frame
         }
@@ -442,7 +439,7 @@ final class AppCanvasView: NSView {
         defer {
             // Strip first (it releases a lifted pane's host view), then the
             // layer at its final frame (it borrows that host view).
-            layoutOverlayContainer()
+            layoutFloatLayer()
             floatLayerView.render(
                 floats,
                 theme: theme,
@@ -543,7 +540,7 @@ final class AppCanvasView: NSView {
             duration: duration,
             timingFunction: timingFunction
         )
-        layoutOverlayContainer()
+        layoutFloatLayer()
     }
 
     func updateMetadata(for paneID: PaneID, metadata: TerminalMetadata) {
@@ -579,13 +576,5 @@ final class AppCanvasView: NSView {
             self.layer?.backgroundColor = NSColor.clear.cgColor
             self.layer?.borderColor = NSColor.clear.cgColor
         }
-    }
-}
-
-/// Empty space around quick actions remains interactive for the worklane below.
-final class QuickActionOverlayContainerView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
-        return hit === self ? nil : hit
     }
 }

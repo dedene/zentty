@@ -495,22 +495,38 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.duplicateFocusedPane))
     }
 
-    func test_overlay_shortcut_is_opt_in_and_remapping_releases_control_backtick() {
+    func test_legacy_overlay_toggle_binding_now_binds_new_float() throws {
         let backtick = KeyboardShortcut(key: .character("`"), modifiers: [.control])
         XCTAssertNil(KeyboardShortcutResolver.resolve(backtick))
-        for preset in ShortcutPreset.allCases {
-            let shortcuts = AppConfig.Shortcuts(bindings: ShortcutPresetResolver().resolve(preset))
-            XCTAssertNil(ShortcutManager(shortcuts: shortcuts).shortcut(for: .toggleQuickActionOverlay))
-            XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: shortcuts))
-        }
-        let optIn = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: backtick)])
-        XCTAssertEqual(KeyboardShortcutResolver.resolve(backtick, shortcuts: optIn), .toggleQuickActionOverlay)
-        let remappedKey = KeyboardShortcut(key: .character("o"), modifiers: [.command, .control])
-        let remapped = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: remappedKey)])
-        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: remapped))
-        XCTAssertEqual(KeyboardShortcutResolver.resolve(remappedKey, shortcuts: remapped), .toggleQuickActionOverlay)
-        let unbound = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: nil)])
-        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: unbound))
+        XCTAssertNil(AppCommandID(rawValue: "overlay.toggle"), "the overlay toggle is gone")
+        let legacy = AppConfigTOML.encodeShortcuts([.init(commandID: .newFloat, shortcut: backtick)])
+            .replacingOccurrences(of: "\"float.new\"", with: "\"overlay.toggle\"")
+        XCTAssertTrue(legacy.contains("overlay.toggle"))
+
+        let bindings = try XCTUnwrap(AppConfigTOML.decodeShortcuts(legacy))
+
+        XCTAssertEqual(bindings, [.init(commandID: .newFloat, shortcut: backtick)])
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(backtick, shortcuts: AppConfig.Shortcuts(bindings: bindings)),
+            .newFloat
+        )
+        XCTAssertFalse(AppConfigTOML.encodeShortcuts(bindings).contains("overlay.toggle"), "saved back as float.new")
+        let unbound = try XCTUnwrap(AppConfigTOML.decodeShortcuts(
+            legacy.replacingOccurrences(of: backtick.storageString, with: "")
+        ))
+        XCTAssertEqual(unbound, [.init(commandID: .newFloat, shortcut: nil)])
+    }
+
+    func test_legacy_overlay_toggle_binding_survives_a_full_config_decode() throws {
+        let backtick = KeyboardShortcut(key: .character("`"), modifiers: [.control])
+        var config = AppConfig.default
+        config.shortcuts = AppConfig.Shortcuts(bindings: [.init(commandID: .newFloat, shortcut: backtick)])
+        let legacy = AppConfigTOML.encode(config)
+            .replacingOccurrences(of: "\"float.new\"", with: "\"overlay.toggle\"")
+
+        let decoded = try XCTUnwrap(AppConfigTOML.decode(legacy))
+
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(backtick, shortcuts: decoded.shortcuts), .newFloat)
     }
 
     func test_resolves_remapped_shortcuts_from_overrides() {

@@ -59,7 +59,7 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         let overlayRow = makeSwitchRow(
             title: "Show overlays in worklane info",
-            subtitle: "List terminal overlays below the panes in the sidebar.",
+            subtitle: "List floats opened with zentty overlay among the panes in the sidebar.",
             toggle: showOverlaysSwitch,
             action: #selector(handleShowOverlaysChanged(_:))
         )

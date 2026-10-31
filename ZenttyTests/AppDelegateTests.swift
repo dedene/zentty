@@ -277,7 +277,6 @@ final class AppDelegateTests: XCTestCase {
             actionItems.map(\.title),
             [
                 "Command Palette…",
-                "Toggle Quick Action Overlay",
                 "Show Bookmarks & Presets",
                 "Toggle Sidebar",
                 "Add Pane Right",
