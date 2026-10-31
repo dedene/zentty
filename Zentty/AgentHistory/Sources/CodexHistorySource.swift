@@ -168,6 +168,7 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
     // MARK: - Change classification (A-6)
 
     func classifyChange(unit: AgentHistoryUnit, cursor: AgentHistoryCursor?) -> AgentHistoryUnitChange {
+        let change: AgentHistoryUnitChange
         switch unit.kind {
         case .database:
             guard cursor != nil else {
@@ -175,12 +176,31 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
             }
             return AgentHistoryFileIdentity.stat(path: unit.path) == nil ? .missing : .append(fromOffset: 0, nextSeq: 0)
         case .zstdJSONL:
-            return classifyCompressed(unit: unit, cursor: cursor)
+            change = classifyCompressed(unit: unit, cursor: cursor)
         case .jsonl, .directory:
-            return AgentHistoryUnitChangeClassifier.classify(cursor: cursor, current: unit.identity) {
+            change = AgentHistoryUnitChangeClassifier.classify(cursor: cursor, current: unit.identity) {
                 AgentHistoryFileFingerprint.compute(path: unit.path, endOffset: cursor?.byteOffset ?? 0)
             }
         }
+        return Self.refreshingMovedRollout(change, unit: unit, cursor: cursor)
+    }
+
+    /// Archiving moves a rollout to `archived_sessions/` (and unarchiving back); compression swaps
+    /// it for `<name>.zst`. Neither changes the content, so the rules above say `.unchanged` (a
+    /// rename keeps dev, ino, size and mtime) or `.identityOnly`, and the stored session would keep
+    /// naming a file that is gone and the old archive state. A rollout read under another path
+    /// becomes a 0-byte `.append` at the cursor instead: no new messages, and a compressed file
+    /// is not decompressed (see `ingestRollout`). Cursors without a recorded path keep the result.
+    static func refreshingMovedRollout(
+        _ change: AgentHistoryUnitChange, unit: AgentHistoryUnit, cursor: AgentHistoryCursor?
+    ) -> AgentHistoryUnitChange {
+        guard change == .unchanged || change == .identityOnly,
+              let cursor, !cursor.isRejected,
+              let recorded = CodexRolloutState.decode(cursor.adapterState)?.path,
+              recorded != unit.path else {
+            return change
+        }
+        return .append(fromOffset: cursor.byteOffset, nextSeq: cursor.nextSeq)
     }
 
     /// Compressed rollouts compare **decompressed** offsets and fingerprints only:

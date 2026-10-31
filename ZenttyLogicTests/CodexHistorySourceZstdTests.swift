@@ -148,18 +148,82 @@ final class CodexHistorySourceZstdTests: XCTestCase {
         let plain = try C.unit(source, key: "rollout:" + id)
         let cursor = try XCTUnwrap(try C.ingestAll(source, unit: plain).last).cursor
         XCTAssertEqual(CodexRolloutState.decode(cursor.adapterState)?.lastKind, .jsonl)
+        XCTAssertEqual(CodexRolloutState.decode(cursor.adapterState)?.path, plain.path)
 
         // Codex compresses the finished rollout and removes the plain file.
-        try C.writeRollout(root: root, id: id, lines: lines, compressed: true)
+        let compressedURL = try C.writeRollout(root: root, id: id, lines: lines, compressed: true)
         try FileManager.default.removeItem(at: plainURL)
         let compressed = try C.unit(source, key: "rollout:" + id)
         XCTAssertEqual(compressed.kind, .zstdJSONL)
-        XCTAssertEqual(source.classifyChange(unit: compressed, cursor: cursor), .identityOnly)
 
-        // The indexer then stores the new identity only; the next poll sees nothing new.
-        var saved = cursor
-        saved.identity = compressed.identity
-        XCTAssertEqual(source.classifyChange(unit: compressed, cursor: saved), .unchanged)
+        // Same content (A-6); a cursor that does not know its path only takes the new identity.
+        var pathless = cursor
+        var state = try XCTUnwrap(CodexRolloutState.decode(cursor.adapterState))
+        state.path = nil
+        pathless.adapterState = state.encoded()
+        XCTAssertEqual(source.classifyChange(unit: compressed, cursor: pathless), .identityOnly)
+
+        // The stored transcript path names the deleted plain file, so the compressed form is a
+        // metadata refresh at the cursor: no messages and no decompression.
+        let change = source.classifyChange(unit: compressed, cursor: cursor)
+        XCTAssertEqual(change, .append(fromOffset: cursor.byteOffset, nextSeq: cursor.nextSeq))
+        let opens = source.zstdStreamOpenCount
+        let refresh = try source.ingest(unit: compressed, cursor: cursor, mode: .fromOffset(cursor.byteOffset, nextSeq: cursor.nextSeq),
+                                        context: F.context())
+        XCTAssertEqual(source.zstdStreamOpenCount, opens, "nothing past the cursor: not decompressed")
+        XCTAssertTrue(refresh.messages.isEmpty)
+        XCTAssertFalse(refresh.hasMore)
+        XCTAssertEqual(refresh.sessions.first?.transcriptPath, AgentHistoryPath.canonical(compressedURL.path))
+        XCTAssertEqual(refresh.sessions.first?.archived, false)
+        XCTAssertEqual(refresh.sessions.first?.cwd, "/work/proj", "metadata carried in adapter state")
+        XCTAssertEqual(refresh.cursor.byteOffset, cursor.byteOffset)
+        XCTAssertEqual(refresh.cursor.nextSeq, cursor.nextSeq)
+        XCTAssertEqual(refresh.cursor.fingerprint, ZstdByteSource.fingerprint(path: compressed.path, endOffset: cursor.byteOffset))
+        XCTAssertEqual(refresh.cursor.identity, compressed.identity)
+
+        // The next poll sees nothing new.
+        XCTAssertEqual(source.classifyChange(unit: compressed, cursor: refresh.cursor), .unchanged)
+    }
+
+    func test_archiving_a_rollout_refreshes_its_path_and_archive_flag() throws {
+        for compressed in [false, true] {
+            let (root, source) = try C.makeRoot(self)
+            let id = C.newThreadID()
+            let original = try C.writeRollout(root: root, id: id, lines: conversation(id, turns: 2), compressed: compressed)
+            let unit = try C.unit(source, key: "rollout:" + id)
+            let indexed = try XCTUnwrap(try C.ingestAll(source, unit: unit).last)
+            XCTAssertEqual(indexed.sessions.first?.archived, false)
+            XCTAssertEqual(source.classifyChange(unit: unit, cursor: indexed.cursor), .unchanged)
+
+            // Codex archives the thread: a rename keeps dev, ino, size and mtime.
+            let archivedFolder = root.appendingPathComponent("archived_sessions", isDirectory: true)
+            try FileManager.default.createDirectory(at: archivedFolder, withIntermediateDirectories: true)
+            let archivedURL = archivedFolder.appendingPathComponent(original.lastPathComponent)
+            try FileManager.default.moveItem(at: original, to: archivedURL)
+            let moved = try C.unit(source, key: "rollout:" + id)
+            XCTAssertEqual(moved.identity, unit.identity, "a rename keeps the identity")
+            let cursor = indexed.cursor
+            XCTAssertEqual(source.classifyChange(unit: moved, cursor: cursor), .append(fromOffset: cursor.byteOffset, nextSeq: cursor.nextSeq),
+                           "compressed: \(compressed)")
+            let opens = source.zstdStreamOpenCount
+            let archived = try source.ingest(unit: moved, cursor: cursor, mode: .fromOffset(cursor.byteOffset, nextSeq: cursor.nextSeq),
+                                             context: F.context())
+            XCTAssertEqual(source.zstdStreamOpenCount, opens)
+            XCTAssertTrue(archived.messages.isEmpty)
+            XCTAssertEqual(archived.sessions.first?.archived, true)
+            XCTAssertEqual(archived.sessions.first?.transcriptPath, moved.path)
+            XCTAssertEqual(source.classifyChange(unit: moved, cursor: archived.cursor), .unchanged)
+
+            // Unarchiving moves it back.
+            try FileManager.default.moveItem(at: archivedURL, to: original)
+            let restored = try C.unit(source, key: "rollout:" + id)
+            let change = source.classifyChange(unit: restored, cursor: archived.cursor)
+            XCTAssertEqual(change, .append(fromOffset: cursor.byteOffset, nextSeq: cursor.nextSeq))
+            let unarchived = try source.ingest(unit: restored, cursor: archived.cursor,
+                                               mode: .fromOffset(cursor.byteOffset, nextSeq: cursor.nextSeq), context: F.context())
+            XCTAssertEqual(unarchived.sessions.first?.archived, false)
+            XCTAssertEqual(unarchived.sessions.first?.transcriptPath, restored.path)
+        }
     }
 
     func test_zst_append_and_rewrite_classification_uses_decompressed_offsets() throws {

@@ -25,13 +25,17 @@ struct CodexRolloutState: Codable, Equatable, Sendable {
     var isChild = false
     /// Tool calls that ran `git commit` and whose output has not been seen yet.
     var pendingCommitCallIDs: [String] = []
+    /// The file the last batch read. A rollout moved to `archived_sessions/` (or back), or
+    /// swapped for its `.zst`, keeps its content; a different path is what tells the classifier
+    /// that the stored transcript path and archive flag need a refresh.
+    var path: String?
 
     init(lastKind: Kind) {
         self.lastKind = lastKind
     }
 
     private enum CodingKeys: String, CodingKey {
-        case lastKind, reachedEOF, cwd, branch, model, effort, startedAtMs, lastAtMs, isChild, pendingCommitCallIDs
+        case lastKind, reachedEOF, cwd, branch, model, effort, startedAtMs, lastAtMs, isChild, pendingCommitCallIDs, path
     }
 
     init(from decoder: Decoder) throws {
@@ -46,6 +50,7 @@ struct CodexRolloutState: Codable, Equatable, Sendable {
         lastAtMs = try container.decodeIfPresent(Int64.self, forKey: .lastAtMs)
         isChild = try container.decodeIfPresent(Bool.self, forKey: .isChild) ?? false
         pendingCommitCallIDs = try container.decodeIfPresent([String].self, forKey: .pendingCommitCallIDs) ?? []
+        path = try container.decodeIfPresent(String.self, forKey: .path)
     }
 
     static func decode(_ data: Data?) -> CodexRolloutState? {
@@ -190,6 +195,7 @@ extension CodexHistorySource {
             state = CodexRolloutState.decode(cursor?.adapterState) ?? CodexRolloutState(lastKind: kind)
         }
         state.lastKind = kind
+        state.path = unit.path
 
         var batch = AgentHistoryIngestBatch(cursor: base, hasMore: false)
         guard let nativeID = unit.nativeSessionID.flatMap(AgentHistoryAgent.codex.normalizedSessionID) else {
@@ -240,58 +246,70 @@ extension CodexHistorySource {
             return Self.rejected(finish(byteOffset: startOffset, fingerprint: base.fingerprint), nativeID: nativeID, decision: decision)
         }
 
-        // Open (or resume) the stream.
-        var reader: JSONLTailReader
-        var window: CodexWindowRecordingSource?
-        if kind == .zst {
-            if let continuation = takeZstdContinuation(key: unit.key, identity: identity, offset: startOffset) {
-                reader = continuation.reader
-                window = continuation.window
-            } else {
-                noteZstdStreamOpened()
-                let recorder = CodexWindowRecordingSource(
-                    base: try ZstdByteSource(path: unit.path), startOffset: 0, capacity: Self.windowCapacity
-                )
-                try recorder.discard(startOffset)
-                reader = JSONLTailReader(source: recorder, startOffset: startOffset, chunkSize: Self.readerChunkSize,
-                                         isCancelled: context.isCancelled)
-                window = recorder
-            }
-        } else {
-            reader = JSONLTailReader(source: try FileByteSource(path: unit.path, offset: startOffset), startOffset: startOffset,
-                                     chunkSize: Self.readerChunkSize, isCancelled: context.isCancelled)
-        }
-
         var outcome = CodexRolloutLineProcessor.Outcome.continue
-        let byteLimit = Int64(context.limits.sourceBytes)
-        let stats = try reader.readLines { line, endOffset in
-            if processor.state.isChild {
+        let committed: Int64
+        let reachedEOF: Bool
+        let fingerprint: Int64?
+        if kind == .zst, startOffset > 0, base.fingerprint != nil,
+           ZstdByteSource.frameContentSize(path: unit.path) == startOffset {
+            // Nothing past the cursor (a rollout that was moved, or compressed after it was read
+            // in full): refresh the session's metadata without decompressing the file.
+            dropZstdContinuation(key: unit.key)
+            committed = startOffset
+            reachedEOF = true
+            fingerprint = base.fingerprint
+        } else {
+            // Open (or resume) the stream.
+            var reader: JSONLTailReader
+            var window: CodexWindowRecordingSource?
+            if kind == .zst {
+                if let continuation = takeZstdContinuation(key: unit.key, identity: identity, offset: startOffset) {
+                    reader = continuation.reader
+                    window = continuation.window
+                } else {
+                    noteZstdStreamOpened()
+                    let recorder = CodexWindowRecordingSource(
+                        base: try ZstdByteSource(path: unit.path), startOffset: 0, capacity: Self.windowCapacity
+                    )
+                    try recorder.discard(startOffset)
+                    reader = JSONLTailReader(source: recorder, startOffset: startOffset, chunkSize: Self.readerChunkSize,
+                                             isCancelled: context.isCancelled)
+                    window = recorder
+                }
+            } else {
+                reader = JSONLTailReader(source: try FileByteSource(path: unit.path, offset: startOffset), startOffset: startOffset,
+                                         chunkSize: Self.readerChunkSize, isCancelled: context.isCancelled)
+            }
+
+            let byteLimit = Int64(context.limits.sourceBytes)
+            let stats = try reader.readLines { line, endOffset in
+                if processor.state.isChild {
+                    return .continue
+                }
+                outcome = processor.process(line)
+                if outcome != .continue {
+                    return outcome == .child ? .continue : .stop
+                }
+                if processor.builder.isFull || endOffset - startOffset >= byteLimit {
+                    return .stop
+                }
                 return .continue
             }
-            outcome = processor.process(line)
-            if outcome != .continue {
-                return outcome == .child ? .continue : .stop
+            processor.diagnostics.oversizedLines += stats.oversizedLines
+            committed = stats.committedOffset
+            reachedEOF = stats.reachedEOF
+            if let window {
+                fingerprint = window.fingerprint(endOffset: committed) ?? ZstdByteSource.fingerprint(path: unit.path, endOffset: committed)
+            } else {
+                fingerprint = AgentHistoryFileFingerprint.compute(path: unit.path, endOffset: committed)
             }
-            if processor.builder.isFull || endOffset - startOffset >= byteLimit {
-                return .stop
+            // Plain rollouts never touch the parked streams; `takeZstdContinuation` already removed
+            // this unit's stream, so a finished or rejected compressed rollout leaves nothing behind.
+            if let window, !reachedEOF, outcome == .continue || outcome == .child {
+                storeZstdContinuation(CodexZstdContinuation(key: unit.key, identity: identity, offset: committed, reader: reader, window: window))
             }
-            return .continue
         }
-        processor.diagnostics.oversizedLines += stats.oversizedLines
-        processor.state.reachedEOF = stats.reachedEOF
-
-        let committed = stats.committedOffset
-        let fingerprint: Int64?
-        if let window {
-            fingerprint = window.fingerprint(endOffset: committed) ?? ZstdByteSource.fingerprint(path: unit.path, endOffset: committed)
-        } else {
-            fingerprint = AgentHistoryFileFingerprint.compute(path: unit.path, endOffset: committed)
-        }
-        // Plain rollouts never touch the parked streams; `takeZstdContinuation` already removed
-        // this unit's stream, so a finished or rejected compressed rollout leaves nothing behind.
-        if let window, !stats.reachedEOF, outcome == .continue || outcome == .child {
-            storeZstdContinuation(CodexZstdContinuation(key: unit.key, identity: identity, offset: committed, reader: reader, window: window))
-        }
+        processor.state.reachedEOF = reachedEOF
 
         if outcome == .rejected, let decision = processor.decision {
             processor.state.reachedEOF = true
@@ -299,7 +317,7 @@ extension CodexHistorySource {
         }
 
         var result = finish(byteOffset: committed, fingerprint: fingerprint)
-        result.hasMore = !stats.reachedEOF
+        result.hasMore = !reachedEOF
         if processor.state.isChild {
             result.removedNativeIDs = [nativeID]
             result.diagnostics.skippedSessions[nativeID] = .child
