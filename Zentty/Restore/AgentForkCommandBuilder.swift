@@ -7,6 +7,13 @@ struct AgentForkSource: Equatable, Sendable {
     var workingDirectory: String?
 }
 
+/// Forks one specific session of a pane instead of the agent the pane shows,
+/// e.g. a live session picked from Agent History.
+struct AgentForkSessionOverride: Equatable, Sendable {
+    var tool: AgentTool
+    var sessionID: String
+}
+
 /// A ready-to-run fork: the command typed at the new pane's shell prompt
 /// (so the Zentty agent wrapper on `PATH` launches it, exactly like a manual
 /// launch) and the directory the new pane starts in.
@@ -45,6 +52,36 @@ enum AgentForkAvailability: Equatable, Sendable {
 enum AgentForkCommandBuilder {
     static let noAgentReason = "No agent is running in this pane."
     static let remotePaneReason = "Forking isn't available in remote panes."
+
+    /// Availability for a live pane. `nil` when no agent runs in it. With a
+    /// `sessionOverride` the fork targets that session (validated like any
+    /// other) instead of the pane's visible agent; `nil` only when the pane
+    /// has no auxiliary state.
+    static func availability(
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState?,
+        sessionOverride: AgentForkSessionOverride?
+    ) -> AgentForkAvailability? {
+        guard let sessionOverride else {
+            return availability(pane: pane, auxiliary: auxiliary)
+        }
+        guard let auxiliary else {
+            return nil
+        }
+        guard auxiliary.shellContext?.scope != .remote else {
+            return .unavailable(reason: remotePaneReason)
+        }
+        return availability(for: AgentForkSource(
+            tool: sessionOverride.tool,
+            sessionID: sessionOverride.sessionID,
+            workingDirectory: SessionRestoreDraftExporter.workingDirectory(
+                agentStatus: auxiliary.agentStatus,
+                auxiliary: auxiliary,
+                pane: pane,
+                restoredDraft: nil
+            )
+        ))
+    }
 
     /// Availability for a live pane. `nil` when no agent runs in it.
     static func availability(

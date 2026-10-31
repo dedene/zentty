@@ -196,17 +196,19 @@ final class PaneCommandExecutor {
         }
     }
 
-    /// Forks the agent in `paneID`. A nil destination uses the configured
-    /// `agents.fork_destination`.
+    /// Forks the agent in `paneID`, or the session in `sessionOverride`. A
+    /// nil destination uses the configured `agents.fork_destination`.
     @discardableResult
     func forkAgentConversation(
         paneID: PaneID,
-        destination: AgentForkDestination? = nil
+        destination: AgentForkDestination? = nil,
+        sessionOverride: AgentForkSessionOverride? = nil
     ) throws -> WorklaneStore.AgentForkResult {
         canvas.settlePaneStripPresentationNow()
         return try worklaneStore.forkAgentConversation(
             paneID: paneID,
-            destination: destination ?? configStore.current.agents.forkDestination
+            destination: destination ?? configStore.current.agents.forkDestination,
+            sessionOverride: sessionOverride
         )
     }
 

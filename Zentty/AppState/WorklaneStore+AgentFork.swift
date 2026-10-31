@@ -35,11 +35,14 @@ extension WorklaneStore {
 
     /// Opens the agent's own fork command in a new pane next to `paneID`,
     /// leaving the source agent running. The command is typed at the new
-    /// pane's shell prompt so the Zentty agent wrapper launches it.
+    /// pane's shell prompt so the Zentty agent wrapper launches it. A
+    /// `sessionOverride` forks that session of the pane instead of the
+    /// visible agent.
     @discardableResult
     func forkAgentConversation(
         paneID: PaneID,
-        destination: AgentForkDestination
+        destination: AgentForkDestination,
+        sessionOverride: AgentForkSessionOverride? = nil
     ) throws -> AgentForkResult {
         guard let sourceWorklane = worklanes.first(where: {
             $0.paneStripState.panes.contains { $0.id == paneID }
@@ -49,7 +52,8 @@ extension WorklaneStore {
         }
         let availability = AgentForkCommandBuilder.availability(
             pane: sourcePane,
-            auxiliary: sourceWorklane.auxiliaryStateByPaneID[paneID]
+            auxiliary: sourceWorklane.auxiliaryStateByPaneID[paneID],
+            sessionOverride: sessionOverride
         ) ?? .unavailable(reason: AgentForkCommandBuilder.noAgentReason)
         guard let plan = availability.plan else {
             throw AgentForkError.unavailable(availability.unavailableReason ?? AgentForkCommandBuilder.noAgentReason)

@@ -138,12 +138,47 @@ final class WorklaneStoreAgentForkTests: XCTestCase {
         XCTAssertEqual(store.agentForkAvailability(for: sourcePaneID)?.plan?.command, forkCommand)
     }
 
+    func test_fork_with_session_override_forks_that_session_not_the_visible_one() throws {
+        let store = makeStore()
+        let otherSessionID = "0c6a3a1e-9a1f-4d0e-8f43-2c1b7d5e9a10"
+
+        let result = try store.forkAgentConversation(
+            paneID: sourcePaneID,
+            destination: .splitRight,
+            sessionOverride: AgentForkSessionOverride(tool: .claudeCode, sessionID: otherSessionID)
+        )
+
+        let pane = try XCTUnwrap(store.activeWorklane?.paneStripState.panes.first { $0.id == result.paneID })
+        XCTAssertEqual(pane.sessionRequest.command, "claude --resume \(otherSessionID) --fork-session")
+        XCTAssertEqual(pane.sessionRequest.workingDirectory, "/tmp/project")
+        XCTAssertFalse(pane.sessionRequest.replaysCommandOnRestore)
+    }
+
+    func test_fork_with_session_override_in_remote_pane_throws_remote_reason() {
+        let store = makeStore(scope: .remote)
+
+        XCTAssertThrowsError(
+            try store.forkAgentConversation(
+                paneID: sourcePaneID,
+                destination: .splitRight,
+                sessionOverride: AgentForkSessionOverride(tool: .claudeCode, sessionID: sessionID)
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? WorklaneStore.AgentForkError,
+                .unavailable(AgentForkCommandBuilder.remotePaneReason)
+            )
+        }
+        XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 1)
+    }
+
     // MARK: - Helpers
 
     private func makeStore(
         tool: AgentTool = .claudeCode,
         includeAgent: Bool = true,
-        customTitle: String? = nil
+        customTitle: String? = nil,
+        scope: PaneShellContextScope = .local
     ) -> WorklaneStore {
         let agentStatus = includeAgent
             ? PaneAgentStatus(
@@ -177,7 +212,7 @@ final class WorklaneStoreAgentForkTests: XCTestCase {
                     auxiliaryStateByPaneID: [
                         sourcePaneID: PaneAuxiliaryState(
                             shellContext: PaneShellContext(
-                                scope: .local,
+                                scope: scope,
                                 path: "/tmp/project",
                                 home: "/Users/peter",
                                 user: "peter",

@@ -980,9 +980,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @discardableResult
     func forkAgentConversation(
         paneID: PaneID,
-        destination: AgentForkDestination?
+        destination: AgentForkDestination?,
+        sessionOverride: AgentForkSessionOverride? = nil
     ) throws -> WorklaneStore.AgentForkResult {
-        try rootViewController.paneCommands.forkAgentConversation(paneID: paneID, destination: destination)
+        try rootViewController.paneCommands.forkAgentConversation(
+            paneID: paneID,
+            destination: destination,
+            sessionOverride: sessionOverride
+        )
     }
 
     @objc
