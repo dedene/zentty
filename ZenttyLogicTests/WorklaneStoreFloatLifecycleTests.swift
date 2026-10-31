@@ -346,16 +346,73 @@ final class WorklaneStoreFloatLifecycleTests: XCTestCase {
         XCTAssertEqual(main(store)?.focusedPaneID, floatID)
     }
 
-    func test_split_command_with_focused_float_focuses_new_tile() {
+    func test_split_on_focused_float_opens_offset_float_with_float_cwd() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        setCwd(store, PaneID("a"), "/tmp/a")
+        setCwd(store, PaneID("b"), "/tmp/b")
+        store.floatPane(PaneID("b"), canvas: canvas, tileFrame: nil)
+        store.focusPane(id: PaneID("b"))
+        let source = try XCTUnwrap(main(store)?.floatingPane(id: PaneID("b")))
+
+        for command in [PaneCommand.splitHorizontally, .splitVertically, .split, .splitRightVisibly,
+                        .splitAfterFocusedPane, .splitVerticallyBefore, .splitBeforeFocusedPane] {
+            let before = main(store)?.floatingPanes.count ?? 0
+            store.focusPane(id: PaneID("b"))
+
+            store.send(command)
+
+            let worklane = try XCTUnwrap(main(store))
+            XCTAssertEqual(stripIDs(store), ["a"], "\(command) leaves the strip alone")
+            XCTAssertEqual(worklane.floatingPanes.count, before + 1, "\(command) opens a float")
+            let newID = try XCTUnwrap(worklane.focusedFloatID)
+            XCTAssertTrue(worklane.floatOwnsFocus)
+            let float = try XCTUnwrap(worklane.floatingPane(id: newID))
+            XCTAssertEqual(float.pane.sessionRequest.workingDirectory, "/tmp/b", "\(command) inherits the float's cwd")
+            XCTAssertEqual(float.mode, .floating)
+            let expected = FloatLayout.splitOffsetFrame(
+                from: source.floatFrame.resolved(in: store.floatCanvasEstimate),
+                canvas: store.floatCanvasEstimate
+            )
+            let actual = float.floatFrame.resolved(in: store.floatCanvasEstimate)
+            XCTAssertEqual(actual.minX, expected.minX, accuracy: 0.5)
+            XCTAssertEqual(actual.minY, expected.minY, accuracy: 0.5)
+        }
+    }
+
+    func test_split_down_on_float_only_worklane_keeps_float_focus() throws {
+        let store = makeStore(tiles: ["only"])
+        store.floatPane(PaneID("only"), canvas: canvas, tileFrame: nil)
+
+        store.send(.splitVertically)
+
+        let worklane = try XCTUnwrap(main(store))
+        XCTAssertTrue(worklane.paneStripState.panes.isEmpty)
+        XCTAssertEqual(worklane.floatingPanes.count, 2)
+        XCTAssertTrue(worklane.floatOwnsFocus)
+        XCTAssertNotEqual(worklane.focusedPaneID, PaneID("only"))
+    }
+
+    func test_split_on_tile_after_float_focus_is_unchanged() {
         let store = makeStore(tiles: ["a"])
         let floatID = addFloat(store)
+        store.focusPane(id: PaneID("a"))
+        XCTAssertFalse(main(store)?.floatOwnsFocus ?? true, "precondition: the tile has focus")
 
         store.send(.splitVertically)
 
         XCTAssertEqual(stripIDs(store).count, 2)
-        XCTAssertTrue(main(store)?.isFloating(floatID) == true)
-        XCTAssertNil(main(store)?.focusedFloatID)
+        XCTAssertEqual(main(store)?.floatingPanes.map(\.pane.id), [floatID])
+        XCTAssertFalse(main(store)?.floatOwnsFocus ?? true)
         XCTAssertEqual(main(store)?.focusedPaneID, main(store)?.paneStripState.focusedPaneID)
+    }
+
+    private func setCwd(_ store: WorklaneStore, _ id: PaneID, _ path: String) {
+        var worklanes = store.worklanes
+        let index = worklanes.firstIndex { $0.id == mainID }!
+        worklanes[index].auxiliaryStateByPaneID[id] = PaneAuxiliaryState(
+            shellContext: PaneShellContext(scope: .local, path: path, home: nil, user: nil, host: nil)
+        )
+        store.replaceWorklanes(worklanes, activeWorklaneID: mainID)
     }
 
     func test_splitWithLayout_targeting_float_splits_at_strip_focus() throws {

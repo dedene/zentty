@@ -120,6 +120,23 @@ extension WorklaneStore {
         return pane.id
     }
 
+    /// A split command while float `sourceID` has focus: a new float in the
+    /// float's cwd, offset 28pt down-right, takes focus. The strip is
+    /// untouched.
+    func splitFocusedFloat(_ sourceID: PaneID) {
+        guard let worklane = activeWorklane,
+              let source = duplicateSourceInfo(for: sourceID, in: worklane) else {
+            return
+        }
+        openFloat(
+            besideFloat: sourceID,
+            in: worklane.id,
+            workingDirectory: source.workingDirectory,
+            sourceShellContext: source.shellContext,
+            command: nil
+        )
+    }
+
     /// Removes float `id` from `worklane` (the strip is untouched): drops its
     /// auxiliary state and servers, keeps PiP/pill orders dense and moves
     /// focus away when it was focused. Returns the removed float.

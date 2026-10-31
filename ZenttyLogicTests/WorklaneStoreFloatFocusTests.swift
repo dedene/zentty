@@ -245,32 +245,18 @@ final class WorklaneStoreFloatFocusTests: XCTestCase {
 
     // MARK: - Split Down from a float
 
-    func test_split_down_in_float_only_worklane_is_a_no_op() {
-        let store = makeStore(tiles: ["only"])
-        let id = PaneID("only")
-        store.floatPane(id, canvas: canvas, tileFrame: nil)
-        let before = worklane(store)
-        var changes: [WorklaneChange] = []
-        let subscription = store.subscribe { changes.append($0) }
-        defer { withExtendedLifetime(subscription) {} }
-
-        store.send(.splitVertically)
-
-        XCTAssertEqual(worklane(store), before)
-        XCTAssertEqual(worklane(store).focusedPaneID, id)
-        XCTAssertTrue(changes.isEmpty, "\(changes)")
-    }
-
-    func test_split_down_refused_by_min_height_keeps_float_focus() {
+    func test_split_down_from_float_ignores_strip_min_height() {
         let store = makeStore(tiles: ["a"])
         let float = addFloat(store)
         store.updatePaneViewportHeight(100)
-        let before = worklane(store)
+        let stripBefore = worklane(store).paneStripState
 
         store.send(.splitVertically)
 
-        XCTAssertEqual(worklane(store), before)
-        XCTAssertEqual(worklane(store).focusedPaneID, float)
+        XCTAssertEqual(worklane(store).paneStripState, stripBefore, "the strip is untouched")
+        XCTAssertEqual(worklane(store).floatingPanes.count, 2, "a new float opens beside the focused one")
+        XCTAssertNotEqual(worklane(store).focusedPaneID, float)
+        XCTAssertTrue(worklane(store).floatOwnsFocus)
     }
 
     func test_ipc_split_down_in_float_only_worklane_returns_nil_and_keeps_focus() {

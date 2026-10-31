@@ -970,6 +970,13 @@ final class WorklaneStore {
                 recordFocusTransition(from: previousPaneRef)
             }
             return
+        case _ where worklane.floatOwnsFocus && Self.isFloatSplit(command):
+            // Splitting a focused float opens a new float beside it, in its
+            // cwd; the strip is untouched.
+            if let focusedFloatID = worklane.focusedFloatID {
+                splitFocusedFloat(focusedFloatID)
+            }
+            return
         case .split, .splitHorizontally:
             worklane.focusedFloatID = nil
             insertNewPaneRight(into: &worklane, behavior: layoutContext.rightPaneInsertionBehavior)
@@ -1115,6 +1122,18 @@ final class WorklaneStore {
         switch command {
         case .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusFirst, .focusLast, .focusFirstColumn, .focusLastColumn:
+            true
+        default:
+            false
+        }
+    }
+
+    /// Split commands that open a new float when a float has focus.
+    /// (`addPaneRightWithoutResizing` stays a strip command.)
+    private static func isFloatSplit(_ command: PaneCommand) -> Bool {
+        switch command {
+        case .split, .splitHorizontally, .splitRightVisibly, .splitAfterFocusedPane,
+             .splitVertically, .splitVerticallyBefore, .splitBeforeFocusedPane:
             true
         default:
             false
