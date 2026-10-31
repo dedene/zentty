@@ -408,6 +408,21 @@ final class AgentHistoryPublishedRecorder: @unchecked Sendable {
     }
 }
 
+/// What `makeSources()` returns; tests change it to make roots appear or vanish.
+final class FakeHistorySourceList: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: [any AgentHistorySource]
+
+    init(_ sources: [any AgentHistorySource]) {
+        current = sources
+    }
+
+    var sources: [any AgentHistorySource] {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
+    }
+}
+
 /// A settable clock for indexer tests (grace periods, root-missing intervals).
 final class AgentHistoryTestClock: @unchecked Sendable {
     private let lock = NSLock()
@@ -458,11 +473,12 @@ final class AgentHistoryIndexerHarness {
         conditions: any AgentHistorySystemConditions = FakeSystemConditions(),
         source overrideSource: FakeHistorySource? = nil,
         extraSources: [FakeHistorySource] = [],
+        sourceList: FakeHistorySourceList? = nil,
         fileEventLatency: TimeInterval = 2.0
     ) -> AgentHistoryIndexer {
         var limits = AgentHistoryIngestLimits()
         limits.messages = messageLimit
-        let sources = [overrideSource ?? self.source] + extraSources
+        let list = sourceList ?? FakeHistorySourceList([overrideSource ?? self.source] + extraSources)
         let recorder = self.recorder
         let clock = self.clock
         var configuration = AgentHistoryIndexerConfiguration(
@@ -472,7 +488,7 @@ final class AgentHistoryIndexerHarness {
         let indexer = AgentHistoryIndexer(
             storage: index.storage,
             stateStore: stateStore,
-            makeSources: { sources },
+            makeSources: { list.sources },
             configuration: configuration,
             systemConditions: conditions,
             now: { clock.now },

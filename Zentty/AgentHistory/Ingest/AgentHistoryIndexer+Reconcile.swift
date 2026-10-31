@@ -20,10 +20,16 @@ extension AgentHistoryIndexer {
 
     // MARK: - Entry points
 
-    func reconcile(sourceIDs: [Int64], isFull: Bool) {
+    /// `locatesRoots` (default: `isFull`) first asks the locator for roots that appeared (see
+    /// `AgentHistoryIndexer+Roots.swift`); they are reconciled with the rest.
+    func reconcile(sourceIDs: [Int64], isFull: Bool, locatesRoots: Bool? = nil) {
         // The recovery reopens the index and reconciles everything itself.
         guard !corruptionRecoveryPending else {
             return
+        }
+        var sourceIDs = sourceIDs
+        if locatesRoots ?? isFull {
+            sourceIDs += registerNewlyLocatedSources().filter { !sourceIDs.contains($0) }
         }
         for id in sourceIDs {
             if let sourceState = sourceStates[id] {
@@ -39,6 +45,12 @@ extension AgentHistoryIndexer {
     }
 
     func reconcile(_ sourceState: AgentHistoryIndexerSourceState, isFull: Bool) {
+        if sourceState.isInactive {
+            sourceState.lastScanAt = now()
+            sourceState.discoveryProblem = .rootMissing
+            handleMissingRoot(sourceState, isFull: isFull)
+            return
+        }
         let discovered = discover(sourceState)
         guard FileManager.default.fileExists(atPath: sourceState.source.root.path) else {
             sourceState.discoveryProblem = .rootMissing
@@ -89,6 +101,7 @@ extension AgentHistoryIndexer {
             AgentHistoryLog.indexer.info(
                 "Agent History purged source with missing root agent=\(sourceState.source.agent.rawValue, privacy: .public) sessions=\(removed.count, privacy: .public)"
             )
+            retireInactiveSource(sourceState)
         } catch {
             logDeletionFailure(error, sourceState)
         }

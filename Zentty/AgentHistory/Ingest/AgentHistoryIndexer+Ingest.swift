@@ -6,57 +6,7 @@ extension AgentHistoryIndexer {
         case skipped, wrote
     }
 
-    // MARK: - Sources and discovery
-
-    /// Registers each source of an enabled agent (a `sources` row per root), loads its cursors
-    /// and reconciles it (queues its changed units, mirrors deletions). A source whose stored
-    /// adapter version differs from the adapter's loses its cursors, so every unit with rows is
-    /// replaced whole; the new version is stored once the source has drained (`becomeIdle`).
-    func activateSources(_ sources: [any AgentHistorySource]) {
-        guard let store else {
-            return
-        }
-        var activated: [Int64] = []
-        for source in sources where configuration.enabledAgents.contains(source.agent) {
-            let row: AgentHistorySourceRow
-            let cursors: [String: AgentHistoryCursor]
-            var pendingAdapterVersion: Int?
-            do {
-                row = try store.upsertSource(
-                    agent: source.agent, root: source.root.path, currentAdapterVersion: source.adapterVersion
-                )
-                guard sourceStates[row.id] == nil else {
-                    continue
-                }
-                if row.adapterVersion != source.adapterVersion {
-                    try store.deleteCursors(sourceID: row.id)
-                    pendingAdapterVersion = source.adapterVersion
-                    AgentHistoryLog.indexer.info(
-                        "Agent History adapter version changed agent=\(source.agent.rawValue, privacy: .public) from=\(row.adapterVersion, privacy: .public) to=\(source.adapterVersion, privacy: .public); re-ingesting"
-                    )
-                }
-                cursors = try store.cursors(sourceID: row.id)
-                if !row.enabled {
-                    try store.setSourceEnabled(id: row.id, true)
-                }
-            } catch let error as AgentHistoryDatabaseError {
-                AgentHistoryLog.indexer.error(
-                    "Agent History could not register \(source.agent.rawValue, privacy: .public) source \(error.description, privacy: .public)"
-                )
-                continue
-            } catch {
-                continue
-            }
-            let sourceState = AgentHistoryIndexerSourceState(source: source, id: row.id, cursors: cursors)
-            sourceState.pendingAdapterVersion = pendingAdapterVersion
-            sourceStates[row.id] = sourceState
-            sourceOrder.append(row.id)
-            activated.append(row.id)
-        }
-        if !activated.isEmpty {
-            reconcile(sourceIDs: activated, isFull: true)
-        }
-    }
+    // MARK: - Discovery
 
     /// Stat-only listing of a source; every unit whose change is not `.unchanged` goes to the
     /// backfill lane, newest first. A failed discovery records a problem, keeps the previous

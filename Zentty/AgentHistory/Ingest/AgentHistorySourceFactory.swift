@@ -4,8 +4,10 @@ import Foundation
 ///
 /// Stat-only: discovery goes through `AgentHistoryRootLocator`, and the adapters' initializers
 /// only compute paths, so building sources never opens a transcript or database. The indexer
-/// calls this on start and again on every reconcile, so a root that appears, disappears or moves
-/// (for example a new `$CODEX_HOME`) yields a fresh set of source instances.
+/// calls this on start and again on every full reconcile (periodic, wake, explicit): a root that
+/// appears gets a new source; one that disappears is handled as a missing root, and a stored
+/// root no longer reported (for example a `$CODEX_HOME` of an earlier launch) is purged after the
+/// grace period (`AgentHistoryIndexer+Roots.swift`).
 enum AgentHistorySourceFactory {
     static func makeSources(locator: AgentHistoryRootLocator = .init()) -> [any AgentHistorySource] {
         makeSources(roots: locator.allRoots())

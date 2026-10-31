@@ -352,7 +352,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         }
         AgentHistoryLog.indexer.info("Agent History indexer started sessions=\(self.snapshotBuilder.count, privacy: .public)")
 
-        activateSources(makeSources())
+        activateSources(makeSources(), includeStoredRoots: true)
         reconcileStoredExclusions()
         let conditionsQueue = queue
         systemConditions.startObserving { [weak self] in
