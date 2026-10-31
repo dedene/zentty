@@ -365,6 +365,7 @@ final class PaneContainerView: NSView {
     private var lastRenderedSearchState = PaneSearchState()
     private var hasRenderedSearchState = false
     private var leadingMouseInteractionOcclusionWidth: CGFloat = 0
+    private var floatMouseOcclusionRects: [CGRect] = []
     private var terminalResizePreview: TerminalResizePreview?
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
@@ -1915,6 +1916,12 @@ final class PaneContainerView: NSView {
         if lastRenderedSearchState.isHUDVisible {
             suppressionRects.append(terminalHostView.searchHUDFrameInHostCoordinates)
         }
+        for floatRect in floatMouseOcclusionRects {
+            let covered = floatRect.intersection(bounds)
+            if !covered.isNull, !covered.isEmpty {
+                suppressionRects.append(terminalHostView.convert(covered, from: self))
+            }
+        }
         // The right-legend buttons sit on the top border, normally inside
         // the drag-zone rect already; add them only when they poke out.
         if !borderActionsView.isHidden {
@@ -1926,6 +1933,15 @@ final class PaneContainerView: NSView {
         }
 
         terminalHostView.setMouseInteractionSuppressionRects(suppressionRects)
+    }
+
+    /// Floats and PiPs drawn over this tile (self coordinates). The tile's
+    /// terminal ignores the pointer under them: its tracking area is
+    /// geometric and would otherwise report motion meant for the float.
+    func setFloatMouseOcclusionRects(_ rects: [CGRect]) {
+        guard floatMouseOcclusionRects != rects else { return }
+        floatMouseOcclusionRects = rects
+        updateSearchHUDMouseSuppression()
     }
 
     func setLeadingMouseInteractionOcclusionWidth(_ width: CGFloat) {

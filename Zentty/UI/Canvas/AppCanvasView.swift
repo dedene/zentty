@@ -445,6 +445,7 @@ final class AppCanvasView: NSView {
                 showPaneBorders: showPaneBorders,
                 smoothScrollingEnabled: smoothScrollingEnabled
             )
+            paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
         }
         if let leadingVisibleInset,
            abs(paneStripView.leadingVisibleInset - leadingVisibleInset) > 0.001 {

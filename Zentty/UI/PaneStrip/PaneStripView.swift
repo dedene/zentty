@@ -181,6 +181,8 @@ final class PaneStripView: NSView {
         }
     }
     private var emptyStripHintLabel: NSTextField?
+    /// Float and PiP frames over the strip, in strip coordinates.
+    private var floatOcclusionRects: [CGRect] = []
     private var hidesFocusEmphasis: Bool {
         suppressesFocusEmphasis || floatHoldsFocus
     }
@@ -1396,6 +1398,7 @@ final class PaneStripView: NSView {
             paneView.setLeadingMouseInteractionOcclusionWidth(
                 leadingMouseInteractionOcclusionWidth(for: targetFrame)
             )
+            paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: targetFrame))
             let targetAlpha: CGFloat
             if panePresentation.paneID == dropSettleCoveredPaneID {
                 targetAlpha = 0
@@ -1549,6 +1552,7 @@ final class PaneStripView: NSView {
                 paneView.setLeadingMouseInteractionOcclusionWidth(
                     leadingMouseInteractionOcclusionWidth(for: paneView.frame)
                 )
+                paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: paneView.frame))
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
                 if startsWithViewportSyncSuspended {
@@ -1609,6 +1613,26 @@ final class PaneStripView: NSView {
             }
 
             lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
+        }
+    }
+
+    /// Tells strip terminals where floats and PiPs cover them (rects in
+    /// strip coordinates), so they stop tracking the pointer there.
+    func setFloatOcclusionRects(_ rectsInSelf: [CGRect]) {
+        guard floatOcclusionRects != rectsInSelf else { return }
+        floatOcclusionRects = rectsInSelf
+        for paneView in paneViews.values {
+            paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: paneView.frame))
+        }
+    }
+
+    /// The float rects in the coordinates of a pane laid out at `paneFrame`
+    /// (viewport coordinates; the target frame while it animates).
+    private func floatOcclusionRects(forPaneFrame paneFrame: CGRect) -> [CGRect] {
+        floatOcclusionRects.compactMap { rect in
+            let inViewport = viewportView.convert(rect, from: self)
+            guard inViewport.intersects(paneFrame) else { return nil }
+            return inViewport.offsetBy(dx: -paneFrame.minX, dy: -paneFrame.minY)
         }
     }
 

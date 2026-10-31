@@ -1606,6 +1606,47 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_float_occlusion_rects_suppress_strip_terminal_mouse() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter)
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let state = PaneStripState(
+            panes: [makePane("logs"), makePane("editor")],
+            focusedPaneID: PaneID("logs")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        let coveredPane = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let adapter = try XCTUnwrap(adapterFactory.adapter(for: coveredPane.paneID))
+        let floatRect = CGRect(
+            x: coveredPane.frame.midX - 100,
+            y: coveredPane.frame.midY - 60,
+            width: 200,
+            height: 120
+        )
+        let centreInTerminal = adapter.terminalView.convert(
+            CGPoint(x: floatRect.midX, y: floatRect.midY),
+            from: paneStripView
+        )
+        let suppressesCentre = {
+            adapter.terminalView.mouseInteractionSuppressionRects.contains { $0.contains(centreInTerminal) }
+        }
+        XCTAssertFalse(suppressesCentre())
+
+        paneStripView.setFloatOcclusionRects([floatRect])
+        XCTAssertTrue(suppressesCentre(), "the terminal ignores the pointer under the float")
+
+        // A re-render keeps it; clearing the floats lifts it.
+        paneStripView.render(state, animated: false)
+        XCTAssertTrue(suppressesCentre())
+        paneStripView.setFloatOcclusionRects([])
+        XCTAssertFalse(suppressesCentre())
+    }
+
+    @MainActor
     func test_sidebar_inset_suppresses_cursor_ownership_for_panes_under_sidebar() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter)

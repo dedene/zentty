@@ -462,6 +462,13 @@ final class FloatLayerView: NSView {
         containers[paneID]
     }
 
+    /// Model frames of mounted floats (pane rect) and PiPs, in `view`'s
+    /// coordinates: where the strip underneath must ignore the pointer.
+    func occludingFrames(in view: NSView) -> [CGRect] {
+        let hosts: [CGRect] = floatHosts.values.map(\.paneFrame) + pipHosts.values.map(\.frame)
+        return hosts.map { view.convert($0, from: self) }
+    }
+
     /// The store's frame for a mounted `.floating` float.
     func storeFrame(for paneID: PaneID) -> CGRect? {
         guard let float = content.floats.first(where: { $0.pane.id == paneID }), float.mode.isFloating else {
