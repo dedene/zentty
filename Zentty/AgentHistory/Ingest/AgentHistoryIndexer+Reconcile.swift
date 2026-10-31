@@ -21,6 +21,10 @@ extension AgentHistoryIndexer {
     // MARK: - Entry points
 
     func reconcile(sourceIDs: [Int64], isFull: Bool) {
+        // The recovery reopens the index and reconciles everything itself.
+        guard !corruptionRecoveryPending else {
+            return
+        }
         for id in sourceIDs {
             if let sourceState = sourceStates[id] {
                 reconcile(sourceState, isFull: isFull)
@@ -285,6 +289,7 @@ extension AgentHistoryIndexer {
             }
         } catch let error as AgentHistoryDatabaseError {
             AgentHistoryLog.indexer.error("Agent History exclusion purge failed \(error.description, privacy: .public)")
+            handleStorageFailure(error)
         } catch {}
     }
 
@@ -388,9 +393,13 @@ extension AgentHistoryIndexer {
     }
 
     func logDeletionFailure(_ error: any Error, _ sourceState: AgentHistoryIndexerSourceState) {
-        let description = (error as? AgentHistoryDatabaseError)?.description ?? "non-SQLite error"
+        let databaseError = error as? AgentHistoryDatabaseError
+        let description = databaseError?.description ?? "non-SQLite error"
         AgentHistoryLog.indexer.error(
             "Agent History deletion failed agent=\(sourceState.source.agent.rawValue, privacy: .public) \(description, privacy: .public)"
         )
+        if let databaseError {
+            handleStorageFailure(databaseError)
+        }
     }
 }

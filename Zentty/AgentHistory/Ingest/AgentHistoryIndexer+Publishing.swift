@@ -22,8 +22,9 @@ extension AgentHistoryIndexer {
         return AgentHistoryBackfillProgress(indexedSessions: indexed, totalSessions: indexed + workQueue.backfillCount)
     }
 
-    /// Keeps `.backfilling` / `.paused` progress current while work is queued. After the queue
-    /// drained once in this run, new work (reconciles, live events) keeps `.watching`.
+    /// Keeps `.backfilling` / `.paused` progress current while work is queued. A full disk
+    /// pauses everything; low power and heat pause only while backfill is waiting. After the
+    /// queue drained once in this run, new work (reconciles, live events) keeps `.watching`.
     func updateProgressState() {
         guard lifecycle == .running else {
             return
@@ -31,14 +32,16 @@ extension AgentHistoryIndexer {
         switch state {
         case .off, .failed:
             return
-        case .watching where hasDrainedOnce:
-            return
         case .starting, .backfilling, .paused, .watching:
             break
         }
-        if let reason = systemConditions.pauseReason, workQueue.backfillCount > 0 {
+        if let reason = pauseReason, reason == .diskFull || workQueue.backfillCount > 0 {
             setState(.paused(reason, progress))
-        } else if !workQueue.isEmpty || !hasDrainedOnce {
+        } else if hasDrainedOnce {
+            if case .paused = state {
+                setState(.watching)
+            }
+        } else {
             setState(.backfilling(progress))
         }
     }

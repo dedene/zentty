@@ -117,10 +117,11 @@ extension AgentHistoryIndexer {
     /// Pops units until one batch was written (or `unchangedUnitsPerStep` were skipped).
     /// Returns false when nothing could be popped.
     func processNext() -> Bool {
-        let backfillAllowed = systemConditions.pauseReason == nil
+        let backfillAllowed = pauseReason == nil
         var skipped = 0
         while skipped < Self.unchangedUnitsPerStep {
-            guard lifecycle == .running, !cancellation.isSet else {
+            // A full disk or a pending corruption recovery stops all work, live included.
+            guard lifecycle == .running, !cancellation.isSet, !isWritingSuspended else {
                 return false
             }
             guard let next = workQueue.popNext(allowBackfill: backfillAllowed) else {
@@ -144,10 +145,10 @@ extension AgentHistoryIndexer {
     /// backfill, optimize once, go `.watching`. Returns true when it queued more work.
     @discardableResult
     func becomeIdle() -> Bool {
-        guard lifecycle == .running else {
+        guard lifecycle == .running, !corruptionRecoveryPending else {
             return false
         }
-        if let reason = systemConditions.pauseReason, workQueue.backfillCount > 0 {
+        if let reason = pauseReason, reason == .diskFull || workQueue.backfillCount > 0 {
             setState(.paused(reason, progress))
             publish()
             return false
@@ -215,6 +216,11 @@ extension AgentHistoryIndexer {
             AgentHistoryLog.indexer.error(
                 "Agent History batch failed agent=\(sourceState.source.agent.rawValue, privacy: .public) \(error.description, privacy: .public)"
             )
+            if error.kind == .full {
+                // The transaction rolled back; the unit goes first once there is space again.
+                workQueue.setContinuation(ref, tier: tier)
+            }
+            handleStorageFailure(error)
             return .skipped
         } catch let error as POSIXError where error.code == .ENOENT {
             noteMissing(ref)
@@ -401,6 +407,7 @@ extension AgentHistoryIndexer {
                 snapshotDirty = true
             } catch let error as AgentHistoryDatabaseError {
                 AgentHistoryLog.indexer.error("Agent History summary refresh failed \(error.description, privacy: .public)")
+                handleStorageFailure(error)
             } catch {}
         }
 

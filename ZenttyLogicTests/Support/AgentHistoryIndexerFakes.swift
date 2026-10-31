@@ -277,6 +277,9 @@ final class FakeSystemConditions: AgentHistorySystemConditions, @unchecked Senda
     private var reason: AgentHistoryPauseReason?
     private var handler: (@Sendable () -> Void)?
     private var wakeHandler: (@Sendable () -> Void)?
+    private var availableBytes: Int64? = 10 << 30
+    private var capacityChecks = 0
+    private var capacityWaiters: [(target: Int, expectation: XCTestExpectation)] = []
 
     var pauseReason: AgentHistoryPauseReason? {
         lock.lock()
@@ -317,6 +320,45 @@ final class FakeSystemConditions: AgentHistorySystemConditions, @unchecked Senda
         handler = nil
         wakeHandler = nil
         lock.unlock()
+    }
+
+    func availableCapacity(forVolumeAt url: URL) -> Int64? {
+        lock.lock()
+        capacityChecks += 1
+        let current = capacityChecks
+        let bytes = availableBytes
+        let reached = capacityWaiters.filter { $0.target <= current }
+        capacityWaiters.removeAll { $0.target <= current }
+        lock.unlock()
+        reached.forEach { $0.expectation.fulfill() }
+        return bytes
+    }
+
+    /// What `availableCapacity(forVolumeAt:)` reports from now on (nil = unknown).
+    func setAvailableBytes(_ bytes: Int64?) {
+        lock.lock()
+        availableBytes = bytes
+        lock.unlock()
+    }
+
+    var capacityCheckCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return capacityChecks
+    }
+
+    /// Fulfilled once the indexer has asked for the free space `count` times in total.
+    func expectCapacityChecks(_ testCase: XCTestCase, reaching count: Int) -> XCTestExpectation {
+        let expectation = testCase.expectation(description: "capacity checked \(count) times")
+        lock.lock()
+        if capacityChecks >= count {
+            lock.unlock()
+            expectation.fulfill()
+            return expectation
+        }
+        capacityWaiters.append((count, expectation))
+        lock.unlock()
+        return expectation
     }
 }
 

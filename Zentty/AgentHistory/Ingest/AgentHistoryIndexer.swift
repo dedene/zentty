@@ -144,6 +144,16 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     /// batch back. Set before `start()`.
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
 
+    // MARK: Conditions (AgentHistoryIndexer+Conditions.swift)
+
+    /// SQLite reported a full disk: nothing writes until a retry finds space again.
+    var isDiskFull = false
+    var diskFullRetryScheduled = false
+    /// A write or read found the index corrupt; recovery runs on the next queue turn.
+    var corruptionRecoveryPending = false
+    /// Mid-run recoveries in this run; past `maxCorruptionRecoveriesPerRun` the indexer fails.
+    var corruptionRecoveries = 0
+
     // MARK: Freshness (AgentHistoryIndexer+Events.swift)
 
     var fileEventStream: FileEventStream?
@@ -422,6 +432,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         scheduleStep()
     }
 
+    /// Low power or thermal state changed: refresh the pause and resume the step loop.
     func conditionsChanged() {
         guard lifecycle == .running else {
             return
