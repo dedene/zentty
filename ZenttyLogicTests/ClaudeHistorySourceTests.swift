@@ -153,6 +153,27 @@ final class ClaudeHistorySourceTests: XCTestCase {
         XCTAssertEqual(batch.diagnostics.skippedSessions["not-a-uuid"], .invalidSessionID)
     }
 
+    func test_same_id_in_two_projects_keeps_newest_mtime() throws {
+        let fixture = try makeFixture()
+        let line = try F.claudeUser("hello")
+        let first = try writeTranscript([line], in: fixture)
+        let second = try writeTranscript([line], in: fixture, project: F.claudeProjectDirectoryName("/Users/example/other"))
+        let older = Date(timeIntervalSince1970: 1_790_000_000)
+        let newer = older.addingTimeInterval(60)
+
+        // Both orders, so the result cannot depend on directory enumeration order.
+        for (newest, stale) in [(second, first), (first, second)] {
+            try F.setModificationDate(newer, of: newest)
+            try F.setModificationDate(older, of: stale)
+            let units = try fixture.source.discoverUnits()
+            XCTAssertEqual(units.count, 1, "one unit per session id")
+            let unit = try XCTUnwrap(units.first)
+            XCTAssertEqual(unit.key, id)
+            XCTAssertEqual(unit.path, newest.path, "the most recently written transcript wins")
+            XCTAssertEqual(unit.identity, AgentHistoryFileIdentity.stat(path: newest.path))
+        }
+    }
+
     // MARK: - Messages
 
     func test_indexes_prompts_and_text() throws {
