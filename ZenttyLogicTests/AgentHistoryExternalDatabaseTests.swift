@@ -58,6 +58,25 @@ final class AgentHistoryExternalDatabaseTests: XCTestCase {
         return url
     }
 
+    /// A writer that opens, inserts a row, checkpoints everything into the main file and closes,
+    /// leaving no `-wal`/`-shm` behind: the main file changed, but it looks idle again.
+    private func writeAndCloseCleanly(_ url: URL, id: String) throws {
+        let writer = try AgentHistoryDatabase(url: url, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        try writer.run("INSERT INTO threads(id, title) VALUES (?, ?)", [.text(id), .text("title \(id)")])
+        try writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        writer.close()
+        try removeSidecars(of: url)
+    }
+
+    private func removeSidecars(of url: URL) throws {
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = URL(fileURLWithPath: url.path + suffix)
+            if FileManager.default.fileExists(atPath: sidecar.path) {
+                try FileManager.default.removeItem(at: sidecar)
+            }
+        }
+    }
+
     // MARK: - Writes, rows, errors
 
     func test_external_open_write_fails() throws {
@@ -289,11 +308,80 @@ final class AgentHistoryExternalDatabaseTests: XCTestCase {
             XCTAssertEqual((error as? AgentHistoryDatabaseError)?.kind, .cantOpen)
         }
         let url = try makeClosedWALDatabase(in: directory)
-        XCTAssertThrowsError(try AgentHistoryDatabase.readExternalSnapshot(url: url) {
-            try $0.scalarInt64("SELECT missing_column FROM threads")
+        var calls = 0
+        XCTAssertThrowsError(try AgentHistoryDatabase.readExternalSnapshot(url: url) { database -> Int64? in
+            calls += 1
+            return try database.scalarInt64("SELECT missing_column FROM threads")
         }) { error in
             XCTAssertEqual((error as? AgentHistoryDatabaseError)?.kind, .other)
         }
+        XCTAssertEqual(calls, 1, "an error from a stable read is not retried")
+        XCTAssertEqual(try listing(directory), ["state_5.sqlite"])
+    }
+
+    func test_snapshot_throws_busy_after_two_unstable_immutable_reads() throws {
+        let directory = try AgentHistoryFixtures.makeTemporaryDirectory(self)
+        let url = try makeClosedWALDatabase(in: directory)
+
+        var calls = 0
+        XCTAssertThrowsError(try AgentHistoryDatabase.readExternalSnapshot(url: url) { database -> Int64? in
+            calls += 1
+            let count = try database.scalarInt64("SELECT count(*) FROM threads")
+            // Each read races a writer that writes, checkpoints and closes: no `-wal` is left, but
+            // the main file under the immutable connection changed.
+            try self.writeAndCloseCleanly(url, id: "race\(calls)")
+            return count
+        }) { error in
+            XCTAssertEqual((error as? AgentHistoryDatabaseError)?.kind, .busy)
+        }
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(try listing(directory), ["state_5.sqlite"])
+    }
+
+    func test_snapshot_retries_body_error_from_an_unstable_immutable_read() throws {
+        let directory = try AgentHistoryFixtures.makeTemporaryDirectory(self)
+        let url = try makeClosedWALDatabase(in: directory)
+
+        var calls = 0
+        let count = try AgentHistoryDatabase.readExternalSnapshot(url: url) { database -> Int64? in
+            calls += 1
+            if calls == 1 {
+                // The main file is rewritten under the immutable read and the read fails
+                // (SQLITE_CORRUPT in the real race): the error is discarded and the read retried.
+                try self.writeAndCloseCleanly(url, id: "t3")
+                throw AgentHistoryDatabaseError(kind: .corrupt, code: 11, extendedCode: 11, message: "torn read")
+            }
+            return try database.scalarInt64("SELECT count(*) FROM threads")
+        }
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(count, 3)
+    }
+
+    func test_snapshot_retries_regular_read_when_the_wal_vanishes_during_it() throws {
+        let directory = try AgentHistoryFixtures.makeTemporaryDirectory(self)
+        let url = directory.appendingPathComponent("state_5.sqlite")
+        let writer = WriterBox()
+        writer.database = try AgentHistoryDatabase(url: url, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        addTeardownBlock { writer.database?.close() }
+        try writer.database?.execute("CREATE TABLE threads(id TEXT PRIMARY KEY, title TEXT)")
+        try writer.database?.run("INSERT INTO threads(id, title) VALUES ('t1', 'first')")
+        try writer.database?.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path + "-wal"))
+
+        var calls = 0
+        let count = try AgentHistoryDatabase.readExternalSnapshot(url: url) { database -> Int64? in
+            calls += 1
+            if calls == 1 {
+                // The agent exits cleanly between the `-wal` check and the open: its `-wal`/`-shm`
+                // are gone, so this regular connection met a WAL database without a `-wal`.
+                writer.database?.close()
+                writer.database = nil
+                try self.removeSidecars(of: url)
+            }
+            return try database.scalarInt64("SELECT count(*) FROM threads")
+        }
+        XCTAssertEqual(calls, 2, "the second read sees no `-wal` and reads immutably")
+        XCTAssertEqual(count, 1)
         XCTAssertEqual(try listing(directory), ["state_5.sqlite"])
     }
 }

@@ -25,10 +25,17 @@ extension AgentHistoryDatabase {
     ///
     /// A WAL database whose `-wal` file is absent (its writer closed cleanly) cannot be read by a
     /// plain read-only connection: SQLite would have to create `-wal`/`-shm` next to it. That case
-    /// opens with `immutable=1`, which reads the main file only and creates nothing; afterwards the
-    /// file is re-checked, and if a `-wal` appeared or the file changed during the read, the result
-    /// is discarded and the read runs again on a regular read-only connection. A second unstable
-    /// immutable read throws `.busy` so the caller retries later.
+    /// opens with `immutable=1`, which reads the main file only and creates nothing.
+    ///
+    /// Every read is re-checked afterwards and counts as unstable when
+    /// - immutable: the main file or its `-wal` changed (a writer appeared or checkpointed);
+    /// - regular: the `-wal` seen before the open vanished or was replaced (the writer closed
+    ///   between the check and the open, so the open met the no-`-wal` state above).
+    /// An unstable result is discarded, and so is an error thrown by an unstable read (a torn
+    /// read, or the open failing in that window); the read runs once more, choosing the mode
+    /// from the new state. Two unstable reads throw `.busy` so the caller retries later. Errors
+    /// from a stable read propagate as-is. Sidecar files are never deleted here: one that this
+    /// read may have created cannot be told apart from one a writer just created.
     static func readExternalSnapshot<T>(
         url: URL,
         busyTimeoutMilliseconds: Int32 = 250,
@@ -37,31 +44,33 @@ extension AgentHistoryDatabase {
         for attempt in 1...2 {
             let before = ExternalDatabaseFileState(path: url.path)
             let immutable = before.needsImmutableOpen
-            let database = try openExternalReadOnly(
-                url: url,
-                busyTimeoutMilliseconds: busyTimeoutMilliseconds,
-                immutable: immutable
-            )
-            let result: T
+            let outcome: Result<T, Error>
             do {
-                result = try database.readTransaction { try body(database) }
+                let database = try openExternalReadOnly(
+                    url: url,
+                    busyTimeoutMilliseconds: busyTimeoutMilliseconds,
+                    immutable: immutable
+                )
+                defer { database.close() }
+                outcome = .success(try database.readTransaction { try body(database) })
             } catch {
-                database.close()
-                throw error
+                outcome = .failure(error)
             }
-            database.close()
-            guard immutable, ExternalDatabaseFileState(path: url.path) != before else { return result }
+            let after = ExternalDatabaseFileState(path: url.path)
+            guard before.isUnstableRead(immutable: immutable, after: after) else {
+                return try outcome.get()
+            }
             AgentHistoryLog.indexer.info(
-                "External database changed during an immutable read attempt=\(attempt, privacy: .public)"
+                "External database changed during a read immutable=\(immutable, privacy: .public) attempt=\(attempt, privacy: .public)"
             )
         }
         throw AgentHistoryDatabaseError(kind: .busy, code: SQLITE_BUSY, extendedCode: SQLITE_BUSY,
-                                        message: "database changed during an immutable read")
+                                        message: "database changed during the read")
     }
 }
 
-/// What `readExternalSnapshot` compares before and after an immutable read: the main file's
-/// identity, size and mtime, whether its header says WAL, and whether `-wal` exists.
+/// What `readExternalSnapshot` compares before and after a read: the main file's identity,
+/// size and mtime, whether its header says WAL, and whether (and as which inode) `-wal` exists.
 private struct ExternalDatabaseFileState: Equatable {
     private static let headerMagic = Array("SQLite format 3\0".utf8)
 
@@ -72,9 +81,19 @@ private struct ExternalDatabaseFileState: Equatable {
     let modifiedNanoseconds: Int64
     let isWALDatabase: Bool
     let walExists: Bool
+    let walInode: UInt64
 
     /// A WAL-mode database with no `-wal`: plain read-only opens fail on it.
     var needsImmutableOpen: Bool { exists && isWALDatabase && !walExists }
+
+    /// Immutable reads need the whole state unchanged. Regular reads only need the `-wal` seen
+    /// before the open to still be the same file: a live writer may checkpoint freely.
+    func isUnstableRead(immutable: Bool, after: ExternalDatabaseFileState) -> Bool {
+        if immutable {
+            return after != self
+        }
+        return walExists && (!after.walExists || after.walInode != walInode)
+    }
 
     init(path: String) {
         var info = stat()
@@ -95,6 +114,7 @@ private struct ExternalDatabaseFileState: Equatable {
         }
         var walInfo = stat()
         walExists = stat(path + "-wal", &walInfo) == 0
+        walInode = walExists ? UInt64(walInfo.st_ino) : 0
     }
 
     /// Header bytes 18/19 (file format write/read version) are 2 for WAL mode.
