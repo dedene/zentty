@@ -21,7 +21,7 @@ final class OpenCodeHistorySourceRobustnessTests: OpenCodeHistorySourceTestCase 
         }
 
         var loader: OpenCodeHistorySource.SessionLoader {
-            { [self] db, schema, id in
+            { [self] db, schema, id, admits in
                 let fails = lock.withLock { () -> Bool in
                     attempts[id, default: 0] += 1
                     return failing.contains(id)
@@ -29,7 +29,7 @@ final class OpenCodeHistorySourceRobustnessTests: OpenCodeHistorySourceTestCase 
                 if fails {
                     throw AgentHistoryDatabaseError(kind: .other, code: 1, extendedCode: 1, message: "malformed JSON")
                 }
-                return try OpenCodeHistoryQueries.loadSession(db, schema: schema, sessionID: id)
+                return try OpenCodeHistoryQueries.loadSession(db, schema: schema, sessionID: id, admits: admits)
             }
         }
     }

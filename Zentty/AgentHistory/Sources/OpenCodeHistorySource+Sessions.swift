@@ -41,6 +41,15 @@ enum OpenCodeHistorySessionBuilder {
         }
     }
 
+    /// The working directory the session is admitted and stored under: the primary
+    /// generation's `directory`, else the other one's.
+    static func cwd(of content: OpenCodeHistorySessionContent) -> String? {
+        let generation = generation(of: content)
+        let primary = generation == "v2" ? (content.v2 ?? content.v1) : (content.v1 ?? content.v2)
+        let secondary = generation == "v2" ? content.v1 : content.v2
+        return (primary?.directory ?? secondary?.directory).map { AgentHistoryPath.canonical($0) }
+    }
+
     /// Adds the session to `batch` (or records why it was skipped). Returns the indexed text's
     /// UTF-8 byte count for the batch's source-bytes cap.
     static func add(
@@ -60,7 +69,7 @@ enum OpenCodeHistorySessionBuilder {
             return 0
         }
         let secondary = generation == "v2" ? content.v1 : content.v2
-        let cwd = (primary.directory ?? secondary?.directory).map { AgentHistoryPath.canonical($0) }
+        let cwd = cwd(of: content)
 
         let decision = context.admission.decide(agent: .opencode, nativeID: nativeID, cwd: cwd)
         guard decision == .admit else {

@@ -23,9 +23,11 @@ import Foundation
 ///
 /// Every ingested session is replaced whole (`replaceContentOf`). Messages are the union of both
 /// generations, deduped by message id (newer `time_updated` wins), in `(time_created, id)` order.
-/// Child sessions are never stored (D13). Excluded and tombstoned sessions are reported per
-/// session in `batch.rejected` (this unit holds many sessions, so the unit itself is never
-/// rejected) and purged through `removedNativeIDs`.
+/// Child sessions are never stored (D13). Admission is decided from the session rows before any
+/// message is read. Excluded and tombstoned sessions are reported per session in
+/// `batch.rejected` (this unit holds many sessions, so the unit itself is never rejected),
+/// purged through `removedNativeIDs`, and kept in `state.rejected`; when the exclusions or
+/// tombstones change, the sessions they could affect are read again (`applyAdmissionChanges`).
 ///
 /// Confined to the indexer queue: no mutable state lives on the instance, so no lock is needed.
 final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
@@ -42,9 +44,11 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
     let adapterVersion = 1
     var agent: AgentHistoryAgent { .opencode }
 
-    /// Reads one session in an open snapshot; a seam so tests can make one session fail.
-    typealias SessionLoader = @Sendable (AgentHistoryDatabase, OpenCodeHistorySchema, String) throws
-        -> OpenCodeHistorySessionContent?
+    /// Reads one session in an open snapshot (`OpenCodeHistoryQueries.loadSession`); a seam so
+    /// tests can make one session fail.
+    typealias SessionLoader = @Sendable (
+        AgentHistoryDatabase, OpenCodeHistorySchema, String, (OpenCodeHistorySessionContent) -> Bool
+    ) throws -> OpenCodeHistorySessionContent?
 
     private let sessionsPerBatch: Int
     private let now: @Sendable () -> Int64
@@ -54,8 +58,8 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         root: AgentHistorySourceRoot,
         sessionsPerBatch: Int = OpenCodeHistorySource.defaultSessionsPerBatch,
         now: @escaping @Sendable () -> Int64 = { Int64((Date().timeIntervalSince1970 * 1_000).rounded()) },
-        loadSession: @escaping SessionLoader = { db, schema, id in
-            try OpenCodeHistoryQueries.loadSession(db, schema: schema, sessionID: id)
+        loadSession: @escaping SessionLoader = { db, schema, id, admits in
+            try OpenCodeHistoryQueries.loadSession(db, schema: schema, sessionID: id, admits: admits)
         }
     ) {
         self.root = root
@@ -161,6 +165,8 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
                 state.startFullPass(target: current)
             }
         }
+
+        applyAdmissionChanges(url: url, schema: schema, admission: context.admission, state: &state)
 
         if state.backfill == nil, state.isReconcileDue(nowMs: nowMs) {
             do {
@@ -277,14 +283,13 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         var moved: [String] = []
         for (id, rowChange) in sessionRows {
             let last = max(rowChange, latest[id] ?? rowChange)
-            if state.lastChange[id].map({ last > $0 }) ?? true {
+            if state.knownChange(id).map({ last > $0 }) ?? true {
                 moved.append(id)
             }
         }
         state.enqueue(moved.sorted())
-        for id in state.lastChange.keys where sessionRows[id] == nil {
-            state.lastChange[id] = nil
-            state.pending.removeAll { $0 == id }
+        for id in Set(state.lastChange.keys).union(state.rejected.keys) where sessionRows[id] == nil {
+            state.forget(id)
             if let nativeID = agent.normalizedSessionID(id) {
                 batch.removedNativeIDs.insert(nativeID)
             }
@@ -364,17 +369,22 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         }
         let isCancelled = context.isCancelled
         let loadSession = loadSession
+        let admission = context.admission
         let content = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
             db.setProgressHandler(everyInstructions: Self.progressCheckInstructions, isCancelled)
-            return try loadSession(db, schema, id)
+            return try loadSession(db, schema, id) { header in
+                admission.decide(agent: .opencode, nativeID: nativeID,
+                                 cwd: OpenCodeHistorySessionBuilder.cwd(of: header)) == .admit
+            }
         }
         guard let content else {
-            state.lastChange[id] = nil
+            state.forget(id)
             batch.removedNativeIDs.insert(nativeID)
             return 0
         }
-        state.lastChange[id] = content.lastChangeMs
-        return OpenCodeHistorySessionBuilder.add(content, nativeID: nativeID, to: &batch, context: context)
+        let bytes = OpenCodeHistorySessionBuilder.add(content, nativeID: nativeID, to: &batch, context: context)
+        state.record(id, lastChangeMs: content.lastChangeMs, rejected: batch.rejected[nativeID] != nil)
+        return bytes
     }
 
     /// Records a session whose read failed and remembers its newest change, so the hot set and
@@ -395,8 +405,9 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         let latest = try? AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
             try OpenCodeHistoryQueries.lastChange(db, schema: schema, sessionID: entry.id)
         }
-        let known = max(entry.lastChangeMs, state.lastChange[entry.id] ?? 0)
-        state.lastChange[entry.id] = latest.flatMap { $0 } ?? (known > 0 ? known : nowMs)
+        let known = max(entry.lastChangeMs, state.knownChange(entry.id) ?? 0)
+        state.record(entry.id, lastChangeMs: latest.flatMap { $0 } ?? (known > 0 ? known : nowMs),
+                     rejected: state.rejected[entry.id] != nil)
     }
 
     // MARK: - Errors
@@ -435,61 +446,5 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         }
         AgentHistoryLog.indexer.info("opencode read failed code=\(error.code, privacy: .public)")
         return error.kind == .busy ? .busy : .unreadableDatabase(code: error.code)
-    }
-}
-
-/// The opencode adapter's cursor state (`AgentHistoryCursor.adapterState`, JSON).
-struct OpenCodeHistoryAdapterState: Codable, Equatable, Sendable {
-    struct FullPass: Codable, Equatable, Sendable {
-        /// Watermarks when the pass started; adopted when it ends.
-        var target: OpenCodeHistoryWatermarks
-        var after: OpenCodeHistoryKeyset?
-    }
-
-    /// nil until the first full pass completed.
-    var watermarks: OpenCodeHistoryWatermarks?
-    var backfill: FullPass?
-    /// Session ids found changed, waiting for an ingest call.
-    var pending: [String] = []
-    /// Newest `time_updated` per session seen at its last ingest (hot set and reconcile).
-    var lastChange: [String: Int64] = [:]
-    var lastReconcileAtMs: Int64?
-
-    static func decode(_ data: Data?) -> OpenCodeHistoryAdapterState {
-        guard let data, let state = try? JSONDecoder().decode(Self.self, from: data) else {
-            return OpenCodeHistoryAdapterState()
-        }
-        return state
-    }
-
-    func encoded() -> Data? {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        return try? encoder.encode(self)
-    }
-
-    mutating func startFullPass(target: OpenCodeHistoryWatermarks) {
-        backfill = FullPass(target: target, after: nil)
-        pending = []
-    }
-
-    mutating func enqueue(_ ids: [String]) {
-        var queued = Set(pending)
-        for id in ids where queued.insert(id).inserted {
-            pending.append(id)
-        }
-    }
-
-    mutating func markProcessed(_ entry: OpenCodeHistoryKeyset) {
-        if backfill != nil {
-            backfill?.after = entry
-        } else {
-            pending.removeAll { $0 == entry.id }
-        }
-    }
-
-    func isReconcileDue(nowMs: Int64) -> Bool {
-        guard watermarks != nil else { return false }
-        return lastReconcileAtMs.map { nowMs - $0 >= OpenCodeHistorySource.reconcileIntervalMs } ?? true
     }
 }

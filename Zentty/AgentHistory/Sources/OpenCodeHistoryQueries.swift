@@ -44,34 +44,6 @@ struct OpenCodeHistorySchema: Equatable, Sendable {
     }
 }
 
-/// High-water marks of one poll. Rowids catch inserts (`time_updated` on `session` misses
-/// message activity); `sessionUpdatedMs` catches renames and archiving.
-struct OpenCodeHistoryWatermarks: Codable, Equatable, Sendable {
-    var partRowID: Int64 = 0
-    var messageRowID: Int64 = 0
-    var sessionMessageRowID: Int64 = 0
-    var sessionUpdatedMs: Int64 = 0
-
-    /// A stored rowid above the current maximum: the newest rows were deleted (or a VACUUM
-    /// renumbered them), and new rows may reuse rowids at or below the stored marks.
-    func isAhead(of current: OpenCodeHistoryWatermarks) -> Bool {
-        partRowID > current.partRowID
-            || messageRowID > current.messageRowID
-            || sessionMessageRowID > current.sessionMessageRowID
-    }
-
-    /// Per table, the lower of these marks and `current`: the "after" position that still finds
-    /// rows inserted past whichever maximum survived.
-    func clamped(to current: OpenCodeHistoryWatermarks) -> OpenCodeHistoryWatermarks {
-        OpenCodeHistoryWatermarks(
-            partRowID: min(partRowID, current.partRowID),
-            messageRowID: min(messageRowID, current.messageRowID),
-            sessionMessageRowID: min(sessionMessageRowID, current.sessionMessageRowID),
-            sessionUpdatedMs: min(sessionUpdatedMs, current.sessionUpdatedMs)
-        )
-    }
-}
-
 /// One row of `session` or `session_v2`.
 struct OpenCodeHistorySessionRow: Equatable, Sendable {
     let id: String
@@ -248,11 +220,26 @@ enum OpenCodeHistoryQueries {
 
     // MARK: - Session content
 
-    /// Reads one session from both generations; nil when neither has a session row.
+    /// Every session id with the `directory` of each generation's row.
+    static func sessionDirectories(_ db: AgentHistoryDatabase, schema: OpenCodeHistorySchema) throws -> [String: [String]] {
+        let union = schema.hasV2
+            ? "(SELECT id, directory FROM session UNION ALL SELECT id, directory FROM session_v2)"
+            : "(SELECT id, directory FROM session)"
+        var result: [String: [String]] = [:]
+        try db.query("SELECT id, directory FROM \(union)") { row in
+            result[row.string(0), default: []].append(row.optionalString(1) ?? "")
+        }
+        return result
+    }
+
+    /// Reads one session from both generations; nil when neither has a session row. Messages
+    /// are read only for a non-child session that `admits` accepts from its session rows, so
+    /// an excluded or removed session's text is never decoded.
     static func loadSession(
         _ db: AgentHistoryDatabase,
         schema: OpenCodeHistorySchema,
-        sessionID: String
+        sessionID: String,
+        admits: (OpenCodeHistorySessionContent) -> Bool = { _ in true }
     ) throws -> OpenCodeHistorySessionContent? {
         let v1 = try sessionRow(db, table: "session", columns: schema.sessionColumns, sessionID: sessionID)
         let v2 = schema.hasV2
@@ -270,7 +257,7 @@ enum OpenCodeHistoryQueries {
             lastChangeMs: max(tails.lastChange ?? 0, v1?.updatedMs ?? 0, v2?.updatedMs ?? 0)
         )
         let isChild = v1?.parentID != nil || v2?.parentID != nil
-        guard !isChild else {
+        guard !isChild, admits(content) else {
             return content
         }
         if v1 != nil {
@@ -491,10 +478,4 @@ enum OpenCodeHistoryQueries {
         guard let value, !value.isEmpty else { return nil }
         return value
     }
-}
-
-/// A backfill keyset position: the session-row change time and id of the last session read.
-struct OpenCodeHistoryKeyset: Codable, Equatable, Sendable {
-    let lastChangeMs: Int64
-    let id: String
 }
