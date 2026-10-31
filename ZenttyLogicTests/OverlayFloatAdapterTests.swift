@@ -448,13 +448,32 @@ final class OverlayFloatAdapterTests: XCTestCase {
 
         XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: PaneID("a")), [paneA])
         XCTAssertEqual(Set(store.temporaryFloatIDs(closingWithWorklane: mainID)), [shared, paneA, paneB])
-        XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: paneA), [], "closing an overlay takes only itself")
+        XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: paneA), [paneA], "closing an overlay takes itself")
 
         XCTAssertEqual(store.closePane(id: PaneID("b")), .closed)
         XCTAssertEqual(
             Set(store.temporaryFloatIDs(closingWithPane: PaneID("a"))), [shared, paneA],
             "the worklane's last pane takes the worklane overlay too"
         )
+    }
+
+    /// Review finding: the prompt must see the overlay being closed and every
+    /// overlay reconciliation closes after it, at any depth.
+    func test_overlays_closing_with_a_pane_include_the_target_and_nested_overlays() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        let child = try open(store, on: "a", request(.pane)).id
+        let grandchild = try open(store, on: child.rawValue, request(.pane)).id
+        let shared = try open(store, on: child.rawValue, request(.worklane)).id
+
+        XCTAssertEqual(Set(store.temporaryFloatIDs(closingWithPane: PaneID("a"))), [child, grandchild])
+        XCTAssertEqual(Set(store.temporaryFloatIDs(closingWithPane: child)), [child, grandchild])
+        XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: grandchild), [grandchild])
+
+        // What reconciliation really closes: the worklane overlay re-anchors.
+        XCTAssertEqual(store.closePane(id: PaneID("a")), .closed)
+        XCTAssertNil(store.worklaneIndex(containingPane: child))
+        XCTAssertNil(store.worklaneIndex(containingPane: grandchild))
+        XCTAssertNotNil(store.worklaneIndex(containingPane: shared))
     }
 
     // MARK: - IPC options share the store's placement type

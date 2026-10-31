@@ -91,6 +91,27 @@ final class OverlayFloatHostedTests: XCTestCase {
         XCTAssertEqual(adapters[result.id]?.closeCount, 1)
     }
 
+    /// Review finding: an overlay's shell state may not see its native
+    /// command, so the close prompt asks the terminals of the overlay being
+    /// closed and of every overlay that ends with it, at any depth.
+    func test_closing_a_running_overlay_or_its_owner_asks_for_every_overlay_that_ends() throws {
+        let controller = try makeSeededController()
+        let child = try controller.openOverlay(on: tileID, options: options(placement: .pane)).id
+        let grandchild = try controller.openOverlay(on: child, options: options(placement: .pane)).id
+        waitForLayout("overlays mounted")
+        adapters[grandchild]?.needsConfirmQuit = true
+        let running = try XCTUnwrap(controller.rootViewControllerForTesting.runningQuickActionsClosingWithPane)
+
+        XCTAssertEqual(running(grandchild).count, 1, "closing the running overlay itself asks")
+        XCTAssertNotNil(
+            store(controller).paneCloseConfirmationContext(grandchild, runningQuickActions: running(grandchild)),
+            "with an idle shell state the overlay's own terminal is what asks"
+        )
+        XCTAssertEqual(running(child).count, 1, "its running child ends with it")
+        XCTAssertEqual(running(tileID).count, 1, "two levels down, too")
+        XCTAssertTrue(running(otherTileID).isEmpty)
+    }
+
     func test_a_running_overlay_float_requires_quit_and_window_close_confirmation() throws {
         let controller = try makeSeededController()
         XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)
