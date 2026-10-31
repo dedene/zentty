@@ -29,10 +29,8 @@ final class PaneStripAccessAllowlistTests: XCTestCase {
         // Bookmarks capture the tiled layout only (floats are a v1 non-goal).
         "Bookmarks/BookmarkNameSuggester.swift": "names a bookmark from the captured strip",
         "Bookmarks/WorkspaceTemplateCapture.swift": "captures the strip into a template",
-        // Pending: later phase-1 tasks make these float-aware and drop them here.
-        "Restore/WorkspaceRecipe.swift": "pending Task 8: recipe v5 exports floats",
-        "Restore/SessionRestoreStore.swift": "pending Task 8: drafts for floated panes",
-        "AppDelegate.swift": "pending Task 8: scrollback capture source",
+        // Session restore exports the strip's columns; floats go out separately (v5).
+        "Restore/WorkspaceRecipe.swift": "exports strip columns and focus; floats export via makeFloats",
     ]
 
     private static let pattern = #"paneStripState\.(panes|columns|focusedPaneID)\b"#

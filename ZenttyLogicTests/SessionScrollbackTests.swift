@@ -306,7 +306,7 @@ final class SessionScrollbackRecipeTests: XCTestCase {
 
         XCTAssertNil(recipe.windows[0].worklanes[0].columns[0].panes[0].scrollbackFile)
         XCTAssertEqual(recipe.schemaVersion, WorkspaceRecipe.currentSchemaVersion)
-        XCTAssertEqual(WorkspaceRecipe.currentSchemaVersion, 4, "the field is additive; no schema bump")
+        XCTAssertEqual(WorkspaceRecipe.currentSchemaVersion, 5, "scrollbackFile was additive; v5 is the floats bump")
     }
 
     func test_scrollback_reference_alone_does_not_make_a_default_workspace_meaningful() {

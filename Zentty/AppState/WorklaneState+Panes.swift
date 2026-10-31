@@ -77,6 +77,19 @@ extension WorklaneState {
         return focusedPaneID == focusedFloatID
     }
 
+    /// Panes session restore saves: every live pane except temporary
+    /// (overlay-style) floats, which end with their command.
+    var persistentPanes: [PaneState] {
+        allPanes.filter { isPersistent($0.id) }
+    }
+
+    func isPersistent(_ id: PaneID) -> Bool {
+        if case .temporary = auxiliaryStateByPaneID[id]?.lifetime {
+            return false
+        }
+        return true
+    }
+
     var hasLivePanes: Bool {
         hasTiledPanes || !floatingPanes.isEmpty
     }
