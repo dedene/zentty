@@ -82,48 +82,18 @@ extension WorklaneStore {
             }
             result = AgentForkResult(paneID: newPaneID, worklaneID: sourceWorklane.id)
         case .newWorklane:
-            result = forkIntoNewWorklane(
-                plan: plan,
-                sourceShellContext: sourceWorklane.auxiliaryStateByPaneID[paneID]?.shellContext,
-                anchorWorklaneID: sourceWorklane.id
+            let launched = openWorklane(
+                workingDirectory: plan.workingDirectory,
+                command: plan.command,
+                anchorWorklaneID: sourceWorklane.id,
+                sourceShellContext: sourceWorklane.auxiliaryStateByPaneID[paneID]?.shellContext
             )
+            result = AgentForkResult(paneID: launched.paneID, worklaneID: launched.worklaneID)
         }
 
         if let title = AgentForkCommandBuilder.forkedPaneTitle(sourceCustomTitle: sourcePane.customTitle) {
             setPaneCustomTitle(title, on: result.paneID)
         }
         return result
-    }
-
-    private func forkIntoNewWorklane(
-        plan: AgentForkPlan,
-        sourceShellContext: PaneShellContext?,
-        anchorWorklaneID: WorklaneID
-    ) -> AgentForkResult {
-        var worklane = WorklaneState(
-            id: runtimeIdentity.makeWorklaneID(),
-            title: nil,
-            paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
-            nextPaneNumber: 1
-        )
-        var pane = makePaneWithDirectory(
-            in: &worklane,
-            existingPaneCount: 0,
-            workingDirectory: plan.workingDirectory,
-            sourceShellContext: sourceShellContext,
-            command: plan.command
-        )
-        pane.sessionRequest.surfaceContext = .tab
-        pane.sessionRequest.replaysCommandOnRestore = false
-        worklane.paneStripState.insertPaneAsColumn(
-            pane,
-            atColumnIndex: 0,
-            width: layoutContext.singlePaneWidth
-        )
-
-        worklanes.insert(worklane, at: insertionIndexForNewWorklane(anchorWorklaneID: anchorWorklaneID))
-        notify(.worklaneListChanged)
-        selectWorklane(id: worklane.id)
-        return AgentForkResult(paneID: pane.id, worklaneID: worklane.id)
     }
 }
