@@ -27,6 +27,7 @@ extension AgentHistoryIndexer {
         guard !corruptionRecoveryPending else {
             return
         }
+        runPendingSourcePurges()
         var sourceIDs = sourceIDs
         if locatesRoots ?? isFull {
             sourceIDs += registerNewlyLocatedSources().filter { !sourceIDs.contains($0) }

@@ -159,6 +159,10 @@ final class AgentHistoryIndexer: @unchecked Sendable {
 
     /// Tombstones and usage read before a rebuild, written into the new index once it opens.
     var pendingCarryOver: AgentHistoryRebuildCarryOver?
+    /// Agents turned off whose rows are not deleted yet (`runPendingSourcePurges`).
+    var pendingSourcePurges: Set<AgentHistoryAgent> = []
+    /// Runs inside each source purge transaction; throwing makes the purge fail.
+    var beforeSourcePurgeForTesting: ((AgentHistoryAgent) throws -> Void)?
     /// Database units that have not been read cleanly since the admission rules tightened; when
     /// the rules relax first, they are read again from the start.
     var admissionPendingUnits: Set<AgentHistoryUnitRef> = []
@@ -366,6 +370,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         }
         AgentHistoryLog.indexer.info("Agent History indexer started sessions=\(self.snapshotBuilder.count, privacy: .public)")
 
+        purgeSourcesOfDisabledAgents()
         activateSources(makeSources(), includeStoredRoots: true)
         reconcileStoredExclusions()
         let conditionsQueue = queue
@@ -430,17 +435,14 @@ final class AgentHistoryIndexer: @unchecked Sendable {
             applyExclusionChange(from: previous.excludedFolders, to: next.excludedFolders)
         }
         if next.enabledAgents != previous.enabledAgents {
-            for id in sourceOrder {
-                guard let sourceState = sourceStates[id], !next.enabledAgents.contains(sourceState.source.agent) else {
-                    continue
-                }
-                workQueue.removeAll(sourceID: id)
-                sourceStates[id] = nil
-                missingSince = missingSince.filter { $0.key.sourceID != id }
-                forgetEventState(sourceID: id)
+            // Turned off here (not through `purgeSource`): purge them the same way (D4).
+            for agent in previous.enabledAgents.subtracting(next.enabledAgents) {
+                deactivateSources(of: agent)
+                pendingSourcePurges.insert(agent)
             }
-            sourceOrder.removeAll { sourceStates[$0] == nil }
             let added = next.enabledAgents.subtracting(previous.enabledAgents)
+            pendingSourcePurges.subtract(added)
+            runPendingSourcePurges()
             if !added.isEmpty {
                 activateSources(makeSources().filter { added.contains($0.agent) })
             }

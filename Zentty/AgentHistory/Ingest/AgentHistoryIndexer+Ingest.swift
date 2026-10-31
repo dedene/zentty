@@ -109,6 +109,7 @@ extension AgentHistoryIndexer {
         if pendingCarryOver != nil, let store {
             restorePendingCarryOver(into: store)
         }
+        runPendingSourcePurges()
         storePendingAdapterVersions()
         persistCounters()
         hasDrainedOnce = true

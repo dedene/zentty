@@ -288,26 +288,26 @@ extension AgentHistoryIndexer {
 
     // MARK: - Source purge
 
+    /// The agent stops being read at once and its sessions leave the snapshot; its rows are
+    /// deleted now, or (when that fails) by `runPendingSourcePurges` later. Before the indexer
+    /// runs, only the configuration changes: start purges every agent that is off.
     func purgeSourceOnQueue(agent: AgentHistoryAgent) {
         configuration.enabledAgents.remove(agent)
-        guard lifecycle == .running, let writer, let store else {
+        deactivateSources(of: agent)
+        guard lifecycle == .running, store != nil else {
             return
         }
-        let removedIDs: [Int64]
-        do {
-            removedIDs = try writer.transaction { () -> [Int64] in
-                var removed: [Int64] = []
-                for row in try store.sources() where row.agent == agent {
-                    removed += try store.deleteSessions(sourceID: row.id)
-                    try store.deleteCursors(sourceID: row.id)
-                    try store.setSourceEnabled(id: row.id, false)
-                }
-                return removed
-            }
-        } catch {
-            logWriteFailure(error, action: "purge source")
-            return
-        }
+        pendingSourcePurges.insert(agent)
+        runPendingSourcePurges()
+        scheduleStreamRefresh()
+        updateProgressState()
+        publish(force: true)
+        scheduleStep()
+    }
+
+    /// Forgets every source of `agent` (work queue, event state) and hides its sessions,
+    /// whether or not its rows could be deleted yet.
+    func deactivateSources(of agent: AgentHistoryAgent) {
         for id in sourceOrder {
             guard let sourceState = sourceStates[id], sourceState.source.agent == agent else {
                 continue
@@ -321,14 +321,58 @@ extension AgentHistoryIndexer {
             forgetEventState(sourceID: id)
         }
         sourceOrder.removeAll { sourceStates[$0] == nil }
-        removeFromSnapshot(removedIDs)
-        AgentHistoryLog.indexer.info(
-            "Agent History purged source agent=\(agent.rawValue, privacy: .public) sessions=\(removedIDs.count, privacy: .public)"
-        )
-        scheduleStreamRefresh()
-        updateProgressState()
-        publish(force: true)
-        scheduleStep()
+        removeFromSnapshot(snapshotBuilder.allSessions.filter { $0.agent == agent }.map(\.id))
+    }
+
+    /// Deletes the sessions and cursors of every agent turned off and disables its `sources`
+    /// rows (D4). One that fails (full disk, busy) stays pending: it is retried after a full
+    /// disk resumes, on every reconcile and whenever the indexer goes idle.
+    func runPendingSourcePurges() {
+        guard !pendingSourcePurges.isEmpty, !isWritingSuspended, let writer, let store else {
+            return
+        }
+        for agent in pendingSourcePurges.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard !configuration.enabledAgents.contains(agent) else {
+                pendingSourcePurges.remove(agent)
+                continue
+            }
+            do {
+                let removedIDs = try writer.transaction { () -> [Int64] in
+                    try beforeSourcePurgeForTesting?(agent)
+                    var removed: [Int64] = []
+                    for row in try store.sources() where row.agent == agent {
+                        removed += try store.deleteSessions(sourceID: row.id)
+                        try store.deleteCursors(sourceID: row.id)
+                        try store.setSourceEnabled(id: row.id, false)
+                    }
+                    return removed
+                }
+                pendingSourcePurges.remove(agent)
+                removeFromSnapshot(removedIDs)
+                AgentHistoryLog.indexer.info(
+                    "Agent History purged source agent=\(agent.rawValue, privacy: .public) sessions=\(removedIDs.count, privacy: .public)"
+                )
+            } catch {
+                logWriteFailure(error, action: "purge source")
+                return
+            }
+        }
+    }
+
+    /// At start: agents that are off but still have enabled `sources` rows (turned off while
+    /// no indexer ran, or a purge that never completed).
+    func purgeSourcesOfDisabledAgents() {
+        guard let store else {
+            return
+        }
+        do {
+            for row in try store.sources() where row.enabled && !configuration.enabledAgents.contains(row.agent) {
+                pendingSourcePurges.insert(row.agent)
+            }
+        } catch {
+            logWriteFailure(error, action: "list sources")
+        }
+        runPendingSourcePurges()
     }
 
     // MARK: - Helpers

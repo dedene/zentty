@@ -81,6 +81,7 @@ extension AgentHistoryIndexer {
         AgentHistoryLog.indexer.info(
             "Agent History resuming after a full disk availableBytes=\(available ?? -1, privacy: .public)"
         )
+        runPendingSourcePurges()
         updateProgressState()
         publish(force: true)
         scheduleStep()
