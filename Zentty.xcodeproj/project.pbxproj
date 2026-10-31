@@ -645,6 +645,7 @@
 		C038C6FB8A7F9335CC3AFB1A /* AboutViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C5CDA1B0A63C72FE9048F9 /* AboutViewController.swift */; };
 		C0581A87CA13EF4A6DE2E5D0 /* GlobalSearchFocusChoreographer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6786CCBB776BDFA10AD59873 /* GlobalSearchFocusChoreographer.swift */; };
 		C0C013424D1352E50F67BB61 /* ShellIntegrationKiroTermTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063BC872FEF22E670BF3054C /* ShellIntegrationKiroTermTests.swift */; };
+		C0D89189099238FA2073A625 /* GrokTurnTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85AC8A81AD85CE5689B28676 /* GrokTurnTimelineTests.swift */; };
 		C0D977BB8AC73437601103F0 /* CommandFlattenAggressiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DB8F94BDF5915567FD8FE9 /* CommandFlattenAggressiveness.swift */; };
 		C121741D650BAD1DED2A0CC9 /* PaneAgentReducerState+Muse.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD64D83089F6BEE70F345262 /* PaneAgentReducerState+Muse.swift */; };
 		C15158B09F049B78C214CBD1 /* CodexToolStatusResolver+ShellReturn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE07AB1014F599610545628 /* CodexToolStatusResolver+ShellReturn.swift */; };
@@ -1359,6 +1360,7 @@
 		85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HooksInstalling.swift; sourceTree = "<group>"; };
 		8552E3232235804F4AB8FB80 /* PaneAgentReducerState+Codex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaneAgentReducerState+Codex.swift"; sourceTree = "<group>"; };
 		859E02462A30A35800CA0123 /* NotificationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStoreTests.swift; sourceTree = "<group>"; };
+		85AC8A81AD85CE5689B28676 /* GrokTurnTimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokTurnTimelineTests.swift; sourceTree = "<group>"; };
 		8626016D68E310751E9D7E91 /* ClosedPaneStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedPaneStack.swift; sourceTree = "<group>"; };
 		86532A76726D9364B28994A8 /* AgentIntegrationConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationConsent.swift; sourceTree = "<group>"; };
 		86917D1F9201725F12438AD5 /* WindowChromeRowLayoutPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeRowLayoutPlannerTests.swift; sourceTree = "<group>"; };
@@ -2862,6 +2864,7 @@
 				D95ED44A37CDE51882628D20 /* GlobalSearchFocusChoreographerTests.swift */,
 				5ABE9F4C419078A26FFF2665 /* GrokHistoryPromptTests.swift */,
 				21A3FE6550E9246E785E57AC /* GrokHistorySourceTests.swift */,
+				85AC8A81AD85CE5689B28676 /* GrokTurnTimelineTests.swift */,
 				8C5DD0889100A659EF463861 /* HermesHooksInstallerTests.swift */,
 				8062E55664628AC4197A39C3 /* HermesTitleStatusTests.swift */,
 				9760F3B7EDC0087FA89778B9 /* Info.plist */,
@@ -3418,6 +3421,7 @@
 				49E1E625DF9A0E03063EFD81 /* GlobalSearchFocusChoreographerTests.swift in Sources */,
 				A36DB5BC69DA9376DFA0C399 /* GrokHistoryPromptTests.swift in Sources */,
 				C1AF19B83286DCF4471C6DE2 /* GrokHistorySourceTests.swift in Sources */,
+				C0D89189099238FA2073A625 /* GrokTurnTimelineTests.swift in Sources */,
 				ABF3F2C69E6010129E48D97C /* HermesHooksInstallerTests.swift in Sources */,
 				F628AB05637878BE72ED3491 /* HermesTitleStatusTests.swift in Sources */,
 				D4FFBD458BAFEBFF91CAEAAC /* JSONLTailReaderTests.swift in Sources */,

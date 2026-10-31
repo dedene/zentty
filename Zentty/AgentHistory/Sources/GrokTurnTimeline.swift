@@ -75,6 +75,11 @@ final class GrokTurnTimelineCache: @unchecked Sendable {
         return turns
     }
 
+    /// The byte offset cached for `path`, up to which its turns are known; nil without an entry.
+    func cachedOffset(eventsPath path: String) -> Int64? {
+        lock.withLock { entries[path]?.offset }
+    }
+
     private static func read(path: String, from offset: Int64) -> (turns: [GrokTurnStart], committedOffset: Int64)? {
         guard let source = try? FileByteSource(path: path, offset: offset) else {
             return nil
