@@ -120,6 +120,58 @@ final class CodexHistorySourceCatalogTests: XCTestCase {
         XCTAssertEqual(source.classifyChange(unit: unit, cursor: second.cursor), .missing)
     }
 
+    func test_state_unit_emits_archive_and_rename_that_keep_updated_at() throws {
+        let (root, source) = try C.makeRoot(self)
+        let a = C.newThreadID(), b = C.newThreadID()
+        var rowA = C.ThreadRow(id: a)
+        rowA.title = "Alpha"
+        var rowB = C.ThreadRow(id: b)
+        rowB.title = "Beta"
+        try C.writeCatalog(root: root, rows: [rowA, rowB])
+        let unit = try C.unit(source, key: "state")
+        let first = try source.ingest(unit: unit, cursor: nil, mode: .fromStart, context: F.context())
+        XCTAssertEqual(Set(first.sessions.map(\.nativeID)), [a, b])
+
+        func poll(_ cursor: AgentHistoryCursor) throws -> AgentHistoryIngestBatch {
+            try source.ingest(unit: unit, cursor: cursor, mode: .fromOffset(0, nextSeq: 0), context: F.context())
+        }
+
+        // Codex archives without bumping updated_at.
+        rowA.archived = true
+        try C.writeCatalog(root: root, rows: [rowA])
+        let archived = try poll(first.cursor)
+        XCTAssertEqual(archived.sessions.map(\.nativeID), [a])
+        XCTAssertEqual(archived.sessions.first?.archived, true)
+        XCTAssertEqual(archived.cursor.watermark, first.cursor.watermark)
+        XCTAssertTrue(try poll(archived.cursor).sessions.isEmpty, "reported once")
+
+        // Renamed, same updated_at.
+        rowB.name = "Custom beta"
+        try C.writeCatalog(root: root, rows: [rowB])
+        let renamed = try poll(archived.cursor)
+        XCTAssertEqual(renamed.sessions.map(\.nativeID), [b])
+        XCTAssertEqual(renamed.sessions.first?.title, "Custom beta")
+        XCTAssertEqual(renamed.sessions.first?.titleKind, .custom)
+        XCTAssertFalse(String(decoding: try XCTUnwrap(renamed.cursor.adapterState), as: UTF8.self).contains("Custom beta"),
+                       "names are digested, never stored in the cursor")
+
+        // Unarchived: the flag goes back to false.
+        rowA.archived = false
+        try C.writeCatalog(root: root, rows: [rowA])
+        let unarchived = try poll(renamed.cursor)
+        XCTAssertEqual(unarchived.sessions.map(\.nativeID), [a])
+        XCTAssertEqual(unarchived.sessions.first?.archived, false)
+        XCTAssertTrue(try poll(unarchived.cursor).sessions.isEmpty)
+
+        // A cancelled pass keeps the old flags, so the change is reported by the next one.
+        rowB.archived = true
+        try C.writeCatalog(root: root, rows: [rowB])
+        let cancelled = try source.ingest(unit: unit, cursor: unarchived.cursor, mode: .fromOffset(0, nextSeq: 0),
+                                          context: F.context(isCancelled: { true }))
+        XCTAssertTrue(cancelled.sessions.isEmpty)
+        XCTAssertEqual(try poll(cancelled.cursor).sessions.map(\.nativeID), [b])
+    }
+
     func test_state_unit_pages_with_keyset_on_equal_timestamps() throws {
         let (root, source) = try C.makeRoot(self)
         let ids = (0 ..< 5).map { _ in C.newThreadID() }.sorted()
