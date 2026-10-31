@@ -37,6 +37,11 @@ final class AgentHistoryStorage: @unchecked Sendable {
         var busyTimeoutMilliseconds: Int32 = 2_000
         /// Forces a tokenizer instead of probing (tests, and a fallback switch).
         var tokenizerOverride: AgentHistoryTokenizer? = nil
+        /// How long `openWriter` waits for another process to finish setting up the index.
+        var setupLockTimeout: TimeInterval = 30
+        /// Runs after the schema snapshot asked for a create or migrate, before the write lock is
+        /// taken. Tests use it to let another writer get there first.
+        var beforeSchemaWriteForTesting: (@Sendable () -> Void)? = nil
     }
 
     static var bundleVersion: String {
@@ -90,9 +95,11 @@ final class AgentHistoryStorage: @unchecked Sendable {
     /// - An index with a newer schema is never opened for writing: availability becomes
     ///   `.readOnlyNewerSchema` and this throws `.schemaTooNew`; the file's bytes do not change.
     /// - A tokenizer different from the stored one rebuilds the FTS tables only.
+    /// - All of this runs under the cross-process setup lock (`AgentHistorySetupLock`); another
+    ///   process holding it past `Options.setupLockTimeout` makes this throw `.busy`.
     func openWriter() throws -> AgentHistoryWriterHandle {
         do {
-            let handle = try openWriter(recovered: false)
+            let handle = try withSetupLock { try openWriter(recovered: false) }
             availabilityBox.update(availability: .ready, tokenizer: handle.tokenizer)
             tightenFilePermissions()
             AgentHistoryLog.indexer.info(
@@ -117,14 +124,21 @@ final class AgentHistoryStorage: @unchecked Sendable {
         }
     }
 
-    private func openWriter(recovered: Bool) throws -> AgentHistoryWriterHandle {
+    /// Creates the directory and holds the cross-process setup lock (`AgentHistorySetupLock`)
+    /// around `body`: header peek, create, migrate and quarantine all happen under it.
+    private func withSetupLock<T>(_ body: () throws -> T) throws -> T {
         do {
             try ensureDirectory()
         } catch {
             throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
                                             message: "cannot create index directory")
         }
+        let lock = try AgentHistorySetupLock(url: paths.lockURL, timeout: options.setupLockTimeout)
+        defer { lock.unlock() }
+        return try body()
+    }
 
+    private func openWriter(recovered: Bool) throws -> AgentHistoryWriterHandle {
         let prefix: [AgentHistoryOpenOutcome] = recovered ? [.recoveredFromCorruption] : []
 
         // Read the header without SQLite first, so an index from a newer Zentty is never opened
@@ -176,41 +190,39 @@ final class AgentHistoryStorage: @unchecked Sendable {
     /// Creates, migrates or checks the schema on an open writer. Throws `.schemaTooNew`, an
     /// `unusableIndex` error for foreign files, or whatever SQLite reports.
     private func prepareSchema(_ database: AgentHistoryDatabase) throws -> [AgentHistoryOpenOutcome] {
-        let applicationID = try database.applicationID()
-        let version = try database.userVersion()
-        let objectCount = try database.scalarInt64("SELECT count(*) FROM sqlite_master") ?? 0
-        let ours = AgentHistorySchema.applicationID
-
-        if applicationID == ours, version > AgentHistorySchema.currentVersion {
-            throw AgentHistoryDatabaseError.schemaTooNew(found: version)
-        }
-        let isForeign = (applicationID != 0 && applicationID != ours)
-            || (version == 0 && objectCount > 0)
-            || (applicationID == 0 && version != 0)
-        if isForeign {
-            throw Self.unusableIndex()
-        }
-
+        // One snapshot: three separate reads could straddle another writer's commit and see
+        // `user_version` 0 next to its new tables.
+        let seen = try database.readTransaction { try SchemaState(database) }
+        try seen.validate()
         let wanted = options.tokenizerOverride ?? AgentHistorySchema.probeTokenizer(database)
         var outcomes: [AgentHistoryOpenOutcome] = []
 
-        if version == 0 {
-            try database.transaction {
-                try AgentHistorySchema.createVersion1(database, tokenizer: wanted, now: now(), appVersion: appVersion)
-                try database.setUserVersion(AgentHistorySchema.currentVersion)
-                try database.setApplicationID(ours)
-            }
-            return [.created]
-        }
-
-        if version < AgentHistorySchema.currentVersion {
-            try database.transaction {
-                try AgentHistorySchema.migrate(database, from: version, tokenizer: wanted, now: now(), appVersion: appVersion)
-                try database.setUserVersion(AgentHistorySchema.currentVersion)
-            }
-            outcomes.append(.migrated(from: version))
-        } else {
+        if seen.version == AgentHistorySchema.currentVersion {
             outcomes.append(.opened)
+        } else {
+            options.beforeSchemaWriteForTesting?()
+            let outcome = try database.transaction { () throws -> AgentHistoryOpenOutcome in
+                // Decide again under the write lock: another writer may have created or migrated
+                // the index since the snapshot, and running `createVersion1` over its tables would
+                // fail in a way that looks quarantine-worthy.
+                let state = try SchemaState(database)
+                try state.validate()
+                if state.version == 0 {
+                    try AgentHistorySchema.createVersion1(database, tokenizer: wanted, now: now(), appVersion: appVersion)
+                    try database.setUserVersion(AgentHistorySchema.currentVersion)
+                    try database.setApplicationID(AgentHistorySchema.applicationID)
+                    return .created
+                }
+                if state.version < AgentHistorySchema.currentVersion {
+                    try AgentHistorySchema.migrate(database, from: state.version, tokenizer: wanted, now: now(),
+                                                   appVersion: appVersion)
+                    try database.setUserVersion(AgentHistorySchema.currentVersion)
+                    return .migrated(from: state.version)
+                }
+                return .opened
+            }
+            if outcome == .created { return [.created] }
+            outcomes.append(outcome)
         }
 
         let stored = try AgentHistorySchema.storedTokenizer(database)
@@ -259,7 +271,34 @@ final class AgentHistoryStorage: @unchecked Sendable {
         }
     }
 
-    private static func unusableIndex() -> AgentHistoryDatabaseError {
+    /// The header fields and object count that decide create / migrate / open / refuse.
+    private struct SchemaState {
+        let applicationID: Int32
+        let version: Int32
+        let objectCount: Int64
+
+        init(_ database: AgentHistoryDatabase) throws {
+            applicationID = try database.applicationID()
+            version = try database.userVersion()
+            objectCount = try database.scalarInt64("SELECT count(*) FROM sqlite_master") ?? 0
+        }
+
+        /// Throws `.schemaTooNew` for a newer index of ours and `unusableIndex` for a foreign file.
+        func validate() throws {
+            let ours = AgentHistorySchema.applicationID
+            if applicationID == ours, version > AgentHistorySchema.currentVersion {
+                throw AgentHistoryDatabaseError.schemaTooNew(found: version)
+            }
+            let isForeign = (applicationID != 0 && applicationID != ours)
+                || (version == 0 && objectCount > 0)
+                || (applicationID == 0 && version != 0)
+            if isForeign {
+                throw AgentHistoryStorage.unusableIndex()
+            }
+        }
+    }
+
+    fileprivate static func unusableIndex() -> AgentHistoryDatabaseError {
         AgentHistoryDatabaseError(kind: .notADatabase, code: SQLITE_NOTADB, extendedCode: SQLITE_NOTADB,
                                   message: "not an Agent History index")
     }

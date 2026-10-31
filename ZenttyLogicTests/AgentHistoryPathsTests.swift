@@ -78,6 +78,7 @@ final class AgentHistoryPathsTests: XCTestCase {
         XCTAssertEqual(paths.walURL.path, "/x/AgentHistory/index.sqlite-wal")
         XCTAssertEqual(paths.shmURL.path, "/x/AgentHistory/index.sqlite-shm")
         XCTAssertEqual(paths.stateURL.path, "/x/AgentHistory/state.json")
+        XCTAssertEqual(paths.lockURL.path, "/x/AgentHistory/index.lock")
 
         // 2026-10-31 10:15:00 UTC
         let date = Date(timeIntervalSince1970: 1_793_441_700)
