@@ -97,7 +97,7 @@ final class AgentHistoryIPCDataSource: HistoryIPCDataSource, @unchecked Sendable
     ) throws -> [HistoryIPCSearchHit] {
         try requireEngine()
             .searchMerged(query, context: context, limit: limit, cancellation: cancellation)
-            .map(HistoryIPCSearchHit.init(merged:))
+            .map { HistoryIPCSearchHit(merged: $0, queryHasTerms: !query.terms.isEmpty) }
     }
 
     func sessions(
@@ -135,7 +135,11 @@ extension HistoryIPCSearchHit {
     /// Content hits quote the message (`role`, `at`, `snippet`); artifact hits and metadata hits
     /// name the field that matched (`title`, `branch`, `repo`, `folder`, `path`, `command`,
     /// `commit`, `pr`).
-    init(merged: HistoryMergedResult) {
+    ///
+    /// A metadata hit without a note matched on its title, but only when the query had terms:
+    /// a filter-only query (`branch:main`, `agent:claude`) lists sessions by recency and
+    /// compares nothing, so its hits carry no match at all.
+    init(merged: HistoryMergedResult, queryHasTerms: Bool) {
         let match: HistoryIPCMatch?
         switch merged.match {
         case .content(.artifact(let kind), _, _, let note):
@@ -154,7 +158,9 @@ extension HistoryIPCSearchHit {
         case .metadata(let note?):
             match = Self.metadataMatch(note)
         case .metadata(nil):
-            match = .metadata(field: HistoryMetadataField.title.rawValue, value: merged.session.title)
+            match = queryHasTerms
+                ? .metadata(field: HistoryMetadataField.title.rawValue, value: merged.session.title)
+                : nil
         }
         self.init(session: merged.session, match: match)
     }

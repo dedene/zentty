@@ -29,6 +29,25 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
         _ = mine
     }
 
+    func test_filter_only_search_reports_no_match() throws {
+        let fixture = try Fixture(testCase: self)
+        try addSession(fixture, "a", repo: Self.repoA, branch: "main", text: "hello")
+
+        for query in ["branch:main", "agent:claude", "after:2000-01-01"] {
+            let response = try XCTUnwrap(
+                try respond(fixture, to: .search(HistorySearchIPCOptions(query: query))).search, query)
+            XCTAssertEqual(response.results.map(\.sessionId), ["a"], query)
+            XCTAssertNil(response.results.first?.match, "\(query): a filter compares no field")
+            let json = String(decoding: try JSONEncoder().encode(response), as: UTF8.self)
+            XCTAssertFalse(json.contains("\"match\""), "\(query): \(json)")
+        }
+
+        // A term that hits only the title still names the title.
+        let titled = try XCTUnwrap(
+            try respond(fixture, to: .search(HistorySearchIPCOptions(query: "session branch:main"))).search)
+        XCTAssertEqual(titled.results.first?.match, .metadata(field: "title", value: "Session a"))
+    }
+
     func test_show_cannot_read_session_from_another_repo() throws {
         let fixture = try Fixture(testCase: self)
         try addSession(fixture, "theirs", repo: Self.repoB, text: "private notes")
@@ -166,15 +185,17 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
         _ fixture: Fixture,
         _ nativeID: String,
         agent: AgentHistoryAgent = .claude,
+        title: String? = nil,
         cwd: String? = nil,
         repo: String,
+        branch: String? = nil,
         updatedDaysAgo: Double = 1,
         parent: String? = nil,
         text: String
     ) throws -> Int64 {
         let id = try fixture.addSession(
-            nativeID, agent: agent, title: "Session \(nativeID)", cwd: cwd ?? repo, repo: repo, mainRepo: repo,
-            updatedDaysAgo: updatedDaysAgo, parent: parent)
+            nativeID, agent: agent, title: title ?? "Session \(nativeID)", cwd: cwd ?? repo, repo: repo,
+            mainRepo: repo, branch: branch, updatedDaysAgo: updatedDaysAgo, parent: parent)
         try fixture.addMessage(session: id, daysAgo: updatedDaysAgo, text: text)
         return id
     }
