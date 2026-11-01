@@ -367,6 +367,23 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertFalse(controller.deleteButton.isEnabled)
     }
 
+    /// History off keeps the index and the consent: both are still there to delete, and the
+    /// removed sessions are counted but can only be restored while the index runs.
+    func test_history_off_keeps_delete_available_and_shows_removed_count() {
+        let backend = FakeAgentHistoryControl()
+        let controller = makeController(backend: backend)
+        var status = makeStatus(isEnabled: false, state: .off, removed: 2)
+
+        controller.apply(status: status)
+        XCTAssertTrue(controller.deleteButton.isEnabled)
+        XCTAssertEqual(controller.removedSessionsTextForTesting, "2 sessions removed from Agent History")
+        XCTAssertFalse(controller.restoreAllButton.isEnabled)
+
+        status.indexExists = false
+        controller.apply(status: status)
+        XCTAssertTrue(controller.deleteButton.isEnabled, "the consent alone is worth deleting")
+    }
+
     // MARK: - Claude retention
 
     func test_retention_button_shown_below_365_and_click_writes_settings() throws {

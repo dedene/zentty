@@ -462,20 +462,48 @@ final class AgentHistoryController: Sendable {
 
     // MARK: - Publishing
 
-    /// The status while no indexer runs, from the persisted state.
+    /// The status while no indexer runs: the persisted state, plus the index on disk (kept when
+    /// History is off) as last known until `recountOffStatus` has looked again.
     private func publishOffStatus() {
+        publishOffStatus(state: persistedState, disk: nil)
+        recountOffStatus()
+    }
+
+    private func publishOffStatus(state: AgentHistoryState?, disk: AgentHistoryOffDiskFacts?) {
         var next = AgentHistoryStatus.off
-        if let persistedState {
-            next.isEnabled = persistedState.enabled
-            next.hasConsented = persistedState.consentedAt != nil
-            next.enabledAgents = persistedState.enabledAgents
+        if let state {
+            next.isEnabled = state.enabled
+            next.hasConsented = state.consentedAt != nil
+            next.enabledAgents = state.enabledAgents
         }
+        next.indexExists = disk?.indexExists ?? status.indexExists
+        next.indexSizeBytes = disk?.indexSizeBytes ?? status.indexSizeBytes
+        next.removedSessionCount = disk?.removedSessionCount ?? status.removedSessionCount
         next.revision = status.revision
         guard next != status else {
             return
         }
         next.revision = status.revision &+ 1
         setStatus(next)
+    }
+
+    /// Looks at the index file, its size and the removed-sessions list on the control queue
+    /// (behind any stop or delete still running) and publishes them while no indexer runs, so
+    /// Settings can delete an index that History being off kept.
+    func recountOffStatus() {
+        guard let storage = storageInstance else {
+            return
+        }
+        let generation = indexerGeneration
+        let deliver = AgentHistoryMainDelivery<AgentHistoryOffDiskFacts> { [weak self] disk in
+            guard let self, self.indexer == nil, generation == self.indexerGeneration else {
+                return
+            }
+            self.publishOffStatus(state: self.persistedState, disk: disk)
+        }
+        controlQueue.async {
+            deliver.send(AgentHistoryOffDiskFacts(storage: storage))
+        }
     }
 
     private func setStatus(_ next: AgentHistoryStatus) {
@@ -512,6 +540,20 @@ enum AgentHistoryDisableOutcome: Equatable, Sendable {
     /// The directory could not be deleted (or locked for it). Consent is reset only when the
     /// delete was attempted.
     case failed
+}
+
+/// The index on disk while no indexer runs. Read on the control queue.
+private struct AgentHistoryOffDiskFacts: Sendable {
+    let indexExists: Bool
+    let indexSizeBytes: Int64
+    /// nil when `removals.json` can't be read: the last known count stays.
+    let removedSessionCount: Int?
+
+    init(storage: AgentHistoryStorage) {
+        indexExists = FileManager.default.fileExists(atPath: storage.paths.databaseURL.path)
+        indexSizeBytes = indexExists ? storage.diskUsageBytes() : 0
+        removedSessionCount = try? AgentHistoryRemovalLedger(fileURL: storage.paths.removalsURL).tombstones().count
+    }
 }
 
 /// `state.json` as read or written on the control queue, with the store that holds it.

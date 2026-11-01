@@ -239,12 +239,14 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             reloadRetention()
         }
         removedLabel.stringValue = AgentHistorySettingsRows.removedSessionsText(status.removedSessionCount, formatting: formatting)
-        restoreAllButton.isEnabled = hasBackend && status.removedSessionCount > 0
+        // Restoring needs a running index; while History is off the count is shown, not acted on.
+        restoreAllButton.isEnabled = hasBackend && status.removedSessionCount > 0 && status.state != .off
         let removalsUnreadable = status.state == .failed(.removalsUnreadable)
         rebuildButton.isEnabled = hasBackend && status.isEnabled && !removalsUnreadable
         rebuildBlockedLabel.stringValue = removalsUnreadable ? AgentHistorySettingsRows.rebuildBlockedText : ""
         rebuildBlockedLabel.isHidden = !removalsUnreadable
-        deleteButton.isEnabled = hasBackend && (status.indexExists || status.isEnabled)
+        // Deleting works without a running index; an off index or a kept consent is still there to delete.
+        deleteButton.isEnabled = hasBackend && (status.indexExists || status.isEnabled || status.hasConsented)
         relayout()
     }
 

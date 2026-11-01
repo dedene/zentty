@@ -262,6 +262,68 @@ final class AgentHistoryControllerTests: XCTestCase {
                        "reading the reset state never recreates the directory")
     }
 
+    // MARK: - Off status
+
+    /// Builds an index with one removed session, then turns History off (index kept).
+    private func buildIndexAndTurnOff(_ fixture: Fixture) throws {
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
+        fixture.controller.removeSession(AgentHistorySessionKey(agent: .codex, nativeID: "codex-one"))
+        waitForStatus(fixture.controller, "one removed") { $0.removedSessionCount == 1 }
+
+        fixture.controller.setEnabled(false)
+        waitForStatus(fixture.controller, "off") { !$0.isEnabled && $0.state == .off }
+        fixture.controller.drainControlQueueForTesting()
+    }
+
+    func test_turning_history_off_still_reports_the_kept_index() throws {
+        let fixture = makeFixture()
+        try buildIndexAndTurnOff(fixture)
+
+        fixture.controller.refreshStatus()
+        fixture.controller.drainControlQueueForTesting()
+        let recounted = expectation(description: "recount delivered")
+        DispatchQueue.main.async { recounted.fulfill() }
+        wait(for: [recounted], timeout: 5)
+
+        let status = fixture.controller.status
+        XCTAssertTrue(status.indexExists, "Delete Index stays available while History is off")
+        XCTAssertGreaterThan(status.indexSizeBytes, 0)
+        XCTAssertEqual(status.removedSessionCount, 1)
+        XCTAssertTrue(status.hasConsented)
+        XCTAssertNil(fixture.controller.storage, "nothing reopened the index")
+    }
+
+    /// A launch with History off never starts an indexer, so only the recount can tell the
+    /// index is still on disk.
+    func test_launch_with_history_off_reports_the_index_on_disk_until_deleted() throws {
+        let fixture = makeFixture()
+        try buildIndexAndTurnOff(fixture)
+        fixture.controller.stop()
+
+        let relaunched = AgentHistoryController(launchDelay: 0, makeSources: { [] })
+        relaunched.configure(configStore: fixture.configStore, paths: fixture.paths)
+        addTeardownBlock { @MainActor in relaunched.stop() }
+        XCTAssertFalse(launch(relaunched))
+        waitForStatus(relaunched, "index on disk") { status in
+            status.indexExists && status.indexSizeBytes > 0 && status.removedSessionCount == 1
+        }
+        XCTAssertFalse(relaunched.status.isEnabled)
+        XCTAssertTrue(relaunched.status.hasConsented)
+        XCTAssertNil(relaunched.indexer)
+
+        let done = expectation(description: "deleted")
+        relaunched.disable(deleteIndex: true) { outcome in
+            XCTAssertEqual(outcome, .deleted)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        waitForStatus(relaunched, "index gone") { status in
+            !status.indexExists && status.indexSizeBytes == 0 && status.removedSessionCount == 0 && !status.hasConsented
+        }
+    }
+
     /// Another "process" on the same directory: its own storage (reader pool, lock descriptors)
     /// and indexer, as a second Zentty of the same flavor would have.
     private func startOtherInstance(_ fixture: Fixture) -> AgentHistoryIndexer {
