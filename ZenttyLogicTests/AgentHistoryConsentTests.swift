@@ -10,6 +10,7 @@ final class AgentHistoryConsentTests: XCTestCase {
     private var scheduler: ManualAgentHistoryScheduler!
     private var excludedFolders: [String] = []
     private var savedExclusions: [[String]] = []
+    private var saveExclusionsError: Error?
     private var retention: ClaudeRetentionStatus!
     private var raiseResult: Result<ClaudeRetentionWriteOutcome, Error> = .success(.written(backupURL: nil))
     private var raiseCount = 0
@@ -27,6 +28,7 @@ final class AgentHistoryConsentTests: XCTestCase {
         scheduler = ManualAgentHistoryScheduler()
         excludedFolders = []
         savedExclusions = []
+        saveExclusionsError = nil
         retention = retentionStatus(days: 365, source: .userSettings)
         raiseResult = .success(.written(backupURL: nil))
         raiseCount = 0
@@ -80,6 +82,7 @@ final class AgentHistoryConsentTests: XCTestCase {
             launch: launch,
             excludedFolders: { [unowned self] in self.excludedFolders },
             setExcludedFolders: { [unowned self] folders in
+                if let error = self.saveExclusionsError { throw error }
                 self.savedExclusions.append(folders)
                 self.excludedFolders = folders
             },
@@ -278,6 +281,30 @@ final class AgentHistoryConsentTests: XCTestCase {
 
         model.confirmConsent()
         XCTAssertEqual(control.enabledAgents.count, 1, "a second confirm does nothing")
+    }
+
+    func test_confirm_does_not_enable_when_excluded_folders_cannot_be_saved() throws {
+        saveExclusionsError = AgentHistoryExcludedFoldersSaveError.notSaved
+        let model = startedConsent()
+        model.addExcludedFolders([URL(fileURLWithPath: "\(root)/clients/secret")])
+
+        model.handle(.consentConfirm)
+
+        XCTAssertTrue(control.enabledAgents.isEmpty, "nothing is indexed when the exclusions weren't saved")
+        let consent = try XCTUnwrap(model.consent)
+        XCTAssertFalse(consent.isIndexing)
+        XCTAssertTrue(consent.canConfirm, "the card stays editable so the user can retry")
+        XCTAssertEqual(consent.saveError, AgentHistoryConsentModel.excludedFoldersSaveError)
+        XCTAssertEqual(consent.excludedFolders, ["\(root)/clients/secret"])
+        XCTAssertEqual(model.body, .consent)
+
+        saveExclusionsError = nil
+        model.handle(.consentConfirm)
+
+        XCTAssertEqual(savedExclusions, [["\(root)/clients/secret"]])
+        XCTAssertEqual(control.enabledAgents.count, 1, "a retry after a successful save enables indexing")
+        XCTAssertNil(model.consent?.saveError)
+        XCTAssertEqual(model.consent?.isIndexing, true)
     }
 
     func test_switches_to_results_after_50_sessions_indexed() throws {

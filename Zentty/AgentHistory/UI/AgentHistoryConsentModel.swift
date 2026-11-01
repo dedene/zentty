@@ -38,6 +38,8 @@ struct AgentHistoryConsentModel: Equatable {
     var retention: ClaudeRetentionStatus?
     /// Why "Keep 1 Year" failed; nothing was changed.
     var retentionError: String?
+    /// Why "Index ‹N› Sessions" didn't start: the excluded folders couldn't be saved.
+    var saveError: String?
     /// "Keep 1 Year" succeeded in this card.
     var didRaiseRetention = false
     /// Set by "Index ‹N› Sessions": checkboxes lock and the card shows progress.
@@ -184,6 +186,7 @@ extension AgentHistoryConsentModel {
     static let keepOneYearTitle = "Keep 1 Year"
     static let addFolderTitle = "Add Folder…"
     static let raisedRetentionText = "Claude Code keeps conversations for 365 days."
+    static let excludedFoldersSaveError = "Couldn't save the excluded folders; nothing was indexed."
 
     func bodyText(formatting: AgentHistoryFormatting) -> String {
         let total = totalFound

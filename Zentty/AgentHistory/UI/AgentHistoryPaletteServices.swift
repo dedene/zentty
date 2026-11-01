@@ -136,7 +136,9 @@ struct AgentHistoryPaletteServices {
     let search: any AgentHistorySearchServicing
     let launch: any AgentHistoryLaunchServicing
     let excludedFolders: () -> [String]
-    let setExcludedFolders: ([String]) -> Void
+    /// Throws unless the folders were saved to config.toml, so a failed save never lets the
+    /// indexer read a folder the user excluded.
+    let setExcludedFolders: ([String]) throws -> Void
     let claudeRetention: () -> ClaudeRetentionStatus
     let raiseClaudeRetention: () throws -> ClaudeRetentionWriteOutcome
     let pasteboard: NSPasteboard

@@ -18,11 +18,7 @@ enum AgentHistoryPaletteServicesAdapter {
                 configStore?.current.agentHistory.excludedFolders ?? []
             },
             setExcludedFolders: { [weak configStore] folders in
-                do {
-                    try configStore?.update { $0.agentHistory.excludedFolders = folders }
-                } catch {
-                    AgentHistoryLog.indexer.error("Agent History couldn't save its excluded folders")
-                }
+                try saveExcludedFolders(folders, to: configStore)
             },
             claudeRetention: {
                 ClaudeRetentionSettings.status(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory())
@@ -40,6 +36,26 @@ enum AgentHistoryPaletteServicesAdapter {
             now: Date.init
         )
     }
+
+    /// Saves the folders to config.toml. A write-protected config (a file that can't be parsed)
+    /// only keeps the change in memory, and the file's empty list would win after a relaunch, so
+    /// that counts as a failure too.
+    static func saveExcludedFolders(_ folders: [String], to configStore: AppConfigStore?) throws {
+        do {
+            guard let configStore else { throw AgentHistoryExcludedFoldersSaveError.notSaved }
+            try configStore.update { $0.agentHistory.excludedFolders = folders }
+            if configStore.isWriteProtected {
+                throw AgentHistoryExcludedFoldersSaveError.notSaved
+            }
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History couldn't save its excluded folders")
+            throw error
+        }
+    }
+}
+
+enum AgentHistoryExcludedFoldersSaveError: Error, Equatable {
+    case notSaved
 }
 
 // MARK: - Search

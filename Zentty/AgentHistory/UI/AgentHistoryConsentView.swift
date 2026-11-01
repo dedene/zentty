@@ -43,6 +43,13 @@ struct AgentHistoryConsentView: View {
                 retentionNudge
             }
             excludedFolders
+            if let saveError = consent.saveError {
+                Text(saveError)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Error: \(saveError)")
+            }
             if consent.isIndexing {
                 progress
             } else {

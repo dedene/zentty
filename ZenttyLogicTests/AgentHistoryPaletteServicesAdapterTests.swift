@@ -102,6 +102,37 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
         XCTAssertEqual(copy, .failed(message: AgentHistoryLauncher.copyCommandMessage, offerCopySessionID: false))
     }
 
+    // MARK: - Excluded folders
+
+    func test_save_excluded_folders_persists_to_config_file() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.AgentHistoryAdapter.Exclusions")
+        addTeardownBlock { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let store = AppConfigStore(fileURL: fileURL)
+
+        try AgentHistoryPaletteServicesAdapter.saveExcludedFolders(["/work/secret"], to: store)
+
+        XCTAssertEqual(store.current.agentHistory.excludedFolders, ["/work/secret"])
+        XCTAssertTrue(try String(contentsOf: fileURL, encoding: .utf8).contains("/work/secret"))
+    }
+
+    func test_save_excluded_folders_fails_when_config_is_write_protected() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.AgentHistoryAdapter.Protected")
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        try "[agent_history\nexcluded_folders = [".write(to: fileURL, atomically: true, encoding: .utf8)
+        let store = AppConfigStore(fileURL: fileURL)
+        XCTAssertTrue(store.isWriteProtected)
+
+        XCTAssertThrowsError(try AgentHistoryPaletteServicesAdapter.saveExcludedFolders(["/work/secret"], to: store)) {
+            XCTAssertEqual($0 as? AgentHistoryExcludedFoldersSaveError, .notSaved)
+        }
+    }
+
+    func test_save_excluded_folders_fails_without_config_store() {
+        XCTAssertThrowsError(try AgentHistoryPaletteServicesAdapter.saveExcludedFolders(["/work/secret"], to: nil))
+    }
+
     // MARK: - Fixtures
 
     private func makeStore() -> WorklaneStore {

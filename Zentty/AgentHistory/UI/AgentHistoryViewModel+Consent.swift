@@ -57,12 +57,20 @@ extension AgentHistoryViewModel {
     // MARK: - Confirm and decline
 
     /// "Index ‹N› Sessions" (↩): saves the excluded folders first, so the indexer never reads
-    /// them, then records consent for the checked agents and shows progress.
+    /// them, then records consent for the checked agents and shows progress. When the folders
+    /// can't be saved nothing is enabled: the card stays editable and says why.
     func confirmConsent() {
         guard body == .consent, var consent, consent.canConfirm else { return }
         if consent.excludedFolders != services.excludedFolders() {
-            services.setExcludedFolders(consent.excludedFolders)
+            do {
+                try services.setExcludedFolders(consent.excludedFolders)
+            } catch {
+                consent.saveError = AgentHistoryConsentModel.excludedFoldersSaveError
+                self.consent = consent
+                return
+            }
         }
+        consent.saveError = nil
         consent.isIndexing = true
         self.consent = consent
         services.control.enable(agents: consent.enabledAgents)
