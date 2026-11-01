@@ -1,6 +1,6 @@
 ---
 name: zentty-cli
-description: Use when an agent is running inside Zentty or needs to discover panes, split or grid layouts, open temporary command overlays, focus panes, type into or read other panes, watch agent and pane events, launch nested coding agents, or notify the user through the Zentty CLI.
+description: Use when an agent is running inside Zentty or needs to discover panes, split or grid layouts, float, minimize or dock panes, open temporary command overlays, focus panes, type into or read other panes, watch agent and pane events, launch nested coding agents, or notify the user through the Zentty CLI.
 ---
 
 # Zentty CLI
@@ -108,9 +108,37 @@ Wait for something to happen instead of polling the screen:
 
 Each line is `{"v":1,"type":...,"ts":...}` plus fields such as `pane`, `agent`, `phase` (`running`, `needs-input`, `idle`, `exited`, ...), `interaction`, and `attention`. The first line is `stream.ready`; every change after it is reported. An unknown `--type` fails. Stop reading (or kill the process) when you have what you need.
 
-## Quick Action Overlays
+## Floating Panes
 
-An overlay runs a command in a temporary terminal floating inside its owning worklane without changing the layout. The default placement fills the visible worklane content with a 16 point inset, leaving the sidebar and toolbar accessible. Use `--placement pane` to cover only the target pane, or `--size-percent N` to make either placement smaller. Assign a shortcut to “Toggle Quick Action Overlay” in Settings to open, hide, or restore a manual shell overlay. It is unbound by default. Hidden sessions keep running. Switching worklanes hides the overlay, and returning leaves it hidden until explicitly restored. The toggle is disabled during Ctrl+Tab preview. Opening an overlay on the visible worklane gives it keyboard focus; opening one on another worklane leaves the current worklane selected. Pass `--follow` to select the target worklane. Use `--wait` for short commands so their output remains visible until the user dismisses the overlay. Use `--notify` when the user is viewing another worklane; the notification is tied to the target pane, also appears in Zentty's inbox, and following it reveals the overlay. Relative `--cwd` paths resolve against the caller's directory. Quitting Zentty, closing its window, or closing the pane or worklane an overlay belongs to asks first while that overlay still runs a process. Pane search is off while an overlay has keyboard focus.
+A pane can leave the tiled layout and float above its worklane. A float can also be put away as picture in picture (a small live view in a corner) or minimized to a pill in the bottom bar. Every change keeps the same pane and process; nothing restarts.
+
+```bash
+"$ZENTTY" pane float 2
+"$ZENTTY" pane pip 2 --corner top-left
+"$ZENTTY" pane minimize 2
+"$ZENTTY" pane restore 2
+"$ZENTTY" pane dock 2
+"$ZENTTY" float new --cwd ../api -- npm run dev
+"$ZENTTY" float new --temporary -- htop
+"$ZENTTY" float list --json
+"$ZENTTY" float hide
+"$ZENTTY" float show
+```
+
+- `pane float|dock|pip|minimize|restore [pane]` take a pane index or ID and default to the calling pane. Indexes follow `pane list`: tiles first, then floats in the order they were created.
+- Each command sets a target state, so repeating it does nothing. `pip` and `minimize` float a tile first. `float` brings a picture-in-picture pane or pill back as a float. `restore` does the same and focuses it; on a tile it fails. `dock` puts a float back in the column it came from.
+- `pip` keeps a picture-in-picture pane in its corner unless `--corner` is given (`top-left`, `top-right`, `bottom-left`, `bottom-right`); others go bottom-right. A corner holds two; a third sends the oldest to the bottom bar. Picture-in-picture panes and pills never hold keyboard focus.
+- The commands act on the pane's own worklane even when the user is looking at another one, and never switch worklanes.
+- `float new` opens a focused float in the calling pane's worklane, in that pane's directory unless `--cwd` is given, and prints its pane ID. A command after `--` is typed into its shell, so the float stays open when the command ends. `--temporary` floats are not restored when Zentty relaunches and do not keep their worklane open.
+- `float list` lists the worklane's floats with `index`, `id`, `mode` (`floating`, `pip`, `minimized`), `frame` for a float (fractions of the canvas, origin top-left), `corner` for a picture-in-picture pane, `status` (`working`, `needs-input`, `done`, `stopped`, `check-back`, `running`, `idle`), `isFocused`, `isHidden`, and `isTemporary`. `pane list` also reports `mode` for floats.
+- `float hide` hides the worklane's floats and picture-in-picture panes (pills stay); `float show` brings them back. Hidden panes keep running.
+- While the user is dragging a pane, the commands fail with a message to retry.
+
+The user drives the same states with ⌥⌘F (float or dock), ⌥⌘P, ⌥⌘M, ⌥⌘. (hide or show), ⌥⌘N (new float), and ⌥⌘` (cycle floats). A minimized agent that needs input pops up as picture in picture unless the user turned that off.
+
+## Overlays
+
+An overlay runs a command in a temporary float over its worklane or over one pane, without changing the layout. The default placement fills the visible worklane content with a 16 point inset. Use `--placement pane` to cover only the target pane, or `--size-percent N` (30-100) to make either placement smaller.
 
 ```bash
 "$ZENTTY" overlay open --wait --notify -- git log --oneline --decorate --color --graph --all
@@ -121,7 +149,13 @@ An overlay runs a command in a temporary terminal floating inside its owning wor
 "$ZENTTY" overlay close
 ```
 
-`overlay open` prints an overlay ID. The default target is the calling pane, even if the user switches worklanes while the command runs. The command starts in that pane's current directory; use `--cwd DIR` to override it. Worklane-placement overlays are shared by all panes in that worklane, with at most one per worklane. Pane-placement overlays allow at most one per pane and can coexist with the shared worklane overlay. `overlay show` and `overlay close` prefer the target pane’s pane-placement overlay; otherwise they act on its shared worklane overlay. `overlay list` returns both overlays applicable to the calling or selected pane, including hidden sessions. It does not list unrelated panes or worklanes. Use pane selectors and a control token to address another pane. Overlays are not panes. Their shell runs Zentty's shell integration under the overlay's own ID, so the sidebar follows its directory, branch and running command, but `zentty` commands that act on the calling pane fail inside them and agents started there report no status, so launch nested agents in a pane instead.
+`overlay open` prints the overlay's pane ID and never waits for the command. The default target is the calling pane, even if the user switches worklanes while the command runs. The command starts in that pane's current directory; relative `--cwd` paths resolve against the caller's directory. Without `--wait` the overlay closes when its command exits; use `--wait` for short commands so their output stays until the user closes it.
+
+Each worklane has at most one worklane overlay, and each pane at most one pane overlay; opening one that already exists returns its ID instead of a second overlay. A pane overlay follows its pane to another worklane and closes with it. A worklane overlay moves to another pane when its owner closes, and closes with the last pane. Opening an overlay on the visible worklane gives it keyboard focus. On another worklane it waits there as a pill; pass `--follow` to switch to it, or `--notify` to post a notification (also in Zentty's inbox) that shows the overlay when followed.
+
+`overlay show` and `overlay close` prefer the target pane's pane overlay, otherwise its worklane overlay. `overlay list` returns both for the calling or selected pane, with `placement`, owner `paneID`, `exitCode`, and `mode`. Use pane selectors and a control token to address another pane.
+
+Overlays are floats, so `pane pip`, `pane minimize`, `pane restore`, and `float list` work on them by their pane ID. `pane dock` turns an overlay into a normal pane: it stays after its command and no longer belongs to its owner. Overlays are never restored on relaunch, and turning off "Show overlays in worklane info" in Settings hides them from the sidebar. Their shell runs Zentty's shell integration under their own pane ID, so `zentty` commands and agent status work inside them. Quitting Zentty, closing its window, or closing the pane or worklane an overlay belongs to asks first while that overlay still runs a process.
 
 ## Launch Agents Through Zentty
 
