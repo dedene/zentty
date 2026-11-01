@@ -28,6 +28,8 @@ final class AgentHistoryController {
     private let makeSources: @Sendable () -> [any AgentHistorySource]
     private let makeIndexer: IndexerFactory
     private let mirror = AgentHistoryControllerMirror()
+    /// The search engine over `storageInstance`, built on first use (`+Search.swift`).
+    nonisolated let searchEngineCache = AgentHistorySearchEngineCache()
     private let controlQueue = DispatchQueue(label: "be.zenjoy.zentty.agent-history.control", qos: .utility)
 
     private var configStore: AppConfigStore?
