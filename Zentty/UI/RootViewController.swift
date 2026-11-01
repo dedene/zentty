@@ -261,6 +261,7 @@ final class RootViewController: NSViewController {
     )
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
+    private lazy var agentHistoryCoordinator = AgentHistoryPaletteCoordinator(host: self)
     private var appUpdateObserverID: UUID?
     private var configObserverID: UUID?
     private var isUpdateAvailable = false
@@ -823,10 +824,8 @@ final class RootViewController: NSViewController {
             self?.navigateToNotification(notification)
         }
 
-        // Routes through the same seam as the shortcut and View menu; the
-        // palette coordinator (UI5) takes over `routeShowAgentHistory`.
         historyToolbarButton.onClick = { [weak self] in
-            self?.routeShowAgentHistory()
+            self?.toggleAgentHistory(entryPoint: .toolbar)
         }
         historyToolbarButton.configure(theme: currentTheme, animated: false)
 
@@ -1776,6 +1775,7 @@ final class RootViewController: NSViewController {
     }
 
     private func showCommandPalette() {
+        agentHistoryCoordinator.close(restoreFocus: false)
         guard let window = view.window else { return }
 
         let activeWorklane = worklaneStore.activeWorklane
@@ -2328,6 +2328,9 @@ final class RootViewController: NSViewController {
         appCanvasView.apply(theme: theme, animated: animated)
         if commandPaletteController.isShown {
             commandPaletteController.updateTheme(theme)
+        }
+        if agentHistoryCoordinator.isShown {
+            agentHistoryCoordinator.updateTheme(theme)
         }
         applySidebarMotionState(
             sidebarMotionCoordinator.currentMotionState,
@@ -3402,18 +3405,59 @@ extension RootViewController: AppActionRouterEnvironment {
         toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
     }
 
-    /// Placeholder seam for the Agent History palette. The palette coordinator
-    /// (UI5) replaces this body; until then the command only logs.
+    /// The shortcut, View menu and command palette entry: toggles the palette.
     func routeShowAgentHistory() {
-        AgentHistoryLog.indexer.debug("Agent History requested; palette not available yet")
+        toggleAgentHistory(entryPoint: .shortcutOrMenu)
     }
 
-    /// Worklane context-menu entry ("Agent History for This Project"). UI5
-    /// replaces this with a palette open scoped to the worklane's project.
+    /// Worklane context-menu entry: opens the palette on the worklane's project.
     func routeShowAgentHistory(forWorklaneID worklaneID: WorklaneID) {
-        AgentHistoryLog.indexer.debug(
-            "Agent History requested for worklane \(worklaneID.rawValue, privacy: .public); palette not available yet"
-        )
+        commandPaletteController.close()
+        agentHistoryCoordinator.show(entryPoint: .worklaneContextMenu(worklaneID))
+    }
+
+    private func toggleAgentHistory(entryPoint: AgentHistoryEntryPoint) {
+        commandPaletteController.close()
+        agentHistoryCoordinator.toggle(entryPoint: entryPoint)
+    }
+
+    /// Injected per window by the services adapter (UI10).
+    var agentHistoryServices: AgentHistoryPaletteServices? {
+        get { agentHistoryCoordinator.services }
+        set { agentHistoryCoordinator.services = newValue }
+    }
+}
+
+extension RootViewController: AgentHistoryPaletteHost {
+    var agentHistoryWindow: NSWindow? { view.window }
+    var agentHistoryBackdropView: CommandPaletteBackdropView { commandPaletteBackdropView }
+    var agentHistoryTheme: ZenttyTheme { currentTheme }
+    var agentHistoryWindowID: WindowID { windowID }
+
+    func agentHistoryCurrentProject() -> AgentHistoryProjectScope? {
+        AgentHistoryProjectScopeResolver.scope(for: worklaneStore.activeWorklane?.focusedPaneContext?.presentation)
+    }
+
+    func agentHistoryProject(forWorklane id: WorklaneID) -> AgentHistoryProjectScope? {
+        let worklane = worklaneStore.worklanes.first { $0.id == id }
+        return AgentHistoryProjectScopeResolver.scope(for: worklane?.focusedPaneContext?.presentation)
+    }
+
+    func agentHistoryShowSettings() {
+        onShowSettingsSectionRequested?(.agents)
+    }
+
+    func agentHistoryRestoreFocus() {
+        view.window?.makeKey()
+        appCanvasView.focusCurrentPaneIfNeeded()
+    }
+
+    func agentHistorySetToolbarPresented(_ presented: Bool) {
+        historyToolbarButton.setPalettePresented(presented)
+    }
+
+    func agentHistoryExemptClickViews() -> [NSView] {
+        [historyToolbarButton]
     }
 }
 

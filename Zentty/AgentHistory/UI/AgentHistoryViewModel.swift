@@ -82,6 +82,10 @@ final class AgentHistoryViewModel: ObservableObject {
     @Published private(set) var detectedSources: [AgentHistoryDetectedSource] = []
     /// In-panel feedback ("Copied", "Removed …"); never a launch toast (A-20).
     @Published var transientMessage: String?
+    /// Where to resume a session whose folder is gone (`+Actions`); nil while hidden.
+    @Published internal(set) var folderSheet: AgentHistoryFolderGoneSheetModel?
+    /// Sessions whose resume failed with an offer to copy the session ID instead.
+    @Published internal(set) var copySessionIDOfferKeys: Set<AgentHistorySessionKey> = []
     @Published private(set) var theme: AgentHistoryTheme
     /// Set by the panel controller on show and on every parent resize.
     @Published var layout: AgentHistoryPanelLayout? {
@@ -122,6 +126,7 @@ final class AgentHistoryViewModel: ObservableObject {
     private var lastStatusRevision: UInt64 = 0
     private var lastEmptyQueryRefreshAt: Date?
     private var statusRefreshToken: AgentHistoryCancellable?
+    var transientMessageToken: AgentHistoryCancellable?
     private var isStarted = false
 
     // "Folder gone" (`+Search`): cwd → exists, filled from a utility queue.
@@ -193,6 +198,8 @@ final class AgentHistoryViewModel: ObservableObject {
         transcriptToken?.cancel()
         statusRefreshToken?.cancel()
         liveObservation?.cancel()
+        transientMessageToken?.cancel()
+        transientMessageToken = nil
         contentDebounceToken = nil
         contentToken = nil
         detailDebounceToken = nil
