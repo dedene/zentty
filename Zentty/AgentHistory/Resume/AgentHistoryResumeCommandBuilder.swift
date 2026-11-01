@@ -5,8 +5,9 @@ struct AgentHistoryResumePlan: Equatable, Sendable {
     var agent: AgentHistoryAgent
     /// The normalized native session id the command resumes.
     var sessionID: String
-    /// A shell command line: base resume command, allowlisted flags, and (alternate Claude roots
-    /// only) an `env CLAUDE_CONFIG_DIR=…` prefix.
+    /// A shell command line: base resume command and allowlisted flags. Claude sessions from an
+    /// alternate root get an `env CLAUDE_CONFIG_DIR=…` prefix; sessions from the default
+    /// `~/.claude` get `env -u CLAUDE_CONFIG_DIR`, so an exported value can't redirect them.
     var command: String
     /// Extra session environment. Always empty in v1; the alternate Claude root travels as an
     /// `env` prefix in `command` instead (D3).
@@ -74,8 +75,11 @@ enum AgentHistoryResumeCommandBuilder {
             generation: source.generation
         )
         var configDirectory: String?
+        var unsetsConfigDirectory = false
         if agent == .claude {
             configDirectory = claudeConfigDirectoryOverride(sourceRoot: source.sourceRoot, homeDirectory: homeDirectory)
+            unsetsConfigDirectory = configDirectory == nil
+                && isDefaultClaudeRoot(sourceRoot: source.sourceRoot, homeDirectory: homeDirectory)
         }
 
         let baseArguments = base.split(separator: " ").map(String.init)
@@ -90,6 +94,11 @@ enum AgentHistoryResumeCommandBuilder {
         var command = ([base] + flags.map(AgentResumeCommandBuilder.shellQuotedArgument(_:))).joined(separator: " ")
         if let configDirectory {
             command = "env CLAUDE_CONFIG_DIR=\(AgentResumeCommandBuilder.shellQuotedArgument(configDirectory)) \(command)"
+        } else if unsetsConfigDirectory {
+            // The pane's shell may export CLAUDE_CONFIG_DIR for another root; a bare `claude` would
+            // look there and miss this session. Unset it rather than pointing it at `~/.claude`,
+            // which would also move where Claude reads `.claude.json`.
+            command = "env -u CLAUDE_CONFIG_DIR \(command)"
         }
         return .available(AgentHistoryResumePlan(
             agent: agent,
@@ -158,6 +167,23 @@ enum AgentHistoryResumeCommandBuilder {
     /// The standardized `sourceRoot` when it is an alternate Claude config root, else nil. Never
     /// returns the default `<home>/.claude`, including through a symlink.
     static func claudeConfigDirectoryOverride(sourceRoot: String?, homeDirectory: String) -> String? {
+        guard let standardized = standardizedClaudeRoot(sourceRoot),
+              !isDefaultClaudeRoot(standardized: standardized, homeDirectory: homeDirectory) else {
+            return nil
+        }
+        return standardized
+    }
+
+    /// True when `sourceRoot` is the default `<home>/.claude`, including through a symlink. A nil or
+    /// unusable root is not the default: nothing is known about it.
+    static func isDefaultClaudeRoot(sourceRoot: String?, homeDirectory: String) -> Bool {
+        guard let standardized = standardizedClaudeRoot(sourceRoot) else {
+            return false
+        }
+        return isDefaultClaudeRoot(standardized: standardized, homeDirectory: homeDirectory)
+    }
+
+    private static func standardizedClaudeRoot(_ sourceRoot: String?) -> String? {
         guard let root = sourceRoot, root.hasPrefix("/"), !containsControlCharacter(root) else {
             return nil
         }
@@ -165,12 +191,13 @@ enum AgentHistoryResumeCommandBuilder {
         guard standardized.hasPrefix("/"), standardized != "/" else {
             return nil
         }
-        let defaultRoot = ((homeDirectory as NSString).appendingPathComponent(".claude") as NSString).standardizingPath
-        if standardized == defaultRoot
-            || (standardized as NSString).resolvingSymlinksInPath == (defaultRoot as NSString).resolvingSymlinksInPath {
-            return nil
-        }
         return standardized
+    }
+
+    private static func isDefaultClaudeRoot(standardized: String, homeDirectory: String) -> Bool {
+        let defaultRoot = ((homeDirectory as NSString).appendingPathComponent(".claude") as NSString).standardizingPath
+        return standardized == defaultRoot
+            || (standardized as NSString).resolvingSymlinksInPath == (defaultRoot as NSString).resolvingSymlinksInPath
     }
 
     /// True when `argument` matches any `forbiddenFlagTokens` entry.

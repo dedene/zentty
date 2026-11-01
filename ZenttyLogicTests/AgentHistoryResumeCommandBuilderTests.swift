@@ -246,11 +246,11 @@ final class AgentHistoryResumeCommandBuilderTests: XCTestCase {
     func test_default_claude_root_sets_no_config_dir() throws {
         XCTAssertEqual(
             command(source(.claude, sourceRoot: "\(fakeHome)/.claude")),
-            "claude --resume \(claudeID)"
+            "env -u CLAUDE_CONFIG_DIR claude --resume \(claudeID)"
         )
         XCTAssertEqual(
             command(source(.claude, sourceRoot: "\(fakeHome)/.claude/")),
-            "claude --resume \(claudeID)"
+            "env -u CLAUDE_CONFIG_DIR claude --resume \(claudeID)"
         )
 
         let home = try makeTemporaryHome()
@@ -260,7 +260,39 @@ final class AgentHistoryResumeCommandBuilderTests: XCTestCase {
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: defaultRoot)
 
         XCTAssertNil(AgentHistoryResumeCommandBuilder.claudeConfigDirectoryOverride(sourceRoot: link, homeDirectory: home))
-        XCTAssertEqual(command(source(.claude, sourceRoot: link), home: home), "claude --resume \(claudeID)")
+        XCTAssertEqual(
+            command(source(.claude, sourceRoot: link), home: home),
+            "env -u CLAUDE_CONFIG_DIR claude --resume \(claudeID)"
+        )
+    }
+
+    /// A default-root session must not follow a `CLAUDE_CONFIG_DIR` the pane's shell exports for
+    /// another root; unsetting it (not pointing it at `~/.claude`) keeps `.claude.json` in place.
+    func test_default_claude_root_unsets_inherited_config_dir() throws {
+        let plan = try XCTUnwrap(plan(source(.claude, model: "sonnet", sourceRoot: "\(fakeHome)/.claude")))
+        XCTAssertEqual(plan.command, "env -u CLAUDE_CONFIG_DIR claude --resume \(claudeID) --model sonnet")
+        XCTAssertFalse(plan.command.contains("CLAUDE_CONFIG_DIR="))
+        XCTAssertEqual(plan.environment, [:])
+        XCTAssertEqual(
+            plan.copyText(workingDirectory: "/Users/test/src/app"),
+            "cd /Users/test/src/app && env -u CLAUDE_CONFIG_DIR claude --resume \(claudeID) --model sonnet"
+        )
+        XCTAssertTrue(AgentHistoryResumeCommandBuilder.isDefaultClaudeRoot(
+            sourceRoot: "\(fakeHome)/.claude", homeDirectory: fakeHome
+        ))
+
+        // No root (a live pane) or an unusable one says nothing about the account: leave the env alone.
+        XCTAssertEqual(command(source(.claude, sourceRoot: nil)), "claude --resume \(claudeID)")
+        XCTAssertEqual(command(source(.claude, sourceRoot: "relative/.claude")), "claude --resume \(claudeID)")
+        XCTAssertFalse(AgentHistoryResumeCommandBuilder.isDefaultClaudeRoot(sourceRoot: nil, homeDirectory: fakeHome))
+        XCTAssertFalse(AgentHistoryResumeCommandBuilder.isDefaultClaudeRoot(
+            sourceRoot: "/Users/test/.claude-work", homeDirectory: fakeHome
+        ))
+        // Other agents never touch CLAUDE_CONFIG_DIR, even with a matching-looking root.
+        XCTAssertEqual(
+            command(source(.codex, sourceRoot: "\(fakeHome)/.claude")),
+            "codex resume 019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b"
+        )
     }
 
     func test_config_dir_never_set_for_non_claude_agents() {
