@@ -384,6 +384,11 @@ final class AgentHistoryController: Sendable {
         if let indexer, let persistedState {
             indexer.update(configuration: configuration(for: persistedState))
         }
+        // Behind `mirror.setConfig`, so an open palette that re-runs its query on this status
+        // already searches with the new exclusions.
+        if status.excludedFolders != section.excludedFolders {
+            setStatus(status)
+        }
     }
 
     // MARK: - Indexer
@@ -482,6 +487,7 @@ final class AgentHistoryController: Sendable {
             next.hasConsented = state.consentedAt != nil
             next.enabledAgents = state.enabledAgents
         }
+        next.excludedFolders = configSection.excludedFolders
         next.indexExists = disk?.indexExists ?? status.indexExists
         next.indexSizeBytes = disk?.indexSizeBytes ?? status.indexSizeBytes
         next.removedSessionCount = disk?.removedSessionCount ?? status.removedSessionCount
@@ -516,6 +522,7 @@ final class AgentHistoryController: Sendable {
 
     private func setStatus(_ next: AgentHistoryStatus) {
         var next = next
+        next.excludedFolders = configSection.excludedFolders
         // Indexer revisions restart at 1 per instance; the controller's never go back.
         if next.revision <= status.revision {
             next.revision = status.revision &+ 1

@@ -45,7 +45,9 @@ extension AgentHistoryViewModel {
 
     /// Rebuilds the sections for the current query and scope. `resetSelection` (query or scope
     /// change) selects the first row; otherwise the selection is kept by key or position.
-    func runSearch(resetSelection: Bool) {
+    /// `keepsStaleContent` false drops the previous conversation rows instead of showing them
+    /// until the content tier answers (they may list sessions that are now hidden).
+    func runSearch(resetSelection: Bool, keepsStaleContent: Bool = true) {
         searchGeneration &+= 1
         let previousKey = resetSelection ? nil : selectedKey
         let previousIndex = resetSelection ? nil : selectedIndex
@@ -56,7 +58,7 @@ extension AgentHistoryViewModel {
             setContentPhase(.idle)
             noteEmptyQueryRefresh()
         } else {
-            runTypedSearch()
+            runTypedSearch(keepsStaleContent: keepsStaleContent)
         }
 
         resolveSelection(previous: previousKey, previousIndex: previousIndex)
@@ -117,7 +119,7 @@ extension AgentHistoryViewModel {
 
     // MARK: - Typed query
 
-    private func runTypedSearch() {
+    private func runTypedSearch(keepsStaleContent: Bool) {
         let context = searchContext
         let response = services.search.metadataHits(
             for: parsedQuery,
@@ -137,7 +139,9 @@ extension AgentHistoryViewModel {
             conversationRows = []
             setContentPhase(.shortTermsOnly)
         } else {
-            conversationRows = AgentHistoryResultMerger.staleContent(currentConversationRows, droppingSessionsIn: metadataIDs)
+            conversationRows = keepsStaleContent
+                ? AgentHistoryResultMerger.staleContent(currentConversationRows, droppingSessionsIn: metadataIDs)
+                : []
             setContentPhase(.pending)
             scheduleContentSearch(context: context, metadataIDs: metadataIDs)
         }

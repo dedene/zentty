@@ -74,7 +74,7 @@ final class AgentHistoryViewModel: ObservableObject {
     @Published internal(set) var contentPhase: ContentPhase = .idle
     @Published internal(set) var preview: Loadable<HistoryPreview> = .idle
     @Published internal(set) var transcript: Loadable<HistoryTranscript> = .idle
-    @Published private(set) var detail: DetailMode = .none
+    @Published internal(set) var detail: DetailMode = .none
     @Published internal(set) var footer: Footer
     @Published internal(set) var liveKeys: Set<AgentHistorySessionKey> = []
     @Published internal(set) var folderGoneKeys: Set<AgentHistorySessionKey> = []
@@ -124,14 +124,16 @@ final class AgentHistoryViewModel: ObservableObject {
     private var detailDebounceToken: AgentHistoryCancellable?
     private var previewToken: AgentHistoryCancellable?
     private var transcriptToken: AgentHistoryCancellable?
-    private var detailGeneration: UInt64 = 0
+    var detailGeneration: UInt64 = 0
 
-    // Observers and throttles.
+    // Observers and throttles, shared with `+Status`.
     private var statusObserverID: UUID?
     private var liveObservation: AgentHistoryCancellable?
-    private var lastStatusRevision: UInt64 = 0
-    private var lastEmptyQueryRefreshAt: Date?
-    private var statusRefreshToken: AgentHistoryCancellable?
+    var lastStatusRevision: UInt64 = 0
+    var lastEmptyQueryRefreshAt: Date?
+    var statusRefreshToken: AgentHistoryCancellable?
+    /// What the last status allowed the palette to show (`+Status`).
+    var access: AgentHistoryAccess?
     var transientMessageToken: AgentHistoryCancellable?
     private var isStarted = false
 
@@ -174,6 +176,7 @@ final class AgentHistoryViewModel: ObservableObject {
         }
         let status = services.control.status
         lastStatusRevision = status.revision
+        access = AgentHistoryAccess(status)
         updateFooter(status: status)
         liveSnapshot = services.launch.liveSnapshot()
         liveKeys = liveSnapshot.liveKeys
@@ -182,7 +185,7 @@ final class AgentHistoryViewModel: ObservableObject {
 
     /// Failed index → unavailable; no consent yet → probe for sources (consent card or "no
     /// agents"); otherwise results.
-    private func resolveBody(status: AgentHistoryStatus) {
+    func resolveBody(status: AgentHistoryStatus) {
         if case .failed(let reason) = status.state {
             body = .indexUnavailable(reason)
         } else if !status.hasConsented {
@@ -336,7 +339,7 @@ final class AgentHistoryViewModel: ObservableObject {
 
     private var isCompact: Bool { layout?.isCompact == true }
 
-    private func closeDetailForNewResults() {
+    func closeDetailForNewResults() {
         detail = .none
         cancelTranscript()
     }
@@ -432,67 +435,6 @@ final class AgentHistoryViewModel: ObservableObject {
             }
         case .failure:
             return .failed(.failed)
-        }
-    }
-
-    // MARK: - Status and live sessions
-
-    private func statusDidChange(_ status: AgentHistoryStatus) {
-        updateFooter(status: status)
-        if consentStatusDidChange(status) {
-            return
-        }
-        switch (body, status.state) {
-        case (_, .failed(let reason)) where body != .consent:
-            body = .indexUnavailable(reason)
-            return
-        case (.indexUnavailable, _):
-            resolveBody(status: status)
-            return
-        default:
-            break
-        }
-        guard status.revision != lastStatusRevision else { return }
-        lastStatusRevision = status.revision
-        // Typed results never re-run; the empty-query view refreshes at most once a second.
-        guard body == .results, parsedQuery.isEmpty, statusRefreshToken == nil else { return }
-        let elapsed = lastEmptyQueryRefreshAt.map { services.now().timeIntervalSince($0) } ?? .infinity
-        let delay = max(0, Self.statusRefreshInterval - elapsed)
-        statusRefreshToken = scheduler.schedule(after: delay) { [weak self] in
-            guard let self else { return }
-            self.statusRefreshToken = nil
-            guard self.body == .results, self.parsedQuery.isEmpty else { return }
-            self.runSearch(resetSelection: false)
-        }
-    }
-
-    func updateFooter(status: AgentHistoryStatus? = nil) {
-        let status = status ?? services.control.status
-        footer = Footer(
-            health: formatting.footerHealth(status: status, now: services.now()),
-            problemLink: formatting.problemLink(status: status),
-            hint: contentPhase == .shortTermsOnly ? Self.shortTermsHint : nil
-        )
-    }
-
-    /// Marks when the empty-query view was last built (for the status refresh throttle).
-    func noteEmptyQueryRefresh() {
-        lastEmptyQueryRefreshAt = services.now()
-    }
-
-    private func liveSessionsDidChange() {
-        liveSnapshot = services.launch.liveSnapshot()
-        liveKeys = liveSnapshot.liveKeys
-        guard body == .results else { return }
-        if parsedQuery.isEmpty {
-            runSearch(resetSelection: false)
-        } else {
-            sections = sections.map { section in
-                var section = section
-                section.rows = section.rows.map(applyLive)
-                return section
-            }
-            refreshFolderGoneKeys()
         }
     }
 

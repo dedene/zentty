@@ -253,11 +253,21 @@ final class AgentHistoryControllerTests: XCTestCase {
         waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
         XCTAssertFalse(fixture.controller.allowsAgentsAllProjects)
         XCTAssertFalse(fixture.controller.exclusions.excludes("/work/secret/app"))
+        // The open palette re-runs its query on this status, so search must already exclude.
+        var excludedOnPublish: Bool?
+        let observer = fixture.controller.addStatusObserver { [controller = fixture.controller] status in
+            if excludedOnPublish == nil, status.excludedFolders == ["/work/secret"] {
+                excludedOnPublish = controller.exclusions.excludes("/work/secret/app")
+            }
+        }
+        defer { fixture.controller.removeObserver(observer) }
 
         try fixture.configStore.update { config in
             config.agentHistory.excludedFolders = ["/work/secret"]
             config.agentHistory.allowAgentsAllProjects = true
         }
+        waitForStatus(fixture.controller, "excluded folders published") { $0.excludedFolders == ["/work/secret"] }
+        XCTAssertEqual(excludedOnPublish, true)
 
         waitForSnapshot(fixture.controller, "excluded session purged") { !$0.contains("claude-inside") }
         XCTAssertEqual(

@@ -96,6 +96,9 @@ struct AgentHistoryStatus: Equatable, Sendable {
     var isEnabled: Bool
     var hasConsented: Bool
     var enabledAgents: Set<AgentHistoryAgent>
+    /// The configured excluded folders, as config.toml lists them. The controller stamps them on
+    /// every publish and publishes when they change, so the palette can drop sessions they hide.
+    var excludedFolders: [String]
     var state: AgentHistoryIndexerState
     var sources: [AgentHistorySourceHealth]
     var indexedSessions: Int
@@ -113,6 +116,7 @@ struct AgentHistoryStatus: Equatable, Sendable {
         isEnabled: false,
         hasConsented: false,
         enabledAgents: [],
+        excludedFolders: [],
         state: .off,
         sources: [],
         indexedSessions: 0,
