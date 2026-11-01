@@ -138,7 +138,12 @@ final class AgentHistoryPaletteHostedTests: XCTestCase {
         XCTAssertFalse(coordinator.isShown, "a started launch closes the palette")
     }
 
-    func test_arrow_and_return_keys_never_reach_the_terminal_pane() throws {
+    /// The `.prohibited` test host never reports a key window, so whether the panel really
+    /// becomes key can't be observed here, and keys sent to the panel could never reach the
+    /// main window's terminal anyway. This pins what can be checked: the panel can become key,
+    /// its search field takes the panel's focus away from the terminal, and the panel's key
+    /// routing claims ↑/↓/↩ before the field editor sees them.
+    func test_palette_takes_focus_from_terminal_and_claims_navigation_keys() throws {
         let controller = makeWindow()
         launch.outcome = .failed(message: "No such session", offerCopySessionID: false)
         root.focusFocusedTerminalForTesting()
@@ -149,15 +154,20 @@ final class AgentHistoryPaletteHostedTests: XCTestCase {
 
         root.handle(.showAgentHistory)
         let panel = try XCTUnwrap(panelController.panelForTesting)
+        let model = try XCTUnwrap(coordinator.modelForTesting)
         XCTAssertTrue(panel.canBecomeKey)
         waitUntil("the search field takes the panel's focus") { panel.firstResponder is NSTextView }
 
-        for key in [HostedKey.down, .down, .up, .return, .commandReturn] {
-            try press(key, in: panel)
+        for key in [HostedKey.down, .down, .up] {
+            let event = try XCTUnwrap(key.event(in: panel))
+            XCTAssertTrue(panelController.handleKeyEvent(event), "the palette claims \(key)")
         }
+        XCTAssertEqual(model.selectedKey, model.rows[1].key)
+        try press(.return, in: panel)
+        try press(.commandReturn, in: panel)
 
-        XCTAssertEqual(recorder.keyCodes, [], "no palette key reaches the terminal")
-        XCTAssertEqual(launch.launches.count, 2, "↩ and ⌘↩ went to the palette instead")
+        XCTAssertEqual(launch.launches.count, 2, "↩ and ⌘↩ went to the palette")
+        XCTAssertEqual(model.query, "", "no navigation key was typed into the search field")
         XCTAssertTrue(coordinator.isShown)
     }
 
