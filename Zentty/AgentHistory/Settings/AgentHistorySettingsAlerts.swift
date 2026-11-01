@@ -133,7 +133,7 @@ enum AgentHistorySettingsAlerts {
         case .enable(let detected):
             // The consent card's own text, so both surfaces count (and name the uncounted
             // database sources) the same way.
-            let body = AgentHistoryConsentModel.make(detected: detected, excluded: [], retention: nil)
+            let body = AgentHistoryConsentModel.make(detected: detected, excluded: [], retentions: [])
                 .bodyText(formatting: formatting)
             return Copy(
                 title: AgentHistoryConsentModel.title,

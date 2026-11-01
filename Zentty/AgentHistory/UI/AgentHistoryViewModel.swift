@@ -217,8 +217,8 @@ final class AgentHistoryViewModel: ObservableObject {
             body = .loading
             services.control.detectSources { [weak self] sources in
                 // The card shows with its retention row, not a beat before it.
-                self?.readClaudeRetention(for: sources) { [weak self] retention in
-                    self?.sourcesDetected(sources, retention: retention)
+                self?.readClaudeRetention(for: sources) { [weak self] retentions in
+                    self?.sourcesDetected(sources, retentions: retentions)
                 }
             }
         }
@@ -261,7 +261,7 @@ final class AgentHistoryViewModel: ObservableObject {
         runSearch(resetSelection: true)
     }
 
-    private func sourcesDetected(_ sources: [AgentHistoryDetectedSource], retention: ClaudeRetentionStatus?) {
+    private func sourcesDetected(_ sources: [AgentHistoryDetectedSource], retentions: [ClaudeRetentionStatus]) {
         guard isStarted, body == .loading else { return }
         // Consent may have been recorded while the probe ran: the card would offer choices
         // `enable` ignores.
@@ -271,7 +271,7 @@ final class AgentHistoryViewModel: ObservableObject {
             return
         }
         if sources.contains(where: \.isFound) {
-            consent = makeConsent(from: sources, retention: retention)
+            consent = makeConsent(from: sources, retentions: retentions)
             body = .consent
         } else {
             body = .noAgents(checkedPaths: sources.flatMap(\.checkedPaths))

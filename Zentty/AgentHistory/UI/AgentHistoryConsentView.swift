@@ -131,8 +131,8 @@ struct AgentHistoryConsentView: View {
 
     private var retentionNudge: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if consent.didRaiseRetention, !consent.showsRetentionNudge {
-                Label(AgentHistoryConsentModel.raisedRetentionText, systemImage: "checkmark.circle")
+            if let raised = consent.raisedRetentionText {
+                Label(raised, systemImage: "checkmark.circle")
                     .font(.system(size: 12.5))
                     .foregroundStyle(theme.secondaryText)
             }

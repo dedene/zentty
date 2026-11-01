@@ -246,14 +246,14 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
             launch: launch,
             excludedFolders: { [] },
             setExcludedFolders: { _ in },
-            claudeRetention: { completion in
-                completion(ClaudeRetentionStatus(
+            claudeRetention: { _, completion in
+                completion([ClaudeRetentionStatus(
                     configDirectory: URL(fileURLWithPath: "/tmp/agent-history-tests/.claude"),
                     settingsFileURL: URL(fileURLWithPath: "/tmp/agent-history-tests/.claude/settings.json"),
                     effectiveDays: 365, source: .userSettings, readError: nil
-                ))
+                )])
             },
-            raiseClaudeRetention: { $0(.success(.alreadySufficient(currentDays: 365))) },
+            raiseClaudeRetention: { $1(.success(.alreadySufficient(currentDays: 365))) },
             pasteboard: pasteboard,
             revealInFinder: { _ in },
             fileExists: { _ in true },

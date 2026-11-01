@@ -33,14 +33,14 @@ final class AgentHistoryPaletteStateLoadTests: XCTestCase {
             launch: FakeAgentHistoryLaunch(),
             excludedFolders: { [] },
             setExcludedFolders: { [unowned self] in self.savedExclusions.append($0) },
-            claudeRetention: { [root] completion in
-                completion(ClaudeRetentionStatus(
+            claudeRetention: { [root] _, completion in
+                completion([ClaudeRetentionStatus(
                     configDirectory: URL(fileURLWithPath: "\(root)/.claude"),
                     settingsFileURL: URL(fileURLWithPath: "\(root)/.claude/settings.json"),
                     effectiveDays: 365, source: .userSettings, readError: nil
-                ))
+                )])
             },
-            raiseClaudeRetention: { $0(.success(.alreadySufficient(currentDays: 365))) },
+            raiseClaudeRetention: { $1(.success(.alreadySufficient(currentDays: 365))) },
             pasteboard: AgentHistoryTestPasteboard.make(),
             revealInFinder: { _ in },
             fileExists: { _ in true },

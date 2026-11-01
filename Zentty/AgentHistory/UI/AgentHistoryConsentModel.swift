@@ -34,14 +34,15 @@ struct AgentHistoryConsentModel: Equatable {
     var rows: [SourceRow]
     /// Normalized absolute folders (same rules as config.toml), deduplicated in order.
     private(set) var excludedFolders: [String]
-    /// Claude Code's retention; nil when Claude Code wasn't found.
-    var retention: ClaudeRetentionStatus?
+    /// Claude Code's retention for each config folder holding conversations, in root order;
+    /// empty when Claude Code wasn't found.
+    var retentions: [ClaudeRetentionStatus]
     /// Why "Keep 1 Year" failed; nothing was changed.
     var retentionError: String?
     /// Why "Index ‹N› Sessions" didn't start: the excluded folders couldn't be saved.
     var saveError: String?
-    /// "Keep 1 Year" succeeded in this card.
-    var didRaiseRetention = false
+    /// The folder "Keep 1 Year" last raised in this card.
+    var raisedRetentionDirectory: String?
     /// "Keep 1 Year" is writing Claude Code's file; another click waits for it.
     var isRaisingRetention = false
     /// Set by "Index ‹N› Sessions": checkboxes lock and the card shows progress.
@@ -71,7 +72,13 @@ struct AgentHistoryConsentModel: Equatable {
         Set(rows.filter { $0.isFound && $0.isEnabled }.map(\.agent))
     }
 
-    var showsRetentionNudge: Bool { retention?.isNudgeEligible == true }
+    /// The folder "Keep 1 Year" changes: the first one with a retention Zentty may raise.
+    var retentionTarget: ClaudeRetentionStatus? { retentions.first(where: \.isNudgeEligible) }
+
+    var showsRetentionNudge: Bool { retentionTarget != nil }
+
+    /// "Keep 1 Year" succeeded in this card.
+    var didRaiseRetention: Bool { raisedRetentionDirectory != nil }
 
     var canConfirm: Bool { !isIndexing && !enabledAgents.isEmpty }
 
@@ -80,7 +87,7 @@ struct AgentHistoryConsentModel: Equatable {
     static func make(
         detected: [AgentHistoryDetectedSource],
         excluded: [String],
-        retention: ClaudeRetentionStatus?
+        retentions: [ClaudeRetentionStatus]
     ) -> AgentHistoryConsentModel {
         var rows: [SourceRow] = []
         for agent in AgentHistoryAgent.allCases {
@@ -104,8 +111,18 @@ struct AgentHistoryConsentModel: Equatable {
         return AgentHistoryConsentModel(
             rows: rows,
             excludedFolders: normalizedFolders(excluded),
-            retention: retention
+            retentions: retentions
         )
+    }
+
+    /// The Claude Code config folders whose retention matters: every found root except those
+    /// known to hold no conversations, deduplicated in probe order.
+    static func claudeRetentionRoots(in detected: [AgentHistoryDetectedSource]) -> [String] {
+        var seen = Set<String>()
+        return detected
+            .filter { $0.agent == .claude && $0.isFound && $0.sessionCount != 0 }
+            .compactMap(\.rootPath)
+            .filter { seen.insert($0).inserted }
     }
 
     // MARK: - Editing (before indexing starts)
@@ -226,10 +243,28 @@ extension AgentHistoryConsentModel {
         return formatting.sessionCount(count)
     }
 
+    /// Names the folder when there is more than one, or when it isn't a `.claude` folder.
     var retentionNudgeText: String? {
-        guard showsRetentionNudge, let days = retention?.effectiveDays else { return nil }
+        guard let target = retentionTarget else { return nil }
+        let days = target.effectiveDays
         let period = days == 1 ? "1 day" : "\(days) days"
-        return "Claude Code deletes conversations after \(period), so they'll drop out of Agent History too."
+        let folder = displayedFolder(target.configDirectory).map { " in \($0)" } ?? ""
+        return "Claude Code deletes conversations\(folder) after \(period), so they'll drop out of Agent History too."
+    }
+
+    /// Shown once the folder "Keep 1 Year" raised keeps a year.
+    var raisedRetentionText: String? {
+        guard let raised = raisedRetentionDirectory,
+              let status = retentions.first(where: { $0.configDirectory.path == raised }),
+              status.effectiveDays >= ClaudeRetentionSettings.recommendedDays
+        else { return nil }
+        guard let folder = displayedFolder(status.configDirectory) else { return Self.raisedRetentionText }
+        return "Claude Code keeps conversations in \(folder) for 365 days."
+    }
+
+    private func displayedFolder(_ directory: URL) -> String? {
+        guard retentions.count > 1 || directory.lastPathComponent != ".claude" else { return nil }
+        return (directory.path as NSString).abbreviatingWithTildeInPath
     }
 
     private static func list(_ names: [String]) -> String {

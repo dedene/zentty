@@ -10,7 +10,8 @@ enum AgentHistoryPaletteServicesAdapter {
         host: MainWindowController,
         configStore: AppConfigStore
     ) -> AgentHistoryPaletteServices {
-        AgentHistoryPaletteServices(
+        let retention = claudeRetentionServices()
+        return AgentHistoryPaletteServices(
             control: controller,
             search: AgentHistorySearchAdapter(controller: controller),
             launch: AgentHistoryLaunchAdapter(host: host, usageRecorder: controller),
@@ -20,16 +21,8 @@ enum AgentHistoryPaletteServicesAdapter {
             setExcludedFolders: { [weak configStore] folders in
                 try saveExcludedFolders(folders, to: configStore)
             },
-            claudeRetention: { completion in
-                AgentHistoryOffMainRunner.userInitiated.run({
-                    ClaudeRetentionSettings.status(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory())
-                }, then: completion)
-            },
-            raiseClaudeRetention: { completion in
-                AgentHistoryOffMainRunner.userInitiated.run({
-                    Result { try ClaudeRetentionSettings.raiseRetention(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory()) }
-                }, then: completion)
-            },
+            claudeRetention: retention.read,
+            raiseClaudeRetention: retention.raise,
             pasteboard: .general,
             revealInFinder: { url in
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -61,6 +54,33 @@ enum AgentHistoryPaletteServicesAdapter {
             AgentHistoryLog.indexer.error("Agent History couldn't save its excluded folders")
             throw error
         }
+    }
+}
+
+extension AgentHistoryPaletteServicesAdapter {
+    /// The consent card's retention seam, per Claude Code config folder: the same
+    /// `ClaudeRetentionSettings` reads and writes Settings runs for each root, off main.
+    static func claudeRetentionServices(
+        runner: AgentHistoryOffMainRunner = .userInitiated,
+        managedSettingsURL: URL = ClaudeRetentionSettings.managedSettingsURL
+    ) -> (
+        read: ([String], @escaping @MainActor ([ClaudeRetentionStatus]) -> Void) -> Void,
+        raise: (String, @escaping @MainActor (Result<ClaudeRetentionWriteOutcome, Error>) -> Void) -> Void
+    ) {
+        (
+            read: { roots, completion in
+                let directories = roots.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                runner.run({
+                    directories.map { ClaudeRetentionSettings.status(configDirectory: $0, managedSettingsURL: managedSettingsURL) }
+                }, then: completion)
+            },
+            raise: { root, completion in
+                let directory = URL(fileURLWithPath: root, isDirectory: true)
+                runner.run({
+                    Result { try ClaudeRetentionSettings.raiseRetention(configDirectory: directory) }
+                }, then: completion)
+            }
+        )
     }
 }
 

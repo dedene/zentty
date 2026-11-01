@@ -14,8 +14,10 @@ final class AgentHistoryConsentTests: XCTestCase {
     private var retention: ClaudeRetentionStatus!
     private var raiseResult: Result<ClaudeRetentionWriteOutcome, Error> = .success(.written(backupURL: nil))
     private var raiseCount = 0
+    private var raisedRoots: [String] = []
+    private var readRoots: [[String]] = []
     /// Set to hold the off-main retention read / write until the test releases it.
-    private var heldRetentionReads: [@MainActor (ClaudeRetentionStatus) -> Void]?
+    private var heldRetentionReads: [@MainActor ([ClaudeRetentionStatus]) -> Void]?
     private var heldRaises: [@MainActor (Result<ClaudeRetentionWriteOutcome, Error>) -> Void]?
     private var closeRequests: [Bool] = []
     private var folderPickerRequests = 0
@@ -34,6 +36,8 @@ final class AgentHistoryConsentTests: XCTestCase {
         retention = retentionStatus(days: 365, source: .userSettings)
         raiseResult = .success(.written(backupURL: nil))
         raiseCount = 0
+        raisedRoots = []
+        readRoots = []
         heldRetentionReads = nil
         heldRaises = nil
         closeRequests = []
@@ -90,15 +94,17 @@ final class AgentHistoryConsentTests: XCTestCase {
                 self.savedExclusions.append(folders)
                 self.excludedFolders = folders
             },
-            claudeRetention: { [unowned self] completion in
+            claudeRetention: { [unowned self] roots, completion in
+                self.readRoots.append(roots)
                 if self.heldRetentionReads != nil {
                     self.heldRetentionReads?.append(completion)
                 } else {
-                    completion(self.retention)
+                    completion([self.retention])
                 }
             },
-            raiseClaudeRetention: { [unowned self] completion in
+            raiseClaudeRetention: { [unowned self] root, completion in
                 self.raiseCount += 1
+                self.raisedRoots.append(root)
                 if self.heldRaises != nil {
                     self.heldRaises?.append(completion)
                 } else {
@@ -160,7 +166,7 @@ final class AgentHistoryConsentTests: XCTestCase {
     }
 
     func test_consent_model_totals_found_sessions_and_database_sources_show_found_without_count() {
-        let consent = AgentHistoryConsentModel.make(detected: typicalSources, excluded: [], retention: nil)
+        let consent = AgentHistoryConsentModel.make(detected: typicalSources, excluded: [], retentions: [])
 
         XCTAssertEqual(consent.totalFound, 1284)
         XCTAssertEqual(consent.selectedSessionCount, 1284)
@@ -180,7 +186,7 @@ final class AgentHistoryConsentTests: XCTestCase {
         XCTAssertFalse(unchecked.rows[2].isEnabled, "a missing agent can't be checked")
 
         let databaseOnly = AgentHistoryConsentModel.make(
-            detected: [found(.opencode, "opencode", count: nil)], excluded: [], retention: nil
+            detected: [found(.opencode, "opencode", count: nil)], excluded: [], retentions: []
         )
         XCTAssertEqual(databaseOnly.totalFound, 0)
         XCTAssertEqual(databaseOnly.confirmTitle(formatting: formatting), "Index Sessions")
@@ -193,6 +199,7 @@ final class AgentHistoryConsentTests: XCTestCase {
     func test_retention_nudge_only_when_eligible() {
         retention = retentionStatus(days: 30, source: .defaultValue)
         let eligible = startedConsent()
+        XCTAssertEqual(readRoots, [["\(root)/.claude"]], "read for the detected Claude Code folder")
         XCTAssertEqual(eligible.consent?.showsRetentionNudge, true)
         XCTAssertEqual(
             eligible.consent?.retentionNudgeText,
@@ -213,7 +220,7 @@ final class AgentHistoryConsentTests: XCTestCase {
 
         retention = retentionStatus(days: 30, source: .defaultValue)
         let withoutClaude = startedConsent([found(.codex, ".codex", count: 3)])
-        XCTAssertNil(withoutClaude.consent?.retention, "retention is read only when Claude Code was found")
+        XCTAssertEqual(withoutClaude.consent?.retentions, [], "retention is read only when Claude Code was found")
         XCTAssertEqual(withoutClaude.consent?.showsRetentionNudge, false)
     }
 
@@ -228,7 +235,7 @@ final class AgentHistoryConsentTests: XCTestCase {
         XCTAssertEqual(heldRetentionReads?.count, 1)
 
         let read = try XCTUnwrap(heldRetentionReads?.first)
-        read(retention)
+        read([retention])
         XCTAssertEqual(model.body, .consent)
         XCTAssertEqual(model.consent?.showsRetentionNudge, true)
     }
@@ -242,13 +249,15 @@ final class AgentHistoryConsentTests: XCTestCase {
         model.keepClaudeConversationsOneYear()
         model.keepClaudeConversationsOneYear()
         XCTAssertEqual(raiseCount, 1)
+        XCTAssertEqual(raisedRoots, ["\(root)/.claude"], "the folder the nudge was read from")
         XCTAssertEqual(model.consent?.didRaiseRetention, false, "nothing changes until the write lands")
 
         retention = retentionStatus(days: 365, source: .userSettings)
         let raise = try XCTUnwrap(heldRaises?.first)
         raise(.success(.written(backupURL: nil)))
         XCTAssertEqual(model.consent?.didRaiseRetention, true)
-        XCTAssertEqual(model.consent?.retention?.effectiveDays, 365)
+        XCTAssertEqual(model.consent?.retentions.first?.effectiveDays, 365)
+        XCTAssertEqual(model.consent?.raisedRetentionText, AgentHistoryConsentModel.raisedRetentionText, "one .claude folder isn't named")
         XCTAssertEqual(model.consent?.isRaisingRetention, false)
     }
 
@@ -262,7 +271,7 @@ final class AgentHistoryConsentTests: XCTestCase {
 
         XCTAssertEqual(raiseCount, 1)
         XCTAssertEqual(model.consent?.retentionError, "Claude's settings.json isn't valid JSON; nothing was changed.")
-        XCTAssertEqual(model.consent?.retention, before?.retention)
+        XCTAssertEqual(model.consent?.retentions, before?.retentions)
         XCTAssertEqual(model.consent?.showsRetentionNudge, true, "the nudge stays so the user can retry")
         XCTAssertEqual(model.consent?.didRaiseRetention, false)
         XCTAssertEqual(model.body, .consent)
@@ -273,7 +282,7 @@ final class AgentHistoryConsentTests: XCTestCase {
         retention = retentionStatus(days: 365, source: .userSettings)
         model.keepClaudeConversationsOneYear()
         XCTAssertNil(model.consent?.retentionError)
-        XCTAssertEqual(model.consent?.retention?.effectiveDays, 365)
+        XCTAssertEqual(model.consent?.retentions.first?.effectiveDays, 365)
         XCTAssertEqual(model.consent?.showsRetentionNudge, false)
         XCTAssertEqual(model.consent?.didRaiseRetention, true)
     }

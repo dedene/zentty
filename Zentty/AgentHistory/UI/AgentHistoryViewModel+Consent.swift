@@ -5,21 +5,23 @@ import Foundation
 extension AgentHistoryViewModel {
     static let retentionFallbackError = "Zentty couldn't change Claude Code's settings; nothing was changed."
 
-    /// Claude's retention is read (off main) only when Claude Code was found; nil otherwise.
+    /// Claude's retention is read (off main) for each detected Claude Code root with
+    /// conversations, not just the default folder; empty when Claude Code wasn't found.
     func readClaudeRetention(
         for sources: [AgentHistoryDetectedSource],
-        completion: @escaping @MainActor (ClaudeRetentionStatus?) -> Void
+        completion: @escaping @MainActor ([ClaudeRetentionStatus]) -> Void
     ) {
-        guard sources.contains(where: { $0.agent == .claude && $0.isFound }) else {
-            completion(nil)
+        let roots = AgentHistoryConsentModel.claudeRetentionRoots(in: sources)
+        guard !roots.isEmpty else {
+            completion([])
             return
         }
-        services.claudeRetention { completion($0) }
+        services.claudeRetention(roots) { completion($0) }
     }
 
     /// Builds the card from the stat-only probe (D11) and the retention read with it.
-    func makeConsent(from sources: [AgentHistoryDetectedSource], retention: ClaudeRetentionStatus?) -> AgentHistoryConsentModel {
-        AgentHistoryConsentModel.make(detected: sources, excluded: services.excludedFolders(), retention: retention)
+    func makeConsent(from sources: [AgentHistoryDetectedSource], retentions: [ClaudeRetentionStatus]) -> AgentHistoryConsentModel {
+        AgentHistoryConsentModel.make(detected: sources, excluded: services.excludedFolders(), retentions: retentions)
     }
 
     // MARK: - Editing
@@ -28,22 +30,26 @@ extension AgentHistoryViewModel {
         consent?.setEnabled(agent, enabled)
     }
 
-    /// "Keep 1 Year": raises Claude Code's `cleanupPeriodDays` on this explicit click only, off
-    /// main. A failure keeps the current retention and says why; nothing was written.
+    /// "Keep 1 Year": raises `cleanupPeriodDays` in the folder the nudge names, on this explicit
+    /// click only, off main, then re-reads every folder. A failure keeps the current retention
+    /// and says why; nothing was written.
     func keepClaudeConversationsOneYear() {
-        guard var consent, consent.showsRetentionNudge, !consent.isRaisingRetention else { return }
+        guard var consent, let target = consent.retentionTarget, !consent.isRaisingRetention else { return }
+        let directory = target.configDirectory.path
+        let roots = consent.retentions.map(\.configDirectory.path)
         consent.isRaisingRetention = true
         self.consent = consent
-        services.raiseClaudeRetention { [weak self] result in
+        services.raiseClaudeRetention(directory) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success:
-                self.services.claudeRetention { [weak self] retention in
-                    self?.retentionRaiseDidFinish(retention: retention, error: nil)
+                self.services.claudeRetention(roots) { [weak self] retentions in
+                    self?.retentionRaiseDidFinish(raised: directory, retentions: retentions, error: nil)
                 }
             case .failure(let error):
                 self.retentionRaiseDidFinish(
-                    retention: nil,
+                    raised: nil,
+                    retentions: nil,
                     error: (error as? LocalizedError)?.errorDescription ?? Self.retentionFallbackError
                 )
             }
@@ -51,13 +57,13 @@ extension AgentHistoryViewModel {
     }
 
     /// The card may have gone (closed, consent recorded elsewhere) while the file was written.
-    private func retentionRaiseDidFinish(retention: ClaudeRetentionStatus?, error: String?) {
+    private func retentionRaiseDidFinish(raised: String?, retentions: [ClaudeRetentionStatus]?, error: String?) {
         guard var consent, consent.isRaisingRetention else { return }
         consent.isRaisingRetention = false
-        if let retention {
-            consent.retention = retention
+        if let retentions {
+            consent.retentions = retentions
             consent.retentionError = nil
-            consent.didRaiseRetention = true
+            consent.raisedRetentionDirectory = raised
         } else {
             consent.retentionError = error
         }

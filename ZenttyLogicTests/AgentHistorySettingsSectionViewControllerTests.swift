@@ -275,7 +275,7 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         let copy = AgentHistorySettingsAlerts.copy(for: .enable(detected: detected), formatting: formatting)
 
         XCTAssertEqual(copy.title, AgentHistoryConsentModel.title)
-        let cardBody = AgentHistoryConsentModel.make(detected: detected, excluded: [], retention: nil).bodyText(formatting: formatting)
+        let cardBody = AgentHistoryConsentModel.make(detected: detected, excluded: [], retentions: []).bodyText(formatting: formatting)
         XCTAssertEqual(copy.message, cardBody + "\n\n" + AgentHistoryConsentModel.footnote)
         XCTAssertEqual(copy.confirmTitle, "Turn On")
     }
