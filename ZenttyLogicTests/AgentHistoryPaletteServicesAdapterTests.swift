@@ -160,6 +160,22 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
         XCTAssertThrowsError(try AgentHistoryPaletteServicesAdapter.saveExcludedFolders(["/work/secret"], to: store)) {
             XCTAssertEqual($0 as? AgentHistoryExcludedFoldersSaveError, .notSaved)
         }
+        XCTAssertEqual(store.current.agentHistory.excludedFolders, [], "nothing applied in memory either")
+    }
+
+    /// The file breaks after the store last read it: the save only reached memory, so it is
+    /// taken back (an un-excluded folder must not be indexed on a list the file doesn't hold).
+    func test_save_excluded_folders_takes_back_the_change_when_the_file_broke_meanwhile() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.AgentHistoryAdapter.BrokeMeanwhile")
+        addTeardownBlock { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let store = AppConfigStore(fileURL: fileURL)
+        try AgentHistoryPaletteServicesAdapter.saveExcludedFolders(["/work/secret"], to: store)
+        try "[agent_history\nexcluded_folders = [".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try AgentHistoryPaletteServicesAdapter.saveExcludedFolders([], to: store))
+
+        XCTAssertTrue(store.isWriteProtected)
+        XCTAssertEqual(store.current.agentHistory.excludedFolders, ["/work/secret"])
     }
 
     func test_save_excluded_folders_fails_without_config_store() {

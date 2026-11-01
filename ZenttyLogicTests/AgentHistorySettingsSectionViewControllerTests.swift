@@ -340,6 +340,37 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertEqual(controller.excludedFolderRowsForTesting, ["/Users/example/b"])
     }
 
+    /// config.toml that can't be parsed only takes changes in memory. Adding or removing an
+    /// excluded folder then is an error the user sees; the list stays what the file holds, and
+    /// nothing acts on a list the file doesn't have.
+    func test_excluded_folder_changes_that_cannot_be_saved_present_an_error() throws {
+        try configStore.update { $0.agentHistory.excludedFolders = ["/Users/example/a"] }
+        let controller = makeController(backend: FakeAgentHistoryControl())
+        let configURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let malformed = "[agent_history\nexcluded_folders = ["
+        try malformed.write(to: configURL, atomically: true, encoding: .utf8)
+        let saveError = "Couldn't save the excluded folders|Zentty couldn't write its config file, so this change isn't saved. Fix config.toml and try again."
+
+        pickedFolders = [URL(fileURLWithPath: "/Users/example/keys", isDirectory: true)]
+        controller.handleAddFolder(nil)
+
+        XCTAssertTrue(configStore.isWriteProtected)
+        XCTAssertEqual(errors, [saveError])
+        XCTAssertEqual(controller.excludedFolderRowsForTesting, ["/Users/example/a"])
+        XCTAssertEqual(configStore.current.agentHistory.excludedFolders, ["/Users/example/a"])
+
+        let remove = try XCTUnwrap(
+            controller.view.agentHistoryDescendants(ofType: NSButton.self)
+                .first { $0.identifier?.rawValue == "/Users/example/a" }
+        )
+        controller.handleRemoveFolder(remove)
+
+        XCTAssertEqual(errors, [saveError, saveError])
+        XCTAssertEqual(controller.excludedFolderRowsForTesting, ["/Users/example/a"], "still excluded")
+        XCTAssertEqual(configStore.current.agentHistory.excludedFolders, ["/Users/example/a"])
+        XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), malformed)
+    }
+
     func test_apply_config_rebuilds_folder_rows() {
         let controller = makeController(backend: FakeAgentHistoryControl())
         XCTAssertEqual(controller.excludedFolderRowsForTesting, [])

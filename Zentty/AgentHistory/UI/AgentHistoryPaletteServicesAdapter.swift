@@ -38,13 +38,19 @@ enum AgentHistoryPaletteServicesAdapter {
     }
 
     /// Saves the folders to config.toml. A write-protected config (a file that can't be parsed)
-    /// only keeps the change in memory, and the file's empty list would win after a relaunch, so
-    /// that counts as a failure too.
+    /// only keeps the change in memory, and the file's list would win after a relaunch, so that
+    /// counts as a failure too, and the in-memory change is taken back: nothing (the indexer
+    /// least of all, for a folder being un-excluded) acts on a list config.toml doesn't hold.
     static func saveExcludedFolders(_ folders: [String], to configStore: AppConfigStore?) throws {
         do {
-            guard let configStore else { throw AgentHistoryExcludedFoldersSaveError.notSaved }
+            guard let configStore, !configStore.isWriteProtected else {
+                throw AgentHistoryExcludedFoldersSaveError.notSaved
+            }
+            let previous = configStore.current.agentHistory.excludedFolders
             try configStore.update { $0.agentHistory.excludedFolders = folders }
             if configStore.isWriteProtected {
+                // The file broke since the last look: `update` only changed memory.
+                try? configStore.update { $0.agentHistory.excludedFolders = previous }
                 throw AgentHistoryExcludedFoldersSaveError.notSaved
             }
         } catch {
