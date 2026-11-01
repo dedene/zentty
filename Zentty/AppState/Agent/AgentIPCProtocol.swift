@@ -72,6 +72,8 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
     /// open while the consent panel is shown, then answers with the resolved
     /// launch plan. See AgentIntegrationConsent + the IPC handler.
     case awaitConsent = "await_consent"
+    /// Pane-token-bound Agent History queries; handled by the IPC server, never the generic bridge.
+    case history
 }
 
 enum AgentBootstrapTool: Codable, Equatable, Hashable, Sendable {
@@ -442,6 +444,9 @@ struct AgentIPCResponseResult: Codable, Equatable {
     /// Screen contents returned by `pane read`. Optional for decode
     /// tolerance across version-skewed app/CLI pairs.
     let paneRead: PaneReadResult?
+    /// Answer to `zentty history`. Optional for decode tolerance across
+    /// version-skewed app/CLI pairs; a nil payload means the app predates it.
+    let history: HistoryIPCResult?
 
     init(
         launchPlan: AgentLaunchPlan? = nil,
@@ -452,7 +457,8 @@ struct AgentIPCResponseResult: Codable, Equatable {
         serverState: ServerListResult? = nil,
         stdout: String? = nil,
         consentRequired: Bool? = nil,
-        paneRead: PaneReadResult? = nil
+        paneRead: PaneReadResult? = nil,
+        history: HistoryIPCResult? = nil
     ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
@@ -463,6 +469,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         self.stdout = stdout
         self.consentRequired = consentRequired
         self.paneRead = paneRead
+        self.history = history
     }
 }
 

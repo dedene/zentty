@@ -205,6 +205,8 @@ enum AgentIPCBridge {
             // with the resolved plan. It never falls through to this generic
             // dispatch (same contract as discover/pane/server).
             throw AgentIPCError.unsupportedSubcommand("await_consent (must be handled by server)")
+        case .history:
+            throw AgentIPCError.unsupportedSubcommand("history (must be handled by server)")
         }
     }
 
@@ -1252,6 +1254,8 @@ final class AgentIPCServer: @unchecked Sendable {
             return "unexpected_argument"
         case PaneKeyNameError.unknownKey:
             return "unknown_key"
+        case let error as HistoryIPCError:
+            return error.ipcCode
         default:
             return "internal_error"
         }
