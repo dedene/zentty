@@ -6,7 +6,12 @@ import AppKit
 /// Records control calls; `status` is set by the test and pushed to observers with `publish`.
 @MainActor
 final class FakeAgentHistoryControl: AgentHistoryControlling {
-    var status = AgentHistoryStatus.off
+    /// Off with `state.json` read (never consented); set `.off` itself for "not read yet".
+    var status: AgentHistoryStatus = {
+        var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
+        return status
+    }()
     var detectedSources: [AgentHistoryDetectedSource] = []
     var disableOutcome = AgentHistoryDisableOutcome.turnedOff
     private(set) var refreshCount = 0

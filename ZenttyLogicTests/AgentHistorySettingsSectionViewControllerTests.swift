@@ -177,6 +177,32 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertTrue(backend.enabledAgents.isEmpty)
     }
 
+    /// Before state.json is read the status is a placeholder: a consented user would be asked
+    /// again and their per-agent choices overwritten, so the switch waits.
+    func test_status_switch_waits_until_the_saved_state_is_read() {
+        let backend = FakeAgentHistoryControl()
+        backend.status = .off
+        backend.detectedSources = detectedSources()
+        let controller = makeController(backend: backend)
+        controller.prepareForPresentation()
+
+        XCTAssertFalse(controller.statusSwitch.isEnabled)
+        XCTAssertEqual(controller.summaryTextForTesting, AgentHistorySettingsFormatter.loadingSummary)
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+        XCTAssertTrue(confirmations.isEmpty)
+        XCTAssertTrue(backend.enabledAgents.isEmpty)
+        XCTAssertTrue(backend.setEnabledCalls.isEmpty)
+
+        // The read finds earlier consent: turning on keeps the saved choices.
+        controller.apply(status: makeStatus(isEnabled: false, state: .off))
+        XCTAssertTrue(controller.statusSwitch.isEnabled)
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertTrue(confirmations.isEmpty)
+        XCTAssertEqual(backend.setEnabledCalls, [true])
+        XCTAssertTrue(backend.enabledAgents.isEmpty)
+    }
+
     func test_disable_calls_backend_without_confirmation() {
         let backend = FakeAgentHistoryControl()
         backend.status = makeStatus()
@@ -496,6 +522,7 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         removed: Int = 0
     ) -> AgentHistoryStatus {
         var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
         status.isEnabled = isEnabled
         status.hasConsented = true
         status.enabledAgents = Set(AgentHistoryAgent.allCases)

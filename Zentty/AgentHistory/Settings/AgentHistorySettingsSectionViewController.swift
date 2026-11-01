@@ -251,7 +251,9 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
     }
 
     private func renderStatus() {
-        statusSwitch.isEnabled = hasBackend
+        // Until state.json is read, consent is unknown: turning on could ask a consented user
+        // again and overwrite their per-agent choices.
+        statusSwitch.isEnabled = hasBackend && status.isStateLoaded
         statusSwitch.state = status.isEnabled ? .on : .off
         guard hasBackend else {
             summaryLabel.stringValue = Self.unavailableText
@@ -340,6 +342,10 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             return
         }
         let wantsOn = sender.state == .on
+        guard status.isStateLoaded else {
+            sender.state = status.isEnabled ? .on : .off
+            return
+        }
         guard wantsOn != status.isEnabled else { return }
         guard wantsOn else {
             backend.setEnabled(false)

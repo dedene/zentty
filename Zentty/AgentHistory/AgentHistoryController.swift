@@ -168,10 +168,15 @@ final class AgentHistoryController: Sendable {
         }
     }
 
-    /// Records consent for `agents` (the others off) and starts indexing now.
+    /// Records consent for `agents` (the others off) and starts indexing now. When `state.json`
+    /// already holds consent (the caller saw the status before it loaded) it only turns History
+    /// on: the saved per-agent choices and the consent date stay.
     func enable(agents: Set<AgentHistoryAgent>) {
         updateState { state in
             state.enabled = true
+            guard state.consentedAt == nil else {
+                return
+            }
             state.consentedAt = Date()
             for agent in AgentHistoryAgent.allCases {
                 state.setSource(agent, enabled: agents.contains(agent))
@@ -472,6 +477,7 @@ final class AgentHistoryController: Sendable {
     private func publishOffStatus(state: AgentHistoryState?, disk: AgentHistoryOffDiskFacts?) {
         var next = AgentHistoryStatus.off
         if let state {
+            next.isStateLoaded = true
             next.isEnabled = state.enabled
             next.hasConsented = state.consentedAt != nil
             next.enabledAgents = state.enabledAgents
@@ -489,20 +495,22 @@ final class AgentHistoryController: Sendable {
 
     /// Looks at the index file, its size and the removed-sessions list on the control queue
     /// (behind any stop or delete still running) and publishes them while no indexer runs, so
-    /// Settings can delete an index that History being off kept.
+    /// Settings can delete an index that History being off kept. Before the launch read it also
+    /// reads `state.json` for the status (it starts nothing), so Settings opened right after
+    /// launch shows the real consent.
     func recountOffStatus() {
         guard let storage = storageInstance else {
             return
         }
         let generation = indexerGeneration
-        let deliver = AgentHistoryMainDelivery<AgentHistoryOffDiskFacts> { [weak self] disk in
+        let deliver = AgentHistoryMainDelivery<(AgentHistoryState, AgentHistoryOffDiskFacts)> { [weak self] state, disk in
             guard let self, self.indexer == nil, generation == self.indexerGeneration else {
                 return
             }
-            self.publishOffStatus(state: self.persistedState, disk: disk)
+            self.publishOffStatus(state: self.persistedState ?? state, disk: disk)
         }
-        controlQueue.async {
-            deliver.send(AgentHistoryOffDiskFacts(storage: storage))
+        withStateStore { store in
+            deliver.send((store.current, AgentHistoryOffDiskFacts(storage: storage)))
         }
     }
 

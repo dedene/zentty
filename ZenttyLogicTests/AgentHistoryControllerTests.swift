@@ -206,6 +206,44 @@ final class AgentHistoryControllerTests: XCTestCase {
         waitForSnapshot(fixture.controller, "claude only") { $0 == ["claude-outside", "claude-inside"] }
     }
 
+    /// Settings opened before the launch read: a refresh reads the saved consent for the
+    /// status but starts nothing (the launch delay still decides that).
+    func test_refresh_before_launch_reads_saved_consent_without_starting() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertFalse(fixture.controller.status.isStateLoaded)
+
+        fixture.controller.refreshStatus()
+
+        waitForStatus(fixture.controller, "state read") { $0.isStateLoaded }
+        XCTAssertTrue(fixture.controller.status.hasConsented)
+        XCTAssertTrue(fixture.controller.status.isEnabled)
+        XCTAssertEqual(fixture.controller.status.state, .off)
+        XCTAssertEqual(fixture.factory.count, 0)
+    }
+
+    /// A caller that saw the placeholder status (before the launch read) asks for consent
+    /// again; the saved per-agent choices and the consent date win.
+    func test_enable_over_saved_consent_keeps_the_saved_agent_choices() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { state in
+            state.enabled = false
+            state.consentedAt = Date(timeIntervalSince1970: 1_700_000_000)
+            state.setSource(.codex, enabled: false)
+        }
+        XCTAssertFalse(fixture.controller.status.hasConsented, "not read yet")
+
+        fixture.controller.enable(agents: Set(AgentHistoryAgent.allCases))
+
+        waitForStatus(fixture.controller, "running") { $0.isEnabled && $0.state != .off }
+        let state = persistedState(fixture.paths)
+        XCTAssertTrue(state.enabled)
+        XCTAssertEqual(state.consentedAt?.timeIntervalSince1970 ?? 0, 1_700_000_000, accuracy: 1)
+        XCTAssertFalse(state.isSourceEnabled(.codex), "a purged agent stays off")
+        XCTAssertTrue(state.isSourceEnabled(.claude))
+        XCTAssertEqual(fixture.factory.lastConfiguration?.enabledAgents.contains(.codex), false)
+    }
+
     // MARK: - Config
 
     func test_config_change_pushes_excluded_folders_and_mirrors_flags() throws {

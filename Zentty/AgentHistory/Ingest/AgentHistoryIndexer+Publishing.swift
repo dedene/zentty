@@ -117,6 +117,7 @@ extension AgentHistoryIndexer {
     func makeStatus() -> AgentHistoryStatus {
         let persisted = stateStore.current
         var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
         status.isEnabled = persisted.enabled
         status.hasConsented = persisted.consentedAt != nil
         status.enabledAgents = configuration.enabledAgents

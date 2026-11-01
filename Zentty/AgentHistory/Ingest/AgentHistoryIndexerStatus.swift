@@ -90,6 +90,9 @@ struct AgentHistorySourceHealth: Equatable, Sendable {
 /// Everything the palette, Settings and the CLI show about the index. Published by the indexer
 /// on main (≤ 1 Hz, immediately on a state change); `revision` grows with every publish.
 struct AgentHistoryStatus: Equatable, Sendable {
+    /// False until `state.json` has been read: `isEnabled`, `hasConsented` and `enabledAgents`
+    /// are placeholders until then, so nothing may ask for consent or record it on them.
+    var isStateLoaded: Bool
     var isEnabled: Bool
     var hasConsented: Bool
     var enabledAgents: Set<AgentHistoryAgent>
@@ -106,6 +109,7 @@ struct AgentHistoryStatus: Equatable, Sendable {
     var revision: UInt64
 
     static let off = AgentHistoryStatus(
+        isStateLoaded: false,
         isEnabled: false,
         hasConsented: false,
         enabledAgents: [],

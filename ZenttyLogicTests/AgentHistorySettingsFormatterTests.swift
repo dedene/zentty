@@ -27,6 +27,7 @@ final class AgentHistorySettingsFormatterTests: XCTestCase {
         tokenizer: AgentHistoryTokenizer? = .trigram
     ) -> AgentHistoryStatus {
         var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
         status.isEnabled = isEnabled
         status.hasConsented = hasConsented
         status.enabledAgents = enabledAgents
@@ -82,6 +83,10 @@ final class AgentHistorySettingsFormatterTests: XCTestCase {
             indexedSessions: 40, indexSizeBytes: 9_000_000, lastUpdatedAt: now.addingTimeInterval(-600)
         )
         XCTAssertEqual(formatter.summary(for: consented), "Off. The index is kept until you delete it.")
+    }
+
+    func test_summary_before_the_saved_state_is_read() {
+        XCTAssertEqual(makeFormatter().summary(for: .off), AgentHistorySettingsFormatter.loadingSummary)
     }
 
     func test_summary_not_indexed_yet() {

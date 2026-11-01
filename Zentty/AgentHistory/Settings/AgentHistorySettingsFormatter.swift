@@ -45,8 +45,14 @@ struct AgentHistorySettingsFormatter {
 
     // MARK: - Summary
 
+    /// Until Agent History's saved state has been read: on or off isn't known yet.
+    static let loadingSummary = "Checking Agent History…"
+
     /// "1,284 sessions · 412 MB on disk · updated 3 minutes ago", or the off / not-yet copy.
     func summary(for status: AgentHistoryStatus) -> String {
+        guard status.isStateLoaded else {
+            return Self.loadingSummary
+        }
         guard status.isEnabled else {
             return status.hasConsented
                 ? "Off. The index is kept until you delete it."
