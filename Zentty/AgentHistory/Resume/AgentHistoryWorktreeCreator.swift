@@ -24,27 +24,37 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
         _ executableURL: URL,
         _ arguments: [String],
         _ environment: [String: String]?,
-        _ timeout: TimeInterval
+        _ timeout: TimeInterval,
+        _ terminationGracePeriod: TimeInterval
     ) throws -> SubprocessResult
 
     static let gitUnavailableMessage = "Git isn't available. Install the Xcode Command Line Tools to recreate worktrees."
     static let timedOutMessage = "Git took too long to recreate the worktree."
     static let launchFailedMessage = "Git couldn't be started."
+    static let folderExistsMessage = "A folder already exists where the worktree was. Resume the session again to use it."
+    static func incompleteWorktreeMessage(path: String) -> String {
+        "Git took too long to recreate the worktree and left an incomplete folder at \(path). Delete it before resuming this session."
+    }
     static let systemGitShimPath = "/usr/bin/git"
     static let defaultSearchPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
     var timeout: TimeInterval = 120
+    /// On timeout git first gets `SIGTERM`, which makes `worktree add` delete its half-made folder
+    /// and registration; whatever still runs after this long gets `SIGKILL`.
+    var terminationGracePeriod: TimeInterval = 10
     /// For `git worktree remove` of a stale registration: it only deletes git's admin files.
     var staleRegistrationTimeout: TimeInterval = 30
     var xcrunTimeout: TimeInterval = 2
     var environment: [String: String] = ProcessInfo.processInfo.environment
     var isExecutableFile: @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
-    var runner: Runner = { executableURL, arguments, environment, timeout in
-        try SubprocessRunner.run(
+    var fileExists: @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    var runner: Runner = { executableURL, arguments, environment, timeout, terminationGracePeriod in
+        try SubprocessRunner.runInProcessGroup(
             executableURL: executableURL,
             arguments: arguments,
             environment: environment,
-            timeout: timeout
+            timeout: timeout,
+            terminationGracePeriod: terminationGracePeriod
         )
     }
     var queue: DispatchQueue = .global(qos: .userInitiated)
@@ -83,17 +93,25 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
                 )
             case .success:
                 break
-            case .failure(let error):
-                return .failure(error)
+            case .failure(let failure):
+                return .failure(failure.error)
             }
+        }
+
+        // Anything at the path after `add` is then git's own, safe to clean up on a timeout.
+        guard !fileExists(recreation.worktreePath) else {
+            AgentHistoryLog.indexer.info("Worktree recreate skipped: folder reappeared")
+            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.folderExistsMessage))
         }
 
         let result: SubprocessResult
         switch runGit(recreation.gitArguments, environment: gitEnvironment, timeout: timeout) {
         case .success(let finished):
             result = finished
-        case .failure(let error):
-            return .failure(error)
+        case .failure(.timedOut):
+            return .failure(errorAfterAddTimedOut(recreation, environment: gitEnvironment))
+        case .failure(let failure):
+            return .failure(failure.error)
         }
 
         guard result.terminationStatus == 0 else {
@@ -111,20 +129,66 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
         return .success(())
     }
 
+    /// git normally removes its own half-made worktree on `SIGTERM`. When something is still at the
+    /// path (git hung past the grace period and was killed), remove the registration and folder git
+    /// created, so the next resume can't treat a partial checkout as ready. If that fails too, say so.
+    private func errorAfterAddTimedOut(
+        _ recreation: AgentHistoryWorktreeRecreation,
+        environment: [String: String]
+    ) -> AgentHistoryWorktreeError {
+        guard fileExists(recreation.worktreePath) else {
+            return AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage)
+        }
+        AgentHistoryLog.indexer.error("Worktree recreate timed out and left its folder; removing it")
+        // Double force: git leaves the registration locked ("initializing") when it is killed.
+        let removal = [
+            "-C", recreation.mainRepoRoot, "worktree", "remove", "--force", "--force", "--", recreation.worktreePath,
+        ]
+        _ = runGit(removal, environment: environment, timeout: staleRegistrationTimeout)
+        guard !fileExists(recreation.worktreePath) else {
+            AgentHistoryLog.indexer.error("Incomplete worktree folder could not be removed")
+            return AgentHistoryWorktreeError(
+                exitCode: nil,
+                message: Self.incompleteWorktreeMessage(path: recreation.worktreePath)
+            )
+        }
+        return AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage)
+    }
+
+    private enum GitRunFailure: Error {
+        case timedOut
+        case launchFailed
+
+        var error: AgentHistoryWorktreeError {
+            switch self {
+            case .timedOut:
+                return AgentHistoryWorktreeError(exitCode: nil, message: GitWorktreeCreator.timedOutMessage)
+            case .launchFailed:
+                return AgentHistoryWorktreeError(exitCode: nil, message: GitWorktreeCreator.launchFailedMessage)
+            }
+        }
+    }
+
     /// Runs `/usr/bin/env git <arguments>`. A finished git, whatever its exit status, is a success.
     private func runGit(
         _ arguments: [String],
         environment: [String: String],
         timeout: TimeInterval
-    ) -> Result<SubprocessResult, AgentHistoryWorktreeError> {
+    ) -> Result<SubprocessResult, GitRunFailure> {
         do {
-            return .success(try runner(URL(fileURLWithPath: "/usr/bin/env"), ["git"] + arguments, environment, timeout))
+            return .success(try runner(
+                URL(fileURLWithPath: "/usr/bin/env"),
+                ["git"] + arguments,
+                environment,
+                timeout,
+                terminationGracePeriod
+            ))
         } catch SubprocessError.timedOut {
             AgentHistoryLog.indexer.error("Worktree recreate timed out")
-            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage))
+            return .failure(.timedOut)
         } catch {
             AgentHistoryLog.indexer.error("Worktree recreate could not launch git")
-            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.launchFailedMessage))
+            return .failure(.launchFailed)
         }
     }
 
@@ -142,7 +206,13 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
 
     private func commandLineToolsAvailable() -> Bool {
         do {
-            let probe = try runner(URL(fileURLWithPath: "/usr/bin/xcrun"), ["--find", "git"], environment, xcrunTimeout)
+            let probe = try runner(
+                URL(fileURLWithPath: "/usr/bin/xcrun"),
+                ["--find", "git"],
+                environment,
+                xcrunTimeout,
+                1
+            )
             return probe.terminationStatus == 0
         } catch {
             return false

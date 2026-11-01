@@ -213,6 +213,7 @@
 		371FB2F8A67CC747CF1FFD4F /* CommandPaletteResultRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1664363F6DAF16AD33EECA9D /* CommandPaletteResultRow.swift */; };
 		37683223FAC33E2284C333DB /* WorklaneStoreClosedPaneRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7DFA52E9F279C81A803C23 /* WorklaneStoreClosedPaneRestoreTests.swift */; };
 		38097CB04F82C5C29109E67B /* SidebarWorklaneRowPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC3C3E57E52AACEA9F6C90C /* SidebarWorklaneRowPresentation.swift */; };
+		384FA872D2DB33D777695438 /* SubprocessRunnerProcessGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A37A1F7C0D8A1F4EC18A62E6 /* SubprocessRunnerProcessGroupTests.swift */; };
 		38A0C410C501DF694FC1B29B /* AgentHistoryStorageRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2854DAA90272F73E286283 /* AgentHistoryStorageRecoveryTests.swift */; };
 		38BB62E606C7332C7D3365B9 /* GrokHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F4F997E86D364090463A67 /* GrokHooksInstaller.swift */; };
 		38DB18B3D68AD8CDA8D85C4E /* AppMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB3C0ACB087A96811645CE3 /* AppMenuBuilder.swift */; };
@@ -223,6 +224,7 @@
 		3A9A36F98D4A239EC59BF56B /* WorklaneSessionEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475875CF8F562326EDD395B9 /* WorklaneSessionEnvironmentTests.swift */; };
 		3AB6F1473A83C734B8D5A860 /* UnixSocketHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8902717CEF06FC1E890A2D79 /* UnixSocketHandle.swift */; };
 		3AE92E0885178E51B735D878 /* WorklaneStoreBatchUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3284D0E745C4F976D593E2B /* WorklaneStoreBatchUpdateTests.swift */; };
+		3B2AB20AEBE692BFD656BFDB /* SubprocessRunner+ProcessGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E371873D98099C28D7086CC5 /* SubprocessRunner+ProcessGroup.swift */; };
 		3B474DDD7ECBA6F6456609B7 /* SettingsSidebarRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B57876C4F8C1763BD4E8DBD /* SettingsSidebarRowView.swift */; };
 		3B48B3F81BA924C37F07B501 /* JSONLineSnifferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4B8AFFD14D56E38F462EDB /* JSONLineSnifferTests.swift */; };
 		3B7170B35A252E1A327A2DA2 /* UnixSocketHandleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C66DFD882D23E125461FF3C /* UnixSocketHandleTests.swift */; };
@@ -1569,6 +1571,7 @@
 		A2AB35A9B2178EAE22C0A732 /* TerminalOpenURLResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOpenURLResolverTests.swift; sourceTree = "<group>"; };
 		A2EE42F8FEB23D0CF10CA377 /* AgyHooksInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgyHooksInstallerTests.swift; sourceTree = "<group>"; };
 		A3284D0E745C4F976D593E2B /* WorklaneStoreBatchUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreBatchUpdateTests.swift; sourceTree = "<group>"; };
+		A37A1F7C0D8A1F4EC18A62E6 /* SubprocessRunnerProcessGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubprocessRunnerProcessGroupTests.swift; sourceTree = "<group>"; };
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A3F1AF8D07B9B05151774B4F /* WorklanePeekKeyMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekKeyMonitorTests.swift; sourceTree = "<group>"; };
 		A414B0A7FAAB8464A6432C77 /* SidebarWorklaneReorderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneReorderModel.swift; sourceTree = "<group>"; };
@@ -1798,6 +1801,7 @@
 		E23E0F7DE3F0B5A6D98FF8EB /* RemoteImageUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImageUploader.swift; sourceTree = "<group>"; };
 		E263ECB14727930372689593 /* ServerBrowserCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBrowserCatalog.swift; sourceTree = "<group>"; };
 		E33FF8DDD0088600F542E4B1 /* AppMenuBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilderTests.swift; sourceTree = "<group>"; };
+		E371873D98099C28D7086CC5 /* SubprocessRunner+ProcessGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SubprocessRunner+ProcessGroup.swift"; sourceTree = "<group>"; };
 		E455660542BED764C4FCF49E /* AmpPluginInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpPluginInstaller.swift; sourceTree = "<group>"; };
 		E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripStateTests.swift; sourceTree = "<group>"; };
 		E487FAA55F79604A2E0B27B8 /* CodexHistorySource+Rollout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexHistorySource+Rollout.swift"; sourceTree = "<group>"; };
@@ -2353,6 +2357,7 @@
 				68CFF36A010130E00ACF80FB /* FileManager+SymlinkWrite.swift */,
 				AB5FC2AFBC2BB1C60DCC9ACA /* RuntimeStateRelocation.swift */,
 				7F40B71CFF69AD6569813709 /* SubprocessRunner.swift */,
+				E371873D98099C28D7086CC5 /* SubprocessRunner+ProcessGroup.swift */,
 				BC35483261A3A161B7D65399 /* ZenttyBuildFlavor.swift */,
 			);
 			path = Support;
@@ -3224,6 +3229,7 @@
 				57BC50CDB5D0B82695D9A2D4 /* SidebarWorklaneRowLayoutTests.swift */,
 				52C47988FC977CAE87970482 /* SidebarWorklaneRowPresentationTests.swift */,
 				96218BAE51D065EB4C3DF588 /* SparkleAppUpdateControllerTests.swift */,
+				A37A1F7C0D8A1F4EC18A62E6 /* SubprocessRunnerProcessGroupTests.swift */,
 				E7BC9EED84FE9E345309065D /* SubprocessRunnerTests.swift */,
 				664E62FC352B56CA7B035AC1 /* TaskManagerPresentationTests.swift */,
 				B147E532F92E9849DAF51188 /* TaskManagerProcessSamplerTests.swift */,
@@ -3817,6 +3823,7 @@
 				E9BF42DC69D4CF63845BCBE2 /* SidebarWorklaneRowLayoutTests.swift in Sources */,
 				E4DDBFE9C7BEAE5D693A2F85 /* SidebarWorklaneRowPresentationTests.swift in Sources */,
 				48AAE3252CEE1E6E73CE2046 /* SparkleAppUpdateControllerTests.swift in Sources */,
+				384FA872D2DB33D777695438 /* SubprocessRunnerProcessGroupTests.swift in Sources */,
 				E270DCB043F4B942C5DAF42B /* SubprocessRunnerTests.swift in Sources */,
 				863C32186E18155D92C16E25 /* TaskManagerPresentationTests.swift in Sources */,
 				1831BA926C62620FC97C9D07 /* TaskManagerProcessSamplerTests.swift in Sources */,
@@ -4307,6 +4314,7 @@
 				3D1215D6569A04E56328D295 /* SidebarWorklaneRowStyleResolver.swift in Sources */,
 				4A3471E1B0600EF1412C3932 /* SparkleAppUpdateController.swift in Sources */,
 				9831DF66962934E27F911DE7 /* SpringAnimator.swift in Sources */,
+				3B2AB20AEBE692BFD656BFDB /* SubprocessRunner+ProcessGroup.swift in Sources */,
 				6966339D18AB6A2FDE424FAD /* SubprocessRunner.swift in Sources */,
 				9DD40EDD3E3E8C67BB115B53 /* TaskManagerModels.swift in Sources */,
 				F69010DBD19B9F9CB87D21AE /* TaskManagerProcessSampler.swift in Sources */,

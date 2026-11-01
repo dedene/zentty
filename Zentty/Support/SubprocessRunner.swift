@@ -138,7 +138,7 @@ enum SubprocessRunner {
 
 /// Reads stdout and stderr together with `poll(2)` so neither pipe can fill
 /// up while the other is being waited on.
-private struct PipeDrain {
+struct PipeDrain {
     private(set) var stdout = Data()
     private(set) var stderr = Data()
     private var stdoutFD: Int32?

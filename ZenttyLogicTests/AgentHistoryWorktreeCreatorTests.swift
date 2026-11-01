@@ -24,14 +24,22 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     private func creator(
         path: String = "/usr/bin",
         executables: Set<String> = ["/usr/bin/git"],
+        folder: FakeFolder = FakeFolder(),
         recorder: SubprocessCallRecorder,
         respond: @escaping @Sendable (String, [String]) throws -> SubprocessResult
     ) -> GitWorktreeCreator {
         var creator = GitWorktreeCreator()
         creator.environment = ["PATH": path, "HOME": "/Users/test-history-home"]
         creator.isExecutableFile = { executables.contains($0) }
-        creator.runner = { url, arguments, environment, timeout in
-            recorder.record(SubprocessCall(executable: url.path, arguments: arguments, environment: environment ?? [:], timeout: timeout))
+        creator.fileExists = { folder.exists(at: $0) }
+        creator.runner = { url, arguments, environment, timeout, grace in
+            recorder.record(SubprocessCall(
+                executable: url.path,
+                arguments: arguments,
+                environment: environment ?? [:],
+                timeout: timeout,
+                terminationGracePeriod: grace
+            ))
             return try respond(url.path, arguments)
         }
         return creator
@@ -101,6 +109,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         let gitCall = recorder.calls[1]
         XCTAssertEqual(gitCall.arguments, ["git"] + recreation.gitArguments)
         XCTAssertEqual(gitCall.timeout, 120)
+        XCTAssertEqual(gitCall.terminationGracePeriod, 10, "a timed-out add gets SIGTERM and a grace period first")
         XCTAssertEqual(gitCall.environment["GIT_TERMINAL_PROMPT"], "0")
         XCTAssertEqual(gitCall.environment["PATH"], "/usr/bin")
     }
@@ -203,6 +212,95 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         }
 
         XCTAssertEqual(recreate(with: creator).failure?.message, GitWorktreeCreator.timedOutMessage)
+        XCTAssertEqual(
+            recorder.calls.filter { $0.executable == "/usr/bin/env" }.count,
+            1,
+            "git removed its own half-made worktree on SIGTERM; nothing left to clean up"
+        )
+    }
+
+    func test_git_creator_refuses_when_folder_reappeared_before_add() {
+        let recorder = SubprocessCallRecorder()
+        let folder = FakeFolder(path: recreation.worktreePath, exists: true)
+        let creator = creator(folder: folder, recorder: recorder) { _, _ in Self.ok() }
+
+        XCTAssertEqual(
+            recreate(with: creator).failure,
+            AgentHistoryWorktreeError(exitCode: nil, message: GitWorktreeCreator.folderExistsMessage)
+        )
+        XCTAssertFalse(recorder.calls.contains { $0.arguments.contains("add") })
+    }
+
+    /// git was killed after the grace period and left a partial checkout behind, registered and
+    /// locked as "initializing". It must be removed, or the next resume would treat it as ready.
+    func test_git_creator_removes_partial_worktree_left_by_timeout() {
+        let recorder = SubprocessCallRecorder()
+        let folder = FakeFolder(path: recreation.worktreePath, exists: false)
+        let creator = creator(folder: folder, recorder: recorder) { executable, arguments in
+            guard executable == "/usr/bin/env" else { return Self.ok() }
+            if arguments.contains("add") {
+                folder.setExists(true)
+                throw SubprocessError.timedOut
+            }
+            if arguments.contains("remove") {
+                folder.setExists(false)
+            }
+            return Self.ok()
+        }
+
+        XCTAssertEqual(recreate(with: creator).failure?.message, GitWorktreeCreator.timedOutMessage)
+        let gitCalls = recorder.calls.filter { $0.executable == "/usr/bin/env" }
+        XCTAssertEqual(gitCalls.count, 2)
+        XCTAssertEqual(
+            gitCalls.last?.arguments,
+            ["git", "-C", recreation.mainRepoRoot, "worktree", "remove", "--force", "--force", "--", recreation.worktreePath]
+        )
+        XCTAssertFalse(folder.exists(at: recreation.worktreePath))
+    }
+
+    func test_git_creator_reports_incomplete_folder_it_could_not_remove() {
+        let recorder = SubprocessCallRecorder()
+        let folder = FakeFolder(path: recreation.worktreePath, exists: false)
+        let creator = creator(folder: folder, recorder: recorder) { executable, arguments in
+            guard executable == "/usr/bin/env" else { return Self.ok() }
+            if arguments.contains("add") {
+                folder.setExists(true)
+                throw SubprocessError.timedOut
+            }
+            return SubprocessResult(terminationStatus: 128, stdout: Data(), stderr: Data("fatal: not a working tree\n".utf8))
+        }
+
+        XCTAssertEqual(
+            recreate(with: creator).failure,
+            AgentHistoryWorktreeError(
+                exitCode: nil,
+                message: GitWorktreeCreator.incompleteWorktreeMessage(path: recreation.worktreePath)
+            )
+        )
+    }
+}
+
+/// The worktree folder's existence as the creator sees it; guarded by `lock`.
+private final class FakeFolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let path: String
+    private var present: Bool
+
+    init(path: String = "", exists: Bool = false) {
+        self.path = path
+        self.present = exists
+    }
+
+    func exists(at candidate: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return present && candidate == path
+    }
+
+    func setExists(_ value: Bool) {
+        lock.lock()
+        present = value
+        lock.unlock()
     }
 }
 
@@ -211,6 +309,7 @@ private struct SubprocessCall: Equatable, Sendable {
     let arguments: [String]
     let environment: [String: String]
     let timeout: TimeInterval
+    let terminationGracePeriod: TimeInterval
 }
 
 /// Collects runner calls from the creator's background queue; guarded by `lock`.
