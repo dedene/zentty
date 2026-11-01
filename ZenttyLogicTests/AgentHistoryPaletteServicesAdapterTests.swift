@@ -16,7 +16,7 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
         let key = AgentHistorySessionKey(agent: .claude, nativeID: sessionID)
 
         XCTAssertEqual(adapter.recentSessions(scope: .all, limit: 10), [])
-        XCTAssertEqual(adapter.sessions(for: [key]), [])
+        XCTAssertEqual(adapter.liveSessions(for: []), [])
         XCTAssertEqual(adapter.indexedSessionCount(scope: .all), 0)
         XCTAssertEqual(adapter.tokenizer(), .none)
         XCTAssertEqual(adapter.metadataHits(for: query, context: context, limit: 20).results, [])

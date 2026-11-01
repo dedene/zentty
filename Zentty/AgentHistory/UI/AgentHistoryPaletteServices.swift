@@ -89,8 +89,9 @@ struct AgentHistoryOpenContext: Equatable {
 @MainActor
 protocol AgentHistorySearchServicing: AnyObject {
     func recentSessions(scope: AgentHistoryScope, limit: Int) -> [AgentHistorySessionSummary]
-    /// Indexed rows for live sessions ("Running now"); keys without a row are left out.
-    func sessions(for keys: [AgentHistorySessionKey]) -> [AgentHistorySessionSummary]
+    /// What the index says about each live session ("Running now"), one answer per location in
+    /// order. `.hidden` sessions are never listed; `.notIndexed` ones are listed from the pane.
+    func liveSessions(for locations: [LiveAgentSessionLocation]) -> [HistoryLiveSessionLookup]
     func indexedSessionCount(scope: AgentHistoryScope) -> Int
     func tokenizer() -> AgentHistoryTokenizer
     /// The metadata tier; synchronous, runs on every keystroke.

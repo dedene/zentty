@@ -100,7 +100,7 @@ extension AgentHistoryViewModel {
     }
 
     /// An agent was turned off or the excluded folders changed. The search services already
-    /// hide those sessions, so the current query runs again, typed or not, without keeping the
+    /// hide those sessions (Running now included), so the current query runs again, typed or not, without keeping the
     /// previous conversation rows; a detail or sheet for a session that is gone closes.
     private func refreshForAccessChange() {
         statusRefreshToken?.cancel()

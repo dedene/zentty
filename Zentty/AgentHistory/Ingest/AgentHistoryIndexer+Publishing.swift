@@ -73,7 +73,9 @@ extension AgentHistoryIndexer {
 
         refreshCounters()
         var status = makeStatus()
-        let snapshot = snapshotDirty ? snapshotBuilder.build(isComplete: isBackfillComplete) : nil
+        let snapshot = snapshotDirty
+            ? snapshotBuilder.build(isComplete: isBackfillComplete, removedKeys: admission.tombstones)
+            : nil
         snapshotDirty = false
 
         var previous = currentStatus

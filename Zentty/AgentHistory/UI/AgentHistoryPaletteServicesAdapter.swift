@@ -100,8 +100,11 @@ final class AgentHistorySearchAdapter: AgentHistorySearchServicing {
         engine()?.metadataIndex.recent(limit: limit, scope: scope) ?? []
     }
 
-    func sessions(for keys: [AgentHistorySessionKey]) -> [AgentHistorySessionSummary] {
-        engine()?.metadataIndex.sessions(for: keys) ?? []
+    func liveSessions(for locations: [LiveAgentSessionLocation]) -> [HistoryLiveSessionLookup] {
+        guard let engine = engine() else {
+            return locations.map { _ in .notIndexed }
+        }
+        return engine.metadataIndex.liveSessions(locations.map { (key: $0.key, workingDirectory: $0.workingDirectory) })
     }
 
     func indexedSessionCount(scope: AgentHistoryScope) -> Int {

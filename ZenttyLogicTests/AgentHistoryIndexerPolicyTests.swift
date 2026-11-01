@@ -231,6 +231,13 @@ final class AgentHistoryIndexerPolicyTests: XCTestCase {
         XCTAssertEqual(try isRejected(harness, unitKey: "s1"), true)
         XCTAssertEqual(snapshotIDs(indexer), ["s2"])
         XCTAssertEqual(indexer.currentStatus.removedSessionCount, 1)
+        XCTAssertEqual(indexer.currentSnapshot.removedKeys, [AgentHistorySessionKey(agent: .claude, nativeID: "s1")],
+                       "the snapshot lists it, so a live pane of it stays hidden too")
+
+        // A session with no rows yet (a live pane) is published as removed all the same.
+        let unread = AgentHistorySessionKey(agent: .claude, nativeID: "unread")
+        XCTAssertTrue(remove(unread, from: indexer))
+        XCTAssertEqual(indexer.currentSnapshot.removedKeys, [AgentHistorySessionKey(agent: .claude, nativeID: "s1"), unread])
 
         // The agent keeps writing to the same file: still skipped.
         harness.source.setUnits([.single("s1", messages: ["a", "b", "c", "d"], mtimeNs: 9)])
@@ -263,6 +270,7 @@ final class AgentHistoryIndexerPolicyTests: XCTestCase {
         XCTAssertEqual(try harness.count("SELECT count(*) FROM tombstones"), 0)
         XCTAssertEqual(indexer.currentStatus.removedSessionCount, 0)
         XCTAssertEqual(snapshotIDs(indexer), ["s1", "s2"])
+        XCTAssertEqual(indexer.currentSnapshot.removedKeys, [])
     }
 
     func test_removing_database_session_never_rejects_the_shared_unit() throws {

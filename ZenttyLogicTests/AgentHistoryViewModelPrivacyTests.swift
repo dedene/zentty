@@ -113,6 +113,23 @@ final class AgentHistoryViewModelPrivacyTests: XCTestCase {
         return model
     }
 
+    private func liveLocation(_ key: AgentHistorySessionKey, cwd: String = "/tmp/agent-history-tests/zentty") -> LiveAgentSessionLocation {
+        LiveAgentSessionLocation(
+            key: key, windowID: WindowID("window"), worklaneID: WorklaneID("worklane"), paneID: PaneID("pane-\(key.nativeID)"),
+            tool: key.agent == .claude ? .claudeCode : .codex, rawSessionID: key.nativeID, pid: 42,
+            paneDisplayName: "Pane \(key.nativeID)", worklaneDisplayName: "zentty", windowTitle: "Zentty",
+            workingDirectory: cwd, updatedAt: Date(timeIntervalSince1970: 1_800_000_000), matchSource: .status
+        )
+    }
+
+    private func liveSnapshot(_ locations: [LiveAgentSessionLocation]) -> LiveAgentSessionSnapshot {
+        LiveAgentSessionSnapshot(locationsByKey: Dictionary(uniqueKeysWithValues: locations.map { ($0.key, [$0]) }))
+    }
+
+    private func runningNowKeys(_ model: AgentHistoryViewModel) -> [AgentHistorySessionKey] {
+        model.sections.first { $0.kind == .runningNow }?.rows.map(\.key) ?? []
+    }
+
     private let transcript = HistoryTranscript(turns: [], firstMatchMessageID: nil, isTruncated: false)
 
     /// A typed search for "crash": Claude session 1 by title, Codex session 3 by title and Claude
@@ -259,5 +276,76 @@ final class AgentHistoryViewModelPrivacyTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.sessionID), [1, 3, 2])
         XCTAssertEqual(model.transcript, .loaded(transcript))
         XCTAssertTrue(closeRequests.isEmpty)
+    }
+
+    // MARK: - Running now
+
+    func test_a_removed_running_session_stays_out_of_running_now() {
+        let removed = summary(1, agent: .claude)
+        let other = summary(2)
+        search.summariesByKey = [removed.key: removed, other.key: other]
+        launch.snapshot = liveSnapshot([liveLocation(removed.key), liveLocation(other.key)])
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(Set(runningNowKeys(model)), [removed.key, other.key])
+
+        model.removeFromHistory(removed.key)
+        XCTAssertEqual(control.removedKeys, [removed.key])
+        XCTAssertEqual(runningNowKeys(model), [other.key])
+
+        // The index tombstones the session: it has no row any more, and says so.
+        search.summariesByKey[removed.key] = nil
+        search.hiddenLiveKeys = [removed.key]
+        launch.publishLive(launch.snapshot)
+        XCTAssertEqual(runningNowKeys(model), [other.key], "a live update doesn't bring it back")
+
+        var status = control.status
+        status.indexedSessions = 2
+        status.revision = 2
+        control.publish(status)
+        scheduler.advance(by: 5)
+        XCTAssertEqual(runningNowKeys(model), [other.key], "nor does a status refresh")
+
+        model.stop()
+        let reopened = makeModel()
+        reopened.start()
+        XCTAssertEqual(runningNowKeys(reopened), [other.key], "nor does reopening the palette")
+    }
+
+    func test_a_turned_off_agents_running_session_is_not_listed() {
+        let claudeKey = AgentHistorySessionKey(agent: .claude, nativeID: "claude-live")
+        let codexKey = AgentHistorySessionKey(agent: .codex, nativeID: "codex-live")
+        launch.snapshot = liveSnapshot([liveLocation(claudeKey), liveLocation(codexKey)])
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(Set(runningNowKeys(model)), [claudeKey, codexKey], "not indexed yet: listed from the pane")
+
+        search.hiddenLiveKeys = [claudeKey]
+        var status = control.status
+        status.enabledAgents = [.codex]
+        status.revision = 2
+        control.publish(status)
+
+        XCTAssertEqual(runningNowKeys(model), [codexKey], "Claude's pane is no longer listed")
+        launch.publishLive(launch.snapshot)
+        XCTAssertEqual(runningNowKeys(model), [codexKey])
+        XCTAssertTrue(closeRequests.isEmpty)
+    }
+
+    func test_a_running_session_in_an_excluded_folder_is_not_listed() {
+        let secret = AgentHistorySessionKey(agent: .codex, nativeID: "secret-live")
+        let open = AgentHistorySessionKey(agent: .codex, nativeID: "open-live")
+        launch.snapshot = liveSnapshot([
+            liveLocation(secret, cwd: "/tmp/agent-history-tests/zentty/secret"),
+            liveLocation(open),
+        ])
+        search.hiddenLiveKeys = [secret]
+        control.status.excludedFolders = ["/tmp/agent-history-tests/zentty/secret"]
+        let model = makeModel()
+        model.start()
+
+        XCTAssertEqual(runningNowKeys(model), [open])
+        launch.publishLive(launch.snapshot)
+        XCTAssertEqual(runningNowKeys(model), [open])
     }
 }

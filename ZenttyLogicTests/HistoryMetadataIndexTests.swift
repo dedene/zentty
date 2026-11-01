@@ -306,20 +306,51 @@ final class HistoryMetadataIndexTests: XCTestCase {
         XCTAssertEqual(index.sessionCount(scope: .all), 25)
     }
 
-    func test_sessions_for_live_keys() {
-        let index = makeIndex([
-            session(1, title: "One", agent: .claude, updatedDaysAgo: 1),
-            session(2, title: "Two", agent: .codex, updatedDaysAgo: 2),
-        ])
+    func test_live_sessions_are_indexed_hidden_or_not_indexed() {
+        let one = session(1, title: "One", agent: .claude, updatedDaysAgo: 1)
+        let two = session(2, title: "Two", agent: .codex, updatedDaysAgo: 2)
+        let index = makeIndex([one, two])
 
-        let keys = [
-            AgentHistorySessionKey(agent: .codex, nativeID: "native-2"),
-            AgentHistorySessionKey(agent: .grok, nativeID: "native-1"),
-            AgentHistorySessionKey(agent: .claude, nativeID: "native-1"),
-        ]
-        XCTAssertEqual(index.sessions(for: keys).map(\.id), [2, 1])
+        let lookups = index.liveSessions([
+            (key: two.key, workingDirectory: nil),
+            (key: AgentHistorySessionKey(agent: .grok, nativeID: "native-1"), workingDirectory: "/nonexistent-zt/src"),
+            (key: one.key, workingDirectory: nil),
+        ])
+        XCTAssertEqual(lookups, [.indexed(two), .notIndexed, .indexed(one)])
         XCTAssertEqual(index.summary(forSessionID: 2)?.title, "Two")
         XCTAssertNil(index.summary(forSessionID: 99))
+    }
+
+    func test_live_sessions_the_index_hides_are_told_apart_from_not_indexed_ones() {
+        let exclusions = ExclusionsBox()
+        exclusions.set(["/nonexistent-zt/private"])
+        let shown = session(1, title: "Shown", agent: .claude, cwd: "/nonexistent-zt/src/app", updatedDaysAgo: 1)
+        let excluded = session(2, title: "Excluded", agent: .claude, cwd: "/nonexistent-zt/private/notes", updatedDaysAgo: 2)
+        let codex = session(3, title: "Codex", agent: .codex, cwd: "/nonexistent-zt/src/app", updatedDaysAgo: 3)
+        let removed = AgentHistorySessionKey(agent: .claude, nativeID: "removed")
+        let snapshot = AgentHistoryMetadataSnapshot(
+            generation: 1, sessions: [shown, excluded, codex], isComplete: true, removedKeys: [removed])
+        let index = HistoryMetadataIndex(
+            snapshot: { snapshot }, exclusions: { exclusions.value }, enabledAgents: { [.claude] })
+
+        let lookups = index.liveSessions([
+            (key: shown.key, workingDirectory: "/nonexistent-zt/src/app"),
+            (key: removed, workingDirectory: "/nonexistent-zt/src/app"),
+            (key: excluded.key, workingDirectory: "/nonexistent-zt/src/app"),
+            (key: codex.key, workingDirectory: "/nonexistent-zt/src/app"),
+            (key: AgentHistorySessionKey(agent: .codex, nativeID: "new"), workingDirectory: "/nonexistent-zt/src/app"),
+            (key: AgentHistorySessionKey(agent: .claude, nativeID: "new"), workingDirectory: "/nonexistent-zt/private/x"),
+            (key: AgentHistorySessionKey(agent: .claude, nativeID: "new"), workingDirectory: "/nonexistent-zt/src/app"),
+        ])
+        XCTAssertEqual(lookups, [
+            .indexed(shown),
+            .hidden, // removed from History
+            .hidden, // its indexed folder is excluded, whatever the pane's folder
+            .hidden, // its agent is turned off
+            .hidden, // not indexed, but its agent is turned off
+            .hidden, // not indexed, but the pane's folder is excluded
+            .notIndexed,
+        ])
     }
 
     // MARK: - Exclusions and snapshots
@@ -341,7 +372,9 @@ final class HistoryMetadataIndexTests: XCTestCase {
         XCTAssertEqual(index.recent(limit: 10, scope: .all).map(\.id), [2])
         XCTAssertEqual(index.sessionCount(scope: .all), 1)
         XCTAssertNil(index.summary(forSessionID: 1))
-        XCTAssertEqual(index.sessions(for: [AgentHistorySessionKey(agent: .claude, nativeID: "native-1")]), [])
+        XCTAssertEqual(
+            index.liveSessions([(key: AgentHistorySessionKey(agent: .claude, nativeID: "native-1"), workingDirectory: nil)]),
+            [.hidden])
 
         exclusions.set([])
         XCTAssertEqual(search(index, "secret").map(\.session.id), [1, 2])

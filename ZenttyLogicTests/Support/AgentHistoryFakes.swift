@@ -113,6 +113,8 @@ final class FakeAgentHistorySearch: AgentHistorySearchServicing {
 
     var recent: [AgentHistorySessionSummary] = []
     var summariesByKey: [AgentHistorySessionKey: AgentHistorySessionSummary] = [:]
+    /// Live sessions the index hides: removed, agent turned off or folder excluded.
+    var hiddenLiveKeys: Set<AgentHistorySessionKey> = []
     var sessionCount = 0
     var currentTokenizer = AgentHistoryTokenizer.trigram
     var metadataResults: (HistoryQuery) -> [HistoryMetadataResult] = { _ in [] }
@@ -127,8 +129,11 @@ final class FakeAgentHistorySearch: AgentHistorySearchServicing {
         return Array(recent.prefix(limit))
     }
 
-    func sessions(for keys: [AgentHistorySessionKey]) -> [AgentHistorySessionSummary] {
-        keys.compactMap { summariesByKey[$0] }
+    func liveSessions(for locations: [LiveAgentSessionLocation]) -> [HistoryLiveSessionLookup] {
+        locations.map { location in
+            if hiddenLiveKeys.contains(location.key) { return .hidden }
+            return summariesByKey[location.key].map { .indexed($0) } ?? .notIndexed
+        }
     }
 
     func indexedSessionCount(scope: AgentHistoryScope) -> Int { sessionCount }

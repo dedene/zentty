@@ -139,6 +139,17 @@ struct HistoryMetadataResponse: Equatable, Sendable {
     let elapsed: TimeInterval
 }
 
+/// What the index says about a live pane's session ("Running now"). A session the index hides
+/// and one it hasn't read yet both lack a visible row; only the second may be listed from the
+/// pane alone.
+enum HistoryLiveSessionLookup: Equatable, Sendable {
+    case indexed(AgentHistorySessionSummary)
+    /// Removed from History, its agent turned off, or its folder excluded.
+    case hidden
+    /// Not indexed yet.
+    case notIndexed
+}
+
 struct HistoryContentResponse: Equatable, Sendable {
     enum Mode: Equatable, Sendable {
         /// Full-text index.

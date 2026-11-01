@@ -84,13 +84,20 @@ extension AgentHistoryViewModel {
 
     private func emptyQuerySections() -> [AgentHistorySection] {
         let search = services.search
-        let liveLocations = liveSnapshot.allPrimaryLocations.filter { admitsLive($0) }
-        let liveKeySet = Set(liveLocations.map(\.key))
-        let summaries = Dictionary(
-            search.sessions(for: liveLocations.map(\.key)).map { ($0.key, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let runningNow = liveLocations.map { AgentHistoryResultRow(live: $0, summary: summaries[$0.key]) }
+        let locations = liveSnapshot.allPrimaryLocations
+        // A session the index hides (removed, agent off, folder excluded) is not listed; one it
+        // hasn't read yet is, from its pane. A missing answer counts as hidden.
+        let runningNow = zip(locations, search.liveSessions(for: locations)).compactMap {
+            location, lookup -> AgentHistoryResultRow? in
+            let summary: AgentHistorySessionSummary?
+            switch lookup {
+            case .hidden: return nil
+            case .indexed(let indexed): summary = indexed
+            case .notIndexed: summary = nil
+            }
+            return admitsLive(location, summary: summary) ? AgentHistoryResultRow(live: location, summary: summary) : nil
+        }
+        let liveKeySet = Set(runningNow.map(\.key))
 
         let recent = search.recentSessions(scope: scope, limit: Self.recentLimit + liveKeySet.count)
             .filter { !liveKeySet.contains($0.key) }
@@ -108,13 +115,14 @@ extension AgentHistoryViewModel {
         return sections
     }
 
-    /// A live session belongs to the scope by its indexed paths, else by its pane's folder.
-    private func admitsLive(_ location: LiveAgentSessionLocation) -> Bool {
+    /// A live session belongs to the scope by its pane's folder or its indexed paths.
+    private func admitsLive(_ location: LiveAgentSessionLocation, summary: AgentHistorySessionSummary?) -> Bool {
         guard case .project(let project) = scope else { return true }
-        return project.admits(repoRoot: nil, mainRepoRoot: nil, cwd: location.workingDirectory)
-            || services.search.sessions(for: [location.key]).contains {
-                project.admits(repoRoot: $0.repoRoot, mainRepoRoot: $0.mainRepoRoot, cwd: $0.cwd)
-            }
+        if project.admits(repoRoot: nil, mainRepoRoot: nil, cwd: location.workingDirectory) {
+            return true
+        }
+        guard let summary else { return false }
+        return project.admits(repoRoot: summary.repoRoot, mainRepoRoot: summary.mainRepoRoot, cwd: summary.cwd)
     }
 
     // MARK: - Typed query

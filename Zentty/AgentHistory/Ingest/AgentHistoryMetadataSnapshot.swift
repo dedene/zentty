@@ -9,6 +9,21 @@ struct AgentHistoryMetadataSnapshot: Sendable {
     let sessions: [AgentHistorySessionSummary]
     /// False while the first backfill is still running.
     let isComplete: Bool
+    /// Sessions removed from History (tombstones in force). They are never in `sessions`; kept
+    /// so a live pane of one is told apart from a session that is not indexed yet.
+    let removedKeys: Set<AgentHistorySessionKey>
+
+    init(
+        generation: UInt64,
+        sessions: [AgentHistorySessionSummary],
+        isComplete: Bool,
+        removedKeys: Set<AgentHistorySessionKey> = []
+    ) {
+        self.generation = generation
+        self.sessions = sessions
+        self.isComplete = isComplete
+        self.removedKeys = removedKeys
+    }
 
     static let empty = AgentHistoryMetadataSnapshot(generation: 0, sessions: [], isComplete: false)
 }
@@ -62,7 +77,10 @@ struct AgentHistoryMetadataSnapshotBuilder: Sendable {
     }
 
     /// A new snapshot with the next generation.
-    mutating func build(isComplete: Bool) -> AgentHistoryMetadataSnapshot {
+    mutating func build(
+        isComplete: Bool,
+        removedKeys: Set<AgentHistorySessionKey> = []
+    ) -> AgentHistoryMetadataSnapshot {
         generation &+= 1
         let sorted = sessionsByID.values.sorted { lhs, rhs in
             if lhs.updatedAtMs != rhs.updatedAtMs {
@@ -70,7 +88,8 @@ struct AgentHistoryMetadataSnapshotBuilder: Sendable {
             }
             return lhs.id > rhs.id
         }
-        return AgentHistoryMetadataSnapshot(generation: generation, sessions: sorted, isComplete: isComplete)
+        return AgentHistoryMetadataSnapshot(
+            generation: generation, sessions: sorted, isComplete: isComplete, removedKeys: removedKeys)
     }
 
     private static func isVisible(_ session: AgentHistorySessionSummary) -> Bool {

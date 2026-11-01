@@ -327,7 +327,7 @@ final class HistorySessionQueriesTests: XCTestCase {
         XCTAssertTrue(index.search(Fixture.query("agent:codex signing"), context: fixture.context()).results.isEmpty)
         XCTAssertNil(index.summary(forSessionID: codex))
         XCTAssertNotNil(index.summary(forSessionID: claude))
-        XCTAssertEqual(index.sessions(for: [codexKey]), [])
+        XCTAssertEqual(index.liveSessions([(key: codexKey, workingDirectory: nil)]), [.hidden])
         let merged = try engine.searchMerged(
             query, context: fixture.context(), limit: 10, cancellation: HistorySearchCancellation())
         XCTAssertEqual(merged.map(\.session.id), [claude])

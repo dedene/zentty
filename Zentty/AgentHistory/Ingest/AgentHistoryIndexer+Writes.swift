@@ -175,6 +175,8 @@ extension AgentHistoryIndexer {
             tombstones.insert(key)
             admission = AgentHistoryAdmission(exclusions: admission.exclusions, tombstones: tombstones)
             removeFromSnapshot(rowIDs)
+            // Published even without rows: a live pane of this session must stay hidden.
+            snapshotDirty = true
             for sourceState in sourceStates.values where sourceState.source.agent == key.agent {
                 sourceState.countersDirty = true
             }
@@ -204,6 +206,7 @@ extension AgentHistoryIndexer {
             }
             pendingCarryOver?.tombstones = []
             admission = AgentHistoryAdmission(exclusions: admission.exclusions, tombstones: [])
+            snapshotDirty = true
             AgentHistoryLog.indexer.info("Agent History restored removed sessions count=\(count, privacy: .public)")
         } catch {
             logWriteFailure(error, action: "restore removed sessions")

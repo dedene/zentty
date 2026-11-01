@@ -9,7 +9,8 @@ import os
 /// session excluded after indexing never shows before the purge removes its rows. Likewise for
 /// the persisted agent selection (D4): an agent turned off is hidden at once, while the snapshot
 /// may hold its sessions until its purge runs (later, or never on a standby instance).
-/// Tombstoned and child sessions never reach the snapshot.
+/// Tombstoned and child sessions never reach the snapshot; the snapshot lists the tombstoned
+/// keys so a live pane of a removed session stays hidden too.
 ///
 /// Thread-safe: the derived cache sits behind a lock and is immutable once built, so the
 /// palette may call it on the main thread and the CLI/IPC path off it.
@@ -67,10 +68,26 @@ final class HistoryMetadataIndex: @unchecked Sendable {
         return derived.indexByID[id].map { derived.entries[$0].summary }
     }
 
-    /// Summaries for live panes ("Running now"), in `keys` order; unknown keys are skipped.
-    func sessions(for keys: [AgentHistorySessionKey]) -> [AgentHistorySessionSummary] {
+    /// Live panes ("Running now"), in order. Hidden: removed from History, its agent turned off,
+    /// or its folder excluded (the indexed session's folder, else the pane's own). Only a session
+    /// that is none of those and has no row is `.notIndexed`.
+    func liveSessions(
+        _ sessions: [(key: AgentHistorySessionKey, workingDirectory: String?)]
+    ) -> [HistoryLiveSessionLookup] {
+        guard !sessions.isEmpty else { return [] }
         let derived = currentDerived()
-        return keys.compactMap { key in derived.indexByKey[key].map { derived.entries[$0].summary } }
+        return sessions.map { session in
+            if !derived.enabledAgents.contains(session.key.agent) || derived.removedKeys.contains(session.key) {
+                return .hidden
+            }
+            if let position = derived.indexByKey[session.key] {
+                return .indexed(derived.entries[position].summary)
+            }
+            if derived.droppedKeys.contains(session.key) || derived.exclusions.excludes(session.workingDirectory) {
+                return .hidden
+            }
+            return .notIndexed
+        }
     }
 
     // MARK: - Search
@@ -324,6 +341,10 @@ extension HistoryMetadataIndex {
         let entries: [Entry]
         let indexByID: [Int64: Int]
         let indexByKey: [AgentHistorySessionKey: Int]
+        /// The snapshot's tombstoned keys.
+        let removedKeys: Set<AgentHistorySessionKey>
+        /// Held sessions left out of `entries`: a turned-off agent's or in an excluded folder.
+        let droppedKeys: Set<AgentHistorySessionKey>
 
         init(
             snapshot: AgentHistoryMetadataSnapshot,
@@ -340,8 +361,12 @@ extension HistoryMetadataIndex {
             var indexByKey: [AgentHistorySessionKey: Int] = [:]
             indexByID.reserveCapacity(snapshot.sessions.count)
             indexByKey.reserveCapacity(snapshot.sessions.count)
-            for summary in snapshot.sessions
-            where enabledAgents.contains(summary.agent) && !exclusions.excludesCanonical(summary.cwd) {
+            var droppedKeys = Set<AgentHistorySessionKey>()
+            for summary in snapshot.sessions {
+                guard enabledAgents.contains(summary.agent), !exclusions.excludesCanonical(summary.cwd) else {
+                    droppedKeys.insert(summary.key)
+                    continue
+                }
                 indexByID[summary.id] = entries.count
                 indexByKey[summary.key] = entries.count
                 entries.append(Entry(summary))
@@ -349,6 +374,8 @@ extension HistoryMetadataIndex {
             self.entries = entries
             self.indexByID = indexByID
             self.indexByKey = indexByKey
+            removedKeys = snapshot.removedKeys
+            self.droppedKeys = droppedKeys
         }
 
         /// Same generation and the very same session array (O(1); no element compare).
