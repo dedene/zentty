@@ -65,20 +65,24 @@ enum HistoryContentQuery {
     static let scanWindow = 20_000
     /// Characters of `search_text` fetched for grading.
     static let gradedPrefixLength = 65_536
+    /// Whether `search_text` is longer than the fetched prefix (characters, like `substr`).
+    private static func prefixCutColumn(_ row: String) -> String {
+        "length(\(row).search_text) > \(gradedPrefixLength)"
+    }
     static let matchingTurnsScanLimit = 200
 
     // MARK: - FTS
 
-    /// Columns: `m.id, m.session_id, m.role, m.at, substr(m.search_text, …)`, then the ranking
-    /// facts `s.updated_at, s.opens, s.last_opened_at, s.archived, s.main_repo_root, s.repo_root,
-    /// s.cwd`.
+    /// Columns: `m.id, m.session_id, m.role, m.at, substr(m.search_text, …)`, whether that prefix
+    /// was cut, then the ranking facts `s.updated_at, s.opens, s.last_opened_at, s.archived,
+    /// s.main_repo_root, s.repo_root, s.cwd`.
     static func messages(match: String, filters: Filters, limit: Int = messageLimit) -> Statement {
         var bindings: [AgentHistoryValue] = [.text(match)]
         let conditions = ["messages_fts MATCH ?"] + filterConditions(filters, row: "m", bindings: &bindings)
         bindings.append(.integer(Int64(limit)))
         let sql = """
             SELECT m.id, m.session_id, m.role, m.at, substr(m.search_text, 1, \(gradedPrefixLength)),
-                   \(sessionFactColumns)
+                   \(prefixCutColumn("m")), \(sessionFactColumns)
             FROM messages_fts f
             CROSS JOIN messages m ON m.id = f.rowid
             CROSS JOIN sessions s ON s.id = m.session_id
@@ -89,15 +93,15 @@ enum HistoryContentQuery {
         return Statement(sql: sql, bindings: bindings)
     }
 
-    /// Columns: `a.id, a.session_id, a.kind, a.at, substr(a.search_text, …), a.value`, then the
-    /// ranking facts as in `messages`.
+    /// Columns: `a.id, a.session_id, a.kind, a.at, substr(a.search_text, …), a.value`, whether
+    /// the prefix was cut, then the ranking facts as in `messages`.
     static func artifacts(match: String, filters: Filters, limit: Int = artifactLimit) -> Statement {
         var bindings: [AgentHistoryValue] = [.text(match)]
         let conditions = ["artifacts_fts MATCH ?"] + filterConditions(filters, row: "a", bindings: &bindings)
         bindings.append(.integer(Int64(limit)))
         let sql = """
             SELECT a.id, a.session_id, a.kind, a.at, substr(a.search_text, 1, \(gradedPrefixLength)), a.value,
-                   \(sessionFactColumns)
+                   \(prefixCutColumn("a")), \(sessionFactColumns)
             FROM artifacts_fts f
             CROSS JOIN artifacts a ON a.id = f.rowid
             CROSS JOIN sessions s ON s.id = a.session_id
@@ -126,7 +130,7 @@ enum HistoryContentQuery {
         bindings.append(.integer(Int64(limit)))
         let sql = """
             SELECT m.id, m.session_id, m.role, m.at, substr(m.search_text, 1, \(gradedPrefixLength)),
-                   \(sessionFactColumns)
+                   \(prefixCutColumn("m")), \(sessionFactColumns)
             FROM messages m
             CROSS JOIN sessions s ON s.id = m.session_id
             WHERE \(conditions.joined(separator: "\n  AND "))

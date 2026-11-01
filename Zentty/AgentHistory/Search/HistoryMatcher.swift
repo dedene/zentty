@@ -180,6 +180,17 @@ enum HistoryMatcher {
         return highlightRanges(for: occurrences, in: folded)
     }
 
+    /// Whether `term` occurs anywhere in `text`, credited or not (plain byte search).
+    static func contains(normalizedUTF8 text: UnsafeBufferPointer<UInt8>, term: HistoryQueryTerm) -> Bool {
+        guard !term.utf8.isEmpty, term.utf8.count <= text.count, let base = text.baseAddress else {
+            return false
+        }
+        return term.utf8.withUnsafeBufferPointer { needle in
+            guard let needleBase = needle.baseAddress else { return false }
+            return memmem(base, text.count, needleBase, needle.count) != nil
+        }
+    }
+
     /// Every credited occurrence of every term, sorted by position (then term index). Unlike
     /// `grade`, a term that is missing does not suppress the others.
     static func creditedOccurrences(

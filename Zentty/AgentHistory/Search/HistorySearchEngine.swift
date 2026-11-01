@@ -9,9 +9,10 @@ import os
 /// 1. plans the terms (`HistoryMatchPlan`); `.metadataOnly` returns an empty response;
 /// 2. walks the FTS tables newest first with every filter inside the ordered scan
 ///    (`HistoryContentQuery`), or, without a usable tokenizer, the newest `scanWindow` messages;
-/// 3. grades the first 64 KB of each candidate's `search_text` (a candidate whose match lies
-///    beyond that prefix still counts as a mid-word hit), artifacts with path boundaries and a
-///    0.9 discount;
+/// 3. grades the first 65,536 characters of each candidate's `search_text`, artifacts with path
+///    boundaries and a 0.9 discount. A longer candidate that does not grade counts as a mid-word
+///    hit only when the cut can be blamed: every term missing from the prefix is one SQL
+///    required (FTS or `instr`), and every term in the prefix has a credited occurrence;
 /// 4. ranks sessions (`HistoryRanker`), then attaches summaries, snippets, notes and title
 ///    highlights to the at most 30 winners and the enrichments.
 ///
@@ -94,7 +95,8 @@ final class HistorySearchEngine: @unchecked Sendable {
 
         let filters = HistoryContentQuery.Filters(query: query, plan: plan, scope: context.scope)
         let collector = HitCollector(
-            query: query, exclusions: exclusions, cancellation: cancellation, tuning: tuning)
+            query: query, sqlRequiredTerms: Set(plan.ftsTerms + plan.instrFilters), exclusions: exclusions,
+            cancellation: cancellation, tuning: tuning)
         let tuning = self.tuning
 
         let response: HistoryContentResponse = try withSearchReader(cancellation: cancellation) { db in
@@ -335,6 +337,8 @@ extension HistoryQuery {
 /// on the searching thread only.
 private final class HitCollector {
     let query: HistoryQuery
+    /// Folded terms every candidate row contains somewhere (FTS terms and `instr` filters).
+    let sqlRequiredTerms: Set<String>
     let exclusions: AgentHistoryExclusionMatcher
     let cancellation: HistorySearchCancellation
     let tuning: HistorySearchEngine.Tuning
@@ -347,11 +351,13 @@ private final class HitCollector {
 
     init(
         query: HistoryQuery,
+        sqlRequiredTerms: Set<String>,
         exclusions: AgentHistoryExclusionMatcher,
         cancellation: HistorySearchCancellation,
         tuning: HistorySearchEngine.Tuning
     ) {
         self.query = query
+        self.sqlRequiredTerms = sqlRequiredTerms
         self.exclusions = exclusions
         self.cancellation = cancellation
         self.tuning = tuning
@@ -370,8 +376,8 @@ private final class HitCollector {
             count += 1
             try beginRow()
             let sessionID = row.int64(1)
-            guard admitSession(sessionID, row: row, factsAt: 5) else { return }
-            guard let graded = grade(row, column: 4, mode: .text) else { return }
+            guard admitSession(sessionID, row: row, factsAt: 6) else { return }
+            guard let graded = grade(row, column: 4, isCut: row.bool(5), mode: .text) else { return }
             let role = AgentHistoryRole(rawValue: row.string(2)) ?? .agent
             hits.append(HistoryContentHit(
                 sessionID: sessionID, rowID: row.int64(0), role: HistoryHitRole(role), atMs: row.int64(3),
@@ -388,8 +394,8 @@ private final class HitCollector {
             try beginRow()
             let sessionID = row.int64(1)
             guard let kind = AgentHistoryArtifactKind(rawValue: row.string(2)),
-                  admitSession(sessionID, row: row, factsAt: 6),
-                  let graded = grade(row, column: 4, mode: kind == .path ? .path : .text)
+                  admitSession(sessionID, row: row, factsAt: 7),
+                  let graded = grade(row, column: 4, isCut: row.bool(6), mode: kind == .path ? .path : .text)
             else { return }
             hits.append(HistoryContentHit(
                 sessionID: sessionID, rowID: row.int64(0), role: .artifact(kind), atMs: row.int64(3),
@@ -426,24 +432,41 @@ private final class HitCollector {
         return true
     }
 
-    /// Grades the fetched `search_text` prefix. A row whose text was cut at the prefix length
-    /// and does not grade still matched the full text in SQL, so it counts as a mid-word hit.
-    /// (The cut is detected by byte count, so a long non-ASCII text just under the limit may
-    /// also get this credit.)
+    /// Grades the fetched `search_text` prefix. A row whose text was cut (`isCut`, counted in
+    /// characters like `substr`) and does not grade counts as a mid-word hit only when the cut
+    /// explains the miss (`cutHidesMatch`).
     private func grade(
         _ row: AgentHistoryRow,
         column: Int32,
+        isCut: Bool,
         mode: HistoryMatcher.BoundaryMode
     ) -> (quality: Double, isWordLevel: Bool)? {
         let graded: (quality: Double, isWordLevel: Bool)?? = row.withUTF8Bytes(column) { bytes in
             if let grade = HistoryMatcher.grade(normalizedUTF8: bytes, query: query, mode: mode) {
                 return (grade.quality, grade.isWordLevel)
             }
-            if bytes.count >= HistoryContentQuery.gradedPrefixLength {
+            if isCut, cutHidesMatch(bytes, mode: mode) {
                 return (HistoryMatchClass.midWord.credit, false)
             }
             return nil
         }
         return graded ?? nil
+    }
+
+    /// True when every term either has a credited occurrence in the prefix, or is absent from
+    /// it and SQL guarantees it lies beyond the cut. A term present in the prefix without credit
+    /// (a short mid-word hit, a hash or UUID) fails, as does a missing term SQL never checked.
+    private func cutHidesMatch(_ prefix: UnsafeBufferPointer<UInt8>, mode: HistoryMatcher.BoundaryMode) -> Bool {
+        var someTermBeyondCut = false
+        for term in query.terms {
+            if HistoryMatcher.contains(normalizedUTF8: prefix, term: term) {
+                guard HistoryMatcher.grade(normalizedUTF8: prefix, terms: [term], phraseText: nil, mode: mode) != nil
+                else { return false }
+            } else {
+                guard sqlRequiredTerms.contains(term.text) else { return false }
+                someTermBeyondCut = true
+            }
+        }
+        return someTermBeyondCut
     }
 }

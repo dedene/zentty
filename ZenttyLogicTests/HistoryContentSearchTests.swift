@@ -337,6 +337,30 @@ final class HistoryContentSearchTests: XCTestCase {
         XCTAssertFalse(result.isWordLevel)
     }
 
+    func test_long_row_fallback_needs_a_term_hidden_by_the_cut() throws {
+        let fixture = try Fixture(testCase: self)
+        // Over the prefix, but only an uncredited short mid-word occurrence of `log`.
+        let catalog = try fixture.addSession("catalog")
+        try fixture.addMessage(session: catalog, daysAgo: 1,
+                               text: "write the catalog entry " + String(repeating: "catalog entry ", count: 5_500))
+        // Not cut: 25,000 CJK characters are 75,000 bytes but fewer characters than the prefix.
+        let cjk = try fixture.addSession("cjk")
+        try fixture.addMessage(session: cjk, daysAgo: 1,
+                               text: String(repeating: "漢", count: 25_000) + " commit deadbeefcafe1234")
+        // Cut, `zebracorn` beyond it, but `xy` is a fifth short term SQL never filters on.
+        let unfiltered = try fixture.addSession("unfiltered")
+        try fixture.addMessage(session: unfiltered, daysAgo: 1,
+                               text: String(repeating: "ab cd ef gh ", count: 6_000) + "zebracorn")
+        let engine = try fixture.engine()
+
+        XCTAssertEqual(nativeIDs(try search(engine, "log", fixture: fixture)), [], "present but uncredited")
+        XCTAssertEqual(nativeIDs(try search(engine, "beef", fixture: fixture)), [], "hex guard, row not cut")
+        XCTAssertEqual(nativeIDs(try search(engine, "zebracorn ab cd ef gh xy", fixture: fixture)), [])
+        let control = try XCTUnwrap(try search(engine, "zebracorn ab cd ef gh", fixture: fixture).results.first)
+        XCTAssertEqual(control.session.nativeID, "unfiltered")
+        XCTAssertEqual(control.best.quality, HistoryMatchClass.midWord.credit, accuracy: 1e-9)
+    }
+
     func test_excluded_folder_hidden_in_content_tier() throws {
         let fixture = try Fixture(testCase: self)
         let secret = try fixture.addSession("secret", cwd: "/work/secret/app")
