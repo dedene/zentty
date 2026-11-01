@@ -28,10 +28,15 @@ extension HistorySearchEngine {
     }
 
     /// Matching turns when the query has content terms and some turn matches; otherwise the
-    /// first user prompt and the latest agent reply (`turnsAreMatches == false`).
-    func preview(sessionID: Int64, query: HistoryQuery) throws -> HistoryPreview {
+    /// first user prompt and the latest agent reply (`turnsAreMatches == false`). With
+    /// `expecting`, throws `sessionNotFound` once the row id belongs to another session.
+    func preview(
+        sessionID: Int64,
+        query: HistoryQuery,
+        expecting key: AgentHistorySessionKey? = nil
+    ) throws -> HistoryPreview {
         try withReadTransaction { db in
-            let summary = try admittedSummary(sessionID: sessionID, db: db)
+            let summary = try admittedSummary(sessionID: sessionID, expecting: key, db: db)
             if query.hasContentTerms(tokenizer: tokenizer) {
                 let matches = try matchingTurns(
                     sessionID: sessionID, query: query, limit: Self.defaultMatchingTurnsLimit, db: db)
@@ -58,10 +63,14 @@ extension HistorySearchEngine {
 
     /// The whole conversation, oldest first; the latest `transcriptLimit` turns when longer.
     /// Every term occurrence is highlighted; `firstMatchMessageID` is the first turn that grades
-    /// as a match.
-    func transcript(sessionID: Int64, query: HistoryQuery) throws -> HistoryTranscript {
+    /// as a match. `expecting` as for `preview`.
+    func transcript(
+        sessionID: Int64,
+        query: HistoryQuery,
+        expecting key: AgentHistorySessionKey? = nil
+    ) throws -> HistoryTranscript {
         try withReadTransaction { db in
-            _ = try admittedSummary(sessionID: sessionID, db: db)
+            _ = try admittedSummary(sessionID: sessionID, expecting: key, db: db)
             let (rows, total) = try latestTurnRows(sessionID: sessionID, limit: Self.transcriptLimit, db: db)
             var firstMatch: Int64?
             var turns: [HistoryTurnMatch] = []
@@ -96,11 +105,45 @@ extension HistorySearchEngine {
         }
     }
 
+    /// CLI `show`: among the visible sessions with this native id in `scope` (newest first),
+    /// the one `choose` picks, with its last `limit` turns. One read transaction, so the turns
+    /// are always the picked session's: the indexer can delete that session and give its row
+    /// id to another project's session between two separate reads. nil when `choose` picks
+    /// none. `choose` runs inside the transaction; keep it cheap.
+    func lastTurns(
+        nativeID: String,
+        agent: AgentHistoryAgent?,
+        scope: AgentHistoryScope,
+        limit: Int,
+        choose: ([AgentHistorySessionSummary]) throws -> AgentHistorySessionSummary?
+    ) throws -> HistorySessionTail? {
+        try withReadTransaction { db in
+            let candidates = try sessions(nativeID: nativeID, agent: agent, scope: scope, db: db)
+            guard let session = try choose(candidates) else { return nil }
+            guard candidates.contains(where: { $0.id == session.id }) else {
+                throw HistorySearchError.sessionNotFound
+            }
+            let (rows, total) = try latestTurnRows(sessionID: session.id, limit: max(0, limit), db: db)
+            return HistorySessionTail(session: session, turns: rows.map { $0.turn(highlights: []) }, total: total)
+        }
+    }
+
     /// Visible sessions with this native id (any agent, or one), newest first, in `scope`.
     func sessions(
         nativeID: String,
         agent: AgentHistoryAgent?,
         scope: AgentHistoryScope
+    ) throws -> [AgentHistorySessionSummary] {
+        try withReadTransaction { db in
+            try sessions(nativeID: nativeID, agent: agent, scope: scope, db: db)
+        }
+    }
+
+    private func sessions(
+        nativeID: String,
+        agent: AgentHistoryAgent?,
+        scope: AgentHistoryScope,
+        db: AgentHistoryDatabase
     ) throws -> [AgentHistorySessionSummary] {
         var bindings: [AgentHistoryValue] = [.text(nativeID)]
         guard let sourceCondition = enabledSourceCondition(&bindings) else { return [] }
@@ -118,10 +161,8 @@ extension HistorySearchEngine {
             + " WHERE " + conditions.joined(separator: " AND ")
             + " ORDER BY s.updated_at DESC, s.id DESC"
         let exclusions = self.exclusions
-        return try withReadTransaction { db in
-            try db.query(sql, bindings, map: AgentHistorySessionSummary.init(row:))
-                .filter { !exclusions.excludesCanonical($0.cwd) }
-        }
+        return try db.query(sql, bindings, map: AgentHistorySessionSummary.init(row:))
+            .filter { !exclusions.excludesCanonical($0.cwd) }
     }
 
     /// Visible, non-excluded sessions of enabled sources in `scope`.
@@ -181,8 +222,24 @@ extension HistorySearchEngine {
     /// The single admission point for per-session reads: the session's summary when search
     /// could show it (see `summaries(forSessionIDs:db:)`), otherwise `sessionNotFound`. Call it
     /// inside the read transaction before touching the session's messages.
-    private func admittedSummary(sessionID: Int64, db: AgentHistoryDatabase) throws -> AgentHistorySessionSummary {
-        guard let summary = try summaries(forSessionIDs: [sessionID], db: db)[sessionID] else {
+    ///
+    /// Row ids are reused: a deleted session's id goes to the next insert. So the row must
+    /// still be the summary's session (the metadata snapshot can predate the delete), and the
+    /// one the caller expects when it says.
+    private func admittedSummary(
+        sessionID: Int64,
+        expecting key: AgentHistorySessionKey? = nil,
+        db: AgentHistoryDatabase
+    ) throws -> AgentHistorySessionSummary {
+        guard let summary = try summaries(forSessionIDs: [sessionID], db: db)[sessionID],
+              key == nil || summary.key == key
+        else {
+            throw HistorySearchError.sessionNotFound
+        }
+        let row = try db.queryOne(
+            "SELECT source_id, native_id FROM sessions WHERE id = ?", [.integer(sessionID)]
+        ) { (sourceID: $0.int64(0), nativeID: $0.string(1)) }
+        guard let row, row.sourceID == summary.sourceID, row.nativeID == summary.nativeID else {
             throw HistorySearchError.sessionNotFound
         }
         return summary

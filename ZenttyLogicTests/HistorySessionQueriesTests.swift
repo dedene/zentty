@@ -129,6 +129,43 @@ final class HistorySessionQueriesTests: XCTestCase {
         XCTAssertEqual(all.total, 5)
     }
 
+    /// A deleted session's row id goes to the next insert. A per-session read by that id must
+    /// not pair the old session's summary (still in the metadata snapshot) with the new one's
+    /// messages.
+    func test_per_session_reads_refuse_a_row_id_reused_by_another_session() throws {
+        let fixture = try Fixture(testCase: self)
+        let mine = try fixture.addSession("mine", cwd: "/work/app")
+        try addConversation(fixture, session: mine, ["my prompt", "my reply"])
+        let staleEngine = try fixture.engine()
+        try fixture.store().deleteSession(id: mine)
+        let theirs = try fixture.addSession("theirs", cwd: "/work/web")
+        try addConversation(fixture, session: theirs, ["their prompt", "their reply"])
+        XCTAssertEqual(theirs, mine, "precondition: the row id was reused")
+
+        let query = Fixture.query("prompt")
+        func assertNotFound<T>(_ name: String, _ read: () throws -> T) {
+            XCTAssertThrowsError(try read(), name) {
+                XCTAssertEqual($0 as? HistorySearchError, .sessionNotFound, name)
+            }
+        }
+        assertNotFound("preview") { try staleEngine.preview(sessionID: mine, query: query) }
+        assertNotFound("transcript") { try staleEngine.transcript(sessionID: mine, query: query) }
+        assertNotFound("last turns") { try staleEngine.lastTurns(sessionID: mine, limit: 5) }
+        assertNotFound("matching turns") { try staleEngine.matchingTurns(sessionID: mine, query: query) }
+
+        // A fresh snapshot knows the row as "theirs"; the palette row still expects "mine".
+        let engine = try fixture.engine()
+        let mineKey = AgentHistorySessionKey(agent: .claude, nativeID: "mine")
+        let theirsKey = AgentHistorySessionKey(agent: .claude, nativeID: "theirs")
+        assertNotFound("preview, expecting mine") { try engine.preview(sessionID: mine, query: query, expecting: mineKey) }
+        assertNotFound("transcript, expecting mine") {
+            try engine.transcript(sessionID: mine, query: query, expecting: mineKey)
+        }
+        XCTAssertEqual(try engine.preview(sessionID: theirs, query: query, expecting: theirsKey).session.nativeID, "theirs")
+        XCTAssertEqual(try engine.transcript(sessionID: theirs, query: query, expecting: theirsKey).turns.map(\.text),
+                       ["their prompt", "their reply"])
+    }
+
     func test_sessions_by_native_id_respect_scope() throws {
         let fixture = try Fixture(testCase: self)
         let claude = try fixture.addSession("shared-id", agent: .claude, cwd: "/repos/app", repo: "/repos/app",

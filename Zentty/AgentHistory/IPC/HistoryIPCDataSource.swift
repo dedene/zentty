@@ -30,6 +30,12 @@ struct HistoryIPCTurnPage: Equatable, Sendable {
     let total: Int
 }
 
+/// The session `show` picked and its turns, from one read.
+struct HistoryIPCShowPage: Equatable, Sendable {
+    let session: AgentHistorySessionSummary
+    let page: HistoryIPCTurnPage
+}
+
 /// The index reads behind `zentty history`. Every method may block on SQLite, so callers stay
 /// off the main thread. Errors are `HistorySearchError`s.
 protocol HistoryIPCDataSource: Sendable {
@@ -43,11 +49,17 @@ protocol HistoryIPCDataSource: Sendable {
         limit: Int,
         cancellation: HistorySearchCancellation
     ) throws -> [HistoryIPCSearchHit]
-    /// Visible sessions with this native id in `scope`, newest first.
-    func sessions(nativeID: String, agent: AgentHistoryAgent?, scope: AgentHistoryScope) throws
-        -> [AgentHistorySessionSummary]
-    /// The session's last `limit` messages and its message count.
-    func lastTurns(sessionRowID: Int64, limit: Int) throws -> HistoryIPCTurnPage
+    /// Among the visible sessions with this native id in `scope` (newest first), the one
+    /// `choose` picks, with its last `limit` messages and its message count. Both come from one
+    /// read: a session's row id can be reused by another session once it is deleted. nil when
+    /// `choose` picks none.
+    func show(
+        nativeID: String,
+        agent: AgentHistoryAgent?,
+        scope: AgentHistoryScope,
+        limit: Int,
+        choose: ([AgentHistorySessionSummary]) -> AgentHistorySessionSummary?
+    ) throws -> HistoryIPCShowPage?
 }
 
 /// `HistoryIPCDataSource` over `AgentHistoryController`. It touches only the controller's
@@ -103,26 +115,24 @@ final class AgentHistoryIPCDataSource: HistoryIPCDataSource, @unchecked Sendable
             .map { HistoryIPCSearchHit(merged: $0, queryHasTerms: !query.terms.isEmpty) }
     }
 
-    func sessions(
+    func show(
         nativeID: String,
         agent: AgentHistoryAgent?,
-        scope: AgentHistoryScope
-    ) throws -> [AgentHistorySessionSummary] {
-        try requireEngine().sessions(nativeID: nativeID, agent: agent, scope: scope)
-    }
-
-    func lastTurns(sessionRowID: Int64, limit: Int) throws -> HistoryIPCTurnPage {
-        let page = try requireEngine().lastTurns(sessionID: sessionRowID, limit: limit)
-        return HistoryIPCTurnPage(
-            turns: page.turns.map { turn in
-                HistoryIPCTurnRecord(
-                    role: turn.role,
-                    atMs: Int64((turn.at.timeIntervalSince1970 * 1000).rounded()),
-                    text: turn.text
-                )
-            },
-            total: page.total
-        )
+        scope: AgentHistoryScope,
+        limit: Int,
+        choose: ([AgentHistorySessionSummary]) -> AgentHistorySessionSummary?
+    ) throws -> HistoryIPCShowPage? {
+        let tail = try requireEngine().lastTurns(
+            nativeID: nativeID, agent: agent, scope: scope, limit: limit, choose: choose)
+        guard let tail else { return nil }
+        let turns = tail.turns.map { turn in
+            HistoryIPCTurnRecord(
+                role: turn.role,
+                atMs: Int64((turn.at.timeIntervalSince1970 * 1000).rounded()),
+                text: turn.text
+            )
+        }
+        return HistoryIPCShowPage(session: tail.session, page: HistoryIPCTurnPage(turns: turns, total: tail.total))
     }
 
     /// Without an engine the index is closed: History was turned off, or the storage changed.

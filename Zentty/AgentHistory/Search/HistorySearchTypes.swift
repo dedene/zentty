@@ -210,6 +210,15 @@ struct HistoryTranscript: Equatable, Sendable {
     let isTruncated: Bool
 }
 
+/// The session `zentty history show` picked and its latest turns, read together.
+struct HistorySessionTail: Equatable, Sendable {
+    let session: AgentHistorySessionSummary
+    /// Oldest first, newest last.
+    let turns: [HistoryTurnMatch]
+    /// Every message the session has.
+    let total: Int
+}
+
 /// A per-query cancellation flag, checked by the content tier between rows and by SQLite's
 /// progress handler.
 final class HistorySearchCancellation: Sendable {

@@ -148,21 +148,23 @@ final class AgentHistorySearchAdapter: AgentHistorySearchServicing {
 
     func loadPreview(
         _ sessionID: Int64,
+        expecting key: AgentHistorySessionKey,
         query: HistoryQuery,
         completion: @escaping @MainActor (Result<HistoryPreview, Error>) -> Void
     ) -> AgentHistoryCancellable {
         read(completion: completion) { engine in
-            try engine.preview(sessionID: sessionID, query: query)
+            try engine.preview(sessionID: sessionID, query: query, expecting: key)
         }
     }
 
     func loadTranscript(
         _ sessionID: Int64,
+        expecting key: AgentHistorySessionKey,
         query: HistoryQuery,
         completion: @escaping @MainActor (Result<HistoryTranscript, Error>) -> Void
     ) -> AgentHistoryCancellable {
         read(completion: completion) { engine in
-            try engine.transcript(sessionID: sessionID, query: query)
+            try engine.transcript(sessionID: sessionID, query: query, expecting: key)
         }
     }
 

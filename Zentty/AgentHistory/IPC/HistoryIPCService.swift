@@ -201,30 +201,22 @@ struct HistoryIPCService {
         dataSource: any HistoryIPCDataSource
     ) throws -> HistoryShowIPCResponse {
         let agent = options.agent.flatMap(AgentHistoryAgent.init(rawValue:))
-        let candidates = try mapped(sessionID: options.sessionID) {
-            try dataSource.sessions(nativeID: options.sessionID, agent: agent, scope: scope)
-        }
         var outOfScope = 0
-        let admitted = candidates.filter { session in
-            let check = Self.admits(session, scope: scope, exclusions: caller.exclusions)
-            if !check.inScope {
-                outOfScope += 1
+        // The session and its turns come from one read (see `HistoryIPCDataSource.show`).
+        let shown = try mapped(sessionID: options.sessionID) {
+            try dataSource.show(nativeID: options.sessionID, agent: agent, scope: scope, limit: options.turns) {
+                Self.pick($0, scope: scope, exclusions: caller.exclusions, outOfScope: &outOfScope)
             }
-            return check.inScope && !check.excluded
         }
         if outOfScope > 0 {
             AgentHistoryLog.search.fault("IPC show dropped \(outOfScope, privacy: .public) out-of-scope sessions")
         }
-        // The most recently updated duplicate; ties go to the older row.
-        guard let session = admitted.max(by: { lhs, rhs in
-            lhs.updatedAtMs != rhs.updatedAtMs ? lhs.updatedAtMs < rhs.updatedAtMs : lhs.id > rhs.id
-        }) else {
+        guard let shown else {
             throw HistoryIPCError.notFound(options.sessionID)
         }
 
-        let page = try mapped(sessionID: options.sessionID) {
-            try dataSource.lastTurns(sessionRowID: session.id, limit: options.turns)
-        }
+        let session = shown.session
+        let page = shown.page
         let turns = page.turns.suffix(options.turns).map { record in
             let text = HistoryIPCText.truncateUTF8(record.text, maxBytes: HistoryIPC.maxTurnBytes)
             return HistoryIPCTurn(
@@ -254,6 +246,27 @@ struct HistoryIPCService {
             contentIsUntrusted: true
         )
         return try response.fittingByteBudget(Self.budget(for: .show(options)))
+    }
+
+    /// The most recently updated candidate the caller may see; ties go to the older row.
+    private static func pick(
+        _ candidates: [AgentHistorySessionSummary],
+        scope: AgentHistoryScope,
+        exclusions: AgentHistoryExclusionMatcher,
+        outOfScope: inout Int
+    ) -> AgentHistorySessionSummary? {
+        var admitted: [AgentHistorySessionSummary] = []
+        for session in candidates {
+            let check = admits(session, scope: scope, exclusions: exclusions)
+            if !check.inScope {
+                outOfScope += 1
+            } else if !check.excluded {
+                admitted.append(session)
+            }
+        }
+        return admitted.max { lhs, rhs in
+            lhs.updatedAtMs != rhs.updatedAtMs ? lhs.updatedAtMs < rhs.updatedAtMs : lhs.id > rhs.id
+        }
     }
 
     // MARK: - Helpers

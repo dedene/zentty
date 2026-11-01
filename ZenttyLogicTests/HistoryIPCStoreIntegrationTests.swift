@@ -126,6 +126,29 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
         XCTAssertEqual(shown.omittedTurns, 0)
     }
 
+    /// The indexer deletes the session `show` just resolved and ingests another project's
+    /// session, which SQLite gives the freed row id (`INTEGER PRIMARY KEY`, newest row). The
+    /// turns must still be the resolved session's, never the other project's.
+    func test_show_never_returns_turns_of_a_session_that_reused_the_row_id() throws {
+        let fixture = try Fixture(testCase: self)
+        let mine = try addSession(fixture, "mine", repo: Self.repoA, text: "my own notes")
+        let engine = try fixture.engine()
+        let dataSource = RowIDRacingDataSource(
+            base: AgentHistoryIPCDataSource(status: { Self.readyStatus }, engine: { engine }))
+        var reusedID: Int64?
+        dataSource.race = {
+            try fixture.store().deleteSession(id: mine)
+            reusedID = try self.addSession(fixture, "theirs", repo: Self.repoB, text: "the other project's secret")
+        }
+
+        let shown = try XCTUnwrap(try service(fixture).respond(
+            to: .show(HistoryShowIPCOptions(sessionID: "mine")), caller: caller(dataSource)).show)
+        XCTAssertEqual(reusedID, mine, "precondition: the other project's session reused the row id")
+        XCTAssertEqual(shown.sessionId, "mine")
+        XCTAssertEqual(shown.cwd, Self.repoA)
+        XCTAssertEqual(shown.turns.map(\.text), ["my own notes"])
+    }
+
     func test_tombstoned_excluded_child_and_disabled_source_sessions_are_invisible() throws {
         let fixture = try Fixture(testCase: self)
         try addSession(fixture, "visible", repo: Self.repoA, text: "needle visible")
@@ -296,5 +319,51 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
         let engine = try fixture.engine()
         let dataSource = AgentHistoryIPCDataSource(status: { Self.readyStatus }, engine: { engine })
         return try service(fixture).respond(to: command, caller: caller(dataSource, exclusions: exclusions))
+    }
+}
+
+/// Runs `race` (the indexer's writes) once, right after `show` resolved its session and before
+/// it reads that session's turns.
+private final class RowIDRacingDataSource: HistoryIPCDataSource, @unchecked Sendable {
+    let base: AgentHistoryIPCDataSource
+    var race: (() throws -> Void)?
+
+    init(base: AgentHistoryIPCDataSource) {
+        self.base = base
+    }
+
+    func availability() -> HistoryIPCAvailability { base.availability() }
+
+    func visibleSessionCount(scope: AgentHistoryScope) throws -> Int {
+        try base.visibleSessionCount(scope: scope)
+    }
+
+    func search(
+        query: HistoryQuery,
+        context: HistorySearchContext,
+        limit: Int,
+        cancellation: HistorySearchCancellation
+    ) throws -> [HistoryIPCSearchHit] {
+        try base.search(query: query, context: context, limit: limit, cancellation: cancellation)
+    }
+
+    func show(
+        nativeID: String,
+        agent: AgentHistoryAgent?,
+        scope: AgentHistoryScope,
+        limit: Int,
+        choose: ([AgentHistorySessionSummary]) -> AgentHistorySessionSummary?
+    ) throws -> HistoryIPCShowPage? {
+        try base.show(nativeID: nativeID, agent: agent, scope: scope, limit: limit) { candidates in
+            let picked = choose(candidates)
+            let race = self.race
+            self.race = nil
+            do {
+                try race?()
+            } catch {
+                XCTFail("the racing writes failed: \(error)")
+            }
+            return picked
+        }
     }
 }

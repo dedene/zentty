@@ -106,6 +106,7 @@ final class FakeAgentHistorySearch: AgentHistorySearchServicing {
 
     struct PendingLoad<Value> {
         let sessionID: Int64
+        let key: AgentHistorySessionKey
         let token: FakeAgentHistoryToken
         let completion: @MainActor (Result<Value, Error>) -> Void
     }
@@ -152,21 +153,23 @@ final class FakeAgentHistorySearch: AgentHistorySearchServicing {
 
     func loadPreview(
         _ sessionID: Int64,
+        expecting key: AgentHistorySessionKey,
         query: HistoryQuery,
         completion: @escaping @MainActor (Result<HistoryPreview, Error>) -> Void
     ) -> AgentHistoryCancellable {
         let token = FakeAgentHistoryToken()
-        pendingPreviews.append(PendingLoad(sessionID: sessionID, token: token, completion: completion))
+        pendingPreviews.append(PendingLoad(sessionID: sessionID, key: key, token: token, completion: completion))
         return token
     }
 
     func loadTranscript(
         _ sessionID: Int64,
+        expecting key: AgentHistorySessionKey,
         query: HistoryQuery,
         completion: @escaping @MainActor (Result<HistoryTranscript, Error>) -> Void
     ) -> AgentHistoryCancellable {
         let token = FakeAgentHistoryToken()
-        pendingTranscripts.append(PendingLoad(sessionID: sessionID, token: token, completion: completion))
+        pendingTranscripts.append(PendingLoad(sessionID: sessionID, key: key, token: token, completion: completion))
         return token
     }
 }

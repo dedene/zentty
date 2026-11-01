@@ -101,13 +101,16 @@ protocol AgentHistorySearchServicing: AnyObject {
         excluding sessionIDs: Set<Int64>,
         completion: @escaping @MainActor (Result<HistoryContentResponse, Error>) -> Void
     ) -> AgentHistoryCancellable
+    /// `key` is the session the row showed: the row id may belong to another session by now.
     func loadPreview(
         _ sessionID: Int64,
+        expecting key: AgentHistorySessionKey,
         query: HistoryQuery,
         completion: @escaping @MainActor (Result<HistoryPreview, Error>) -> Void
     ) -> AgentHistoryCancellable
     func loadTranscript(
         _ sessionID: Int64,
+        expecting key: AgentHistorySessionKey,
         query: HistoryQuery,
         completion: @escaping @MainActor (Result<HistoryTranscript, Error>) -> Void
     ) -> AgentHistoryCancellable

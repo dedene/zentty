@@ -31,7 +31,7 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
         }
 
         let previewFailed = expectation(description: "preview completion")
-        _ = adapter.loadPreview(7, query: query) { result in
+        _ = adapter.loadPreview(7, expecting: key, query: query) { result in
             guard case .failure(HistorySearchError.indexUnavailable) = result else {
                 return XCTFail("expected indexUnavailable, got \(result)")
             }
@@ -39,7 +39,7 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
         }
 
         var cancelledDelivered = false
-        let cancelled = adapter.loadTranscript(7, query: query) { _ in cancelledDelivered = true }
+        let cancelled = adapter.loadTranscript(7, expecting: key, query: query) { _ in cancelledDelivered = true }
         cancelled.cancel()
 
         wait(for: [contentDelivered, previewFailed], timeout: 2)

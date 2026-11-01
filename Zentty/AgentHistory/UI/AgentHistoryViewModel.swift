@@ -418,16 +418,17 @@ final class AgentHistoryViewModel: ObservableObject {
             preview = .loading
         }
         if detail == .transcript { transcript = .loading }
+        let key = row.key
         detailDebounceToken = scheduler.schedule(after: Self.detailCoalesce) { [weak self] in
-            self?.loadDetail(sessionID: sessionID)
+            self?.loadDetail(sessionID: sessionID, key: key)
         }
     }
 
-    private func loadDetail(sessionID: Int64) {
+    private func loadDetail(sessionID: Int64, key: AgentHistorySessionKey) {
         detailDebounceToken = nil
         let generation = detailGeneration
         let query = parsedQuery
-        previewToken = services.search.loadPreview(sessionID, query: query) { [weak self] result in
+        previewToken = services.search.loadPreview(sessionID, expecting: key, query: query) { [weak self] result in
             guard let self, self.detailGeneration == generation else { return }
             self.previewToken = nil
             if let value = Self.loadable(result) {
@@ -435,7 +436,7 @@ final class AgentHistoryViewModel: ObservableObject {
             }
         }
         if detail == .transcript {
-            loadTranscript(sessionID: sessionID, generation: generation)
+            loadTranscript(sessionID: sessionID, key: key, generation: generation)
         }
     }
 
@@ -449,11 +450,12 @@ final class AgentHistoryViewModel: ObservableObject {
             return
         }
         transcript = .loading
-        loadTranscript(sessionID: sessionID, generation: detailGeneration)
+        loadTranscript(sessionID: sessionID, key: row.key, generation: detailGeneration)
     }
 
-    private func loadTranscript(sessionID: Int64, generation: UInt64) {
-        transcriptToken = services.search.loadTranscript(sessionID, query: parsedQuery) { [weak self] result in
+    private func loadTranscript(sessionID: Int64, key: AgentHistorySessionKey, generation: UInt64) {
+        let query = parsedQuery
+        transcriptToken = services.search.loadTranscript(sessionID, expecting: key, query: query) { [weak self] result in
             guard let self, self.detailGeneration == generation, self.detail == .transcript else { return }
             self.transcriptToken = nil
             if let value = Self.loadable(result) {

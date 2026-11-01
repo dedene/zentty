@@ -422,6 +422,8 @@ final class AgentHistoryViewModelTests: XCTestCase {
         model.moveSelection(by: 1)
         scheduler.advance(by: 0.06)
         XCTAssertEqual(search.pendingPreviews.map(\.sessionID), [1, 3], "selection changes coalesce over 60 ms")
+        XCTAssertEqual(search.pendingPreviews.map(\.key), [summary(1).key, summary(3).key],
+                       "each load names the row's session, in case its row id is reused")
 
         let loaded = HistoryPreview(session: summary(3), turns: [], turnsAreMatches: false)
         search.pendingPreviews[1].completion(.success(loaded))
@@ -451,6 +453,7 @@ final class AgentHistoryViewModelTests: XCTestCase {
         XCTAssertTrue(search.pendingTranscripts[0].token.isCancelled)
         scheduler.advance(by: 0.06)
         XCTAssertEqual(search.pendingTranscripts.map(\.sessionID), [1, 2])
+        XCTAssertEqual(search.pendingTranscripts.map(\.key), [summary(1).key, summary(2).key])
         let transcript = HistoryTranscript(turns: [], firstMatchMessageID: nil, isTruncated: false)
         search.pendingTranscripts[1].completion(.success(transcript))
         XCTAssertEqual(model.transcript, .loaded(transcript))

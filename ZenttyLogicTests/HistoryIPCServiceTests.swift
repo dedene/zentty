@@ -246,7 +246,7 @@ final class HistoryIPCServiceTests: XCTestCase {
             XCTAssertEqual($0 as? HistoryIPCError, .notFound("missing"))
         }
 
-        // A session that vanishes between the lookup and the turn read.
+        // The index refuses the session it picked (gone, or no longer the same session).
         let session = Self.summary(id: 1, repo: Self.repo)
         fake.sessionsByID = [session.nativeID: [session]]
         fake.turnError = HistorySearchError.sessionNotFound
@@ -441,19 +441,21 @@ private final class FakeDataSource: HistoryIPCDataSource, @unchecked Sendable {
         return hits
     }
 
-    func sessions(nativeID: String, agent: AgentHistoryAgent?, scope: AgentHistoryScope) throws
-        -> [AgentHistorySessionSummary] {
+    func show(
+        nativeID: String,
+        agent: AgentHistoryAgent?,
+        scope: AgentHistoryScope,
+        limit: Int,
+        choose: ([AgentHistorySessionSummary]) -> AgentHistorySessionSummary?
+    ) throws -> HistoryIPCShowPage? {
         calls.append("sessions")
         sessionAgents.append(agent)
-        return sessionsByID[nativeID] ?? []
-    }
-
-    func lastTurns(sessionRowID: Int64, limit: Int) throws -> HistoryIPCTurnPage {
+        guard let session = choose(sessionsByID[nativeID] ?? []) else { return nil }
         calls.append("turns")
-        turnRequests.append(TurnRequest(sessionRowID: sessionRowID, limit: limit))
+        turnRequests.append(TurnRequest(sessionRowID: session.id, limit: limit))
         if let turnError {
             throw turnError
         }
-        return turnPage
+        return HistoryIPCShowPage(session: session, page: turnPage)
     }
 }
