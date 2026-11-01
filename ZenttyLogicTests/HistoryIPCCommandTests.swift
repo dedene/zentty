@@ -165,6 +165,44 @@ final class HistoryIPCCommandTests: XCTestCase {
         )
     }
 
+    func test_echoed_values_are_capped_and_escaped() throws {
+        let flood = String(repeating: "a", count: 10_000)
+        let floodErrors: [HistoryIPCError] = [
+            .unexpectedArgument(flood),
+            .unknownSubcommand(flood),
+            .invalidValue("--agent", flood),
+            .invalidValue("--limit", flood),
+            .invalidValue("--turns", flood),
+            .invalidValue("--session-id", flood),
+            .notFound(flood),
+        ]
+        for error in floodErrors {
+            let message = error.localizedDescription
+            XCTAssertLessThan(message.count, 160, "\(error) echoes the full argument")
+            XCTAssertTrue(message.contains(String(repeating: "a", count: 80) + "…"), "\(error)")
+            XCTAssertFalse(message.contains(String(repeating: "a", count: 81)), "\(error)")
+        }
+        XCTAssertLessThan(HistoryIPCError.unexpectedArgument(flood).localizedDescription.count, 120)
+        XCTAssertTrue(HistoryIPCError.unexpectedArgument(flood).localizedDescription.hasSuffix("…'."))
+
+        // Real parse paths: an unknown flag and an unknown subcommand.
+        let hostile = "--x\u{1B}]0;pwned\u{07}\u{1B}[31m" + flood
+        XCTAssertThrowsError(
+            try HistoryIPCCommand.parse(subcommand: "history-search", arguments: ["--query", "x", hostile])
+        ) { error in
+            XCTAssertEqual(error as? HistoryIPCError, .unexpectedArgument(hostile))
+            XCTAssertFalse(error.localizedDescription.contains("\u{1B}"))
+            XCTAssertFalse(error.localizedDescription.contains("\u{07}"))
+            XCTAssertLessThan(error.localizedDescription.count, 160)
+        }
+        XCTAssertThrowsError(try HistoryIPCCommand.parse(subcommand: hostile, arguments: [])) { error in
+            XCTAssertEqual(error as? HistoryIPCError, .unknownSubcommand(hostile))
+            XCTAssertFalse(error.localizedDescription.contains("\u{1B}"))
+            XCTAssertFalse(error.localizedDescription.contains("\u{07}"))
+            XCTAssertLessThan(error.localizedDescription.count, 160)
+        }
+    }
+
     func test_make_request_requires_socket_and_routing_environment() throws {
         let command = HistoryIPCCommand.search(HistorySearchIPCOptions(query: "x"))
         for missingKey in ["ZENTTY_INSTANCE_SOCKET", "ZENTTY_PANE_TOKEN", "ZENTTY_WORKLANE_ID", "ZENTTY_PANE_ID"] {
