@@ -78,7 +78,10 @@ final class AgentHistoryPathsTests: XCTestCase {
         XCTAssertEqual(paths.walURL.path, "/x/AgentHistory/index.sqlite-wal")
         XCTAssertEqual(paths.shmURL.path, "/x/AgentHistory/index.sqlite-shm")
         XCTAssertEqual(paths.stateURL.path, "/x/AgentHistory/state.json")
-        XCTAssertEqual(paths.lockURL.path, "/x/AgentHistory/index.lock")
+        // Beside the directory, so deleting the index never unlinks a held lock.
+        XCTAssertEqual(paths.lockURL.path, "/x/AgentHistory.setup.lock")
+        XCTAssertEqual(paths.writerLockURL.path, "/x/AgentHistory.writer.lock")
+        XCTAssertEqual(paths.presenceLockURL.path, "/x/AgentHistory.presence.lock")
 
         // 2026-10-31 10:15:00 UTC
         let date = Date(timeIntervalSince1970: 1_793_441_700)

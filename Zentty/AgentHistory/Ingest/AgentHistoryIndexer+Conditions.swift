@@ -155,6 +155,26 @@ extension AgentHistoryIndexer {
 
     // MARK: - Index ownership
 
+    /// True once this indexer marks itself present (now, or already). Busy only while another
+    /// instance deletes the index: stand by and try again. Any other failure fails the indexer.
+    func acquirePresenceLockOrStandBy() -> Bool {
+        if presenceLock?.isHeld == true {
+            return true
+        }
+        do {
+            presenceLock = try storage.acquirePresenceLock(timeout: writerLockWait)
+            return true
+        } catch let error as AgentHistoryDatabaseError where error.kind == .busy {
+            enterStandby()
+        } catch let error as AgentHistoryDatabaseError {
+            AgentHistoryLog.indexer.error("Agent History could not lock the index \(error.description, privacy: .public)")
+            fail(Self.failureReason(for: error))
+        } catch {
+            fail(.openFailed(code: -1))
+        }
+        return false
+    }
+
     /// True when this indexer owns the index (now, or already). A busy lock means another
     /// instance indexes: stand by. Any other failure fails the indexer.
     func acquireWriterLockOrStandBy() -> Bool {

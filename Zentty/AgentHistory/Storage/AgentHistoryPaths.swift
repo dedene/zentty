@@ -11,8 +11,12 @@ struct AgentHistoryPaths: Equatable, Sendable {
     static let databaseFileName = "index.sqlite"
     static let stateFileName = "state.json"
     static let removalsFileName = "removals.json"
-    static let lockFileName = "index.lock"
-    static let writerLockFileName = "index.writer.lock"
+    /// Lock files sit beside the directory, never in it: "Delete Index" removes the directory,
+    /// and a lock unlinked with it would let the next instance lock a fresh inode while the old
+    /// holder still writes. `AgentHistory.setup.lock`, `.writer.lock`, `.presence.lock`.
+    static let lockFileSuffix = ".setup.lock"
+    static let writerLockFileSuffix = ".writer.lock"
+    static let presenceLockFileSuffix = ".presence.lock"
     static let corruptFilePrefix = "index.corrupt-"
     static let corruptFileSuffix = ".sqlite"
 
@@ -24,10 +28,19 @@ struct AgentHistoryPaths: Equatable, Sendable {
     var stateURL: URL { directoryURL.appendingPathComponent(Self.stateFileName, isDirectory: false) }
     /// The removed-sessions list (`AgentHistoryRemovalLedger`); survives Rebuild and quarantine.
     var removalsURL: URL { directoryURL.appendingPathComponent(Self.removalsFileName, isDirectory: false) }
+    /// Holds the lock files: the directory's parent, so deleting the index never unlinks them.
+    var lockDirectoryURL: URL { directoryURL.deletingLastPathComponent() }
     /// `flock`ed while one process creates, migrates or quarantines the index.
-    var lockURL: URL { directoryURL.appendingPathComponent(Self.lockFileName, isDirectory: false) }
+    var lockURL: URL { siblingLockURL(Self.lockFileSuffix) }
     /// `flock`ed for as long as one process's indexer owns the index (`AgentHistoryWriterLock`).
-    var writerLockURL: URL { directoryURL.appendingPathComponent(Self.writerLockFileName, isDirectory: false) }
+    var writerLockURL: URL { siblingLockURL(Self.writerLockFileSuffix) }
+    /// Shared-`flock`ed by every running indexer, owner or standby (`AgentHistoryPresenceLock`);
+    /// "Delete Index" takes it exclusively.
+    var presenceLockURL: URL { siblingLockURL(Self.presenceLockFileSuffix) }
+
+    private func siblingLockURL(_ suffix: String) -> URL {
+        lockDirectoryURL.appendingPathComponent(directoryURL.lastPathComponent + suffix, isDirectory: false)
+    }
 
     /// `index.corrupt-20261031T101500Z.sqlite`: UTC, ISO 8601 basic format.
     func corruptDatabaseURL(at date: Date) -> URL {

@@ -185,32 +185,37 @@ final class AgentHistoryController {
     }
 
     /// Stops the indexer, then either deletes the whole directory and the consent (D8) or just
-    /// turns Agent History off. `completion` runs on main once done.
-    func disable(deleteIndex: Bool, completion: @escaping @MainActor () -> Void) {
+    /// turns Agent History off. `completion` runs on main once done, with what happened.
+    ///
+    /// The delete holds exclusive lifecycle ownership (`AgentHistoryStorage.withExclusiveOwnership`)
+    /// from before the directory goes until consent is reset. While another Zentty instance runs
+    /// Agent History on the same index (owning it or standing by to take over) nothing is
+    /// deleted, consent stays, this instance's indexer starts again and the outcome is
+    /// `.refusedAnotherInstance`.
+    func disable(deleteIndex: Bool, completion: @escaping @MainActor (AgentHistoryDisableOutcome) -> Void) {
         guard let storage = storageInstance else {
-            completion()
+            completion(.failed)
             return
         }
         stateChangeSequence &+= 1
         let indexer = detachIndexer()
-        let deliver = AgentHistoryMainDelivery<AgentHistoryLoadedState> { [weak self] loaded in
+        let deliver = AgentHistoryMainDelivery<(AgentHistoryLoadedState, AgentHistoryDisableOutcome)> {
+            [weak self] loaded, outcome in
             self?.applyState(loaded)
-            completion()
+            completion(outcome)
         }
         withStateStore { store in
+            // Releases this instance's writer and presence locks: they would refuse the delete too.
             indexer?.stopAndWait()
             storage.readers.closeAll()
+            let outcome: AgentHistoryDisableOutcome
             if deleteIndex {
-                do {
-                    try storage.removeEverything()
-                } catch {
-                    AgentHistoryLog.indexer.error("Agent History couldn't delete its index directory")
-                }
-                store.resetAfterDelete()
+                outcome = Self.deleteEverything(storage: storage, store: store)
             } else {
                 Self.write(store) { $0.enabled = false }
+                outcome = .turnedOff
             }
-            deliver.send(AgentHistoryLoadedState(store: store, state: store.current))
+            deliver.send((AgentHistoryLoadedState(store: store, state: store.current), outcome))
         }
     }
 
@@ -255,6 +260,33 @@ final class AgentHistoryController {
         withStateStore { store in
             Self.write(store, mutate)
             deliver.send(AgentHistoryLoadedState(store: store, state: store.current))
+        }
+    }
+
+    /// Removes the directory and resets consent under exclusive ownership. On the control queue.
+    private nonisolated static func deleteEverything(
+        storage: AgentHistoryStorage,
+        store: AgentHistoryStateStore
+    ) -> AgentHistoryDisableOutcome {
+        do {
+            return try storage.withExclusiveOwnership { () -> AgentHistoryDisableOutcome in
+                var outcome = AgentHistoryDisableOutcome.deleted
+                do {
+                    try storage.removeEverything()
+                } catch {
+                    AgentHistoryLog.indexer.error("Agent History couldn't delete its index directory")
+                    outcome = .failed
+                }
+                // Still owned: no instance starts on the index before consent is gone.
+                store.resetAfterDelete()
+                return outcome
+            }
+        } catch let error as AgentHistoryDatabaseError where error.kind == .busy {
+            AgentHistoryLog.indexer.info("Agent History kept its index: another Zentty instance is using it")
+            return .refusedAnotherInstance
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History couldn't take ownership of its index to delete it")
+            return .failed
         }
     }
 
@@ -452,6 +484,20 @@ final class AgentHistoryController {
             handler(next)
         }
     }
+}
+
+/// What `disable(deleteIndex:completion:)` did.
+enum AgentHistoryDisableOutcome: Equatable, Sendable {
+    /// Agent History is off; the index is kept.
+    case turnedOff
+    /// The directory and the consent are gone.
+    case deleted
+    /// Another Zentty instance runs Agent History on this index (owner or standby): nothing was
+    /// deleted, consent is kept. Quitting it, or turning Agent History off there, lets it through.
+    case refusedAnotherInstance
+    /// The directory could not be deleted (or locked for it). Consent is reset only when the
+    /// delete was attempted.
+    case failed
 }
 
 /// `state.json` as read or written on the control queue, with the store that holds it.

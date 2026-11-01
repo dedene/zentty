@@ -28,11 +28,11 @@ struct AgentHistoryWriterHandle: Sendable {
 /// Owns the on-disk lifecycle of the Agent History index: directory, permissions, schema
 /// creation and migration, corruption quarantine, newer-schema refusal, and the reader pool.
 ///
-/// Confinement: `openWriter`, `quarantineCorruptDatabase`, `removeIndexFiles` and
-/// `removeEverything` run on the indexer queue (the writer's owner); the first three only while
-/// holding the writer lock (`acquireWriterLock`), so another instance's writer never loses its
-/// files. `availability`, `tokenizer`
-/// and `readers` are safe from any thread (lock-protected).
+/// Confinement: `openWriter`, `quarantineCorruptDatabase` and `removeIndexFiles` run on the
+/// indexer queue (the writer's owner) while holding the writer lock (`acquireWriterLock`), so
+/// another instance's writer never loses its files. `removeEverything` runs only inside
+/// `withExclusiveOwnership` (no indexer runs anywhere). `availability`, `tokenizer` and
+/// `readers` are safe from any thread (lock-protected).
 final class AgentHistoryStorage: @unchecked Sendable {
     struct Options: Sendable {
         var readerCount = 3
@@ -126,16 +126,45 @@ final class AgentHistoryStorage: @unchecked Sendable {
         }
     }
 
-    /// Takes exclusive ownership of the index for writing (see `AgentHistoryWriterLock`),
-    /// creating the directory first. Throws `.busy` when another indexer keeps it past `timeout`.
+    /// Takes exclusive ownership of the index for writing (see `AgentHistoryWriterLock`). Throws
+    /// `.busy` when another indexer keeps it past `timeout`. The lock file sits beside the index
+    /// directory, so this never creates the directory (`openWriter` does).
     func acquireWriterLock(timeout: TimeInterval) throws -> AgentHistoryWriterLock {
+        try ensureLockDirectory()
+        return try AgentHistoryWriterLock(url: paths.writerLockURL, timeout: timeout)
+    }
+
+    /// Marks a running indexer, owner or standby (`AgentHistoryPresenceLock`, shared). Busy only
+    /// while another instance deletes the index. Never creates the index directory.
+    func acquirePresenceLock(timeout: TimeInterval) throws -> AgentHistoryPresenceLock {
+        try ensureLockDirectory()
+        return try AgentHistoryPresenceLock(url: paths.presenceLockURL, timeout: timeout, exclusive: false)
+    }
+
+    /// Exclusive lifecycle ownership for "Delete Index" (D8): the presence lock exclusively (no
+    /// indexer, owner or standby, runs on this index in any instance) and the writer lock (no
+    /// indexer-less purge is writing), both held across `body`. Deleting the directory and
+    /// resetting consent therefore finish before any instance can start on the index again, and
+    /// the lock files outlive the directory (they sit beside it). Stop this process's indexer
+    /// first: its own presence counts too. Throws `.busy`, without running `body`, when another
+    /// instance keeps either lock past `timeout`. Never creates the index directory.
+    func withExclusiveOwnership<T>(timeout: TimeInterval = 1, _ body: () throws -> T) throws -> T {
+        try ensureLockDirectory()
+        let presence = try AgentHistoryPresenceLock(url: paths.presenceLockURL, timeout: timeout, exclusive: true)
+        defer { presence.release() }
+        let writer = try AgentHistoryWriterLock(url: paths.writerLockURL, timeout: timeout)
+        defer { writer.release() }
+        return try body()
+    }
+
+    /// Creates the directory that holds the lock files (the index directory's parent).
+    private func ensureLockDirectory() throws {
         do {
-            try ensureDirectory()
+            try fileManager.createDirectory(at: paths.lockDirectoryURL, withIntermediateDirectories: true)
         } catch {
             throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
-                                            message: "cannot create index directory")
+                                            message: "cannot create the lock directory")
         }
-        return try AgentHistoryWriterLock(url: paths.writerLockURL, timeout: timeout)
     }
 
     /// Creates the directory and holds the cross-process setup lock (`AgentHistorySetupLock`)
@@ -368,6 +397,7 @@ final class AgentHistoryStorage: @unchecked Sendable {
     }
 
     /// Removes the whole directory (index, corrupt copies, `state.json`) with readers fenced.
+    /// Only inside `withExclusiveOwnership`: another instance may otherwise still write here.
     func removeEverything() throws {
         try readers.fenced {
             if fileManager.fileExists(atPath: paths.directoryURL.path) {

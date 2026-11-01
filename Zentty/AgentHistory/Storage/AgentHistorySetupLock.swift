@@ -2,26 +2,33 @@ import Darwin
 import Foundation
 import SQLite3
 
-/// An exclusive `flock` on `index.lock` beside the index, held while `openWriter` creates,
+/// An exclusive `flock` on `AgentHistory.setup.lock` beside the index, held while `openWriter` creates,
 /// migrates or quarantines the index. Zentty instances of one flavor share the directory: without
 /// the lock two of them could both see a missing or empty file, and one could move aside (and
 /// delete the WAL of) an index the other had just built.
 ///
 /// `flock` locks belong to the open file description, so two locks in one process exclude each
 /// other too: a holder must not take it again. Confinement: the indexer queue, like `openWriter`.
+/// The same primitive backs the writer and presence locks; `shared` takes `LOCK_SH`.
 final class AgentHistorySetupLock {
     private var descriptor: Int32
 
     /// Waits up to `timeout` for the lock. Throws `.busy` when another holder keeps it that long and
     /// `.cantOpen` when the lock file can't be opened.
-    init(url: URL, timeout: TimeInterval, busyMessage: String = "another process is setting up the index") throws {
+    init(
+        url: URL,
+        timeout: TimeInterval,
+        shared: Bool = false,
+        busyMessage: String = "another process is setting up the index"
+    ) throws {
         let fd = Darwin.open(url.path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else {
             throw AgentHistoryDatabaseError(kind: .cantOpen, code: SQLITE_CANTOPEN, extendedCode: SQLITE_CANTOPEN,
                                             message: "cannot open the index lock file")
         }
+        let operation = (shared ? LOCK_SH : LOCK_EX) | LOCK_NB
         let deadline = Date().addingTimeInterval(timeout)
-        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+        while flock(fd, operation) != 0 {
             let failure = errno
             if failure == EINTR { continue }
             guard failure == EWOULDBLOCK, Date() < deadline else {
@@ -50,7 +57,7 @@ final class AgentHistorySetupLock {
     }
 }
 
-/// Exclusive ownership of the index for writing: an `flock` on `index.writer.lock`, held by one
+/// Exclusive ownership of the index for writing: an `flock` on `AgentHistory.writer.lock`, held by one
 /// indexer from start to stop. Zentty instances of one flavor share the index; only the holder
 /// opens a writer, rebuilds, quarantines or purges, so no instance ever deletes or renames files
 /// another one is writing (a second instance would keep committing to an unlinked inode and,
@@ -66,6 +73,41 @@ final class AgentHistoryWriterLock: @unchecked Sendable {
     init(url: URL, timeout: TimeInterval) throws {
         held = try AgentHistorySetupLock(url: url, timeout: timeout,
                                          busyMessage: "another Zentty is indexing")
+    }
+
+    var isHeld: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return held != nil
+    }
+
+    /// Idempotent.
+    func release() {
+        lock.lock()
+        let released = held
+        held = nil
+        lock.unlock()
+        released?.unlock()
+    }
+
+    deinit {
+        release()
+    }
+}
+
+/// Says "an indexer runs on this index" across processes: a shared `flock` on
+/// `AgentHistory.presence.lock`, held by every indexer, owner or standby, from start to stop.
+/// "Delete Index" takes it exclusively (`AgentHistoryStorage.withExclusiveOwnership`), so it
+/// never deletes files another instance writes, and never deletes an index a standby instance
+/// would rebuild with its own consent the moment the owner lets go. Thread-safe.
+final class AgentHistoryPresenceLock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: AgentHistorySetupLock?
+
+    /// Waits up to `timeout`; throws `.busy` when a holder of the other kind keeps it that long.
+    init(url: URL, timeout: TimeInterval, exclusive: Bool) throws {
+        held = try AgentHistorySetupLock(url: url, timeout: timeout, shared: !exclusive,
+                                         busyMessage: "another Zentty is using Agent History")
     }
 
     var isHeld: Bool {

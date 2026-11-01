@@ -114,6 +114,9 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     var configuration: AgentHistoryIndexerConfiguration
     /// Held from start to stop (`AgentHistoryWriterLock`); released on failure.
     var writerLock: AgentHistoryWriterLock?
+    /// Held from start to stop, standby and failure included (`AgentHistoryPresenceLock`), so
+    /// another instance's "Delete Index" never runs while this one may write or rebuild.
+    var presenceLock: AgentHistoryPresenceLock?
     var writer: AgentHistoryDatabase?
     var store: AgentHistoryStore?
     var tokenizer: AgentHistoryTokenizer?
@@ -337,7 +340,7 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         guard lifecycle == .idle || lifecycle == .standby, !cancellation.isSet else {
             return
         }
-        guard acquireWriterLockOrStandBy() else {
+        guard acquirePresenceLockOrStandBy(), acquireWriterLockOrStandBy() else {
             return
         }
         lifecycle = .running
@@ -418,6 +421,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         writer = nil
         store = nil
         releaseWriterLock()
+        presenceLock?.release()
+        presenceLock = nil
         workQueue = AgentHistoryWorkQueue()
         setState(.off)
         publish(force: true)

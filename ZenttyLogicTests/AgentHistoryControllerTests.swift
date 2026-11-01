@@ -241,11 +241,14 @@ final class AgentHistoryControllerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
 
         let done = expectation(description: "disabled")
+        var outcome: AgentHistoryDisableOutcome?
         fixture.controller.disable(deleteIndex: true) {
+            outcome = $0
             done.fulfill()
         }
         wait(for: [done], timeout: 10)
 
+        XCTAssertEqual(outcome, .deleted)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.directoryURL.path))
         XCTAssertEqual(fixture.controller.status.state, .off)
         XCTAssertFalse(fixture.controller.status.isEnabled)
@@ -257,6 +260,83 @@ final class AgentHistoryControllerTests: XCTestCase {
         XCTAssertFalse(state.enabled)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.directoryURL.path),
                        "reading the reset state never recreates the directory")
+    }
+
+    /// Another "process" on the same directory: its own storage (reader pool, lock descriptors)
+    /// and indexer, as a second Zentty of the same flavor would have.
+    private func startOtherInstance(_ fixture: Fixture) -> AgentHistoryIndexer {
+        let sources: [any AgentHistorySource] = [fixture.claude, fixture.codex]
+        let other = AgentHistoryIndexer(
+            storage: AgentHistoryStorage(paths: fixture.paths),
+            stateStore: AgentHistoryStateStore(fileURL: fixture.paths.stateURL),
+            makeSources: { sources },
+            configuration: AgentHistoryIndexerConfiguration(
+                enabledAgents: Set(AgentHistoryAgent.allCases), excludedFolders: []
+            ),
+            systemConditions: FakeSystemConditions(),
+            onStatusChange: { _ in },
+            onSnapshotChange: { _ in }
+        )
+        other.writerLockWait = 0.05
+        other.standbyRetryInterval = 0.1
+        addTeardownBlock { other.stop(timeout: 2) }
+        other.start()
+        return other
+    }
+
+    private static func isStandingBy(_ status: AgentHistoryStatus) -> Bool {
+        if case .paused(.anotherInstance, _) = status.state { return true }
+        return false
+    }
+
+    func test_delete_refuses_while_another_instance_owns_the_index() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        let other = startOtherInstance(fixture)
+        other.drainSynchronouslyForTesting()
+        XCTAssertTrue(other.isWriterOpenForTesting)
+        XCTAssertTrue(launch(fixture.controller))
+        waitForStatus(fixture.controller, "standing by") { Self.isStandingBy($0) }
+
+        let done = expectation(description: "disable answered")
+        var outcome: AgentHistoryDisableOutcome?
+        fixture.controller.disable(deleteIndex: true) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(outcome, .refusedAnotherInstance)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path),
+                      "the owner's index is never deleted under it")
+        XCTAssertTrue(other.isWriterOpenForTesting)
+        XCTAssertNotNil(persistedState(fixture.paths).consentedAt, "a refused delete keeps consent")
+        XCTAssertTrue(fixture.controller.status.hasConsented)
+    }
+
+    func test_delete_refuses_while_another_instance_stands_by() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+        let other = startOtherInstance(fixture)
+        other.drainSynchronouslyForTesting()
+        XCTAssertTrue(Self.isStandingBy(other.currentStatus))
+
+        let done = expectation(description: "disable answered")
+        var outcome: AgentHistoryDisableOutcome?
+        fixture.controller.disable(deleteIndex: true) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(outcome, .refusedAnotherInstance)
+
+        // The standby instance would take over the moment the lock frees and rebuild the index
+        // with its own consent, so the delete would not stick.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
+        XCTAssertNotNil(persistedState(fixture.paths).consentedAt)
+        XCTAssertTrue(fixture.controller.status.hasConsented)
     }
 
     // MARK: - Observers

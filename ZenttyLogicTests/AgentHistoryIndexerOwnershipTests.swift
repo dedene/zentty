@@ -130,4 +130,48 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
         indexer.drainSynchronouslyForTesting()
         XCTAssertEqual(try harness.count("SELECT count(*) FROM sessions"), 2)
     }
+
+    // MARK: - Lock files outside the index directory
+
+    /// Delete Index removes the whole directory. A writer lock kept inside it would go with it,
+    /// and the next instance would lock a fresh inode while the owner still writes.
+    func test_writer_lock_survives_removal_of_the_index_directory() throws {
+        let index = AgentHistoryTestIndex(testCase: self)
+        try index.openWriter()
+        index.closeWriter()
+        let owner = try index.storage.acquireWriterLock(timeout: 0)
+        defer { owner.release() }
+
+        try FileManager.default.removeItem(at: index.paths.directoryURL)
+
+        let other = AgentHistoryStorage(paths: index.paths)
+        XCTAssertThrowsError(try other.acquireWriterLock(timeout: 0), "the owner still holds the index") { error in
+            XCTAssertEqual((error as? AgentHistoryDatabaseError)?.kind, .busy)
+        }
+    }
+
+    func test_exclusive_ownership_is_refused_while_another_instance_is_present() throws {
+        let index = AgentHistoryTestIndex(testCase: self)
+        try index.openWriter()
+        index.closeWriter()
+        let standby = try index.storage.acquirePresenceLock(timeout: 0)
+        let other = AgentHistoryStorage(paths: index.paths)
+
+        var ran = false
+        XCTAssertThrowsError(try other.withExclusiveOwnership(timeout: 0) { ran = true }) { error in
+            XCTAssertEqual((error as? AgentHistoryDatabaseError)?.kind, .busy)
+        }
+        XCTAssertFalse(ran)
+
+        standby.release()
+        try other.withExclusiveOwnership(timeout: 0) {
+            try other.removeEverything()
+            XCTAssertThrowsError(try index.storage.acquirePresenceLock(timeout: 0),
+                                 "no indexer starts while the delete owns the index")
+            XCTAssertThrowsError(try index.storage.acquireWriterLock(timeout: 0))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: index.paths.directoryURL.path),
+                       "taking ownership never recreates the directory")
+        XCTAssertNoThrow(try index.storage.acquirePresenceLock(timeout: 0).release())
+    }
 }
