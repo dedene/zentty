@@ -1307,6 +1307,34 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         try OverlayFloatEntry.json(worklaneStore.overlayFloatEntries(targeting: paneID))
     }
 
+    // MARK: - `zentty pane float|dock|pip|minimize|restore`, `zentty float`
+
+    func applyFloatAction(_ action: PaneFloatAction, to paneID: PaneID, corner: FloatCorner?) throws {
+        try rootViewController.applyFloatAction(action, to: paneID, corner: corner)
+    }
+
+    func openFloat(
+        from sourcePaneID: PaneID,
+        workingDirectory: String?,
+        command: String?,
+        temporary: Bool
+    ) throws -> PaneID {
+        try rootViewController.openFloatFromCLI(
+            from: sourcePaneID,
+            workingDirectory: workingDirectory,
+            command: command,
+            temporary: temporary
+        )
+    }
+
+    func floatListEntries(in worklaneID: WorklaneID) -> [FloatListEntry] {
+        worklaneStore.floatListEntries(in: worklaneID, windowID: windowID)
+    }
+
+    func setFloatsHidden(_ hidden: Bool, in worklaneID: WorklaneID) throws {
+        try rootViewController.setFloatsHiddenFromCLI(hidden, in: worklaneID)
+    }
+
     /// Overlay floats among `ids` whose process would die unasked.
     private func runningOverlayFloats(_ ids: [PaneID]) -> [RunningQuickAction] {
         ids.compactMap { id in

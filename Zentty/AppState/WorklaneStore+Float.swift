@@ -16,10 +16,13 @@ enum FloatDockTarget: Equatable, Sendable {
     case origin
 }
 
-/// Float operations on the active worklane. Every op keeps the invariants: a
-/// PaneID is in the strip xor in `floatingPanes`, PiP/minimized orders are
-/// dense, at most `FloatLayout.maxPipsPerCorner` PiPs per corner, and focus
-/// never sits on a PiP, a minimized float or a hidden float.
+/// Float operations. The mode changes (float, dock, PiP, minimize, restore)
+/// act on whichever worklane holds the pane, so `zentty pane …` works on a
+/// worklane that is not on screen; the rest act on the active worklane.
+/// Every op keeps the invariants: a PaneID is in the strip xor in
+/// `floatingPanes`, PiP/minimized orders are dense, at most
+/// `FloatLayout.maxPipsPerCorner` PiPs per corner, and focus never sits on a
+/// PiP, a minimized float or a hidden float.
 extension WorklaneStore {
 
     // MARK: - Tile ⇄ float
@@ -27,10 +30,12 @@ extension WorklaneStore {
     /// Lifts a tile out of the strip. `tileFrame` (canvas coordinates) lifts it
     /// in place; nil centres it at the default size. Focus moves to the float.
     func floatPane(_ id: PaneID, canvas: CGRect, tileFrame: CGRect?) {
-        guard var worklane = activeWorklane, !worklane.isFloating(id) else {
+        guard let worklaneIndex = worklaneIndex(containingPane: id),
+              !worklanes[worklaneIndex].isFloating(id) else {
             return
         }
-        let original = worklane
+        let original = worklanes[worklaneIndex]
+        var worklane = original
         let previousColumnCount = worklane.paneStripState.columns.count
         guard let removal = worklane.paneStripState.removePane(
             id: id,
@@ -59,7 +64,7 @@ extension WorklaneStore {
         worklane.floatsHidden = false
         worklane.focusedFloatID = id
         Self.clearAutoPopped(id, in: &worklane)
-        commitFloatChange(from: original, to: worklane)
+        commitFloat(worklane, from: original, at: worklaneIndex)
     }
 
     /// Puts a float back into the strip. A temporary pane becomes persistent.
@@ -67,11 +72,12 @@ extension WorklaneStore {
     /// and returns false.
     @discardableResult
     func dockPane(_ id: PaneID, target: FloatDockTarget) -> Bool {
-        guard var worklane = activeWorklane,
-              let floatIndex = worklane.floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
+        guard let worklaneIndex = worklaneIndex(containingPane: id),
+              let floatIndex = worklanes[worklaneIndex].floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
             return false
         }
-        let original = worklane
+        let original = worklanes[worklaneIndex]
+        var worklane = original
         let float = worklane.floatingPanes[floatIndex]
         let previousColumnCount = worklane.paneStripState.columns.count
         var pane = float.pane
@@ -94,7 +100,7 @@ extension WorklaneStore {
             previousColumnCount: previousColumnCount,
             singleColumnWidth: layoutContext.singlePaneWidth
         )
-        commitFloatChange(from: original, to: worklane)
+        commitFloat(worklane, from: original, at: worklaneIndex)
         return true
     }
 
@@ -147,11 +153,12 @@ extension WorklaneStore {
     /// corner, else bottom-right. A full corner sends its oldest PiP to the
     /// pill bar. PiPs never hold focus.
     func pipPane(_ id: PaneID, corner: FloatCorner? = nil) {
-        guard var worklane = activeWorklane,
-              let float = worklane.floatingPane(id: id) else {
+        guard let worklaneIndex = worklaneIndex(containingPane: id),
+              let float = worklanes[worklaneIndex].floatingPane(id: id) else {
             return
         }
-        let original = worklane
+        let original = worklanes[worklaneIndex]
+        var worklane = original
         let currentCorner = Self.pipCorner(of: float.mode)
         let targetCorner = corner ?? currentCorner ?? .bottomRight
         if currentCorner != targetCorner {
@@ -162,7 +169,7 @@ extension WorklaneStore {
             moveFocusAway(from: id, in: &worklane)
         }
         Self.clearAutoPopped(id, in: &worklane)
-        commitFloatChange(from: original, to: worklane)
+        commitFloat(worklane, from: original, at: worklaneIndex)
     }
 
     /// Moves a PiP to another corner (evicting that corner's oldest when full).
@@ -182,39 +189,44 @@ extension WorklaneStore {
     /// Puts a float or PiP away as a pill (newest rightmost). A focused float
     /// hands focus to the previous eligible pane.
     func minimizePane(_ id: PaneID) {
-        guard var worklane = activeWorklane,
-              let index = worklane.floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
+        guard let worklaneIndex = worklaneIndex(containingPane: id),
+              let index = worklanes[worklaneIndex].floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
             return
         }
-        if case .minimized = worklane.floatingPanes[index].mode {
+        if case .minimized = worklanes[worklaneIndex].floatingPanes[index].mode {
             return
         }
-        let original = worklane
+        let original = worklanes[worklaneIndex]
+        var worklane = original
         worklane.floatingPanes[index].mode = .minimized(order: Self.nextMinimizedOrder(in: worklane))
         Self.compactFloatOrders(in: &worklane)
         if worklane.focusedFloatID == id {
             moveFocusAway(from: id, in: &worklane)
         }
         Self.clearAutoPopped(id, in: &worklane)
-        commitFloatChange(from: original, to: worklane)
+        commitFloat(worklane, from: original, at: worklaneIndex)
     }
 
     /// Brings a PiP or pill back as a float at its last frame, raised and
-    /// focused. On a float that is already floating it just focuses it.
+    /// focused. On a float that is already floating it just focuses it. Out
+    /// of sight (another worklane) a finished agent keeps its Done status.
     func restoreFloat(_ id: PaneID) {
-        guard var worklane = activeWorklane,
-              let index = worklane.floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
+        guard let worklaneIndex = worklaneIndex(containingPane: id),
+              let index = worklanes[worklaneIndex].floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
             return
         }
-        let original = worklane
+        let original = worklanes[worklaneIndex]
+        var worklane = original
         worklane.floatingPanes[index].mode = .floating
         Self.compactFloatOrders(in: &worklane)
         Self.raise(id, in: &worklane)
         worklane.floatsHidden = false
         worklane.focusedFloatID = id
-        clearReadyStatusIfNeeded(for: id, in: &worklane)
+        if worklane.id == activeWorklaneID {
+            clearReadyStatusIfNeeded(for: id, in: &worklane)
+        }
         Self.clearAutoPopped(id, in: &worklane)
-        commitFloatChange(from: original, to: worklane)
+        commitFloat(worklane, from: original, at: worklaneIndex)
     }
 
     // MARK: - Geometry, z-order, visibility, focus
@@ -243,17 +255,24 @@ extension WorklaneStore {
     /// Hiding drops float focus back to the strip; showing hands focus to the
     /// front float when nothing else holds it (empty strip).
     func setFloatsHidden(_ hidden: Bool) {
-        guard var worklane = activeWorklane, worklane.floatsHidden != hidden else {
+        setFloatsHidden(hidden, in: activeWorklaneID)
+    }
+
+    /// `setFloatsHidden` for any worklane (`zentty float hide|show`).
+    func setFloatsHidden(_ hidden: Bool, in worklaneID: WorklaneID) {
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == worklaneID }),
+              worklanes[worklaneIndex].floatsHidden != hidden else {
             return
         }
-        let original = worklane
+        let original = worklanes[worklaneIndex]
+        var worklane = original
         worklane.floatsHidden = hidden
         if hidden {
             worklane.focusedFloatID = nil
         } else {
             Self.focusFrontFloatIfUnfocused(in: &worklane)
         }
-        commitFloatChange(from: original, to: worklane)
+        commitFloat(worklane, from: original, at: worklaneIndex)
     }
 
     /// Gives keyboard focus to a float: raises it and un-hides floats. A PiP

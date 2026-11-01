@@ -17,6 +17,7 @@ final class PaneStripAccessAllowlistTests: XCTestCase {
         "AppState/WorklaneStore+Restore.swift": "closed-pane capture/reopen of strip slots",
         "AppState/WorklaneStore+Float.swift": "moves panes between the strip and floats",
         "AppState/WorklaneStore+FloatLifecycle.swift": "new-pane numbering from the strip column count",
+        "AppState/WorklaneStore+FloatCommands.swift": "`float new` sizes the new pane from the strip column count",
         "AppState/WorklaneStore+OverlayFloats.swift": "overlay re-anchor falls back to the strip focus; new-pane width count",
         "AppState/Agent/DiscoveryIPCHandler.swift": "DiscoveredWorklane.columnCount is a strip column count",
         // Tiled geometry and peek (the peek shows strip thumbnails only).

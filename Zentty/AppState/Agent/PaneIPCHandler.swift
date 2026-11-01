@@ -129,6 +129,27 @@ enum PaneIPCSubcommand: String {
     case send
     case sendKey = "send-key"
     case read
+    case paneFloat = "pane-float"
+    case paneDock = "pane-dock"
+    case panePip = "pane-pip"
+    case paneMinimize = "pane-minimize"
+    case paneRestore = "pane-restore"
+    case floatNew = "float-new"
+    case floatList = "float-list"
+    case floatHide = "float-hide"
+    case floatShow = "float-show"
+
+    /// The mode change a `pane float|dock|pip|minimize|restore` request asks for.
+    var floatAction: PaneFloatAction? {
+        switch self {
+        case .paneFloat: .float
+        case .paneDock: .dock
+        case .panePip: .pip
+        case .paneMinimize: .minimize
+        case .paneRestore: .restore
+        default: nil
+        }
+    }
 
     /// Commands that act on the targeted pane by focusing it first. Reads,
     /// renames, notifications, and scripted input leave focus alone.
@@ -137,7 +158,9 @@ enum PaneIPCSubcommand: String {
         case .split, .grid, .focus, .close, .resize, .layout, .paneFork:
             return true
         case .overlayOpen, .overlayList, .overlayShow, .overlayClose, .list, .notify,
-             .worklaneColor, .worklaneRename, .paneRename, .theme, .send, .sendKey, .read:
+             .worklaneColor, .worklaneRename, .paneRename, .theme, .send, .sendKey, .read,
+             .paneFloat, .paneDock, .panePip, .paneMinimize, .paneRestore,
+             .floatNew, .floatList, .floatHide, .floatShow:
             return false
         }
     }
@@ -146,7 +169,9 @@ enum PaneIPCSubcommand: String {
     /// of reporting success without doing anything.
     var requiresResolvedTarget: Bool {
         switch self {
-        case .notify, .overlayOpen, .overlayList, .overlayShow, .overlayClose, .paneFork, .send, .sendKey, .read:
+        case .notify, .overlayOpen, .overlayList, .overlayShow, .overlayClose, .paneFork, .send, .sendKey, .read,
+             .paneFloat, .paneDock, .panePip, .paneMinimize, .paneRestore,
+             .floatNew, .floatList, .floatHide, .floatShow:
             return true
         case .split, .grid, .list, .focus, .close, .resize, .layout,
              .worklaneColor, .worklaneRename, .paneRename, .theme:
@@ -574,6 +599,14 @@ enum PaneIPCHandler {
             return try PaneControlIPCHandler.handleSendKey(request: request, target: target)
         case .read:
             return try PaneControlIPCHandler.handleRead(request: request, target: target)
+        case .paneFloat, .paneDock, .panePip, .paneMinimize, .paneRestore,
+             .floatNew, .floatList, .floatHide, .floatShow:
+            return try FloatIPCHandler.handle(
+                subcommand,
+                request: request,
+                target: target,
+                windowController: windowController
+            )
         }
     }
 

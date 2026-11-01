@@ -3505,6 +3505,62 @@ extension RootViewController: AppActionRouterEnvironment {
         }
     }
 
+    // MARK: - `zentty pane float|…`, `zentty float …`
+
+    /// `zentty pane <action>`: floating a tile on screen lifts it in place
+    /// like the legend button; everything else (and any pane of a worklane
+    /// that is not on screen) goes straight to the store. Refused while a
+    /// drag owns the canvas.
+    func applyFloatAction(_ action: PaneFloatAction, to paneID: PaneID, corner: FloatCorner?) throws {
+        let activeWorklane = worklaneStore.activeWorklane
+        let isOnScreen = activeWorklane?.containsPane(id: paneID) == true
+        guard !isOnScreen || !isFloatCommandBlocked else {
+            throw FloatControlIPCError.busy
+        }
+        let isTile = activeWorklane?.paneStripState.panes.contains { $0.id == paneID } == true
+        if action == .float, isTile {
+            routeFloatPane(paneID)
+            return
+        }
+        try worklaneStore.applyFloatAction(
+            action,
+            to: paneID,
+            corner: corner,
+            canvas: appCanvasView.floatLayerView.bounds,
+            tileFrame: isTile ? appCanvasView.tileFrameInFloatLayer(for: paneID) : nil
+        )
+    }
+
+    /// `zentty float new`, in `sourcePaneID`'s worklane.
+    func openFloatFromCLI(
+        from sourcePaneID: PaneID,
+        workingDirectory: String?,
+        command: String?,
+        temporary: Bool
+    ) throws -> PaneID {
+        try refuseFloatCommandWhileBlocked(in: worklaneStore.worklaneIndex(containingPane: sourcePaneID))
+        return try worklaneStore.newFloat(
+            from: sourcePaneID,
+            workingDirectory: workingDirectory,
+            command: command,
+            temporary: temporary,
+            canvas: appCanvasView.floatLayerView.bounds
+        )
+    }
+
+    /// `zentty float hide|show`.
+    func setFloatsHiddenFromCLI(_ hidden: Bool, in worklaneID: WorklaneID) throws {
+        try refuseFloatCommandWhileBlocked(in: worklaneStore.worklanes.firstIndex { $0.id == worklaneID })
+        worklaneStore.setFloatsHidden(hidden, in: worklaneID)
+    }
+
+    private func refuseFloatCommandWhileBlocked(in worklaneIndex: Int?) throws {
+        if let worklaneIndex, worklaneStore.worklanes[worklaneIndex].id == worklaneStore.activeWorklaneID,
+           isFloatCommandBlocked {
+            throw FloatControlIPCError.busy
+        }
+    }
+
     /// Commits a finished float gesture: one store change per gesture.
     private func commitFloatGesture(_ paneID: PaneID, outcome: FloatGestureOutcome, canvas: CGRect) {
         switch outcome {

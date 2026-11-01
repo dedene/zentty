@@ -86,9 +86,11 @@ enum OverlayFloatGeometry {
 }
 
 extension WorklaneState {
-    /// Owner and placement of an overlay (temporary) float.
+    /// Owner and placement of an overlay float. An owner-less temporary
+    /// float (`zentty float new --temporary`) is not an overlay: overlay
+    /// commands never find, list, reuse or re-anchor it.
     func overlayAnchor(of id: PaneID) -> (owner: PaneID?, placement: OverlayPlacement)? {
-        guard case .temporary(let owner, let placement, _) = auxiliaryStateByPaneID[id]?.lifetime else {
+        guard case .temporary(let owner?, let placement, _) = auxiliaryStateByPaneID[id]?.lifetime else {
             return nil
         }
         return (owner, placement)

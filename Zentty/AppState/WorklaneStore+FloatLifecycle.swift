@@ -264,13 +264,19 @@ extension WorklaneStore {
     }
 
     /// Writes `worklane` back: through `commitFloatChange` when it is the
-    /// active worklane, else in place with a `.floats` notification.
+    /// active worklane, else in place with a `.floats` notification (plus
+    /// `.paneStructure` when its strip changed). No-op when nothing changed.
     func commitFloat(_ worklane: WorklaneState, from original: WorklaneState, at worklaneIndex: Int) {
         if worklane.id == activeWorklaneID {
             commitFloatChange(from: original, to: worklane)
-        } else {
+        } else if worklane != original {
             worklanes[worklaneIndex] = worklane
-            notify(.floats(worklane.id))
+            batchUpdate {
+                if original.paneStripState != worklane.paneStripState {
+                    notify(.paneStructure(worklane.id))
+                }
+                notify(.floats(worklane.id))
+            }
         }
     }
 }
