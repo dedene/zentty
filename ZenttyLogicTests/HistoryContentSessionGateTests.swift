@@ -208,6 +208,37 @@ final class HistoryContentSessionGateTests: XCTestCase {
         }
     }
 
+    /// With more admitted hits than `messageLimit`, every route keeps the newest ones and says
+    /// the list was cut: the substring scan sorts its unordered ids itself, newest first.
+    func test_every_route_keeps_the_newest_hits_and_reports_truncation() throws {
+        let fixture = try Fixture(testCase: self)
+        for (name, days) in [("new", 2.0), ("old", 30.0), ("middle", 10.0)] {
+            let session = try fixture.addSession(name, cwd: "/repos/app", repo: "/repos/app", mainRepo: "/repos/app",
+                                                 updatedDaysAgo: days)
+            try fixture.addMessage(session: session, daysAgo: days, text: "please deploy the service")
+        }
+        let elsewhere = try fixture.addSession("elsewhere", cwd: "/repos/lib", repo: "/repos/lib",
+                                               mainRepo: "/repos/lib", updatedDaysAgo: 1)
+        try fixture.addMessage(session: elsewhere, daysAgo: 1, text: "please deploy the service")
+
+        for (raw, scope) in [("deploy", Fixture.projectScope("/repos/app")), ("repo:app deploy", .all)] {
+            let limited = try searchEveryRoute(raw, scope: scope, fixture: fixture) { $0.messageLimit = 2 }
+            for (index, response) in limited.enumerated() {
+                XCTAssertEqual(response.results.map(\.session.nativeID), ["new", "middle"], "\(raw), route \(index)")
+                XCTAssertTrue(response.truncated, "\(raw), route \(index)")
+            }
+            XCTAssertEqual(limited[0], limited[1].withElapsed(limited[0].elapsed), "session gate, \(raw)")
+            XCTAssertEqual(limited[0], limited[2].withElapsed(limited[0].elapsed), "substring scan, \(raw)")
+
+            let all = try searchEveryRoute(raw, scope: scope, fixture: fixture)
+            for (index, response) in all.enumerated() {
+                XCTAssertEqual(response.results.map(\.session.nativeID), ["new", "middle", "old"],
+                               "\(raw), route \(index)")
+                XCTAssertFalse(response.truncated, "\(raw), route \(index)")
+            }
+        }
+    }
+
     func test_unrestricted_and_non_trigram_searches_take_the_per_row_walk_or_the_scan() throws {
         let trigram = try Fixture(testCase: self)
         try populate(trigram)
