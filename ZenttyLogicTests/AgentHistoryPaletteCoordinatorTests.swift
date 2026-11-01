@@ -111,25 +111,88 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
         )
     }
 
-    func test_view_lays_out_results_preview_and_footer_without_a_window() throws {
+    /// SwiftUI exposes no accessibility tree without an assistive client, and its text is
+    /// drawn, not views; so this checks the AppKit views the body chose to build: the search
+    /// field and the scroll areas of the list and the preview. The footer and the transient
+    /// message are drawn text and only covered by the hosted tests.
+    func test_view_wide_layout_shows_query_list_and_preview_side_by_side() throws {
         let model = try makeModel()
-        model.layout = AgentHistoryPanelLayout.resolve(
+        let layout = AgentHistoryPanelLayout.resolve(
             windowFrame: NSRect(x: 0, y: 0, width: 1440, height: 900),
             mode: .results
         )
+        model.layout = layout
         model.start()
         model.updateQuery("crash")
         model.showTransientMessage("Copied resume command")
 
-        let hosting = NSHostingView(rootView: AgentHistoryView(model: model))
-        hosting.frame = NSRect(x: 0, y: 0, width: 1010, height: 580)
-        hosting.layoutSubtreeIfNeeded()
+        let rendered = render(model, size: layout.frame.size)
 
-        XCTAssertEqual(hosting.frame.size, NSSize(width: 1010, height: 580))
-        XCTAssertNotNil(model.selectedRow)
+        XCTAssertEqual(rendered.queryFields, ["crash"], "the search field shows the query")
+        XCTAssertEqual(rendered.scrollFrames.count, 2, "list and preview columns: \(rendered.scrollFrames)")
+        let list = try XCTUnwrap(rendered.scrollFrames.first)
+        let preview = try XCTUnwrap(rendered.scrollFrames.last)
+        XCTAssertEqual(list.width, layout.listWidth, accuracy: 0.5, "the list takes the layout's list width")
+        XCTAssertGreaterThan(preview.minX, list.maxX, "the preview sits right of the list")
+        XCTAssertEqual(preview.maxX, layout.frame.width, accuracy: 0.5)
+    }
+
+    func test_view_compact_layout_swaps_list_for_preview() throws {
+        let model = try makeModel()
+        let layout = AgentHistoryPanelLayout.resolve(
+            windowFrame: NSRect(x: 0, y: 0, width: 600, height: 900),
+            mode: .results
+        )
+        XCTAssertTrue(layout.isCompact)
+        model.layout = layout
+        model.start()
+        model.updateQuery("crash")
+
+        var rendered = render(model, size: layout.frame.size)
+        XCTAssertEqual(rendered.scrollFrames.count, 1, "compact shows the list only")
+        XCTAssertEqual(rendered.scrollFrames.first?.width ?? 0, layout.frame.width, accuracy: 0.5)
+
+        model.toggleTranscript()
+        XCTAssertNotEqual(model.detail, .none)
+        rendered = render(model, size: layout.frame.size)
+        XCTAssertEqual(rendered.scrollFrames.count, 1, "the detail replaces the list instead of joining it")
+        XCTAssertEqual(rendered.queryFields, ["crash"])
     }
 
     // MARK: - Helpers
+
+    private struct RenderedView {
+        var queryFields: [String] = []
+        /// Scroll areas in hosting-view coordinates, left to right.
+        var scrollFrames: [NSRect] = []
+    }
+
+    /// Lays the view out in a never-shown window and reads back the AppKit views it built.
+    private func render(_ model: AgentHistoryViewModel, size: NSSize) -> RenderedView {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: AgentHistoryView(model: model))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        var rendered = RenderedView()
+        var stack: [NSView] = [hosting]
+        while let view = stack.popLast() {
+            if let scroll = view as? NSScrollView {
+                rendered.scrollFrames.append(scroll.convert(scroll.bounds, to: hosting))
+            } else if let field = view as? NSTextField, field.isEditable {
+                rendered.queryFields.append(field.stringValue)
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        rendered.scrollFrames.sort { $0.minX < $1.minX }
+        return rendered
+    }
 
     private func makeModel() throws -> AgentHistoryViewModel {
         let control = FakeAgentHistoryControl()
