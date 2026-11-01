@@ -35,19 +35,29 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
     static func incompleteWorktreeMessage(path: String) -> String {
         "Git took too long to recreate the worktree and left an incomplete folder at \(path). Delete it before resuming this session."
     }
+    static func checkoutHookTimedOutMessage(path: String) -> String {
+        "Git made the worktree at \(path), but a checkout hook took too long. It was kept; resume the session again to use it."
+    }
+    static func keptFolderMessage(path: String) -> String {
+        "Git took too long to recreate the worktree. The folder now at \(path) was left untouched; check it before resuming this session."
+    }
     static let systemGitShimPath = "/usr/bin/git"
     static let defaultSearchPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
     var timeout: TimeInterval = 120
-    /// On timeout git first gets `SIGTERM`, which makes `worktree add` delete its half-made folder
-    /// and registration; whatever still runs after this long gets `SIGKILL`.
+    /// On timeout git first gets `SIGTERM`; whatever still runs after this long gets `SIGKILL`.
+    /// `SIGTERM` during checkout makes `worktree add` delete its half-made folder and registration,
+    /// but not once checkout finished and a `post-checkout` hook runs: that worktree is complete.
     var terminationGracePeriod: TimeInterval = 10
-    /// For `git worktree remove` of a stale registration: it only deletes git's admin files.
+    /// For `git worktree remove` of a stale registration (it only deletes git's admin files) and
+    /// for the cleanup after a timed-out `add`.
     var staleRegistrationTimeout: TimeInterval = 30
     var xcrunTimeout: TimeInterval = 2
     var environment: [String: String] = ProcessInfo.processInfo.environment
     var isExecutableFile: @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     var fileExists: @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    /// Reads the main repository's worktree registrations (`.git/worktrees/*`).
+    var fileSystem: any AgentHistoryFileSystemProbing = LiveAgentHistoryFileSystem()
     var runner: Runner = { executableURL, arguments, environment, timeout, terminationGracePeriod in
         try SubprocessRunner.runInProcessGroup(
             executableURL: executableURL,
@@ -83,6 +93,12 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
         var gitEnvironment = environment
         gitEnvironment["GIT_TERMINAL_PROMPT"] = "0"
 
+        // `worktree remove` on a folder that came back would delete it (ignored files included) when
+        // clean, so the stale registration is only removed while the folder is still gone.
+        if let refusal = folderReappeared(recreation) {
+            return .failure(refusal)
+        }
+
         if let removal = recreation.staleRegistrationRemovalArguments {
             // Best effort: when the registration is already gone (pruned since the sheet opened)
             // this fails harmlessly, and when it can't be removed `add` reports why.
@@ -98,18 +114,25 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
             }
         }
 
-        // Anything at the path after `add` is then git's own, safe to clean up on a timeout.
-        guard !fileExists(recreation.worktreePath) else {
-            AgentHistoryLog.indexer.info("Worktree recreate skipped: folder reappeared")
-            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.folderExistsMessage))
+        if let refusal = folderReappeared(recreation) {
+            return .failure(refusal)
         }
+        // A registration missing from this list but present after a timed-out `add` is git's own.
+        let registrationsBeforeAdd = Set(AgentHistoryFolderResolver.registrationNames(
+            mainRepoRoot: recreation.mainRepoRoot,
+            fileSystem: fileSystem
+        ))
 
         let result: SubprocessResult
         switch runGit(recreation.gitArguments, environment: gitEnvironment, timeout: timeout) {
         case .success(let finished):
             result = finished
         case .failure(.timedOut):
-            return .failure(errorAfterAddTimedOut(recreation, environment: gitEnvironment))
+            return .failure(errorAfterAddTimedOut(
+                recreation,
+                registrationsBeforeAdd: registrationsBeforeAdd,
+                environment: gitEnvironment
+            ))
         case .failure(let failure):
             return .failure(failure.error)
         }
@@ -129,30 +152,65 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
         return .success(())
     }
 
-    /// git normally removes its own half-made worktree on `SIGTERM`. When something is still at the
-    /// path (git hung past the grace period and was killed), remove the registration and folder git
-    /// created, so the next resume can't treat a partial checkout as ready. If that fails too, say so.
+    private func folderReappeared(_ recreation: AgentHistoryWorktreeRecreation) -> AgentHistoryWorktreeError? {
+        guard fileExists(recreation.worktreePath) else {
+            return nil
+        }
+        AgentHistoryLog.indexer.info("Worktree recreate skipped: folder reappeared")
+        return AgentHistoryWorktreeError(exitCode: nil, message: Self.folderExistsMessage)
+    }
+
+    /// Cleans up only what provably belongs to this unfinished `add`: one registration for the
+    /// path that git created during this run and that is still locked (git's "initializing" lock,
+    /// which it drops once checkout finishes). That one is unlocked, re-read, and removed with a
+    /// single `--force` (a partial checkout looks dirty); never the double force that also
+    /// overrides a lock. Anything else at the path may hold someone's work and is kept.
     private func errorAfterAddTimedOut(
         _ recreation: AgentHistoryWorktreeRecreation,
+        registrationsBeforeAdd: Set<String>,
         environment: [String: String]
     ) -> AgentHistoryWorktreeError {
-        guard fileExists(recreation.worktreePath) else {
+        let path = recreation.worktreePath
+        guard fileExists(path) else {
             return AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage)
         }
-        AgentHistoryLog.indexer.error("Worktree recreate timed out and left its folder; removing it")
-        // Double force: git leaves the registration locked ("initializing") when it is killed.
-        let removal = [
-            "-C", recreation.mainRepoRoot, "worktree", "remove", "--force", "--force", "--", recreation.worktreePath,
-        ]
+        let registrations = registrationNames(pointingAt: recreation)
+        guard registrations.count == 1, let name = registrations.first, !registrationsBeforeAdd.contains(name) else {
+            AgentHistoryLog.indexer.error("Worktree recreate timed out; kept a folder this add did not register")
+            return AgentHistoryWorktreeError(exitCode: nil, message: Self.keptFolderMessage(path: path))
+        }
+        let lockFile = recreation.mainRepoRoot + "/.git/worktrees/" + name + "/locked"
+        guard fileSystem.fileExists(lockFile) else {
+            AgentHistoryLog.indexer.error("Worktree recreate timed out after checkout; kept the worktree")
+            return AgentHistoryWorktreeError(exitCode: nil, message: Self.checkoutHookTimedOutMessage(path: path))
+        }
+
+        AgentHistoryLog.indexer.error("Worktree recreate timed out mid-checkout; removing the partial worktree")
+        let incomplete = AgentHistoryWorktreeError(exitCode: nil, message: Self.incompleteWorktreeMessage(path: path))
+        let unlock = ["-C", recreation.mainRepoRoot, "worktree", "unlock", "--", path]
+        guard case .success(let unlocked) = runGit(unlock, environment: environment, timeout: staleRegistrationTimeout),
+              unlocked.terminationStatus == 0,
+              registrationNames(pointingAt: recreation) == [name],
+              !fileSystem.fileExists(lockFile)
+        else {
+            AgentHistoryLog.indexer.error("Partial worktree changed or stayed locked; not removing it")
+            return incomplete
+        }
+        let removal = ["-C", recreation.mainRepoRoot, "worktree", "remove", "--force", "--", path]
         _ = runGit(removal, environment: environment, timeout: staleRegistrationTimeout)
-        guard !fileExists(recreation.worktreePath) else {
+        guard !fileExists(path) else {
             AgentHistoryLog.indexer.error("Incomplete worktree folder could not be removed")
-            return AgentHistoryWorktreeError(
-                exitCode: nil,
-                message: Self.incompleteWorktreeMessage(path: recreation.worktreePath)
-            )
+            return incomplete
         }
         return AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage)
+    }
+
+    private func registrationNames(pointingAt recreation: AgentHistoryWorktreeRecreation) -> [String] {
+        AgentHistoryFolderResolver.registrationNames(
+            pointingAt: recreation.worktreePath,
+            mainRepoRoot: recreation.mainRepoRoot,
+            fileSystem: fileSystem
+        )
     }
 
     private enum GitRunFailure: Error {

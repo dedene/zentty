@@ -2,7 +2,7 @@ import XCTest
 @testable import Zentty
 
 final class AgentHistoryWorktreeCreatorTests: XCTestCase {
-    private let recreation = AgentHistoryWorktreeRecreation(
+    let recreation = AgentHistoryWorktreeRecreation(
         mainRepoRoot: "/Users/test/src/app",
         worktreePath: "/Users/test/src/worktrees/app-feature",
         branch: "feature/x",
@@ -12,7 +12,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         gitArguments: ["-C", "/Users/test/src/app", "worktree", "add", "--", "/Users/test/src/worktrees/app-feature", "feature/x"]
     )
 
-    private var staleRecreation: AgentHistoryWorktreeRecreation {
+    var staleRecreation: AgentHistoryWorktreeRecreation {
         var stale = recreation
         stale.hasStaleRegistration = true
         stale.staleRegistrationRemovalArguments = [
@@ -21,19 +21,20 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         return stale
     }
 
-    private func creator(
+    func creator(
         path: String = "/usr/bin",
         executables: Set<String> = ["/usr/bin/git"],
-        folder: FakeFolder = FakeFolder(),
-        recorder: SubprocessCallRecorder,
+        folder: FakeWorktreeDisk = FakeWorktreeDisk(),
+        recorder: WorktreeCreatorCallRecorder,
         respond: @escaping @Sendable (String, [String]) throws -> SubprocessResult
     ) -> GitWorktreeCreator {
         var creator = GitWorktreeCreator()
         creator.environment = ["PATH": path, "HOME": "/Users/test-history-home"]
         creator.isExecutableFile = { executables.contains($0) }
         creator.fileExists = { folder.exists(at: $0) }
+        creator.fileSystem = folder
         creator.runner = { url, arguments, environment, timeout, grace in
-            recorder.record(SubprocessCall(
+            recorder.record(WorktreeCreatorCall(
                 executable: url.path,
                 arguments: arguments,
                 environment: environment ?? [:],
@@ -45,12 +46,12 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         return creator
     }
 
-    private func recreate(
+    func recreate(
         with creator: GitWorktreeCreator,
         _ recreation: AgentHistoryWorktreeRecreation? = nil
     ) -> Result<Void, AgentHistoryWorktreeError> {
         let done = expectation(description: "recreate completes")
-        let box = ResultBox()
+        let box = WorktreeCreatorResultBox()
         creator.recreate(recreation ?? self.recreation) { result in
             box.set(result)
             done.fulfill()
@@ -59,12 +60,12 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         return box.value ?? .failure(AgentHistoryWorktreeError(exitCode: nil, message: "no result"))
     }
 
-    private static func ok() -> SubprocessResult {
+    static func ok() -> SubprocessResult {
         SubprocessResult(terminationStatus: 0, stdout: Data(), stderr: Data())
     }
 
     func test_git_creator_reports_missing_command_line_tools() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { executable, _ in
             if executable == "/usr/bin/xcrun" {
                 return SubprocessResult(
@@ -88,7 +89,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_reports_xcrun_launch_failure_as_missing_tools() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { executable, _ in
             if executable == "/usr/bin/xcrun" { throw SubprocessError.timedOut }
             return Self.ok()
@@ -99,7 +100,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_runs_env_git_with_recreation_arguments() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { _, _ in Self.ok() }
 
         let result = recreate(with: creator)
@@ -115,7 +116,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_skips_xcrun_probe_for_non_system_git() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(
             path: "/opt/homebrew/bin:/usr/bin",
             executables: ["/opt/homebrew/bin/git", "/usr/bin/git"],
@@ -127,7 +128,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_reports_missing_git_without_running_anything() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(executables: [], recorder: recorder) { _, _ in Self.ok() }
 
         XCTAssertEqual(recreate(with: creator).failure?.message, GitWorktreeCreator.gitUnavailableMessage)
@@ -135,7 +136,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_maps_nonzero_exit_to_error_with_stderr() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { executable, _ in
             if executable == "/usr/bin/env" {
                 return SubprocessResult(
@@ -154,7 +155,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_removes_stale_registration_before_add_without_force() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { _, _ in Self.ok() }
         let stale = staleRecreation
 
@@ -170,7 +171,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_still_runs_add_when_stale_registration_removal_fails() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { executable, arguments in
             if executable == "/usr/bin/env", arguments.contains("remove") {
                 return SubprocessResult(terminationStatus: 128, stdout: Data(), stderr: Data("fatal: not a working tree\n".utf8))
@@ -194,7 +195,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_stops_when_stale_registration_removal_times_out() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { executable, arguments in
             if executable == "/usr/bin/env", arguments.contains("remove") { throw SubprocessError.timedOut }
             return Self.ok()
@@ -205,7 +206,7 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_reports_timeout() {
-        let recorder = SubprocessCallRecorder()
+        let recorder = WorktreeCreatorCallRecorder()
         let creator = creator(recorder: recorder) { executable, _ in
             if executable == "/usr/bin/env" { throw SubprocessError.timedOut }
             return Self.ok()
@@ -220,8 +221,8 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
     }
 
     func test_git_creator_refuses_when_folder_reappeared_before_add() {
-        let recorder = SubprocessCallRecorder()
-        let folder = FakeFolder(path: recreation.worktreePath, exists: true)
+        let recorder = WorktreeCreatorCallRecorder()
+        let folder = FakeWorktreeDisk(path: recreation.worktreePath, mainRepoRoot: recreation.mainRepoRoot, exists: true)
         let creator = creator(folder: folder, recorder: recorder) { _, _ in Self.ok() }
 
         XCTAssertEqual(
@@ -231,41 +232,20 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         XCTAssertFalse(recorder.calls.contains { $0.arguments.contains("add") })
     }
 
-    /// git was killed after the grace period and left a partial checkout behind, registered and
-    /// locked as "initializing". It must be removed, or the next resume would treat it as ready.
-    func test_git_creator_removes_partial_worktree_left_by_timeout() {
-        let recorder = SubprocessCallRecorder()
-        let folder = FakeFolder(path: recreation.worktreePath, exists: false)
-        let creator = creator(folder: folder, recorder: recorder) { executable, arguments in
-            guard executable == "/usr/bin/env" else { return Self.ok() }
-            if arguments.contains("add") {
-                folder.setExists(true)
-                throw SubprocessError.timedOut
-            }
-            if arguments.contains("remove") {
-                folder.setExists(false)
-            }
-            return Self.ok()
-        }
-
-        XCTAssertEqual(recreate(with: creator).failure?.message, GitWorktreeCreator.timedOutMessage)
-        let gitCalls = recorder.calls.filter { $0.executable == "/usr/bin/env" }
-        XCTAssertEqual(gitCalls.count, 2)
-        XCTAssertEqual(
-            gitCalls.last?.arguments,
-            ["git", "-C", recreation.mainRepoRoot, "worktree", "remove", "--force", "--force", "--", recreation.worktreePath]
-        )
-        XCTAssertFalse(folder.exists(at: recreation.worktreePath))
-    }
-
     func test_git_creator_reports_incomplete_folder_it_could_not_remove() {
-        let recorder = SubprocessCallRecorder()
-        let folder = FakeFolder(path: recreation.worktreePath, exists: false)
+        let recorder = WorktreeCreatorCallRecorder()
+        let folder = FakeWorktreeDisk(path: recreation.worktreePath, mainRepoRoot: recreation.mainRepoRoot, exists: false)
+        let worktreePath = recreation.worktreePath
         let creator = creator(folder: folder, recorder: recorder) { executable, arguments in
             guard executable == "/usr/bin/env" else { return Self.ok() }
             if arguments.contains("add") {
                 folder.setExists(true)
+                folder.register("app-feature", worktree: worktreePath, locked: "initializing")
                 throw SubprocessError.timedOut
+            }
+            if arguments.contains("unlock") {
+                folder.unlockRegistrations(pointingAt: worktreePath)
+                return Self.ok()
             }
             return SubprocessResult(terminationStatus: 128, stdout: Data(), stderr: Data("fatal: not a working tree\n".utf8))
         }
@@ -277,80 +257,5 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
                 message: GitWorktreeCreator.incompleteWorktreeMessage(path: recreation.worktreePath)
             )
         )
-    }
-}
-
-/// The worktree folder's existence as the creator sees it; guarded by `lock`.
-private final class FakeFolder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let path: String
-    private var present: Bool
-
-    init(path: String = "", exists: Bool = false) {
-        self.path = path
-        self.present = exists
-    }
-
-    func exists(at candidate: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return present && candidate == path
-    }
-
-    func setExists(_ value: Bool) {
-        lock.lock()
-        present = value
-        lock.unlock()
-    }
-}
-
-private struct SubprocessCall: Equatable, Sendable {
-    let executable: String
-    let arguments: [String]
-    let environment: [String: String]
-    let timeout: TimeInterval
-    let terminationGracePeriod: TimeInterval
-}
-
-/// Collects runner calls from the creator's background queue; guarded by `lock`.
-private final class SubprocessCallRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [SubprocessCall] = []
-
-    func record(_ call: SubprocessCall) {
-        lock.lock()
-        storage.append(call)
-        lock.unlock()
-    }
-
-    var calls: [SubprocessCall] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
-    }
-}
-
-/// Hands the completion's result back to the test thread; guarded by `lock`.
-private final class ResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Result<Void, AgentHistoryWorktreeError>?
-
-    func set(_ result: Result<Void, AgentHistoryWorktreeError>) {
-        lock.lock()
-        stored = result
-        lock.unlock()
-    }
-
-    var value: Result<Void, AgentHistoryWorktreeError>? {
-        lock.lock()
-        defer { lock.unlock() }
-        return stored
-    }
-}
-
-private extension Result where Failure == AgentHistoryWorktreeError {
-    var failure: AgentHistoryWorktreeError? {
-        if case let .failure(error) = self { return error }
-        return nil
     }
 }

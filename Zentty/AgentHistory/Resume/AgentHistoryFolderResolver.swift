@@ -192,6 +192,37 @@ enum AgentHistoryFolderResolver {
         return true
     }
 
+    /// Names of the registrations under `<mainRepoRoot>/.git/worktrees`, sorted.
+    static func registrationNames(
+        mainRepoRoot: String,
+        fileSystem: any AgentHistoryFileSystemProbing
+    ) -> [String] {
+        let registrations = mainRepoRoot + "/.git/worktrees"
+        return fileSystem.directoryEntries(registrations)
+            .filter { fileSystem.isDirectory(registrations + "/" + $0) }
+            .sorted()
+    }
+
+    /// Names of the registrations whose `gitdir` points at `worktreePath`, sorted.
+    static func registrationNames(
+        pointingAt worktreePath: String,
+        mainRepoRoot: String,
+        fileSystem: any AgentHistoryFileSystemProbing
+    ) -> [String] {
+        let registrations = mainRepoRoot + "/.git/worktrees"
+        return registrationNames(mainRepoRoot: mainRepoRoot, fileSystem: fileSystem).filter { name in
+            guard let holder = registrationHolder(registrations + "/" + name, fileSystem: fileSystem) else {
+                return false
+            }
+            return samePath(holder, worktreePath)
+        }
+    }
+
+    /// The form two paths are compared in: lexically standardized, firmlink prefix stripped.
+    static func canonicalPath(_ path: String) -> String {
+        comparable(path)
+    }
+
     // MARK: - Helpers
 
     private static func existingRepositoryRoot(

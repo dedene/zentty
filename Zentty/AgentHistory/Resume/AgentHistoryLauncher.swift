@@ -65,6 +65,7 @@ final class AgentHistoryLauncher {
     static let folderMissingMessage = "That folder no longer exists."
     static let copyCommandMessage = "Copy the resume command to run it yourself."
     static let recreatingWorktreeMessage = "Recreating worktree…"
+    static let worktreeBeingRecreatedMessage = "Worktree is still being recreated."
     static let recreatedFolderMissingMessage = "Couldn't recreate the worktree: its folder is missing."
 
     private let hosts: () -> [any AgentHistoryWindowHost]
@@ -73,6 +74,7 @@ final class AgentHistoryLauncher {
     private let usageRecorder: (any AgentHistoryUsageRecording)?
     private let fileSystem: any AgentHistoryFileSystemProbing
     private let worktreeCreator: any AgentHistoryWorktreeCreating
+    private let worktreeReservations: AgentHistoryWorktreeReservations
     private let now: () -> Date
 
     init(
@@ -82,6 +84,7 @@ final class AgentHistoryLauncher {
         usageRecorder: (any AgentHistoryUsageRecording)?,
         fileSystem: any AgentHistoryFileSystemProbing = LiveAgentHistoryFileSystem(),
         worktreeCreator: any AgentHistoryWorktreeCreating = GitWorktreeCreator(),
+        worktreeReservations: AgentHistoryWorktreeReservations? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.hosts = hosts
@@ -90,6 +93,7 @@ final class AgentHistoryLauncher {
         self.usageRecorder = usageRecorder
         self.fileSystem = fileSystem
         self.worktreeCreator = worktreeCreator
+        self.worktreeReservations = worktreeReservations ?? .shared
         self.now = now
     }
 
@@ -214,6 +218,10 @@ final class AgentHistoryLauncher {
         workingDirectory: String,
         in host: (any AgentHistoryWindowHost)?
     ) -> AgentHistoryLaunchOutcome {
+        // git is still checking it out (or running its hooks); the recreation launches when done.
+        guard !worktreeReservations.isReserved(containing: workingDirectory) else {
+            return .failed(message: Self.worktreeBeingRecreatedMessage, offerCopySessionID: false)
+        }
         guard let host else {
             return .failed(message: Self.noWindowMessage, offerCopySessionID: false)
         }
@@ -246,6 +254,10 @@ final class AgentHistoryLauncher {
         guard let host = presentingHost() else {
             return .failed(message: Self.noWindowMessage, offerCopySessionID: false)
         }
+        // Held until `finishRecreation`, so no second resume races git on this checkout.
+        guard worktreeReservations.reserve(recreation.worktreePath) else {
+            return .failed(message: Self.worktreeBeingRecreatedMessage, offerCopySessionID: false)
+        }
         // Resolved again on completion: the window may have closed while git ran. The launcher
         // stays alive until then (git is bounded by the creator's timeout).
         let windowID = host.windowID
@@ -273,6 +285,8 @@ final class AgentHistoryLauncher {
         intent: AgentHistoryLaunchIntent,
         windowID: WindowID
     ) {
+        // Released before the launch below, in the same main-actor turn, so nothing slips in between.
+        worktreeReservations.release(recreation.worktreePath)
         let host = host(for: windowID) ?? presentingHost()
         switch result {
         case .failure(let error):
