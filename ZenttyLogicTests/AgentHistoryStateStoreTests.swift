@@ -196,6 +196,53 @@ final class AgentHistoryStateStoreTests: XCTestCase {
         wait(for: [notified], timeout: 2)
     }
 
+    // MARK: - Write failures
+
+    /// Off and an agent off take effect in memory even when the file can't be written; the
+    /// error still reaches the caller. Anything that grants access is dropped instead.
+    func test_failed_write_keeps_a_revoking_change_in_memory_only() throws {
+        let consentedAt = Date(timeIntervalSince1970: 1_793_000_000)
+        let store = AgentHistoryStateStore(fileURL: fileURL)
+        try store.update { $0.enabled = true; $0.consentedAt = consentedAt }
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directoryURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path) }
+
+        XCTAssertThrowsError(try store.update { $0.enabled = false; $0.setSource(.codex, enabled: false) }) { error in
+            XCTAssertEqual((error as? AgentHistoryStateStore.UnsavedChange)?.keptInMemory, true)
+        }
+        XCTAssertFalse(store.current.enabled)
+        XCTAssertFalse(store.current.isSourceEnabled(.codex))
+        XCTAssertTrue(AgentHistoryStateStore(fileURL: fileURL).current.enabled, "the file is unchanged")
+
+        XCTAssertThrowsError(try store.update { $0.enabled = true }) { error in
+            XCTAssertEqual((error as? AgentHistoryStateStore.UnsavedChange)?.keptInMemory, false)
+        }
+        XCTAssertThrowsError(try store.update { $0.setSource(.codex, enabled: true) }) { error in
+            XCTAssertEqual((error as? AgentHistoryStateStore.UnsavedChange)?.keptInMemory, false)
+        }
+        XCTAssertFalse(store.current.enabled, "turning on wasn't saved, so it didn't happen")
+        XCTAssertFalse(store.current.isSourceEnabled(.codex))
+    }
+
+    func test_only_revokes_access() {
+        let consented = AgentHistoryState(enabled: true, consentedAt: Date(timeIntervalSince1970: 1), sources: [:])
+        var off = consented
+        off.enabled = false
+        var codexOff = consented
+        codexOff.setSource(.codex, enabled: false)
+        var reconsented = off
+        reconsented.consentedAt = Date(timeIntervalSince1970: 2)
+
+        XCTAssertTrue(off.onlyRevokesAccess(from: consented))
+        XCTAssertTrue(codexOff.onlyRevokesAccess(from: consented))
+        XCTAssertTrue(AgentHistoryState().onlyRevokesAccess(from: consented), "consent removed")
+        XCTAssertTrue(consented.onlyRevokesAccess(from: consented))
+        XCTAssertFalse(consented.onlyRevokesAccess(from: off))
+        XCTAssertFalse(consented.onlyRevokesAccess(from: codexOff))
+        XCTAssertFalse(reconsented.onlyRevokesAccess(from: off))
+        XCTAssertFalse(off.onlyRevokesAccess(from: AgentHistoryState()), "consent added")
+    }
+
     // MARK: - Helpers
 
     private func write(_ text: String) throws {

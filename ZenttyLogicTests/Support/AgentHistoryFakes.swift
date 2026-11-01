@@ -18,6 +18,8 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     var holdsDetection = false
     private var pendingDetections: [@MainActor ([AgentHistoryDetectedSource]) -> Void] = []
     var disableOutcome = AgentHistoryDisableOutcome.turnedOff
+    /// What `setEnabled` and `setAgentEnabled` answer.
+    var stateChangeOutcome = AgentHistoryStateChangeOutcome.saved
     private(set) var refreshCount = 0
     private(set) var enabledAgents: [Set<AgentHistoryAgent>] = []
     private(set) var setEnabledCalls: [Bool] = []
@@ -60,8 +62,18 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
         pending.forEach { $0(detectedSources) }
     }
     func enable(agents: Set<AgentHistoryAgent>) { enabledAgents.append(agents) }
-    func setEnabled(_ enabled: Bool) { setEnabledCalls.append(enabled) }
-    func setAgentEnabled(_ agent: AgentHistoryAgent, _ enabled: Bool) { setAgentEnabledCalls[agent] = enabled }
+    func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        setEnabledCalls.append(enabled)
+        completion(stateChangeOutcome)
+    }
+    func setAgentEnabled(
+        _ agent: AgentHistoryAgent,
+        _ enabled: Bool,
+        completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
+    ) {
+        setAgentEnabledCalls[agent] = enabled
+        completion(stateChangeOutcome)
+    }
     func disable(deleteIndex: Bool, completion: @escaping @MainActor (AgentHistoryDisableOutcome) -> Void) {
         disableCalls.append(deleteIndex)
         completion(disableOutcome)

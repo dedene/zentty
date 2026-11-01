@@ -7,6 +7,12 @@ enum AgentHistorySettingsConfirmation: Equatable {
     case deleteIndex
 }
 
+/// A Settings switch that writes `state.json`: Agent History itself or one source.
+enum AgentHistorySettingsStateChange: Equatable {
+    case history(on: Bool)
+    case source(AgentHistoryAgent, on: Bool)
+}
+
 typealias AgentHistoryConfirmationPresenter = @MainActor (NSWindow?, AgentHistorySettingsConfirmation, @escaping (Bool) -> Void) -> Void
 typealias AgentHistoryFolderPicker = @MainActor (NSWindow?, @escaping ([URL]) -> Void) -> Void
 typealias AgentHistoryErrorPresenter = @MainActor (NSWindow?, _ title: String, _ message: String) -> Void
@@ -75,6 +81,29 @@ enum AgentHistorySettingsAlerts {
             return "Another running copy of Zentty is using Agent History, so nothing was deleted. Quit it, or turn Agent History off there, then try again."
         case .failed:
             return "Zentty couldn't remove the index from this Mac. Try again."
+        }
+    }
+
+    /// What to tell the user when a switch change didn't reach `state.json`; nil when it did.
+    static func stateChangeFailure(
+        _ outcome: AgentHistoryStateChangeOutcome,
+        _ change: AgentHistorySettingsStateChange
+    ) -> (title: String, message: String)? {
+        let title = "Couldn't save this change"
+        switch outcome {
+        case .saved:
+            return nil
+        case .appliedButNotSaved:
+            let subject: String
+            switch change {
+            case .history:
+                subject = "Agent History is off"
+            case .source(let agent, _):
+                subject = "\(agent.displayName) is off in Agent History"
+            }
+            return (title, "\(subject) for now, but Zentty couldn't save that. It may turn back on the next time Zentty starts.")
+        case .notSaved:
+            return (title, "Zentty couldn't save Agent History's settings, so nothing changed. Check that your disk has free space, then try again.")
         }
     }
 

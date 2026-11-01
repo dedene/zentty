@@ -41,7 +41,8 @@ final class AgentHistoryController: Sendable {
     /// (`AppConfigStore.isUsingFallbackDefaults`). The excluded folders are unknown then, so the
     /// indexer stays stopped and nothing can be searched: exclusions fail closed.
     private var isConfigReadable = true
-    /// The last `state.json` contents read or written; nil until the first load.
+    /// The state store's state as last read or changed (a change that only revokes access holds
+    /// even when `state.json` couldn't be written); nil until the first load.
     private var persistedState: AgentHistoryState?
     private var stateStore: AgentHistoryStateStore?
     private(set) var indexer: AgentHistoryIndexer?
@@ -190,13 +191,18 @@ final class AgentHistoryController: Sendable {
     }
 
     /// Off stops the indexer and keeps the index; on starts it again when consented.
-    func setEnabled(_ enabled: Bool) {
-        updateState { $0.enabled = enabled }
+    /// `completion` runs on main once the change is applied, with whether it was saved.
+    func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        updateState({ $0.enabled = enabled }, completion: completion)
     }
 
     /// Off purges that agent's rows (D4); on reads its sources again from the start.
-    func setAgentEnabled(_ agent: AgentHistoryAgent, _ enabled: Bool) {
-        updateState { $0.setSource(agent, enabled: enabled) }
+    func setAgentEnabled(
+        _ agent: AgentHistoryAgent,
+        _ enabled: Bool,
+        completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
+    ) {
+        updateState({ $0.setSource(agent, enabled: enabled) }, completion: completion)
     }
 
     /// Stops the indexer, then either deletes the whole directory and the consent (D8) or just
@@ -227,8 +233,9 @@ final class AgentHistoryController: Sendable {
             if deleteIndex {
                 outcome = Self.deleteEverything(storage: storage, store: store)
             } else {
-                Self.write(store) { $0.enabled = false }
-                outcome = .turnedOff
+                // Off holds in memory even when the write fails (the store keeps a revoking
+                // change), so applying `store.current` below never restarts the indexer.
+                outcome = Self.write(store) { $0.enabled = false } == .saved ? .turnedOff : .failed
             }
             deliver.send((AgentHistoryLoadedState(store: store, state: store.current), outcome))
         }
@@ -271,15 +278,25 @@ final class AgentHistoryController: Sendable {
         }
     }
 
-    /// Writes `state.json` off-main, then applies the written state on main.
-    private func updateState(_ mutate: @escaping @Sendable (inout AgentHistoryState) -> Void) {
+    /// Writes `state.json` off-main, then applies the store's state on main and reports
+    /// whether the change was saved.
+    private func updateState(
+        _ mutate: @escaping @Sendable (inout AgentHistoryState) -> Void,
+        completion: (@MainActor (AgentHistoryStateChangeOutcome) -> Void)? = nil
+    ) {
+        guard paths != nil else {
+            completion?(.notSaved)
+            return
+        }
         stateChangeSequence &+= 1
-        let deliver = AgentHistoryMainDelivery<AgentHistoryLoadedState> { [weak self] loaded in
+        let deliver = AgentHistoryMainDelivery<(AgentHistoryLoadedState, AgentHistoryStateChangeOutcome)> {
+            [weak self] loaded, outcome in
             self?.applyState(loaded)
+            completion?(outcome)
         }
         withStateStore { store in
-            Self.write(store, mutate)
-            deliver.send(AgentHistoryLoadedState(store: store, state: store.current))
+            let outcome = Self.write(store, mutate)
+            deliver.send((AgentHistoryLoadedState(store: store, state: store.current), outcome))
         }
     }
 
@@ -313,11 +330,16 @@ final class AgentHistoryController: Sendable {
     private nonisolated static func write(
         _ store: AgentHistoryStateStore,
         _ mutate: (inout AgentHistoryState) -> Void
-    ) {
+    ) -> AgentHistoryStateChangeOutcome {
         do {
             try store.update(mutate)
+            return .saved
+        } catch let unsaved as AgentHistoryStateStore.UnsavedChange where unsaved.keptInMemory {
+            AgentHistoryLog.indexer.error("Agent History couldn't save its state file; the change applies until restart")
+            return .appliedButNotSaved
         } catch {
             AgentHistoryLog.indexer.error("Agent History couldn't save its state file")
+            return .notSaved
         }
     }
 
@@ -553,20 +575,6 @@ final class AgentHistoryController: Sendable {
             handler(next)
         }
     }
-}
-
-/// What `disable(deleteIndex:completion:)` did.
-enum AgentHistoryDisableOutcome: Equatable, Sendable {
-    /// Agent History is off; the index is kept.
-    case turnedOff
-    /// The directory and the consent are gone.
-    case deleted
-    /// Another Zentty instance runs Agent History on this index (owner or standby): nothing was
-    /// deleted, consent is kept. Quitting it, or turning Agent History off there, lets it through.
-    case refusedAnotherInstance
-    /// The directory could not be deleted (or locked for it). Consent is reset only when the
-    /// delete was attempted.
-    case failed
 }
 
 /// The index on disk while no indexer runs. Read on the control queue.

@@ -292,6 +292,43 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertEqual(backend.setAgentEnabledCalls, [.codex: false])
     }
 
+    /// Off still takes effect when state.json can't be written; the user is told it may not last.
+    func test_turn_off_that_was_not_saved_shows_an_error() {
+        let backend = FakeAgentHistoryControl()
+        backend.status = makeStatus()
+        backend.stateChangeOutcome = .appliedButNotSaved
+        let controller = makeController(backend: backend)
+
+        toggle(controller.statusSwitch, on: false, controller.handleStatusSwitchChanged)
+
+        XCTAssertEqual(errors, ["Couldn't save this change|Agent History is off for now, but Zentty couldn't save that. It may turn back on the next time Zentty starts."])
+    }
+
+    func test_source_off_that_was_not_saved_shows_an_error() throws {
+        let backend = FakeAgentHistoryControl()
+        backend.status = makeStatus(sources: [AgentHistorySourceHealth(agent: .codex, root: "/opt/codex", isDefaultRoot: true)])
+        backend.stateChangeOutcome = .appliedButNotSaved
+        let controller = makeController(backend: backend)
+
+        toggle(try XCTUnwrap(controller.sourceRowForTesting(.codex)).toggle, on: false, controller.handleSourceSwitchChanged)
+
+        XCTAssertEqual(errors, ["Couldn't save this change|\(AgentHistoryAgent.codex.displayName) is off in Agent History for now, but Zentty couldn't save that. It may turn back on the next time Zentty starts."])
+    }
+
+    /// Turning on that couldn't be saved changes nothing, and the switch goes back to off.
+    func test_turn_on_that_was_not_saved_shows_an_error_and_resets_the_switch() {
+        let backend = FakeAgentHistoryControl()
+        backend.status = makeStatus(isEnabled: false, state: .off)
+        backend.stateChangeOutcome = .notSaved
+        let controller = makeController(backend: backend)
+
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+
+        XCTAssertEqual(backend.setEnabledCalls, [true])
+        XCTAssertEqual(errors, ["Couldn't save this change|Zentty couldn't save Agent History's settings, so nothing changed. Check that your disk has free space, then try again."])
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+    }
+
     func test_undetected_source_switch_is_disabled() {
         let backend = FakeAgentHistoryControl()
         backend.status = makeStatus()

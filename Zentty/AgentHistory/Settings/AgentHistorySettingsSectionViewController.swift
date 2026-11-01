@@ -353,12 +353,9 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             return
         }
         guard wantsOn != status.isEnabled else { return }
-        guard wantsOn else {
-            backend.setEnabled(false)
-            return
-        }
-        guard !status.hasConsented else {
-            backend.setEnabled(true)
+        // Off, or on again after consent: no sheet.
+        guard wantsOn, !status.hasConsented else {
+            backend.setEnabled(wantsOn) { [weak self] in self?.reportStateChange($0, .history(on: wantsOn)) }
             return
         }
         let found = detected.filter(\.isFound)
@@ -379,7 +376,19 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
 
     @objc func handleSourceSwitchChanged(_ sender: NSSwitch) {
         guard let backend, let row = sourceRows.first(where: { $0.toggle === sender }) else { return }
-        backend.setAgentEnabled(row.agent, sender.state == .on)
+        let on = sender.state == .on
+        backend.setAgentEnabled(row.agent, on) { [weak self] in self?.reportStateChange($0, .source(row.agent, on: on)) }
+    }
+
+    /// Off holds even when it couldn't be saved, but may come back after a restart; on that
+    /// couldn't be saved changed nothing. Either way the user hears it, and the switches show
+    /// what is in effect.
+    private func reportStateChange(_ outcome: AgentHistoryStateChangeOutcome, _ change: AgentHistorySettingsStateChange) {
+        if let failure = AgentHistorySettingsAlerts.stateChangeFailure(outcome, change) {
+            agentHistorySettingsLogger.error("Agent History couldn't save a state change")
+            errorPresenter(view.window, failure.title, failure.message)
+        }
+        render()
     }
 
     @objc func handleAddFolder(_: Any?) {

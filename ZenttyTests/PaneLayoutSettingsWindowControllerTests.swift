@@ -2787,8 +2787,16 @@ final class HostedAgentHistorySettingsBackend: AgentHistorySettingsBackend {
         completion([])
     }
     func enable(agents: Set<AgentHistoryAgent>) {}
-    func setEnabled(_ enabled: Bool) {}
-    func setAgentEnabled(_ agent: AgentHistoryAgent, _ enabled: Bool) {}
+    func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        completion(.saved)
+    }
+    func setAgentEnabled(
+        _ agent: AgentHistoryAgent,
+        _ enabled: Bool,
+        completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
+    ) {
+        completion(.saved)
+    }
     func disable(deleteIndex: Bool, completion: @escaping @MainActor (AgentHistoryDisableOutcome) -> Void) {
         completion(.turnedOff)
     }

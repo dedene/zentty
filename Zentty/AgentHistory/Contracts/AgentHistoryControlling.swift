@@ -16,14 +16,29 @@ protocol AgentHistoryControlling: AnyObject {
     func detectSources(_ completion: @escaping @MainActor ([AgentHistoryDetectedSource]) -> Void)
     /// Records consent for `agents` and starts indexing.
     func enable(agents: Set<AgentHistoryAgent>)
-    func setEnabled(_ enabled: Bool)
+    /// `completion` says whether `state.json` saved the change; off takes effect either way.
+    func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void)
     /// Off purges that agent's rows (D4).
-    func setAgentEnabled(_ agent: AgentHistoryAgent, _ enabled: Bool)
+    func setAgentEnabled(
+        _ agent: AgentHistoryAgent,
+        _ enabled: Bool,
+        completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
+    )
     /// `deleteIndex: true` is "Delete Index and Turn Off" (also removes consent, D8).
     func disable(deleteIndex: Bool, completion: @escaping @MainActor (AgentHistoryDisableOutcome) -> Void)
     func rebuildIndex()
     func restoreAllRemovedSessions()
     func removeSession(_ key: AgentHistorySessionKey)
+}
+
+extension AgentHistoryControlling {
+    func setEnabled(_ enabled: Bool) {
+        setEnabled(enabled) { _ in }
+    }
+
+    func setAgentEnabled(_ agent: AgentHistoryAgent, _ enabled: Bool) {
+        setAgentEnabled(agent, enabled) { _ in }
+    }
 }
 
 typealias AgentHistorySettingsBackend = AgentHistoryControlling

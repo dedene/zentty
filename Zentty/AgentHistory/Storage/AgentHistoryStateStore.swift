@@ -30,6 +30,14 @@ struct AgentHistoryState: Codable, Equatable, Sendable {
     var enabledAgents: Set<AgentHistoryAgent> {
         Set(AgentHistoryAgent.allCases.filter { isSourceEnabled($0) })
     }
+
+    /// True when going from `previous` to this state only takes access away: History stays or
+    /// goes off, no agent comes on and no consent is added.
+    func onlyRevokesAccess(from previous: AgentHistoryState) -> Bool {
+        (!enabled || previous.enabled)
+            && enabledAgents.isSubset(of: previous.enabledAgents)
+            && (consentedAt == nil || consentedAt == previous.consentedAt)
+    }
 }
 
 extension AgentHistoryState {
@@ -74,13 +82,31 @@ final class AgentHistoryStateStore: @unchecked Sendable {
         queue.sync { state }
     }
 
+    /// A write that failed. `keptInMemory` is true when the change took effect anyway.
+    struct UnsavedChange: Error {
+        let keptInMemory: Bool
+        let underlying: any Error
+    }
+
     /// Applies `mutate`, writes the file atomically with mode 0600, then notifies observers on main.
-    /// On a write failure the in-memory state is unchanged and the error is rethrown.
+    /// A write failure throws `UnsavedChange`. A change that only takes access away (History off,
+    /// an agent off) still takes effect in memory, so turning things off never depends on the
+    /// disk; the next successful write saves it. Any other change is dropped, so nothing turns
+    /// on that a restart would undo.
     func update(_ mutate: (inout AgentHistoryState) -> Void) throws {
         try queue.sync {
             var next = state
             mutate(&next)
-            try write(next, extraFields: extraFields)
+            do {
+                try write(next, extraFields: extraFields)
+            } catch {
+                let keepsChange = next.onlyRevokesAccess(from: state)
+                if keepsChange, next != state {
+                    state = next
+                    notifyObservers(next)
+                }
+                throw UnsavedChange(keptInMemory: keepsChange, underlying: error)
+            }
             state = next
             notifyObservers(next)
         }
