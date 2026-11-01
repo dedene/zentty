@@ -151,12 +151,12 @@ final class HistoryContentSessionGateTests: XCTestCase {
     private static func routeTunings() -> [(tuning: HistorySearchEngine.Tuning, route: Route)] {
         var rowIDs = HistorySearchEngine.Tuning()
         rowIDs.rowIDGateTurnLimit = .max
-        rowIDs.substringScanTurnLimit = 0
+        rowIDs.substringScanMessageLimit = 0
         var sessions = HistorySearchEngine.Tuning()
         sessions.rowIDGateTurnLimit = 0
-        sessions.substringScanTurnLimit = 0
+        sessions.substringScanMessageLimit = 0
         var substrings = HistorySearchEngine.Tuning()
-        substrings.substringScanTurnLimit = .max
+        substrings.substringScanMessageLimit = .max
         return [
             (rowIDs, Route(gate: .contentRowIDs, messages: .ftsWalk)),
             (sessions, Route(gate: .sessions, messages: .ftsWalk)),
@@ -212,7 +212,7 @@ final class HistoryContentSessionGateTests: XCTestCase {
         let trigram = try Fixture(testCase: self)
         try populate(trigram)
         var substrings = HistorySearchEngine.Tuning()
-        substrings.substringScanTurnLimit = .max
+        substrings.substringScanMessageLimit = .max
         func route(_ fixture: Fixture, _ raw: String, scope: AgentHistoryScope = .all) throws -> [Route] {
             var tuning = substrings
             let routes = Fixture.Box<[Route]>([])
@@ -235,6 +235,68 @@ final class HistoryContentSessionGateTests: XCTestCase {
         let none = try Fixture(testCase: self, tokenizer: .none)
         try populate(none)
         XCTAssertEqual(try route(none, "repo:app deploy"), [Route(gate: .contentRowIDs, messages: .scanFallback)])
+    }
+
+    /// The substring scan reads every message of the admitted sessions, so its gate counts
+    /// messages: a project of one prompt and a long autonomous run is not "small" because it
+    /// has few turns.
+    func test_substring_scan_gate_counts_messages_not_turns() throws {
+        let fixture = try Fixture(testCase: self)
+        let run = try fixture.addSession("run", cwd: "/repos/run", repo: "/repos/run", mainRepo: "/repos/run",
+                                         updatedDaysAgo: 1)
+        try fixture.addMessage(session: run, daysAgo: 2, text: "start the deploy run")
+        try fixture.addMessages(session: run, role: .agent, startMs: Fixture.ms(daysAgo: 1.5), stepMs: 1_000,
+                                texts: (0..<40).map { "deploy step \($0)" })
+        let other = try fixture.addSession("other", cwd: "/repos/other", repo: "/repos/other",
+                                           mainRepo: "/repos/other", updatedDaysAgo: 1)
+        try fixture.addMessage(session: other, daysAgo: 1, text: "deploy elsewhere")
+        let db = try fixture.writer
+        XCTAssertEqual(try db.scalarInt64("SELECT turn_count FROM sessions WHERE id = ?", [.integer(run)]), 1)
+
+        func search(messageLimit: Int) throws -> (response: HistoryContentResponse, routes: [Route]) {
+            var tuning = HistorySearchEngine.Tuning()
+            tuning.substringScanMessageLimit = messageLimit
+            let routes = Fixture.Box<[Route]>([])
+            tuning.didChooseRoute = { route in routes.set(routes.value + [route]) }
+            let response = try fixture.engine(tuning: tuning).searchContent(
+                Fixture.query("repo:run deploy"), context: fixture.context(), excludingSessionIDs: [],
+                cancellation: HistorySearchCancellation())
+            return (response, routes.value)
+        }
+
+        let over = try search(messageLimit: 40)
+        XCTAssertEqual(over.routes, [Route(gate: .contentRowIDs, messages: .ftsWalk)],
+                       "41 messages exceed a 40-message scan although the session has one turn")
+        let atLimit = try search(messageLimit: 41)
+        XCTAssertEqual(atLimit.routes, [Route(gate: .contentRowIDs, messages: .substringScan)])
+        let unlimited = try search(messageLimit: .max)
+        XCTAssertEqual(unlimited.routes, [Route(gate: .contentRowIDs, messages: .substringScan)])
+        let off = try search(messageLimit: 0)
+        XCTAssertEqual(off.routes, [Route(gate: .contentRowIDs, messages: .ftsWalk)])
+
+        XCTAssertEqual(over.response.results.map(\.session.nativeID), ["run"])
+        XCTAssertEqual(over.response.results.first?.totalHits, 41)
+        XCTAssertEqual(over.response, atLimit.response.withElapsed(over.response.elapsed))
+    }
+
+    func test_admitted_message_count_stops_at_the_cap() throws {
+        let fixture = try Fixture(testCase: self)
+        let first = try fixture.addSession("first")
+        try fixture.addMessages(session: first, startMs: Fixture.ms(daysAgo: 2), texts: (0..<7).map { "a \($0)" })
+        let second = try fixture.addSession("second")
+        try fixture.addMessages(session: second, startMs: Fixture.ms(daysAgo: 1), texts: (0..<5).map { "b \($0)" })
+        let third = try fixture.addSession("third")
+        try fixture.addMessage(session: third, daysAgo: 1, text: "c")
+        let db = try fixture.writer
+        func count(_ ids: [Int64], cap: Int64) throws -> Int64? {
+            let statement = Query.admittedMessageCount(sessionIDs: ids, cap: cap)
+            return try db.scalarInt64(statement.sql, statement.bindings)
+        }
+        XCTAssertEqual(try count([first, second], cap: -1), 12)
+        XCTAssertEqual(try count([first, second], cap: 100), 12)
+        XCTAssertEqual(try count([first, second], cap: 8), 8)
+        XCTAssertEqual(try count([second], cap: 6), 5)
+        XCTAssertEqual(try count([], cap: 6), 0)
     }
 
     func test_scan_fallback_applies_the_session_gate() throws {

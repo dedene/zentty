@@ -161,6 +161,17 @@ final class HistoryQueryPlanTests: XCTestCase {
             "messages by id do not look up the session by rowid:\n\(rendered)")
     }
 
+    func test_admitted_message_count_reads_the_session_index_only() throws {
+        let fixture = try Fixture(testCase: self)
+        let db = try fixture.writer
+        let count = try plan(db, HistoryContentQuery.admittedMessageCount(sessionIDs: [1, 2, 3], cap: 24_001))
+        let rendered = count.joined(separator: "\n")
+        assertNoTempBTree(count, "admitted message count")
+        XCTAssertTrue(
+            count.contains { $0.hasPrefix("SEARCH messages USING COVERING INDEX sqlite_autoindex_messages_1 (session_id=?)") },
+            "admitted message count reads message rows or skips the session index:\n\(rendered)")
+    }
+
     func test_gated_scan_fallback_plan_uses_rowid_range() throws {
         let fixture = try Fixture(testCase: self, tokenizer: .none)
         let db = try fixture.writer

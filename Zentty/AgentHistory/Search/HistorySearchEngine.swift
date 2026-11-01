@@ -10,9 +10,9 @@ import os
 /// 2. resolves a project scope, `repo:` and `branch:` once into the admitted sessions
 ///    (`HistoryContentQuery.admittedSessions`) and gates the walk on their ids; then walks the
 ///    FTS tables newest first with every filter inside the ordered scan (`HistoryContentQuery`).
-///    Under the trigram tokenizer, a small admitted set (`substringScanTurnLimit` turns) finds
-///    its message hits by `instr` over its own messages instead, which returns the same rows
-///    without walking every term's trigram doclists. Without a usable tokenizer it scans the
+///    Under the trigram tokenizer, an admitted set of at most `substringScanMessageLimit`
+///    messages finds its message hits by `instr` over those messages instead, which returns the
+///    same rows without walking every term's trigram doclists. Without a usable tokenizer it scans the
 ///    newest `scanWindow` messages;
 /// 3. grades the first 65,536 characters of each candidate's `search_text`, artifacts with path
 ///    boundaries and a 0.9 discount. A longer candidate that does not grade counts as a mid-word
@@ -38,7 +38,7 @@ final class HistorySearchEngine: @unchecked Sendable {
         var artifactLimit = HistoryContentQuery.artifactLimit
         var scanWindow = HistoryContentQuery.scanWindow
         var rowIDGateTurnLimit = HistoryContentQuery.rowIDGateTurnLimit
-        var substringScanTurnLimit = HistoryContentQuery.substringScanTurnLimit
+        var substringScanMessageLimit = HistoryContentQuery.substringScanMessageLimit
         var progressHandlerInstructions: Int32 = 1_000
         var cancellationCheckRows = 256
         /// Test seam: runs on the searching thread before each content row is graded.
@@ -163,8 +163,12 @@ final class HistorySearchEngine: @unchecked Sendable {
                 filters.gate = admitted.turns <= Int64(tuning.rowIDGateTurnLimit)
                     ? .contentRowIDs(admitted.ids)
                     : .sessions(admitted.ids)
-                scansAdmittedMessages = tokenizer == .trigram
-                    && admitted.turns <= Int64(tuning.substringScanTurnLimit)
+                // Every turn is a message, so too many turns rule the scan out without a count.
+                if tokenizer == .trigram, plan.mode == .fts,
+                   admitted.turns <= Int64(tuning.substringScanMessageLimit) {
+                    scansAdmittedMessages = try admittedMessagesFit(
+                        admitted.ids, limit: tuning.substringScanMessageLimit, db: db)
+                }
             }
             var truncated = false
             func choose(_ messages: ContentRoute.Messages) {
@@ -296,6 +300,14 @@ final class HistorySearchEngine: @unchecked Sendable {
             turns += row.int64(1)
         }
         return ids.isEmpty ? nil : (ids, turns)
+    }
+
+    /// Whether the sessions `ids` hold at most `limit` messages; counts one past it at most.
+    private func admittedMessagesFit(_ ids: [Int64], limit: Int, db: AgentHistoryDatabase) throws -> Bool {
+        guard limit > 0 else { return false }
+        let (cap, overflow) = Int64(clamping: limit).addingReportingOverflow(1)
+        let statement = HistoryContentQuery.admittedMessageCount(sessionIDs: ids, cap: overflow ? -1 : cap)
+        return try (db.scalarInt64(statement.sql, statement.bindings) ?? 0) <= Int64(clamping: limit)
     }
 
     /// The message hits of a small admitted set under the trigram tokenizer: every matching id

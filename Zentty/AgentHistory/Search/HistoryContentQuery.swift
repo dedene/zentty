@@ -127,9 +127,12 @@ enum HistoryContentQuery {
     /// The most turns (summed `sessions.turn_count`) the admitted sessions may hold for the
     /// engine to gate on content row ids (`.contentRowIDs`) rather than on session ids.
     static let rowIDGateTurnLimit = 20_000
-    /// The most turns the admitted sessions may hold for the engine to find trigram message hits
-    /// with `substringScan` instead of the FTS walk.
-    static let substringScanTurnLimit = 12_000
+    /// The most messages the admitted sessions may hold for the engine to find trigram message
+    /// hits with `substringScan` instead of the FTS walk. The scan reads every one of them, so
+    /// the gate counts messages (`admittedMessageCount`), not turns: one turn can carry thousands
+    /// of agent messages. 24,000 is the 12,000 turns the route was tuned at on the benchmark
+    /// corpus, which holds two messages per turn, so the benchmark keeps its routes.
+    static let substringScanMessageLimit = 24_000
 
     // MARK: - FTS
 
@@ -205,6 +208,18 @@ enum HistoryContentQuery {
             WHERE \(conditions.joined(separator: "\n  AND "))
             """
         return Statement(sql: sql, bindings: bindings)
+    }
+
+    /// How many messages the sessions `ids` hold, but at most `cap`: counted through the
+    /// `(session_id, seq)` index without reading a message row, and stopped at `cap`, so a large
+    /// admitted set costs no more to count than one at the limit. A negative `cap` counts all.
+    static func admittedMessageCount(sessionIDs ids: [Int64], cap: Int64) -> Statement {
+        let sql = """
+            SELECT count(*) FROM (
+              SELECT 1 FROM messages WHERE session_id IN (SELECT value FROM json_each(?)) LIMIT ?
+            )
+            """
+        return Statement(sql: sql, bindings: [.text(jsonArray(ids)), .integer(cap)])
     }
 
     /// The `messages` columns (same order) of the given message ids, in no particular order.
