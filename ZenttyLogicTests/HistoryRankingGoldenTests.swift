@@ -137,7 +137,8 @@ final class HistoryRankingGoldenTests: XCTestCase {
             readers: readers,
             metadataIndex: HistoryMetadataIndex(snapshot: { snapshot }, exclusions: { exclusions }),
             tokenizer: { tokenizer },
-            exclusions: { exclusions })
+            exclusions: { exclusions },
+            enabledAgents: { Set(AgentHistoryAgent.allCases) })
     }
 
     private static func meanReciprocalRank(_ ranks: [Int?]) -> Double {

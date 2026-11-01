@@ -8,6 +8,8 @@ extension AgentHistoryController {
     ///
     /// The metadata tier reads the published snapshot and the configured exclusions live, so an
     /// engine handed out earlier keeps seeing new sessions and newly excluded folders (A-10).
+    /// Every tier also reads the persisted agent selection live, so an agent turned off is
+    /// hidden before its purge runs.
     nonisolated var searchEngine: HistorySearchEngine? {
         guard let storage, storage.availability == .ready else {
             return nil
@@ -21,7 +23,8 @@ extension AgentHistoryController {
                 readers: storage.readers,
                 metadataIndex: metadataIndex,
                 tokenizer: { storage.tokenizer ?? .none },
-                exclusions: { [weak self] in self?.exclusions ?? AgentHistoryExclusionMatcher(folders: []) }
+                exclusions: { [weak self] in self?.exclusions ?? AgentHistoryExclusionMatcher(folders: []) },
+                enabledAgents: { [weak self] in self?.enabledAgents ?? [] }
             )
         }
     }

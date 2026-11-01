@@ -2,11 +2,16 @@ import Foundation
 
 /// Per-session reads: matching turns, the preview, the full transcript, the CLI's last turns,
 /// lookups by native id and counts. Like the content tier they read on a pooled reader on the
-/// calling thread, and never return a hidden (child, zero-turn), disabled-source or excluded
-/// session.
+/// calling thread, and never return a hidden (child, zero-turn), disabled-source, turned-off
+/// agent or excluded session.
 extension HistorySearchEngine {
-    /// Sessions of enabled sources only (mirrors the content tier).
-    static let enabledSourcePredicate = "s.source_id IN (SELECT id FROM sources WHERE enabled = 1)"
+    /// Sessions of enabled sources of agents the user has on (mirrors the content tier); nil
+    /// when every agent is off.
+    func enabledSourceCondition(_ bindings: inout [AgentHistoryValue]) -> String? {
+        let agents = enabledAgents
+        guard !agents.isEmpty else { return nil }
+        return HistoryContentQuery.sourceCondition(agents: agents, bindings: &bindings)
+    }
 
     /// The session's messages that contain every term and grade as a match, in `seq` order,
     /// at most `limit`, with highlight ranges on their display text.
@@ -101,8 +106,9 @@ extension HistorySearchEngine {
         agent: AgentHistoryAgent?,
         scope: AgentHistoryScope
     ) throws -> [AgentHistorySessionSummary] {
-        var conditions = ["s.native_id = ?", AgentHistorySQL.visibleSessionPredicate, Self.enabledSourcePredicate]
         var bindings: [AgentHistoryValue] = [.text(nativeID)]
+        guard let sourceCondition = enabledSourceCondition(&bindings) else { return [] }
+        var conditions = ["s.native_id = ?", AgentHistorySQL.visibleSessionPredicate, sourceCondition]
         if let agent {
             conditions.append("src.agent = ?")
             bindings.append(.text(agent.rawValue))
@@ -124,8 +130,9 @@ extension HistorySearchEngine {
 
     /// Visible, non-excluded sessions of enabled sources in `scope`.
     func visibleSessionCount(scope: AgentHistoryScope) throws -> Int {
-        var conditions = [AgentHistorySQL.visibleSessionPredicate, Self.enabledSourcePredicate]
         var bindings: [AgentHistoryValue] = []
+        guard let sourceCondition = enabledSourceCondition(&bindings) else { return 0 }
+        var conditions = [AgentHistorySQL.visibleSessionPredicate, sourceCondition]
         if case .project(let project) = scope {
             let predicate = project.sqlPredicate(sessionAlias: "s")
             conditions.append(predicate.sql)
@@ -144,19 +151,24 @@ extension HistorySearchEngine {
 
     // MARK: - Shared reads
 
-    /// Visible, non-excluded summaries of enabled sources by id: the metadata snapshot first,
-    /// then SQL for ids it does not hold (newer than the snapshot, or not in it yet).
+    /// Visible, non-excluded summaries of enabled sources and agents by id: the metadata
+    /// snapshot first, then SQL for ids it does not hold (newer than the snapshot, or not in it
+    /// yet). Both paths drop agents the user turned off.
     func summaries(forSessionIDs ids: [Int64], db: AgentHistoryDatabase) throws -> [Int64: AgentHistorySessionSummary] {
+        let agents = enabledAgents
         var result: [Int64: AgentHistorySessionSummary] = [:]
         var missing: [Int64] = []
-        for id in ids where result[id] == nil {
+        var seen: Set<Int64> = []
+        for id in ids where seen.insert(id).inserted {
             if let summary = metadataIndex.summary(forSessionID: id) {
-                result[id] = summary
+                if agents.contains(summary.agent) {
+                    result[id] = summary
+                }
             } else {
                 missing.append(id)
             }
         }
-        guard !missing.isEmpty else { return result }
+        guard !missing.isEmpty, !agents.isEmpty else { return result }
 
         let exclusions = self.exclusions
         let placeholders = Array(repeating: "?", count: missing.count).joined(separator: ", ")
@@ -164,7 +176,7 @@ extension HistorySearchEngine {
             + " WHERE s.id IN (\(placeholders)) AND \(AgentHistorySQL.visibleSessionPredicate)"
             + " AND src.enabled = 1"
         for summary in try db.query(sql, missing.map { .integer($0) }, map: AgentHistorySessionSummary.init(row:))
-        where !exclusions.excludesCanonical(summary.cwd) {
+        where agents.contains(summary.agent) && !exclusions.excludesCanonical(summary.cwd) {
             result[summary.id] = summary
         }
         return result

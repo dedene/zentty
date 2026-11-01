@@ -170,4 +170,41 @@ final class HistorySessionQueriesTests: XCTestCase {
         XCTAssertEqual(try engine.visibleSessionCount(scope: .all), 2)
         XCTAssertEqual(try engine.visibleSessionCount(scope: Fixture.projectScope("/repos/app")), 1)
     }
+
+    func test_agent_turned_off_is_hidden_before_its_purge_runs() throws {
+        let fixture = try Fixture(testCase: self)
+        let claude = try fixture.addSession("claude-1", agent: .claude)
+        try fixture.addMessage(session: claude, daysAgo: 1, text: "rotate the signing key")
+        let codex = try fixture.addSession("codex-1", agent: .codex)
+        try fixture.addMessage(session: codex, daysAgo: 2, text: "rotate the signing key")
+        let query = Fixture.query("signing")
+        // One engine whose snapshot still holds the codex session, one that must fall back to SQL.
+        let snapshotEngine = try fixture.engine()
+        let sqlEngine = try fixture.engine(
+            metadataIndex: HistoryMetadataIndex(snapshot: { .empty }, exclusions: { .init(folders: []) }))
+
+        // Codex is off in the persisted state; its `sources.enabled` row is still 1.
+        fixture.enabledAgents.set([.claude])
+        for engine in [snapshotEngine, sqlEngine] {
+            let content = try engine.searchContent(
+                query, context: fixture.context(), excludingSessionIDs: [], cancellation: HistorySearchCancellation())
+            XCTAssertEqual(content.results.map(\.session.nativeID), ["claude-1"])
+            let codexOnly = try engine.searchContent(
+                Fixture.query("agent:codex signing"), context: fixture.context(), excludingSessionIDs: [],
+                cancellation: HistorySearchCancellation())
+            XCTAssertTrue(codexOnly.results.isEmpty)
+            XCTAssertThrowsError(try engine.preview(sessionID: codex, query: query))
+            XCTAssertThrowsError(try engine.transcript(sessionID: codex, query: query))
+            XCTAssertThrowsError(try engine.lastTurns(sessionID: codex, limit: 5))
+            XCTAssertEqual(try engine.sessions(nativeID: "codex-1", agent: nil, scope: .all), [])
+            XCTAssertEqual(try engine.visibleSessionCount(scope: .all), 1)
+            XCTAssertNoThrow(try engine.preview(sessionID: claude, query: query))
+        }
+
+        fixture.enabledAgents.set([])
+        XCTAssertTrue(try snapshotEngine.searchContent(
+            query, context: fixture.context(), excludingSessionIDs: [], cancellation: HistorySearchCancellation()
+        ).results.isEmpty)
+        XCTAssertEqual(try sqlEngine.visibleSessionCount(scope: .all), 0)
+    }
 }

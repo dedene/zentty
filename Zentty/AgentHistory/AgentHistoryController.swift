@@ -80,6 +80,9 @@ final class AgentHistoryController: Sendable {
     nonisolated var allowsAgentsAllProjects: Bool { mirror.allowsAgentsAllProjects }
     /// The configured excluded folders, canonicalized on first use off the caller's thread.
     nonisolated var exclusions: AgentHistoryExclusionMatcher { mirror.exclusions }
+    /// The agents the persisted state has on. Search gates on it so turning an agent off hides
+    /// it at once, before its purge has run (which a full disk or standby can delay).
+    nonisolated var enabledAgents: Set<AgentHistoryAgent> { mirror.enabledAgents }
 
     // MARK: - Lifecycle
 
@@ -327,6 +330,7 @@ final class AgentHistoryController: Sendable {
         let next = loaded.state
         let previous = persistedState
         persistedState = next
+        mirror.enabledAgents = next.enabledAgents
         stateStore = loaded.store
         let removed = previous.map { $0.enabledAgents.subtracting(next.enabledAgents) } ?? []
         guard let indexer else {
@@ -539,6 +543,7 @@ final class AgentHistoryControllerMirror: @unchecked Sendable {
     private var excludedFolders: [String] = []
     private var cachedExclusions: AgentHistoryExclusionMatcher?
     private var allowsAll = false
+    private var storedEnabledAgents: Set<AgentHistoryAgent> = []
     /// Guarded separately: creating the store reads the file, which must not hold up `lock`.
     private let stateStoreLock = NSLock()
     private var store: AgentHistoryStateStore?
@@ -560,6 +565,11 @@ final class AgentHistoryControllerMirror: @unchecked Sendable {
 
     var allowsAgentsAllProjects: Bool {
         withLock { allowsAll }
+    }
+
+    var enabledAgents: Set<AgentHistoryAgent> {
+        get { withLock { storedEnabledAgents } }
+        set { withLock { storedEnabledAgents = newValue } }
     }
 
     var exclusions: AgentHistoryExclusionMatcher {

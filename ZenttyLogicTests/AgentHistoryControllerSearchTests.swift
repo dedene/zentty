@@ -104,6 +104,7 @@ final class AgentHistoryControllerSearchTests: XCTestCase {
         XCTAssertTrue(engine === controller.searchEngine, "built once and reused")
         XCTAssertTrue(engine.readers === controller.storage?.readers, "reads through the storage's reader pool")
         XCTAssertEqual(engine.tokenizer, controller.storage?.tokenizer)
+        XCTAssertEqual(engine.enabledAgents, [.claude], "gates on the persisted agent selection")
 
         // The metadata tier reads the controller's live snapshot.
         let query = HistoryQueryParser.parse("zebra")

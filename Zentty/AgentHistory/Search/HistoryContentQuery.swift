@@ -17,6 +17,7 @@ enum HistoryContentQuery {
 
     /// The candidate filters shared by every content statement.
     struct Filters: Equatable, Sendable {
+        /// Empty means every agent.
         var agents: Set<AgentHistoryAgent> = []
         /// `repo:` values; one containing `/` is an exact root, otherwise a basename.
         var repoNames: [String] = []
@@ -46,9 +47,11 @@ enum HistoryContentQuery {
             self.scope = scope
         }
 
-        init(query: HistoryQuery, plan: HistoryMatchPlan, scope: AgentHistoryScope) {
+        /// `agents` is the query's `agent:` set narrowed to `enabledAgents` (all of them without
+        /// an `agent:` filter); empty when no enabled agent is left, which the caller must check.
+        init(query: HistoryQuery, plan: HistoryMatchPlan, scope: AgentHistoryScope, enabledAgents: Set<AgentHistoryAgent>) {
             self.init(
-                agents: query.filters.agents,
+                agents: query.filters.agents.isEmpty ? enabledAgents : query.filters.agents.intersection(enabledAgents),
                 repoNames: query.filters.repoNames,
                 branches: query.filters.branches,
                 beforeMs: query.filters.before.map(HistoryContentQuery.milliseconds),
@@ -172,13 +175,7 @@ enum HistoryContentQuery {
     static func filterConditions(_ filters: Filters, row: String, bindings: inout [AgentHistoryValue]) -> [String] {
         var conditions = [AgentHistorySQL.visibleSessionPredicate]
 
-        var sourceFilter = "s.source_id IN (SELECT id FROM sources WHERE enabled = 1"
-        if !filters.agents.isEmpty {
-            let agents = filters.agents.map(\.rawValue).sorted()
-            sourceFilter += " AND agent IN (\(Array(repeating: "?", count: agents.count).joined(separator: ", ")))"
-            bindings.append(contentsOf: agents.map { .text($0) })
-        }
-        conditions.append(sourceFilter + ")")
+        conditions.append(sourceCondition(agents: filters.agents, bindings: &bindings))
 
         if case .project(let project) = filters.scope {
             let predicate = project.sqlPredicate(sessionAlias: "s")
@@ -223,6 +220,18 @@ enum HistoryContentQuery {
             bindings.append(.text(term))
         }
         return conditions
+    }
+
+    /// Sessions `s` of enabled `sources` rows, of `agents` only unless it is empty. The agent list
+    /// carries the user's opt-out, which applies before a purge turns `sources.enabled` off.
+    static func sourceCondition(agents: Set<AgentHistoryAgent>, bindings: inout [AgentHistoryValue]) -> String {
+        var condition = "s.source_id IN (SELECT id FROM sources WHERE enabled = 1"
+        if !agents.isEmpty {
+            let names = agents.map(\.rawValue).sorted()
+            condition += " AND agent IN (\(Array(repeating: "?", count: names.count).joined(separator: ", ")))"
+            bindings.append(contentsOf: names.map { .text($0) })
+        }
+        return condition + ")"
     }
 
     /// Escapes `\`, `%` and `_` for `LIKE … ESCAPE '\'`.

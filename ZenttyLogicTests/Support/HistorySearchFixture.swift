@@ -12,6 +12,8 @@ final class HistorySearchFixture: @unchecked Sendable {
 
     let index: AgentHistoryTestIndex
     let exclusions = Box(AgentHistoryExclusionMatcher(folders: []))
+    /// The persisted agent selection the engine gates on; every agent unless a test turns one off.
+    let enabledAgents = Box(Set(AgentHistoryAgent.allCases))
     var now: Date { Date(timeIntervalSince1970: TimeInterval(Self.nowMs) / 1000) }
     private var sourceIDs: [AgentHistoryAgent: Int64] = [:]
     private var sessionSources: [Int64: Int64] = [:]
@@ -169,11 +171,13 @@ final class HistorySearchFixture: @unchecked Sendable {
     ) throws -> HistorySearchEngine {
         let storage = index.storage
         let exclusions = self.exclusions
+        let enabledAgents = self.enabledAgents
         return HistorySearchEngine(
             readers: storage.readers,
             metadataIndex: try metadataIndex ?? self.metadataIndex(),
             tokenizer: { storage.tokenizer ?? .none },
             exclusions: { exclusions.value },
+            enabledAgents: { enabledAgents.value },
             tuning: tuning
         )
     }

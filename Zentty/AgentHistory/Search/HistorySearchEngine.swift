@@ -18,7 +18,8 @@ import os
 ///
 /// Sessions whose `cwd` is excluded are dropped at query time (A-10), child and zero-turn
 /// sessions never match (`AgentHistorySQL.visibleSessionPredicate`), sessions of disabled
-/// sources are skipped, and tombstoned sessions have no rows left to match.
+/// sources or of agents the user turned off (`enabledAgents`, even before their purge ran) are
+/// skipped, and tombstoned sessions have no rows left to match.
 ///
 /// Cancellation: SQLite's progress handler aborts the running statement once the query's
 /// `HistorySearchCancellation` is cancelled, and the row loop checks it every 256 rows. Both
@@ -48,23 +49,29 @@ final class HistorySearchEngine: @unchecked Sendable {
     let tuning: Tuning
     private let tokenizerProvider: @Sendable () -> AgentHistoryTokenizer
     private let exclusionsProvider: @Sendable () -> AgentHistoryExclusionMatcher
+    private let enabledAgentsProvider: @Sendable () -> Set<AgentHistoryAgent>
 
+    /// `enabledAgents` is the user's persisted agent selection; it gates every query at once,
+    /// while the index's `sources.enabled` only follows once the agent's purge has run.
     init(
         readers: AgentHistoryReaderPool,
         metadataIndex: HistoryMetadataIndex,
         tokenizer: @escaping @Sendable () -> AgentHistoryTokenizer,
         exclusions: @escaping @Sendable () -> AgentHistoryExclusionMatcher,
+        enabledAgents: @escaping @Sendable () -> Set<AgentHistoryAgent>,
         tuning: Tuning = Tuning()
     ) {
         self.readers = readers
         self.metadataIndex = metadataIndex
         self.tokenizerProvider = tokenizer
         self.exclusionsProvider = exclusions
+        self.enabledAgentsProvider = enabledAgents
         self.tuning = tuning
     }
 
     var tokenizer: AgentHistoryTokenizer { tokenizerProvider() }
     var exclusions: AgentHistoryExclusionMatcher { exclusionsProvider() }
+    var enabledAgents: Set<AgentHistoryAgent> { enabledAgentsProvider() }
 
     // MARK: - Content tier
 
@@ -93,7 +100,11 @@ final class HistorySearchEngine: @unchecked Sendable {
             throw HistorySearchError.cancelled
         }
 
-        let filters = HistoryContentQuery.Filters(query: query, plan: plan, scope: context.scope)
+        let filters = HistoryContentQuery.Filters(
+            query: query, plan: plan, scope: context.scope, enabledAgents: enabledAgents)
+        guard !filters.agents.isEmpty else {
+            return emptyResponse()
+        }
         let collector = HitCollector(
             query: query, sqlRequiredTerms: Set(plan.ftsTerms + plan.instrFilters), exclusions: exclusions,
             cancellation: cancellation, tuning: tuning)
