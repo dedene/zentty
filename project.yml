@@ -91,6 +91,7 @@ targets:
       - path: Zentty/AgentHistory/IPC/HistoryIPCCommand.swift
       - path: Zentty/AgentHistory/IPC/HistoryIPCResult.swift
       - path: Zentty/AgentHistory/IPC/HistoryIPCClientErrors.swift
+      - path: Zentty/AgentHistory/IPC/HistoryIPCFormatting.swift
       - path: Zentty/Servers/ServerIPCCommands.swift
       - path: Zentty/Servers/ServerOutputURLDetector.swift
       - path: Zentty/Servers/ServerURLNormalizer.swift

@@ -287,6 +287,7 @@
 		431F20BE5D3B0B049221ADCC /* AgyHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */; };
 		431F9BE9DC59C0FAFDA7FE74 /* ServerIPCCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783A3BBA14A7D266EEB43B31 /* ServerIPCCommandTests.swift */; };
 		436EBF7575C96541F36511A3 /* PaneDragSplitOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2BC275D0F7E90ACD593C6 /* PaneDragSplitOverlayView.swift */; };
+		439B50CF2A1A183478089B19 /* HistoryIPCFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4FADC843255FD23D873E1 /* HistoryIPCFormatting.swift */; };
 		43B1102FBA0B26F34FC85EF8 /* HistoryIPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E82C2A97C8DB9818D18EE7 /* HistoryIPCHandler.swift */; };
 		43C487B16E829E9259D05B79 /* AgentHistoryDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F4F248C525052284FB7EF2 /* AgentHistoryDatabase.swift */; };
 		43D637A34D77927C81763105 /* PaneInputServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D128D678CF4EC15184E0CE48 /* PaneInputServiceTests.swift */; };
@@ -395,6 +396,7 @@
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5CD86FBA228D0DE27399B2B6 /* TmuxCommandLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251D866C696C4237F3605EDB /* TmuxCommandLine.swift */; };
+		5D13BC797FC2A9C58AFC9A40 /* HistoryIPCFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4FADC843255FD23D873E1 /* HistoryIPCFormatting.swift */; };
 		5D4DC75529AA78756EB89857 /* AgentHistoryClaudeFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BB33539EDEB83A2B9CBB820 /* AgentHistoryClaudeFixtures.swift */; };
 		5D7ABBC4BA4CA17FDFD2A6BA /* CodexHistorySourceCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB385937115458631474299 /* CodexHistorySourceCatalogTests.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
@@ -753,6 +755,7 @@
 		B3A13C1255ED67FC3806E6C5 /* AgentHistoryIndexerOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB7CDC5197A2C9B5E88EDD55 /* AgentHistoryIndexerOwnershipTests.swift */; };
 		B3A83430F4F28833E6D7E633 /* AppSideCanonicalReEmitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9E2045365716D8206DB7F /* AppSideCanonicalReEmitting.swift */; };
 		B3EDFD781B2ECD9598AD51ED /* WorklaneRenameIPCParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A86E5437CA5FE9BF64605D3 /* WorklaneRenameIPCParserTests.swift */; };
+		B407D5E6CBFB49C56B3886C0 /* HistoryCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E03CD7477C8CFC3CFB8AC6B /* HistoryCLI.swift */; };
 		B433028E8A9894EE5AAD3CC2 /* AgentHistoryKeyRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB83DD1BE597DD042A10D437 /* AgentHistoryKeyRouter.swift */; };
 		B4A47A7A3DC3CDAE518CEA2C /* AgentHistorySessionSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EADED996C9EF7C9DD44820FA /* AgentHistorySessionSummary.swift */; };
 		B4C1005AD0D618DCB0A4C13D /* MoveToWorklaneMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88AFF05A04C7107BED6423F8 /* MoveToWorklaneMenuBuilderTests.swift */; };
@@ -978,6 +981,7 @@
 		EA6847AAD0A938767899B578 /* VendoredGhosttyResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */; };
 		EA8B1B0300AA97CA640F48C2 /* AgentHistoryFolderGoneSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1379EFE338ABD8C773FFFF74 /* AgentHistoryFolderGoneSheet.swift */; };
 		EAC39845FAE3EF9784F2F17C /* DroidTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BCA77C435DCC7E4F338789C /* DroidTaskStore.swift */; };
+		EACE960E0F1F8FAB94939991 /* HistoryIPCFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10DEB8FDEB8E0630F5666F2E /* HistoryIPCFormattingTests.swift */; };
 		EB4319E7CED8C518997CFE63 /* DevinConfigWriteBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D52E538B9FCEBF92768A1EA /* DevinConfigWriteBack.swift */; };
 		EBA82B93B865F768A59C3FB5 /* CommandPaletteItemBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1927429EEB90A74961D30D /* CommandPaletteItemBuilderTests.swift */; };
 		EBAB412B1DBC55EC0D896F9F /* SettingsSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6F06FD570B9740CE7008CB /* SettingsSidebarTests.swift */; };
@@ -1158,6 +1162,7 @@
 		106F8EB98DCA59C9B7ED19CD /* ClaudeDaemonPaneRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeDaemonPaneRoutingTests.swift; sourceTree = "<group>"; };
 		10A9C67A7088C8A8109787C2 /* SidebarActiveWorklaneAutoScroller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarActiveWorklaneAutoScroller.swift; sourceTree = "<group>"; };
 		10C70E68528914C7BDC3B755 /* AgentStatusHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusHelper.swift; sourceTree = "<group>"; };
+		10DEB8FDEB8E0630F5666F2E /* HistoryIPCFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryIPCFormattingTests.swift; sourceTree = "<group>"; };
 		11072AE049C3591BEAFABAE0 /* SidebarRowDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRowDiff.swift; sourceTree = "<group>"; };
 		119DE9E185FDBAACCD9D5D3A /* SpringAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpringAnimator.swift; sourceTree = "<group>"; };
 		11A8C749F0AF726434D683DF /* MenuBarStatusMenuBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusMenuBuilderTests.swift; sourceTree = "<group>"; };
@@ -1210,6 +1215,7 @@
 		1D52E538B9FCEBF92768A1EA /* DevinConfigWriteBack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevinConfigWriteBack.swift; sourceTree = "<group>"; };
 		1D603FA3B4BCDFE0AC7C4342 /* SidebarBookmarkRowAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBookmarkRowAction.swift; sourceTree = "<group>"; };
 		1D81615BBB37D3AEBFAFB4F1 /* AgentHistoryPaletteServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryPaletteServices.swift; sourceTree = "<group>"; };
+		1E03CD7477C8CFC3CFB8AC6B /* HistoryCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryCLI.swift; sourceTree = "<group>"; };
 		1E13EF30F7271070192C2A0B /* AgentHistoryPaletteServicesAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryPaletteServicesAdapterTests.swift; sourceTree = "<group>"; };
 		1EB210F2B254BF22B8605521 /* AgentHistoryBatchBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryBatchBuilderTests.swift; sourceTree = "<group>"; };
 		1ED8CC8942CC80500B98FD3D /* ProcessInspectionUnixSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessInspectionUnixSocketTests.swift; sourceTree = "<group>"; };
@@ -1624,6 +1630,7 @@
 		814C33CF5A572732410DF69D /* AgentHistoryController+Usage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHistoryController+Usage.swift"; sourceTree = "<group>"; };
 		81A2C70428D2C375764E7ABC /* GhosttyAppearanceSettingsCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAppearanceSettingsCoordinatorTests.swift; sourceTree = "<group>"; };
 		81D203723CFBD39A8476E269 /* AgentHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryStore.swift; sourceTree = "<group>"; };
+		81D4FADC843255FD23D873E1 /* HistoryIPCFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryIPCFormatting.swift; sourceTree = "<group>"; };
 		82C2F7AE1B971AED06DCFB20 /* AgyEventAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgyEventAdapter.swift; sourceTree = "<group>"; };
 		82E1E9FF5B98D7124B6E65AC /* VendoredGhosttyResourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendoredGhosttyResourcesTests.swift; sourceTree = "<group>"; };
 		82FDD46AEBF6EFC253C172AE /* AgentHistoryWorktreeCreatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryWorktreeCreatorTests.swift; sourceTree = "<group>"; };
@@ -2296,6 +2303,7 @@
 			children = (
 				E1C2498C39738D7E5DBC5BBC /* AgentIPCClient.swift */,
 				7790121822A61AC4121DF708 /* AgentToolLauncher.swift */,
+				1E03CD7477C8CFC3CFB8AC6B /* HistoryCLI.swift */,
 				96AB55DBD7B97ACDCA06FB95 /* OverlayCLI.swift */,
 				F1E87B33AE76C19CE6FFAB18 /* PaneControlCLI.swift */,
 				4ABED86877FD29F83E4196E0 /* TmuxCompatCommand.swift */,
@@ -2862,6 +2870,7 @@
 				2DBEEF571BCC7B4448FC6DD9 /* HistoryIPCClientErrors.swift */,
 				5F437D5E98945E3D321D69A8 /* HistoryIPCCommand.swift */,
 				6AA2C347B4EBAB3186F58833 /* HistoryIPCDataSource.swift */,
+				81D4FADC843255FD23D873E1 /* HistoryIPCFormatting.swift */,
 				69E82C2A97C8DB9818D18EE7 /* HistoryIPCHandler.swift */,
 				32E546791173C4B1C6CFA670 /* HistoryIPCResult.swift */,
 				C51D3B4CF4EBCC92E4E9A538 /* HistoryIPCService.swift */,
@@ -3414,6 +3423,7 @@
 				4AC21357BFB55005A8189376 /* HistoryFilterFoldingTests.swift */,
 				9E110B58A3F4BF60D79FBB66 /* HistoryIPCClientErrorTests.swift */,
 				4850576CA8070DA9264DF9B2 /* HistoryIPCCommandTests.swift */,
+				10DEB8FDEB8E0630F5666F2E /* HistoryIPCFormattingTests.swift */,
 				B6BF57540FC73615779AA79D /* HistoryIPCResultTests.swift */,
 				F9C461284CD21E7908184CF6 /* HistoryIPCServerTests.swift */,
 				B6E46181C5FC84F4D85924ED /* HistoryIPCServiceTests.swift */,
@@ -4057,6 +4067,7 @@
 				F127D03C91F6794DBE9A49AF /* HistoryFilterFoldingTests.swift in Sources */,
 				AD3E8456046E8F09EFA34401 /* HistoryIPCClientErrorTests.swift in Sources */,
 				223BCDD7704383CDC2CE5EA8 /* HistoryIPCCommandTests.swift in Sources */,
+				EACE960E0F1F8FAB94939991 /* HistoryIPCFormattingTests.swift in Sources */,
 				77EA18827F28CD0DACD1CC39 /* HistoryIPCResultTests.swift in Sources */,
 				BA3B1D155E63F537D8C356D6 /* HistoryIPCServerTests.swift in Sources */,
 				42F05804FFD8E2AF24BBA04E /* HistoryIPCServiceTests.swift in Sources */,
@@ -4537,6 +4548,7 @@
 				03C5AEABE94DEFFDB90A26C4 /* HistoryIPCClientErrors.swift in Sources */,
 				212712FF78AF1F84B2BDA11C /* HistoryIPCCommand.swift in Sources */,
 				0A3C9A4A54F30FD9CB41AC3C /* HistoryIPCDataSource.swift in Sources */,
+				439B50CF2A1A183478089B19 /* HistoryIPCFormatting.swift in Sources */,
 				43B1102FBA0B26F34FC85EF8 /* HistoryIPCHandler.swift in Sources */,
 				C611807C7C2A391FD7B42F4A /* HistoryIPCResult.swift in Sources */,
 				A49092E4151A139B7DACEA3B /* HistoryIPCService.swift in Sources */,
@@ -4939,8 +4951,10 @@
 				2835550C9EC2274B56BB12EC /* GrokCanonicalReEmitter.swift in Sources */,
 				D1609E62F241375A9A62A4CB /* GrokHooksInstaller.swift in Sources */,
 				2CB00C84D0A16237C1D18814 /* HermesHooksInstaller.swift in Sources */,
+				B407D5E6CBFB49C56B3886C0 /* HistoryCLI.swift in Sources */,
 				80CE8D91DFB8DA9709A6B722 /* HistoryIPCClientErrors.swift in Sources */,
 				BE2AAC2B15D74DB3EE6FF6B3 /* HistoryIPCCommand.swift in Sources */,
+				5D13BC797FC2A9C58AFC9A40 /* HistoryIPCFormatting.swift in Sources */,
 				8E05C28ED18E36D0A1E2047C /* HistoryIPCResult.swift in Sources */,
 				9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */,
 				5DCE3CE7975228B9DAED83B5 /* HooksInstalling.swift in Sources */,
