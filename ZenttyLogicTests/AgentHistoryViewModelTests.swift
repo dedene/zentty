@@ -109,14 +109,14 @@ final class AgentHistoryViewModelTests: XCTestCase {
             launch: launch,
             excludedFolders: { [] },
             setExcludedFolders: { _ in },
-            claudeRetention: {
-                ClaudeRetentionStatus(
+            claudeRetention: { completion in
+                completion(ClaudeRetentionStatus(
                     configDirectory: URL(fileURLWithPath: "/tmp/agent-history-tests/.claude"),
                     settingsFileURL: URL(fileURLWithPath: "/tmp/agent-history-tests/.claude/settings.json"),
                     effectiveDays: 365, source: .userSettings, readError: nil
-                )
+                ))
             },
-            raiseClaudeRetention: { .alreadySufficient(currentDays: 365) },
+            raiseClaudeRetention: { $0(.success(.alreadySufficient(currentDays: 365))) },
             pasteboard: AgentHistoryTestPasteboard.make(),
             revealInFinder: { _ in },
             fileExists: { [fileExists] in fileExists($0) },

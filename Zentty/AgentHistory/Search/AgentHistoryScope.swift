@@ -110,19 +110,6 @@ enum AgentHistoryProjectScopeResolver {
         )
     }
 
-    /// The pane's project scope for the palette; nil for remote panes and panes without a folder.
-    @MainActor
-    static func scope(for presentation: PanePresentationState?) -> AgentHistoryProjectScope? {
-        guard let presentation else {
-            return nil
-        }
-        return try? resolve(
-            cwd: presentation.cwd,
-            repoRoot: presentation.repoRoot,
-            isRemote: presentation.isRemotePane
-        )
-    }
-
     private static func nonBlank(_ value: String?) -> String? {
         guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
@@ -136,5 +123,31 @@ enum AgentHistoryProjectScopeResolver {
             result = result.dropLast()
         }
         return String(result)
+    }
+}
+
+/// A pane's folder as the window knows it, read on main without touching the disk. Its project
+/// (`projectScope()`) walks the disk and reads git metadata, so the palette resolves it off main.
+struct AgentHistoryPaneLocation: Equatable, Sendable {
+    var cwd: String?
+    var repoRoot: String?
+    var isRemote: Bool
+
+    init(cwd: String?, repoRoot: String?, isRemote: Bool) {
+        self.cwd = cwd
+        self.repoRoot = repoRoot
+        self.isRemote = isRemote
+    }
+
+    init?(presentation: PanePresentationState?) {
+        guard let presentation else {
+            return nil
+        }
+        self.init(cwd: presentation.cwd, repoRoot: presentation.repoRoot, isRemote: presentation.isRemotePane)
+    }
+
+    /// Nil for remote panes and panes without a folder.
+    func projectScope() -> AgentHistoryProjectScope? {
+        try? AgentHistoryProjectScopeResolver.resolve(cwd: cwd, repoRoot: repoRoot, isRemote: isRemote)
     }
 }

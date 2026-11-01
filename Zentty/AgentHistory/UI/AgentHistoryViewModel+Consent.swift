@@ -5,15 +5,21 @@ import Foundation
 extension AgentHistoryViewModel {
     static let retentionFallbackError = "Zentty couldn't change Claude Code's settings; nothing was changed."
 
-    /// Builds the card from the stat-only probe (D11). Claude's retention is read only when
-    /// Claude Code was found.
-    func makeConsent(from sources: [AgentHistoryDetectedSource]) -> AgentHistoryConsentModel {
-        let claudeFound = sources.contains { $0.agent == .claude && $0.isFound }
-        return AgentHistoryConsentModel.make(
-            detected: sources,
-            excluded: services.excludedFolders(),
-            retention: claudeFound ? services.claudeRetention() : nil
-        )
+    /// Claude's retention is read (off main) only when Claude Code was found; nil otherwise.
+    func readClaudeRetention(
+        for sources: [AgentHistoryDetectedSource],
+        completion: @escaping @MainActor (ClaudeRetentionStatus?) -> Void
+    ) {
+        guard sources.contains(where: { $0.agent == .claude && $0.isFound }) else {
+            completion(nil)
+            return
+        }
+        services.claudeRetention { completion($0) }
+    }
+
+    /// Builds the card from the stat-only probe (D11) and the retention read with it.
+    func makeConsent(from sources: [AgentHistoryDetectedSource], retention: ClaudeRetentionStatus?) -> AgentHistoryConsentModel {
+        AgentHistoryConsentModel.make(detected: sources, excluded: services.excludedFolders(), retention: retention)
     }
 
     // MARK: - Editing
@@ -22,17 +28,38 @@ extension AgentHistoryViewModel {
         consent?.setEnabled(agent, enabled)
     }
 
-    /// "Keep 1 Year": raises Claude Code's `cleanupPeriodDays` on this explicit click only. A
-    /// failure keeps the current retention and says why; nothing was written.
+    /// "Keep 1 Year": raises Claude Code's `cleanupPeriodDays` on this explicit click only, off
+    /// main. A failure keeps the current retention and says why; nothing was written.
     func keepClaudeConversationsOneYear() {
-        guard var consent, consent.showsRetentionNudge else { return }
-        do {
-            _ = try services.raiseClaudeRetention()
-            consent.retention = services.claudeRetention()
+        guard var consent, consent.showsRetentionNudge, !consent.isRaisingRetention else { return }
+        consent.isRaisingRetention = true
+        self.consent = consent
+        services.raiseClaudeRetention { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.services.claudeRetention { [weak self] retention in
+                    self?.retentionRaiseDidFinish(retention: retention, error: nil)
+                }
+            case .failure(let error):
+                self.retentionRaiseDidFinish(
+                    retention: nil,
+                    error: (error as? LocalizedError)?.errorDescription ?? Self.retentionFallbackError
+                )
+            }
+        }
+    }
+
+    /// The card may have gone (closed, consent recorded elsewhere) while the file was written.
+    private func retentionRaiseDidFinish(retention: ClaudeRetentionStatus?, error: String?) {
+        guard var consent, consent.isRaisingRetention else { return }
+        consent.isRaisingRetention = false
+        if let retention {
+            consent.retention = retention
             consent.retentionError = nil
             consent.didRaiseRetention = true
-        } catch {
-            consent.retentionError = (error as? LocalizedError)?.errorDescription ?? Self.retentionFallbackError
+        } else {
+            consent.retentionError = error
         }
         self.consent = consent
     }

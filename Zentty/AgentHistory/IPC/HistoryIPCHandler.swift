@@ -2,8 +2,9 @@ import AppKit
 import os
 
 /// Glue between the IPC server and `HistoryIPCService`: parse first, then one main-thread hop for
-/// the calling pane's folder, the live sessions and the History settings (no I/O, no SQLite),
-/// then the query on the calling (IPC) thread.
+/// the calling pane's folder, the live sessions and the agent access setting (no disk reads, no
+/// SQLite), then on the calling (IPC) thread the exclusions matcher (it may resolve symlinks)
+/// and the query.
 enum HistoryIPCHandler {
     static func handle(request: AgentIPCRequest, target: AgentIPCTarget) throws -> AgentIPCResponseResult {
         let started = DispatchTime.now().uptimeNanoseconds
@@ -17,7 +18,7 @@ enum HistoryIPCHandler {
 
         let scopeName = command.allProjects ? "all" : "project"
         do {
-            let caller = try PaneControlIPCHandler.onMain { try callerSnapshot(for: target) }
+            let caller = try makeCaller { try PaneControlIPCHandler.onMain { try paneSnapshot(for: target) } }
             let result = try HistoryIPCService().respond(to: command, caller: caller)
             let count = result.search?.results.count ?? result.show?.turns.count
             log(kind: command.ipcSubcommand, scope: scopeName, count: count, started: started, error: nil)
@@ -28,8 +29,23 @@ enum HistoryIPCHandler {
         }
     }
 
+    /// The main hop (`pane`) first; the matcher only after it returns, so a cold cache costs the
+    /// IPC thread, not the main thread.
+    static func makeCaller(pane: () throws -> HistoryIPCPaneSnapshot) throws -> HistoryIPCCaller {
+        let snapshot = try pane()
+        return HistoryIPCCaller(
+            paneCWD: snapshot.paneCWD,
+            paneRepoRoot: snapshot.paneRepoRoot,
+            isRemotePane: snapshot.isRemotePane,
+            allowAgentsAllProjects: snapshot.allowAgentsAllProjects,
+            liveKeys: snapshot.liveKeys,
+            exclusions: snapshot.exclusions(),
+            dataSource: snapshot.dataSource
+        )
+    }
+
     @MainActor
-    private static func callerSnapshot(for target: AgentIPCTarget) throws -> HistoryIPCCaller {
+    private static func paneSnapshot(for target: AgentIPCTarget) throws -> HistoryIPCPaneSnapshot {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
               let resolved = PaneIPCHandler.resolveTarget(target, appDelegate: appDelegate)
         else {
@@ -46,14 +62,14 @@ enum HistoryIPCHandler {
             from: appDelegate.agentHistoryWorklaneSources(),
             preferredWindowID: nil
         ).liveKeys
-        return HistoryIPCCaller(
+        return HistoryIPCPaneSnapshot(
             paneCWD: presentation.cwd,
             paneRepoRoot: presentation.repoRoot,
             isRemotePane: presentation.isRemotePane,
             allowAgentsAllProjects: controller.allowsAgentsAllProjects,
             liveKeys: liveKeys,
-            exclusions: controller.exclusions,
-            dataSource: AgentHistoryIPCDataSource(controller: controller)
+            dataSource: AgentHistoryIPCDataSource(controller: controller),
+            exclusions: { controller.exclusions }
         )
     }
 
@@ -73,4 +89,16 @@ enum HistoryIPCHandler {
             )
         }
     }
+}
+
+/// What the main-thread hop captures for one `zentty history` call: memory only.
+struct HistoryIPCPaneSnapshot: Sendable {
+    var paneCWD: String?
+    var paneRepoRoot: String?
+    var isRemotePane: Bool
+    var allowAgentsAllProjects: Bool
+    var liveKeys: Set<AgentHistorySessionKey>
+    var dataSource: (any HistoryIPCDataSource)?
+    /// Called after the hop, off main: a cold matcher cache canonicalizes folders (disk).
+    var exclusions: @Sendable () -> AgentHistoryExclusionMatcher
 }

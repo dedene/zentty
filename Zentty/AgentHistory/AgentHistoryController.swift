@@ -430,7 +430,12 @@ final class AgentHistoryController: Sendable {
     }
 
     private func applyConfig(_ section: AppConfig.AgentHistory, isReadable: Bool) {
-        mirror.setConfig(section)
+        if mirror.setConfig(section) {
+            // Building the matcher may resolve symlinks (disk): warm it off main, so neither
+            // the palette nor an IPC request pays for it on the main thread.
+            let mirror = self.mirror
+            DispatchQueue.global(qos: .utility).async { _ = mirror.exclusions }
+        }
         let becameReadable = isReadable && !isConfigReadable
         isConfigReadable = isReadable
         guard section != configSection || becameReadable else {
@@ -696,13 +701,15 @@ final class AgentHistoryControllerMirror: @unchecked Sendable {
         return matcher
     }
 
-    func setConfig(_ section: AppConfig.AgentHistory) {
+    /// True when the excluded folders changed (the matcher must be rebuilt).
+    @discardableResult
+    func setConfig(_ section: AppConfig.AgentHistory) -> Bool {
         withLock {
             allowsAll = section.allowAgentsAllProjects
-            if excludedFolders != section.excludedFolders {
-                excludedFolders = section.excludedFolders
-                cachedExclusions = nil
-            }
+            guard excludedFolders != section.excludedFolders else { return false }
+            excludedFolders = section.excludedFolders
+            cachedExclusions = nil
+            return true
         }
     }
 

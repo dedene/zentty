@@ -67,7 +67,7 @@ final class AgentHistoryViewModel: ObservableObject {
 
     @Published private(set) var query = ""
     @Published internal(set) var body: Body = .loading
-    @Published private(set) var scope: AgentHistoryScope
+    @Published internal(set) var scope: AgentHistoryScope
     @Published private(set) var pills: [AgentHistoryFilterPill] = []
     @Published internal(set) var sections: [AgentHistorySection] = []
     @Published internal(set) var selectedKey: AgentHistorySessionKey?
@@ -106,12 +106,13 @@ final class AgentHistoryViewModel: ObservableObject {
     var onRequestSettings: (() -> Void)?
     var onRequestFolderPicker: (() -> Void)?
 
-    let context: AgentHistoryOpenContext
+    /// Its projects are filled in by `projectsResolved` (`+Projects`) once resolved off main.
+    internal(set) var context: AgentHistoryOpenContext
     let services: AgentHistoryPaletteServices
     let scheduler: AgentHistoryScheduling
     let formatting: AgentHistoryFormatting
     /// The scope ⇥ toggles to: the worklane's project, else the focused pane's.
-    let projectScope: AgentHistoryProjectScope?
+    @Published internal(set) var projectScope: AgentHistoryProjectScope?
 
     // Search state, shared with `+Search`.
     var parsedQuery = HistoryQueryParser.parse("")
@@ -138,6 +139,11 @@ final class AgentHistoryViewModel: ObservableObject {
     /// Opened before `state.json` was read: `.loading` until the status says what was saved.
     var isAwaitingSavedState = false
     private var isStarted = false
+
+    // `+Projects`: the panes' projects land off main after the panel opens.
+    var isAwaitingProjects = false
+    var resultsAwaitProjects = false
+    var projectsWaitToken: AgentHistoryCancellable?
 
     // `+Search`: folder or transcript path → exists, filled off-main so renders never stat.
     var pathExists: [String: Bool] = [:]
@@ -190,6 +196,7 @@ final class AgentHistoryViewModel: ObservableObject {
     /// probe for sources (consent card or "no agents").
     func resolveBody(status: AgentHistoryStatus) {
         isAwaitingSavedState = false
+        resultsAwaitProjects = false
         if case .failed(let reason) = status.state {
             body = .indexUnavailable(reason)
         } else if status.hasConsented {
@@ -201,7 +208,10 @@ final class AgentHistoryViewModel: ObservableObject {
         } else {
             body = .loading
             services.control.detectSources { [weak self] sources in
-                self?.sourcesDetected(sources)
+                // The card shows with its retention row, not a beat before it.
+                self?.readClaudeRetention(for: sources) { [weak self] retention in
+                    self?.sourcesDetected(sources, retention: retention)
+                }
             }
         }
     }
@@ -217,6 +227,8 @@ final class AgentHistoryViewModel: ObservableObject {
         liveObservation?.cancel()
         transientMessageToken?.cancel()
         transientMessageToken = nil
+        projectsWaitToken?.cancel()
+        projectsWaitToken = nil
         contentDebounceToken = nil
         contentToken = nil
         detailDebounceToken = nil
@@ -232,11 +244,16 @@ final class AgentHistoryViewModel: ObservableObject {
     }
 
     func showResults() {
+        guard !isAwaitingProjects else {
+            body = .loading
+            resultsAwaitProjects = true
+            return
+        }
         body = .results
         runSearch(resetSelection: true)
     }
 
-    private func sourcesDetected(_ sources: [AgentHistoryDetectedSource]) {
+    private func sourcesDetected(_ sources: [AgentHistoryDetectedSource], retention: ClaudeRetentionStatus?) {
         guard isStarted, body == .loading else { return }
         // Consent may have been recorded while the probe ran: the card would offer choices
         // `enable` ignores.
@@ -246,7 +263,7 @@ final class AgentHistoryViewModel: ObservableObject {
             return
         }
         if sources.contains(where: \.isFound) {
-            consent = makeConsent(from: sources)
+            consent = makeConsent(from: sources, retention: retention)
             body = .consent
         } else {
             body = .noAgents(checkedPaths: sources.flatMap(\.checkedPaths))

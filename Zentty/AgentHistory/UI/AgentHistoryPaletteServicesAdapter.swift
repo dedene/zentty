@@ -20,11 +20,15 @@ enum AgentHistoryPaletteServicesAdapter {
             setExcludedFolders: { [weak configStore] folders in
                 try saveExcludedFolders(folders, to: configStore)
             },
-            claudeRetention: {
-                ClaudeRetentionSettings.status(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory())
+            claudeRetention: { completion in
+                AgentHistoryOffMainRunner.userInitiated.run({
+                    ClaudeRetentionSettings.status(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory())
+                }, then: completion)
             },
-            raiseClaudeRetention: {
-                try ClaudeRetentionSettings.raiseRetention(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory())
+            raiseClaudeRetention: { completion in
+                AgentHistoryOffMainRunner.userInitiated.run({
+                    Result { try ClaudeRetentionSettings.raiseRetention(configDirectory: ClaudeRetentionSettings.defaultConfigDirectory()) }
+                }, then: completion)
             },
             pasteboard: .general,
             revealInFinder: { url in

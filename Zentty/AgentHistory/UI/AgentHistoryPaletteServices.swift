@@ -139,8 +139,10 @@ struct AgentHistoryPaletteServices {
     /// Throws unless the folders were saved to config.toml, so a failed save never lets the
     /// indexer read a folder the user excluded.
     let setExcludedFolders: ([String]) throws -> Void
-    let claudeRetention: () -> ClaudeRetentionStatus
-    let raiseClaudeRetention: () throws -> ClaudeRetentionWriteOutcome
+    /// Claude Code's retention. Reads its settings.json off main; the completion runs on main.
+    let claudeRetention: (@escaping @MainActor (ClaudeRetentionStatus) -> Void) -> Void
+    /// "Keep 1 Year": backs up and rewrites that file off main; the completion runs on main.
+    let raiseClaudeRetention: (@escaping @MainActor (Result<ClaudeRetentionWriteOutcome, Error>) -> Void) -> Void
     let pasteboard: NSPasteboard
     let revealInFinder: (URL) -> Void
     /// Runs on a utility queue (the "folder gone" checks).

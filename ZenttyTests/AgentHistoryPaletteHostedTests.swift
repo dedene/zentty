@@ -235,8 +235,12 @@ final class AgentHistoryPaletteHostedTests: XCTestCase {
         let item = try XCTUnwrap(menu.item(withTitle: "Agent History for This Project"))
         menu.performActionForItem(at: menu.index(of: item))
 
+        // The panel opens at once; the repository lookups (disk) run off main and land after.
         XCTAssertTrue(coordinator.isShown)
         let model = try XCTUnwrap(coordinator.modelForTesting)
+        XCTAssertNil(model.context.currentProject, "the pane's project resolves off main, after the panel opens")
+        XCTAssertEqual(model.body, .loading, "results wait briefly for the worklane's project")
+        waitUntil("worklane project resolved") { model.body == .results }
         let expectedKey = AgentHistoryPath.canonical(repo.path)
         XCTAssertEqual(model.context.entryPoint, .worklaneContextMenu(repoLane))
         guard case .project(let scope) = model.scope else {
@@ -399,8 +403,8 @@ final class AgentHistoryPaletteHostedTests: XCTestCase {
             launch: launch,
             excludedFolders: { [unowned self] in self.excludedFolders },
             setExcludedFolders: { [unowned self] in self.excludedFolders = $0 },
-            claudeRetention: { AgentHistoryHostedFixtures.retention },
-            raiseClaudeRetention: { .alreadySufficient(currentDays: 365) },
+            claudeRetention: { $0(AgentHistoryHostedFixtures.retention) },
+            raiseClaudeRetention: { $0(.success(.alreadySufficient(currentDays: 365))) },
             pasteboard: pasteboard,
             revealInFinder: { _ in },
             fileExists: { _ in true },

@@ -5,8 +5,8 @@ private let agentHistorySettingsLogger = Logger(subsystem: "be.zenjoy.zentty", c
 
 /// Settings › Agent History (spec §4.7): Status, Sources, Privacy, Agent access, Maintenance.
 /// The index lives behind `backend` (the history controller); excluded folders and agent
-/// access live in `config.toml`; Claude Code's retention is read and raised through the
-/// injected closures. Every sheet goes through an injected presenter, so tests drive it all.
+/// access live in `config.toml`; Claude Code's retention is read and raised off main through
+/// `retention`. Every sheet goes through an injected presenter, so tests drive it all.
 @MainActor
 final class AgentHistorySettingsSectionViewController: SettingsScrollableSectionViewController {
     static let unavailableText = "Agent History isn't available in this window."
@@ -16,8 +16,7 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
     private let confirmationPresenter: AgentHistoryConfirmationPresenter
     private let folderPicker: AgentHistoryFolderPicker
     private let errorPresenter: AgentHistoryErrorPresenter
-    private let retentionStatusProvider: @MainActor (URL) -> ClaudeRetentionStatus
-    private let retentionWriter: @MainActor (URL) throws -> ClaudeRetentionWriteOutcome
+    private let retention: AgentHistoryClaudeRetentionLoader
     private let formatter: AgentHistorySettingsFormatter
     private let formatting: AgentHistoryFormatting
 
@@ -25,7 +24,6 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
     private var config: AppConfig.AgentHistory
     private var detected: [AgentHistoryDetectedSource] = []
     private var retentionRoots: [String] = []
-    private var raisedRetentionDirectories: Set<String> = []
     private var statusObserverID: UUID?
     private var relativeTimeTimer: Timer?
 
@@ -52,8 +50,9 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
         confirmationPresenter: @escaping AgentHistoryConfirmationPresenter = AgentHistorySettingsAlerts.presentConfirmation,
         folderPicker: @escaping AgentHistoryFolderPicker = AgentHistorySettingsAlerts.pickFolders,
         errorPresenter: @escaping AgentHistoryErrorPresenter = AgentHistorySettingsAlerts.presentError,
-        retentionStatusProvider: @escaping @MainActor (URL) -> ClaudeRetentionStatus = { ClaudeRetentionSettings.status(configDirectory: $0) },
-        retentionWriter: @escaping @MainActor (URL) throws -> ClaudeRetentionWriteOutcome = { try ClaudeRetentionSettings.raiseRetention(configDirectory: $0) },
+        retentionStatusProvider: @escaping @Sendable (URL) -> ClaudeRetentionStatus = { ClaudeRetentionSettings.status(configDirectory: $0) },
+        retentionWriter: @escaping @Sendable (URL) throws -> ClaudeRetentionWriteOutcome = { try ClaudeRetentionSettings.raiseRetention(configDirectory: $0) },
+        retentionRunner: AgentHistoryOffMainRunner = .userInitiated,
         locale: Locale = .current,
         now: @escaping () -> Date = Date.init
     ) {
@@ -62,8 +61,7 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
         self.confirmationPresenter = confirmationPresenter
         self.folderPicker = folderPicker
         self.errorPresenter = errorPresenter
-        self.retentionStatusProvider = retentionStatusProvider
-        self.retentionWriter = retentionWriter
+        self.retention = .init(statusProvider: retentionStatusProvider, writer: retentionWriter, runner: retentionRunner)
         self.formatter = AgentHistorySettingsFormatter(locale: locale, now: now)
         self.formatting = AgentHistoryFormatting(locale: locale)
         self.status = backend?.status ?? .off
@@ -316,14 +314,20 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
         return roots.filter { seen.insert($0).inserted }
     }
 
+    /// Reads each root's settings.json off main; the rows follow when the newest read lands.
     private func reloadRetention() {
         retentionRoots = claudeRoots()
-        let retentionStatuses = retentionRoots.map { retentionStatusProvider(URL(fileURLWithPath: $0, isDirectory: true)) }
+        retention.load(roots: retentionRoots) { [weak self] statuses in
+            self?.showRetention(statuses)
+        }
+    }
+
+    private func showRetention(_ retentionStatuses: [ClaudeRetentionStatus]) {
         let showsPaths = retentionStatuses.count > 1
         retentionRows = retentionStatuses.compactMap { status in
             AgentHistorySettingsRetentionRow.make(
                 status: status,
-                didRaise: raisedRetentionDirectories.contains(status.configDirectory.path),
+                didRaise: retention.raisedDirectories.contains(status.configDirectory.path),
                 showsPath: showsPaths ? (status.configDirectory.path as NSString).abbreviatingWithTildeInPath : nil
             )
         }
@@ -461,19 +465,17 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
         backend?.refreshStatus()
     }
 
+    /// Backs up and rewrites Claude Code's settings.json off main, then re-reads it.
     @objc func handleKeepOneYear(_ sender: NSButton) {
         guard let directory = sender.identifier?.rawValue else { return }
-        do {
-            _ = try retentionWriter(URL(fileURLWithPath: directory, isDirectory: true))
-            raisedRetentionDirectories.insert(directory)
-        } catch {
-            errorPresenter(
-                view.window,
-                "Couldn't change Claude Code's settings",
-                (error as? LocalizedError)?.errorDescription ?? AgentHistoryViewModel.retentionFallbackError
-            )
+        retention.raise(directory: directory) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                let message = (error as? LocalizedError)?.errorDescription ?? AgentHistoryViewModel.retentionFallbackError
+                self.errorPresenter(self.view.window, "Couldn't change Claude Code's settings", message)
+            }
+            self.reloadRetention()
         }
-        reloadRetention()
     }
 
     // MARK: - Testing

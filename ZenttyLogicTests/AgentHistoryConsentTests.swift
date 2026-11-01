@@ -14,6 +14,9 @@ final class AgentHistoryConsentTests: XCTestCase {
     private var retention: ClaudeRetentionStatus!
     private var raiseResult: Result<ClaudeRetentionWriteOutcome, Error> = .success(.written(backupURL: nil))
     private var raiseCount = 0
+    /// Set to hold the off-main retention read / write until the test releases it.
+    private var heldRetentionReads: [@MainActor (ClaudeRetentionStatus) -> Void]?
+    private var heldRaises: [@MainActor (Result<ClaudeRetentionWriteOutcome, Error>) -> Void]?
     private var closeRequests: [Bool] = []
     private var folderPickerRequests = 0
 
@@ -31,6 +34,8 @@ final class AgentHistoryConsentTests: XCTestCase {
         retention = retentionStatus(days: 365, source: .userSettings)
         raiseResult = .success(.written(backupURL: nil))
         raiseCount = 0
+        heldRetentionReads = nil
+        heldRaises = nil
         closeRequests = []
         folderPickerRequests = 0
     }
@@ -85,10 +90,20 @@ final class AgentHistoryConsentTests: XCTestCase {
                 self.savedExclusions.append(folders)
                 self.excludedFolders = folders
             },
-            claudeRetention: { [unowned self] in self.retention },
-            raiseClaudeRetention: { [unowned self] in
+            claudeRetention: { [unowned self] completion in
+                if self.heldRetentionReads != nil {
+                    self.heldRetentionReads?.append(completion)
+                } else {
+                    completion(self.retention)
+                }
+            },
+            raiseClaudeRetention: { [unowned self] completion in
                 self.raiseCount += 1
-                return try self.raiseResult.get()
+                if self.heldRaises != nil {
+                    self.heldRaises?.append(completion)
+                } else {
+                    completion(self.raiseResult)
+                }
             },
             pasteboard: AgentHistoryTestPasteboard.make(),
             revealInFinder: { _ in },
@@ -200,6 +215,41 @@ final class AgentHistoryConsentTests: XCTestCase {
         let withoutClaude = startedConsent([found(.codex, ".codex", count: 3)])
         XCTAssertNil(withoutClaude.consent?.retention, "retention is read only when Claude Code was found")
         XCTAssertEqual(withoutClaude.consent?.showsRetentionNudge, false)
+    }
+
+    /// settings.json is read off main; the card waits for it rather than growing a row later.
+    func test_card_waits_for_the_off_main_retention_read() throws {
+        retention = retentionStatus(days: 30, source: .defaultValue)
+        heldRetentionReads = []
+        let model = startedConsent()
+
+        XCTAssertEqual(model.body, .loading)
+        XCTAssertNil(model.consent)
+        XCTAssertEqual(heldRetentionReads?.count, 1)
+
+        let read = try XCTUnwrap(heldRetentionReads?.first)
+        read(retention)
+        XCTAssertEqual(model.body, .consent)
+        XCTAssertEqual(model.consent?.showsRetentionNudge, true)
+    }
+
+    /// The write runs off main; a second click while it runs writes nothing more.
+    func test_keep_one_year_writes_once_while_the_write_runs() throws {
+        retention = retentionStatus(days: 30, source: .defaultValue)
+        let model = startedConsent()
+        heldRaises = []
+
+        model.keepClaudeConversationsOneYear()
+        model.keepClaudeConversationsOneYear()
+        XCTAssertEqual(raiseCount, 1)
+        XCTAssertEqual(model.consent?.didRaiseRetention, false, "nothing changes until the write lands")
+
+        retention = retentionStatus(days: 365, source: .userSettings)
+        let raise = try XCTUnwrap(heldRaises?.first)
+        raise(.success(.written(backupURL: nil)))
+        XCTAssertEqual(model.consent?.didRaiseRetention, true)
+        XCTAssertEqual(model.consent?.retention?.effectiveDays, 365)
+        XCTAssertEqual(model.consent?.isRaisingRetention, false)
     }
 
     func test_keep_one_year_failure_sets_error_and_changes_nothing() {

@@ -1,8 +1,9 @@
 import Foundation
 import os
 
-/// What the app knows about the pane that ran `zentty history`, captured in one main-thread hop
-/// (no I/O there). Everything else happens off main.
+/// What the app knows about the pane that ran `zentty history`. The pane, the live sessions and
+/// the agent access setting come from one main-thread hop (no disk reads there); the exclusions
+/// matcher is built after it, on the IPC thread, because building it may resolve symlinks.
 struct HistoryIPCCaller: Sendable {
     var paneCWD: String?
     var paneRepoRoot: String?

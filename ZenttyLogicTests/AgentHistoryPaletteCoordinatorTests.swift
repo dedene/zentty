@@ -246,14 +246,14 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
             launch: launch,
             excludedFolders: { [] },
             setExcludedFolders: { _ in },
-            claudeRetention: {
-                ClaudeRetentionStatus(
+            claudeRetention: { completion in
+                completion(ClaudeRetentionStatus(
                     configDirectory: URL(fileURLWithPath: "/tmp/agent-history-tests/.claude"),
                     settingsFileURL: URL(fileURLWithPath: "/tmp/agent-history-tests/.claude/settings.json"),
                     effectiveDays: 365, source: .userSettings, readError: nil
-                )
+                ))
             },
-            raiseClaudeRetention: { .alreadySufficient(currentDays: 365) },
+            raiseClaudeRetention: { $0(.success(.alreadySufficient(currentDays: 365))) },
             pasteboard: pasteboard,
             revealInFinder: { _ in },
             fileExists: { _ in true },
@@ -287,11 +287,11 @@ private final class StubPaletteHost: AgentHistoryPaletteHost {
     var agentHistoryBackdropView: CommandPaletteBackdropView { backdrop }
     var agentHistoryTheme: ZenttyTheme { ZenttyTheme.fallback(for: nil) }
     var agentHistoryWindowID: WindowID { WindowID("window") }
-    func agentHistoryCurrentProject() -> AgentHistoryProjectScope? {
+    func agentHistoryCurrentPane() -> AgentHistoryPaneLocation? {
         currentProjectRequests += 1
         return nil
     }
-    func agentHistoryProject(forWorklane id: WorklaneID) -> AgentHistoryProjectScope? { nil }
+    func agentHistoryPane(forWorklane id: WorklaneID) -> AgentHistoryPaneLocation? { nil }
     func agentHistoryShowSettings() {}
     func agentHistoryRestoreFocus() {}
     func agentHistorySetToolbarPresented(_ presented: Bool) { toolbarStates.append(presented) }

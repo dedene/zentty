@@ -42,6 +42,8 @@ struct AgentHistoryConsentModel: Equatable {
     var saveError: String?
     /// "Keep 1 Year" succeeded in this card.
     var didRaiseRetention = false
+    /// "Keep 1 Year" is writing Claude Code's file; another click waits for it.
+    var isRaisingRetention = false
     /// Set by "Index ‹N› Sessions": checkboxes lock and the card shows progress.
     var isIndexing = false
     var overallProgress: AgentHistoryConsentProgress?

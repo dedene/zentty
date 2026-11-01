@@ -8,9 +8,9 @@ protocol AgentHistoryPaletteHost: AnyObject {
     var agentHistoryBackdropView: CommandPaletteBackdropView { get }
     var agentHistoryTheme: ZenttyTheme { get }
     var agentHistoryWindowID: WindowID { get }
-    /// The focused pane's project; nil for a remote pane or one without a directory.
-    func agentHistoryCurrentProject() -> AgentHistoryProjectScope?
-    func agentHistoryProject(forWorklane id: WorklaneID) -> AgentHistoryProjectScope?
+    /// The focused pane's folder, from memory; its project is resolved off main.
+    func agentHistoryCurrentPane() -> AgentHistoryPaneLocation?
+    func agentHistoryPane(forWorklane id: WorklaneID) -> AgentHistoryPaneLocation?
     func agentHistoryShowSettings()
     func agentHistoryRestoreFocus()
     func agentHistorySetToolbarPresented(_ presented: Bool)
@@ -19,11 +19,14 @@ protocol AgentHistoryPaletteHost: AnyObject {
 }
 
 /// Opens, toggles and closes one window's Agent History palette. Each open gets a fresh view
-/// model; the services are injected once per window (UI10) and nil until then.
+/// model; the services are injected once per window (UI10) and nil until then. The panes'
+/// projects (a directory walk and git metadata reads) resolve on `projectRunner` after the
+/// panel opens, and only reach the model that asked for them.
 @MainActor
 final class AgentHistoryPaletteCoordinator {
     private weak var host: (any AgentHistoryPaletteHost)?
     private let panelController: AgentHistoryPanelController
+    private let projectRunner: AgentHistoryOffMainRunner
     private var model: AgentHistoryViewModel?
     private var restoresFocusOnClose = false
 
@@ -31,9 +34,14 @@ final class AgentHistoryPaletteCoordinator {
 
     var isShown: Bool { panelController.isShown }
 
-    init(host: any AgentHistoryPaletteHost, panelController: AgentHistoryPanelController? = nil) {
+    init(
+        host: any AgentHistoryPaletteHost,
+        panelController: AgentHistoryPanelController? = nil,
+        projectRunner: AgentHistoryOffMainRunner = .userInitiated
+    ) {
         self.host = host
         self.panelController = panelController ?? AgentHistoryPanelController()
+        self.projectRunner = projectRunner
         self.panelController.onClosed = { [weak self] in
             self?.panelDidClose()
         }
@@ -60,16 +68,18 @@ final class AgentHistoryPaletteCoordinator {
             return
         }
 
-        let worklaneProject: AgentHistoryProjectScope?
+        let worklanePane: AgentHistoryPaneLocation?
         if case .worklaneContextMenu(let worklaneID) = entryPoint {
-            worklaneProject = host.agentHistoryProject(forWorklane: worklaneID)
+            worklanePane = host.agentHistoryPane(forWorklane: worklaneID)
         } else {
-            worklaneProject = nil
+            worklanePane = nil
         }
+        let currentPane = host.agentHistoryCurrentPane()
+        // Projects arrive later (`resolveProjects`); the model starts without them.
         let context = Self.openContext(
             entryPoint: entryPoint,
-            currentProject: host.agentHistoryCurrentProject(),
-            worklaneProject: worklaneProject,
+            currentProject: nil,
+            worklaneProject: nil,
             windowID: host.agentHistoryWindowID
         )
         let theme = host.agentHistoryTheme
@@ -93,6 +103,10 @@ final class AgentHistoryPaletteCoordinator {
             }
         }
         self.model = model
+        if worklanePane != nil {
+            // The worklane menu opens on that project: hold the first results for it, briefly.
+            model.awaitProjects()
+        }
 
         host.agentHistorySetToolbarPresented(true)
         panelController.show(
@@ -102,6 +116,22 @@ final class AgentHistoryPaletteCoordinator {
             model: model,
             exemptClickViews: { [weak host] in host?.agentHistoryExemptClickViews() ?? [] }
         )
+        resolveProjects(current: currentPane, worklane: worklanePane, for: model)
+    }
+
+    private func resolveProjects(
+        current: AgentHistoryPaneLocation?,
+        worklane: AgentHistoryPaneLocation?,
+        for model: AgentHistoryViewModel
+    ) {
+        guard current != nil || worklane != nil else { return }
+        projectRunner.run({
+            (current: current?.projectScope(), worklane: worklane?.projectScope())
+        }) { [weak self, weak model] projects in
+            // A palette closed or reopened since then has a different model (or none).
+            guard let self, let model, self.model === model else { return }
+            model.projectsResolved(current: projects.current, worklane: projects.worklane)
+        }
     }
 
     /// `restoreFocus` is false after a launch: the launcher already moved focus.

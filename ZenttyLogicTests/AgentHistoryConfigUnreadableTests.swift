@@ -168,14 +168,14 @@ final class AgentHistoryConfigUnreadableTests: AppKitTestCase {
             launch: FakeAgentHistoryLaunch(),
             excludedFolders: { configStore.current.agentHistory.excludedFolders },
             setExcludedFolders: { try AgentHistoryPaletteServicesAdapter.saveExcludedFolders($0, to: configStore) },
-            claudeRetention: {
-                ClaudeRetentionStatus(
+            claudeRetention: { completion in
+                completion(ClaudeRetentionStatus(
                     configDirectory: URL(fileURLWithPath: "/tmp/agent-history-config-unreadable/.claude"),
                     settingsFileURL: URL(fileURLWithPath: "/tmp/agent-history-config-unreadable/.claude/settings.json"),
                     effectiveDays: 365, source: .userSettings, readError: nil
-                )
+                ))
             },
-            raiseClaudeRetention: { .alreadySufficient(currentDays: 365) },
+            raiseClaudeRetention: { $0(.success(.alreadySufficient(currentDays: 365))) },
             pasteboard: AgentHistoryTestPasteboard.make(),
             revealInFinder: { _ in },
             fileExists: { _ in true },

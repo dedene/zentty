@@ -614,8 +614,8 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
 
     private func makeController(
         backend: FakeAgentHistoryControl?,
-        retentionStatusProvider: @escaping @MainActor (URL) -> ClaudeRetentionStatus = { AgentHistorySettingsSectionViewControllerTests.userRetention(directory: $0, days: 365) },
-        retentionWriter: @escaping @MainActor (URL) throws -> ClaudeRetentionWriteOutcome = { _ in .alreadySufficient(currentDays: 365) }
+        retentionStatusProvider: @escaping @Sendable (URL) -> ClaudeRetentionStatus = { AgentHistorySettingsSectionViewControllerTests.userRetention(directory: $0, days: 365) },
+        retentionWriter: @escaping @Sendable (URL) throws -> ClaudeRetentionWriteOutcome = { _ in .alreadySufficient(currentDays: 365) }
     ) -> AgentHistorySettingsSectionViewController {
         let controller = AgentHistorySettingsSectionViewController(
             configStore: configStore,
@@ -633,6 +633,8 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
             },
             retentionStatusProvider: retentionStatusProvider,
             retentionWriter: retentionWriter,
+            // Synchronous here; `AgentHistorySettingsRetentionOffMainTests` covers the threading.
+            retentionRunner: .inline,
             locale: Locale(identifier: "en_US"),
             now: { [now] in now }
         )
@@ -640,7 +642,7 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         return controller
     }
 
-    private static func userRetention(directory: URL, days: Int) -> ClaudeRetentionStatus {
+    private nonisolated static func userRetention(directory: URL, days: Int) -> ClaudeRetentionStatus {
         ClaudeRetentionStatus(
             configDirectory: directory,
             settingsFileURL: directory.appendingPathComponent("settings.json"),

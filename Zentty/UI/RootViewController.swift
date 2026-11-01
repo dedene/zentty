@@ -3442,13 +3442,13 @@ extension RootViewController: AgentHistoryPaletteHost {
     var agentHistoryTheme: ZenttyTheme { currentTheme }
     var agentHistoryWindowID: WindowID { windowID }
 
-    func agentHistoryCurrentProject() -> AgentHistoryProjectScope? {
-        AgentHistoryProjectScopeResolver.scope(for: worklaneStore.activeWorklane?.focusedPaneContext?.presentation)
+    func agentHistoryCurrentPane() -> AgentHistoryPaneLocation? {
+        AgentHistoryPaneLocation(presentation: worklaneStore.activeWorklane?.focusedPaneContext?.presentation)
     }
 
-    func agentHistoryProject(forWorklane id: WorklaneID) -> AgentHistoryProjectScope? {
+    func agentHistoryPane(forWorklane id: WorklaneID) -> AgentHistoryPaneLocation? {
         let worklane = worklaneStore.worklanes.first { $0.id == id }
-        return AgentHistoryProjectScopeResolver.scope(for: worklane?.focusedPaneContext?.presentation)
+        return AgentHistoryPaneLocation(presentation: worklane?.focusedPaneContext?.presentation)
     }
 
     func agentHistoryShowSettings() {
