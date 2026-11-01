@@ -135,6 +135,8 @@ final class AgentHistoryViewModel: ObservableObject {
     /// What the last status allowed the palette to show (`+Status`).
     var access: AgentHistoryAccess?
     var transientMessageToken: AgentHistoryCancellable?
+    /// Opened before `state.json` was read: `.loading` until the status says what was saved.
+    var isAwaitingSavedState = false
     private var isStarted = false
 
     // `+Search`: folder or transcript path → exists, filled off-main so renders never stat.
@@ -183,18 +185,24 @@ final class AgentHistoryViewModel: ObservableObject {
         resolveBody(status: status)
     }
 
-    /// Failed index → unavailable; no consent yet → probe for sources (consent card or "no
-    /// agents"); otherwise results.
+    /// Failed index → unavailable; consented → results; `state.json` not read yet → loading
+    /// until it is (the launch read waits a few seconds, so ask for it now); no consent →
+    /// probe for sources (consent card or "no agents").
     func resolveBody(status: AgentHistoryStatus) {
+        isAwaitingSavedState = false
         if case .failed(let reason) = status.state {
             body = .indexUnavailable(reason)
-        } else if !status.hasConsented {
+        } else if status.hasConsented {
+            showResults()
+        } else if !status.isStateLoaded {
+            body = .loading
+            isAwaitingSavedState = true
+            services.control.refreshStatus()
+        } else {
             body = .loading
             services.control.detectSources { [weak self] sources in
                 self?.sourcesDetected(sources)
             }
-        } else {
-            showResults()
         }
     }
 
@@ -230,6 +238,13 @@ final class AgentHistoryViewModel: ObservableObject {
 
     private func sourcesDetected(_ sources: [AgentHistoryDetectedSource]) {
         guard isStarted, body == .loading else { return }
+        // Consent may have been recorded while the probe ran: the card would offer choices
+        // `enable` ignores.
+        let status = services.control.status
+        guard status.isStateLoaded, !status.hasConsented else {
+            resolveBody(status: status)
+            return
+        }
         if sources.contains(where: \.isFound) {
             consent = makeConsent(from: sources)
             body = .consent

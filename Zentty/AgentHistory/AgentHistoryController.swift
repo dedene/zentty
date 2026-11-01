@@ -174,9 +174,11 @@ final class AgentHistoryController: Sendable {
         }
     }
 
-    /// Records consent for `agents` (the others off) and starts indexing now. When `state.json`
-    /// already holds consent (the caller saw the status before it loaded) it only turns History
-    /// on: the saved per-agent choices and the consent date stay. Refused while config.toml
+    /// Records first consent for `agents` (the others off) and starts indexing now. `agents` is
+    /// honoured only while no consent is saved: when `state.json` already holds consent (it was
+    /// recorded after the caller last looked) this only turns History on, and the saved
+    /// per-agent choices and consent date stay. So callers offer agent choices only on a loaded,
+    /// unconsented status (the palette card and Settings both do). Refused while config.toml
     /// can't be trusted (`refusesNewAccess`).
     func enable(
         agents: Set<AgentHistoryAgent>,

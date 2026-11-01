@@ -60,8 +60,17 @@ extension AgentHistoryViewModel {
     /// them, then records consent for the checked agents and shows progress. When the folders
     /// can't be saved, or config.toml can't be read (the card's folder list may be missing the
     /// user's exclusions), nothing is enabled: the card stays editable and says why.
+    ///
+    /// The card is only shown on a loaded, unconsented status, because `enable` keeps the saved
+    /// agent choices once consent exists. If consent was saved elsewhere before its status
+    /// arrived, nothing from the card is submitted and the results show instead.
     func confirmConsent() {
         guard body == .consent, var consent, consent.canConfirm else { return }
+        let status = services.control.status
+        guard status.isStateLoaded, !status.hasConsented else {
+            leaveConsentCard(status: status)
+            return
+        }
         if consent.excludedFolders != services.excludedFolders() {
             do {
                 try services.setExcludedFolders(consent.excludedFolders)
@@ -97,7 +106,13 @@ extension AgentHistoryViewModel {
     /// progress, then results once 50 sessions are searchable; a failure shows the unavailable body.
     func consentStatusDidChange(_ status: AgentHistoryStatus) -> Bool {
         guard body == .consent else { return false }
-        guard var consent, consent.isIndexing else { return true }
+        guard var consent, consent.isIndexing else {
+            // Consent recorded elsewhere (Settings): the card's choices would be ignored.
+            if status.hasConsented {
+                leaveConsentCard(status: status)
+            }
+            return true
+        }
         if case .failed(let reason) = status.state {
             body = .indexUnavailable(reason)
             return true
@@ -108,6 +123,12 @@ extension AgentHistoryViewModel {
             showResults()
         }
         return true
+    }
+
+    private func leaveConsentCard(status: AgentHistoryStatus) {
+        consent = nil
+        lastStatusRevision = status.revision
+        resolveBody(status: status)
     }
 
     // MARK: - Index unavailable

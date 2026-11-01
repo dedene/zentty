@@ -14,8 +14,10 @@ protocol AgentHistoryControlling: AnyObject {
     func refreshStatus()
     /// Which agents have history on this Mac, stat-only (D11).
     func detectSources(_ completion: @escaping @MainActor ([AgentHistoryDetectedSource]) -> Void)
-    /// Records consent for `agents` and starts indexing. `completion` says whether it was saved,
-    /// or refused because config.toml can't be trusted.
+    /// Records first consent for `agents` and starts indexing. `agents` counts only while no
+    /// consent is saved; over saved consent it just turns History on and keeps the saved agent
+    /// choices, so offer choices only on a loaded, unconsented `status`. `completion` says
+    /// whether it was saved, or refused because config.toml can't be trusted.
     func enable(agents: Set<AgentHistoryAgent>, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void)
     /// `completion` says whether `state.json` saved the change; off takes effect either way.
     func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void)

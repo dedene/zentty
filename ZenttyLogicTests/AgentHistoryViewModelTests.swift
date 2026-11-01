@@ -553,6 +553,7 @@ final class AgentHistoryViewModelTests: XCTestCase {
 
     func test_not_consented_shows_loading_then_consent_or_no_agents() {
         var status = control.status
+        status.isStateLoaded = true
         status.hasConsented = false
         status.state = .off
         control.status = status

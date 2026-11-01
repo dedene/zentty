@@ -51,6 +51,12 @@ extension AgentHistoryViewModel {
         default:
             break
         }
+        // Waiting on `state.json`, or consent recorded while the source probe runs.
+        if body == .loading, (isAwaitingSavedState && status.isStateLoaded) || status.hasConsented {
+            lastStatusRevision = status.revision
+            resolveBody(status: status)
+            return
+        }
         if body == .results, let previous, previous.changesVisibleSessions(to: next) {
             lastStatusRevision = status.revision
             refreshForAccessChange()

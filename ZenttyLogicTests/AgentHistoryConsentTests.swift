@@ -21,8 +21,7 @@ final class AgentHistoryConsentTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        control = FakeAgentHistoryControl()
-        control.status = AgentHistoryStatus.off
+        control = FakeAgentHistoryControl()  // state.json read, never consented
         search = FakeAgentHistorySearch()
         launch = FakeAgentHistoryLaunch()
         scheduler = ManualAgentHistoryScheduler()
@@ -337,7 +336,7 @@ final class AgentHistoryConsentTests: XCTestCase {
         control.publish(status)
         XCTAssertEqual(model.body, .results)
 
-        control.status = .off
+        control.status = FakeAgentHistoryControl().status
         let watching = startedConsent()
         XCTAssertEqual(watching.body, .consent)
         watching.confirmConsent()
