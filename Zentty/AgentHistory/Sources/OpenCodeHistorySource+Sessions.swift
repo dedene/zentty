@@ -23,7 +23,8 @@ enum OpenCodeHistorySessionBuilder {
         return v2Tail > (content.v1TailMs ?? Int64.min) ? "v2" : "v1"
     }
 
-    /// Both generations' messages, deduped by id (newer `time_updated` wins, v2 on a tie),
+    /// Both generations' messages, deduped by id (newer `time_updated` wins, v2 on a tie; a v1
+    /// message counts its newest `text`/`tool` part, since v1 edits parts in place),
     /// in `(time_created, id)` order.
     static func mergedMessages(_ content: OpenCodeHistorySessionContent) -> [OpenCodeHistoryMessage] {
         var byID: [String: OpenCodeHistoryMessage] = [:]

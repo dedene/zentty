@@ -101,6 +101,40 @@ final class OpenCodeHistorySourceTests: OpenCodeHistorySourceTestCase {
         XCTAssertEqual(session(batches, "ses_both")?.generation, "v2", "the v2 tail (5,000) is newer than v1 (4,000)")
     }
 
+    func test_migrated_duplicate_v1_part_update_beats_stale_v2_copy() throws {
+        let fixture = try OpenCodeHistoryFixture(testCase: self)
+        let t = Self.t0
+        try fixture.addSession("ses_part", title: "Part edit", version: "1.14.0", createdMs: t, updatedMs: t + 1_000)
+        try fixture.addSession("ses_part", in: .v2, title: "Part edit", version: "1.14.0", createdMs: t, updatedMs: t + 1_000)
+        // msg_1: v2 copied it at 500; v1 then rewrote only its text part at 2,000 (message row untouched).
+        try fixture.addMessage("msg_1", session: "ses_part", role: "assistant", createdMs: t + 100, updatedMs: t + 100)
+        try fixture.addTextPart("prt_1", message: "msg_1", session: "ses_part", text: "streaming", createdMs: t + 100)
+        try fixture.updatePart("prt_1", text: "final v1 reply", updatedMs: t + 2_000)
+        try fixture.addSessionMessage("msg_1", session: "ses_part", type: "assistant", seq: 1, data: [
+            "content": [["type": "text", "text": "streaming"]],
+        ], createdMs: t + 100, updatedMs: t + 500)
+        // msg_2: v1 finished only a tool part after the copy; the v2 copy lacks the tool.
+        try fixture.addMessage("msg_2", session: "ses_part", role: "assistant", createdMs: t + 200, updatedMs: t + 200)
+        try fixture.addTextPart("prt_2", message: "msg_2", session: "ses_part", text: "running it", createdMs: t + 200)
+        try fixture.addPart("prt_3", message: "msg_2", session: "ses_part", data: [
+            "type": "tool", "tool": "bash", "callID": "call_3",
+            "state": ["status": "completed", "input": ["command": "swift build"]],
+        ], createdMs: t + 200, updatedMs: t + 3_000)
+        try fixture.addSessionMessage("msg_2", session: "ses_part", type: "assistant", seq: 2, data: [
+            "content": [["type": "text", "text": "running it"]],
+        ], createdMs: t + 200, updatedMs: t + 600)
+        // msg_3: every v1 part edit predates the v2 copy, so v2 still wins.
+        try fixture.addMessage("msg_3", session: "ses_part", role: "user", createdMs: t + 300, updatedMs: t + 300)
+        try fixture.addTextPart("prt_4", message: "msg_3", session: "ses_part", text: "old v1 prompt", createdMs: t + 300)
+        try fixture.updatePart("prt_4", text: "still old v1 prompt", updatedMs: t + 400)
+        try fixture.addSessionMessage("msg_3", session: "ses_part", type: "user", seq: 3,
+                                      data: ["text": "edited v2 prompt"], createdMs: t + 300, updatedMs: t + 700)
+
+        let (batches, _) = try drain(makeSource(fixture))
+        XCTAssertEqual(texts(batches, "ses_part"), ["final v1 reply", "running it", "edited v2 prompt"])
+        XCTAssertEqual(batches.flatMap(\.artifacts).filter { $0.kind == .command }.map(\.value), ["swift build"])
+    }
+
     func test_generation_v2_by_version() throws {
         let fixture = try OpenCodeHistoryFixture(testCase: self)
         let t = Self.t0

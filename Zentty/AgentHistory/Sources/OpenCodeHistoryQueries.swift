@@ -75,7 +75,9 @@ struct OpenCodeHistoryMessage: Equatable, Sendable {
     let id: String
     let kind: Kind
     let createdMs: Int64
-    let updatedMs: Int64
+    /// The newest `time_updated` of the row and, for v1, of its `text`/`tool` parts: opencode v1
+    /// rewrites parts without touching the message row, and the v1/v2 dedup compares this value.
+    var updatedMs: Int64
     var texts: [String] = []
     var tools: [OpenCodeHistoryToolCall] = []
     var modelProvider: String? = nil
@@ -395,6 +397,9 @@ enum OpenCodeHistoryQueries {
             [.text(sessionID), .text(gitCommitOutputPattern)]
         ) { row in
             guard let index = indexByID[row.string(0)] else { return }
+            if let partUpdatedMs = row.optionalInt64(1), partUpdatedMs > messages[index].updatedMs {
+                messages[index].updatedMs = partUpdatedMs
+            }
             if row.optionalString(2) == "text" {
                 guard row.optionalInt64(4) ?? 0 == 0, let text = row.optionalString(3) else { return }
                 messages[index].texts.append(text)
