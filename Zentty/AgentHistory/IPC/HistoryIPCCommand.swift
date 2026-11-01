@@ -287,6 +287,8 @@ enum HistoryIPCError: LocalizedError, Equatable {
     case notFound(String)
     /// Even an answer with no hits or turns exceeds the byte budget.
     case responseTooLarge
+    /// The app cancelled the query at its deadline (`serverQueryDeadlineSeconds`).
+    case timedOut
 
     var ipcCode: String {
         switch self {
@@ -308,6 +310,8 @@ enum HistoryIPCError: LocalizedError, Equatable {
             "not_found"
         case .responseTooLarge:
             "request_too_large"
+        case .timedOut:
+            "history_timeout"
         }
     }
 
@@ -335,6 +339,8 @@ enum HistoryIPCError: LocalizedError, Equatable {
             return "No session \(Self.visible(sessionID)) in this project's Agent History."
         case .responseTooLarge:
             return "Agent History's answer is too large. Ask for fewer turns or results."
+        case .timedOut:
+            return HistoryIPC.timeoutMessage
         }
     }
 

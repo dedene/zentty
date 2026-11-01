@@ -1,0 +1,170 @@
+import Foundation
+
+/// Whether `zentty history` can read the index right now.
+enum HistoryIPCAvailability: Equatable, Sendable {
+    /// Agent History is off, or the user never turned it on.
+    case disabled
+    /// On, but the index can't be read. The reason is the user-facing message.
+    case unavailable(String)
+    /// `complete` is false while the index is still backfilling.
+    case ready(complete: Bool)
+}
+
+/// One search row before the service applies its own checks and formatting.
+struct HistoryIPCSearchHit: Equatable, Sendable {
+    let session: AgentHistorySessionSummary
+    let match: HistoryIPCMatch?
+}
+
+/// One stored message, as `show` returns it.
+struct HistoryIPCTurnRecord: Equatable, Sendable {
+    let role: AgentHistoryRole
+    let atMs: Int64
+    let text: String
+}
+
+struct HistoryIPCTurnPage: Equatable, Sendable {
+    /// Oldest first, newest last.
+    let turns: [HistoryIPCTurnRecord]
+    /// Every message the session has.
+    let total: Int
+}
+
+/// The index reads behind `zentty history`. Every method may block on SQLite, so callers stay
+/// off the main thread. Errors are `HistorySearchError`s.
+protocol HistoryIPCDataSource: Sendable {
+    func availability() -> HistoryIPCAvailability
+    /// Visible, non-excluded sessions in `scope` (the scope-local `indexedSessions`, D10 D-C).
+    func visibleSessionCount(scope: AgentHistoryScope) throws -> Int
+    /// Both tiers merged, best first, at most `limit`.
+    func search(
+        query: HistoryQuery,
+        context: HistorySearchContext,
+        limit: Int,
+        cancellation: HistorySearchCancellation
+    ) throws -> [HistoryIPCSearchHit]
+    /// Visible sessions with this native id in `scope`, newest first.
+    func sessions(nativeID: String, agent: AgentHistoryAgent?, scope: AgentHistoryScope) throws
+        -> [AgentHistorySessionSummary]
+    /// The session's last `limit` messages and its message count.
+    func lastTurns(sessionRowID: Int64, limit: Int) throws -> HistoryIPCTurnPage
+}
+
+/// `HistoryIPCDataSource` over `AgentHistoryController`. It touches only the controller's
+/// `nonisolated` members (`threadSafeStatus`, `searchEngine`), so any thread may use it.
+///
+/// `@unchecked Sendable`: the stored providers are `@Sendable` and the class has no mutable
+/// state.
+final class AgentHistoryIPCDataSource: HistoryIPCDataSource, @unchecked Sendable {
+    private let status: @Sendable () -> AgentHistoryStatus
+    private let engine: @Sendable () -> HistorySearchEngine?
+
+    init(
+        status: @escaping @Sendable () -> AgentHistoryStatus,
+        engine: @escaping @Sendable () -> HistorySearchEngine?
+    ) {
+        self.status = status
+        self.engine = engine
+    }
+
+    convenience init(controller: AgentHistoryController) {
+        self.init(status: { controller.threadSafeStatus }, engine: { controller.searchEngine })
+    }
+
+    func availability() -> HistoryIPCAvailability {
+        let status = status()
+        guard status.isEnabled, status.hasConsented else {
+            return .disabled
+        }
+        if case .failed(let reason) = status.state {
+            return .unavailable(HistoryIPCMessages.unavailable(reason))
+        }
+        guard engine() != nil else {
+            return .unavailable(HistoryIPCMessages.starting)
+        }
+        return .ready(complete: status.isBackfillComplete)
+    }
+
+    func visibleSessionCount(scope: AgentHistoryScope) throws -> Int {
+        try requireEngine().visibleSessionCount(scope: scope)
+    }
+
+    func search(
+        query: HistoryQuery,
+        context: HistorySearchContext,
+        limit: Int,
+        cancellation: HistorySearchCancellation
+    ) throws -> [HistoryIPCSearchHit] {
+        try requireEngine()
+            .searchMerged(query, context: context, limit: limit, cancellation: cancellation)
+            .map(HistoryIPCSearchHit.init(merged:))
+    }
+
+    func sessions(
+        nativeID: String,
+        agent: AgentHistoryAgent?,
+        scope: AgentHistoryScope
+    ) throws -> [AgentHistorySessionSummary] {
+        try requireEngine().sessions(nativeID: nativeID, agent: agent, scope: scope)
+    }
+
+    func lastTurns(sessionRowID: Int64, limit: Int) throws -> HistoryIPCTurnPage {
+        let page = try requireEngine().lastTurns(sessionID: sessionRowID, limit: limit)
+        return HistoryIPCTurnPage(
+            turns: page.turns.map { turn in
+                HistoryIPCTurnRecord(
+                    role: turn.role,
+                    atMs: Int64((turn.at.timeIntervalSince1970 * 1000).rounded()),
+                    text: turn.text
+                )
+            },
+            total: page.total
+        )
+    }
+
+    /// Without an engine the index is closed: History was turned off, or the storage changed.
+    private func requireEngine() throws -> HistorySearchEngine {
+        guard let engine = engine() else {
+            throw HistorySearchError.indexUnavailable("off")
+        }
+        return engine
+    }
+}
+
+extension HistoryIPCSearchHit {
+    /// Content hits quote the message (`role`, `at`, `snippet`); artifact hits and metadata hits
+    /// name the field that matched (`title`, `branch`, `repo`, `folder`, `path`, `command`,
+    /// `commit`, `pr`).
+    init(merged: HistoryMergedResult) {
+        let match: HistoryIPCMatch?
+        switch merged.match {
+        case .content(.artifact(let kind), _, _, let note):
+            if case .artifact(_, let value)? = note {
+                match = .metadata(field: kind.rawValue, value: value)
+            } else {
+                match = nil
+            }
+        case .content(let role, let at, let snippet, _):
+            let atMs = Int64((at.timeIntervalSince1970 * 1000).rounded())
+            match = .content(
+                role: role == .user ? AgentHistoryRole.user.rawValue : AgentHistoryRole.agent.rawValue,
+                at: HistoryIPCDates.iso8601(milliseconds: atMs),
+                snippet: snippet?.text ?? ""
+            )
+        case .metadata(let note?):
+            match = Self.metadataMatch(note)
+        case .metadata(nil):
+            match = .metadata(field: HistoryMetadataField.title.rawValue, value: merged.session.title)
+        }
+        self.init(session: merged.session, match: match)
+    }
+
+    private static func metadataMatch(_ note: HistoryMatchNote) -> HistoryIPCMatch {
+        switch note {
+        case .field(let field, let value):
+            .metadata(field: field.rawValue, value: value)
+        case .artifact(let kind, let value):
+            .metadata(field: kind.rawValue, value: value)
+        }
+    }
+}
