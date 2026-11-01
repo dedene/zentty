@@ -61,8 +61,8 @@ extension AgentHistoryLauncherTests {
 
         XCTAssertEqual(host.worklaneStore.worklanes.count, 2)
         XCTAssertEqual(recorder.opens.map(\.rowID), [8])
-        // The reservation ends with the launch.
-        guard case .resumed = launcher.perform(.primary, source: worktreeSource(endedSessionID, rowID: 9)) else {
+        // The worktree reservation ends with the launch.
+        guard case .resumed = launcher.perform(.primary, source: worktreeSource(otherEndedSessionID, rowID: 9)) else {
             return XCTFail("the finished worktree resumes normally")
         }
     }

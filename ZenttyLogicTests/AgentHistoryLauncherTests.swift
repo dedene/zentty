@@ -7,6 +7,7 @@ final class AgentHistoryLauncherTests: XCTestCase {
     let windowB = WindowID("win-launch-b")
     let liveSessionID = "0b6c1d8e-4b1a-4c55-9a1e-3f4b2c6d7e8f"
     let endedSessionID = "11111111-2222-4333-8444-555555555555"
+    let otherEndedSessionID = "22222222-3333-4444-8555-666666666666"
     let livePaneID = PaneID("pn-live")
     let shellPaneID = PaneID("pn-shell")
     let projectPath = "/work/project"
@@ -199,7 +200,9 @@ final class AgentHistoryLauncherTests: XCTestCase {
         XCTAssertEqual(host.toasts.count, 1)
         XCTAssertEqual(recorder.opens.map(\.rowID), [6])
 
-        let missing = launcher.resume(gone, intent: .primary, folderChoice: .homeFolder("/Users/nobody"))
+        var other = gone
+        other.nativeSessionID = otherEndedSessionID
+        let missing = launcher.resume(other, intent: .primary, folderChoice: .homeFolder("/Users/nobody"))
         XCTAssertEqual(missing, .failed(message: AgentHistoryLauncher.folderMissingMessage, offerCopySessionID: false))
         XCTAssertEqual(recorder.opens.count, 1)
     }
@@ -216,12 +219,12 @@ final class AgentHistoryLauncherTests: XCTestCase {
         XCTAssertTrue(launcher.perform(.primary, source: source(liveSessionID, rowID: nil)).closesPalette)
         // Failures with a row.
         host.splitUnavailable = true
-        XCTAssertFalse(launcher.perform(.secondary, source: source(endedSessionID, rowID: 1)).closesPalette)
+        XCTAssertFalse(launcher.perform(.secondary, source: source(otherEndedSessionID, rowID: 1)).closesPalette)
         XCTAssertFalse(launcher.perform(.primary, source: source("bogus id", rowID: 2)).closesPalette)
 
         XCTAssertTrue(recorder.opens.isEmpty)
         XCTAssertEqual(
-            launcher.perform(.secondary, source: source(endedSessionID, rowID: 1)),
+            launcher.perform(.secondary, source: source(otherEndedSessionID, rowID: 1)),
             .failed(message: AgentHistoryLauncher.splitFailedMessage, offerCopySessionID: false)
         )
     }
@@ -234,7 +237,7 @@ final class AgentHistoryLauncherTests: XCTestCase {
             (.primary, liveSessionID),
             (.secondary, liveSessionID),
             (.primary, endedSessionID),
-            (.secondary, endedSessionID),
+            (.secondary, otherEndedSessionID),
         ]
 
         for (offset, launch) in launches.enumerated() {
@@ -280,19 +283,24 @@ final class AgentHistoryLauncherTests: XCTestCase {
         )
     }
 
-    /// The launcher reads `windows` on every call, so a test can close windows mid-flight.
+    /// The launcher and its live index read `windows` on every call, so a test can open or close
+    /// windows mid-flight (opening one that runs a session makes that session live).
     func makeLauncher(
         windows: LauncherWindows,
         recorder: LauncherFakeUsageRecorder? = nil,
         fileSystem: (any AgentHistoryFileSystemProbing)? = nil,
         creator: any AgentHistoryWorktreeCreating = LauncherFakeWorktreeCreator(result: .success(())),
-        homeDirectory: String = "/Users/tester"
+        homeDirectory: String = "/Users/tester",
+        sessionReservations: AgentHistorySessionReservations = AgentHistorySessionReservations(),
+        now: (() -> Date)? = nil
     ) -> AgentHistoryLauncher {
-        let sources = windows.hosts.map {
-            MenuBarWorklaneSource(windowID: $0.windowID, windowTitle: $0.menuBarDisplayTitle, worklaneStore: $0.worklaneStore)
-        }
         let liveIndex = LiveAgentSessionIndex(
-            sources: { sources },
+            sources: {
+                windows.hosts.map {
+                    MenuBarWorklaneSource(
+                        windowID: $0.windowID, windowTitle: $0.menuBarDisplayTitle, worklaneStore: $0.worklaneStore)
+                }
+            },
             preferredWindowID: { windows.presenting?.windowID },
             isProcessAlive: { _ in true }
         )
@@ -305,8 +313,9 @@ final class AgentHistoryLauncherTests: XCTestCase {
             fileSystem: fileSystem ?? baseFileSystem(),
             worktreeCreator: creator,
             worktreeReservations: AgentHistoryWorktreeReservations(),
+            sessionReservations: sessionReservations,
             homeDirectory: homeDirectory,
-            now: { fixedNow }
+            now: now ?? { fixedNow }
         )
     }
 

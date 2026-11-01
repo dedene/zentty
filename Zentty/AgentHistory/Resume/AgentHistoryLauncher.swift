@@ -51,7 +51,10 @@ enum AgentHistoryLaunchOutcome: Equatable {
 }
 
 /// Routes an Agent History pick to the right place: a live session is jumped to (or forked) in
-/// the window that runs it; an ended one resumes in the presenting window. The launcher alone
+/// the window that runs it; an ended one resumes in the presenting window. Every path that
+/// would start a process (↩, the folder sheet, a finished worktree recreation) first runs
+/// `reroute`, so a session that went live, or that another History launch is still starting,
+/// is never started twice (spec goal 3). The launcher alone
 /// shows launch toasts and records opens, exactly once per successful launch (A-20). Failures
 /// returned synchronously are not toasted: the palette shows them in place. Failures after a
 /// worktree recreation are toasted in the window that asked (or any other still open), since
@@ -67,6 +70,7 @@ final class AgentHistoryLauncher {
     static let recreatingWorktreeMessage = "Recreating worktree…"
     static let worktreeBeingRecreatedMessage = "Worktree is still being recreated."
     static let recreatedFolderMissingMessage = "Couldn't recreate the worktree: its folder is missing."
+    static let stillStartingMessage = "This session is still starting. Try again in a moment."
 
     private let hosts: () -> [any AgentHistoryWindowHost]
     private let presentingHost: () -> (any AgentHistoryWindowHost)?
@@ -75,6 +79,7 @@ final class AgentHistoryLauncher {
     private let fileSystem: any AgentHistoryFileSystemProbing
     private let worktreeCreator: any AgentHistoryWorktreeCreating
     private let worktreeReservations: AgentHistoryWorktreeReservations
+    private let sessionReservations: AgentHistorySessionReservations
     private let homeDirectory: String
     private let now: () -> Date
 
@@ -86,6 +91,7 @@ final class AgentHistoryLauncher {
         fileSystem: any AgentHistoryFileSystemProbing = LiveAgentHistoryFileSystem(),
         worktreeCreator: any AgentHistoryWorktreeCreating = GitWorktreeCreator(),
         worktreeReservations: AgentHistoryWorktreeReservations? = nil,
+        sessionReservations: AgentHistorySessionReservations? = nil,
         homeDirectory: String = NSHomeDirectory(),
         now: @escaping () -> Date = Date.init
     ) {
@@ -96,6 +102,7 @@ final class AgentHistoryLauncher {
         self.fileSystem = fileSystem
         self.worktreeCreator = worktreeCreator
         self.worktreeReservations = worktreeReservations ?? .shared
+        self.sessionReservations = sessionReservations ?? .shared
         self.homeDirectory = homeDirectory
         self.now = now
     }
@@ -106,15 +113,8 @@ final class AgentHistoryLauncher {
 
     /// The palette's ↩ / ⌘↩ on a row.
     func perform(_ intent: AgentHistoryLaunchIntent, source: AgentHistoryResumeSource) -> AgentHistoryLaunchOutcome {
-        liveIndex.refreshNow()
-        if let location = liveIndex.snapshot.primaryLocation(for: source.key),
-           let host = host(for: location.windowID) {
-            switch intent {
-            case .primary:
-                return jump(to: location, in: host, source: source)
-            case .secondary:
-                return fork(location, in: host, source: source)
-            }
+        if let rerouted = reroute(intent, source: source) {
+            return rerouted
         }
 
         let plan: AgentHistoryResumePlan
@@ -140,6 +140,13 @@ final class AgentHistoryLauncher {
         intent: AgentHistoryLaunchIntent,
         folderChoice: AgentHistoryFolderChoice
     ) -> AgentHistoryLaunchOutcome {
+        if case .copyResumeCommand = folderChoice {
+            return .failed(message: Self.copyCommandMessage, offerCopySessionID: false)
+        }
+        // The sheet may have been open for a while: the session can have gone live since.
+        if let rerouted = reroute(intent, source: source) {
+            return rerouted
+        }
         let plan: AgentHistoryResumePlan
         switch resumePlan(for: source) {
         case .available(let available):
@@ -177,6 +184,53 @@ final class AgentHistoryLauncher {
     }
 
     // MARK: - Live sessions
+
+    /// Checked right before any launch: jumps to (or forks) a session that is live now in any
+    /// window, and refuses to start one another History launch is still starting. Nil means no
+    /// process runs or is on its way for the session, so launching it is safe.
+    private func reroute(
+        _ intent: AgentHistoryLaunchIntent,
+        source: AgentHistoryResumeSource
+    ) -> AgentHistoryLaunchOutcome? {
+        liveIndex.refreshNow()
+        if let location = liveIndex.snapshot.primaryLocation(for: source.key),
+           let host = host(for: location.windowID) {
+            sessionReservations.releaseLaunch(source.key)
+            switch intent {
+            case .primary:
+                return jump(to: location, in: host, source: source)
+            case .secondary:
+                return fork(location, in: host, source: source)
+            }
+        }
+
+        switch sessionReservations.reservation(for: source.key, now: now()) {
+        case nil:
+            return nil
+        case .recreatingWorktree:
+            return .failed(message: Self.worktreeBeingRecreatedMessage, offerCopySessionID: false)
+        case .launched(let windowID, let pane, _):
+            // The agent exited and its pane closed (or its window did) before it registered.
+            guard let host = host(for: windowID),
+                  let worklane = host.worklaneStore.worklanes.first(where: { worklane in
+                      worklane.paneStripState.panes.contains { $0.id == pane.paneID }
+                  })
+            else {
+                sessionReservations.release(source.key)
+                return nil
+            }
+            switch intent {
+            case .primary:
+                host.navigateToPane(worklaneID: worklane.id, paneID: pane.paneID)
+                host.showToast(message: "Jumped to \(Self.truncatedTitle(source.title))")
+                recordOpen(source)
+                return .resumed(WorklaneStore.LaunchedPane(worklaneID: worklane.id, paneID: pane.paneID))
+            case .secondary:
+                // Nothing to fork from until the agent has registered its session.
+                return .failed(message: Self.stillStartingMessage, offerCopySessionID: false)
+            }
+        }
+    }
 
     private func jump(
         to location: LiveAgentSessionLocation,
@@ -251,6 +305,7 @@ final class AgentHistoryLauncher {
             }
             launched = split
         }
+        sessionReservations.reserveLaunch(source.key, windowID: host.windowID, pane: launched, now: now())
         host.showToast(message: "Resuming \(Self.truncatedTitle(source.title))")
         recordOpen(source)
         return .resumed(launched)
@@ -268,6 +323,8 @@ final class AgentHistoryLauncher {
         guard worktreeReservations.reserve(recreation.worktreePath) else {
             return .failed(message: Self.worktreeBeingRecreatedMessage, offerCopySessionID: false)
         }
+        // Held until `finishRecreation` too, so no other folder choice resumes the session meanwhile.
+        sessionReservations.reserveRecreation(source.key)
         // Resolved again on completion: the window may have closed while git ran. The launcher
         // stays alive until then (git is bounded by the creator's timeout).
         let windowID = host.windowID
@@ -297,6 +354,7 @@ final class AgentHistoryLauncher {
     ) {
         // Released before the launch below, in the same main-actor turn, so nothing slips in between.
         worktreeReservations.release(recreation.worktreePath)
+        sessionReservations.release(source.key)
         let host = host(for: windowID) ?? presentingHost()
         switch result {
         case .failure(let error):
@@ -307,20 +365,26 @@ final class AgentHistoryLauncher {
             }
             host?.showToast(message: "Couldn't recreate the worktree: \(Self.firstLine(error.message))")
         case .success:
-            guard fileSystem.isDirectory(recreation.resumeDirectory) else {
-                host?.showToast(message: Self.recreatedFolderMissingMessage)
-                return
+            // git can run for a while: the session may have gone live (or started) elsewhere.
+            let outcome: AgentHistoryLaunchOutcome
+            if let rerouted = reroute(intent, source: source) {
+                outcome = rerouted
+            } else {
+                guard fileSystem.isDirectory(recreation.resumeDirectory) else {
+                    host?.showToast(message: Self.recreatedFolderMissingMessage)
+                    return
+                }
+                let plan: AgentHistoryResumePlan
+                switch resumePlan(for: source) {
+                case .available(let available):
+                    plan = available
+                case .unavailable(let reason):
+                    host?.showToast(message: reason)
+                    return
+                }
+                outcome = launch(
+                    plan, source: source, intent: intent, workingDirectory: recreation.resumeDirectory, in: host)
             }
-            let plan: AgentHistoryResumePlan
-            switch resumePlan(for: source) {
-            case .available(let available):
-                plan = available
-            case .unavailable(let reason):
-                host?.showToast(message: reason)
-                return
-            }
-            let outcome = launch(
-                plan, source: source, intent: intent, workingDirectory: recreation.resumeDirectory, in: host)
             // The palette closed on `.recreatingWorktree`, so a failure here has nowhere else to show.
             if case .failed(let message, _) = outcome {
                 if let host {
