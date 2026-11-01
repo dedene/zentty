@@ -133,6 +133,72 @@ final class OpenCodeHistorySourceDetectionTests: OpenCodeHistorySourceTestCase {
         XCTAssertNil(state(cursor).lastChange["ses_new"])
     }
 
+    /// opencode's delete-message/delete-part API removes rows without touching the session row,
+    /// and a row below the table maximum moves no watermark. Session B owns every maximum.
+    func test_deleting_non_newest_rows_of_cold_session_is_found_by_reconcile() throws {
+        let fixture = try OpenCodeHistoryFixture(testCase: self, v2: false)
+        let clock = Clock(Self.t0)
+        let cold = Self.t0 - Self.day
+        try fixture.addSession("ses_a", createdMs: cold, updatedMs: cold)
+        try fixture.addMessage("msg_a1", session: "ses_a", role: "user", createdMs: cold)
+        try fixture.addTextPart("prt_a1", message: "msg_a1", session: "ses_a", text: "keep this", createdMs: cold)
+        try fixture.addMessage("msg_a2", session: "ses_a", role: "user", createdMs: cold + 1)
+        try fixture.addTextPart("prt_a2", message: "msg_a2", session: "ses_a", text: "secret to delete", createdMs: cold + 1)
+        try fixture.addMessage("msg_a3", session: "ses_a", role: "user", createdMs: cold + 2)
+        try fixture.addTextPart("prt_a3", message: "msg_a3", session: "ses_a", text: "keep that", createdMs: cold + 2)
+        try fixture.addSession("ses_b", createdMs: cold, updatedMs: cold + 10)
+        try fixture.addMessage("msg_b", session: "ses_b", role: "user", createdMs: cold + 10)
+        try fixture.addTextPart("prt_b", message: "msg_b", session: "ses_b", text: "prompt b", createdMs: cold + 10)
+        let source = makeSource(fixture, clock: clock)
+        let (_, afterPass) = try drain(source)
+        let stored = try XCTUnwrap(state(afterPass).watermarks)
+
+        try fixture.deletePart("prt_a2")
+        try fixture.write { try $0.run("DELETE FROM message WHERE id = 'msg_a2'") }
+        clock.nowMs = Self.t0 + Self.minute
+        let polled = try drain(source, cursor: afterPass)
+        XCTAssertEqual(try XCTUnwrap(state(polled.cursor).watermarks), stored, "no watermark moved")
+
+        clock.nowMs = Self.t0 + 16 * Self.minute
+        let reconciled = try drain(source, cursor: polled.cursor)
+        XCTAssertEqual(reconciled.batches.flatMap(\.sessions).map(\.nativeID), ["ses_a"])
+        XCTAssertEqual(texts(reconciled.batches, "ses_a"), ["keep this", "keep that"])
+
+        // The signature the reconcile computes matches the one recorded at ingest: no re-read loop.
+        clock.nowMs = Self.t0 + 32 * Self.minute
+        let next = try drain(source, cursor: reconciled.cursor)
+        XCTAssertTrue(next.batches.flatMap(\.sessions).isEmpty)
+    }
+
+    /// The same deletion in a hot v2 session (a non-newest `session_message` row) is found by
+    /// the next poll, without waiting for the reconcile.
+    func test_deleting_non_newest_v2_row_of_hot_session_is_found_by_poll() throws {
+        let fixture = try OpenCodeHistoryFixture(testCase: self)
+        let clock = Clock(Self.t0)
+        let hot = Self.t0 - 2 * Self.minute
+        func reply(_ text: String) -> [String: Any] { ["content": [["type": "text", "text": text]]] }
+        try fixture.addSession("ses_a", in: .v2, version: "2.0.0", createdMs: hot, updatedMs: hot)
+        try fixture.addSessionMessage("msg_a1", session: "ses_a", type: "user", seq: 1,
+                                      data: ["text": "secret question"], createdMs: hot)
+        try fixture.addSessionMessage("msg_a2", session: "ses_a", type: "assistant", seq: 2,
+                                      data: reply("answer"), createdMs: hot + 1)
+        try fixture.addSession("ses_b", in: .v2, version: "2.0.0", createdMs: hot, updatedMs: hot + 5)
+        try fixture.addSessionMessage("msg_b1", session: "ses_b", type: "user", seq: 1,
+                                      data: ["text": "prompt b"], createdMs: hot + 5)
+        let source = makeSource(fixture, clock: clock)
+        let (_, afterPass) = try drain(source)
+
+        try fixture.deleteSessionMessage("msg_a1")
+        clock.nowMs = Self.t0 + Self.minute
+        let polled = try drain(source, cursor: afterPass)
+        XCTAssertEqual(polled.batches.flatMap(\.sessions).map(\.nativeID), ["ses_a"])
+        XCTAssertEqual(texts(polled.batches, "ses_a"), ["answer"])
+        XCTAssertEqual(state(polled.cursor).lastReconcileAtMs, Self.t0, "found by the poll, not the reconcile")
+
+        let idle = try drain(source, cursor: polled.cursor)
+        XCTAssertTrue(idle.batches.flatMap(\.sessions).isEmpty)
+    }
+
     func test_replaced_database_file_forces_full_pass() throws {
         let fixture = try OpenCodeHistoryFixture(testCase: self, v2: false)
         let t = Self.t0 - Self.day

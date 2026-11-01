@@ -95,6 +95,8 @@ struct OpenCodeHistorySessionContent: Equatable, Sendable {
     /// Newest `time_updated` over every row of the session, unfiltered: the hot-set and
     /// reconcile comparisons use exactly this value.
     var lastChangeMs: Int64
+    /// `OpenCodeHistoryQueries.contentSignature` of the session's content rows at this read.
+    var contentSignature: Int64 = 0
 }
 
 /// The SQL the opencode adapter runs. Every statement is a plain read; table names are literals
@@ -139,25 +141,37 @@ enum OpenCodeHistoryQueries {
         return ids
     }
 
-    /// Per-session newest `time_updated` over every table; nil when the session has no rows.
-    static func lastChange(_ db: AgentHistoryDatabase, schema: OpenCodeHistorySchema, sessionID: String) throws -> Int64? {
-        try tails(db, schema: schema, sessionID: sessionID).lastChange
+    /// Per-session newest `time_updated` over every table (nil when the session has no rows)
+    /// and the signature of its content rows.
+    static func changeMarks(_ db: AgentHistoryDatabase, schema: OpenCodeHistorySchema, sessionID: String) throws -> OpenCodeHistoryChangeMarks {
+        let tails = try tails(db, schema: schema, sessionID: sessionID)
+        return OpenCodeHistoryChangeMarks(lastChangeMs: tails.lastChange, contentSignature: tails.signature)
     }
 
-    /// One reconcile chunk: newest `time_updated` per session among `table` rows with
-    /// `fromRowID < rowid <= toRowID`.
-    static func lastChangeChunk(
+    /// Deletion-sensitive fingerprint of a session's rows in `message`, `part` and
+    /// `session_message`: every row adds 2^32 plus the low 32 bits of its rowid. Removing any
+    /// row lowers it, it never overflows below 2^31 rows, and it is a plain sum, so the
+    /// reconcile adds up per-chunk values (wrapping) to the same total one query would give.
+    static let contentSignatureTerm = "sum(4294967296 + (rowid & 4294967295))"
+
+    /// One reconcile chunk: per session among `table` rows with `fromRowID < rowid <= toRowID`,
+    /// the newest `time_updated` and the chunk's share of the content signature.
+    static func changeChunk(
         _ db: AgentHistoryDatabase,
         table: ContentTable,
         fromRowID: Int64,
         toRowID: Int64
-    ) throws -> [String: Int64] {
-        var result: [String: Int64] = [:]
+    ) throws -> [String: OpenCodeHistoryChangeMarks] {
+        var result: [String: OpenCodeHistoryChangeMarks] = [:]
         try db.query(
-            "SELECT session_id, max(time_updated) FROM \(table.rawValue) WHERE rowid > ? AND rowid <= ? GROUP BY session_id",
+            """
+            SELECT session_id, max(time_updated), \(contentSignatureTerm) FROM \(table.rawValue)
+            WHERE rowid > ? AND rowid <= ? GROUP BY session_id
+            """,
             [.integer(fromRowID), .integer(toRowID)]
         ) { row in
-            result[row.string(0)] = row.int64(1)
+            result[row.string(0)] = OpenCodeHistoryChangeMarks(lastChangeMs: row.optionalInt64(1),
+                                                               contentSignature: row.int64(2))
         }
         return result
     }
@@ -254,7 +268,8 @@ enum OpenCodeHistoryQueries {
             v2: v2,
             v1TailMs: tails.v1,
             v2TailMs: tails.v2,
-            lastChangeMs: max(tails.lastChange ?? 0, v1?.updatedMs ?? 0, v2?.updatedMs ?? 0)
+            lastChangeMs: max(tails.lastChange ?? 0, v1?.updatedMs ?? 0, v2?.updatedMs ?? 0),
+            contentSignature: tails.signature
         )
         let isChild = v1?.parentID != nil || v2?.parentID != nil
         guard !isChild, admits(content) else {
@@ -307,20 +322,28 @@ enum OpenCodeHistoryQueries {
         _ db: AgentHistoryDatabase,
         schema: OpenCodeHistorySchema,
         sessionID: String
-    ) throws -> (v1: Int64?, v2: Int64?, lastChange: Int64?) {
+    ) throws -> (v1: Int64?, v2: Int64?, lastChange: Int64?, signature: Int64) {
         let v2Column = schema.hasV2 ? "(SELECT max(time_updated) FROM session_message WHERE session_id = ?1)" : "NULL"
         let v2Session = schema.hasV2 ? "(SELECT time_updated FROM session_v2 WHERE id = ?1)" : "NULL"
+        let v2Signature = schema.hasV2
+            ? "(SELECT \(contentSignatureTerm) FROM session_message WHERE session_id = ?1)"
+            : "NULL"
         let row = try db.queryOne(
             """
             SELECT (SELECT max(time_updated) FROM message WHERE session_id = ?1),
                    (SELECT max(time_updated) FROM part WHERE session_id = ?1),
                    \(v2Column),
                    (SELECT time_updated FROM session WHERE id = ?1),
-                   \(v2Session)
+                   \(v2Session),
+                   (SELECT \(contentSignatureTerm) FROM message WHERE session_id = ?1),
+                   (SELECT \(contentSignatureTerm) FROM part WHERE session_id = ?1),
+                   \(v2Signature)
             """,
             [.text(sessionID)]
-        ) { row in (0..<5).map { row.optionalInt64(Int32($0)) } } ?? Array(repeating: nil, count: 5)
-        return ([row[0], row[1]].compactMap { $0 }.max(), row[2], row.compactMap { $0 }.max())
+        ) { row in (0..<8).map { row.optionalInt64(Int32($0)) } } ?? Array(repeating: nil, count: 8)
+        let times = row[0..<5]
+        let signature = row[5..<8].reduce(Int64(0)) { $0 &+ ($1 ?? 0) }
+        return ([row[0], row[1]].compactMap { $0 }.max(), row[2], times.compactMap { $0 }.max(), signature)
     }
 
     /// v1: one message row per turn; its `text` parts (minus `synthetic`) are the text and its

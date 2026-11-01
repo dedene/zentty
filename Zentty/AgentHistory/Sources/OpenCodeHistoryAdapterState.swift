@@ -28,6 +28,14 @@ struct OpenCodeHistoryWatermarks: Codable, Equatable, Sendable {
     }
 }
 
+/// What the hot set and the reconcile compare per session: the newest `time_updated` (catches
+/// inserts and in-place edits) and the content signature (catches deleted rows, which move
+/// neither a timestamp nor, below the table maximum, a rowid watermark).
+struct OpenCodeHistoryChangeMarks: Equatable, Sendable {
+    var lastChangeMs: Int64?
+    var contentSignature: Int64
+}
+
 /// A backfill keyset position: the session-row change time and id of the last session read.
 struct OpenCodeHistoryKeyset: Codable, Equatable, Sendable {
     let lastChangeMs: Int64
@@ -52,6 +60,11 @@ struct OpenCodeHistoryAdapterState: Codable, Equatable, Sendable {
     /// Sessions the admission rejected (excluded folder, tombstone), with their newest change at
     /// that read. Kept apart from `lastChange` so they are read again when the rules relax.
     var rejected: [String: Int64] = [:]
+    /// Content signature per admitted session at its last ingest
+    /// (`OpenCodeHistoryQueries.contentSignatureTerm`). Deleting a row that is not a table's
+    /// newest moves no watermark and no timestamp; only this value changes. A state written
+    /// before this field existed fails to decode, so a full pass records it for every session.
+    var contentSignatures: [String: Int64] = [:]
     /// `OpenCodeHistorySource.admissionSignature` of the rules last applied; a different value
     /// re-checks every session the change could affect.
     var admissionSignature: Int64?
@@ -80,16 +93,28 @@ struct OpenCodeHistoryAdapterState: Codable, Equatable, Sendable {
         lastChange[id] ?? rejected[id]
     }
 
-    /// Records a read session as admitted or rejected (never both).
-    mutating func record(_ id: String, lastChangeMs: Int64, rejected isRejected: Bool) {
+    /// Records a read session as admitted or rejected (never both). Only admitted sessions keep
+    /// a content signature: a rejected one has no indexed text a deletion could leave behind.
+    mutating func record(_ id: String, lastChangeMs: Int64, contentSignature: Int64?, rejected isRejected: Bool) {
         lastChange[id] = isRejected ? nil : lastChangeMs
         rejected[id] = isRejected ? lastChangeMs : nil
+        contentSignatures[id] = isRejected ? nil : contentSignature
+    }
+
+    /// True when `marks` show the session changed since it was recorded: a newer change, or
+    /// (for an admitted session) rows added or deleted without one.
+    func hasChanged(_ id: String, since marks: OpenCodeHistoryChangeMarks) -> Bool {
+        guard let known = knownChange(id), let latest = marks.lastChangeMs, latest <= known else {
+            return true
+        }
+        return contentSignatures[id].map { $0 != marks.contentSignature } ?? false
     }
 
     /// Drops everything known about a session that no longer exists upstream.
     mutating func forget(_ id: String) {
         lastChange[id] = nil
         rejected[id] = nil
+        contentSignatures[id] = nil
         pending.removeAll { $0 == id }
     }
 

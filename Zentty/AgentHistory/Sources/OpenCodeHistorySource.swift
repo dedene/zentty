@@ -12,14 +12,17 @@ import Foundation
 /// - **Incremental poll**: sessions with rows past the rowid watermarks of `part`, `message` and
 ///   `session_message`, or a session row whose `time_updated` passed the watermark; plus the hot
 ///   set (sessions touched in the last 10 minutes), whose in-place updates keep their rowids and
-///   are found by re-reading each one's newest `time_updated`.
+///   are found by re-reading each one's newest `time_updated`, and whose deleted rows are found
+///   by its content signature (count and rowids of its rows; see `contentSignatures`).
 /// - **Rowids went backwards** (opencode deleted its newest rows: undo/revert cleanup, deleting
 ///   the latest session, or a VACUUM renumbering them): the watermarks drop to the current
 ///   maxima, every hot session is re-read (the deleted rows most likely were its own), and the
 ///   reconcile runs at once. No full pass.
 /// - **Reconcile** (every 15 minutes, or at once after rowids went backwards): a full
 ///   `GROUP BY session_id` scan in 20k-rowid chunks, each its own read transaction, re-queues
-///   sessions whose newest change moved and removes sessions that are gone.
+///   sessions whose newest change or content signature moved (opencode's delete-message and
+///   delete-part API removes rows without touching the session row) and removes sessions that
+///   are gone.
 ///
 /// Every ingested session is replaced whole (`replaceContentOf`). Messages are the union of both
 /// generations, deduped by message id (newer `time_updated` wins), in `(time_created, id)` order.
@@ -242,8 +245,8 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
                     changed.insert(id)
                     continue
                 }
-                let latest = try OpenCodeHistoryQueries.lastChange(db, schema: schema, sessionID: id)
-                if latest.map({ $0 > last }) ?? true {
+                let marks = try OpenCodeHistoryQueries.changeMarks(db, schema: schema, sessionID: id)
+                if state.hasChanged(id, since: marks) {
                     changed.insert(id)
                 }
             }
@@ -251,7 +254,9 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         }
     }
 
-    /// Full `GROUP BY` scan in rowid chunks. Returns false when cancelled part-way.
+    /// Full `GROUP BY` scan in rowid chunks: per session the newest change and the content
+    /// signature (summed over chunks), so rows deleted anywhere in a session are found even when
+    /// no timestamp or watermark moved. Returns false when cancelled part-way.
     private func reconcile(
         url: URL,
         schema: OpenCodeHistorySchema,
@@ -260,7 +265,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         batch: inout AgentHistoryIngestBatch,
         context: AgentHistoryIngestContext
     ) throws -> Bool {
-        var latest: [String: Int64] = [:]
+        var latest: [String: OpenCodeHistoryChangeMarks] = [:]
         let tables: [(OpenCodeHistoryQueries.ContentTable, Int64)] = [
             (.part, current.partRowID), (.message, current.messageRowID),
         ] + (schema.hasV2 ? [(.sessionMessage, current.sessionMessageRowID)] : [])
@@ -270,9 +275,12 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
                 if context.isCancelled() { return false }
                 let to = from + Self.reconcileChunkRows
                 let chunk = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
-                    try OpenCodeHistoryQueries.lastChangeChunk(db, table: table, fromRowID: from, toRowID: to)
+                    try OpenCodeHistoryQueries.changeChunk(db, table: table, fromRowID: from, toRowID: to)
                 }
-                latest.merge(chunk, uniquingKeysWith: max)
+                latest.merge(chunk) { old, new in
+                    OpenCodeHistoryChangeMarks(lastChangeMs: max(old.lastChangeMs ?? .min, new.lastChangeMs ?? .min),
+                                               contentSignature: old.contentSignature &+ new.contentSignature)
+                }
                 from = to
             }
         }
@@ -282,8 +290,12 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
 
         var moved: [String] = []
         for (id, rowChange) in sessionRows {
-            let last = max(rowChange, latest[id] ?? rowChange)
-            if state.knownChange(id).map({ last > $0 }) ?? true {
+            let content = latest[id]
+            let marks = OpenCodeHistoryChangeMarks(
+                lastChangeMs: max(rowChange, content?.lastChangeMs ?? rowChange),
+                contentSignature: content?.contentSignature ?? 0
+            )
+            if state.hasChanged(id, since: marks) {
                 moved.append(id)
             }
         }
@@ -383,7 +395,8 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
             return 0
         }
         let bytes = OpenCodeHistorySessionBuilder.add(content, nativeID: nativeID, to: &batch, context: context)
-        state.record(id, lastChangeMs: content.lastChangeMs, rejected: batch.rejected[nativeID] != nil)
+        state.record(id, lastChangeMs: content.lastChangeMs, contentSignature: content.contentSignature,
+                     rejected: batch.rejected[nativeID] != nil)
         return bytes
     }
 
@@ -402,11 +415,12 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         AgentHistoryLog.indexer.info("opencode session unreadable code=\(code, privacy: .public)")
         batch.diagnostics.skippedSessions[agent.normalizedSessionID(entry.id) ?? entry.id] =
             .unreadable("opencode session read failed (SQLite \(code))")
-        let latest = try? AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
-            try OpenCodeHistoryQueries.lastChange(db, schema: schema, sessionID: entry.id)
+        let marks = try? AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+            try OpenCodeHistoryQueries.changeMarks(db, schema: schema, sessionID: entry.id)
         }
         let known = max(entry.lastChangeMs, state.knownChange(entry.id) ?? 0)
-        state.record(entry.id, lastChangeMs: latest.flatMap { $0 } ?? (known > 0 ? known : nowMs),
+        state.record(entry.id, lastChangeMs: marks?.lastChangeMs ?? (known > 0 ? known : nowMs),
+                     contentSignature: marks?.contentSignature ?? state.contentSignatures[entry.id],
                      rejected: state.rejected[entry.id] != nil)
     }
 
