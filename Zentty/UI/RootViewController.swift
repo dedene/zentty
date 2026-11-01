@@ -2944,6 +2944,14 @@ final class RootViewController: NSViewController {
                 .filter { !$0.isSeparatorItem }
                 .map(\.title) ?? []
         }
+
+        var agentHistoryCoordinatorForTesting: AgentHistoryPaletteCoordinator {
+            agentHistoryCoordinator
+        }
+
+        var isCommandPaletteShownForTesting: Bool {
+            commandPaletteController.isShown
+        }
     #endif
 
     var workspaceState: WindowWorkspaceState {

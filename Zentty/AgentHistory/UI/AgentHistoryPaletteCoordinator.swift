@@ -147,3 +147,10 @@ final class AgentHistoryPaletteCoordinator {
         }
     }
 }
+
+#if DEBUG
+extension AgentHistoryPaletteCoordinator {
+    var modelForTesting: AgentHistoryViewModel? { model }
+    var panelControllerForTesting: AgentHistoryPanelController { panelController }
+}
+#endif

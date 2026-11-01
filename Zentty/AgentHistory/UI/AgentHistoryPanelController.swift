@@ -389,3 +389,15 @@ final class AgentHistoryPanelController {
         }
     }
 }
+
+#if DEBUG
+extension AgentHistoryPanelController {
+    var panelForTesting: NSPanel? { panel }
+    var isDismissMonitorSuspendedForTesting: Bool { isDismissMonitorSuspended }
+
+    /// Whether the dismiss monitor would let this click through without closing the palette.
+    func isExemptClickForTesting(_ event: NSEvent) -> Bool {
+        isExemptClick(event)
+    }
+}
+#endif

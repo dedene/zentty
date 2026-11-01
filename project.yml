@@ -263,6 +263,8 @@ targets:
     platform: macOS
     sources:
       - path: ZenttyTests
+      # The Agent History palette fakes are shared with the logic tests.
+      - path: ZenttyLogicTests/Support/AgentHistoryFakes.swift
     info:
       path: ZenttyTests/Info.plist
     settings:
