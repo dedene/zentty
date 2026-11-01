@@ -2786,7 +2786,9 @@ final class HostedAgentHistorySettingsBackend: AgentHistorySettingsBackend {
         detectCount += 1
         completion([])
     }
-    func enable(agents: Set<AgentHistoryAgent>) {}
+    func enable(agents: Set<AgentHistoryAgent>, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        completion(.saved)
+    }
     func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
         completion(.saved)
     }

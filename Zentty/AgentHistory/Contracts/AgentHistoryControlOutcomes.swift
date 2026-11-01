@@ -23,4 +23,7 @@ enum AgentHistoryStateChangeOutcome: Equatable, Sendable {
     case appliedButNotSaved
     /// `state.json` couldn't be written, so nothing changed.
     case notSaved
+    /// config.toml can't be read or saved, so the excluded folders aren't certain: nothing was
+    /// turned on. Only a change that grants access ends up here.
+    case refusedConfigUnreadable
 }

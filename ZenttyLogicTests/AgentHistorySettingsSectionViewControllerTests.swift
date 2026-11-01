@@ -165,6 +165,22 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertTrue(backend.setEnabledCalls.isEmpty)
     }
 
+    /// First consent refused because config.toml can't be read: the user hears why and the
+    /// switch goes back to off.
+    func test_enable_without_consent_refused_for_unreadable_config_shows_why() {
+        let backend = FakeAgentHistoryControl()
+        backend.detectedSources = detectedSources()
+        backend.stateChangeOutcome = .refusedConfigUnreadable
+        let controller = makeController(backend: backend)
+        controller.prepareForPresentation()
+
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+
+        XCTAssertEqual(backend.enabledAgents, [[.claude, .codex]])
+        XCTAssertEqual(errors, ["Fix config.toml first|\(AgentHistoryConsentModel.configUnreadableError)"])
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+    }
+
     /// The real probe answers later from a background queue. Turning on before it does would
     /// record consent without knowing which agents exist, so the switch waits for it.
     func test_turning_on_waits_for_the_source_probe() {

@@ -14,8 +14,9 @@ protocol AgentHistoryControlling: AnyObject {
     func refreshStatus()
     /// Which agents have history on this Mac, stat-only (D11).
     func detectSources(_ completion: @escaping @MainActor ([AgentHistoryDetectedSource]) -> Void)
-    /// Records consent for `agents` and starts indexing.
-    func enable(agents: Set<AgentHistoryAgent>)
+    /// Records consent for `agents` and starts indexing. `completion` says whether it was saved,
+    /// or refused because config.toml can't be trusted.
+    func enable(agents: Set<AgentHistoryAgent>, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void)
     /// `completion` says whether `state.json` saved the change; off takes effect either way.
     func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void)
     /// Off purges that agent's rows (D4).
@@ -32,6 +33,10 @@ protocol AgentHistoryControlling: AnyObject {
 }
 
 extension AgentHistoryControlling {
+    func enable(agents: Set<AgentHistoryAgent>) {
+        enable(agents: agents) { _ in }
+    }
+
     func setEnabled(_ enabled: Bool) {
         setEnabled(enabled) { _ in }
     }

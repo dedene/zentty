@@ -370,7 +370,9 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
                 return
             }
             // Like the consent card: every agent found on this Mac starts on, and only those.
-            backend.enable(agents: Set(found.map(\.agent)))
+            backend.enable(agents: Set(found.map(\.agent))) { [weak self] in
+                self?.reportStateChange($0, .history(on: true))
+            }
         }
     }
 

@@ -18,7 +18,7 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     var holdsDetection = false
     private var pendingDetections: [@MainActor ([AgentHistoryDetectedSource]) -> Void] = []
     var disableOutcome = AgentHistoryDisableOutcome.turnedOff
-    /// What `setEnabled` and `setAgentEnabled` answer.
+    /// What `enable`, `setEnabled` and `setAgentEnabled` answer.
     var stateChangeOutcome = AgentHistoryStateChangeOutcome.saved
     private(set) var refreshCount = 0
     private(set) var enabledAgents: [Set<AgentHistoryAgent>] = []
@@ -61,7 +61,10 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
         pendingDetections.removeAll()
         pending.forEach { $0(detectedSources) }
     }
-    func enable(agents: Set<AgentHistoryAgent>) { enabledAgents.append(agents) }
+    func enable(agents: Set<AgentHistoryAgent>, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        enabledAgents.append(agents)
+        completion(stateChangeOutcome)
+    }
     func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
         setEnabledCalls.append(enabled)
         completion(stateChangeOutcome)

@@ -176,9 +176,17 @@ final class AgentHistoryController: Sendable {
 
     /// Records consent for `agents` (the others off) and starts indexing now. When `state.json`
     /// already holds consent (the caller saw the status before it loaded) it only turns History
-    /// on: the saved per-agent choices and the consent date stay.
-    func enable(agents: Set<AgentHistoryAgent>) {
-        updateState { state in
+    /// on: the saved per-agent choices and the consent date stay. Refused while config.toml
+    /// can't be trusted (`refusesNewAccess`).
+    func enable(
+        agents: Set<AgentHistoryAgent>,
+        completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
+    ) {
+        guard !refusesNewAccess else {
+            completion(.refusedConfigUnreadable)
+            return
+        }
+        updateState({ state in
             state.enabled = true
             guard state.consentedAt == nil else {
                 return
@@ -187,21 +195,31 @@ final class AgentHistoryController: Sendable {
             for agent in AgentHistoryAgent.allCases {
                 state.setSource(agent, enabled: agents.contains(agent))
             }
-        }
+        }, completion: completion)
     }
 
-    /// Off stops the indexer and keeps the index; on starts it again when consented.
-    /// `completion` runs on main once the change is applied, with whether it was saved.
+    /// Off stops the indexer and keeps the index; on starts it again when consented (refused
+    /// while config.toml can't be trusted). `completion` runs on main once the change is
+    /// applied, with whether it was saved.
     func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        guard !enabled || !refusesNewAccess else {
+            completion(.refusedConfigUnreadable)
+            return
+        }
         updateState({ $0.enabled = enabled }, completion: completion)
     }
 
-    /// Off purges that agent's rows (D4); on reads its sources again from the start.
+    /// Off purges that agent's rows (D4); on reads its sources again from the start (refused
+    /// while config.toml can't be trusted).
     func setAgentEnabled(
         _ agent: AgentHistoryAgent,
         _ enabled: Bool,
         completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
     ) {
+        guard !enabled || !refusesNewAccess else {
+            completion(.refusedConfigUnreadable)
+            return
+        }
         updateState({ $0.setSource(agent, enabled: enabled) }, completion: completion)
     }
 
@@ -392,6 +410,13 @@ final class AgentHistoryController: Sendable {
         controlQueue.async {
             AgentHistoryIndexer.purgeSourcesWithoutIndexer(agents, storage: storage)
         }
+    }
+
+    /// Nothing is turned on while config.toml can't be trusted: unreadable since launch (the
+    /// excluded folders are the empty defaults) or write-protected since it broke (an exclusion
+    /// the user adds can't be saved). Turning things off stays allowed.
+    private var refusesNewAccess: Bool {
+        !isConfigReadable || configStore?.isWriteProtected == true
     }
 
     private static func allowsIndexing(_ state: AgentHistoryState) -> Bool {

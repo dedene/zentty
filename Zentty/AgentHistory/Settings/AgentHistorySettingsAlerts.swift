@@ -104,6 +104,8 @@ enum AgentHistorySettingsAlerts {
             return (title, "\(subject) for now, but Zentty couldn't save that. It may turn back on the next time Zentty starts.")
         case .notSaved:
             return (title, "Zentty couldn't save Agent History's settings, so nothing changed. Check that your disk has free space, then try again.")
+        case .refusedConfigUnreadable:
+            return ("Fix config.toml first", AgentHistoryConsentModel.configUnreadableError)
         }
     }
 
