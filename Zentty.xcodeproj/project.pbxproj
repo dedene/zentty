@@ -395,6 +395,7 @@
 		5A5369F8EEEA324CAB00B70F /* GrokHistorySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9DF393B54685799BF0821F8 /* GrokHistorySource.swift */; };
 		5AE5A5D7EADDFE26BC3A56CE /* AgentHistoryConsentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B6D465269EA78D1FC69633 /* AgentHistoryConsentTests.swift */; };
 		5B20C1C2ADBA85229BA82907 /* WindowServerCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DB1479DBB0D102F1372877 /* WindowServerCommandService.swift */; };
+		5BAEB7D1736AC6376F7CB779 /* AgentHistorySnapshotCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0454B1C03BC64F023FB1BF08 /* AgentHistorySnapshotCleanupTests.swift */; };
 		5C27B8B2D731C76FCDDEADA4 /* AgentHistoryPaletteCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0B403594E70679DC3A08E5 /* AgentHistoryPaletteCoordinatorTests.swift */; };
 		5C5429C3A0CAE1B66391F8B2 /* HistorySyntheticCorpus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AA2D93CEEA2B5AAADA93935 /* HistorySyntheticCorpus.swift */; };
 		5C655F13ECEF7E1B4FB50197 /* AgentHistorySchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC62FEEAFE1E7472799DC407 /* AgentHistorySchema.swift */; };
@@ -1132,6 +1133,7 @@
 		02F82C671DE7FF0200C2DF6E /* FileManagerSymlinkWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerSymlinkWriteTests.swift; sourceTree = "<group>"; };
 		03C5FAFF027DE8001A510FB1 /* SidebarUpdateAvailableRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarUpdateAvailableRowView.swift; sourceTree = "<group>"; };
 		041FEB5F657A57B5668D9BFD /* LibghosttyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibghosttyRuntime.swift; sourceTree = "<group>"; };
+		0454B1C03BC64F023FB1BF08 /* AgentHistorySnapshotCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistorySnapshotCleanupTests.swift; sourceTree = "<group>"; };
 		0529815FA8F05D8F52601625 /* CommandTooltipFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandTooltipFormatter.swift; sourceTree = "<group>"; };
 		0548B9E0EF5C69DD34B1CA40 /* PaneEventSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneEventSnapshot.swift; sourceTree = "<group>"; };
 		058230B7588E412C374895C9 /* PresentationReducerContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationReducerContext.swift; sourceTree = "<group>"; };
@@ -3364,6 +3366,7 @@
 				3D28D280A1C634032BA17D16 /* AgentHistorySettingsFormatterTests.swift */,
 				4F49E84A841E04C3F406BEAB /* AgentHistorySettingsRetentionOffMainTests.swift */,
 				EC3F006B69C108990177FCE6 /* AgentHistorySettingsSectionViewControllerTests.swift */,
+				0454B1C03BC64F023FB1BF08 /* AgentHistorySnapshotCleanupTests.swift */,
 				99420C035FA475D2D9C6564A /* AgentHistorySourceFactoryTests.swift */,
 				676F892E66676F3E8F471E44 /* AgentHistoryStateStoreTests.swift */,
 				54A75E8BD8AE1005CC905E4A /* AgentHistoryStorageConcurrencyTests.swift */,
@@ -4014,6 +4017,7 @@
 				91876D13AAF75D6EF5033B73 /* AgentHistorySettingsFormatterTests.swift in Sources */,
 				2A99ABAF2CF9EBC768813550 /* AgentHistorySettingsRetentionOffMainTests.swift in Sources */,
 				8470039F08FF906C97AB24E9 /* AgentHistorySettingsSectionViewControllerTests.swift in Sources */,
+				5BAEB7D1736AC6376F7CB779 /* AgentHistorySnapshotCleanupTests.swift in Sources */,
 				F196441FAACD012F8C45A60B /* AgentHistorySourceFactoryTests.swift in Sources */,
 				658B0AA02C29CFD24D48D00F /* AgentHistoryStateStoreTests.swift in Sources */,
 				F314E2D9A1603769E0535478 /* AgentHistoryStorageConcurrencyTests.swift in Sources */,

@@ -17,6 +17,9 @@ struct AgentHistoryPaths: Equatable, Sendable {
     static let lockFileSuffix = ".setup.lock"
     static let writerLockFileSuffix = ".writer.lock"
     static let presenceLockFileSuffix = ".presence.lock"
+    /// Private copies of other agents' databases (`ExternalSnapshotCopyPolicy.index`). Inside the
+    /// directory, so "Delete Index" removes them; `openWriter` sweeps what a crash left behind.
+    static let snapshotsDirectoryName = "snapshots"
     static let corruptFilePrefix = "index.corrupt-"
     static let corruptFileSuffix = ".sqlite"
 
@@ -26,6 +29,7 @@ struct AgentHistoryPaths: Equatable, Sendable {
     var walURL: URL { directoryURL.appendingPathComponent(Self.databaseFileName + "-wal", isDirectory: false) }
     var shmURL: URL { directoryURL.appendingPathComponent(Self.databaseFileName + "-shm", isDirectory: false) }
     var stateURL: URL { directoryURL.appendingPathComponent(Self.stateFileName, isDirectory: false) }
+    var snapshotsDirectoryURL: URL { directoryURL.appendingPathComponent(Self.snapshotsDirectoryName, isDirectory: true) }
     /// The removed-sessions list (`AgentHistoryRemovalLedger`); survives Rebuild and quarantine.
     var removalsURL: URL { directoryURL.appendingPathComponent(Self.removalsFileName, isDirectory: false) }
     /// Holds the lock files: the directory's parent, so deleting the index never unlinks them.

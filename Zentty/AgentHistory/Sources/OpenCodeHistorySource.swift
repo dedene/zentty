@@ -56,9 +56,12 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
     private let sessionsPerBatch: Int
     private let now: @Sendable () -> Int64
     private let loadSession: SessionLoader
+    /// Where a private copy goes when `opencode.db` has a `-wal` but no `-shm`.
+    let snapshotCopyPolicy: ExternalSnapshotCopyPolicy
 
     init(
         root: AgentHistorySourceRoot,
+        snapshotCopyPolicy: ExternalSnapshotCopyPolicy = .standard,
         sessionsPerBatch: Int = OpenCodeHistorySource.defaultSessionsPerBatch,
         now: @escaping @Sendable () -> Int64 = { Int64((Date().timeIntervalSince1970 * 1_000).rounded()) },
         loadSession: @escaping SessionLoader = { db, schema, id, admits in
@@ -69,6 +72,12 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         self.sessionsPerBatch = max(sessionsPerBatch, 1)
         self.now = now
         self.loadSession = loadSession
+        self.snapshotCopyPolicy = snapshotCopyPolicy
+    }
+
+    /// `AgentHistoryDatabase.readExternalSnapshot` with this source's copy policy.
+    func readSnapshot<T>(url: URL, _ body: (AgentHistoryDatabase) throws -> T) throws -> T {
+        try AgentHistoryDatabase.readExternalSnapshot(url: url, copyPolicy: snapshotCopyPolicy, body)
     }
 
     var databasePath: String { root.path + "/" + Self.databaseFileName }
@@ -110,7 +119,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         guard AgentHistoryFileIdentity.stat(path: databasePath) != nil else {
             return nil
         }
-        let ids: [String]? = try AgentHistoryDatabase.readExternalSnapshot(url: URL(fileURLWithPath: databasePath)) { db in
+        let ids: [String]? = try readSnapshot(url: URL(fileURLWithPath: databasePath)) { db in
             guard case let .supported(schema) = try OpenCodeHistorySchema.probe(db) else {
                 return nil
             }
@@ -225,7 +234,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
     /// backwards, detection runs from the lower of the stored and current maxima per table, and
     /// every hot session counts as changed.
     private func detect(url: URL, state: OpenCodeHistoryAdapterState, nowMs: Int64) throws -> Detection {
-        try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+        try readSnapshot(url: url) { db in
             let schema: OpenCodeHistorySchema
             switch try OpenCodeHistorySchema.probe(db) {
             case let .unsupported(reason):
@@ -274,7 +283,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
             while from < maxRowID {
                 if context.isCancelled() { return false }
                 let to = from + Self.reconcileChunkRows
-                let chunk = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+                let chunk = try readSnapshot(url: url) { db in
                     try OpenCodeHistoryQueries.changeChunk(db, table: table, fromRowID: from, toRowID: to)
                 }
                 latest.merge(chunk) { old, new in
@@ -284,7 +293,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
                 from = to
             }
         }
-        let sessionRows = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+        let sessionRows = try readSnapshot(url: url) { db in
             try OpenCodeHistoryQueries.sessionRowChanges(db, schema: schema)
         }
 
@@ -324,7 +333,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
     ) throws -> Bool {
         var page: [OpenCodeHistoryKeyset] = []
         if let backfill = state.backfill {
-            page = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+            page = try readSnapshot(url: url) { db in
                 try OpenCodeHistoryQueries.backfillPage(db, schema: schema, targetMs: backfill.target.sessionUpdatedMs,
                                                         after: backfill.after, limit: sessionsPerBatch)
             }
@@ -382,7 +391,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         let isCancelled = context.isCancelled
         let loadSession = loadSession
         let admission = context.admission
-        let content = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+        let content = try readSnapshot(url: url) { db in
             db.setProgressHandler(everyInstructions: Self.progressCheckInstructions, isCancelled)
             return try loadSession(db, schema, id) { header in
                 admission.decide(agent: .opencode, nativeID: nativeID,
@@ -415,7 +424,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         AgentHistoryLog.indexer.info("opencode session unreadable code=\(code, privacy: .public)")
         batch.diagnostics.skippedSessions[agent.normalizedSessionID(entry.id) ?? entry.id] =
             .unreadable("opencode session read failed (SQLite \(code))")
-        let marks = try? AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+        let marks = try? readSnapshot(url: url) { db in
             try OpenCodeHistoryQueries.changeMarks(db, schema: schema, sessionID: entry.id)
         }
         let known = max(entry.lastChangeMs, state.knownChange(entry.id) ?? 0)

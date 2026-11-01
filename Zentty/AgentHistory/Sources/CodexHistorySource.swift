@@ -38,9 +38,9 @@ final class CodexHistorySource: AgentHistorySource, @unchecked Sendable {
     /// Fresh decoders opened (a cache miss decompresses from byte 0); read by tests.
     private var openedZstdStreams = 0
 
-    init(root: AgentHistorySourceRoot) {
+    init(root: AgentHistorySourceRoot, snapshotCopyPolicy: ExternalSnapshotCopyPolicy = .standard) {
         self.root = root
-        self.catalog = CodexThreadCatalog(rootPath: root.path)
+        self.catalog = CodexThreadCatalog(rootPath: root.path, snapshotCopyPolicy: snapshotCopyPolicy)
         var prefixes = [root.path]
         if let real = realpath(root.path, nil) {
             let resolved = String(cString: real)

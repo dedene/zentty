@@ -101,7 +101,10 @@ final class AgentHistoryStorage: @unchecked Sendable {
     ///   process holding it past `Options.setupLockTimeout` makes this throw `.busy`.
     func openWriter() throws -> AgentHistoryWriterHandle {
         do {
-            let handle = try withSetupLock { try openWriter(recovered: false) }
+            let handle = try withSetupLock {
+                removeLeftoverSnapshots()
+                return try openWriter(recovered: false)
+            }
             availabilityBox.update(availability: .ready, tokenizer: handle.tokenizer)
             tightenFilePermissions()
             AgentHistoryLog.indexer.info(
@@ -396,7 +399,8 @@ final class AgentHistoryStorage: @unchecked Sendable {
         availabilityBox.update(availability: .ready, tokenizer: nil)
     }
 
-    /// Removes the whole directory (index, corrupt copies, `state.json`) with readers fenced.
+    /// Removes the whole directory (index, corrupt copies, `state.json`, `snapshots/`) with
+    /// readers fenced.
     /// Only inside `withExclusiveOwnership`: another instance may otherwise still write here.
     func removeEverything() throws {
         try readers.fenced {
@@ -453,6 +457,29 @@ final class AgentHistoryStorage: @unchecked Sendable {
             } catch {
                 AgentHistoryLog.indexer.error("Agent History couldn't restrict index file permissions")
             }
+        }
+    }
+
+    /// Removes private database copies a crash or a failed cleanup left in `snapshots/`
+    /// (`ExternalSnapshotCopyPolicy.index`). Runs from `openWriter`, under the writer lock: only
+    /// the writer's indexer reads other agents' databases, so no copy here is in use.
+    private func removeLeftoverSnapshots() {
+        let snapshots = paths.snapshotsDirectoryURL
+        guard let names = try? fileManager.contentsOfDirectory(atPath: snapshots.path) else {
+            return
+        }
+        var removed = 0
+        for name in names where name.hasPrefix(ExternalSnapshotCopyPolicy.directoryPrefix) {
+            do {
+                try fileManager.removeItem(at: snapshots.appendingPathComponent(name, isDirectory: true))
+                removed += 1
+            } catch {
+                let code = (error as NSError).code
+                AgentHistoryLog.indexer.error("Agent History couldn't remove a leftover database snapshot code=\(code, privacy: .public)")
+            }
+        }
+        if removed > 0 {
+            AgentHistoryLog.indexer.info("Agent History removed leftover database snapshots count=\(removed, privacy: .public)")
         }
     }
 

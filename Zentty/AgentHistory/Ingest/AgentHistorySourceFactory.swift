@@ -9,25 +9,39 @@ import Foundation
 /// root no longer reported (for example a `$CODEX_HOME` of an earlier launch) is purged after the
 /// grace period (`AgentHistoryIndexer+Roots.swift`).
 enum AgentHistorySourceFactory {
-    static func makeSources(locator: AgentHistoryRootLocator = .init()) -> [any AgentHistorySource] {
-        makeSources(roots: locator.allRoots())
+    ///
+    /// `snapshotCopyPolicy` is where the database adapters (Codex catalog, opencode) put private
+    /// copies of a database whose `-shm` is missing. The indexer passes `.index(paths)`, so the
+    /// copies sit inside the index directory; `.standard` (temp) is only for callers that never
+    /// open a database, like the pre-consent probe.
+    static func makeSources(
+        locator: AgentHistoryRootLocator = .init(),
+        snapshotCopyPolicy: ExternalSnapshotCopyPolicy = .standard
+    ) -> [any AgentHistorySource] {
+        makeSources(roots: locator.allRoots(), snapshotCopyPolicy: snapshotCopyPolicy)
     }
 
     /// One source per root, in the given order; each source is built for its root's agent.
-    static func makeSources(roots: [AgentHistorySourceRoot]) -> [any AgentHistorySource] {
-        roots.map(makeSource(root:))
+    static func makeSources(
+        roots: [AgentHistorySourceRoot],
+        snapshotCopyPolicy: ExternalSnapshotCopyPolicy = .standard
+    ) -> [any AgentHistorySource] {
+        roots.map { makeSource(root: $0, snapshotCopyPolicy: snapshotCopyPolicy) }
     }
 
-    static func makeSource(root: AgentHistorySourceRoot) -> any AgentHistorySource {
+    static func makeSource(
+        root: AgentHistorySourceRoot,
+        snapshotCopyPolicy: ExternalSnapshotCopyPolicy = .standard
+    ) -> any AgentHistorySource {
         switch root.agent {
         case .claude:
             return ClaudeHistorySource(root: root)
         case .codex:
-            return CodexHistorySource(root: root)
+            return CodexHistorySource(root: root, snapshotCopyPolicy: snapshotCopyPolicy)
         case .grok:
             return GrokHistorySource(root: root)
         case .opencode:
-            return OpenCodeHistorySource(root: root)
+            return OpenCodeHistorySource(root: root, snapshotCopyPolicy: snapshotCopyPolicy)
         }
     }
 }

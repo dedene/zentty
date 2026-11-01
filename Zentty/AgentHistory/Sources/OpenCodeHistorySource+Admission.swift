@@ -35,7 +35,7 @@ extension OpenCodeHistorySource {
         var directories: [String: [String]] = [:]
         if !admission.exclusions.isEmpty {
             do {
-                directories = try AgentHistoryDatabase.readExternalSnapshot(url: url) { db in
+                directories = try readSnapshot(url: url) { db in
                     try OpenCodeHistoryQueries.sessionDirectories(db, schema: schema)
                 }
             } catch {

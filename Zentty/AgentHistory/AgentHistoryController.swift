@@ -25,7 +25,8 @@ final class AgentHistoryController: Sendable {
     static let shared = AgentHistoryController()
 
     private let launchDelay: TimeInterval
-    private let makeSources: @Sendable () -> [any AgentHistorySource]
+    /// Builds the sources with the given private-copy policy (see `AgentHistorySourceFactory`).
+    private let makeSources: @Sendable (ExternalSnapshotCopyPolicy) -> [any AgentHistorySource]
     private let makeIndexer: IndexerFactory
     private let mirror = AgentHistoryControllerMirror()
     /// The search engine over `storageInstance`, built on first use (`+Search.swift`).
@@ -59,16 +60,23 @@ final class AgentHistoryController: Sendable {
 
     init(
         launchDelay: TimeInterval = 5,
-        makeSources: @escaping @Sendable () -> [any AgentHistorySource] = { AgentHistorySourceFactory.makeSources() },
+        makeSources: (@Sendable () -> [any AgentHistorySource])? = nil,
         makeIndexer: IndexerFactory? = nil
     ) {
         self.launchDelay = launchDelay
+        let makeSources: @Sendable (ExternalSnapshotCopyPolicy) -> [any AgentHistorySource] = if let makeSources {
+            { _ in makeSources() }
+        } else {
+            { AgentHistorySourceFactory.makeSources(snapshotCopyPolicy: $0) }
+        }
         self.makeSources = makeSources
         self.makeIndexer = makeIndexer ?? { storage, stateStore, configuration, callbacks in
-            AgentHistoryIndexer(
+            // Private database copies go inside the index directory, which Delete Index removes.
+            let snapshotCopyPolicy = ExternalSnapshotCopyPolicy.index(storage.paths)
+            return AgentHistoryIndexer(
                 storage: storage,
                 stateStore: stateStore,
-                makeSources: makeSources,
+                makeSources: { makeSources(snapshotCopyPolicy) },
                 configuration: configuration,
                 onStatusChange: callbacks.onStatusChange,
                 onSnapshotChange: callbacks.onSnapshotChange
@@ -167,7 +175,7 @@ final class AgentHistoryController: Sendable {
         let deliver = AgentHistoryMainDelivery(completion)
         DispatchQueue.global(qos: .userInitiated).async {
             let results = AgentHistoryDiscoveryProbe.detect(
-                sources: makeSources(),
+                sources: makeSources(.standard), // stat-only: never opens a database
                 candidatePaths: AgentHistoryRootLocator().candidatePaths(for:)
             )
             deliver.send(results)

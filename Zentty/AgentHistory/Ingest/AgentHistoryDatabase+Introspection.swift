@@ -124,7 +124,8 @@ extension AgentHistoryDatabase {
 
 /// How `readExternalSnapshot` copies a WAL database whose `-shm` is missing.
 struct ExternalSnapshotCopyPolicy: Sendable {
-    /// Parent of the private per-read directory, which is created 0700 and removed after the read.
+    /// Parent of the private per-read directory (0700, removed after the read). Created 0700
+    /// when missing; its own parent never is.
     var parentDirectory: URL
     /// Cap on main file + `-wal` bytes for a full data copy. APFS clones share blocks with the
     /// originals, cost no space up front, and are not capped.
@@ -132,11 +133,27 @@ struct ExternalSnapshotCopyPolicy: Sendable {
     /// Tests turn cloning off to exercise the full-copy path and its cap.
     var allowsClone: Bool
 
+    static let standardFullCopyByteLimit: Int64 = 256 * 1024 * 1024
+    /// Name prefix of each per-read directory (`mkdtemp` adds six characters).
+    static let directoryPrefix = "zentty-agent-history-read."
+
+    /// The temp directory. Only for callers with no index directory (tests, tools); the indexer
+    /// uses `index(_:)`.
     static let standard = ExternalSnapshotCopyPolicy(
         parentDirectory: FileManager.default.temporaryDirectory,
-        fullCopyByteLimit: 256 * 1024 * 1024,
+        fullCopyByteLimit: standardFullCopyByteLimit,
         allowsClone: true
     )
+
+    /// Copies go to `AgentHistory/snapshots/`: "Delete Index" removes them with the directory,
+    /// and `AgentHistoryStorage.openWriter` sweeps any a crash left behind.
+    static func index(_ paths: AgentHistoryPaths) -> ExternalSnapshotCopyPolicy {
+        ExternalSnapshotCopyPolicy(
+            parentDirectory: paths.snapshotsDirectoryURL,
+            fullCopyByteLimit: standardFullCopyByteLimit,
+            allowsClone: true
+        )
+    }
 }
 
 /// A private copy of an external database and its `-wal`, named so SQLite pairs them.
@@ -145,8 +162,9 @@ private struct ExternalDatabasePrivateCopy {
     let databaseURL: URL
 
     init(of source: URL, expectedBytes: Int64, policy: ExternalSnapshotCopyPolicy) throws {
+        try Self.ensureParent(policy.parentDirectory)
         var template = Array(policy.parentDirectory
-            .appendingPathComponent("zentty-agent-history-read.XXXXXX").path.utf8CString)
+            .appendingPathComponent(ExternalSnapshotCopyPolicy.directoryPrefix + "XXXXXX").path.utf8CString)
         // mkdtemp(3) creates the directory with mode 0700.
         guard let created = template.withUnsafeMutableBufferPointer({ mkdtemp($0.baseAddress) }) else {
             throw Self.copyError("could not create a private snapshot directory", errno: errno)
@@ -179,9 +197,23 @@ private struct ExternalDatabasePrivateCopy {
         }
     }
 
-    /// Removes the private directory, including the `-shm` SQLite created there.
+    /// Removes the private directory, including the `-shm` SQLite created there. A failure is
+    /// logged; `AgentHistoryStorage.openWriter` sweeps leftovers inside the index directory.
     func remove() {
-        try? FileManager.default.removeItem(at: directory)
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            let code = (error as NSError).code
+            AgentHistoryLog.indexer.error("Agent History couldn't remove a database snapshot code=\(code, privacy: .public)")
+        }
+    }
+
+    /// Creates the parent (0700) when it is missing. Only the last component: a missing index
+    /// directory (deleted while a read ran) is never recreated here.
+    private static func ensureParent(_ parent: URL) throws {
+        guard mkdir(parent.path, 0o700) == 0 || errno == EEXIST else {
+            throw copyError("could not create the snapshots directory", errno: errno)
+        }
     }
 
     private static func copyError(_ message: String, errno code: Int32) -> AgentHistoryDatabaseError {

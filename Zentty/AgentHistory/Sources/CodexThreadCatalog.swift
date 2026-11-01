@@ -59,6 +59,8 @@ final class CodexThreadCatalog: @unchecked Sendable {
     private static let requiredColumns: Set<String> = ["id", "rollout_path", "cwd"]
 
     let databasePath: String
+    /// Where a private copy goes when `state_5.sqlite` has a `-wal` but no `-shm`.
+    let snapshotCopyPolicy: ExternalSnapshotCopyPolicy
 
     private struct CacheKey: Equatable {
         let database: AgentHistoryFileIdentity
@@ -70,8 +72,9 @@ final class CodexThreadCatalog: @unchecked Sendable {
     private var cached: CodexThreadCatalogLookup?
     private var lastGoodSnapshot: CodexThreadCatalogSnapshot?
 
-    init(rootPath: String) {
+    init(rootPath: String, snapshotCopyPolicy: ExternalSnapshotCopyPolicy = .standard) {
         databasePath = (rootPath as NSString).appendingPathComponent(Self.databaseFileName)
+        self.snapshotCopyPolicy = snapshotCopyPolicy
     }
 
     func lookup() -> CodexThreadCatalogLookup {
@@ -115,7 +118,9 @@ final class CodexThreadCatalog: @unchecked Sendable {
 
     /// nil when the schema lacks what the catalog needs.
     private func readSnapshot() throws -> CodexThreadCatalogSnapshot? {
-        try AgentHistoryDatabase.readExternalSnapshot(url: URL(fileURLWithPath: databasePath)) { database in
+        try AgentHistoryDatabase.readExternalSnapshot(
+            url: URL(fileURLWithPath: databasePath), copyPolicy: snapshotCopyPolicy
+        ) { database in
             let columns = try database.columns(of: "threads")
             guard Self.requiredColumns.isSubset(of: columns) else {
                 return nil
