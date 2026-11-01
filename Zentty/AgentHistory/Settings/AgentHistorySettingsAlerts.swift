@@ -2,8 +2,8 @@ import AppKit
 
 /// What Settings › Agent History asks before acting.
 enum AgentHistorySettingsConfirmation: Equatable {
-    /// Turning Agent History on for the first time (spec §4.5 copy).
-    case enable(conversationCount: Int)
+    /// Turning Agent History on for the first time (spec §4.5 copy), with what the probe found.
+    case enable(detected: [AgentHistoryDetectedSource])
     case deleteIndex
 }
 
@@ -90,14 +90,11 @@ enum AgentHistorySettingsAlerts {
         formatting: AgentHistoryFormatting = AgentHistoryFormatting()
     ) -> Copy {
         switch confirmation {
-        case .enable(let count):
-            let found: String
-            switch count {
-            case ...0: found = "Zentty found agent conversations on this Mac."
-            case 1: found = "Zentty found 1 conversation on this Mac."
-            default: found = "Zentty found \(formatting.number(count)) conversations on this Mac."
-            }
-            let body = found + " It builds a search index of your prompts and the agents' replies, plus the files and commands they touched. Tool output is skipped. The index stays on this Mac."
+        case .enable(let detected):
+            // The consent card's own text, so both surfaces count (and name the uncounted
+            // database sources) the same way.
+            let body = AgentHistoryConsentModel.make(detected: detected, excluded: [], retention: nil)
+                .bodyText(formatting: formatting)
             return Copy(
                 title: AgentHistoryConsentModel.title,
                 message: body + "\n\n" + AgentHistoryConsentModel.footnote,

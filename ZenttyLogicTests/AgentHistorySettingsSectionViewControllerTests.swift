@@ -146,7 +146,7 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
 
         toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
 
-        XCTAssertEqual(confirmations, [.enable(conversationCount: 120)])
+        XCTAssertEqual(confirmations, [.enable(detected: detectedSources())])
         XCTAssertEqual(controller.statusSwitch.state, .off)
         XCTAssertTrue(backend.enabledAgents.isEmpty)
         XCTAssertTrue(backend.setEnabledCalls.isEmpty)
@@ -160,7 +160,7 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
 
         toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
 
-        XCTAssertEqual(confirmations, [.enable(conversationCount: 120)])
+        XCTAssertEqual(confirmations, [.enable(detected: detectedSources())])
         XCTAssertEqual(backend.enabledAgents, [[.claude, .codex]])
         XCTAssertTrue(backend.setEnabledCalls.isEmpty)
     }
@@ -216,14 +216,28 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
     }
 
     func test_enable_confirmation_copy_matches_consent_card() {
+        let formatting = AgentHistoryFormatting(locale: Locale(identifier: "en_US"))
+        var detected = detectedSources()
+        detected[0] = AgentHistoryDetectedSource(agent: .claude, rootPath: "/opt/claude", isFound: true, sessionCount: 1284, checkedPaths: ["/opt/claude"], problem: nil)
+        let copy = AgentHistorySettingsAlerts.copy(for: .enable(detected: detected), formatting: formatting)
+
+        XCTAssertEqual(copy.title, AgentHistoryConsentModel.title)
+        let cardBody = AgentHistoryConsentModel.make(detected: detected, excluded: [], retention: nil).bodyText(formatting: formatting)
+        XCTAssertEqual(copy.message, cardBody + "\n\n" + AgentHistoryConsentModel.footnote)
+        XCTAssertEqual(copy.confirmTitle, "Turn On")
+    }
+
+    /// Database sources (Codex here) can't be counted before consent: the sheet names them
+    /// instead of leaving them out of the count.
+    func test_enable_confirmation_names_sources_it_cannot_count() {
         let copy = AgentHistorySettingsAlerts.copy(
-            for: .enable(conversationCount: 1284),
+            for: .enable(detected: detectedSources()),
             formatting: AgentHistoryFormatting(locale: Locale(identifier: "en_US"))
         )
-        XCTAssertEqual(copy.title, AgentHistoryConsentModel.title)
-        XCTAssertTrue(copy.message.hasPrefix("Zentty found 1,284 conversations on this Mac."))
-        XCTAssertTrue(copy.message.hasSuffix(AgentHistoryConsentModel.footnote))
-        XCTAssertEqual(copy.confirmTitle, "Turn On")
+        XCTAssertTrue(
+            copy.message.hasPrefix("Zentty found 120 conversations on this Mac, plus the ones in \(AgentHistoryAgent.codex.displayName)."),
+            copy.message
+        )
     }
 
     // MARK: - Sources

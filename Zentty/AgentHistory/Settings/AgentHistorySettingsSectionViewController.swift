@@ -356,8 +356,7 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             return
         }
         let found = detected.filter(\.isFound)
-        let count = found.reduce(0) { $0 + ($1.sessionCount ?? 0) }
-        confirmationPresenter(view.window, .enable(conversationCount: count)) { [weak self] confirmed in
+        confirmationPresenter(view.window, .enable(detected: detected)) { [weak self] confirmed in
             guard let self else { return }
             guard confirmed, let backend = self.backend else {
                 self.statusSwitch.state = self.status.isEnabled ? .on : .off
