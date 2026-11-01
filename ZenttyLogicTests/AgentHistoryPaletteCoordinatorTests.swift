@@ -32,6 +32,27 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
         XCTAssertEqual(fallback.initialScope, .all)
     }
 
+    /// The palette's "Settings" link opens Settings › Agent History, not another section.
+    func test_root_controller_settings_link_requests_the_agent_history_section() {
+        let controller = RootViewController(
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
+            sidebarWidthDefaults: SidebarWidthPreference.userDefaults(),
+            sidebarVisibilityDefaults: SidebarVisibilityPreference.userDefaults()
+        )
+        controller.loadViewIfNeeded()
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                controller.prepareForTestingTearDown()
+            }
+        }
+        var requested: [SettingsSection] = []
+        controller.onShowSettingsSectionRequested = { requested.append($0) }
+
+        (controller as AgentHistoryPaletteHost).agentHistoryShowSettings()
+
+        XCTAssertEqual(requested, [.agentHistory])
+    }
+
     func test_other_entries_open_on_all_projects_with_focused_project_one_tab_away() {
         for entry in [AgentHistoryEntryPoint.shortcutOrMenu, .toolbar, .commandPalette] {
             let context = AgentHistoryPaletteCoordinator.openContext(
