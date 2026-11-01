@@ -14,14 +14,16 @@ extension HistorySearchEngine {
     }
 
     /// The session's messages that contain every term and grade as a match, in `seq` order,
-    /// at most `limit`, with highlight ranges on their display text.
+    /// at most `limit`, with highlight ranges on their display text. Throws `sessionNotFound`
+    /// for a session search would not show (hidden, disabled source, agent off, excluded).
     func matchingTurns(
         sessionID: Int64,
         query: HistoryQuery,
         limit: Int = HistorySearchEngine.defaultMatchingTurnsLimit
     ) throws -> [HistoryTurnMatch] {
         try withReadTransaction { db in
-            try matchingTurns(sessionID: sessionID, query: query, limit: limit, db: db)
+            _ = try admittedSummary(sessionID: sessionID, db: db)
+            return try matchingTurns(sessionID: sessionID, query: query, limit: limit, db: db)
         }
     }
 
@@ -29,9 +31,7 @@ extension HistorySearchEngine {
     /// first user prompt and the latest agent reply (`turnsAreMatches == false`).
     func preview(sessionID: Int64, query: HistoryQuery) throws -> HistoryPreview {
         try withReadTransaction { db in
-            guard let summary = try summaries(forSessionIDs: [sessionID], db: db)[sessionID] else {
-                throw HistorySearchError.sessionNotFound
-            }
+            let summary = try admittedSummary(sessionID: sessionID, db: db)
             if query.hasContentTerms(tokenizer: tokenizer) {
                 let matches = try matchingTurns(
                     sessionID: sessionID, query: query, limit: Self.defaultMatchingTurnsLimit, db: db)
@@ -61,9 +61,7 @@ extension HistorySearchEngine {
     /// as a match.
     func transcript(sessionID: Int64, query: HistoryQuery) throws -> HistoryTranscript {
         try withReadTransaction { db in
-            guard try summaries(forSessionIDs: [sessionID], db: db)[sessionID] != nil else {
-                throw HistorySearchError.sessionNotFound
-            }
+            _ = try admittedSummary(sessionID: sessionID, db: db)
             let (rows, total) = try latestTurnRows(sessionID: sessionID, limit: Self.transcriptLimit, db: db)
             var firstMatch: Int64?
             var turns: [HistoryTurnMatch] = []
@@ -92,9 +90,7 @@ extension HistorySearchEngine {
     /// The last `limit` turns (newest last) and the session's total message count (CLI `show`).
     func lastTurns(sessionID: Int64, limit: Int) throws -> (turns: [HistoryTurnMatch], total: Int) {
         try withReadTransaction { db in
-            guard try summaries(forSessionIDs: [sessionID], db: db)[sessionID] != nil else {
-                throw HistorySearchError.sessionNotFound
-            }
+            _ = try admittedSummary(sessionID: sessionID, db: db)
             let (rows, total) = try latestTurnRows(sessionID: sessionID, limit: max(0, limit), db: db)
             return (rows.map { $0.turn(highlights: []) }, total)
         }
@@ -182,6 +178,17 @@ extension HistorySearchEngine {
         return result
     }
 
+    /// The single admission point for per-session reads: the session's summary when search
+    /// could show it (see `summaries(forSessionIDs:db:)`), otherwise `sessionNotFound`. Call it
+    /// inside the read transaction before touching the session's messages.
+    private func admittedSummary(sessionID: Int64, db: AgentHistoryDatabase) throws -> AgentHistorySessionSummary {
+        guard let summary = try summaries(forSessionIDs: [sessionID], db: db)[sessionID] else {
+            throw HistorySearchError.sessionNotFound
+        }
+        return summary
+    }
+
+    /// Callers admit the session first (`admittedSummary`).
     private func matchingTurns(
         sessionID: Int64,
         query: HistoryQuery,

@@ -171,6 +171,46 @@ final class HistorySessionQueriesTests: XCTestCase {
         XCTAssertEqual(try engine.visibleSessionCount(scope: Fixture.projectScope("/repos/app")), 1)
     }
 
+    /// Every per-session read goes through the same admission as search: a session the user
+    /// cannot see in results never yields its text, even when called by id directly.
+    func test_per_session_reads_refuse_hidden_disabled_and_excluded_sessions() throws {
+        let fixture = try Fixture(testCase: self)
+        let visible = try fixture.addSession("visible", agent: .claude, cwd: "/repos/app")
+        try fixture.addMessage(session: visible, daysAgo: 1, text: "rotate the signing key")
+        let excluded = try fixture.addSession("excluded", agent: .claude, cwd: "/repos/secret")
+        try fixture.addMessage(session: excluded, daysAgo: 1, text: "rotate the signing key")
+        let child = try fixture.addSession("child", agent: .claude, parent: "visible")
+        try fixture.addMessage(session: child, daysAgo: 1, text: "rotate the signing key")
+        let zeroTurns = try fixture.addSession("zero-turns", agent: .claude)
+        try fixture.addMessage(session: zeroTurns, role: .agent, daysAgo: 1, text: "rotate the signing key")
+        let codexSource = try fixture.addSource(.codex)
+        let disabled = try fixture.addSession("disabled-source", agent: .codex)
+        try fixture.addMessage(session: disabled, daysAgo: 1, text: "rotate the signing key")
+        try fixture.store().setSourceEnabled(id: codexSource, false)
+        // The exclusion lands after ingestion: the rows stay until a purge runs.
+        fixture.exclusions.set(AgentHistoryExclusionMatcher(folders: ["/repos/secret"]))
+        let query = Fixture.query("signing")
+        let snapshotEngine = try fixture.engine()
+        let sqlEngine = try fixture.engine(
+            metadataIndex: HistoryMetadataIndex(snapshot: { .empty }, exclusions: { .init(folders: []) }))
+
+        // Production never has a disabled source's session in the snapshot (the indexer deletes
+        // a source's sessions in the transaction that disables it), but the fixture's snapshot
+        // does; the SQL path is where `src.enabled` is the guard.
+        for (engine, hidden) in [(snapshotEngine, [excluded, child, zeroTurns]),
+                                 (sqlEngine, [excluded, child, zeroTurns, disabled])] {
+            XCTAssertEqual(try engine.matchingTurns(sessionID: visible, query: query).count, 1)
+            for session in hidden {
+                XCTAssertThrowsError(try engine.matchingTurns(sessionID: session, query: query)) {
+                    XCTAssertEqual($0 as? HistorySearchError, .sessionNotFound, "session \(session)")
+                }
+                XCTAssertThrowsError(try engine.preview(sessionID: session, query: query))
+                XCTAssertThrowsError(try engine.transcript(sessionID: session, query: query))
+                XCTAssertThrowsError(try engine.lastTurns(sessionID: session, limit: 5))
+            }
+        }
+    }
+
     func test_agent_turned_off_is_hidden_before_its_purge_runs() throws {
         let fixture = try Fixture(testCase: self)
         let claude = try fixture.addSession("claude-1", agent: .claude)
@@ -196,12 +236,21 @@ final class HistorySessionQueriesTests: XCTestCase {
             XCTAssertThrowsError(try engine.preview(sessionID: codex, query: query))
             XCTAssertThrowsError(try engine.transcript(sessionID: codex, query: query))
             XCTAssertThrowsError(try engine.lastTurns(sessionID: codex, limit: 5))
+            XCTAssertThrowsError(try engine.matchingTurns(sessionID: codex, query: query)) {
+                XCTAssertEqual($0 as? HistorySearchError, .sessionNotFound)
+            }
             XCTAssertEqual(try engine.sessions(nativeID: "codex-1", agent: nil, scope: .all), [])
             XCTAssertEqual(try engine.visibleSessionCount(scope: .all), 1)
             XCTAssertNoThrow(try engine.preview(sessionID: claude, query: query))
+            XCTAssertEqual(try engine.matchingTurns(sessionID: claude, query: query).count, 1)
         }
 
         fixture.enabledAgents.set([])
+        for engine in [snapshotEngine, sqlEngine] {
+            XCTAssertThrowsError(try engine.matchingTurns(sessionID: claude, query: query)) {
+                XCTAssertEqual($0 as? HistorySearchError, .sessionNotFound)
+            }
+        }
         XCTAssertTrue(try snapshotEngine.searchContent(
             query, context: fixture.context(), excludingSessionIDs: [], cancellation: HistorySearchCancellation()
         ).results.isEmpty)
