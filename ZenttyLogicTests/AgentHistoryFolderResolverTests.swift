@@ -166,21 +166,28 @@ final class AgentHistoryFolderResolverTests: XCTestCase {
         let fs = mainRepository()
         let recreation = try XCTUnwrap(AgentHistoryFolderResolver.worktreeRecreation(for: worktreeSource(), fileSystem: fs))
 
-        XCTAssertFalse(recreation.needsForce)
+        XCTAssertFalse(recreation.hasStaleRegistration)
+        XCTAssertNil(recreation.staleRegistrationRemovalArguments)
         XCTAssertFalse(recreation.gitArguments.contains("--force"))
     }
 
-    func test_recreate_with_own_stale_registration_needs_force() throws {
+    /// `add --force` would also skip git's "branch already in use" check (a worktree mid-rebase or
+    /// mid-bisect has a detached HEAD the resolver can't see). The stale registration is removed on
+    /// its own instead, and `add` keeps every git safeguard.
+    func test_recreate_with_own_stale_registration_removes_it_instead_of_forcing() throws {
         var fs = mainRepository()
         registerWorktree(in: &fs, name: "app-feature", holder: worktreeRoot, branch: branch)
 
         let recreation = try XCTUnwrap(AgentHistoryFolderResolver.worktreeRecreation(for: worktreeSource(), fileSystem: fs))
 
-        XCTAssertTrue(recreation.needsForce)
+        XCTAssertTrue(recreation.hasStaleRegistration)
         XCTAssertEqual(
-            recreation.gitArguments,
-            ["-C", mainRoot, "worktree", "add", "--force", "--", worktreeRoot, branch]
+            recreation.staleRegistrationRemovalArguments,
+            ["-C", mainRoot, "worktree", "remove", "--", worktreeRoot]
         )
+        XCTAssertEqual(recreation.gitArguments, ["-C", mainRoot, "worktree", "add", "--", worktreeRoot, branch])
+        let allArguments = recreation.gitArguments + (recreation.staleRegistrationRemovalArguments ?? [])
+        XCTAssertFalse(allArguments.contains { $0 == "--force" || $0 == "-f" })
     }
 
     func test_recreate_matches_own_registration_recorded_under_private_prefix() throws {
@@ -195,7 +202,8 @@ final class AgentHistoryFolderResolverTests: XCTestCase {
 
         let recreation = try XCTUnwrap(AgentHistoryFolderResolver.worktreeRecreation(for: session, fileSystem: fs))
 
-        XCTAssertTrue(recreation.needsForce)
+        XCTAssertTrue(recreation.hasStaleRegistration)
+        XCTAssertEqual(recreation.staleRegistrationRemovalArguments?.last, tmpWorktree)
     }
 
     func test_recreate_ineligible_when_branch_missing() {
@@ -253,7 +261,7 @@ final class AgentHistoryFolderResolverTests: XCTestCase {
         registerWorktree(in: &fs, name: "app-other", holder: otherWorktree, branch: "main-2")
 
         let recreation = try XCTUnwrap(AgentHistoryFolderResolver.worktreeRecreation(for: worktreeSource(), fileSystem: fs))
-        XCTAssertFalse(recreation.needsForce)
+        XCTAssertFalse(recreation.hasStaleRegistration)
     }
 
     func test_recreate_ineligible_when_stale_registration_is_locked() {

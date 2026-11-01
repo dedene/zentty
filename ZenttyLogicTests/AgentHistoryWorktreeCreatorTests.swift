@@ -6,10 +6,20 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         mainRepoRoot: "/Users/test/src/app",
         worktreePath: "/Users/test/src/worktrees/app-feature",
         branch: "feature/x",
-        needsForce: false,
+        hasStaleRegistration: false,
         resumeDirectory: "/Users/test/src/worktrees/app-feature",
+        staleRegistrationRemovalArguments: nil,
         gitArguments: ["-C", "/Users/test/src/app", "worktree", "add", "--", "/Users/test/src/worktrees/app-feature", "feature/x"]
     )
+
+    private var staleRecreation: AgentHistoryWorktreeRecreation {
+        var stale = recreation
+        stale.hasStaleRegistration = true
+        stale.staleRegistrationRemovalArguments = [
+            "-C", "/Users/test/src/app", "worktree", "remove", "--", "/Users/test/src/worktrees/app-feature",
+        ]
+        return stale
+    }
 
     private func creator(
         path: String = "/usr/bin",
@@ -27,10 +37,13 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
         return creator
     }
 
-    private func recreate(with creator: GitWorktreeCreator) -> Result<Void, AgentHistoryWorktreeError> {
+    private func recreate(
+        with creator: GitWorktreeCreator,
+        _ recreation: AgentHistoryWorktreeRecreation? = nil
+    ) -> Result<Void, AgentHistoryWorktreeError> {
         let done = expectation(description: "recreate completes")
         let box = ResultBox()
-        creator.recreate(recreation) { result in
+        creator.recreate(recreation ?? self.recreation) { result in
             box.set(result)
             done.fulfill()
         }
@@ -129,6 +142,57 @@ final class AgentHistoryWorktreeCreatorTests: XCTestCase {
             recreate(with: creator).failure,
             AgentHistoryWorktreeError(exitCode: 128, message: "fatal: 'feature/x' is already used by worktree")
         )
+    }
+
+    func test_git_creator_removes_stale_registration_before_add_without_force() {
+        let recorder = SubprocessCallRecorder()
+        let creator = creator(recorder: recorder) { _, _ in Self.ok() }
+        let stale = staleRecreation
+
+        XCTAssertNil(recreate(with: creator, stale).failure)
+
+        let gitCalls = recorder.calls.filter { $0.executable == "/usr/bin/env" }
+        XCTAssertEqual(gitCalls.map(\.arguments), [
+            ["git"] + (stale.staleRegistrationRemovalArguments ?? []),
+            ["git"] + stale.gitArguments,
+        ])
+        XCTAssertEqual(gitCalls.first?.timeout, 30)
+        XCTAssertFalse(gitCalls.flatMap(\.arguments).contains { $0 == "--force" || $0 == "-f" })
+    }
+
+    func test_git_creator_still_runs_add_when_stale_registration_removal_fails() {
+        let recorder = SubprocessCallRecorder()
+        let creator = creator(recorder: recorder) { executable, arguments in
+            if executable == "/usr/bin/env", arguments.contains("remove") {
+                return SubprocessResult(terminationStatus: 128, stdout: Data(), stderr: Data("fatal: not a working tree\n".utf8))
+            }
+            if executable == "/usr/bin/env" {
+                return SubprocessResult(
+                    terminationStatus: 128,
+                    stdout: Data(),
+                    stderr: Data("fatal: 'feature/x' is already used by worktree at '/Users/test/src/rebasing'\n".utf8)
+                )
+            }
+            return Self.ok()
+        }
+
+        XCTAssertEqual(
+            recreate(with: creator, staleRecreation).failure,
+            AgentHistoryWorktreeError(exitCode: 128, message: "fatal: 'feature/x' is already used by worktree at '/Users/test/src/rebasing'"),
+            "add is authoritative: git's own in-use check reports the real reason"
+        )
+        XCTAssertEqual(recorder.calls.filter { $0.executable == "/usr/bin/env" }.count, 2)
+    }
+
+    func test_git_creator_stops_when_stale_registration_removal_times_out() {
+        let recorder = SubprocessCallRecorder()
+        let creator = creator(recorder: recorder) { executable, arguments in
+            if executable == "/usr/bin/env", arguments.contains("remove") { throw SubprocessError.timedOut }
+            return Self.ok()
+        }
+
+        XCTAssertEqual(recreate(with: creator, staleRecreation).failure?.message, GitWorktreeCreator.timedOutMessage)
+        XCTAssertEqual(recorder.calls.filter { $0.executable == "/usr/bin/env" }.count, 1)
     }
 
     func test_git_creator_reports_timeout() {

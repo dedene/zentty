@@ -15,9 +15,10 @@ protocol AgentHistoryWorktreeCreating: Sendable {
     )
 }
 
-/// Runs `git worktree add` for a folder-gone resume. git is resolved on the inherited `PATH`;
-/// when that is the `/usr/bin/git` shim, a short `xcrun --find git` probe runs first so a Mac
-/// without the Command Line Tools gets a message instead of the system install dialog.
+/// Runs `git worktree add` for a folder-gone resume, after removing a stale registration if there
+/// is one. git is resolved on the inherited `PATH`; when that is the `/usr/bin/git` shim, a short
+/// `xcrun --find git` probe runs first so a Mac without the Command Line Tools gets a message
+/// instead of the system install dialog.
 struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
     typealias Runner = @Sendable (
         _ executableURL: URL,
@@ -33,6 +34,8 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
     static let defaultSearchPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
     var timeout: TimeInterval = 120
+    /// For `git worktree remove` of a stale registration: it only deletes git's admin files.
+    var staleRegistrationTimeout: TimeInterval = 30
     var xcrunTimeout: TimeInterval = 2
     var environment: [String: String] = ProcessInfo.processInfo.environment
     var isExecutableFile: @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
@@ -69,20 +72,28 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
 
         var gitEnvironment = environment
         gitEnvironment["GIT_TERMINAL_PROMPT"] = "0"
+
+        if let removal = recreation.staleRegistrationRemovalArguments {
+            // Best effort: when the registration is already gone (pruned since the sheet opened)
+            // this fails harmlessly, and when it can't be removed `add` reports why.
+            switch runGit(removal, environment: gitEnvironment, timeout: staleRegistrationTimeout) {
+            case .success(let result) where result.terminationStatus != 0:
+                AgentHistoryLog.indexer.info(
+                    "Stale worktree registration not removed (git exit \(result.terminationStatus, privacy: .public))"
+                )
+            case .success:
+                break
+            case .failure(let error):
+                return .failure(error)
+            }
+        }
+
         let result: SubprocessResult
-        do {
-            result = try runner(
-                URL(fileURLWithPath: "/usr/bin/env"),
-                ["git"] + recreation.gitArguments,
-                gitEnvironment,
-                timeout
-            )
-        } catch SubprocessError.timedOut {
-            AgentHistoryLog.indexer.error("Worktree recreate timed out")
-            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage))
-        } catch {
-            AgentHistoryLog.indexer.error("Worktree recreate could not launch git")
-            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.launchFailedMessage))
+        switch runGit(recreation.gitArguments, environment: gitEnvironment, timeout: timeout) {
+        case .success(let finished):
+            result = finished
+        case .failure(let error):
+            return .failure(error)
         }
 
         guard result.terminationStatus == 0 else {
@@ -94,8 +105,27 @@ struct GitWorktreeCreator: AgentHistoryWorktreeCreating {
                 message: Self.failureMessage(stderr: result.stderr, exitCode: result.terminationStatus)
             ))
         }
-        AgentHistoryLog.indexer.info("Worktree recreated (force: \(recreation.needsForce, privacy: .public))")
+        AgentHistoryLog.indexer.info(
+            "Worktree recreated (stale registration: \(recreation.hasStaleRegistration, privacy: .public))"
+        )
         return .success(())
+    }
+
+    /// Runs `/usr/bin/env git <arguments>`. A finished git, whatever its exit status, is a success.
+    private func runGit(
+        _ arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval
+    ) -> Result<SubprocessResult, AgentHistoryWorktreeError> {
+        do {
+            return .success(try runner(URL(fileURLWithPath: "/usr/bin/env"), ["git"] + arguments, environment, timeout))
+        } catch SubprocessError.timedOut {
+            AgentHistoryLog.indexer.error("Worktree recreate timed out")
+            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.timedOutMessage))
+        } catch {
+            AgentHistoryLog.indexer.error("Worktree recreate could not launch git")
+            return .failure(AgentHistoryWorktreeError(exitCode: nil, message: Self.launchFailedMessage))
+        }
     }
 
     /// First executable `git` on the inherited `PATH` (the same lookup `/usr/bin/env git` does).

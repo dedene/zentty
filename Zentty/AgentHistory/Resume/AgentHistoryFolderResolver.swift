@@ -33,10 +33,16 @@ struct AgentHistoryWorktreeRecreation: Equatable, Sendable {
     var mainRepoRoot: String
     var worktreePath: String
     var branch: String
-    /// A stale registration for `worktreePath` exists; git refuses without `--force`.
-    var needsForce: Bool
+    /// A stale, unlocked registration for `worktreePath` exists. It is removed on its own first
+    /// (`staleRegistrationRemovalArguments`) so `add` never needs `--force`: one `--force` would
+    /// also switch off git's check that the branch isn't checked out, rebased or bisected elsewhere.
+    var hasStaleRegistration: Bool
     /// The session's folder when it lies inside the worktree, else the worktree root.
     var resumeDirectory: String
+    /// `git worktree remove` for the stale registration (no `--force`: git refuses a locked one),
+    /// or nil when there is none.
+    var staleRegistrationRemovalArguments: [String]?
+    /// `git worktree add`, never with `--force`.
     var gitArguments: [String]
 }
 
@@ -112,7 +118,7 @@ enum AgentHistoryFolderResolver {
             return nil
         }
 
-        var needsForce = false
+        var hasStaleRegistration = false
         let registrations = gitDirectory + "/worktrees"
         for name in fileSystem.directoryEntries(registrations).sorted() {
             let registration = registrations + "/" + name
@@ -121,15 +127,16 @@ enum AgentHistoryFolderResolver {
             }
             let holder = registrationHolder(registration, fileSystem: fileSystem)
             if let holder, samePath(holder, worktreePath) {
-                // Our own stale registration: `add --force` replaces it, unless it is locked.
+                // Our own stale registration: removed explicitly before `add`, unless it is locked.
                 if fileSystem.fileExists(registration + "/locked") {
                     return nil
                 }
-                needsForce = true
+                hasStaleRegistration = true
                 continue
             }
             if symbolicRef(fileSystem.contents(registration + "/HEAD")) == branchRef {
-                // Another worktree, live or stale, holds the branch. Forcing would steal it.
+                // Another worktree, live or stale, holds the branch. This only filters the offer;
+                // `add` without `--force` re-checks at click time, including rebase and bisect.
                 return nil
             }
         }
@@ -145,9 +152,12 @@ enum AgentHistoryFolderResolver {
             mainRepoRoot: mainRoot,
             worktreePath: worktreePath,
             branch: branch,
-            needsForce: needsForce,
+            hasStaleRegistration: hasStaleRegistration,
             resumeDirectory: resumeDirectory,
-            gitArguments: ["-C", mainRoot, "worktree", "add"] + (needsForce ? ["--force"] : []) + ["--", worktreePath, branch]
+            staleRegistrationRemovalArguments: hasStaleRegistration
+                ? ["-C", mainRoot, "worktree", "remove", "--", worktreePath]
+                : nil,
+            gitArguments: ["-C", mainRoot, "worktree", "add", "--", worktreePath, branch]
         )
     }
 
