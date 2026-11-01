@@ -16,7 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUBSYSTEM="be.zenjoy.zentty"
 CATEGORY="AgentHistory"
 
-process_name="Zentty Dev"
+# The log's `process` is the executable name, and Zentty Dev's executable is `Zentty` like
+# production's, so the log is matched on the executable's path inside the app bundle instead.
+app_path="${ZENTTY_DEV_INSTALL_DIR:-/Applications}/Zentty Dev.app"
 timeout_seconds=3600
 do_build=1
 dry_run=0
@@ -31,7 +33,8 @@ to 'backfilling' and to 'watching' (backfill done).
 
 Options:
   --no-build           Skip the build; time the Zentty Dev that is installed.
-  --process <name>     App process to follow (default: "${process_name}").
+  --app-path <path>    App bundle whose log to follow (default: "${app_path}").
+                       Only that bundle's executable matches, never production Zentty.
   --timeout <seconds>  Give up after this long (default: ${timeout_seconds}).
   --dry-run            Print what would run and exit.
   -h, --help           Show this help.
@@ -47,14 +50,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-build) do_build=0 ;;
     --dry-run) dry_run=1 ;;
-    --process)
-      [[ $# -ge 2 && -n "$2" ]] || die "--process needs a name"
-      process_name="$2"
+    --app-path)
+      [[ $# -ge 2 && -n "$2" ]] || die "--app-path needs a path to an .app bundle"
+      app_path="$2"
       shift
       ;;
-    --process=*)
-      process_name="${1#--process=}"
-      [[ -n "$process_name" ]] || die "--process needs a name"
+    --app-path=*)
+      app_path="${1#--app-path=}"
+      [[ -n "$app_path" ]] || die "--app-path needs a path to an .app bundle"
       ;;
     --timeout)
       [[ $# -ge 2 ]] || die "--timeout needs a number of seconds"
@@ -69,9 +72,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$timeout_seconds" =~ ^[0-9]+$ && "$timeout_seconds" -gt 0 ]] || die "--timeout must be a positive whole number"
-[[ "$process_name" != *'"'* ]] || die "--process must not contain double quotes"
+app_path="${app_path%/}"
+[[ "$app_path" == *.app ]] || die "--app-path must name an .app bundle: ${app_path}"
+[[ "$app_path" == /* ]] || app_path="${PWD}/${app_path}"
+[[ "$app_path" != *[\"\\]* ]] || die "--app-path must not contain double quotes or backslashes"
+app_name="$(basename "$app_path" .app)"
 
-predicate="subsystem == \"${SUBSYSTEM}\" AND category == \"${CATEGORY}\" AND process == \"${process_name}\""
+# The log records the executable's resolved path, so the bundle's directory is resolved once it
+# exists (again after the build installs it).
+make_predicate() {
+  if [[ -d "$app_path" ]]; then
+    app_path="$(cd "$app_path" && pwd -P)"
+  fi
+  predicate="subsystem == \"${SUBSYSTEM}\" AND category == \"${CATEGORY}\" AND processImagePath BEGINSWITH \"${app_path}/Contents/MacOS/\""
+}
+make_predicate
 
 if (( dry_run )); then
   if (( do_build )); then
@@ -79,6 +94,7 @@ if (( dry_run )); then
   else
     echo "would skip the build (--no-build)"
   fi
+  echo "would follow: ${app_path}"
   echo "would run: log stream --style compact --info --predicate '${predicate}'"
   echo "would stop at the first 'watching' state or after ${timeout_seconds} s"
   exit 0
@@ -87,7 +103,9 @@ fi
 if (( do_build )); then
   echo "==> Building and installing Zentty Dev"
   "${SCRIPT_DIR}/build-dev-release"
+  make_predicate
 fi
+[[ -d "$app_path" ]] || echo "warning: ${app_path} does not exist yet; install it or pass --app-path" >&2
 
 work_dir="$(mktemp -d)"
 log_pid=""
@@ -109,8 +127,8 @@ exec 3< "${work_dir}/log"
 
 cat <<STEPS
 
-==> Following ${process_name}'s Agent History log. Now:
-    1. Open ${process_name}.
+==> Following ${app_name}'s Agent History log (${app_path}). Now:
+    1. Open ${app_name}.
     2. Turn Agent History on: Settings > Agent History, or open Agent History and
        accept the consent card. Leave the app running in the foreground.
     3. Wait. The script stops when the indexer reports 'watching'.
@@ -118,7 +136,7 @@ cat <<STEPS
 
 STEPS
 
-# "2026-11-01 09:00:01.234 I  Zentty Dev[1:2] [be.zenjoy.zentty:AgentHistory] message"
+# "2026-11-01 09:00:01.234 I  Zentty[1:2] [be.zenjoy.zentty:AgentHistory] message"
 # -> seconds since midnight of the log line.
 line_seconds() {
   awk '{ split($2, t, ":"); printf "%.3f", t[1] * 3600 + t[2] * 60 + t[3] }' <<<"$1"
