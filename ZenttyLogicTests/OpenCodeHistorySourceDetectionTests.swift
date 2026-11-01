@@ -222,6 +222,66 @@ final class OpenCodeHistorySourceDetectionTests: OpenCodeHistorySourceTestCase {
         XCTAssertNil(state(cursor).backfill, "the pass completed")
     }
 
+    // MARK: - v2 schema drift
+
+    /// A v2 table that exists but lacks a column read here is not the same as no v2 tables:
+    /// reading on as v1 would drop every v2 session and report it deleted upstream.
+    func test_v2_tables_with_unknown_layout_are_unsupported() throws {
+        let cases: [(String, String)] = [
+            ("session_message without data", "ALTER TABLE session_message RENAME COLUMN data TO payload"),
+            ("session_v2 without parent_id", "ALTER TABLE session_v2 RENAME COLUMN parent_id TO parent"),
+            ("session_v2 without session_message", "DROP TABLE session_message"),
+            ("session_message without session_v2", "DROP TABLE session_v2"),
+        ]
+        for (name, change) in cases {
+            let fixture = try OpenCodeHistoryFixture(testCase: self)
+            try fixture.write { db in
+                try db.execute(change)
+                guard case .unsupported = try OpenCodeHistorySchema.probe(db) else {
+                    return XCTFail("\(name): expected unsupported")
+                }
+            }
+        }
+        let v1Only = try OpenCodeHistoryFixture(testCase: self, v2: false)
+        try v1Only.write { db in
+            guard case let .supported(schema) = try OpenCodeHistorySchema.probe(db) else {
+                return XCTFail("no v2 tables at all is a plain v1 database")
+            }
+            XCTAssertFalse(schema.hasV2)
+        }
+    }
+
+    /// An opencode upgrade that reshapes `session_message` after v2 sessions were indexed must
+    /// pause the source and say why, not remove the v2 sessions it can no longer read.
+    func test_v2_layout_change_after_indexing_reports_schema_and_removes_nothing() throws {
+        let fixture = try OpenCodeHistoryFixture(testCase: self)
+        let clock = Clock(Self.t0)
+        let t = Self.t0 - Self.day
+        try fixture.addSession("ses_v1", createdMs: t, updatedMs: t)
+        try fixture.addMessage("msg_v1", session: "ses_v1", role: "user", createdMs: t)
+        try fixture.addTextPart("prt_v1", message: "msg_v1", session: "ses_v1", text: "v1 prompt", createdMs: t)
+        try fixture.addSession("ses_v2", in: .v2, version: "2.0.0", createdMs: t, updatedMs: t)
+        try fixture.addSessionMessage("msg_v2", session: "ses_v2", type: "user", seq: 1,
+                                      data: ["text": "v2 prompt"], createdMs: t)
+        let source = makeSource(fixture, clock: clock)
+        let (indexed, afterPass) = try drain(source)
+        XCTAssertEqual(texts(indexed, "ses_v2"), ["v2 prompt"])
+        XCTAssertEqual(try source.existingNativeIDs(), ["ses_v1", "ses_v2"])
+
+        try fixture.write { db in
+            try db.execute("ALTER TABLE session_message RENAME COLUMN data TO payload")
+        }
+        clock.nowMs = Self.t0 + 16 * Self.minute
+        let batch = try ingest(source, cursor: afterPass)
+        guard case .unsupportedSchema? = batch.problem else {
+            return XCTFail("expected unsupportedSchema, got \(String(describing: batch.problem))")
+        }
+        XCTAssertTrue(batch.removedNativeIDs.isEmpty, "nothing is inferred deleted while v2 is unreadable")
+        XCTAssertTrue(batch.sessions.isEmpty, "no v1-only rewrite of merged sessions")
+        XCTAssertFalse(batch.hasMore)
+        XCTAssertNil(try source.existingNativeIDs(), "the indexer skips deletion inference too")
+    }
+
     func test_identity_replacement_compares_device_and_inode_only() {
         let base = AgentHistoryFileIdentity(dev: 1, ino: 2, size: 10, mtimeNs: 5)
         XCTAssertFalse(OpenCodeHistorySource.isReplacement(of: base, by: AgentHistoryFileIdentity(dev: 1, ino: 2, size: 99, mtimeNs: 9)))

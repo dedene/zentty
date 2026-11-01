@@ -11,7 +11,8 @@ struct OpenCodeHistorySchema: Equatable, Sendable {
     static let requiredSessionMessageColumns: Set<String> = ["id", "session_id", "type", "time_created", "time_updated", "data"]
 
     let sessionColumns: Set<String>
-    /// `session_v2` and `session_message` both exist with the columns read here.
+    /// `session_v2` and `session_message` both exist with the columns read here. Only one of
+    /// them, or either one missing a column read here, probes as `.unsupported`.
     let hasV2: Bool
     let sessionV2Columns: Set<String>
 
@@ -32,10 +33,18 @@ struct OpenCodeHistorySchema: Equatable, Sendable {
             return .unsupported(columns.isEmpty ? "opencode database without a \(name) table"
                                                 : "opencode \(name) table has an unknown layout")
         }
+        // v2 is optional only when both tables are absent. Tables that exist but cannot be read
+        // must not fall back to v1: every v2 session would then look deleted upstream.
         let sessionV2 = try database.columns(of: "session_v2")
         let sessionMessage = try database.columns(of: "session_message")
-        let hasV2 = requiredSessionV2Columns.isSubset(of: sessionV2)
-            && requiredSessionMessageColumns.isSubset(of: sessionMessage)
+        let hasV2 = !sessionV2.isEmpty || !sessionMessage.isEmpty
+        for (name, columns, required) in [
+            ("session_v2", sessionV2, requiredSessionV2Columns),
+            ("session_message", sessionMessage, requiredSessionMessageColumns),
+        ] where hasV2 && !required.isSubset(of: columns) {
+            return .unsupported(columns.isEmpty ? "opencode database without a \(name) table"
+                                                : "opencode \(name) table has an unknown layout")
+        }
         return .supported(OpenCodeHistorySchema(
             sessionColumns: session,
             hasV2: hasV2,
