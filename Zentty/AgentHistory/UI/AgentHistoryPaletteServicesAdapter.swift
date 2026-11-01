@@ -160,13 +160,28 @@ final class AgentHistorySearchAdapter: AgentHistorySearchServicing {
         completion: @escaping @MainActor (Result<Value, Error>) -> Void,
         _ body: @escaping @Sendable (HistorySearchEngine) throws -> Value
     ) -> AgentHistoryCancellable {
-        let token = AgentHistorySearchToken(cancellation: nil)
         guard let engine = engine() else {
+            let token = AgentHistorySearchToken(cancellation: nil)
             token.deliverOnNextTurn(.failure(HistorySearchError.indexUnavailable("off")), to: completion)
             return token
         }
-        Self.readQueue.async {
-            let result = Result { try body(engine) }
+        return Self.runRead(on: Self.readQueue, completion: completion) { try body(engine) }
+    }
+
+    /// Runs one read on `queue` (serial). A read cancelled while it waits its turn is skipped:
+    /// holding ↓ through the list would otherwise queue a preview and a transcript per row, and
+    /// the row the user stops on would wait for every stale one.
+    static func runRead<Value: Sendable>(
+        on queue: DispatchQueue,
+        completion: @escaping @MainActor (Result<Value, Error>) -> Void,
+        _ work: @escaping @Sendable () throws -> Value
+    ) -> AgentHistorySearchToken {
+        let cancellation = HistorySearchCancellation()
+        let token = AgentHistorySearchToken(cancellation: cancellation)
+        queue.async {
+            let result: Result<Value, Error> = cancellation.isCancelled
+                ? .failure(HistorySearchError.cancelled)
+                : Result { try work() }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     token.deliver(result, to: completion)
@@ -178,7 +193,7 @@ final class AgentHistorySearchAdapter: AgentHistorySearchServicing {
 }
 
 /// One search or load: delivers at most one result, none after `cancel()`. Cancelling a content
-/// search also interrupts its SQLite query.
+/// search also interrupts its SQLite query; a cancelled read that hasn't started never runs.
 @MainActor
 final class AgentHistorySearchToken: AgentHistoryCancellable {
     private let cancellation: HistorySearchCancellation?

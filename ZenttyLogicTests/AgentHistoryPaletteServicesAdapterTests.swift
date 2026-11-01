@@ -1,3 +1,4 @@
+import os
 import XCTest
 @testable import Zentty
 
@@ -47,6 +48,38 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
         DispatchQueue.main.async { drained.fulfill() }
         wait(for: [drained], timeout: 2)
         XCTAssertFalse(cancelledDelivered, "a cancelled load never completes")
+    }
+
+    func test_cancelled_read_waiting_on_the_queue_never_runs() {
+        let queue = DispatchQueue(label: "ZenttyLogicTests.AgentHistoryAdapter.reads")
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        let ran = OSAllocatedUnfairLock(initialState: [Int]())
+        var delivered: [Int] = []
+        let lastDelivered = expectation(description: "the read that wasn't cancelled delivers")
+
+        let stale = (0..<3).map { index in
+            AgentHistorySearchAdapter.runRead(on: queue, completion: { (result: Result<Int, Error>) in
+                delivered.append(index)
+            }) {
+                ran.withLock { $0.append(index) }
+                return index
+            }
+        }
+        let current = AgentHistorySearchAdapter.runRead(on: queue, completion: { (result: Result<Int, Error>) in
+            delivered.append((try? result.get()) ?? -1)
+            lastDelivered.fulfill()
+        }) {
+            ran.withLock { $0.append(3) }
+            return 3
+        }
+        stale.forEach { $0.cancel() }
+        gate.signal()
+
+        wait(for: [lastDelivered], timeout: 5)
+        XCTAssertEqual(ran.withLock { $0 }, [3], "stale reads are skipped, not run and dropped")
+        XCTAssertEqual(delivered, [3])
+        current.cancel()
     }
 
     // MARK: - Launch
