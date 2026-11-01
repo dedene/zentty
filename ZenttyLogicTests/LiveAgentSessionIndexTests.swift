@@ -8,6 +8,7 @@ final class LiveAgentSessionIndexTests: XCTestCase {
     private let worklaneID = WorklaneID("wl-1")
     private let firstID = "0b6c1d8e-4b1a-4c55-9a1e-3f4b2c6d7e8f"
     private let secondID = "11111111-2222-4333-8444-555555555555"
+    private let thirdID = "22222222-3333-4444-8555-666666666666"
 
     func test_start_builds_snapshot_and_change_notifies_once_per_runloop() {
         let store = makeStore(windowA, sessions: [(pane: "pn-1", id: firstID, pid: 10)])
@@ -118,6 +119,80 @@ final class LiveAgentSessionIndexTests: XCTestCase {
         storeB.notify(.paneStructure(worklaneID))
         wait(for: [notified], timeout: 2)
         XCTAssertEqual(index.snapshot.primaryLocation(for: key(secondID))?.windowID, windowB)
+    }
+
+    func test_refresh_unsubscribes_from_windows_that_closed() {
+        let storeA = makeStore(windowA, sessions: [(pane: "pn-1", id: firstID, pid: 10)])
+        let storeB = makeStore(windowB, sessions: [(pane: "pn-2", id: secondID, pid: 11)])
+        let baselineA = storeA.subscriberCountForTesting
+        let baselineB = storeB.subscriberCountForTesting
+        var sources = [source(windowA, storeA), source(windowB, storeB)]
+        let index = LiveAgentSessionIndex(
+            sources: { sources },
+            preferredWindowID: { nil },
+            isProcessAlive: { [10, 11, 12].contains($0) }
+        )
+        index.start()
+        addTeardownBlock { @MainActor in index.stop() }
+        XCTAssertEqual(storeB.subscriberCountForTesting, baselineB + 1)
+        XCTAssertEqual(index.snapshot.liveKeys, [key(firstID), key(secondID)])
+
+        sources.removeLast()
+        index.refreshNow()
+
+        XCTAssertEqual(storeA.subscriberCountForTesting, baselineA + 1)
+        XCTAssertEqual(storeB.subscriberCountForTesting, baselineB, "a closed window's store must be released")
+        XCTAssertEqual(index.snapshot.liveKeys, [key(firstID)])
+        XCTAssertNil(index.snapshot.primaryLocation(for: key(secondID)))
+
+        // Stage a change in the open window without announcing it: only a leaked subscription to the
+        // closed window could trigger the rebuild that would reveal it.
+        var notificationCount = 0
+        index.onChange = { _ in notificationCount += 1 }
+        addSession(to: storeA, pane: "pn-3", id: thirdID, pid: 12)
+        storeB.notify(.paneStructure(worklaneID))
+        drainMainQueue()
+        XCTAssertEqual(notificationCount, 0)
+        XCTAssertEqual(index.snapshot.liveKeys, [key(firstID)])
+    }
+
+    func test_refresh_swaps_subscription_when_window_gets_new_store() {
+        let oldStore = makeStore(windowA, sessions: [(pane: "pn-1", id: firstID, pid: 10)])
+        let newStore = makeStore(windowA, sessions: [(pane: "pn-2", id: secondID, pid: 11)])
+        let baselineOld = oldStore.subscriberCountForTesting
+        let baselineNew = newStore.subscriberCountForTesting
+        var sources = [source(windowA, oldStore)]
+        let index = LiveAgentSessionIndex(
+            sources: { sources },
+            preferredWindowID: { nil },
+            isProcessAlive: { [10, 11, 12].contains($0) }
+        )
+        index.start()
+        addTeardownBlock { @MainActor in index.stop() }
+        XCTAssertEqual(oldStore.subscriberCountForTesting, baselineOld + 1)
+
+        sources = [source(windowA, newStore)]
+        index.refreshNow()
+
+        XCTAssertEqual(oldStore.subscriberCountForTesting, baselineOld, "the replaced store must be released")
+        XCTAssertEqual(newStore.subscriberCountForTesting, baselineNew + 1)
+        XCTAssertEqual(index.snapshot.liveKeys, [key(secondID)])
+
+        // Refreshing again with the same store must not stack a second subscription.
+        index.refreshNow()
+        XCTAssertEqual(newStore.subscriberCountForTesting, baselineNew + 1)
+
+        var notificationCount = 0
+        index.onChange = { _ in notificationCount += 1 }
+        addSession(to: newStore, pane: "pn-3", id: thirdID, pid: 12)
+        oldStore.notify(.paneStructure(worklaneID))
+        drainMainQueue()
+        XCTAssertEqual(notificationCount, 0, "the replaced store's changes must not schedule rebuilds")
+
+        newStore.notify(.paneStructure(worklaneID))
+        drainMainQueue()
+        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(index.snapshot.liveKeys, [key(secondID), key(thirdID)])
     }
 
     func test_relevance_matches_changes_that_can_move_a_session() {
