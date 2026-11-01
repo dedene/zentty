@@ -271,6 +271,8 @@ struct AgentHistoryActionButton: View {
     let isPrimary: Bool
     let theme: AgentHistoryTheme
     var isSmall = false
+    /// Off for buttons under the search row, which keeps key focus; on in the consent card.
+    var isFocusable = false
     let action: () -> Void
 
     var body: some View {
@@ -299,7 +301,20 @@ struct AgentHistoryActionButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .focusable(false)
+        .agentHistoryKeyLoop(joins: isFocusable)
         .fixedSize()
+    }
+}
+
+extension View {
+    /// Keeps a palette control out of the key-view loop unless `joins` is true, in which case
+    /// it keeps the native behavior (focusable with Full Keyboard Access on).
+    @ViewBuilder
+    func agentHistoryKeyLoop(joins: Bool) -> some View {
+        if joins {
+            self
+        } else {
+            focusable(false)
+        }
     }
 }

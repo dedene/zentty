@@ -74,6 +74,8 @@ enum AgentHistoryKeyRouter {
         }
     }
 
+    /// ↩ confirms (the card's default button) and esc declines. Everything else, Tab and Space
+    /// included, goes to the card's focused checkbox or button.
     private static func consentCommand(_ key: Key, mods: NSEvent.ModifierFlags) -> AgentHistoryKeyCommand? {
         guard mods.isEmpty else {
             return nil

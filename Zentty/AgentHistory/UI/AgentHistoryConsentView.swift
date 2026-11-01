@@ -8,6 +8,8 @@ struct AgentHistoryConsentView: View {
 
     private var theme: AgentHistoryTheme { model.theme }
     private var formatting: AgentHistoryFormatting { model.formatting }
+    /// The card has no search field, so its controls take Tab, Shift-Tab and Space themselves.
+    private var joinsKeyLoop: Bool { model.body.controlsTakeKeyboardFocus }
 
     var body: some View {
         ScrollView(.vertical) {
@@ -96,7 +98,7 @@ struct AgentHistoryConsentView: View {
             }
             .toggleStyle(.checkbox)
             .labelsHidden()
-            .focusable(false)
+            .agentHistoryKeyLoop(joins: joinsKeyLoop)
             .disabled(!row.isFound || consent.isIndexing)
             .accessibilityLabel("Index \(row.agent.displayName) sessions")
             .accessibilityValue(count)
@@ -147,6 +149,7 @@ struct AgentHistoryConsentView: View {
                         isPrimary: false,
                         theme: theme,
                         isSmall: true,
+                        isFocusable: joinsKeyLoop,
                         action: model.keepClaudeConversationsOneYear
                     )
                     .accessibilityHint("Changes Claude Code's settings to keep conversations for 365 days")
@@ -180,6 +183,7 @@ struct AgentHistoryConsentView: View {
                 isPrimary: false,
                 theme: theme,
                 isSmall: true,
+                isFocusable: joinsKeyLoop,
                 action: model.requestAddExcludedFolder
             )
             .disabled(consent.isIndexing)
@@ -207,7 +211,7 @@ struct AgentHistoryConsentView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .focusable(false)
+                .agentHistoryKeyLoop(joins: joinsKeyLoop)
                 .accessibilityLabel("Remove \(display) from excluded folders")
             }
         }
@@ -228,6 +232,7 @@ struct AgentHistoryConsentView: View {
                 keys: "esc",
                 isPrimary: false,
                 theme: theme,
+                isFocusable: joinsKeyLoop,
                 action: model.declineConsent
             )
             AgentHistoryActionButton(
@@ -235,6 +240,7 @@ struct AgentHistoryConsentView: View {
                 keys: "↩",
                 isPrimary: true,
                 theme: theme,
+                isFocusable: joinsKeyLoop,
                 action: model.confirmConsent
             )
             .disabled(!consent.canConfirm)

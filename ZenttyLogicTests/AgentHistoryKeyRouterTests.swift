@@ -117,6 +117,30 @@ final class AgentHistoryKeyRouterTests: XCTestCase {
         XCTAssertNil(route(kVK_Return, .command, nil, consent))
     }
 
+    /// The consent card has no search field: Tab, Shift-Tab and Space must reach its checkboxes
+    /// and buttons, while ↩ still confirms (the default button) and esc declines.
+    @MainActor
+    func test_consent_leaves_tab_shift_tab_and_space_to_its_controls() {
+        let consent = AgentHistoryKeyContext(bodyIsResults: false)
+        XCTAssertNil(route(kVK_Tab, [], nil, consent))
+        XCTAssertNil(route(kVK_Tab, .shift, nil, consent))
+        XCTAssertNil(route(kVK_Space, [], " ", consent))
+        for modifiers: NSEvent.ModifierFlags in [[], .shift] {
+            XCTAssertFalse(
+                AgentHistoryPanelController.swallowsUnroutedKey(modifiers: modifiers, context: consent),
+                "the panel's key monitor lets the key through to the focused control"
+            )
+        }
+
+        XCTAssertTrue(
+            AgentHistoryViewModel.Body.consent.controlsTakeKeyboardFocus,
+            "the consent card's source checkboxes, folder chips and buttons join the key-view loop"
+        )
+        XCTAssertFalse(AgentHistoryViewModel.Body.results.controlsTakeKeyboardFocus, "results keep focus in the search field")
+        XCTAssertFalse(AgentHistoryViewModel.Body.loading.controlsTakeKeyboardFocus)
+        XCTAssertFalse(AgentHistoryViewModel.Body.noAgents(checkedPaths: []).controlsTakeKeyboardFocus)
+    }
+
     func test_unrelated_keys_and_shortcuts_pass_through() {
         XCTAssertNil(route(kVK_Space, [], " "))
         XCTAssertNil(route(kVK_ANSI_A, [], "a"))

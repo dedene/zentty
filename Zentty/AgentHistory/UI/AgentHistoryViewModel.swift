@@ -14,6 +14,14 @@ final class AgentHistoryViewModel: ObservableObject {
         case noAgents(checkedPaths: [String])
         case indexUnavailable(AgentHistoryFailureReason)
         case results
+
+        /// Whether this body's checkboxes and buttons join the native key-view loop (Tab,
+        /// Shift-Tab, Space with Full Keyboard Access on). Bodies under the search row keep focus
+        /// in the field and route ↑↓ ⇥ through `AgentHistoryKeyRouter`; the consent card has no
+        /// search row, so its privacy controls must be reachable before anything is indexed.
+        var controlsTakeKeyboardFocus: Bool {
+            self == .consent
+        }
     }
 
     /// Where the content tier ("In conversations") stands for the current query.
