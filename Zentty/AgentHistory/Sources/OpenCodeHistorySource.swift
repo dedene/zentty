@@ -435,7 +435,7 @@ final class OpenCodeHistorySource: AgentHistorySource, @unchecked Sendable {
         switch error.kind {
         case .corrupt, .other, .constraint:
             return true
-        case .notADatabase, .full, .busy, .readOnly, .cantOpen, .interrupted, .schemaTooNew, .misuse:
+        case .notADatabase, .full, .busy, .readOnly, .cantOpen, .interrupted, .schemaTooNew, .misuse, .revoked:
             return false
         }
     }

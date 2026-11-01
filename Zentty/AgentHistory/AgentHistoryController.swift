@@ -402,6 +402,7 @@ final class AgentHistoryController: Sendable {
                 self?.receive(snapshot, generation: generation)
             }
         )
+        storage.readers.reopen()
         let indexer = makeIndexer(storage, stateStore, configuration(for: state), callbacks)
         self.indexer = indexer
         mirror.storage = storage
@@ -414,12 +415,14 @@ final class AgentHistoryController: Sendable {
         return true
     }
 
-    /// Forgets the current indexer (its late publishes are ignored) and hides the index.
+    /// Forgets the current indexer (its late publishes are ignored) and hides the index. Revokes
+    /// the reader pool, so an engine handed out earlier reads nothing until the next start.
     private func detachIndexer() -> AgentHistoryIndexer? {
         let detached = indexer
         indexer = nil
         indexerGeneration &+= 1
         mirror.storage = nil
+        storageInstance?.readers.revoke()
         if !metadataSnapshot.sessions.isEmpty || metadataSnapshot.generation != 0 {
             setSnapshot(.empty)
         }

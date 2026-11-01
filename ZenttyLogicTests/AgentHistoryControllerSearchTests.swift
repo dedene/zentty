@@ -133,6 +133,89 @@ final class AgentHistoryControllerSearchTests: XCTestCase {
         waitForStatus(controller, "off") { $0.state == .off && !$0.isEnabled }
         XCTAssertNil(controller.searchEngine, "off again: no engine")
     }
+
+    // MARK: - An engine handed out before History goes off (G2-2)
+
+    /// Starts History, waits for both sessions, and returns the engine and the zebra session.
+    private func runningEngine(_ controller: AgentHistoryController) throws -> (HistorySearchEngine, Int64) {
+        XCTAssertFalse(launch(controller), "no consent yet")
+        controller.enable(agents: [.claude])
+        waitForStatus(controller, "watching") { $0.state == .watching }
+        waitForSessions(controller, count: 2)
+        let engine = try XCTUnwrap(controller.searchEngine)
+        let session = try XCTUnwrap(controller.metadataSnapshot.sessions.first { $0.nativeID == "claude-zebra" })
+        XCTAssertEqual(try engine.preview(sessionID: session.id, query: HistoryQueryParser.parse("")).session.nativeID,
+                       "claude-zebra", "reads while running")
+        return (engine, session.id)
+    }
+
+    /// Every read of a stale engine throws `.indexUnavailable("off")` or finds nothing.
+    private func assertServesNothing(_ engine: HistorySearchEngine, session: Int64, _ label: String,
+                                     file: StaticString = #filePath, line: UInt = #line) {
+        let query = HistoryQueryParser.parse("migrate")
+        func assertNoData<T>(_ read: String, _ body: () throws -> T, isEmpty: (T) -> Bool) {
+            do {
+                let value = try body()
+                XCTAssertTrue(isEmpty(value), "\(label): \(read) served \(value)", file: file, line: line)
+            } catch {
+                XCTAssertEqual(error as? HistorySearchError, .indexUnavailable("off"), "\(label): \(read)",
+                               file: file, line: line)
+            }
+        }
+        let searched = expectation(description: "\(label): content search")
+        let outcome = LockedValue<Result<HistoryContentResponse, Error>?>(nil)
+        HistorySearchEngine.queue.async {
+            outcome.set(Result {
+                try engine.searchContent(query, context: HistorySearchContext(scope: .all), excludingSessionIDs: [],
+                                         cancellation: HistorySearchCancellation())
+            })
+            searched.fulfill()
+        }
+        wait(for: [searched], timeout: 10)
+        assertNoData("content search", { try XCTUnwrap(outcome.get()).get() }, isEmpty: { $0.results.isEmpty })
+        assertNoData("preview", { try engine.preview(sessionID: session, query: query) }, isEmpty: { _ in false })
+        assertNoData("transcript", { try engine.transcript(sessionID: session, query: query) },
+                     isEmpty: { $0.turns.isEmpty })
+        assertNoData("last turns", { try engine.lastTurns(sessionID: session, limit: 5) },
+                     isEmpty: { $0.turns.isEmpty })
+        assertNoData("sessions", { try engine.sessions(nativeID: "claude-zebra", agent: nil, scope: .all) },
+                     isEmpty: { $0.isEmpty })
+        XCTAssertTrue(engine.metadataIndex.search(query, context: HistorySearchContext(scope: .all)).results.isEmpty,
+                      "\(label): metadata tier", file: file, line: line)
+    }
+
+    func test_engine_issued_before_turning_off_serves_nothing_until_turned_on_again() throws {
+        let controller = makeController()
+        let (engine, session) = try runningEngine(controller)
+
+        controller.setEnabled(false)
+        waitForStatus(controller, "off") { $0.state == .off && !$0.isEnabled }
+        controller.drainControlQueueForTesting()
+        assertServesNothing(engine, session: session, "turned off")
+        XCTAssertEqual(engine.readers.openConnectionCountForTesting, 0, "no reader reopened while off")
+
+        controller.setEnabled(true)
+        waitForStatus(controller, "watching again") { $0.state == .watching }
+        XCTAssertTrue(engine === controller.searchEngine, "same storage, same engine")
+        XCTAssertEqual(try engine.preview(sessionID: session, query: HistoryQueryParser.parse("")).session.nativeID,
+                       "claude-zebra", "on again: reads again")
+    }
+
+    func test_engine_issued_before_delete_index_serves_nothing() throws {
+        let controller = makeController()
+        let (engine, session) = try runningEngine(controller)
+
+        let deleted = expectation(description: "deleted")
+        var outcome: AgentHistoryDisableOutcome?
+        controller.disable(deleteIndex: true) {
+            outcome = $0
+            deleted.fulfill()
+        }
+        wait(for: [deleted], timeout: 10)
+        XCTAssertEqual(outcome, .deleted)
+        assertServesNothing(engine, session: session, "index deleted")
+        XCTAssertEqual(engine.readers.openConnectionCountForTesting, 0)
+    }
 }
 
 /// A lock-guarded value the test hands across threads.

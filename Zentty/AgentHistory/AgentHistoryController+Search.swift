@@ -9,7 +9,9 @@ extension AgentHistoryController {
     /// The metadata tier reads the published snapshot and the configured exclusions live, so an
     /// engine handed out earlier keeps seeing new sessions and newly excluded folders (A-10).
     /// Every tier also reads the persisted agent selection live, so an agent turned off is
-    /// hidden before its purge runs.
+    /// hidden before its purge runs. Turning Agent History off or deleting the index revokes the
+    /// reader pool, so an engine handed out earlier reads nothing (`.indexUnavailable("off")`,
+    /// reads in flight included) until History starts again.
     nonisolated var searchEngine: HistorySearchEngine? {
         guard let storage, storage.availability == .ready else {
             return nil

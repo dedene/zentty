@@ -100,6 +100,8 @@ struct AgentHistoryDatabaseError: Error, Equatable, Sendable {
         case corrupt, notADatabase, full, busy, readOnly, cantOpen, constraint, interrupted
         case schemaTooNew(found: Int32)
         case misuse, other
+        /// The reader pool was revoked: Agent History is off or its index was deleted.
+        case revoked
     }
 
     let kind: Kind
@@ -168,6 +170,7 @@ extension AgentHistoryDatabaseError: CustomStringConvertible, LocalizedError {
         case .schemaTooNew(let found): return "schemaTooNew(\(found))"
         case .misuse: return "misuse"
         case .other: return "other"
+        case .revoked: return "revoked"
         }
     }
 }

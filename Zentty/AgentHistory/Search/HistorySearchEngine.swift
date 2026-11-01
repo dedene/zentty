@@ -160,7 +160,9 @@ final class HistorySearchEngine: @unchecked Sendable {
         return response
     }
 
-    /// Runs `searchContent` on the search queue and calls `completion` on the main thread.
+    /// Runs `searchContent` on the search queue and calls `completion` on the main thread. When
+    /// the reader pool was revoked after this call (Agent History turned off or its index
+    /// deleted, which happens on main), the result is replaced by `.indexUnavailable("off")`.
     func searchContentAsync(
         _ query: HistoryQuery,
         context: HistorySearchContext,
@@ -168,6 +170,7 @@ final class HistorySearchEngine: @unchecked Sendable {
         cancellation: HistorySearchCancellation,
         completion: @escaping @MainActor @Sendable (Result<HistoryContentResponse, Error>) -> Void
     ) {
+        let revocationEpoch = readers.revocationEpoch
         Self.queue.async { [self] in
             let result: Result<HistoryContentResponse, Error>
             if cancellation.isCancelled {
@@ -179,8 +182,11 @@ final class HistorySearchEngine: @unchecked Sendable {
                         cancellation: cancellation)
                 }
             }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { completion(result) }
+            DispatchQueue.main.async { [readers] in
+                let delivered: Result<HistoryContentResponse, Error> = readers.revocationEpoch == revocationEpoch
+                    ? result
+                    : .failure(HistorySearchError.indexUnavailable(Self.stateName(.revoked)))
+                MainActor.assumeIsolated { completion(delivered) }
             }
         }
     }
@@ -320,6 +326,7 @@ final class HistorySearchEngine: @unchecked Sendable {
         case .schemaTooNew: "newerSchema"
         case .misuse: "misuse"
         case .other: "other"
+        case .revoked: "off"
         }
     }
 

@@ -309,7 +309,7 @@ final class AgentHistoryStorage: @unchecked Sendable {
             return true
         case .other:
             return error.code == SQLITE_ERROR
-        case .full, .busy, .readOnly, .cantOpen, .constraint, .interrupted, .schemaTooNew, .misuse:
+        case .full, .busy, .readOnly, .cantOpen, .constraint, .interrupted, .schemaTooNew, .misuse, .revoked:
             return false
         }
     }
