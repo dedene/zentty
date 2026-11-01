@@ -64,6 +64,16 @@ struct AgentHistoryFormatting {
         count > 1 ? "\(number(count)) matches" : nil
     }
 
+    /// "1 turn", "2,000 turns".
+    func turnCount(_ count: Int) -> String {
+        count == 1 ? "1 turn" : "\(number(count)) turns"
+    }
+
+    /// Above a capped transcript: "Showing the latest 2,000 turns. Earlier turns aren't shown."
+    func transcriptTruncationNote(shownTurns: Int) -> String {
+        "Showing the latest \(turnCount(shownTurns)). Earlier turns aren't shown."
+    }
+
     // MARK: - Footer
 
     func footerHealth(status: AgentHistoryStatus, now: Date) -> AgentHistoryFooterHealth {

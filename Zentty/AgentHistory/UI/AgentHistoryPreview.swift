@@ -2,14 +2,17 @@ import SwiftUI
 
 /// The selected session: header, actions, folder-gone callout, meta list, matching (or first and
 /// latest) turns, and the resume command. The header renders from the row at once; the turns
-/// arrive with the preview load.
+/// arrive with the preview load. With the transcript open (→ / ⌘Y) the full transcript view
+/// takes its place.
 struct AgentHistoryPreview: View {
     @ObservedObject var model: AgentHistoryViewModel
 
     private var theme: AgentHistoryTheme { model.theme }
 
     var body: some View {
-        if let row = model.selectedRow {
+        if let row = model.selectedRow, model.detail == .transcript {
+            AgentHistoryTranscriptView(model: model, row: row)
+        } else if let row = model.selectedRow {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header(row)
@@ -18,11 +21,7 @@ struct AgentHistoryPreview: View {
                         callout("This session's folder no longer exists. Resume will ask where to continue.")
                     }
                     metaList(row)
-                    if model.detail == .transcript {
-                        transcriptSection(row)
-                    } else {
-                        turnsSection(row)
-                    }
+                    turnsSection(row)
                     resumeCommandRow(row)
                 }
                 .padding(.horizontal, 20)
@@ -161,20 +160,6 @@ struct AgentHistoryPreview: View {
         case .loaded(let preview):
             sectionLabel(preview.turnsAreMatches ? "Matching turns (\(preview.turns.count))" : "First prompt and latest reply")
             turnCards(preview.turns, agent: row.agent, lineLimit: 8)
-        }
-    }
-
-    /// The full transcript in place of the turns (→ / ⌘Y); UI6 replaces this with its own view.
-    @ViewBuilder
-    private func transcriptSection(_ row: AgentHistoryResultRow) -> some View {
-        sectionLabel("Full transcript")
-        switch model.transcript {
-        case .idle, .loading:
-            AgentHistoryMessageView(title: "Loading…", theme: theme, isCompact: true)
-        case .failed(let failure):
-            AgentHistoryMessageView(title: Self.failureText(failure), theme: theme, isCompact: true)
-        case .loaded(let transcript):
-            turnCards(transcript.turns, agent: row.agent, lineLimit: nil)
         }
     }
 
