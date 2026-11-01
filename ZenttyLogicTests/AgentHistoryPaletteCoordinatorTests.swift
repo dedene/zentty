@@ -47,13 +47,21 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
     }
 
     func test_show_without_services_does_nothing() {
-        let host = StubPaletteHost()
+        // A real (never shown) window, so `show` gets past the window guard to the services one.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        addTeardownBlock { @MainActor in window.close() }
+        let host = StubPaletteHost(window: window)
         let coordinator = AgentHistoryPaletteCoordinator(host: host)
+        XCTAssertNil(coordinator.services)
 
         coordinator.show(entryPoint: .toolbar)
 
         XCTAssertFalse(coordinator.isShown)
-        XCTAssertTrue(host.toolbarStates.isEmpty)
+        XCTAssertTrue(host.toolbarStates.isEmpty, "the toolbar button never shows pressed without a palette")
+        XCTAssertEqual(host.currentProjectRequests, 0, "nothing is built before the services check")
+        XCTAssertNil(window.childWindows?.first)
     }
 
     func test_key_context_reads_caret_selection_and_marked_text_from_field_editor() throws {
@@ -183,13 +191,22 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
 @MainActor
 private final class StubPaletteHost: AgentHistoryPaletteHost {
     let backdrop = CommandPaletteBackdropView()
+    private let window: NSWindow?
     private(set) var toolbarStates: [Bool] = []
+    private(set) var currentProjectRequests = 0
 
-    var agentHistoryWindow: NSWindow? { nil }
+    init(window: NSWindow? = nil) {
+        self.window = window
+    }
+
+    var agentHistoryWindow: NSWindow? { window }
     var agentHistoryBackdropView: CommandPaletteBackdropView { backdrop }
     var agentHistoryTheme: ZenttyTheme { ZenttyTheme.fallback(for: nil) }
     var agentHistoryWindowID: WindowID { WindowID("window") }
-    func agentHistoryCurrentProject() -> AgentHistoryProjectScope? { nil }
+    func agentHistoryCurrentProject() -> AgentHistoryProjectScope? {
+        currentProjectRequests += 1
+        return nil
+    }
     func agentHistoryProject(forWorklane id: WorklaneID) -> AgentHistoryProjectScope? { nil }
     func agentHistoryShowSettings() {}
     func agentHistoryRestoreFocus() {}
