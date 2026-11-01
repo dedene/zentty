@@ -895,7 +895,10 @@ final class AgentIPCServer: @unchecked Sendable {
             }
 
             if request.kind == .history {
-                // Pane-token bound, no selectors: a pane only ever searches its own project.
+                // No selectors: the pane token identifies the calling pane, whose project is the
+                // default scope. `--all` widens to every project only when the user turned on
+                // "Allow agents to search all projects". The token routes and identifies the
+                // caller; it is not a security boundary against other processes of the same user.
                 let target = try authenticatedEnvironmentTarget(
                     environment: request.environment,
                     authentication: authentication
