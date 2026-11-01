@@ -229,6 +229,12 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
 
     private var hasBackend: Bool { backend != nil }
 
+    /// First-time consent covers the agents the probe found, so it waits for the probe (it
+    /// answers later, off-main) and needs one agent found, like the consent card.
+    private var canTurnOn: Bool {
+        status.isEnabled || status.hasConsented || detected.contains(where: \.isFound)
+    }
+
     private func render() {
         renderStatus()
         let rows = formatter.sourceRows(for: status, detected: detected)
@@ -253,7 +259,7 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
     private func renderStatus() {
         // Until state.json is read, consent is unknown: turning on could ask a consented user
         // again and overwrite their per-agent choices.
-        statusSwitch.isEnabled = hasBackend && status.isStateLoaded
+        statusSwitch.isEnabled = hasBackend && status.isStateLoaded && canTurnOn
         statusSwitch.state = status.isEnabled ? .on : .off
         guard hasBackend else {
             summaryLabel.stringValue = Self.unavailableText
@@ -356,15 +362,18 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             return
         }
         let found = detected.filter(\.isFound)
+        guard !found.isEmpty else {
+            sender.state = .off
+            return
+        }
         confirmationPresenter(view.window, .enable(detected: detected)) { [weak self] confirmed in
             guard let self else { return }
             guard confirmed, let backend = self.backend else {
                 self.statusSwitch.state = self.status.isEnabled ? .on : .off
                 return
             }
-            // Like the consent card: every agent found on this Mac starts on.
-            let agents = Set(found.map(\.agent))
-            backend.enable(agents: agents.isEmpty ? Set(AgentHistoryAgent.allCases) : agents)
+            // Like the consent card: every agent found on this Mac starts on, and only those.
+            backend.enable(agents: Set(found.map(\.agent)))
         }
     }
 

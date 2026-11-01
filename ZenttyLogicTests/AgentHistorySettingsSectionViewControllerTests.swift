@@ -165,6 +165,43 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertTrue(backend.setEnabledCalls.isEmpty)
     }
 
+    /// The real probe answers later from a background queue. Turning on before it does would
+    /// record consent without knowing which agents exist, so the switch waits for it.
+    func test_turning_on_waits_for_the_source_probe() {
+        let backend = FakeAgentHistoryControl()
+        backend.holdsDetection = true
+        backend.detectedSources = detectedSources()
+        let controller = makeController(backend: backend)
+        controller.prepareForPresentation()
+
+        XCTAssertFalse(controller.statusSwitch.isEnabled)
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+        XCTAssertTrue(confirmations.isEmpty)
+        XCTAssertTrue(backend.enabledAgents.isEmpty)
+
+        backend.releaseDetections()
+        XCTAssertTrue(controller.statusSwitch.isEnabled)
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(confirmations, [.enable(detected: detectedSources())])
+        XCTAssertEqual(backend.enabledAgents, [[.claude, .codex]], "only the agents found")
+    }
+
+    func test_turning_on_unavailable_when_no_agent_was_found() {
+        let backend = FakeAgentHistoryControl()
+        backend.detectedSources = detectedSources().map {
+            AgentHistoryDetectedSource(agent: $0.agent, rootPath: nil, isFound: false, sessionCount: nil, checkedPaths: $0.checkedPaths, problem: nil)
+        }
+        let controller = makeController(backend: backend)
+        controller.prepareForPresentation()
+
+        XCTAssertFalse(controller.statusSwitch.isEnabled)
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+        XCTAssertTrue(confirmations.isEmpty)
+        XCTAssertTrue(backend.enabledAgents.isEmpty)
+    }
+
     func test_enable_with_prior_consent_skips_confirmation() {
         let backend = FakeAgentHistoryControl()
         backend.status = makeStatus(isEnabled: false, state: .off)

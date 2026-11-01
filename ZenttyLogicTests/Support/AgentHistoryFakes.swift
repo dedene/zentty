@@ -13,6 +13,10 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
         return status
     }()
     var detectedSources: [AgentHistoryDetectedSource] = []
+    /// Holds `detectSources` completions until `releaseDetections()`, like the real probe that
+    /// answers later from a background queue.
+    var holdsDetection = false
+    private var pendingDetections: [@MainActor ([AgentHistoryDetectedSource]) -> Void] = []
     var disableOutcome = AgentHistoryDisableOutcome.turnedOff
     private(set) var refreshCount = 0
     private(set) var enabledAgents: [Set<AgentHistoryAgent>] = []
@@ -43,7 +47,17 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     func removeObserver(_ id: UUID) { observers[id] = nil }
     func refreshStatus() { refreshCount += 1 }
     func detectSources(_ completion: @escaping @MainActor ([AgentHistoryDetectedSource]) -> Void) {
-        completion(detectedSources)
+        guard holdsDetection else {
+            completion(detectedSources)
+            return
+        }
+        pendingDetections.append(completion)
+    }
+
+    func releaseDetections() {
+        let pending = pendingDetections
+        pendingDetections.removeAll()
+        pending.forEach { $0(detectedSources) }
     }
     func enable(agents: Set<AgentHistoryAgent>) { enabledAgents.append(agents) }
     func setEnabled(_ enabled: Bool) { setEnabledCalls.append(enabled) }
