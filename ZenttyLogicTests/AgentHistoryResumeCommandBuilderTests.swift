@@ -180,7 +180,7 @@ final class AgentHistoryResumeCommandBuilderTests: XCTestCase {
         ]
         let efforts: [String?] = [nil, "high", "bypass", "--yolo", "-a", "never", "danger-full-access"]
         let generations: [String?] = [nil, "v1", "v2"]
-        let roots: [String?] = [nil, "/Users/test/.claude-work"]
+        let roots: [String?] = [nil, "/Users/test/.claude-work", "/Users/test/bypass-root", "/Users/test/--profile/.claude"]
 
         for agent in AgentHistoryAgent.allCases {
             for model in models {
@@ -208,6 +208,34 @@ final class AgentHistoryResumeCommandBuilderTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// The Claude source root is the one input that reaches the final argument guard unfiltered:
+    /// a root carrying a forbidden token must make the session unavailable, never a command.
+    func test_claude_root_with_forbidden_token_is_unsafe() {
+        let hostileRoots = [
+            "/Users/test/bypass-root",
+            "/Users/test/--profile/.claude",
+            "/Users/test/.claude--settings",
+            "/Users/test/CODEX_HOME",
+        ]
+        for root in hostileRoots {
+            let hostile = source(.claude, sourceRoot: root)
+            XCTAssertEqual(
+                AgentHistoryResumeCommandBuilder.availability(for: hostile, homeDirectory: fakeHome),
+                .unavailable(reason: AgentHistoryResumeCommandBuilder.unsafeCommandReason),
+                root
+            )
+            XCTAssertNil(AgentHistoryResumeCommandBuilder.command(for: hostile), root)
+        }
+
+        // The guard rejects only forbidden tokens: a plain alternate root still resumes.
+        XCTAssertEqual(
+            command(source(.claude, sourceRoot: "/Users/test/.claude-work")),
+            "env CLAUDE_CONFIG_DIR=/Users/test/.claude-work claude --resume \(claudeID)"
+        )
+        // Non-Claude agents never carry the root into the command, so it can't make them unsafe.
+        XCTAssertNotNil(command(source(.codex, sourceRoot: "/Users/test/bypass-root")))
     }
 
     func test_forbidden_token_table_is_fixed() {
