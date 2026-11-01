@@ -456,6 +456,9 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         let previous = configuration
         configuration = next
         guard lifecycle == .running, store != nil else {
+            if next.enabledAgents != previous.enabledAgents {
+                refreshStandbySnapshot()
+            }
             return
         }
         if next.excludedFolders != previous.excludedFolders {

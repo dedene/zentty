@@ -106,6 +106,40 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
         XCTAssertTrue(owner.isWriterOpenForTesting)
     }
 
+    /// A standby instance never purges, and the owner may not purge for a long time; the
+    /// standby snapshot drops an agent turned off at once and keeps it out on every retry.
+    func test_standby_snapshot_drops_an_agent_turned_off_before_the_owner_purges() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1")])
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+        XCTAssertEqual(second.currentSnapshot.sessions.map(\.nativeID), ["s1"])
+
+        let agent = harness.source.agent
+        let hidden = recorder.expectSnapshot(self, "turned-off agent hidden") { $0.sessions.isEmpty }
+        second.purgeSource(agent: agent)
+        wait(for: [hidden], timeout: 5)
+
+        // Standby retries re-read the owner's rows, which still hold the agent's sessions.
+        let reappeared = recorder.expectSnapshot(self, "turned-off agent reappeared") { !$0.sessions.isEmpty }
+        reappeared.isInverted = true
+        wait(for: [reappeared], timeout: 0.5)
+        XCTAssertTrue(Self.isStandingBy(second.currentStatus))
+        XCTAssertEqual(try harness.count("SELECT count(*) FROM sessions"), 1, "the owner has not purged")
+
+        let shown = recorder.expectSnapshot(self, "turned back on") { $0.sessions.map(\.nativeID) == ["s1"] }
+        second.update(configuration: AgentHistoryIndexerConfiguration(
+            enabledAgents: Set(AgentHistoryAgent.allCases), excludedFolders: []))
+        wait(for: [shown], timeout: 5)
+    }
+
     func test_busy_batch_is_retried_instead_of_dropped() throws {
         let harness = AgentHistoryIndexerHarness(testCase: self)
         harness.source.setUnits([.single("a", mtimeNs: 2), .single("b", mtimeNs: 1)])

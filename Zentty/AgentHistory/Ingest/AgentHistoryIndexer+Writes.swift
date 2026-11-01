@@ -303,6 +303,7 @@ extension AgentHistoryIndexer {
         configuration.enabledAgents.remove(agent)
         deactivateSources(of: agent)
         guard lifecycle == .running, store != nil else {
+            refreshStandbySnapshot()
             return
         }
         pendingSourcePurges.insert(agent)
