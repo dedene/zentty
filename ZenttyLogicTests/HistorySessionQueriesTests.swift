@@ -256,4 +256,52 @@ final class HistorySessionQueriesTests: XCTestCase {
         ).results.isEmpty)
         XCTAssertEqual(try sqlEngine.visibleSessionCount(scope: .all), 0)
     }
+
+    /// The metadata tier reads the persisted agent selection on every call, so an agent turned
+    /// off disappears from it while the published snapshot still holds its sessions (no purge
+    /// yet, or a standby instance whose owner has not purged).
+    func test_agent_turned_off_is_hidden_from_the_metadata_tier_with_an_unchanged_snapshot() throws {
+        let fixture = try Fixture(testCase: self)
+        let claude = try fixture.addSession(
+            "claude-1", agent: .claude, title: "rotate signing key", cwd: "/work/app", repo: "/work/app",
+            updatedDaysAgo: 1)
+        try fixture.addMessage(session: claude, daysAgo: 1, text: "rotate the signing key")
+        let codex = try fixture.addSession(
+            "codex-1", agent: .codex, title: "rotate signing key", cwd: "/work/app", repo: "/work/app",
+            updatedDaysAgo: 2)
+        try fixture.addMessage(session: codex, daysAgo: 2, text: "rotate the signing key")
+        let engine = try fixture.engine()
+        let index = engine.metadataIndex
+        let query = Fixture.query("signing")
+        let project = Fixture.projectScope("/work/app")
+        let codexKey = try XCTUnwrap(index.summary(forSessionID: codex)).key
+        XCTAssertEqual(index.sessionCount(scope: .all), 2, "both agents visible while enabled")
+
+        // Codex is turned off; the snapshot (and its derived cache) is unchanged.
+        fixture.enabledAgents.set([.claude])
+        for scope in [AgentHistoryScope.all, project] {
+            XCTAssertEqual(
+                index.search(query, context: fixture.context(scope)).results.map(\.session.id), [claude])
+            XCTAssertEqual(
+                index.search(Fixture.query(""), context: fixture.context(scope)).results.map(\.session.id), [claude])
+            XCTAssertEqual(index.recent(limit: 10, scope: scope).map(\.id), [claude])
+            XCTAssertEqual(index.sessionCount(scope: scope), 1)
+        }
+        XCTAssertTrue(index.search(Fixture.query("agent:codex signing"), context: fixture.context()).results.isEmpty)
+        XCTAssertNil(index.summary(forSessionID: codex))
+        XCTAssertNotNil(index.summary(forSessionID: claude))
+        XCTAssertEqual(index.sessions(for: [codexKey]), [])
+        let merged = try engine.searchMerged(
+            query, context: fixture.context(), limit: 10, cancellation: HistorySearchCancellation())
+        XCTAssertEqual(merged.map(\.session.id), [claude])
+
+        // Turned back on: the same snapshot shows it again (the cache is keyed on the selection).
+        fixture.enabledAgents.set(Set(AgentHistoryAgent.allCases))
+        XCTAssertEqual(index.recent(limit: 10, scope: .all).map(\.id), [claude, codex])
+        XCTAssertNotNil(index.summary(forSessionID: codex))
+
+        fixture.enabledAgents.set([])
+        XCTAssertEqual(index.sessionCount(scope: .all), 0)
+        XCTAssertTrue(index.search(query, context: fixture.context()).results.isEmpty)
+    }
 }

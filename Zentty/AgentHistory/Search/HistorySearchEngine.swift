@@ -198,12 +198,16 @@ final class HistorySearchEngine: @unchecked Sendable {
         limit: Int,
         cancellation: HistorySearchCancellation
     ) throws -> [HistoryMergedResult] {
-        let metadata = metadataIndex.search(query, context: context, limit: limit)
+        // The index gates on the agent selection itself; this keeps the merge honest when it
+        // was built with another provider.
+        let agents = enabledAgents
+        let metadata = metadataIndex.search(query, context: context, limit: limit).results
+            .filter { agents.contains($0.session.agent) }
         if cancellation.isCancelled {
             throw HistorySearchError.cancelled
         }
         let content = try searchContent(query, context: context, excludingSessionIDs: [], cancellation: cancellation)
-        return HistoryRanker.merge(metadata: metadata.results, content: content.results, limit: limit)
+        return HistoryRanker.merge(metadata: metadata, content: content.results, limit: limit)
     }
 
     // MARK: - Winners

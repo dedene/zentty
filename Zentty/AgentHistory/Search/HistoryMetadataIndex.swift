@@ -3,11 +3,13 @@ import os
 
 /// The metadata tier (spec §7.2): every keystroke, over the indexer's in-memory snapshot of
 /// visible sessions. A pure view: the indexer owns the snapshot; this type only caches data
-/// derived from it, per snapshot `generation` and exclusion set.
+/// derived from it, per snapshot `generation`, exclusion set and agent selection.
 ///
 /// Everything it returns honours the configured excluded folders at query time (A-10), so a
-/// session excluded after indexing never shows before the purge removes its rows. Tombstoned
-/// and child sessions never reach the snapshot.
+/// session excluded after indexing never shows before the purge removes its rows. Likewise for
+/// the persisted agent selection (D4): an agent turned off is hidden at once, while the snapshot
+/// may hold its sessions until its purge runs (later, or never on a standby instance).
+/// Tombstoned and child sessions never reach the snapshot.
 ///
 /// Thread-safe: the derived cache sits behind a lock and is immutable once built, so the
 /// palette may call it on the main thread and the CLI/IPC path off it.
@@ -26,14 +28,19 @@ final class HistoryMetadataIndex: @unchecked Sendable {
 
     private let snapshotProvider: @Sendable () -> AgentHistoryMetadataSnapshot
     private let exclusionsProvider: @Sendable () -> AgentHistoryExclusionMatcher
+    private let enabledAgentsProvider: @Sendable () -> Set<AgentHistoryAgent>
     private let cache = OSAllocatedUnfairLock<Derived?>(initialState: nil)
 
+    /// `enabledAgents` is the user's persisted agent selection, read on every call; production
+    /// passes the same provider as the search engine. The default admits every agent.
     init(
         snapshot: @escaping @Sendable () -> AgentHistoryMetadataSnapshot,
-        exclusions: @escaping @Sendable () -> AgentHistoryExclusionMatcher
+        exclusions: @escaping @Sendable () -> AgentHistoryExclusionMatcher,
+        enabledAgents: @escaping @Sendable () -> Set<AgentHistoryAgent> = { Set(AgentHistoryAgent.allCases) }
     ) {
         self.snapshotProvider = snapshot
         self.exclusionsProvider = exclusions
+        self.enabledAgentsProvider = enabledAgents
     }
 
     // MARK: - Lookups
@@ -232,12 +239,13 @@ final class HistoryMetadataIndex: @unchecked Sendable {
     private func currentDerived() -> Derived {
         let snapshot = snapshotProvider()
         let exclusions = exclusionsProvider()
+        let enabledAgents = enabledAgentsProvider()
         if let cached = cache.withLock({ $0 }),
-           cached.isBuilt(from: snapshot), cached.exclusions == exclusions {
+           cached.isBuilt(from: snapshot), cached.exclusions == exclusions, cached.enabledAgents == enabledAgents {
             return cached
         }
         // Built outside the lock; a concurrent rebuild of the same generation is harmless.
-        let built = Derived(snapshot: snapshot, exclusions: exclusions)
+        let built = Derived(snapshot: snapshot, exclusions: exclusions, enabledAgents: enabledAgents)
         cache.withLock { $0 = built }
         return built
     }
@@ -251,7 +259,7 @@ extension HistoryMetadataIndex {
         let bytes: [UInt8]
     }
 
-    /// One visible, non-excluded session with its search keys as bytes. A class, and the hot
+    /// One visible, non-excluded session of an enabled agent with its search keys as bytes. A class, and the hot
     /// fields copied out of the summary, so the per-keystroke loop moves one reference per
     /// session instead of copying the whole summary.
     fileprivate final class Entry: Sendable {
@@ -307,7 +315,7 @@ extension HistoryMetadataIndex {
         }
     }
 
-    /// Immutable per-(generation, exclusions) view of the snapshot.
+    /// Immutable per-(generation, exclusions, enabled agents) view of the snapshot.
     fileprivate final class Derived: Sendable {
         let generation: UInt64
         /// The snapshot's session array, kept so its buffer identity can be compared: a new
@@ -315,22 +323,30 @@ extension HistoryMetadataIndex {
         /// match a cache built from the previous indexer's snapshot.
         let sessions: [AgentHistorySessionSummary]
         let exclusions: AgentHistoryExclusionMatcher
-        /// Snapshot order (updated desc, then id desc), excluded folders dropped.
+        let enabledAgents: Set<AgentHistoryAgent>
+        /// Snapshot order (updated desc, then id desc), excluded folders and turned-off agents
+        /// dropped.
         let entries: [Entry]
         let indexByID: [Int64: Int]
         let indexByKey: [AgentHistorySessionKey: Int]
 
-        init(snapshot: AgentHistoryMetadataSnapshot, exclusions: AgentHistoryExclusionMatcher) {
+        init(
+            snapshot: AgentHistoryMetadataSnapshot,
+            exclusions: AgentHistoryExclusionMatcher,
+            enabledAgents: Set<AgentHistoryAgent>
+        ) {
             generation = snapshot.generation
             sessions = snapshot.sessions
             self.exclusions = exclusions
+            self.enabledAgents = enabledAgents
             var entries: [Entry] = []
             entries.reserveCapacity(snapshot.sessions.count)
             var indexByID: [Int64: Int] = [:]
             var indexByKey: [AgentHistorySessionKey: Int] = [:]
             indexByID.reserveCapacity(snapshot.sessions.count)
             indexByKey.reserveCapacity(snapshot.sessions.count)
-            for summary in snapshot.sessions where !exclusions.excludesCanonical(summary.cwd) {
+            for summary in snapshot.sessions
+            where enabledAgents.contains(summary.agent) && !exclusions.excludesCanonical(summary.cwd) {
                 indexByID[summary.id] = entries.count
                 indexByKey[summary.key] = entries.count
                 entries.append(Entry(summary))
@@ -424,71 +440,6 @@ extension HistoryMetadataIndex {
                 }
                 return true
             }
-        }
-    }
-}
-
-// MARK: - Bounded heap
-
-protocol HistoryRankKeyed {
-    var key: HistoryRankKey { get }
-}
-
-/// Keeps the best `capacity` elements by `HistoryRankKey` in O(n log k). The root is the worst
-/// kept element, so a newcomer only has to beat it.
-struct HistoryBoundedRankHeap<Element: HistoryRankKeyed> {
-    let capacity: Int
-    private var storage: [Element] = []
-
-    init(capacity: Int) {
-        self.capacity = max(0, capacity)
-        storage.reserveCapacity(self.capacity)
-    }
-
-    var count: Int { storage.count }
-
-    mutating func offer(_ element: Element) {
-        guard capacity > 0 else { return }
-        if storage.count < capacity {
-            storage.append(element)
-            siftUp(storage.count - 1)
-        } else if element.key.ranks(before: storage[0].key) {
-            storage[0] = element
-            siftDown(0)
-        }
-    }
-
-    /// Best first.
-    func sorted() -> [Element] {
-        storage.sorted { $0.key.ranks(before: $1.key) }
-    }
-
-    /// Heap order: a parent ranks after (is worse than) its children.
-    private func isWorse(_ lhs: Int, _ rhs: Int) -> Bool {
-        storage[rhs].key.ranks(before: storage[lhs].key)
-    }
-
-    private mutating func siftUp(_ index: Int) {
-        var child = index
-        while child > 0 {
-            let parent = (child - 1) / 2
-            guard isWorse(child, parent) else { return }
-            storage.swapAt(child, parent)
-            child = parent
-        }
-    }
-
-    private mutating func siftDown(_ index: Int) {
-        var parent = index
-        while true {
-            let left = 2 * parent + 1
-            let right = left + 1
-            var worst = parent
-            if left < storage.count, isWorse(left, worst) { worst = left }
-            if right < storage.count, isWorse(right, worst) { worst = right }
-            guard worst != parent else { return }
-            storage.swapAt(parent, worst)
-            parent = worst
         }
     }
 }

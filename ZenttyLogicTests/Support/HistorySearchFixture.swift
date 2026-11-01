@@ -161,7 +161,9 @@ final class HistorySearchFixture: @unchecked Sendable {
     func metadataIndex() throws -> HistoryMetadataIndex {
         let snapshot = try snapshot()
         let exclusions = self.exclusions
-        return HistoryMetadataIndex(snapshot: { snapshot }, exclusions: { exclusions.value })
+        let enabledAgents = self.enabledAgents
+        return HistoryMetadataIndex(
+            snapshot: { snapshot }, exclusions: { exclusions.value }, enabledAgents: { enabledAgents.value })
     }
 
     /// An engine over the current rows (the metadata snapshot is taken now).

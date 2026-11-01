@@ -19,7 +19,8 @@ extension AgentHistoryController {
         return searchEngineCache.engine(for: storage) {
             let metadataIndex = HistoryMetadataIndex(
                 snapshot: { [weak self] in self?.threadSafeSnapshot ?? .empty },
-                exclusions: { [weak self] in self?.exclusions ?? AgentHistoryExclusionMatcher(folders: []) }
+                exclusions: { [weak self] in self?.exclusions ?? AgentHistoryExclusionMatcher(folders: []) },
+                enabledAgents: { [weak self] in self?.enabledAgents ?? [] }
             )
             return HistorySearchEngine(
                 readers: storage.readers,
