@@ -275,18 +275,42 @@ enum HistorySnippetBuilder {
         var output = ""
         output.reserveCapacity(text.utf8.count)
         var pendingSpace = false
-        for character in text {
-            if character.isWhitespace {
+        // Non-whitespace runs are copied as slices rather than character by character; the
+        // characters (and so the result) are the same.
+        var runStart: String.Index?
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(after: index)
+            if isWhitespace(at: index, in: text) {
+                if let start = runStart {
+                    output.append(contentsOf: text[start..<index])
+                    runStart = nil
+                }
                 pendingSpace = !output.isEmpty
-            } else {
+            } else if runStart == nil {
                 if pendingSpace {
                     output.append(" ")
                     pendingSpace = false
                 }
-                output.append(character)
+                runStart = index
             }
+            index = next
+        }
+        if let start = runStart {
+            output.append(contentsOf: text[start...])
         }
         return output
+    }
+
+    /// `text[index].isWhitespace` (which tests the character's first scalar), answered from the
+    /// first byte when it is ASCII: tab, line feed, vertical tab, form feed, carriage return or
+    /// space.
+    private static func isWhitespace(at index: String.Index, in text: String) -> Bool {
+        let byte = text.utf8[index]
+        if byte < 0x80 {
+            return byte == 0x20 || (0x09...0x0D).contains(byte)
+        }
+        return text[index].isWhitespace
     }
 
     /// Removes markdown markup and keeps the text, line by line (leading indentation outside
@@ -364,6 +388,12 @@ enum HistorySnippetBuilder {
     }
 
     private static func stripInline(_ line: Substring) -> String {
+        // Without a backtick, `[`, `*` or `~` nothing below can match: keep the line as is.
+        // (These are ASCII, so their bytes never occur inside a multi-byte character.)
+        if !line.utf8.contains(where: { $0 == UInt8(ascii: "`") || $0 == UInt8(ascii: "[")
+            || $0 == UInt8(ascii: "*") || $0 == UInt8(ascii: "~") }) {
+            return String(line)
+        }
         let characters = Array(line)
         let count = characters.count
         guard count > 0 else {

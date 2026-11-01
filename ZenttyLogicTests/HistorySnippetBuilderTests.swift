@@ -173,4 +173,46 @@ final class HistorySnippetBuilderTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.text.count, 60)
         XCTAssertTrue(result.text.contains("alpha"))
     }
+
+    // MARK: - Cleanup fast paths
+
+    /// The character-by-character rule the slice-copying `collapseWhitespace` must match.
+    private static func referenceCollapse(_ text: String) -> String {
+        var output = ""
+        var pendingSpace = false
+        for character in text {
+            if character.isWhitespace {
+                pendingSpace = !output.isEmpty
+            } else {
+                if pendingSpace {
+                    output.append(" ")
+                    pendingSpace = false
+                }
+                output.append(character)
+            }
+        }
+        return output
+    }
+
+    func test_collapse_whitespace_matches_the_per_character_rule() {
+        let samples = [
+            "", "   ", "a", "  lead and trail  ", "tabs\tand\nnew\r\nlines\u{0B}\u{0C}end",
+            "no\u{00A0}break\u{2028}line\u{2029}para\u{3000}ideo\u{0085}next",
+            "space then mark \u{0301}x", "\u{0301}leading mark", "e\u{0301}  te\u{0301}",
+            "emoji 👩‍💻  family 👨‍👩‍👧 \t flags 🇧🇪", "漢字  かな\nカナ", "\r\n\r\nCRLF only\r\n",
+            "\u{1C}\u{1D}\u{1E}\u{1F} separators are not whitespace",
+        ]
+        for sample in samples {
+            XCTAssertEqual(
+                HistorySnippetBuilder.collapseWhitespace(sample).unicodeScalars.map(\.value),
+                Self.referenceCollapse(sample).unicodeScalars.map(\.value), sample.debugDescription)
+        }
+    }
+
+    func test_strip_markdown_keeps_lines_without_inline_markers_verbatim() {
+        let text = "plain line with é and 漢字\n  indented [link](x) and `code`\nA ~~gone~~ **bold** line"
+        XCTAssertEqual(
+            HistorySnippetBuilder.stripMarkdown(text),
+            "plain line with é and 漢字\nindented link and code\nA gone bold line")
+    }
 }

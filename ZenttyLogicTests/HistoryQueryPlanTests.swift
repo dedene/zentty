@@ -91,6 +91,90 @@ final class HistoryQueryPlanTests: XCTestCase {
         }
     }
 
+    // MARK: - Session gates
+
+    private static let gates: [HistoryContentQuery.SessionGate] = [.sessions([1, 2, 3]), .contentRowIDs([1, 2, 3])]
+
+    func test_gated_query_plans_keep_the_ordered_fts_scan() throws {
+        for tokenizer in Self.tokenizers {
+            let fixture = try Fixture(testCase: self, tokenizer: tokenizer)
+            let db = try fixture.writer
+            for (name, base) in Self.filterMatrix {
+                for gate in Self.gates {
+                    var filters = base
+                    filters.gate = gate
+                    let match = Self.matchExpression(for: tokenizer)
+                    for (row, table, statement) in [
+                        ("m", "messages", HistoryContentQuery.messages(match: match, filters: filters)),
+                        ("a", "artifacts", HistoryContentQuery.artifacts(match: match, filters: filters)),
+                    ] {
+                        let label = "\(table) [\(tokenizer.rawValue), \(name), \(gate.gatesContentRowIDs ? "row ids" : "sessions")]"
+                        let plan = try plan(db, statement)
+                        assertOrderedFTSScan(plan, row: row, label)
+                        if gate.gatesContentRowIDs {
+                            XCTAssertTrue(
+                                plan.contains { $0.contains("SEARCH \(table) USING COVERING INDEX sqlite_autoindex_\(table)_1 (session_id=?)") },
+                                "\(label) does not list the sessions' row ids from the session index:\n\(plan.joined(separator: "\n"))")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func test_admitted_sessions_plan_reads_the_sessions_table_only() throws {
+        let fixture = try Fixture(testCase: self)
+        let db = try fixture.writer
+        for (name, filters) in Self.filterMatrix where filters.restrictsSessions {
+            let plan = try plan(db, HistoryContentQuery.admittedSessions(filters: filters))
+            let rendered = plan.joined(separator: "\n")
+            XCTAssertFalse(
+                plan.contains { $0.contains("messages") || $0.contains("artifacts") || $0.contains("VIRTUAL TABLE") },
+                "admitted sessions [\(name)] reads content rows:\n\(rendered)")
+            XCTAssertFalse(
+                plan.contains { $0.contains("TEMP B-TREE FOR ORDER BY") },
+                "admitted sessions [\(name)] sorts:\n\(rendered)")
+        }
+    }
+
+    func test_substring_scan_plans_read_admitted_sessions_by_index() throws {
+        let fixture = try Fixture(testCase: self)
+        let db = try fixture.writer
+        for (name, base) in Self.filterMatrix {
+            var filters = base
+            filters.gate = .sessions([1, 2, 3])
+            let scan = try plan(db, HistoryContentQuery.substringScan(terms: ["deploy", "cache"], filters: filters))
+            let rendered = scan.joined(separator: "\n")
+            assertNoTempBTree(scan, "substring scan [\(name)]")
+            XCTAssertTrue(
+                scan.contains { $0.hasPrefix("SEARCH m USING INDEX sqlite_autoindex_messages_1 (session_id=?)") },
+                "substring scan [\(name)] does not read the sessions' messages through the session index:\n\(rendered)")
+        }
+        let rows = try plan(db, HistoryContentQuery.messages(ids: [1, 2, 3]))
+        let rendered = rows.joined(separator: "\n")
+        assertNoTempBTree(rows, "messages by id")
+        XCTAssertTrue(
+            rows.contains { $0.hasPrefix("SEARCH m USING INTEGER PRIMARY KEY (rowid=?)") },
+            "messages by id are not looked up by rowid:\n\(rendered)")
+        XCTAssertTrue(
+            rows.contains { $0.hasPrefix("SEARCH s USING INTEGER PRIMARY KEY (rowid=?)") },
+            "messages by id do not look up the session by rowid:\n\(rendered)")
+    }
+
+    func test_gated_scan_fallback_plan_uses_rowid_range() throws {
+        let fixture = try Fixture(testCase: self, tokenizer: .none)
+        let db = try fixture.writer
+        for gate in Self.gates {
+            var filters = HistoryContentQuery.Filters(repoNames: ["app"])
+            filters.gate = gate
+            let scan = try plan(db, HistoryContentQuery.scan(cutoff: 42, filters: filters))
+            assertNoTempBTree(scan, "gated scan")
+            XCTAssertTrue(
+                scan.first?.hasPrefix("SEARCH m USING INTEGER PRIMARY KEY (rowid>?)") == true,
+                "gated scan does not walk the newest rowid range:\n\(scan.joined(separator: "\n"))")
+        }
+    }
+
     // MARK: - Scan fallback
 
     func test_scan_fallback_plan_uses_rowid_range() throws {

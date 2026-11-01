@@ -7,8 +7,13 @@ import os
 ///
 /// A content search:
 /// 1. plans the terms (`HistoryMatchPlan`); `.metadataOnly` returns an empty response;
-/// 2. walks the FTS tables newest first with every filter inside the ordered scan
-///    (`HistoryContentQuery`), or, without a usable tokenizer, the newest `scanWindow` messages;
+/// 2. resolves a project scope, `repo:` and `branch:` once into the admitted sessions
+///    (`HistoryContentQuery.admittedSessions`) and gates the walk on their ids; then walks the
+///    FTS tables newest first with every filter inside the ordered scan (`HistoryContentQuery`).
+///    Under the trigram tokenizer, a small admitted set (`substringScanTurnLimit` turns) finds
+///    its message hits by `instr` over its own messages instead, which returns the same rows
+///    without walking every term's trigram doclists. Without a usable tokenizer it scans the
+///    newest `scanWindow` messages;
 /// 3. grades the first 65,536 characters of each candidate's `search_text`, artifacts with path
 ///    boundaries and a 0.9 discount. A longer candidate that does not grade counts as a mid-word
 ///    hit only when the cut can be blamed: every term missing from the prefix is one SQL
@@ -32,6 +37,8 @@ final class HistorySearchEngine: @unchecked Sendable {
         var messageLimit = HistoryContentQuery.messageLimit
         var artifactLimit = HistoryContentQuery.artifactLimit
         var scanWindow = HistoryContentQuery.scanWindow
+        var rowIDGateTurnLimit = HistoryContentQuery.rowIDGateTurnLimit
+        var substringScanTurnLimit = HistoryContentQuery.substringScanTurnLimit
         var progressHandlerInstructions: Int32 = 1_000
         var cancellationCheckRows = 256
         /// Test seam: runs on the searching thread before each content row is graded.
@@ -85,6 +92,7 @@ final class HistorySearchEngine: @unchecked Sendable {
         cancellation: HistorySearchCancellation
     ) throws -> HistoryContentResponse {
         let start = DispatchTime.now().uptimeNanoseconds
+        let tokenizer = self.tokenizer
         let plan = HistoryMatchPlan.make(query: query, tokenizer: tokenizer)
         let mode: HistoryContentResponse.Mode = switch plan.mode {
         case .fts: .fts
@@ -108,18 +116,31 @@ final class HistorySearchEngine: @unchecked Sendable {
         guard !filters.agents.isEmpty else {
             return emptyResponse()
         }
-        let collector = HitCollector(
+        let collector = HistoryHitCollector(
             query: query, sqlRequiredTerms: Set(plan.ftsTerms + plan.instrFilters), exclusions: exclusions,
             cancellation: cancellation, tuning: tuning)
         let tuning = self.tuning
 
         let response: HistoryContentResponse = try withSearchReader(cancellation: cancellation) { db in
+            var filters = filters
+            var scansAdmittedMessages = false
+            if filters.restrictsSessions {
+                guard let admitted = try admittedSessions(filters, db: db) else { return emptyResponse() }
+                filters.gate = admitted.turns <= Int64(tuning.rowIDGateTurnLimit)
+                    ? .contentRowIDs(admitted.ids)
+                    : .sessions(admitted.ids)
+                scansAdmittedMessages = tokenizer == .trigram
+                    && admitted.turns <= Int64(tuning.substringScanTurnLimit)
+            }
             var truncated = false
             switch plan.mode {
             case .fts:
                 guard let match = plan.matchExpression else { return emptyResponse() }
-                let messageRows = try collector.collectMessages(
-                    db, HistoryContentQuery.messages(match: match, filters: filters, limit: tuning.messageLimit))
+                let messageRows = scansAdmittedMessages
+                    ? try collectAdmittedMessages(
+                        db, terms: plan.ftsTerms, filters: filters, limit: tuning.messageLimit, collector: collector)
+                    : try collector.collectMessages(
+                        db, HistoryContentQuery.messages(match: match, filters: filters, limit: tuning.messageLimit))
                 let artifactRows = try collector.collectArtifacts(
                     db, HistoryContentQuery.artifacts(match: match, filters: filters, limit: tuning.artifactLimit))
                 truncated = messageRows >= tuning.messageLimit || artifactRows >= tuning.artifactLimit
@@ -216,6 +237,43 @@ final class HistorySearchEngine: @unchecked Sendable {
             query, context: context, excludingSessionIDs: [],
             resultLimit: max(limit, HistoryRanker.contentLimit), cancellation: cancellation)
         return HistoryRanker.merge(metadata: metadata, content: content.results, limit: limit)
+    }
+
+    /// Resolves a project scope, `repo:` and `branch:` once (with visibility and the agent
+    /// selection) into the admitted session ids and their summed turn count, so the walk can
+    /// gate on ids instead of filtering every candidate row. Nil when no session is admitted.
+    private func admittedSessions(
+        _ filters: HistoryContentQuery.Filters,
+        db: AgentHistoryDatabase
+    ) throws -> (ids: [Int64], turns: Int64)? {
+        let statement = HistoryContentQuery.admittedSessions(filters: filters)
+        var ids: [Int64] = []
+        var turns: Int64 = 0
+        try db.query(statement.sql, statement.bindings) { row in
+            ids.append(row.int64(0))
+            turns += row.int64(1)
+        }
+        return ids.isEmpty ? nil : (ids, turns)
+    }
+
+    /// The message hits of a small admitted set under the trigram tokenizer: every matching id
+    /// (`HistoryContentQuery.substringScan`), of which the newest `limit` are read and graded,
+    /// the same rows the FTS walk would return. Returns the number of matching messages, so
+    /// `limit` or more means truncated, as for the walk.
+    private func collectAdmittedMessages(
+        _ db: AgentHistoryDatabase,
+        terms: [String],
+        filters: HistoryContentQuery.Filters,
+        limit: Int,
+        collector: HistoryHitCollector
+    ) throws -> Int {
+        let scan = HistoryContentQuery.substringScan(terms: terms, filters: filters)
+        var ids = try db.query(scan.sql, scan.bindings) { $0.int64(0) }
+        let matching = ids.count
+        guard matching > 0, limit > 0 else { return matching }
+        ids.sort(by: >)
+        _ = try collector.collectMessages(db, HistoryContentQuery.messages(ids: Array(ids.prefix(limit))))
+        return matching
     }
 
     // MARK: - Winners
@@ -358,145 +416,5 @@ extension HistoryQuery {
     /// a substring scan). The palette uses it for the "type 3+ characters" hint and the preview.
     func hasContentTerms(tokenizer: AgentHistoryTokenizer) -> Bool {
         !terms.isEmpty && HistoryMatchPlan.make(query: self, tokenizer: tokenizer).mode != .metadataOnly
-    }
-}
-
-// MARK: - Hit collection
-
-/// Grades content rows into hits and keeps each session's ranking facts. One per search, used
-/// on the searching thread only.
-private final class HitCollector {
-    let query: HistoryQuery
-    /// Folded terms every candidate row contains somewhere (FTS terms and `instr` filters).
-    let sqlRequiredTerms: Set<String>
-    let exclusions: AgentHistoryExclusionMatcher
-    let cancellation: HistorySearchCancellation
-    let tuning: HistorySearchEngine.Tuning
-
-    private(set) var hits: [HistoryContentHit] = []
-    private(set) var facts: [Int64: HistoryRankFacts] = [:]
-    /// Sessions seen with an excluded `cwd`.
-    private var excluded: Set<Int64> = []
-    private(set) var rows = 0
-
-    init(
-        query: HistoryQuery,
-        sqlRequiredTerms: Set<String>,
-        exclusions: AgentHistoryExclusionMatcher,
-        cancellation: HistorySearchCancellation,
-        tuning: HistorySearchEngine.Tuning
-    ) {
-        self.query = query
-        self.sqlRequiredTerms = sqlRequiredTerms
-        self.exclusions = exclusions
-        self.cancellation = cancellation
-        self.tuning = tuning
-    }
-
-    func checkCancelled() throws {
-        if cancellation.isCancelled {
-            throw HistorySearchError.cancelled
-        }
-    }
-
-    /// Columns per `HistoryContentQuery.messages` / `.scan`. Returns the number of rows read.
-    func collectMessages(_ db: AgentHistoryDatabase, _ statement: HistoryContentQuery.Statement) throws -> Int {
-        var count = 0
-        try db.query(statement.sql, statement.bindings) { row in
-            count += 1
-            try beginRow()
-            let sessionID = row.int64(1)
-            guard admitSession(sessionID, row: row, factsAt: 6) else { return }
-            guard let graded = grade(row, column: 4, isCut: row.bool(5), mode: .text) else { return }
-            let role = AgentHistoryRole(rawValue: row.string(2)) ?? .agent
-            hits.append(HistoryContentHit(
-                sessionID: sessionID, rowID: row.int64(0), role: HistoryHitRole(role), atMs: row.int64(3),
-                gradedQuality: graded.quality, isWordLevel: graded.isWordLevel))
-        }
-        return count
-    }
-
-    /// Columns per `HistoryContentQuery.artifacts`. Returns the number of rows read.
-    func collectArtifacts(_ db: AgentHistoryDatabase, _ statement: HistoryContentQuery.Statement) throws -> Int {
-        var count = 0
-        try db.query(statement.sql, statement.bindings) { row in
-            count += 1
-            try beginRow()
-            let sessionID = row.int64(1)
-            guard let kind = AgentHistoryArtifactKind(rawValue: row.string(2)),
-                  admitSession(sessionID, row: row, factsAt: 7),
-                  let graded = grade(row, column: 4, isCut: row.bool(6), mode: kind == .path ? .path : .text)
-            else { return }
-            hits.append(HistoryContentHit(
-                sessionID: sessionID, rowID: row.int64(0), role: .artifact(kind), atMs: row.int64(3),
-                gradedQuality: graded.quality, isWordLevel: graded.isWordLevel, artifactValue: row.string(5)))
-        }
-        return count
-    }
-
-    private func beginRow() throws {
-        rows += 1
-        tuning.willGradeRow?()
-        if rows % max(1, tuning.cancellationCheckRows) == 0 {
-            try checkCancelled()
-        }
-    }
-
-    /// Reads the session's ranking facts once (columns from `column`, per
-    /// `HistoryContentQuery.sessionFactColumns`); false when its `cwd` is excluded.
-    private func admitSession(_ sessionID: Int64, row: AgentHistoryRow, factsAt column: Int32) -> Bool {
-        if facts[sessionID] != nil { return true }
-        if excluded.contains(sessionID) { return false }
-        if !exclusions.isEmpty, exclusions.excludesCanonical(row.optionalString(column + 6)) {
-            excluded.insert(sessionID)
-            return false
-        }
-        facts[sessionID] = HistoryRankFacts(
-            updatedAtMs: row.int64(column),
-            opens: Int(row.int64(column + 1)),
-            lastOpenedAtMs: row.optionalInt64(column + 2),
-            isArchived: row.bool(column + 3),
-            mainRepoRoot: row.optionalString(column + 4),
-            repoRoot: row.optionalString(column + 5)
-        )
-        return true
-    }
-
-    /// Grades the fetched `search_text` prefix. A row whose text was cut (`isCut`, counted in
-    /// characters like `substr`) and does not grade counts as a mid-word hit only when the cut
-    /// explains the miss (`cutHidesMatch`).
-    private func grade(
-        _ row: AgentHistoryRow,
-        column: Int32,
-        isCut: Bool,
-        mode: HistoryMatcher.BoundaryMode
-    ) -> (quality: Double, isWordLevel: Bool)? {
-        let graded: (quality: Double, isWordLevel: Bool)?? = row.withUTF8Bytes(column) { bytes in
-            if let grade = HistoryMatcher.grade(normalizedUTF8: bytes, query: query, mode: mode) {
-                return (grade.quality, grade.isWordLevel)
-            }
-            if isCut, cutHidesMatch(bytes, mode: mode) {
-                return (HistoryMatchClass.midWord.credit, false)
-            }
-            return nil
-        }
-        return graded ?? nil
-    }
-
-    /// True when every term either has a credited occurrence in the prefix, or is absent from
-    /// it and SQL guarantees it lies beyond the cut. A term present in the prefix without credit
-    /// (a short mid-word hit, a hash or UUID) fails, as does a missing term SQL never checked.
-    private func cutHidesMatch(_ prefix: UnsafeBufferPointer<UInt8>, mode: HistoryMatcher.BoundaryMode) -> Bool {
-        var someTermBeyondCut = false
-        for term in query.terms {
-            if HistoryMatcher.contains(normalizedUTF8: prefix, term: term) {
-                guard HistoryMatcher.grade(normalizedUTF8: prefix, terms: [term], phraseText: nil, mode: mode) != nil
-                else { return false }
-            } else {
-                guard sqlRequiredTerms.contains(term.text) else { return false }
-                someTermBeyondCut = true
-            }
-        }
-        return someTermBeyondCut
     }
 }
