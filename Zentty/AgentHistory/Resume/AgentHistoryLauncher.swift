@@ -53,7 +53,9 @@ enum AgentHistoryLaunchOutcome: Equatable {
 /// Routes an Agent History pick to the right place: a live session is jumped to (or forked) in
 /// the window that runs it; an ended one resumes in the presenting window. The launcher alone
 /// shows launch toasts and records opens, exactly once per successful launch (A-20). Failures
-/// returned synchronously are not toasted: the palette shows them in place.
+/// returned synchronously are not toasted: the palette shows them in place. Failures after a
+/// worktree recreation are toasted in the window that asked (or any other still open), since
+/// the palette has closed by then.
 @MainActor
 final class AgentHistoryLauncher {
     static let titleLimit = 60
@@ -285,10 +287,24 @@ final class AgentHistoryLauncher {
                 host?.showToast(message: Self.recreatedFolderMissingMessage)
                 return
             }
-            guard case .available(let plan) = resumePlan(for: source) else {
+            let plan: AgentHistoryResumePlan
+            switch resumePlan(for: source) {
+            case .available(let available):
+                plan = available
+            case .unavailable(let reason):
+                host?.showToast(message: reason)
                 return
             }
-            _ = launch(plan, source: source, intent: intent, workingDirectory: recreation.resumeDirectory, in: host)
+            let outcome = launch(
+                plan, source: source, intent: intent, workingDirectory: recreation.resumeDirectory, in: host)
+            // The palette closed on `.recreatingWorktree`, so a failure here has nowhere else to show.
+            if case .failed(let message, _) = outcome {
+                if let host {
+                    host.showToast(message: message)
+                } else {
+                    AgentHistoryLog.indexer.info("Recreated a worktree, but no window is left to resume in")
+                }
+            }
         }
     }
 
