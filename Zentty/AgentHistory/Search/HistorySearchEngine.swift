@@ -75,10 +75,13 @@ final class HistorySearchEngine: @unchecked Sendable {
 
     // MARK: - Content tier
 
+    /// `resultLimit` caps the ranked sessions; the palette keeps the default
+    /// (`HistoryRanker.contentLimit`), the merged CLI list passes its own limit.
     func searchContent(
         _ query: HistoryQuery,
         context: HistorySearchContext,
         excludingSessionIDs: Set<Int64>,
+        resultLimit: Int = HistoryRanker.contentLimit,
         cancellation: HistorySearchCancellation
     ) throws -> HistoryContentResponse {
         let start = DispatchTime.now().uptimeNanoseconds
@@ -135,7 +138,8 @@ final class HistorySearchEngine: @unchecked Sendable {
                 hits: collector.hits,
                 facts: collector.facts,
                 context: context,
-                excludingSessionIDs: excludingSessionIDs
+                excludingSessionIDs: excludingSessionIDs,
+                limit: resultLimit
             )
             let materialized = try materialize(ranked, query: query, db: db, cancellation: cancellation)
             return HistoryContentResponse(
@@ -206,7 +210,11 @@ final class HistorySearchEngine: @unchecked Sendable {
         if cancellation.isCancelled {
             throw HistorySearchError.cancelled
         }
-        let content = try searchContent(query, context: context, excludingSessionIDs: [], cancellation: cancellation)
+        // Content ranks at least `limit` sessions, or content-only matches could never fill the
+        // rows past the palette's cap.
+        let content = try searchContent(
+            query, context: context, excludingSessionIDs: [],
+            resultLimit: max(limit, HistoryRanker.contentLimit), cancellation: cancellation)
         return HistoryRanker.merge(metadata: metadata, content: content.results, limit: limit)
     }
 

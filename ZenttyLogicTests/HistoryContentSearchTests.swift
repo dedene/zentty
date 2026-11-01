@@ -333,6 +333,26 @@ final class HistoryContentSearchTests: XCTestCase {
         XCTAssertEqual(Set(all.map(\.session.nativeID)), ["in-scope", "title-outside", "content-outside"])
     }
 
+    func test_merged_search_fills_limit_beyond_palette_cap_with_content_only_sessions() throws {
+        let fixture = try Fixture(testCase: self)
+        for index in 0..<55 {
+            let session = try fixture.addSession("s\(index)", title: "Session \(index)", updatedDaysAgo: 1)
+            try fixture.addMessage(session: session, daysAgo: 1, text: "tune the flamingo cache")
+        }
+        let engine = try fixture.engine()
+        let query = Fixture.query("flamingo")
+
+        let metadata = try fixture.metadataIndex().search(query, context: fixture.context(), limit: 50).results
+        XCTAssertTrue(metadata.isEmpty, "only the content tier may match")
+
+        let merged = try engine.searchMerged(
+            query, context: fixture.context(), limit: 50, cancellation: HistorySearchCancellation())
+        XCTAssertEqual(merged.count, 50)
+
+        let palette = try search(engine, "flamingo", fixture: fixture)
+        XCTAssertEqual(palette.results.count, HistoryRanker.contentLimit, "the palette keeps its 30-row cap")
+    }
+
     func test_long_message_beyond_64kb_still_counts_as_mid_word() throws {
         let fixture = try Fixture(testCase: self)
         let session = try fixture.addSession("long")
