@@ -184,6 +184,7 @@ final class RootViewController: NSViewController {
     /// The sidebar section of the config as this window last observed it. Used to
     /// tell a real on-disk sidebar edit apart from an unrelated external change.
     private var lastObservedConfigSidebar: AppConfig.Sidebar
+    private var floatNeedsInputAnnouncer = FloatNeedsInputAnnouncer()
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
@@ -433,7 +434,9 @@ final class RootViewController: NSViewController {
         preloadProjectIcons()
         _ = worklaneStore.subscribe { [weak self] _ in
             self?.preloadProjectIcons()
+            self?.announceFloatNeedsInputChanges()
         }
+        _ = floatNeedsInputAnnouncer.update(worklane: worklaneStore.activeWorklane)
         wirePeek()
     }
 
@@ -843,6 +846,7 @@ final class RootViewController: NSViewController {
 
     private func setupFloatLayerCallbacks() {
         let floatLayer = appCanvasView.floatLayerView
+        floatLayer.pipWidth = FloatLayout.pipWidth(for: configStore.current.floats.pipSize)
         floatLayer.shouldSuppressProgrammaticTerminalFocus = { [weak self] in
             self?.globalSearchChoreographer.shouldRetainFocus ?? false
         }
@@ -883,6 +887,11 @@ final class RootViewController: NSViewController {
             guard let self, !self.isFloatCommandBlocked else { return }
             self.appCanvasView.pillPeekView.hide()
             self.worklaneStore.restoreFloat(paneID)
+        }
+        pillBar.onPillActionRequested = { [weak self] paneID, action in
+            guard let self, !self.isFloatCommandBlocked else { return }
+            self.appCanvasView.pillPeekView.hide()
+            self.handlePaneBorderAction(action, paneID: paneID)
         }
         pillBar.onPillPromoted = { [weak self] paneID, pointInBar in
             guard let self, !self.isFloatCommandBlocked else { return }
@@ -2229,6 +2238,15 @@ final class RootViewController: NSViewController {
         postWorklaneMoveAccessibilityAnnouncement()
     }
 
+    /// VoiceOver: a pill or PiP of the active worklane started needing input.
+    private func announceFloatNeedsInputChanges() {
+        let messages = floatNeedsInputAnnouncer.update(worklane: worklaneStore.activeWorklane)
+        guard isViewLoaded else { return }
+        for message in messages {
+            FloatNeedsInputAnnouncer.post(message, from: view)
+        }
+    }
+
     private func postWorklaneMoveAccessibilityAnnouncement() {
         guard let index = worklaneStore.worklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) else {
             return
@@ -3132,6 +3150,7 @@ final class RootViewController: NSViewController {
         refreshShortcutTooltips()
         preloadOpenWithIcons()
         windowChromeView.apply(panes: config.panes)
+        appCanvasView.floatLayerView.pipWidth = FloatLayout.pipWidth(for: config.floats.pipSize)
         worklaneStore.clearProgramStatusesIfDisabled()
         preloadProjectIcons()
         // Sidebar visibility and width are per-window state. The config store only

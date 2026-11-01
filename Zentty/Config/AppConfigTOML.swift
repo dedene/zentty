@@ -229,6 +229,7 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[floats]")
         lines.append("auto_pop_needs_input = \(config.floats.autoPopNeedsInput)")
+        lines.append("pip_size = \(encode(string: config.floats.pipSize.rawValue))")
 
         lines.append("")
         lines.append("[agent_integrations]")
@@ -1088,6 +1089,12 @@ enum AppConfigTOML {
         case "auto_pop_needs_input":
             guard let value = decodeBool(assignment.value) else { return false }
             config.floats.autoPopNeedsInput = value
+        case "pip_size":
+            guard let raw = decodeString(assignment.value),
+                  let size = AppConfig.Floats.PipSize(rawValue: raw) else {
+                return false
+            }
+            config.floats.pipSize = size
         default:
             return .unknownKey
         }

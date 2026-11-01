@@ -154,6 +154,19 @@ extension FloatLayerView {
         layer.add(animation, forKey: Self.settleAnimationKey)
     }
 
+    /// Reduce Motion stand-in for a fly between two places (float ↔ PiP):
+    /// the view appears at its model frame with a short fade, nothing moves
+    /// or scales. Shares the settle key, so a new gesture cancels it.
+    func crossfadeIn(_ view: NSView) {
+        guard let layer = view.layer else { return }
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0
+        animation.toValue = 1
+        animation.duration = FloatMotion.reducedDuration
+        animation.timingFunction = FloatMotion.reducedTiming
+        layer.add(animation, forKey: Self.settleAnimationKey)
+    }
+
     /// The layer transform that draws a layer laid out at `model` as `visible`
     /// (both in superlayer coordinates), for a layer with `anchorPoint`.
     static func transform(mapping model: CGRect, to visible: CGRect, anchorPoint: CGPoint) -> CATransform3D {

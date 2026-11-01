@@ -206,6 +206,24 @@ final class PillBarViewTests: AppKitTestCase {
         XCTAssertEqual(clicked, [PaneID("agent")])
     }
 
+    func test_pill_offers_picture_in_picture_and_close_to_voiceover() throws {
+        setUpBar()
+        var actions: [(PaneID, PaneBorderAction)] = []
+        barView.onPillActionRequested = { actions.append(($0, $1)) }
+        render(["agent"])
+        let pill = try XCTUnwrap(barView.pillViewForTesting(PaneID("agent")))
+
+        let custom = pill.accessibilityCustomActions() ?? []
+        XCTAssertEqual(custom.map(\.name), ["Picture in picture", "Close pane"])
+        for action in custom {
+            XCTAssertTrue(action.handler?() ?? false)
+        }
+
+        XCTAssertEqual(actions.map(\.0), [PaneID("agent"), PaneID("agent")])
+        XCTAssertEqual(actions.map(\.1), [.pip, .close])
+        XCTAssertEqual(clicked, [], "custom actions never restore")
+    }
+
     func test_working_pill_pulses_its_dot_unless_motion_is_reduced() throws {
         setUpBar()
         FloatMotion.reduceMotionOverride = false
@@ -225,6 +243,11 @@ final class PillBarViewTests: AppKitTestCase {
         let pill = try XCTUnwrap(barView.pillViewForTesting(PaneID("a-rather-long-pane-name-5")))
         XCTAssertEqual(pill.style, .compact)
         XCTAssertFalse(pill.isSubtitleShownForTesting)
+    }
+
+    func test_overflow_label_counts_in_the_singular_and_plural() {
+        XCTAssertEqual(PillOverflowView.accessibilityLabel(count: 1), "1 more minimized pane")
+        XCTAssertEqual(PillOverflowView.accessibilityLabel(count: 3), "3 more minimized panes")
     }
 
     // MARK: - Peek view

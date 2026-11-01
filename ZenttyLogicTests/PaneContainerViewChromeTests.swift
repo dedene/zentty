@@ -146,6 +146,21 @@ final class PaneContainerViewChromeTests: AppKitTestCase {
         XCTAssertEqual(try XCTUnwrap(floatColors.pane).alpha, 1, accuracy: 0.001)
     }
 
+    func test_pip_chrome_uses_opaque_backdrop_in_translucent_theme() throws {
+        let (container, _) = makeContainer(theme: translucentTheme())
+
+        container.chromeKind = .pip
+
+        let colors = container.backgroundColorsForTesting
+        XCTAssertEqual(try XCTUnwrap(colors.contentClip).alpha, 1, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(colors.terminalHost).alpha, 1, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(colors.pane).alpha, 1, accuracy: 0.001)
+
+        container.chromeKind = .tile
+        XCTAssertEqual(try XCTUnwrap(container.backgroundColorsForTesting.terminalHost).alpha, 0, accuracy: 0.001,
+                       "docked again, the tile is see-through like its neighbours")
+    }
+
     func test_float_chrome_has_no_container_shadow() {
         let (container, _) = makeContainer()
         XCTAssertGreaterThan(container.layer?.shadowOpacity ?? 0, 0)

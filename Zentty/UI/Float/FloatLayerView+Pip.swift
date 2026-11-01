@@ -65,9 +65,9 @@ extension FloatLayerView {
         pip.apply(frame: dragFrame ?? frame, contentSize: contentSize)
         let moved = previousFrame != nil && previousFrame != frame
         if let entry, isNewPip || moved {
-            animateEnter(pip, from: entry)
+            animateEnter(pip, from: entry, isModeChange: isNewPip)
         } else if animatesMoves, moved, dragFrame == nil {
-            animateEnter(pip, from: PipEntry(fromFrame: drawnBefore, velocity: .zero))
+            animateEnter(pip, from: PipEntry(fromFrame: drawnBefore, velocity: .zero), isModeChange: false)
         }
     }
 
@@ -123,37 +123,47 @@ extension FloatLayerView {
     // MARK: - Motion
 
     /// The PiP springs from the float's frame into its corner (the throw's
-    /// velocity carries over). Reduce Motion: a short ease.
-    private func animateEnter(_ pip: PipContainerView, from entry: PipEntry) {
+    /// velocity carries over). Reduce Motion: a float becoming a PiP
+    /// (`isModeChange`) crossfades in at its corner; a PiP moving between
+    /// slots (restack, drag, swipe) takes a short ease, no overshoot.
+    private func animateEnter(_ pip: PipContainerView, from entry: PipEntry, isModeChange: Bool) {
         guard entry.fromFrame.width > 0, entry.fromFrame.height > 0 else { return }
         let reduceMotion = FloatMotion.reduceMotion
-        animateSettle(
-            pip,
-            fromVisibleFrame: entry.fromFrame,
-            velocity: entry.velocity,
-            spring: !reduceMotion,
-            duration: FloatMotion.reducedDuration,
-            timing: FloatMotion.reducedTiming
-        )
+        if reduceMotion, isModeChange {
+            crossfadeIn(pip)
+        } else {
+            animateSettle(
+                pip,
+                fromVisibleFrame: entry.fromFrame,
+                velocity: entry.velocity,
+                spring: !reduceMotion,
+                duration: FloatMotion.reducedDuration,
+                timing: FloatMotion.reducedTiming
+            )
+        }
         onPipMotionForTesting?(pip.paneID, entry.fromFrame)
     }
 
     /// The float springs from the PiP's corner back to its last float frame.
     /// The host's model frame is already final and the grid unscaled; only
-    /// the drawing moves.
+    /// the drawing moves. Reduce Motion: a short crossfade in place.
     func animateRestore(_ host: FloatContainerView, fromPipFrame pipFrame: CGRect) {
         let paneFrame = host.paneFrame
         guard paneFrame.width > 0, paneFrame.height > 0, pipFrame.width > 0, pipFrame.height > 0 else { return }
         let visible = Self.rect(host.frame, mapping: paneFrame, onto: pipFrame)
-        let reduceMotion = FloatMotion.reduceMotion
-        animateSettle(
-            host,
-            fromVisibleFrame: visible,
-            velocity: .zero,
-            spring: !reduceMotion,
-            duration: FloatMotion.reducedDuration,
-            timing: FloatMotion.reducedTiming
-        )
+        if FloatMotion.reduceMotion {
+            // Reduce Motion: the float fades in where it lands.
+            crossfadeIn(host)
+        } else {
+            animateSettle(
+                host,
+                fromVisibleFrame: visible,
+                velocity: .zero,
+                spring: true,
+                duration: FloatMotion.reducedDuration,
+                timing: FloatMotion.reducedTiming
+            )
+        }
         onPipMotionForTesting?(host.paneID, visible)
     }
 

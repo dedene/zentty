@@ -133,6 +133,35 @@ final class PipHostedTests: XCTestCase {
 
     // MARK: - Fixtures
 
+    // MARK: - Settings
+
+    func test_pip_size_setting_resizes_the_mounted_pip_live() throws {
+        let configURL = AppConfigStore.temporaryFileURL(prefix: "Zentty.PipHostedTests")
+        addTeardownBlock { try? FileManager.default.removeItem(at: configURL.deletingLastPathComponent()) }
+        let configStore = AppConfigStore(fileURL: configURL)
+        let controller = try makeFloatedController(configStore: configStore)
+        store(controller).pipPane(floatID)
+        waitForLayout("pip")
+        let pip = try XCTUnwrap(canvas(controller).floatLayerView.pipHostForTesting(floatID))
+        XCTAssertEqual(pip.frame.width, FloatLayout.pipSmallWidth)
+        let unscaled = pip.scaleViewForTesting.bounds.size
+        let terminal = try XCTUnwrap(adapters[floatID]?.spyView)
+        terminal.suspensionLog.removeAll()
+        terminal.forcedSyncLog.removeAll()
+
+        try configStore.update { $0.floats.pipSize = .medium }
+        waitForLayout("config applied")
+
+        XCTAssertTrue(canvas(controller).floatLayerView.pipHostForTesting(floatID) === pip, "same PiP")
+        XCTAssertEqual(pip.frame.width, FloatLayout.pipMediumWidth)
+        let scaled = pip.scaleViewForTesting.bounds.size
+        XCTAssertEqual(scaled.width, unscaled.width, accuracy: 0.01, "the program's grid is untouched")
+        XCTAssertEqual(scaled.height, unscaled.height, accuracy: 0.01)
+        XCTAssertFalse(terminal.suspensionLog.contains { !$0.suspended }, "never resumed while scaled")
+        XCTAssertTrue(terminal.forcedSyncLog.isEmpty)
+        XCTAssertEqual(terminal.isViewportSyncSuspended, true)
+    }
+
     private func legendButton(_ action: PaneBorderAction, in controller: MainWindowController) throws -> NSButton {
         let pip = try XCTUnwrap(canvas(controller).floatLayerView.pipHostForTesting(floatID))
         pip.setHovered(true)
@@ -176,13 +205,14 @@ final class PipHostedTests: XCTestCase {
         return controller
     }
 
-    private func makeFloatedController() throws -> MainWindowController {
+    private func makeFloatedController(configStore: AppConfigStore? = nil) throws -> MainWindowController {
         let registry = PaneRuntimeRegistry(adapterFactory: { [unowned self] paneID in
             let adapter = HostedSpyTerminalAdapter()
             self.adapters[paneID] = adapter
             return adapter
         })
-        let controller = MainWindowController(runtimeRegistry: registry).prepareForHostedTesting()
+        let controller = MainWindowController(runtimeRegistry: registry, configStore: configStore)
+            .prepareForHostedTesting()
         self.controller = controller
         controller.showWindow(nil)
         waitForLayout()

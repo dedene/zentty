@@ -110,7 +110,7 @@ final class FloatLayerViewPipTests: AppKitTestCase {
         XCTAssertNotEqual(spring.initialVelocity, 0, "seeded with the throw")
     }
 
-    func test_reduce_motion_eases_into_the_corner() throws {
+    func test_reduce_motion_crossfades_into_the_corner() throws {
         FloatMotion.reduceMotionOverride = true
         let layer = makeLayer(inWindow: false)
         layer.render(content(mode: .floating))
@@ -118,8 +118,44 @@ final class FloatLayerViewPipTests: AppKitTestCase {
         layer.render(content(mode: .pip(corner: .bottomRight, order: 0)))
 
         let pip = try XCTUnwrap(layer.pipHostForTesting(floatID))
-        let animation = try XCTUnwrap(pip.layer?.animation(forKey: FloatLayerView.settleAnimationKey))
+        let animation = try XCTUnwrap(
+            pip.layer?.animation(forKey: FloatLayerView.settleAnimationKey) as? CABasicAnimation
+        )
         XCTAssertFalse(animation is CASpringAnimation)
+        XCTAssertEqual(animation.keyPath, "opacity", "no fly across the canvas, only a fade")
+        XCTAssertEqual(animation.duration, FloatMotion.reducedDuration, accuracy: 0.0001)
+    }
+
+    func test_reduce_motion_restore_crossfades_in_place() throws {
+        FloatMotion.reduceMotionOverride = true
+        let layer = makeLayer(inWindow: false)
+        layer.render(content(mode: .pip(corner: .bottomRight, order: 0)))
+
+        layer.render(content(mode: .floating))
+
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
+        let animation = try XCTUnwrap(
+            host.layer?.animation(forKey: FloatLayerView.settleAnimationKey) as? CABasicAnimation
+        )
+        XCTAssertFalse(animation is CASpringAnimation)
+        XCTAssertEqual(animation.keyPath, "opacity")
+        XCTAssertEqual(animation.duration, FloatMotion.reducedDuration, accuracy: 0.0001)
+    }
+
+    func test_reduce_motion_restack_eases_without_overshoot() throws {
+        FloatMotion.reduceMotionOverride = true
+        let layer = makeLayer(inWindow: false)
+        layer.render(content(mode: .pip(corner: .bottomRight, order: 0)))
+        let pip = try XCTUnwrap(layer.pipHostForTesting(floatID))
+        pip.layer?.removeAllAnimations()
+
+        layer.pipWidth = FloatLayout.pipMediumWidth
+
+        let animation = try XCTUnwrap(
+            pip.layer?.animation(forKey: FloatLayerView.settleAnimationKey) as? CABasicAnimation
+        )
+        XCTAssertFalse(animation is CASpringAnimation)
+        XCTAssertEqual(animation.keyPath, "transform", "a slot change is a short ease, not a fade")
         XCTAssertEqual(animation.duration, FloatMotion.reducedDuration, accuracy: 0.0001)
     }
 
@@ -165,6 +201,25 @@ final class FloatLayerViewPipTests: AppKitTestCase {
         XCTAssertEqual(pip.frame.height, 300 * 350 / 600, accuracy: 0.001)
         XCTAssertEqual(pip.frame.maxX, canvas.maxX - FloatLayout.pipMargin)
         XCTAssertEqual(pip.frame.minY, FloatLayout.pipMargin + PillBarLayout.barHeight, "above the pill bar")
+    }
+
+    func test_pip_width_change_resizes_a_mounted_pip_live() throws {
+        let layer = makeLayer(inWindow: false)
+        layer.render(content(mode: .pip(corner: .bottomRight, order: 0)))
+        let pip = try XCTUnwrap(layer.pipHostForTesting(floatID))
+        XCTAssertEqual(pip.frame.width, FloatLayout.pipSmallWidth)
+        pip.layer?.removeAllAnimations()
+
+        layer.pipWidth = FloatLayout.pipMediumWidth
+
+        XCTAssertTrue(layer.pipHostForTesting(floatID) === pip, "same PiP, no remount")
+        XCTAssertEqual(pip.frame.width, FloatLayout.pipMediumWidth)
+        XCTAssertEqual(pip.frame.maxX, canvas.maxX - FloatLayout.pipMargin, "still in its corner")
+        XCTAssertEqual(pip.scaleViewForTesting.bounds.size, CGSize(width: 600, height: 350), "grid size untouched")
+        XCTAssertTrue(
+            pip.layer?.animation(forKey: FloatLayerView.settleAnimationKey) is CASpringAnimation,
+            "springs to the new size like a restack"
+        )
     }
 
     func test_status_strip_follows_content_and_live_updates() throws {

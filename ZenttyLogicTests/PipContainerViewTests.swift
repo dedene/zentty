@@ -152,6 +152,45 @@ final class PipContainerViewTests: AppKitTestCase {
         XCTAssertEqual(received.map(\.1), [.minimize])
     }
 
+    func test_voiceover_reaches_the_hover_legend_as_custom_actions() throws {
+        let pip = makePip()
+        var received: [PaneBorderAction] = []
+        pip.onActionRequested = { _, action in received.append(action) }
+
+        XCTAssertTrue(pip.actionsViewForTesting.isHidden, "the legend is hover-only")
+        let custom = pip.accessibilityCustomActions() ?? []
+        XCTAssertEqual(custom.map(\.name), ["Restore float", "Minimize", "Close pane"])
+        for action in custom {
+            XCTAssertTrue(action.handler?() ?? false)
+        }
+
+        XCTAssertEqual(received, [.restore, .minimize, .close])
+        XCTAssertEqual(pip.accessibilityRole(), .button)
+    }
+
+    func test_pip_backdrop_is_opaque_in_a_translucent_theme() throws {
+        let pip = makePip()
+        let translucent = ZenttyTheme(
+            resolvedTheme: GhosttyResolvedTheme(
+                background: NSColor(hexString: "#0A0C10")!,
+                foreground: NSColor(hexString: "#F0F3F6")!,
+                cursorColor: NSColor(hexString: "#71B7FF")!,
+                selectionBackground: nil,
+                selectionForeground: nil,
+                palette: [:],
+                backgroundOpacity: 0.7,
+                backgroundBlurRadius: nil
+            ),
+            reduceTransparency: false
+        )
+        XCTAssertTrue(translucent.isTranslucent)
+
+        pip.configure(status: item(.running), theme: translucent)
+
+        let clip = try XCTUnwrap(pip.scaleViewForTesting.superview?.layer?.backgroundColor)
+        XCTAssertEqual(clip.alpha, 1, accuracy: 0.001, "text under a PiP never shows through")
+    }
+
     func test_status_strip_shows_name_and_status_word() {
         let pip = makePip()
 

@@ -25,6 +25,10 @@ struct PillBarItem: Equatable {
     var accessibilityLabel: String {
         [name, statusWord, "minimized"].compactMap { $0 }.joined(separator: ", ")
     }
+
+    /// VoiceOver actions on a pill besides press (restore). A pill has no
+    /// legend, so these are the only non-pointer way to PiP or close it.
+    static let accessibilityActions: [PaneBorderAction] = [.pip, .close]
 }
 
 /// What the pill bar shows for the active worklane: its minimized floats,

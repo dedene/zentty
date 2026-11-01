@@ -315,10 +315,24 @@ struct AppConfig: Equatable, Sendable {
 
     /// Floating panes, PiPs and pills.
     struct Floats: Equatable, Sendable {
+        /// How wide a picture in picture is drawn (`FloatLayout.pipWidth`).
+        enum PipSize: String, CaseIterable, Equatable, Sendable {
+            case small
+            case medium
+
+            var settingsTitle: String {
+                switch self {
+                case .small: "Small"
+                case .medium: "Medium"
+                }
+            }
+        }
+
         /// Pop a minimized pane up as a PiP while its agent needs input.
         var autoPopNeedsInput: Bool
+        var pipSize: PipSize
 
-        static let `default` = Floats(autoPopNeedsInput: true)
+        static let `default` = Floats(autoPopNeedsInput: true, pipSize: .small)
     }
 
     struct MenuBar: Equatable, Sendable {

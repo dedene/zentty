@@ -9,6 +9,8 @@ import AppKit
 @MainActor
 final class PillBarView: NSView {
     var onPillClicked: ((PaneID) -> Void)?
+    /// A VoiceOver custom action on a pill (picture in picture, close).
+    var onPillActionRequested: ((PaneID, PaneBorderAction) -> Void)?
     /// A pill was released `PillBarLayout.promoteDistance` above the bar;
     /// the point is in bar coordinates.
     var onPillPromoted: ((PaneID, CGPoint) -> Void)?
@@ -74,6 +76,9 @@ final class PillBarView: NSView {
             }
             view.onPress = { [weak self] in
                 self?.onPillClicked?(paneID)
+            }
+            view.onAction = { [weak self] action in
+                self?.onPillActionRequested?(paneID, action)
             }
             pillViews[paneID] = view
             addSubview(view)

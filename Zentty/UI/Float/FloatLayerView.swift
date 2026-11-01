@@ -49,8 +49,14 @@ final class FloatLayerView: NSView {
     private var lastFocusedFloatID: PaneID?
     /// Room at the bottom the PiPs keep clear (the pill bar while it shows).
     var bottomInset: CGFloat = 0
-    /// PiP width (size S by default; the setting lands with Task 21).
-    var pipWidth: CGFloat = FloatLayout.pipSmallWidth
+    /// PiP width (`floats.pip_size`). A change re-places mounted PiPs right
+    /// away; they move to their new slot like a restack.
+    var pipWidth: CGFloat = FloatLayout.pipSmallWidth {
+        didSet {
+            guard pipWidth != oldValue, !pipHosts.isEmpty else { return }
+            applyPlacements(duringLayout: false)
+        }
+    }
     private var focusGeneration: UInt64 = 0
     /// Frames of floats under a live gesture. They win over the store until
     /// the gesture ends, so a re-render mid-drag (agent status, the raise on

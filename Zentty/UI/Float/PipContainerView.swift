@@ -101,6 +101,15 @@ final class PipContainerView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PipChrome.accessibilityLabel(for: nil))
+        // The legend only shows on hover; VoiceOver reaches its buttons as
+        // custom actions (press restores, like a click).
+        setAccessibilityCustomActions(PipChrome.actions.map { action in
+            NSAccessibilityCustomAction(name: action.accessibilityLabel) { [weak self] in
+                guard let self, let onActionRequested = self.onActionRequested else { return false }
+                onActionRequested(self.paneID, action)
+                return true
+            }
+        })
         applyColors()
     }
 

@@ -31,11 +31,38 @@ final class AppConfigFloatsTOMLTests: XCTestCase {
         let decoded = AppConfigTOML.decode("""
             [floats]
             auto_pop_needs_input = false
-            pip_size = "medium"
+            future_knob = "on"
             """)
 
         XCTAssertEqual(decoded?.floats.autoPopNeedsInput, false)
-        XCTAssertEqual(decoded.map(AppConfigTOML.encode)?.contains("pip_size = \"medium\""), true)
+        XCTAssertEqual(decoded.map(AppConfigTOML.encode)?.contains("future_knob = \"on\""), true)
+    }
+
+    func test_pip_size_defaults_to_small() {
+        XCTAssertEqual(AppConfig.default.floats.pipSize, .small)
+        XCTAssertTrue(AppConfigTOML.encode(.default).contains("[floats]\nauto_pop_needs_input = true\npip_size = \"small\""))
+    }
+
+    func test_pip_size_medium_round_trips() {
+        var config = AppConfig.default
+        config.floats.pipSize = .medium
+
+        let decoded = AppConfigTOML.decode(AppConfigTOML.encode(config))
+
+        XCTAssertEqual(decoded?.floats.pipSize, .medium)
+        XCTAssertEqual(decoded?.floats.autoPopNeedsInput, true)
+    }
+
+    func test_pip_size_rejects_unknown_value() {
+        XCTAssertNil(AppConfigTOML.decode("""
+            [floats]
+            pip_size = "large"
+            """))
+    }
+
+    func test_pip_size_maps_to_the_spec_widths() {
+        XCTAssertEqual(FloatLayout.pipWidth(for: .small), 232)
+        XCTAssertEqual(FloatLayout.pipWidth(for: .medium), 300)
     }
 
     func test_auto_pop_rejects_non_bool_value() {

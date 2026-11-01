@@ -22,6 +22,8 @@ final class PillView: NSView {
     private(set) var style: PillBarLayout.Style = .full
     var onHoverChanged: ((Bool) -> Void)?
     var onPress: (() -> Void)?
+    /// A VoiceOver custom action (`PillBarItem.accessibilityActions`).
+    var onAction: ((PaneBorderAction) -> Void)?
     private(set) var isHovered = false
     private var theme = ZenttyTheme.fallback(for: nil)
     private let dotLayer = CALayer()
@@ -48,6 +50,13 @@ final class PillView: NSView {
         subtitleLabel.font = Self.subtitleFont
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        setAccessibilityCustomActions(PillBarItem.accessibilityActions.map { action in
+            NSAccessibilityCustomAction(name: action.accessibilityLabel) { [weak self] in
+                guard let onAction = self?.onAction else { return false }
+                onAction(action)
+                return true
+            }
+        })
         apply()
     }
 
@@ -255,9 +264,14 @@ final class PillOverflowView: NSView {
         label.textColor = theme.primaryText
         layer?.backgroundColor = theme.openWithChromeBackground.cgColor
         layer?.borderColor = theme.openWithChromeBorder.cgColor
-        setAccessibilityLabel("\(count) more minimized panes")
-        toolTip = "\(count) more minimized panes"
+        let description = Self.accessibilityLabel(count: count)
+        setAccessibilityLabel(description)
+        toolTip = description
         needsLayout = true
+    }
+
+    static func accessibilityLabel(count: Int) -> String {
+        count == 1 ? "1 more minimized pane" : "\(count) more minimized panes"
     }
 
     override func layout() {

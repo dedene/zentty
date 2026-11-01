@@ -21,6 +21,14 @@ enum FloatLayout {
 
     // MARK: - PiP
 
+    /// PiP width for the `floats.pip_size` setting.
+    static func pipWidth(for size: AppConfig.Floats.PipSize) -> CGFloat {
+        switch size {
+        case .small: pipSmallWidth
+        case .medium: pipMediumWidth
+        }
+    }
+
     /// PiP size at `width`, following the float's aspect ratio (clamped).
     static func pipSize(floatSize: CGSize, width: CGFloat) -> CGSize {
         let ratio = floatSize.width > 0
