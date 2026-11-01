@@ -213,10 +213,12 @@ extension AgentHistoryViewModel {
 
     // MARK: - Copying
 
-    /// ⌘C and "Copy Resume Command". Does nothing when no command can be built.
+    /// ⌘C and "Copy Resume Command". Does nothing when no command can be built. A row whose
+    /// folder is gone copies no `cd`, like the folder sheet: a failing `cd` would stop the `&&`.
     func copyResumeCommand(for key: AgentHistorySessionKey) {
         guard let source = resumeSource(for: key) else { return }
-        copyResumeCommand(source: source, workingDirectory: source.workingDirectory)
+        let workingDirectory = folderGoneKeys.contains(key) ? nil : source.workingDirectory
+        copyResumeCommand(source: source, workingDirectory: workingDirectory)
     }
 
     private func copyResumeCommand(source: AgentHistoryResumeSource, workingDirectory: String?) {

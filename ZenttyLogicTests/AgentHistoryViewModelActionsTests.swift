@@ -226,6 +226,7 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
     // MARK: - Copy, remove, reveal, settings
 
     func test_copy_resume_command_writes_injected_pasteboard_and_shows_transient_message() {
+        existingPaths = [cwd]
         let model = startedModel()
 
         model.handle(.copyResumeCommand)
@@ -236,6 +237,23 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         XCTAssertNotNil(model.transientMessage)
         scheduler.advance(by: 0.1)
         XCTAssertNil(model.transientMessage, "the message hides after 2.4 s")
+    }
+
+    func test_copy_resume_command_for_folder_gone_row_drops_cd() {
+        let model = startedModel()
+        let gone = expectation(description: "folder-gone keys published")
+        let observation = model.$folderGoneKeys
+            .first { $0.contains(self.summary(1).key) }
+            .sink { _ in gone.fulfill() }
+        wait(for: [gone], timeout: 5)
+        observation.cancel()
+
+        model.handle(.copyResumeCommand)
+        XCTAssertEqual(pasteboard.string(forType: .string), "codex resume native-1", "no `cd` into a folder that's gone")
+
+        pasteboard.clearContents()
+        model.perform(.copyResumeCommand, on: summary(2).key)
+        XCTAssertEqual(pasteboard.string(forType: .string), "codex resume native-2")
     }
 
     func test_copy_resume_command_noop_when_unavailable() {
