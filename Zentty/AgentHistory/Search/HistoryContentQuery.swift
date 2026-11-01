@@ -19,9 +19,10 @@ enum HistoryContentQuery {
     struct Filters: Equatable, Sendable {
         /// Empty means every agent.
         var agents: Set<AgentHistoryAgent> = []
-        /// `repo:` values; one containing `/` is an exact root, otherwise a basename.
+        /// `repo:` values; one containing `/` is an exact root, otherwise a basename folded by
+        /// `HistoryFilterFolding` on both sides.
         var repoNames: [String] = []
-        /// `branch:` values, matched as case-insensitive substrings.
+        /// `branch:` values, matched as `HistoryFilterFolding`-folded substrings.
         var branches: [String] = []
         var beforeMs: Int64?
         var afterMs: Int64?
@@ -191,18 +192,19 @@ enum HistoryContentQuery {
                     bindings.append(.text(name))
                     bindings.append(.text(name))
                 } else {
-                    alternatives.append("s.main_repo_root LIKE ? ESCAPE '\\' OR s.repo_root LIKE ? ESCAPE '\\'")
-                    let pattern = "%/" + escapeLike(name)
-                    bindings.append(.text(pattern))
-                    bindings.append(.text(pattern))
+                    let fold = AgentHistorySQLFunctions.foldedBasename
+                    alternatives.append("\(fold)(s.main_repo_root) = ? OR \(fold)(s.repo_root) = ?")
+                    let folded = HistoryFilterFolding.fold(name)
+                    bindings.append(.text(folded))
+                    bindings.append(.text(folded))
                 }
             }
             conditions.append("(" + alternatives.joined(separator: " OR ") + ")")
         }
 
         if !filters.branches.isEmpty {
-            let alternatives = filters.branches.map { _ in "instr(lower(s.branch), ?) > 0" }
-            bindings.append(contentsOf: filters.branches.map { .text($0.lowercased()) })
+            let alternatives = filters.branches.map { _ in "instr(\(AgentHistorySQLFunctions.fold)(s.branch), ?) > 0" }
+            bindings.append(contentsOf: filters.branches.map { .text(HistoryFilterFolding.fold($0)) })
             conditions.append("(" + alternatives.joined(separator: " OR ") + ")")
         }
 
@@ -232,19 +234,6 @@ enum HistoryContentQuery {
             bindings.append(contentsOf: names.map { .text($0) })
         }
         return condition + ")"
-    }
-
-    /// Escapes `\`, `%` and `_` for `LIKE … ESCAPE '\'`.
-    static func escapeLike(_ value: String) -> String {
-        var result = ""
-        result.reserveCapacity(value.count)
-        for character in value {
-            if character == "\\" || character == "%" || character == "_" {
-                result.append("\\")
-            }
-            result.append(character)
-        }
-        return result
     }
 
     static func milliseconds(_ date: Date) -> Int64 {

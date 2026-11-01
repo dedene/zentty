@@ -275,6 +275,7 @@ extension HistoryMetadataIndex {
         let fields: [FieldKey]
         /// All keys joined by NUL, for the per-term presence pre-check.
         let haystack: [UInt8]
+        /// `HistoryFilterFolding`-folded, for the `repo:` and `branch:` filters.
         let mainRepoNameLower: String?
         let repoNameLower: String?
         let branchLower: String?
@@ -303,15 +304,9 @@ extension HistoryMetadataIndex {
             }
             self.fields = fields
             self.haystack = haystack
-            self.mainRepoNameLower = Self.basename(summary.mainRepoRoot)?.lowercased()
-            self.repoNameLower = Self.basename(summary.repoRoot)?.lowercased()
-            self.branchLower = summary.branch?.lowercased()
-        }
-
-        private static func basename(_ path: String?) -> String? {
-            guard let path, !path.isEmpty else { return nil }
-            let name = (path as NSString).lastPathComponent
-            return name.isEmpty || name == "/" ? nil : name
+            self.mainRepoNameLower = HistoryFilterFolding.foldedBasename(summary.mainRepoRoot)
+            self.repoNameLower = HistoryFilterFolding.foldedBasename(summary.repoRoot)
+            self.branchLower = summary.branch.map(HistoryFilterFolding.fold)
         }
     }
 
@@ -370,12 +365,13 @@ extension HistoryMetadataIndex {
         }
     }
 
-    /// Query filters with their values lowered once per query.
+    /// Query filters with their values folded once per query (`HistoryFilterFolding`, shared
+    /// with the content tier's SQL so both tiers admit the same sessions).
     fileprivate struct PreparedFilters {
         let filters: HistoryQueryFilters
         /// `repo:` values with a `/`: exact paths.
         let repoPaths: [String]
-        /// `repo:` values without a `/`: basenames, lowercased.
+        /// `repo:` values without a `/`: basenames, folded.
         let repoNames: [String]
         let branches: [String]
         let afterMs: Int64?
@@ -386,8 +382,8 @@ extension HistoryMetadataIndex {
             self.filters = filters
             isEmpty = filters.isEmpty
             repoPaths = filters.repoNames.filter { $0.contains("/") }
-            repoNames = filters.repoNames.filter { !$0.contains("/") }.map { $0.lowercased() }
-            branches = filters.branches.map { $0.lowercased() }
+            repoNames = filters.repoNames.filter { !$0.contains("/") }.map(HistoryFilterFolding.fold)
+            branches = filters.branches.map(HistoryFilterFolding.fold)
             afterMs = filters.after.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
             beforeMs = filters.before.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
         }
@@ -401,7 +397,8 @@ extension HistoryMetadataIndex {
                 guard pathMatch || nameMatch else { return false }
             }
             if !branches.isEmpty {
-                guard let branch = entry.branchLower, branches.contains(where: { branch.contains($0) }) else {
+                guard let branch = entry.branchLower,
+                      branches.contains(where: { HistoryFilterFolding.contains(branch, $0) }) else {
                     return false
                 }
             }

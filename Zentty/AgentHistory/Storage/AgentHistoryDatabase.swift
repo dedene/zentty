@@ -68,6 +68,10 @@ final class AgentHistoryDatabase: @unchecked Sendable {
         sqlite3_busy_timeout(opened, busyTimeoutMilliseconds)
 
         do {
+            if mode != .externalReadOnly {
+                let code = AgentHistorySQLFunctions.register(on: opened)
+                guard code == SQLITE_OK else { throw AgentHistoryDatabaseError.from(code: code, db: opened) }
+            }
             try execute(Self.setupPragmas(mode: mode, journalMode: journalMode))
             if mode == .readWrite {
                 // `PRAGMA journal_mode` reports the mode it ended up in rather than failing.
