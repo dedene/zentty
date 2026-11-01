@@ -188,6 +188,26 @@ enum HistorySearchError: Error, Equatable {
     case cancelled
     /// The index cannot be read; the associated value is a state name, never a message.
     case indexUnavailable(String)
+    /// The session row is gone (removed, purged or hidden) or excluded.
+    case sessionNotFound
+}
+
+/// The preview pane's content for one session: the turns that match the query, or, without
+/// content terms (or without a matching turn), the first user prompt and the latest agent reply.
+struct HistoryPreview: Equatable, Sendable {
+    let session: AgentHistorySessionSummary
+    let turns: [HistoryTurnMatch]
+    let turnsAreMatches: Bool
+}
+
+/// A session's full transcript, oldest first, capped at `HistorySearchEngine.transcriptLimit`
+/// (the latest turns when longer).
+struct HistoryTranscript: Equatable, Sendable {
+    let turns: [HistoryTurnMatch]
+    /// The first turn the query grades as a match; nil without terms or without a match.
+    let firstMatchMessageID: Int64?
+    /// Older turns were left out.
+    let isTruncated: Bool
 }
 
 /// A per-query cancellation flag, checked by the content tier between rows and by SQLite's
