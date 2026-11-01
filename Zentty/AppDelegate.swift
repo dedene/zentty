@@ -955,6 +955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.agentHistoryServices = AgentHistoryPaletteServicesAdapter.make(
             controller: .shared, host: controller, configStore: configStore)
+        controller.agentHistorySettingsBackend = AgentHistoryController.shared
     }
 
     private func makeOnePasswordPromptFocusCoordinator() -> OnePasswordPromptFocusCoordinator {

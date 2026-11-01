@@ -206,6 +206,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         get { rootViewController.agentHistoryServices }
         set { rootViewController.agentHistoryServices = newValue }
     }
+    /// Settings › Agent History's backend; read when the settings window is first created, so the
+    /// app delegate sets it before any window shows. Nil: the section says history isn't available.
+    var agentHistorySettingsBackend: (any AgentHistorySettingsBackend)?
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
@@ -526,6 +529,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 openWithService: openWithService,
                 serverOpening: serverOpenService,
                 runtimeErrorReportingEnabled: ErrorReportingRuntimeState.isEnabledForCurrentProcess,
+                agentHistoryBackend: agentHistorySettingsBackend,
                 initialSection: section
             )
             self.settingsWindowController = settingsWindowController
