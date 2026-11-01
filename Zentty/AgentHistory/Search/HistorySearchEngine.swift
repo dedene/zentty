@@ -43,8 +43,41 @@ final class HistorySearchEngine: @unchecked Sendable {
         var cancellationCheckRows = 256
         /// Test seam: runs on the searching thread before each content row is graded.
         var willGradeRow: (@Sendable () -> Void)?
+        /// Test seam: receives the route a content search chose, before it reads content rows.
+        var didChooseRoute: (@Sendable (ContentRoute) -> Void)?
 
         init() {}
+    }
+
+    /// How a content search finds its message hits: the session gate of the walk and where the
+    /// message rows come from. Reported to `Tuning.didChooseRoute` and the debug log.
+    struct ContentRoute: Equatable, Sendable, CustomStringConvertible {
+        enum Gate: String, Sendable {
+            case perRow, sessions, contentRowIDs
+        }
+
+        enum Messages: String, Sendable {
+            case ftsWalk, substringScan, scanFallback
+        }
+
+        let gate: Gate
+        let messages: Messages
+
+        init(gate: Gate, messages: Messages) {
+            self.gate = gate
+            self.messages = messages
+        }
+
+        init(sessionGate: HistoryContentQuery.SessionGate, messages: Messages) {
+            switch sessionGate {
+            case .perRow: self.gate = .perRow
+            case .sessions: self.gate = .sessions
+            case .contentRowIDs: self.gate = .contentRowIDs
+            }
+            self.messages = messages
+        }
+
+        var description: String { "\(gate.rawValue)/\(messages.rawValue)" }
     }
 
     static let transcriptLimit = 2_000
@@ -120,6 +153,7 @@ final class HistorySearchEngine: @unchecked Sendable {
             query: query, sqlRequiredTerms: Set(plan.ftsTerms + plan.instrFilters), exclusions: exclusions,
             cancellation: cancellation, tuning: tuning)
         let tuning = self.tuning
+        var chosenRoute: ContentRoute?
 
         let response: HistoryContentResponse = try withSearchReader(cancellation: cancellation) { db in
             var filters = filters
@@ -133,9 +167,15 @@ final class HistorySearchEngine: @unchecked Sendable {
                     && admitted.turns <= Int64(tuning.substringScanTurnLimit)
             }
             var truncated = false
+            func choose(_ messages: ContentRoute.Messages) {
+                let route = ContentRoute(sessionGate: filters.gate, messages: messages)
+                chosenRoute = route
+                tuning.didChooseRoute?(route)
+            }
             switch plan.mode {
             case .fts:
                 guard let match = plan.matchExpression else { return emptyResponse() }
+                choose(scansAdmittedMessages ? .substringScan : .ftsWalk)
                 let messageRows = scansAdmittedMessages
                     ? try collectAdmittedMessages(
                         db, terms: plan.ftsTerms, filters: filters, limit: tuning.messageLimit, collector: collector)
@@ -145,6 +185,7 @@ final class HistorySearchEngine: @unchecked Sendable {
                     db, HistoryContentQuery.artifacts(match: match, filters: filters, limit: tuning.artifactLimit))
                 truncated = messageRows >= tuning.messageLimit || artifactRows >= tuning.artifactLimit
             case .scan:
+                choose(.scanFallback)
                 let cutoffStatement = HistoryContentQuery.scanCutoff(window: tuning.scanWindow)
                 let cutoff = try db.scalarInt64(cutoffStatement.sql, cutoffStatement.bindings)
                 let rows = try collector.collectMessages(
@@ -176,7 +217,8 @@ final class HistorySearchEngine: @unchecked Sendable {
 
         AgentHistoryLog.search.debug(
             """
-            Content search: \(collector.rows, privacy: .public) rows, \(collector.hits.count, privacy: .public) hits, \
+            Content search (\(chosenRoute?.description ?? "none", privacy: .public)): \
+            \(collector.rows, privacy: .public) rows, \(collector.hits.count, privacy: .public) hits, \
             \(response.results.count, privacy: .public) results, \(response.enrichments.count, privacy: .public) \
             enrichments, truncated \(response.truncated, privacy: .public), \
             \(Int(response.elapsed * 1000), privacy: .public) ms

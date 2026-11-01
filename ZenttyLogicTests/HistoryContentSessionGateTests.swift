@@ -8,6 +8,7 @@ import XCTest
 final class HistoryContentSessionGateTests: XCTestCase {
     private typealias Fixture = HistorySearchFixture
     private typealias Query = HistoryContentQuery
+    private typealias Route = HistorySearchEngine.ContentRoute
 
     /// Sessions across repos, worktrees, repo-less folders, branches (with Unicode case and
     /// normalization variants), agents and the invisible kinds (child, zero turns).
@@ -145,9 +146,9 @@ final class HistoryContentSessionGateTests: XCTestCase {
         }
     }
 
-    func test_every_route_gives_the_same_search_results() throws {
-        let fixture = try Fixture(testCase: self)
-        try populate(fixture)
+    /// The tunings that force each route of a restricted trigram search, with the route each
+    /// must take, so the route-equivalence tests cannot pass by all taking the same path.
+    private static func routeTunings() -> [(tuning: HistorySearchEngine.Tuning, route: Route)] {
         var rowIDs = HistorySearchEngine.Tuning()
         rowIDs.rowIDGateTurnLimit = .max
         rowIDs.substringScanTurnLimit = 0
@@ -156,6 +157,40 @@ final class HistoryContentSessionGateTests: XCTestCase {
         sessions.substringScanTurnLimit = 0
         var substrings = HistorySearchEngine.Tuning()
         substrings.substringScanTurnLimit = .max
+        return [
+            (rowIDs, Route(gate: .contentRowIDs, messages: .ftsWalk)),
+            (sessions, Route(gate: .sessions, messages: .ftsWalk)),
+            (substrings, Route(gate: .contentRowIDs, messages: .substringScan)),
+        ]
+    }
+
+    /// Runs `raw` once per route tuning and asserts each took its route; returns the responses
+    /// in `routeTunings()` order.
+    private func searchEveryRoute(
+        _ raw: String,
+        scope: AgentHistoryScope,
+        fixture: Fixture,
+        admitsSessions: Bool = true,
+        adjust: (inout HistorySearchEngine.Tuning) -> Void = { _ in },
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [HistoryContentResponse] {
+        try Self.routeTunings().map { tuning, expected in
+            var tuning = tuning
+            adjust(&tuning)
+            let routes = Fixture.Box<[Route]>([])
+            tuning.didChooseRoute = { route in routes.set(routes.value + [route]) }
+            let response = try fixture.engine(tuning: tuning).searchContent(
+                Fixture.query(raw), context: fixture.context(scope), excludingSessionIDs: [],
+                cancellation: HistorySearchCancellation())
+            XCTAssertEqual(routes.value, admitsSessions ? [expected] : [], "route of \(raw)", file: file, line: line)
+            return response
+        }
+    }
+
+    func test_every_route_gives_the_same_search_results() throws {
+        let fixture = try Fixture(testCase: self)
+        try populate(fixture)
 
         let cases: [(raw: String, scope: AgentHistoryScope, expected: Set<String>)] = [
             ("deploy", Fixture.projectScope("/repos/app"), ["app-main", "app-tree", "app-sub", "loose"]),
@@ -166,15 +201,40 @@ final class HistoryContentSessionGateTests: XCTestCase {
             ("repo:nowhere deploy", .all, []),
         ]
         for (raw, scope, expected) in cases {
-            let results = try [rowIDs, sessions, substrings].map { tuning in
-                try fixture.engine(tuning: tuning).searchContent(
-                    Fixture.query(raw), context: fixture.context(scope), excludingSessionIDs: [],
-                    cancellation: HistorySearchCancellation())
-            }
+            let results = try searchEveryRoute(raw, scope: scope, fixture: fixture, admitsSessions: !expected.isEmpty)
             XCTAssertEqual(Set(results[0].results.map(\.session.nativeID)), expected, raw)
             XCTAssertEqual(results[0], results[1].withElapsed(results[0].elapsed), "session gate, \(raw)")
             XCTAssertEqual(results[0], results[2].withElapsed(results[0].elapsed), "substring scan, \(raw)")
         }
+    }
+
+    func test_unrestricted_and_non_trigram_searches_take_the_per_row_walk_or_the_scan() throws {
+        let trigram = try Fixture(testCase: self)
+        try populate(trigram)
+        var substrings = HistorySearchEngine.Tuning()
+        substrings.substringScanTurnLimit = .max
+        func route(_ fixture: Fixture, _ raw: String, scope: AgentHistoryScope = .all) throws -> [Route] {
+            var tuning = substrings
+            let routes = Fixture.Box<[Route]>([])
+            tuning.didChooseRoute = { route in routes.set(routes.value + [route]) }
+            _ = try fixture.engine(tuning: tuning).searchContent(
+                Fixture.query(raw), context: fixture.context(scope), excludingSessionIDs: [],
+                cancellation: HistorySearchCancellation())
+            return routes.value
+        }
+
+        XCTAssertEqual(try route(trigram, "deploy"), [Route(gate: .perRow, messages: .ftsWalk)])
+        XCTAssertEqual(try route(trigram, "agent:claude deploy"), [Route(gate: .perRow, messages: .ftsWalk)])
+        XCTAssertEqual(try route(trigram, "repo:nowhere deploy"), [], "nothing admitted, nothing walked")
+
+        let unicode = try Fixture(testCase: self, tokenizer: .unicode61)
+        try populate(unicode)
+        XCTAssertEqual(try route(unicode, "repo:app deploy"), [Route(gate: .contentRowIDs, messages: .ftsWalk)],
+                       "the substring scan is a trigram MATCH stand-in only")
+
+        let none = try Fixture(testCase: self, tokenizer: .none)
+        try populate(none)
+        XCTAssertEqual(try route(none, "repo:app deploy"), [Route(gate: .contentRowIDs, messages: .scanFallback)])
     }
 
     func test_scan_fallback_applies_the_session_gate() throws {
