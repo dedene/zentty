@@ -164,11 +164,71 @@ final class HistoryIPCFormattingTests: XCTestCase {
         )
 
         let text = HistoryIPCFormatting.searchText(
-            makeSearchResponse(results: [hit]), query: "q\u{1B}", homeDirectory: home, timeZone: utc
+            makeSearchResponse(results: [hit]), query: "q", homeDirectory: home, timeZone: utc
         )
 
-        XCTAssertFalse(text.unicodeScalars.contains { $0 == "\u{1B}" || $0 == "\u{07}" })
+        assertOnlyLayoutControls(text)
         XCTAssertTrue(text.contains("Evil \\u{1B}[2J title"))
+        XCTAssertTrue(text.contains("You: bell\\u{07}"))
+
+        // The query is echoed only when nothing matched.
+        let empty = HistoryIPCFormatting.searchText(
+            makeSearchResponse(results: []), query: "q\u{1B}]52;c;x\u{07}", homeDirectory: home, timeZone: utc
+        )
+        assertOnlyLayoutControls(empty)
+        XCTAssertTrue(empty.contains("match \"q\\u{1B}]52;c;x\\u{07}\"."), empty)
+    }
+
+    func test_show_text_cannot_carry_terminal_escapes() {
+        let response = HistoryShowIPCResponse(
+            scope: "project",
+            project: "/Users/someone/Development/zentty",
+            agent: "claude",
+            sessionId: "s\u{1B}[0m",
+            title: "Evil \u{1B}[2J title",
+            cwd: "/Users/someone/Development/zentty",
+            branch: "main\u{9B}31m",
+            model: nil,
+            effort: nil,
+            createdAt: "2026-10-29T13:00:00Z",
+            updatedAt: "2026-10-29T14:02:00Z",
+            live: false,
+            totalTurns: 1,
+            omittedTurns: 0,
+            turns: [
+                HistoryIPCTurn(
+                    role: "agent",
+                    at: "2026-10-29T13:40:00Z",
+                    text: "clear\u{1B}[2J\ncopy\u{1B}]52;c;x\u{07}\n\u{9B}31mred\n\tindented",
+                    truncated: false
+                ),
+            ],
+            resumeCommand: "claude --resume s\u{1B}[0m"
+        )
+
+        let text = HistoryIPCFormatting.showText(response, homeDirectory: home, timeZone: utc)
+
+        assertOnlyLayoutControls(text)
+        XCTAssertTrue(text.hasPrefix("Evil \\u{1B}[2J title\n"), text)
+        XCTAssertTrue(text.contains(" · main\\u{009B}31m · "), text)
+        XCTAssertTrue(text.contains("Session: s\\u{1B}[0m · Resume: claude --resume s\\u{1B}[0m"), text)
+        XCTAssertTrue(text.contains("""
+            Agent · 2026-10-29 13:40
+              clear\\u{1B}[2J
+              copy\\u{1B}]52;c;x\\u{07}
+              \\u{009B}31mred
+              \tindented
+            """), text)
+    }
+
+    /// Newlines and tabs lay the text out; any other control scalar (C0, DEL or C1) could drive
+    /// the terminal.
+    private func assertOnlyLayoutControls(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let controls = text.unicodeScalars.filter {
+            $0.properties.generalCategory == .control && $0 != "\n" && $0 != "\t"
+        }
+        XCTAssertTrue(controls.isEmpty, "raw controls: \(controls.map { $0.escaped(asASCII: true) })",
+                      file: file, line: line)
     }
 
     // MARK: - Fixtures
