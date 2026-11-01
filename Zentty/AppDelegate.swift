@@ -953,6 +953,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.agentHistorySourcesProvider = { [weak self] in
             self?.agentHistoryWorklaneSources() ?? []
         }
+        controller.agentHistoryServices = AgentHistoryPaletteServicesAdapter.make(
+            controller: .shared, host: controller, configStore: configStore)
     }
 
     private func makeOnePasswordPromptFocusCoordinator() -> OnePasswordPromptFocusCoordinator {

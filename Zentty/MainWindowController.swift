@@ -201,6 +201,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var agentHistoryHostsProvider: (() -> [any AgentHistoryWindowHost])?
     /// Every window's worklane store, for the live-session index. Nil: just this window's.
     var agentHistorySourcesProvider: (() -> [MenuBarWorklaneSource])?
+    /// The Agent History palette's services; nil until the app delegate wires them (tests inject fakes).
+    var agentHistoryServices: AgentHistoryPaletteServices? {
+        get { rootViewController.agentHistoryServices }
+        set { rootViewController.agentHistoryServices = newValue }
+    }
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),

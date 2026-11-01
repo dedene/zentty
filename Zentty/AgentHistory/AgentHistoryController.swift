@@ -40,7 +40,7 @@ final class AgentHistoryController: Sendable {
     /// The last `state.json` contents read or written; nil until the first load.
     private var persistedState: AgentHistoryState?
     private var stateStore: AgentHistoryStateStore?
-    private var indexer: AgentHistoryIndexer?
+    private(set) var indexer: AgentHistoryIndexer?
     /// Bumped per indexer, so a stopped indexer's late publishes are ignored.
     private var indexerGeneration: UInt64 = 0
     /// Bumped by every user-driven state change, so a slower launch read never overrides it.
