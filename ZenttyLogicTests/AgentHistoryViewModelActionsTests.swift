@@ -318,6 +318,52 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         XCTAssertEqual(AgentHistoryRowMenuItem.separatorIndexes(in: AgentHistoryRowMenuItem.allCases), [4, 6, 7])
     }
 
+    func test_live_rows_offer_jump_and_fork_and_launch_from_the_live_pane() throws {
+        let liveOnlyKey = AgentHistorySessionKey(agent: .codex, nativeID: "live-only")
+        let indexed = summary(1)
+        search.summariesByKey = [indexed.key: indexed]
+        launch.snapshot = LiveAgentSessionSnapshot(locationsByKey: [
+            liveOnlyKey: [liveLocation(liveOnlyKey)],
+            indexed.key: [liveLocation(indexed.key)],
+        ])
+        launch.outcome = .failed(message: "No such pane", offerCopySessionID: false)
+        let model = startedModel(recent: [indexed, summary(2)])
+        XCTAssertEqual(Set(model.liveKeys), [liveOnlyKey, indexed.key])
+
+        XCTAssertEqual(
+            model.rowMenuItems(for: liveOnlyKey),
+            [.jumpToPane, .forkIntoSplit, .copyResumeCommand, .copySessionID],
+            "a live-only row has nothing to remove or reveal"
+        )
+        XCTAssertEqual(
+            model.rowMenuItems(for: indexed.key),
+            [.jumpToPane, .forkIntoSplit, .copyResumeCommand, .copySessionID, .removeFromHistory]
+        )
+
+        model.select(liveOnlyKey)
+        model.handle(.primary)
+        model.handle(.secondary)
+        model.perform(.jumpToPane, on: liveOnlyKey)
+        model.perform(.forkIntoSplit, on: liveOnlyKey)
+        let liveSource = AgentHistoryResumeSource(live: liveLocation(liveOnlyKey))
+        XCTAssertEqual(launch.launches.map(\.intent), [.primary, .secondary, .primary, .secondary])
+        XCTAssertEqual(launch.launches.map(\.source), Array(repeating: liveSource, count: 4))
+        XCTAssertEqual(liveSource.key, liveOnlyKey)
+        XCTAssertNil(liveSource.sessionRowID)
+        XCTAssertEqual(liveSource.workingDirectory, cwd)
+
+        model.perform(.primary, on: indexed.key)
+        XCTAssertEqual(launch.launches.last?.source, AgentHistoryResumeSource(summary: indexed),
+                       "an indexed live row launches from its index row")
+
+        let rowsBefore = model.rows.map(\.key)
+        model.removeFromHistory(liveOnlyKey)
+        model.perform(.removeFromHistory, on: liveOnlyKey)
+        XCTAssertEqual(model.rows.map(\.key), rowsBefore, "a live-only row can't be removed")
+        XCTAssertTrue(control.removedKeys.isEmpty)
+        XCTAssertNotEqual(model.transientMessage, AgentHistoryViewModel.removedMessage)
+    }
+
     func test_problem_link_requests_settings() {
         let model = startedModel()
 
