@@ -7,7 +7,7 @@ import Foundation
 ///
 /// - ~2 GB of `projects/<encoded cwd>/<uuid>.jsonl` transcripts over 40 projects, 2,000 sessions
 ///   with log-normal sizes, and six 120 MB sessions (one of them among the newest 50, the way a
-///   long-running active session is).
+///   long-running active session is). A smaller size override scales the large sessions down.
 /// - Bytes are dominated by tool results, as in real transcripts: sniffed and skipped by the
 ///   adapter, while prompts (~200 chars) and replies (~900 chars) are indexed. A few lines are
 ///   1–12 MB, so lines past `JSONLTailReader.defaultMaxLineBytes` are discarded mid-file.
@@ -28,14 +28,34 @@ struct AgentHistoryBudgetCorpus {
         var largeSessionBytes: Int64 = 120 << 20
         var spanDays = 730
 
-        /// ~2 GB, or `ZENTTY_HISTORY_BENCH_CORPUS_MB` (forwarded from
-        /// `TEST_RUNNER_ZENTTY_HISTORY_BENCH_CORPUS_MB`) when set.
-        static var benchmark: Configuration {
-            var configuration = Configuration()
-            if let raw = ProcessInfo.processInfo.environment["ZENTTY_HISTORY_BENCH_CORPUS_MB"],
-               let megabytes = Int64(raw), megabytes > 0 {
-                configuration.totalBytes = megabytes << 20
+        /// Smallest `ZENTTY_HISTORY_BENCH_CORPUS_MB` accepted: below it the 16 KB floor of the
+        /// 2,000 sessions (~31 MB) would push the corpus well past the request.
+        static let minimumOverrideMegabytes: Int64 = 128
+
+        struct InvalidSizeOverride: Error, CustomStringConvertible {
+            let value: String
+            var description: String {
+                "ZENTTY_HISTORY_BENCH_CORPUS_MB=\(value): expected a whole number of MB, at least "
+                    + "\(Configuration.minimumOverrideMegabytes)"
             }
+        }
+
+        /// ~2 GB, or `ZENTTY_HISTORY_BENCH_CORPUS_MB` (forwarded from
+        /// `TEST_RUNNER_ZENTTY_HISTORY_BENCH_CORPUS_MB`) when set. The large sessions scale with
+        /// the total (a sixteenth of it each, at most 120 MB), so a smaller run keeps the shape;
+        /// a value that is not a whole number of at least `minimumOverrideMegabytes` throws.
+        static func benchmark(
+            environment: [String: String] = ProcessInfo.processInfo.environment
+        ) throws -> Configuration {
+            var configuration = Configuration()
+            guard let raw = environment["ZENTTY_HISTORY_BENCH_CORPUS_MB"] else {
+                return configuration
+            }
+            guard let megabytes = Int64(raw), megabytes >= minimumOverrideMegabytes else {
+                throw InvalidSizeOverride(value: raw)
+            }
+            configuration.totalBytes = megabytes << 20
+            configuration.largeSessionBytes = min(120 << 20, configuration.totalBytes / 16)
             return configuration
         }
 
@@ -87,7 +107,7 @@ struct AgentHistoryBudgetCorpus {
             )
         }
 
-        let sizes = sessionSizes(&rng)
+        let sizes = plannedSessionSizes()
         var sessions: [Session] = []
         sessions.reserveCapacity(config.sessionCount)
         var totals = (bytes: Int64(0), messages: 0, longLines: 0)
@@ -118,9 +138,11 @@ struct AgentHistoryBudgetCorpus {
     // MARK: - Shape
 
     /// Target bytes per rank: the large sessions get `largeSessionBytes`, the rest share what is
-    /// left by log-normal weight, clamped to 16 KB–40 MB.
-    private func sessionSizes(_ rng: inout HistorySplitMix64) -> [Int64] {
+    /// left by log-normal weight, clamped to 16 KB–40 MB. Drawn from its own seed, so it is cheap
+    /// to call without generating anything.
+    func plannedSessionSizes() -> [Int64] {
         let config = configuration
+        var rng = HistorySplitMix64(seed: config.seed ^ 0x5122_E5)
         let large = config.largeSessionRanks.filter { $0 < config.sessionCount }
         let remaining = max(config.totalBytes - Int64(large.count) * config.largeSessionBytes, 0)
         let weights = (0..<config.sessionCount).map { _ in rng.logNormal(median: 1, sigma: 1.2) }

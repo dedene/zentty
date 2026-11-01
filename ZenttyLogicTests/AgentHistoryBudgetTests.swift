@@ -5,9 +5,10 @@ import XCTest
 
 /// Release-gate budgets of spec §10 for backfill and launch, against a synthetic Claude corpus
 /// on disk (`AgentHistoryBudgetCorpus`) and the real controller, indexer, adapter and storage.
-/// Every test only runs with `TEST_RUNNER_ZENTTY_HISTORY_BENCH=1` (xcodebuild forwards it to
-/// xctest as `ZENTTY_HISTORY_BENCH`) and skips otherwise. The ~2 GB corpus is written to a temp
-/// directory and removed in teardown; `TEST_RUNNER_ZENTTY_HISTORY_BENCH_CORPUS_MB` resizes it.
+/// The budget tests only run with `TEST_RUNNER_ZENTTY_HISTORY_BENCH=1` (xcodebuild forwards it to
+/// xctest as `ZENTTY_HISTORY_BENCH`) and skip otherwise. The ~2 GB corpus is written to a temp
+/// directory and removed in teardown; `TEST_RUNNER_ZENTTY_HISTORY_BENCH_CORPUS_MB` resizes it
+/// (at least 128 MB). The corpus-shape tests at the end always run: they generate nothing.
 /// The scheme tests the Debug (`-Onone`) build, so ingest runs slower than in a release build;
 /// the printed numbers are the useful output when a budget fails.
 @MainActor
@@ -31,7 +32,7 @@ final class AgentHistoryBudgetTests: XCTestCase {
     /// catches a spike between samples.
     func test_backfill_peak_memory_under_200mb_synthetic() throws {
         try requireBenchmarkRun()
-        let fixture = try makeFixture(Corpus(.benchmark))
+        let fixture = try makeFixture(Corpus(try .benchmark()))
         let baseline = MemoryFootprint.current()
         let sampler = MemoryFootprint.Sampler()
 
@@ -73,10 +74,11 @@ final class AgentHistoryBudgetTests: XCTestCase {
 
     /// Spec §10: the first 50 newest sessions are searchable < 10 s after consent. Timed from
     /// `enable` (consent) to the first snapshot with 50 sessions; those must be the 50 newest
-    /// by mtime, and their messages must already be in the index. The rank-3 session is 120 MB.
+    /// by mtime, and their messages must already be in the index. The rank-3 session is 120 MB
+    /// (less in a smaller corpus).
     func test_first_50_sessions_published_under_10s_synthetic() throws {
         try requireBenchmarkRun()
-        let fixture = try makeFixture(Corpus(.benchmark))
+        let fixture = try makeFixture(Corpus(try .benchmark()))
         let threshold = AgentHistoryIndexer.snapshotPublishThreshold
         let reached = expectation(description: "first \(threshold) sessions published")
         var elapsed: Double?
@@ -158,6 +160,39 @@ final class AgentHistoryBudgetTests: XCTestCase {
         XCTAssertEqual(onMain, [], "no indexer work runs on main")
         XCTAssertLessThan(launchPathMs, 5, "configure + schedule only store references and arm a timer")
         XCTAssertLessThan(maxStallMs, 50, "main stays responsive while the indexer starts and backfills")
+    }
+
+    // MARK: - Corpus shape
+
+    func test_corpus_size_override_scales_the_whole_corpus() throws {
+        for megabytes: Int64 in [128, 200, 750, 2_048] {
+            let configuration = try Corpus.Configuration.benchmark(
+                environment: ["ZENTTY_HISTORY_BENCH_CORPUS_MB": String(megabytes)]
+            )
+            let sizes = Corpus(configuration).plannedSessionSizes()
+            let planned = Double(sizes.reduce(0, +)) / Double(megabytes << 20)
+            XCTAssertEqual(planned, 1, accuracy: 0.15, "\(megabytes) MB corpus plans \(planned)x the request")
+            XCTAssertEqual(configuration.largeSessionBytes, min(120 << 20, (megabytes << 20) / 16))
+            for rank in configuration.largeSessionRanks {
+                XCTAssertEqual(sizes[rank], configuration.largeSessionBytes, "rank \(rank) is a large session")
+            }
+        }
+    }
+
+    func test_corpus_default_keeps_120mb_large_sessions_and_2gb() throws {
+        let configuration = try Corpus.Configuration.benchmark(environment: [:])
+        let sizes = Corpus(configuration).plannedSessionSizes()
+        XCTAssertEqual(configuration.largeSessionBytes, 120 << 20)
+        XCTAssertEqual(Double(sizes.reduce(0, +)) / Double(2 << 30), 1, accuracy: 0.15)
+    }
+
+    func test_corpus_size_override_rejects_values_it_cannot_honour() {
+        for raw in ["0", "64", "127", "-5", "lots", "1.5", ""] {
+            XCTAssertThrowsError(
+                try Corpus.Configuration.benchmark(environment: ["ZENTTY_HISTORY_BENCH_CORPUS_MB": raw]),
+                "\(raw) is rejected, not silently ignored"
+            )
+        }
     }
 
     // MARK: - Fixture
