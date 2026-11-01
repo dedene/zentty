@@ -25,6 +25,34 @@ enum AgentHistoryRowMenuItem: Equatable, CaseIterable {
     }
 
     var isDestructive: Bool { self == .removeFromHistory }
+
+    /// Items of one group sit together; the menu puts a separator between groups.
+    var group: Int {
+        switch self {
+        case .resumeInNewWorklane, .openInSplit, .jumpToPane, .forkIntoSplit: 0
+        case .copyResumeCommand, .copySessionID: 1
+        case .revealTranscript: 2
+        case .removeFromHistory: 3
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .resumeInNewWorklane: "arrow.uturn.forward"
+        case .openInSplit: "rectangle.split.2x1"
+        case .jumpToPane: "arrow.right.circle"
+        case .forkIntoSplit: "arrow.triangle.branch"
+        case .copyResumeCommand: "terminal"
+        case .copySessionID: "doc.on.doc"
+        case .revealTranscript: "folder"
+        case .removeFromHistory: "trash"
+        }
+    }
+
+    /// Indexes in `items` that get a separator before them.
+    static func separatorIndexes(in items: [AgentHistoryRowMenuItem]) -> Set<Int> {
+        Set(items.indices.dropFirst().filter { items[$0].group != items[$0 - 1].group })
+    }
 }
 
 /// What the preview's primary button does for a session.
@@ -73,7 +101,7 @@ extension AgentHistoryViewModel {
         case .sheetConfirm:
             confirmFolderSheet()
         case .sheetCancel:
-            folderSheet = nil
+            cancelFolderSheet()
         case .consentConfirm:
             confirmConsent()
         }
@@ -147,6 +175,19 @@ extension AgentHistoryViewModel {
         }
     }
 
+    /// A click on a sheet option; a double click also confirms it.
+    func selectFolderSheetOption(_ index: Int, confirm: Bool = false) {
+        folderSheet?.select(index)
+        if confirm, folderSheet?.selectedIndex == index {
+            confirmFolderSheet()
+        }
+    }
+
+    /// esc or Cancel on the sheet: nothing launches, the palette stays.
+    func cancelFolderSheet() {
+        folderSheet = nil
+    }
+
     static func launchFailedMessage(_ reason: String) -> String {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         let sentence = trimmed.hasSuffix(".") || trimmed.hasSuffix("…") ? trimmed : trimmed + "."
@@ -207,7 +248,7 @@ extension AgentHistoryViewModel {
             items.append(.copyResumeCommand)
         }
         items.append(.copySessionID)
-        if transcriptURL(for: row) != nil {
+        if transcriptPresentKeys.contains(key) {
             items.append(.revealTranscript)
         }
         if row.summary != nil {
@@ -235,7 +276,7 @@ extension AgentHistoryViewModel {
         }
     }
 
-    /// Only sources with a transcript file that still exists.
+    /// Only sources with a transcript file that still exists; re-checked at click time.
     private func transcriptURL(for row: AgentHistoryResultRow) -> URL? {
         guard let path = row.summary?.transcriptPath, !path.isEmpty, services.fileExists(path) else {
             return nil

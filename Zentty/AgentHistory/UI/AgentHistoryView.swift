@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The palette's SwiftUI body: search row, filter pills, the body for the current state
-/// (results with list + preview, or a state message), footer, and the transient message.
+/// (results with list + preview, or a state message), footer, the folder-gone sheet, and the
+/// transient message.
 /// Keys never reach these views: the panel's key monitor routes them to the model first.
 struct AgentHistoryView: View {
     @ObservedObject var model: AgentHistoryViewModel
@@ -25,6 +26,10 @@ struct AgentHistoryView: View {
                     divider
                     AgentHistoryFooterView(model: model)
                 }
+            }
+            if let sheet = model.folderSheet {
+                AgentHistoryFolderGoneSheet(model: model, sheet: sheet)
+                    .transition(.opacity)
             }
             if let message = model.transientMessage {
                 AgentHistoryTransientMessageView(message: message, theme: theme)

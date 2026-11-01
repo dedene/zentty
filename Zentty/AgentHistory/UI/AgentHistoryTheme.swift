@@ -18,6 +18,10 @@ struct AgentHistoryTheme: Equatable {
     let cardBorder: Color
     /// Behind highlighted matches.
     let highlightBackground: Color
+    /// The folder-gone sheet's opaque card, the dim behind it, and its shadow.
+    let sheetBackground: Color
+    let sheetBackdrop: Color
+    let sheetShadow: Color
 
     init(zenttyTheme: ZenttyTheme) {
         primaryText = Color(nsColor: zenttyTheme.commandPaletteText)
@@ -30,6 +34,9 @@ struct AgentHistoryTheme: Equatable {
         cardBackground = Color(nsColor: zenttyTheme.commandPaletteText.withAlphaComponent(0.05))
         cardBorder = Color(nsColor: zenttyTheme.commandPaletteText.withAlphaComponent(0.09))
         highlightBackground = Color(nsColor: zenttyTheme.statusNeedsInput.withAlphaComponent(0.22))
+        sheetBackground = Color(nsColor: zenttyTheme.commandPaletteBackground.withAlphaComponent(1))
+        sheetBackdrop = Color.black.opacity(0.35)
+        sheetShadow = Color(nsColor: zenttyTheme.commandPaletteShadow)
     }
 }
 

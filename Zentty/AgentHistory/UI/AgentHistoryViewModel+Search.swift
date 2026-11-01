@@ -227,14 +227,20 @@ extension AgentHistoryViewModel {
 
     // MARK: - Folder gone
 
-    /// Checks unseen session folders on a utility queue; live rows never count as gone.
+    /// Checks unseen session folders and transcript files on a utility queue; live rows never
+    /// count as folder gone.
     func checkFolders() {
-        let paths = Set(rows.compactMap { $0.live == nil ? $0.summary?.cwd : nil })
-            .subtracting(folderExists.keys)
-            .subtracting(folderChecksInFlight)
+        let folders = rows.compactMap { $0.live == nil ? $0.summary?.cwd : nil }
+        let transcripts = rows.compactMap { row -> String? in
+            guard let path = row.summary?.transcriptPath, !path.isEmpty else { return nil }
+            return path
+        }
+        let paths = Set(folders + transcripts)
+            .subtracting(pathExists.keys)
+            .subtracting(pathChecksInFlight)
         refreshFolderGoneKeys()
         guard !paths.isEmpty else { return }
-        folderChecksInFlight.formUnion(paths)
+        pathChecksInFlight.formUnion(paths)
         let fileExists = services.fileExists
         let pending = Array(paths)
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -249,19 +255,27 @@ extension AgentHistoryViewModel {
 
     private func foldersChecked(_ results: [(String, Bool)]) {
         for (path, exists) in results {
-            folderChecksInFlight.remove(path)
-            folderExists[path] = exists
+            pathChecksInFlight.remove(path)
+            pathExists[path] = exists
         }
         refreshFolderGoneKeys()
     }
 
+    /// Publishes the folder-gone and transcript-present keys from the cached checks.
     func refreshFolderGoneKeys() {
         let gone = Set(rows.compactMap { row -> AgentHistorySessionKey? in
-            guard row.live == nil, let cwd = row.summary?.cwd, folderExists[cwd] == false else { return nil }
+            guard row.live == nil, let cwd = row.summary?.cwd, pathExists[cwd] == false else { return nil }
             return row.key
         })
         if gone != folderGoneKeys {
             folderGoneKeys = gone
+        }
+        let transcripts = Set(rows.compactMap { row -> AgentHistorySessionKey? in
+            guard let path = row.summary?.transcriptPath, pathExists[path] == true else { return nil }
+            return row.key
+        })
+        if transcripts != transcriptPresentKeys {
+            transcriptPresentKeys = transcripts
         }
     }
 }

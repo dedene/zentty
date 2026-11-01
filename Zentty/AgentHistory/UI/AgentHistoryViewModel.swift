@@ -78,6 +78,8 @@ final class AgentHistoryViewModel: ObservableObject {
     @Published internal(set) var footer: Footer
     @Published internal(set) var liveKeys: Set<AgentHistorySessionKey> = []
     @Published internal(set) var folderGoneKeys: Set<AgentHistorySessionKey> = []
+    /// Rows whose transcript file was found; only they offer "Reveal Transcript in Finder".
+    @Published internal(set) var transcriptPresentKeys: Set<AgentHistorySessionKey> = []
     /// The first-run consent card (`+Consent`), built from the stat-only probe.
     @Published internal(set) var consent: AgentHistoryConsentModel?
     /// The consent card's measured height; the panel fits itself to it.
@@ -133,9 +135,9 @@ final class AgentHistoryViewModel: ObservableObject {
     var transientMessageToken: AgentHistoryCancellable?
     private var isStarted = false
 
-    // "Folder gone" (`+Search`): cwd → exists, filled from a utility queue.
-    var folderExists: [String: Bool] = [:]
-    var folderChecksInFlight: Set<String> = []
+    // `+Search`: folder or transcript path → exists, filled off-main so renders never stat.
+    var pathExists: [String: Bool] = [:]
+    var pathChecksInFlight: Set<String> = []
 
     init(
         context: AgentHistoryOpenContext,

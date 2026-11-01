@@ -77,6 +77,19 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
         XCTAssertTrue(context.caretAtEndOfQuery, "without a field editor the caret counts as at the end")
     }
 
+    func test_plain_typing_is_swallowed_only_while_the_folder_sheet_is_shown() {
+        var context = AgentHistoryKeyContext()
+        XCTAssertFalse(AgentHistoryPanelController.swallowsUnroutedKey(modifiers: [], context: context))
+
+        context.isSheetShown = true
+        XCTAssertTrue(AgentHistoryPanelController.swallowsUnroutedKey(modifiers: [], context: context))
+        XCTAssertTrue(AgentHistoryPanelController.swallowsUnroutedKey(modifiers: .shift, context: context))
+        XCTAssertFalse(AgentHistoryPanelController.swallowsUnroutedKey(modifiers: .command, context: context))
+        XCTAssertFalse(AgentHistoryPanelController.swallowsUnroutedKey(modifiers: .control, context: context))
+        context.hasMarkedText = true
+        XCTAssertFalse(AgentHistoryPanelController.swallowsUnroutedKey(modifiers: [], context: context))
+    }
+
     func test_announcement_and_rebuild_copy() {
         XCTAssertEqual(AgentHistoryPanelController.announcement(forResultCount: 0), "No sessions found")
         XCTAssertEqual(AgentHistoryPanelController.announcement(forResultCount: 1), "1 session found")

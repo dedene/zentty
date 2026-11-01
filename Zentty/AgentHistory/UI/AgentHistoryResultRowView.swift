@@ -79,14 +79,7 @@ struct AgentHistoryResultsList: View {
             model.select(row.key)
         })
         .contextMenu {
-            ForEach(model.rowMenuItems(for: row.key), id: \.self) { item in
-                if item == .removeFromHistory {
-                    Divider()
-                }
-                Button(item.title) {
-                    model.perform(item, on: row.key)
-                }
-            }
+            AgentHistoryRowContextMenu(model: model, key: row.key)
         }
         .accessibilityAction {
             model.select(row.key)
@@ -231,5 +224,30 @@ struct AgentHistoryAgentBadge: View {
             )
             .padding(.top, 1)
             .accessibilityHidden(true)
+    }
+}
+
+/// The row's context menu (spec §4.2): launch items, copy items, Reveal Transcript in Finder when
+/// the transcript file was found, and Remove from Agent History. Built from cached state only,
+/// so rendering a row never touches the disk.
+struct AgentHistoryRowContextMenu: View {
+    @ObservedObject var model: AgentHistoryViewModel
+    let key: AgentHistorySessionKey
+
+    var body: some View {
+        let items = model.rowMenuItems(for: key)
+        let separators = AgentHistoryRowMenuItem.separatorIndexes(in: items)
+        ForEach(Array(items.enumerated()), id: \.element) { index, item in
+            if separators.contains(index) {
+                Divider()
+            }
+            Button(role: item.isDestructive ? .destructive : nil) {
+                model.select(key)
+                model.perform(item, on: key)
+            } label: {
+                Label(item.title, systemImage: item.systemImage)
+            }
+            .accessibilityLabel(item.title)
+        }
     }
 }

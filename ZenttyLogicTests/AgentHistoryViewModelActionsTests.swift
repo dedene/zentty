@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 @testable import Zentty
 
@@ -270,6 +271,16 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
             summary(2, transcriptPath: "/tmp/agent-history-tests/root/missing.jsonl"),
             summary(3),
         ])
+        XCTAssertFalse(
+            model.rowMenuItems(for: summary(1).key).contains(.revealTranscript),
+            "rendering a menu never stats the disk; the check runs on a utility queue"
+        )
+        let checked = expectation(description: "transcript checks published")
+        let observation = model.$transcriptPresentKeys
+            .first { !$0.isEmpty }
+            .sink { _ in checked.fulfill() }
+        wait(for: [checked], timeout: 5)
+        observation.cancel()
 
         XCTAssertTrue(model.rowMenuItems(for: summary(1).key).contains(.revealTranscript))
         XCTAssertFalse(model.rowMenuItems(for: summary(2).key).contains(.revealTranscript))
@@ -278,6 +289,15 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         model.perform(.revealTranscript, on: summary(1).key)
         model.perform(.revealTranscript, on: summary(2).key)
         XCTAssertEqual(revealedURLs, [URL(fileURLWithPath: present)])
+    }
+
+    func test_row_menu_separates_launch_copy_finder_and_remove_groups() {
+        let model = startedModel()
+        let items = model.rowMenuItems(for: summary(1).key)
+
+        XCTAssertEqual(items, [.resumeInNewWorklane, .openInSplit, .copyResumeCommand, .copySessionID, .removeFromHistory])
+        XCTAssertEqual(AgentHistoryRowMenuItem.separatorIndexes(in: items), [2, 4])
+        XCTAssertEqual(AgentHistoryRowMenuItem.separatorIndexes(in: AgentHistoryRowMenuItem.allCases), [4, 6, 7])
     }
 
     func test_problem_link_requests_settings() {

@@ -247,10 +247,16 @@ final class AgentHistoryPanelController {
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
             context: context
         ) else {
-            return false
+            return Self.swallowsUnroutedKey(modifiers: event.modifierFlags, context: context)
         }
         model.handle(command)
         return true
+    }
+
+    /// While the folder-gone sheet is up, plain typing must not edit the query hidden behind it;
+    /// ⌘ and ⌃ shortcuts still reach the app, and an input method finishes its composition.
+    static func swallowsUnroutedKey(modifiers: NSEvent.ModifierFlags, context: AgentHistoryKeyContext) -> Bool {
+        context.isSheetShown && !context.hasMarkedText && modifiers.intersection([.command, .control]).isEmpty
     }
 
     static func keyContext(editor: NSTextView?, model: AgentHistoryViewModel) -> AgentHistoryKeyContext {
