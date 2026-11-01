@@ -243,6 +243,26 @@ extension AgentHistoryIndexer {
         publish(force: true)
     }
 
+    /// A standby indexer runs with the configuration its controller had when it started, maybe
+    /// long ago; another instance may have turned History or agents off since. Before taking
+    /// over it re-reads `state.json`: agents now off are left out (and purged once it owns the
+    /// index), and while History is off or unconsented it keeps standing by, writing nothing,
+    /// until its controller stops it.
+    func savedStateAllowsTakeover() -> Bool {
+        let saved = stateStore.reload()
+        let allowed = configuration.enabledAgents.intersection(saved.enabledAgents)
+        if allowed != configuration.enabledAgents {
+            configuration.enabledAgents = allowed
+            refreshStandbySnapshot()
+        }
+        guard saved.enabled, saved.consentedAt != nil, !allowed.isEmpty else {
+            AgentHistoryLog.indexer.info("Agent History standby not taking over: turned off in another instance")
+            scheduleStandbyRetry()
+            return false
+        }
+        return true
+    }
+
     func scheduleStandbyRetry() {
         guard !standbyRetryScheduled else {
             return

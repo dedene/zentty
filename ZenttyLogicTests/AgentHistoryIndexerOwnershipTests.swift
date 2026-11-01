@@ -50,6 +50,8 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
 
     func test_second_instance_stands_by_until_the_owner_stops() throws {
         let harness = AgentHistoryIndexerHarness(testCase: self)
+        // A standby takes over only while state.json says History is on and consented.
+        try harness.stateStore.update { $0.enabled = true; $0.consentedAt = Date() }
         harness.source.setUnits([.single("s1", mtimeNs: 2), .single("s2", mtimeNs: 1)])
         let owner = harness.makeIndexer()
         owner.start()

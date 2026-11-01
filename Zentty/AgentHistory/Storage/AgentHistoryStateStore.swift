@@ -51,33 +51,62 @@ extension AgentHistoryState {
     }
 }
 
-/// Loads and writes `state.json`. A missing or unreadable file reads as the disabled default;
-/// a corrupt one is logged and replaced by the next `update`. Top-level keys this build doesn't
-/// know are preserved across writes so an older build never strips a newer build's fields.
+/// Loads and writes `state.json`. A missing file reads as the disabled default; an unreadable or
+/// corrupt one is logged, reads as the default at start and is replaced by the next `update`.
+/// Top-level keys this build doesn't know are preserved across writes so an older build never
+/// strips a newer build's fields.
 ///
-/// `state` and `extraFields` are confined to `queue` (serial,
+/// Zentty instances of one flavor share the file. `update` is a read-modify-write under an
+/// exclusive `flock` on `AgentHistory.state.lock` (beside the directory, like the index locks, so
+/// Delete Index never unlinks it): it re-reads the file and applies only the caller's change,
+/// so a stale copy never undoes what another instance saved. `reload` picks up those changes.
+///
+/// `state`, `extraFields` and `unsavedRevocation` are confined to `queue` (serial,
 /// `be.zenjoy.zentty.agent-history.state`); `observers` is guarded by `observerLock`.
 /// Observers are always called on the main queue, in update order.
-/// Never call `current` or `update` from inside an `update` closure (the queue is not reentrant).
+/// Never call `current`, `update` or `reload` from inside an `update` closure (the queue is not
+/// reentrant).
 final class AgentHistoryStateStore: @unchecked Sendable {
     typealias Observer = @MainActor (AgentHistoryState) -> Void
 
+    static let lockFileSuffix = ".state.lock"
+    /// How long `update` waits for another instance's write before going ahead unlocked.
+    static let lockTimeout: TimeInterval = 2
+
     let fileURL: URL
+    let lockURL: URL
     private let fileManager: FileManager
     private let queue = DispatchQueue(label: "be.zenjoy.zentty.agent-history.state", qos: .utility)
     private var state: AgentHistoryState
     private var extraFields: [String: Any]
+    /// Access taken away in memory that couldn't be saved yet; laid over every re-read until a
+    /// write succeeds, so a failed save never lets the file turn it back on.
+    private var unsavedRevocation = AgentHistoryRevocation()
     private let observerLock = NSLock()
     private var observers: [UUID: Observer] = [:]
 
     init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
+        self.lockURL = Self.lockURL(forStateFileAt: fileURL)
         self.fileManager = fileManager
-        let loaded = Self.load(from: fileURL, fileManager: fileManager)
-        self.state = loaded.state
-        self.extraFields = loaded.extraFields
+        switch Self.load(from: fileURL, fileManager: fileManager) {
+        case .loaded(let state, let extraFields):
+            self.state = state
+            self.extraFields = extraFields
+        case .missing, .unreadable:
+            self.state = AgentHistoryState()
+            self.extraFields = [:]
+        }
     }
 
+    /// `AgentHistory.state.lock` beside the directory that holds `state.json`.
+    static func lockURL(forStateFileAt fileURL: URL) -> URL {
+        let directoryURL = fileURL.deletingLastPathComponent()
+        return directoryURL.deletingLastPathComponent()
+            .appendingPathComponent(directoryURL.lastPathComponent + lockFileSuffix, isDirectory: false)
+    }
+
+    /// The state as last read or changed here. Call `reload` to see other instances' changes.
     var current: AgentHistoryState {
         queue.sync { state }
     }
@@ -88,27 +117,44 @@ final class AgentHistoryStateStore: @unchecked Sendable {
         let underlying: any Error
     }
 
-    /// Applies `mutate`, writes the file atomically with mode 0600, then notifies observers on main.
-    /// A write failure throws `UnsavedChange`. A change that only takes access away (History off,
-    /// an agent off) still takes effect in memory, so turning things off never depends on the
-    /// disk; the next successful write saves it. Any other change is dropped, so nothing turns
-    /// on that a restart would undo.
+    /// Re-reads the file under the lock, applies `mutate` to what it holds, writes it atomically
+    /// with mode 0600, then notifies observers on main. A write failure throws `UnsavedChange`.
+    /// A change that only takes access away (History off, an agent off) still takes effect in
+    /// memory, so turning things off never depends on the disk; the next successful write saves
+    /// it. Any other change is dropped, so nothing turns on that a restart would undo.
     func update(_ mutate: (inout AgentHistoryState) -> Void) throws {
         try queue.sync {
-            var next = state
+            let lock = acquireFileLock()
+            defer { lock?.unlock() }
+            let (base, baseExtras) = freshStateOnQueue()
+            var next = base
             mutate(&next)
             do {
-                try write(next, extraFields: extraFields)
+                try write(next, extraFields: baseExtras)
             } catch {
-                let keepsChange = next.onlyRevokesAccess(from: state)
-                if keepsChange, next != state {
-                    state = next
-                    notifyObservers(next)
+                let keepsChange = next.onlyRevokesAccess(from: base)
+                if keepsChange {
+                    unsavedRevocation.record(from: base, to: next)
                 }
+                adoptOnQueue(keepsChange ? next : base, extraFields: baseExtras)
                 throw UnsavedChange(keptInMemory: keepsChange, underlying: error)
             }
+            unsavedRevocation = AgentHistoryRevocation()
             state = next
+            extraFields = baseExtras
             notifyObservers(next)
+        }
+    }
+
+    /// Re-reads the file, so changes another instance saved show here, and notifies observers
+    /// when the state changed. A missing file reads as the disabled default (another instance
+    /// deleted the index); an unreadable one keeps the last known state. Returns the state.
+    @discardableResult
+    func reload() -> AgentHistoryState {
+        queue.sync {
+            let (fresh, extras) = freshStateOnQueue()
+            adoptOnQueue(fresh, extraFields: extras)
+            return state
         }
     }
 
@@ -118,6 +164,7 @@ final class AgentHistoryStateStore: @unchecked Sendable {
         queue.sync {
             state = AgentHistoryState()
             extraFields = [:]
+            unsavedRevocation = AgentHistoryRevocation()
             if fileManager.fileExists(atPath: fileURL.path) {
                 do {
                     try fileManager.removeItem(at: fileURL)
@@ -145,6 +192,47 @@ final class AgentHistoryStateStore: @unchecked Sendable {
     }
 
     // MARK: - Private
+
+    /// The file as it is now, with this instance's unsaved revocations laid over it. An
+    /// unreadable file falls back to the last known state (never to "everything on").
+    private func freshStateOnQueue() -> (AgentHistoryState, [String: Any]) {
+        var fresh: AgentHistoryState
+        let extras: [String: Any]
+        switch Self.load(from: fileURL, fileManager: fileManager) {
+        case .loaded(let loaded, let loadedExtras):
+            fresh = loaded
+            extras = loadedExtras
+        case .missing:
+            fresh = AgentHistoryState()
+            extras = [:]
+        case .unreadable:
+            fresh = state
+            extras = extraFields
+        }
+        unsavedRevocation.apply(to: &fresh)
+        return (fresh, extras)
+    }
+
+    private func adoptOnQueue(_ next: AgentHistoryState, extraFields nextExtras: [String: Any]) {
+        extraFields = nextExtras
+        guard next != state else {
+            return
+        }
+        state = next
+        notifyObservers(next)
+    }
+
+    /// nil when the lock can't be had: the write goes ahead unlocked, so turning things off
+    /// never waits on another instance or a lock file it can't open.
+    private func acquireFileLock() -> AgentHistorySetupLock? {
+        do {
+            return try AgentHistorySetupLock(url: lockURL, timeout: Self.lockTimeout,
+                                             busyMessage: "another Zentty is saving Agent History state")
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History couldn't lock its state file; saving without the lock")
+            return nil
+        }
+    }
 
     /// Runs on `queue`; `main.async` keeps notifications in update order.
     private func notifyObservers(_ state: AgentHistoryState) {
@@ -184,9 +272,15 @@ final class AgentHistoryStateStore: @unchecked Sendable {
                                           options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
-    private static func load(from url: URL, fileManager: FileManager) -> (state: AgentHistoryState, extraFields: [String: Any]) {
+    private enum LoadResult {
+        case loaded(AgentHistoryState, extraFields: [String: Any])
+        case missing
+        case unreadable
+    }
+
+    private static func load(from url: URL, fileManager: FileManager) -> LoadResult {
         guard fileManager.fileExists(atPath: url.path) else {
-            return (AgentHistoryState(), [:])
+            return .missing
         }
         do {
             let data = try Data(contentsOf: url)
@@ -196,10 +290,10 @@ final class AgentHistoryStateStore: @unchecked Sendable {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .custom(decodeDate)
             let state = try decoder.decode(AgentHistoryState.self, from: data)
-            return (state, object.filter { !knownKeys.contains($0.key) })
+            return .loaded(state, extraFields: object.filter { !knownKeys.contains($0.key) })
         } catch {
-            AgentHistoryLog.indexer.error("Agent History state file is unreadable; using defaults")
-            return (AgentHistoryState(), [:])
+            AgentHistoryLog.indexer.error("Agent History state file is unreadable")
+            return .unreadable
         }
     }
 
@@ -216,5 +310,30 @@ final class AgentHistoryStateStore: @unchecked Sendable {
             return date
         }
         throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected an ISO 8601 date")
+    }
+}
+
+/// Access one instance took away without saving it: History off, agents off, consent removed.
+private struct AgentHistoryRevocation {
+    var historyOff = false
+    var consentRemoved = false
+    var agentsOff: Set<String> = []
+
+    mutating func record(from previous: AgentHistoryState, to next: AgentHistoryState) {
+        historyOff = historyOff || (previous.enabled && !next.enabled)
+        consentRemoved = consentRemoved || (previous.consentedAt != nil && next.consentedAt == nil)
+        agentsOff.formUnion(previous.enabledAgents.subtracting(next.enabledAgents).map(\.rawValue))
+    }
+
+    func apply(to state: inout AgentHistoryState) {
+        if historyOff {
+            state.enabled = false
+        }
+        if consentRemoved {
+            state.consentedAt = nil
+        }
+        for key in agentsOff {
+            state.sources[key] = false
+        }
     }
 }

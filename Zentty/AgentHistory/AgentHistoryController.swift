@@ -25,6 +25,9 @@ final class AgentHistoryController: Sendable {
     static let shared = AgentHistoryController()
 
     private let launchDelay: TimeInterval
+    /// How often `state.json` is re-read for changes another Zentty instance saved.
+    private let stateRefreshInterval: TimeInterval
+    private var stateRefreshTimer: Timer?
     /// Builds the sources with the given private-copy policy (see `AgentHistorySourceFactory`).
     private let makeSources: @Sendable (ExternalSnapshotCopyPolicy) -> [any AgentHistorySource]
     private let makeIndexer: IndexerFactory
@@ -60,10 +63,12 @@ final class AgentHistoryController: Sendable {
 
     init(
         launchDelay: TimeInterval = 5,
+        stateRefreshInterval: TimeInterval = 5,
         makeSources: (@Sendable () -> [any AgentHistorySource])? = nil,
         makeIndexer: IndexerFactory? = nil
     ) {
         self.launchDelay = launchDelay
+        self.stateRefreshInterval = stateRefreshInterval
         let makeSources: @Sendable (ExternalSnapshotCopyPolicy) -> [any AgentHistorySource] = if let makeSources {
             { _ in makeSources() }
         } else {
@@ -299,10 +304,52 @@ final class AgentHistoryController: Sendable {
             if sequence == self.stateChangeSequence {
                 self.applyState(loaded)
             }
+            self.startStateRefresh()
             completion?(self.indexer != nil)
         }
         withStateStore { store in
-            deliver.send(AgentHistoryLoadedState(store: store, state: store.current))
+            deliver.send(AgentHistoryLoadedState(store: store, state: store.reload()))
+        }
+    }
+
+    /// Other Zentty instances of this flavor share `state.json`. Re-reading it every
+    /// `stateRefreshInterval` makes their changes apply here too: an agent or History turned
+    /// off there stops and purges here, and is never written back by a stale copy.
+    private func startStateRefresh() {
+        guard stateRefreshTimer == nil, stateRefreshInterval > 0 else {
+            return
+        }
+        let timer = Timer(timeInterval: stateRefreshInterval, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            MainActor.assumeIsolated {
+                self.refreshSavedState()
+            }
+        }
+        timer.tolerance = stateRefreshInterval / 2
+        RunLoop.main.add(timer, forMode: .common)
+        stateRefreshTimer = timer
+    }
+
+    /// Re-reads `state.json` off-main and applies it when another instance changed it. Does
+    /// nothing before the launch read, so it never starts the indexer early.
+    func refreshSavedState() {
+        guard persistedState != nil else {
+            return
+        }
+        let sequence = stateChangeSequence
+        let deliver = AgentHistoryMainDelivery<AgentHistoryLoadedState> { [weak self] loaded in
+            // A change made here meanwhile carries a newer read; keep it.
+            guard let self, sequence == self.stateChangeSequence, loaded.state != self.persistedState else {
+                return
+            }
+            AgentHistoryLog.indexer.info("Agent History state changed in another Zentty instance")
+            self.applyState(loaded)
+        }
+        withStateStore { store in
+            deliver.send(AgentHistoryLoadedState(store: store, state: store.reload()))
         }
     }
 
@@ -651,90 +698,5 @@ private struct AgentHistoryMainDelivery<Value: Sendable>: @unchecked Sendable {
                 body(value)
             }
         }
-    }
-}
-
-/// What other threads read from the controller, and the lazily created state store.
-final class AgentHistoryControllerMirror: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedStatus = AgentHistoryStatus.off
-    private var storedSnapshot = AgentHistoryMetadataSnapshot.empty
-    private var storedStorage: AgentHistoryStorage?
-    private var excludedFolders: [String] = []
-    private var cachedExclusions: AgentHistoryExclusionMatcher?
-    private var allowsAll = false
-    private var storedEnabledAgents: Set<AgentHistoryAgent> = []
-    /// Guarded separately: creating the store reads the file, which must not hold up `lock`.
-    private let stateStoreLock = NSLock()
-    private var store: AgentHistoryStateStore?
-
-    var status: AgentHistoryStatus {
-        get { withLock { storedStatus } }
-        set { withLock { storedStatus = newValue } }
-    }
-
-    var snapshot: AgentHistoryMetadataSnapshot {
-        get { withLock { storedSnapshot } }
-        set { withLock { storedSnapshot = newValue } }
-    }
-
-    var storage: AgentHistoryStorage? {
-        get { withLock { storedStorage } }
-        set { withLock { storedStorage = newValue } }
-    }
-
-    var allowsAgentsAllProjects: Bool {
-        withLock { allowsAll }
-    }
-
-    var enabledAgents: Set<AgentHistoryAgent> {
-        get { withLock { storedEnabledAgents } }
-        set { withLock { storedEnabledAgents = newValue } }
-    }
-
-    var exclusions: AgentHistoryExclusionMatcher {
-        let folders = withLock { () -> [String]? in
-            cachedExclusions == nil ? excludedFolders : nil
-        }
-        guard let folders else {
-            return withLock { cachedExclusions } ?? AgentHistoryExclusionMatcher(folders: [])
-        }
-        // Canonicalizing may resolve symlinks (disk), so it runs outside the lock.
-        let matcher = AgentHistoryExclusionMatcher(folders: folders)
-        withLock {
-            if excludedFolders == folders {
-                cachedExclusions = matcher
-            }
-        }
-        return matcher
-    }
-
-    /// True when the excluded folders changed (the matcher must be rebuilt).
-    @discardableResult
-    func setConfig(_ section: AppConfig.AgentHistory) -> Bool {
-        withLock {
-            allowsAll = section.allowAgentsAllProjects
-            guard excludedFolders != section.excludedFolders else { return false }
-            excludedFolders = section.excludedFolders
-            cachedExclusions = nil
-            return true
-        }
-    }
-
-    func stateStore(fileURL: URL) -> AgentHistoryStateStore {
-        stateStoreLock.lock()
-        defer { stateStoreLock.unlock() }
-        if let store {
-            return store
-        }
-        let created = AgentHistoryStateStore(fileURL: fileURL)
-        store = created
-        return created
-    }
-
-    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return try body()
     }
 }

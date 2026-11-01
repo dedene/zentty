@@ -13,6 +13,8 @@ final class AgentHistoryStateStoreTests: XCTestCase {
         directoryURL = url
         addTeardownBlock {
             try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: AgentHistoryStateStore.lockURL(
+                forStateFileAt: url.appendingPathComponent("state.json", isDirectory: false)))
         }
     }
 

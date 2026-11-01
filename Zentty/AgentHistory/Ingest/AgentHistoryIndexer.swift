@@ -340,6 +340,9 @@ final class AgentHistoryIndexer: @unchecked Sendable {
         guard lifecycle == .idle || lifecycle == .standby, !cancellation.isSet else {
             return
         }
+        guard lifecycle != .standby || savedStateAllowsTakeover() else {
+            return
+        }
         guard acquirePresenceLockOrStandBy(), acquireWriterLockOrStandBy() else {
             return
         }
