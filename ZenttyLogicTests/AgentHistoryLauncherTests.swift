@@ -268,13 +268,15 @@ final class AgentHistoryLauncherTests: XCTestCase {
         presenting: LauncherFakeHost?,
         recorder: LauncherFakeUsageRecorder? = nil,
         fileSystem: (any AgentHistoryFileSystemProbing)? = nil,
-        creator: any AgentHistoryWorktreeCreating = LauncherFakeWorktreeCreator(result: .success(()))
+        creator: any AgentHistoryWorktreeCreating = LauncherFakeWorktreeCreator(result: .success(())),
+        homeDirectory: String = "/Users/tester"
     ) -> AgentHistoryLauncher {
         makeLauncher(
             windows: LauncherWindows(hosts: hosts, presenting: presenting),
             recorder: recorder,
             fileSystem: fileSystem,
-            creator: creator
+            creator: creator,
+            homeDirectory: homeDirectory
         )
     }
 
@@ -283,7 +285,8 @@ final class AgentHistoryLauncherTests: XCTestCase {
         windows: LauncherWindows,
         recorder: LauncherFakeUsageRecorder? = nil,
         fileSystem: (any AgentHistoryFileSystemProbing)? = nil,
-        creator: any AgentHistoryWorktreeCreating = LauncherFakeWorktreeCreator(result: .success(()))
+        creator: any AgentHistoryWorktreeCreating = LauncherFakeWorktreeCreator(result: .success(())),
+        homeDirectory: String = "/Users/tester"
     ) -> AgentHistoryLauncher {
         let sources = windows.hosts.map {
             MenuBarWorklaneSource(windowID: $0.windowID, windowTitle: $0.menuBarDisplayTitle, worklaneStore: $0.worklaneStore)
@@ -302,6 +305,7 @@ final class AgentHistoryLauncherTests: XCTestCase {
             fileSystem: fileSystem ?? baseFileSystem(),
             worktreeCreator: creator,
             worktreeReservations: AgentHistoryWorktreeReservations(),
+            homeDirectory: homeDirectory,
             now: { fixedNow }
         )
     }

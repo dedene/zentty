@@ -75,6 +75,7 @@ final class AgentHistoryLauncher {
     private let fileSystem: any AgentHistoryFileSystemProbing
     private let worktreeCreator: any AgentHistoryWorktreeCreating
     private let worktreeReservations: AgentHistoryWorktreeReservations
+    private let homeDirectory: String
     private let now: () -> Date
 
     init(
@@ -85,6 +86,7 @@ final class AgentHistoryLauncher {
         fileSystem: any AgentHistoryFileSystemProbing = LiveAgentHistoryFileSystem(),
         worktreeCreator: any AgentHistoryWorktreeCreating = GitWorktreeCreator(),
         worktreeReservations: AgentHistoryWorktreeReservations? = nil,
+        homeDirectory: String = NSHomeDirectory(),
         now: @escaping () -> Date = Date.init
     ) {
         self.hosts = hosts
@@ -94,11 +96,12 @@ final class AgentHistoryLauncher {
         self.fileSystem = fileSystem
         self.worktreeCreator = worktreeCreator
         self.worktreeReservations = worktreeReservations ?? .shared
+        self.homeDirectory = homeDirectory
         self.now = now
     }
 
     func resumePlan(for source: AgentHistoryResumeSource) -> AgentHistoryResumeAvailability {
-        AgentHistoryResumeCommandBuilder.availability(for: source)
+        AgentHistoryResumeCommandBuilder.availability(for: source, homeDirectory: homeDirectory)
     }
 
     /// The palette's ↩ / ⌘↩ on a row.
@@ -186,7 +189,8 @@ final class AgentHistoryLauncher {
         return .jumped(location)
     }
 
-    /// D22: no folder check; a live agent's folder exists by definition.
+    /// D22: no folder check; a live agent's folder exists by definition. The fork carries the
+    /// session's Claude root: its new shell inherits no `CLAUDE_CONFIG_DIR` from the source pane.
     private func fork(
         _ location: LiveAgentSessionLocation,
         in host: any AgentHistoryWindowHost,
@@ -197,7 +201,13 @@ final class AgentHistoryLauncher {
             result = try host.forkAgentConversation(
                 paneID: location.paneID,
                 destination: .splitRight,
-                sessionOverride: AgentForkSessionOverride(tool: location.tool, sessionID: location.rawSessionID)
+                sessionOverride: AgentForkSessionOverride(
+                    tool: location.tool,
+                    sessionID: location.rawSessionID,
+                    claudeConfigRoot: location.tool == .claudeCode
+                        ? ClaudeConfigRoot(sourceRoot: source.sourceRoot, homeDirectory: homeDirectory)
+                        : nil
+                )
             )
         } catch {
             return .failed(message: error.localizedDescription, offerCopySessionID: false)
