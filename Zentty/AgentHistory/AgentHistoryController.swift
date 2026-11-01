@@ -116,8 +116,10 @@ final class AgentHistoryController: Sendable {
         configObserverID = configStore.addObserver { [weak self, weak configStore] config in
             let section = config.agentHistory
             let isReadable = !(configStore?.isUsingFallbackDefaults ?? false)
+            // Read now: by the time the task runs, a later reload may have changed it.
+            let isWriteProtected = configStore?.isWriteProtected ?? false
             Task { @MainActor in
-                self?.applyConfig(section, isReadable: isReadable)
+                self?.applyConfig(section, isReadable: isReadable, isWriteProtected: isWriteProtected)
             }
         }
     }
@@ -476,6 +478,18 @@ final class AgentHistoryController: Sendable {
         !isConfigReadable || configStore?.isWriteProtected == true
     }
 
+    /// Writes an agent access opt-out that only held in memory while config.toml couldn't be
+    /// parsed. The mirror keeps access off until this lands; a failed write tries again on the
+    /// next config change. Runs from a task, never inside the store's change notification.
+    private func saveAgentAccessRevocation() {
+        guard let configStore, configStore.current.agentHistory.allowAgentsAllProjects else { return }
+        do {
+            try configStore.update { $0.agentHistory.allowAgentsAllProjects = false }
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History couldn't save its agent access opt-out")
+        }
+    }
+
     private static func allowsIndexing(_ state: AgentHistoryState) -> Bool {
         state.enabled && state.consentedAt != nil && !state.enabledAgents.isEmpty
     }
@@ -484,12 +498,16 @@ final class AgentHistoryController: Sendable {
         AgentHistoryIndexerConfiguration(enabledAgents: state.enabledAgents, excludedFolders: configSection.excludedFolders)
     }
 
-    private func applyConfig(_ section: AppConfig.AgentHistory, isReadable: Bool) {
-        if mirror.setConfig(section) {
+    private func applyConfig(_ section: AppConfig.AgentHistory, isReadable: Bool, isWriteProtected: Bool = false) {
+        let change = mirror.setConfig(section, isWriteProtected: isWriteProtected)
+        if change.excludedFoldersChanged {
             // Building the matcher may resolve symlinks (disk): warm it off main, so neither
             // the palette nor an IPC request pays for it on the main thread.
             let mirror = self.mirror
             DispatchQueue.global(qos: .utility).async { _ = mirror.exclusions }
+        }
+        if change.revocationNeedsSave {
+            saveAgentAccessRevocation()
         }
         let becameReadable = isReadable && !isConfigReadable
         isConfigReadable = isReadable

@@ -68,6 +68,42 @@ enum AgentHistoryExcludedFoldersSaveError: Error, Equatable {
     case notSaved
 }
 
+extension AgentHistoryPaletteServicesAdapter {
+    /// Saves Settings' "Allow agents to search all projects" to config.toml. While the file
+    /// can't be parsed, `update` only changes memory and the file's value comes back once it's
+    /// fixed. Turning access on is then refused, so nothing new is granted on a file Zentty
+    /// can't read. Turning it off still holds: `AgentHistoryController` keeps it off and writes
+    /// it once the file is fixed, and the caller tells the user it isn't saved yet.
+    static func saveAgentAccess(_ allow: Bool, to configStore: AppConfigStore) throws {
+        do {
+            // A broken file must be seen before access is granted, not after.
+            configStore.reloadFromDisk()
+            guard !allow || !configStore.isWriteProtected else {
+                throw AgentHistoryAgentAccessSaveError.notSaved
+            }
+            let previous = configStore.current.agentHistory.allowAgentsAllProjects
+            try configStore.update { $0.agentHistory.allowAgentsAllProjects = allow }
+            guard configStore.isWriteProtected else { return }
+            guard !allow else {
+                // The file broke since the last look: take back what only memory got.
+                try? configStore.update { $0.agentHistory.allowAgentsAllProjects = previous }
+                throw AgentHistoryAgentAccessSaveError.notSaved
+            }
+            throw AgentHistoryAgentAccessSaveError.offNotSaved
+        } catch {
+            AgentHistoryLog.indexer.error("Agent History couldn't save its agent access setting")
+            throw error
+        }
+    }
+}
+
+enum AgentHistoryAgentAccessSaveError: Error, Equatable {
+    /// Nothing changed.
+    case notSaved
+    /// Access is off in memory only; config.toml still says on.
+    case offNotSaved
+}
+
 // MARK: - Search
 
 /// The palette's search seam over `AgentHistoryController.searchEngine`. The engine is looked

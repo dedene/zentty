@@ -109,6 +109,15 @@ enum AgentHistorySettingsAlerts {
         }
     }
 
+    /// What to tell the user when the agent access switch didn't reach config.toml.
+    static func agentAccessSaveFailure(_ error: Error) -> (title: String, message: String) {
+        let title = "Couldn't save agent access"
+        if error as? AgentHistoryAgentAccessSaveError == .offNotSaved {
+            return (title, "Agents can only search their own project for now, but Zentty couldn't write config.toml. Fix the file and Zentty saves this. Until then, a restart lets agents search all projects again.")
+        }
+        return (title, "Zentty couldn't write its config file, so this change isn't saved. Fix config.toml and try again.")
+    }
+
     struct Copy: Equatable {
         let title: String
         let message: String

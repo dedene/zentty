@@ -9,6 +9,10 @@ final class AgentHistoryControllerMirror: @unchecked Sendable {
     private var excludedFolders: [String] = []
     private var cachedExclusions: AgentHistoryExclusionMatcher?
     private var allowsAll = false
+    /// Agent access turned off while config.toml couldn't be written. Off holds, whatever the
+    /// config says, until a writable config says off too (fail closed: a fixed file that still
+    /// says on doesn't quietly grant access back).
+    private var revocationPendingSave = false
     private var storedEnabledAgents: Set<AgentHistoryAgent> = []
     /// Guarded separately: creating the store reads the file, which must not hold up `lock`.
     private let stateStoreLock = NSLock()
@@ -55,15 +59,34 @@ final class AgentHistoryControllerMirror: @unchecked Sendable {
         return matcher
     }
 
-    /// True when the excluded folders changed (the matcher must be rebuilt).
+    struct ConfigChange: Equatable {
+        /// The matcher must be rebuilt.
+        var excludedFoldersChanged = false
+        /// config.toml is writable again but still says on: write the revocation.
+        var revocationNeedsSave = false
+    }
+
+    /// `isWriteProtected`: the config store couldn't write this config to config.toml.
     @discardableResult
-    func setConfig(_ section: AppConfig.AgentHistory) -> Bool {
+    func setConfig(_ section: AppConfig.AgentHistory, isWriteProtected: Bool = false) -> ConfigChange {
         withLock {
-            allowsAll = section.allowAgentsAllProjects
-            guard excludedFolders != section.excludedFolders else { return false }
+            let allows = section.allowAgentsAllProjects
+            if isWriteProtected {
+                // Access can only go down while nothing reaches the file.
+                revocationPendingSave = revocationPendingSave || (allowsAll && !allows)
+                allowsAll = allowsAll && allows
+            } else {
+                if !allows {
+                    revocationPendingSave = false
+                }
+                allowsAll = allows && !revocationPendingSave
+            }
+            var change = ConfigChange(revocationNeedsSave: revocationPendingSave && !isWriteProtected)
+            guard excludedFolders != section.excludedFolders else { return change }
             excludedFolders = section.excludedFolders
             cachedExclusions = nil
-            return true
+            change.excludedFoldersChanged = true
+            return change
         }
     }
 

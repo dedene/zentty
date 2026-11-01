@@ -432,12 +432,13 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
         backend?.restoreAllRemovedSessions()
     }
 
+    /// Like the folders: a change that didn't reach config.toml is an error the user sees.
     @objc func handleAgentAccessChanged(_ sender: NSSwitch) {
-        let allow = sender.state == .on
         do {
-            try configStore.update { $0.agentHistory.allowAgentsAllProjects = allow }
+            try AgentHistoryPaletteServicesAdapter.saveAgentAccess(sender.state == .on, to: configStore)
         } catch {
-            agentHistorySettingsLogger.error("Couldn't save the Agent History agent access setting")
+            let failure = AgentHistorySettingsAlerts.agentAccessSaveFailure(error)
+            errorPresenter(view.window, failure.title, failure.message)
         }
         apply(agentHistory: configStore.current.agentHistory)
     }
