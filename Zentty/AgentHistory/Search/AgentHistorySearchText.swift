@@ -98,7 +98,9 @@ enum AgentHistorySearchText {
         byte == 0x20 || (0x09...0x0D).contains(byte)
     }
 
-    fileprivate static func straightQuote(for scalar: Unicode.Scalar) -> UInt8? {
+    /// The ASCII quote a typographic quote folds to, or nil. Also used by the query parser to
+    /// find phrase delimiters, so a curly-quoted phrase pairs exactly like a straight one.
+    static func straightQuote(for scalar: Unicode.Scalar) -> UInt8? {
         switch scalar.value {
         case 0x2018, 0x2019, 0x201A, 0x201B, 0x2032:
             return UInt8(ascii: "'")
