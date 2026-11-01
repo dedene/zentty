@@ -186,6 +186,41 @@ extension HistorySearchEngine {
         }
     }
 
+    /// The ids among `sessions` that search could still show right now, read from SQL (never
+    /// the snapshot, which lags a removal): the row is still that session (row ids are
+    /// reused), visible, of an enabled source and an agent the user has on, and its folder is
+    /// not excluded. A removed session has no row left. `zentty history` runs this last, so a
+    /// reply never carries a session the user hid while the request was running.
+    func visibleSessionIDs(among sessions: [AgentHistorySessionSummary]) throws -> Set<Int64> {
+        var expected: [Int64: AgentHistorySessionSummary] = [:]
+        for session in sessions {
+            expected[session.id] = session
+        }
+        guard !expected.isEmpty else { return [] }
+        let ids = expected.keys.sorted()
+        var bindings: [AgentHistoryValue] = ids.map { .integer($0) }
+        guard let sourceCondition = enabledSourceCondition(&bindings) else { return [] }
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ", ")
+        let sql = "SELECT s.id, s.source_id, s.native_id, s.cwd FROM sessions s"
+            + " WHERE s.id IN (\(placeholders)) AND \(AgentHistorySQL.visibleSessionPredicate)"
+            + " AND \(sourceCondition)"
+        let exclusions = self.exclusions
+        let rows = try withReadTransaction { db in
+            try db.query(sql, bindings) {
+                (id: $0.int64(0), sourceID: $0.int64(1), nativeID: $0.string(2), cwd: $0.optionalString(3))
+            }
+        }
+        var visible = Set<Int64>()
+        for row in rows {
+            guard let session = expected[row.id],
+                  session.sourceID == row.sourceID, session.nativeID == row.nativeID,
+                  !exclusions.excludesCanonical(row.cwd)
+            else { continue }
+            visible.insert(row.id)
+        }
+        return visible
+    }
+
     // MARK: - Shared reads
 
     /// Visible, non-excluded summaries of enabled sources and agents by id: the metadata

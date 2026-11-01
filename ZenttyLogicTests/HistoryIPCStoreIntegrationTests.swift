@@ -128,25 +128,36 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
 
     /// The indexer deletes the session `show` just resolved and ingests another project's
     /// session, which SQLite gives the freed row id (`INTEGER PRIMARY KEY`, newest row). The
-    /// turns must still be the resolved session's, never the other project's.
+    /// turns the data source read must still be the resolved session's, never the other
+    /// project's; and the service, which checks again before replying, finds "mine" gone.
     func test_show_never_returns_turns_of_a_session_that_reused_the_row_id() throws {
-        let fixture = try Fixture(testCase: self)
-        let mine = try addSession(fixture, "mine", repo: Self.repoA, text: "my own notes")
-        let engine = try fixture.engine()
-        let dataSource = RowIDRacingDataSource(
-            base: AgentHistoryIPCDataSource(status: { Self.readyStatus }, engine: { engine }))
-        var reusedID: Int64?
-        dataSource.race = {
-            try fixture.store().deleteSession(id: mine)
-            reusedID = try self.addSession(fixture, "theirs", repo: Self.repoB, text: "the other project's secret")
-        }
+        for throughService in [false, true] {
+            let fixture = try Fixture(testCase: self)
+            let mine = try addSession(fixture, "mine", repo: Self.repoA, text: "my own notes")
+            let engine = try fixture.engine()
+            let dataSource = RowIDRacingDataSource(
+                base: AgentHistoryIPCDataSource(
+                    status: { Self.readyStatus }, engine: { engine }, allowsAllProjects: { true }))
+            var reusedID: Int64?
+            dataSource.race = {
+                try fixture.store().deleteSession(id: mine)
+                reusedID = try self.addSession(fixture, "theirs", repo: Self.repoB, text: "the other project's secret")
+            }
 
-        let shown = try XCTUnwrap(try service(fixture).respond(
-            to: .show(HistoryShowIPCOptions(sessionID: "mine")), caller: caller(dataSource)).show)
-        XCTAssertEqual(reusedID, mine, "precondition: the other project's session reused the row id")
-        XCTAssertEqual(shown.sessionId, "mine")
-        XCTAssertEqual(shown.cwd, Self.repoA)
-        XCTAssertEqual(shown.turns.map(\.text), ["my own notes"])
+            if throughService {
+                XCTAssertThrowsError(try service(fixture).respond(
+                    to: .show(HistoryShowIPCOptions(sessionID: "mine")), caller: caller(dataSource))) {
+                    XCTAssertEqual($0 as? HistoryIPCError, .notFound("mine"))
+                }
+            } else {
+                let shown = try XCTUnwrap(try dataSource.show(
+                    nativeID: "mine", agent: nil, scope: .all, limit: 20) { $0.first })
+                XCTAssertEqual(shown.session.nativeID, "mine")
+                XCTAssertEqual(shown.session.cwd, Self.repoA)
+                XCTAssertEqual(shown.page.turns.map(\.text), ["my own notes"])
+            }
+            XCTAssertEqual(reusedID, mine, "precondition: the other project's session reused the row id")
+        }
     }
 
     func test_tombstoned_excluded_child_and_disabled_source_sessions_are_invisible() throws {
@@ -221,7 +232,8 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
             exclusions: { AgentHistoryExclusionMatcher(folders: []) },
             enabledAgents: { Set(AgentHistoryAgent.allCases) }
         )
-        let dataSource = AgentHistoryIPCDataSource(status: { Self.readyStatus }, engine: { engine })
+        let dataSource = AgentHistoryIPCDataSource(
+            status: { Self.readyStatus }, engine: { engine }, allowsAllProjects: { true })
         XCTAssertThrowsError(try service(fixture).respond(
             to: .search(HistorySearchIPCOptions(query: "hello")), caller: caller(dataSource))) {
             XCTAssertEqual($0 as? HistoryIPCError, .unavailable(HistoryIPCMessages.readFailed))
@@ -317,7 +329,8 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
         exclusions: AgentHistoryExclusionMatcher = AgentHistoryExclusionMatcher(folders: [])
     ) throws -> HistoryIPCResult {
         let engine = try fixture.engine()
-        let dataSource = AgentHistoryIPCDataSource(status: { Self.readyStatus }, engine: { engine })
+        let dataSource = AgentHistoryIPCDataSource(
+            status: { Self.readyStatus }, engine: { engine }, allowsAllProjects: { true })
         return try service(fixture).respond(to: command, caller: caller(dataSource, exclusions: exclusions))
     }
 }
@@ -333,6 +346,12 @@ private final class RowIDRacingDataSource: HistoryIPCDataSource, @unchecked Send
     }
 
     func availability() -> HistoryIPCAvailability { base.availability() }
+
+    func allowsAllProjects() -> Bool { base.allowsAllProjects() }
+
+    func visibleSessionIDs(among sessions: [AgentHistorySessionSummary]) throws -> Set<Int64> {
+        try base.visibleSessionIDs(among: sessions)
+    }
 
     func visibleSessionCount(scope: AgentHistoryScope) throws -> Int {
         try base.visibleSessionCount(scope: scope)

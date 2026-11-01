@@ -47,6 +47,10 @@ enum HistoryIPCMessages {
 /// `unavailable`; `--all` without permission → `scopeDenied` (nothing is queried); then the
 /// pane's project scope (remote pane or no folder → `scopeUnknown`). Every hit and every `show`
 /// candidate is re-checked against the scope and the exclusions, whatever the data source did.
+///
+/// The user can narrow access while a request runs (turn an agent off, exclude a folder, remove
+/// a session, take back `--all`, turn History off). So the last step before a reply leaves reads
+/// the rules again and drops what they no longer allow (`admittedNow`).
 struct HistoryIPCService {
     typealias DeadlineScheduler = @Sendable (TimeInterval, @escaping @Sendable () -> Void) -> (@Sendable () -> Void)
 
@@ -151,28 +155,29 @@ struct HistoryIPCService {
         }
 
         var outOfScope = 0
-        let results = hits.compactMap { hit -> HistorySearchIPCHit? in
+        let admitted = hits.filter { hit in
             let check = Self.admits(hit.session, scope: scope, exclusions: caller.exclusions)
             guard check.inScope else {
                 outOfScope += 1
-                return nil
+                return false
             }
             // Expected while an exclusion's purge is still catching up.
-            guard !check.excluded else { return nil }
-            return searchHit(hit, caller: caller)
-        }
+            return !check.excluded
+        }.prefix(options.limit)
         if outOfScope > 0 {
             AgentHistoryLog.search.fault("IPC search dropped \(outOfScope, privacy: .public) out-of-scope hits")
         }
 
         let indexedSessions = try mapped { try dataSource.visibleSessionCount(scope: scope) }
+        let visible = try admittedNow(admitted.map(\.session), scope: scope, dataSource: dataSource)
+        let results = admitted.filter { visible.contains($0.session.id) }.map { searchHit($0, caller: caller) }
         let response = HistorySearchIPCResponse(
             scope: Self.scopeName(scope),
             project: Self.projectKey(scope),
             indexedSessions: indexedSessions,
             complete: complete,
             contentIsUntrusted: true,
-            results: Array(results.prefix(options.limit))
+            results: results
         )
         return try response.fittingByteBudget(Self.budget(for: .search(options)))
     }
@@ -211,7 +216,9 @@ struct HistoryIPCService {
         if outOfScope > 0 {
             AgentHistoryLog.search.fault("IPC show dropped \(outOfScope, privacy: .public) out-of-scope sessions")
         }
-        guard let shown else {
+        guard let shown,
+              try admittedNow([shown.session], scope: scope, dataSource: dataSource).contains(shown.session.id)
+        else {
             throw HistoryIPCError.notFound(options.sessionID)
         }
 
@@ -267,6 +274,34 @@ struct HistoryIPCService {
         return admitted.max { lhs, rhs in
             lhs.updatedAtMs != rhs.updatedAtMs ? lhs.updatedAtMs < rhs.updatedAtMs : lhs.id > rhs.id
         }
+    }
+
+    // MARK: - Final admission
+
+    /// The ids among `sessions` the rules allow right now, read again just before the reply
+    /// leaves: History still on and its index readable, `--all` still allowed, and each session
+    /// still visible (agent on, folder not excluded, not removed). The request was admitted
+    /// under the rules at its start; the content tier or the turns read can take seconds, and a
+    /// session the user hid in between must not leave the app. A gap remains between this read
+    /// and the socket write; it is microseconds instead of the whole query.
+    private func admittedNow(
+        _ sessions: [AgentHistorySessionSummary],
+        scope: AgentHistoryScope,
+        dataSource: any HistoryIPCDataSource
+    ) throws -> Set<Int64> {
+        switch dataSource.availability() {
+        case .disabled:
+            throw HistoryIPCError.disabled
+        case .unavailable(let message):
+            throw HistoryIPCError.unavailable(message)
+        case .ready:
+            break
+        }
+        if case .all = scope, !dataSource.allowsAllProjects() {
+            throw HistoryIPCError.scopeDenied
+        }
+        guard !sessions.isEmpty else { return [] }
+        return try mapped { try dataSource.visibleSessionIDs(among: sessions) }
     }
 
     // MARK: - Helpers

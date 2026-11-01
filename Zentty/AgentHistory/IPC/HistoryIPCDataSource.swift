@@ -40,6 +40,12 @@ struct HistoryIPCShowPage: Equatable, Sendable {
 /// off the main thread. Errors are `HistorySearchError`s.
 protocol HistoryIPCDataSource: Sendable {
     func availability() -> HistoryIPCAvailability
+    /// Whether `--all` is allowed right now (Settings › Agent History).
+    func allowsAllProjects() -> Bool
+    /// The sessions among these that search could still show right now: agent on, folder not
+    /// excluded, not removed, row id still theirs. The service asks last, just before a reply
+    /// leaves, because the user can narrow access while a request runs.
+    func visibleSessionIDs(among sessions: [AgentHistorySessionSummary]) throws -> Set<Int64>
     /// Visible, non-excluded sessions in `scope` (the scope-local `indexedSessions`, D10 D-C).
     func visibleSessionCount(scope: AgentHistoryScope) throws -> Int
     /// Both tiers merged, best first, at most `limit`.
@@ -70,17 +76,25 @@ protocol HistoryIPCDataSource: Sendable {
 final class AgentHistoryIPCDataSource: HistoryIPCDataSource, @unchecked Sendable {
     private let status: @Sendable () -> AgentHistoryStatus
     private let engine: @Sendable () -> HistorySearchEngine?
+    private let allowsAll: @Sendable () -> Bool
 
+    /// `allowsAllProjects` is the live setting; without one, `--all` is refused.
     init(
         status: @escaping @Sendable () -> AgentHistoryStatus,
-        engine: @escaping @Sendable () -> HistorySearchEngine?
+        engine: @escaping @Sendable () -> HistorySearchEngine?,
+        allowsAllProjects: @escaping @Sendable () -> Bool = { false }
     ) {
         self.status = status
         self.engine = engine
+        self.allowsAll = allowsAllProjects
     }
 
     convenience init(controller: AgentHistoryController) {
-        self.init(status: { controller.threadSafeStatus }, engine: { controller.searchEngine })
+        self.init(
+            status: { controller.threadSafeStatus },
+            engine: { controller.searchEngine },
+            allowsAllProjects: { controller.allowsAgentsAllProjects }
+        )
     }
 
     func availability() -> HistoryIPCAvailability {
@@ -98,6 +112,14 @@ final class AgentHistoryIPCDataSource: HistoryIPCDataSource, @unchecked Sendable
             return .unavailable(HistoryIPCMessages.starting)
         }
         return .ready(complete: status.isBackfillComplete)
+    }
+
+    func allowsAllProjects() -> Bool {
+        allowsAll()
+    }
+
+    func visibleSessionIDs(among sessions: [AgentHistorySessionSummary]) throws -> Set<Int64> {
+        try requireEngine().visibleSessionIDs(among: sessions)
     }
 
     func visibleSessionCount(scope: AgentHistoryScope) throws -> Int {

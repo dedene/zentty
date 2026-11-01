@@ -401,6 +401,8 @@ private final class FakeDataSource: HistoryIPCDataSource, @unchecked Sendable {
     var sessionsByID: [String: [AgentHistorySessionSummary]] = [:]
     var turnPage = HistoryIPCTurnPage(turns: [], total: 0)
     var turnError: Error?
+    /// The live `--all` setting; the caller snapshot decides at the start, this at the end.
+    var allowsAll = true
 
     private(set) var calls: [String] = []
     private(set) var searchContexts: [HistorySearchContext] = []
@@ -416,6 +418,14 @@ private final class FakeDataSource: HistoryIPCDataSource, @unchecked Sendable {
 
     func availability() -> HistoryIPCAvailability {
         availabilityValue
+    }
+
+    func allowsAllProjects() -> Bool {
+        allowsAll
+    }
+
+    func visibleSessionIDs(among sessions: [AgentHistorySessionSummary]) throws -> Set<Int64> {
+        Set(sessions.map(\.id))
     }
 
     func visibleSessionCount(scope: AgentHistoryScope) throws -> Int {
