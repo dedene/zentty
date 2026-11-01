@@ -215,13 +215,16 @@ final class AgentHistorySettingsFormatterTests: XCTestCase {
         let value = status(
             enabledAgents: [.claude],
             sources: [
+                // The most recently scanned failing root comes first, so "last failing root in
+                // order" would pick the wrong one. Its lastError differs from describe(problem),
+                // so the described problem must win over the raw error text.
+                AgentHistorySourceHealth(
+                    agent: .claude, root: "\(home)/.claude", isDefaultRoot: true,
+                    problem: .permissionDenied, lastError: "EACCES: open failed", lastScanAt: now.addingTimeInterval(-60)
+                ),
                 AgentHistorySourceHealth(
                     agent: .claude, root: "/Volumes/Work/claude-alt", isDefaultRoot: false,
                     problem: .busy, lastError: "Database busy", lastScanAt: now.addingTimeInterval(-600)
-                ),
-                AgentHistorySourceHealth(
-                    agent: .claude, root: "\(home)/.claude", isDefaultRoot: true,
-                    problem: .permissionDenied, lastError: "Permission denied", lastScanAt: now.addingTimeInterval(-60)
                 ),
                 AgentHistorySourceHealth(
                     agent: .claude, root: "\(home)/.claude-work", isDefaultRoot: false,
@@ -231,6 +234,11 @@ final class AgentHistorySettingsFormatterTests: XCTestCase {
                     agent: .codex, root: "\(home)/.codex", isDefaultRoot: true,
                     problem: .metadataFromTranscripts, lastError: nil, lastScanAt: now
                 ),
+                // No classified problem: the raw lastError is shown.
+                AgentHistorySourceHealth(
+                    agent: .opencode, root: "\(home)/.local/share/opencode", isDefaultRoot: true,
+                    problem: nil, lastError: "Session store locked", lastScanAt: now
+                ),
             ]
         )
 
@@ -238,6 +246,7 @@ final class AgentHistorySettingsFormatterTests: XCTestCase {
         XCTAssertEqual(row(rows, .claude)?.errorText, "~/.claude: Permission denied")
         XCTAssertEqual(row(rows, .codex)?.errorText, "~/.codex: Thread catalog unavailable; using transcripts")
         XCTAssertEqual(row(rows, .codex)?.isEnabled, false)
+        XCTAssertEqual(row(rows, .opencode)?.errorText, "~/.local/share/opencode: Session store locked")
 
         // Before indexing runs, the probe's problem is shown for a found root.
         let off = status(isEnabled: false, state: .off)
