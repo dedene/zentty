@@ -120,7 +120,10 @@ final class AgentHistoryViewModelTests: XCTestCase {
             pasteboard: AgentHistoryTestPasteboard.make(),
             revealInFinder: { _ in },
             fileExists: { [fileExists] in fileExists($0) },
-            now: { [nowMs] in Date(timeIntervalSince1970: TimeInterval(nowMs) / 1000) }
+            // Follows the scheduler's clock, so throttles see time pass as the test advances it.
+            now: { [nowMs, scheduler] in
+                Date(timeIntervalSince1970: TimeInterval(nowMs) / 1000 + (scheduler?.now ?? 0))
+            }
         )
         let context = AgentHistoryOpenContext(
             entryPoint: entryPoint,
@@ -469,24 +472,40 @@ final class AgentHistoryViewModelTests: XCTestCase {
 
         search.recent = [summary(1), summary(2)]
         var status = control.status
-        status.revision = 2
-        status.indexedSessions = 1285
-        control.publish(status)
-        scheduler.advance(by: 1)
-        XCTAssertGreaterThan(search.recentScopes.count, recentCalls)
+        for revision: UInt64 in 2...4 {
+            status.revision = revision
+            status.indexedSessions = 1281 + Int(revision)
+            control.publish(status)
+        }
+        XCTAssertEqual(model.footer.health.text, "1,285 sessions", "the footer follows every status")
+        scheduler.advance(by: 0.99)
+        XCTAssertEqual(search.recentScopes.count, recentCalls, "no refresh within a second of the last one")
+        XCTAssertEqual(titles(model, .recent), ["Session 1"])
+        scheduler.advance(by: 0.01)
+        XCTAssertEqual(search.recentScopes.count, recentCalls + 1, "revisions inside the window collapse into one refresh")
         XCTAssertEqual(titles(model, .recent), ["Session 1", "Session 2"])
-        XCTAssertEqual(model.footer.health.text, "1,285 sessions")
+        scheduler.advance(by: 5)
+        XCTAssertEqual(search.recentScopes.count, recentCalls + 1)
+
+        // The last refresh was over a second ago: the next revision refreshes on the next tick.
+        search.recent = [summary(1), summary(2), summary(3)]
+        status.revision = 5
+        control.publish(status)
+        XCTAssertEqual(search.recentScopes.count, recentCalls + 1, "never synchronously inside the status callback")
+        scheduler.advance(by: 0)
+        XCTAssertEqual(search.recentScopes.count, recentCalls + 2)
+        XCTAssertEqual(titles(model, .recent), ["Session 1", "Session 2", "Session 3"])
 
         model.updateQuery("crash")
         let metadataCalls = search.metadataQueries.count
-        status.revision = 3
+        status.revision = 6
         control.publish(status)
         scheduler.advance(by: 1)
         XCTAssertEqual(search.metadataQueries.count, metadataCalls, "typed results never re-run")
         XCTAssertEqual(search.pendingContent.count, 1)
 
         status.state = .failed(.corrupt)
-        status.revision = 4
+        status.revision = 7
         control.publish(status)
         XCTAssertEqual(model.body, .indexUnavailable(.corrupt))
     }
