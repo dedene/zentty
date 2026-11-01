@@ -235,9 +235,14 @@ final class HistoryContentSearchTests: XCTestCase {
                                 texts: (0..<600).map { "cache invalidation \($0)" })
 
         let cancellation = HistorySearchCancellation(generation: 7)
+        let gradedRows = Fixture.Box(0)
         var tuning = HistorySearchEngine.Tuning()
         tuning.cancellationCheckRows = 1_000_000   // leave it to SQLite's progress handler
-        tuning.willGradeRow = { cancellation.cancel() }
+        tuning.progressHandlerInstructions = 50
+        tuning.willGradeRow = {
+            gradedRows.set(gradedRows.value + 1)
+            cancellation.cancel()
+        }
         let cancelling = try fixture.engine(tuning: tuning)
 
         XCTAssertThrowsError(try cancelling.searchContent(
@@ -245,6 +250,10 @@ final class HistoryContentSearchTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? HistorySearchError, .cancelled)
         }
+        // The handler aborted the statement mid-scan; the check after the scan would only have
+        // thrown once all 600 rows were graded.
+        XCTAssertGreaterThan(gradedRows.value, 0)
+        XCTAssertLessThan(gradedRows.value, 10, "the progress handler must interrupt the running statement")
 
         // The only reader is reused: a handler left installed would abort this search too.
         let next = try fixture.engine().searchContent(
