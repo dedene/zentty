@@ -115,12 +115,14 @@ final class AgentHistoryBudgetTests: XCTestCase {
 
     /// Spec §10: 0 ms added main-thread work at launch. `configure` and
     /// `scheduleStartAfterLaunch` only store references and arm a timer (no disk, no sources);
-    /// after the launch delay every source call (discovery, stat, ingest) and `makeSources` run
-    /// off main, and main never stalls while the indexer starts and backfills.
+    /// the indexer is created no sooner than the launch delay after launch; every source call
+    /// (discovery, stat, ingest) and `makeSources` run off main and after that delay too, and
+    /// main never stalls while the indexer starts and backfills.
     func test_main_thread_untouched_at_launch() throws {
         try requireBenchmarkRun()
+        let launchDelay = 0.3
         let probe = MainThreadProbe()
-        let fixture = try makeFixture(Corpus(.small), launchDelay: 0.3, probe: probe)
+        let fixture = try makeFixture(Corpus(.small), launchDelay: launchDelay, probe: probe)
         try AgentHistoryStateStore(fileURL: fixture.paths.stateURL).update { state in
             state.enabled = true
             state.consentedAt = Date()
@@ -151,11 +153,19 @@ final class AgentHistoryBudgetTests: XCTestCase {
 
         let calls = probe.calls
         let onMain = calls.filter(\.onMain).map(\.name)
+        let delayNs = UInt64(launchDelay * 1_000_000_000)
+        let indexerCreatedAfterMs = probe.indexerCreatedAt.map { (Double($0) - Double(launchStarted)) / 1_000_000 }
+        let firstCallAfterMs = calls.first.map { (Double($0.at) - Double(launchStarted)) / 1_000_000 }
         print(String(format: "Launch path %.3f ms on main; %d source calls, %d on main; max main stall %.1f ms "
                      + "while the indexer started and backfilled %d sessions",
                      launchPathMs, calls.count, onMain.count, maxStallMs,
                      fixture.controller.metadataSnapshot.sessions.count))
-
+        print(String(format: "Indexer created %.1f ms after launch, first source call %.1f ms (launch delay %.0f ms)",
+                     indexerCreatedAfterMs ?? -1, firstCallAfterMs ?? -1, launchDelay * 1_000))
+        XCTAssertGreaterThanOrEqual(probe.indexerCreatedAt ?? 0, launchStarted + delayNs,
+                                    "the indexer is created no sooner than the launch delay")
+        XCTAssertGreaterThanOrEqual(calls.first?.at ?? 0, launchStarted + delayNs,
+                                    "no source is touched before the launch delay")
         XCTAssertTrue(calls.contains { $0.name == "ingest" }, "the backfill ran")
         XCTAssertEqual(onMain, [], "no indexer work runs on main")
         XCTAssertLessThan(launchPathMs, 5, "configure + schedule only store references and arm a timer")
@@ -238,7 +248,8 @@ final class AgentHistoryBudgetTests: XCTestCase {
             launchDelay: launchDelay,
             makeSources: makeSources,
             makeIndexer: { storage, stateStore, configuration, callbacks in
-                AgentHistoryIndexer(
+                probe?.markIndexerCreated()
+                return AgentHistoryIndexer(
                     storage: storage,
                     stateStore: stateStore,
                     makeSources: makeSources,
@@ -406,10 +417,13 @@ private final class MainThreadProbe: @unchecked Sendable {
     struct Call: Equatable {
         let name: String
         let onMain: Bool
+        /// `DispatchTime` uptime in ns.
+        let at: UInt64
     }
 
     private let lock = NSLock()
     private var recorded: [Call] = []
+    private var indexerCreated: UInt64?
 
     var calls: [Call] {
         lock.lock()
@@ -417,10 +431,24 @@ private final class MainThreadProbe: @unchecked Sendable {
         return recorded
     }
 
+    /// When the controller first called its `makeIndexer` factory.
+    var indexerCreatedAt: UInt64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return indexerCreated
+    }
+
     func record(_ name: String) {
-        let call = Call(name: name, onMain: Thread.isMainThread)
+        let call = Call(name: name, onMain: Thread.isMainThread, at: DispatchTime.now().uptimeNanoseconds)
         lock.lock()
         recorded.append(call)
+        lock.unlock()
+    }
+
+    func markIndexerCreated() {
+        let now = DispatchTime.now().uptimeNanoseconds
+        lock.lock()
+        indexerCreated = indexerCreated ?? now
         lock.unlock()
     }
 }
