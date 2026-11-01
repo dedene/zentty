@@ -75,8 +75,7 @@ extension AgentHistoryViewModel {
         case .sheetCancel:
             folderSheet = nil
         case .consentConfirm:
-            // The consent card (UI7) handles its own confirmation.
-            break
+            confirmConsent()
         }
     }
 

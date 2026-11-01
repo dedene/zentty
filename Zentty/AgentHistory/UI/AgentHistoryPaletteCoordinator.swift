@@ -87,6 +87,11 @@ final class AgentHistoryPaletteCoordinator {
             self.close(restoreFocus: false)
             host?.agentHistoryShowSettings()
         }
+        model.onRequestFolderPicker = { [weak self, weak model] in
+            self?.panelController.presentFolderPicker { urls in
+                model?.addExcludedFolders(urls)
+            }
+        }
         self.model = model
 
         host.agentHistorySetToolbarPresented(true)

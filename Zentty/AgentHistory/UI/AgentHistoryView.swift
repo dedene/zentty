@@ -34,6 +34,13 @@ struct AgentHistoryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { isQueryFocused = true }
+        .onChange(of: model.body) { _ in
+            // The search row appears when the consent card hands over to results.
+            if showsSearchChrome { isQueryFocused = true }
+        }
+        .onChange(of: model.queryFocusRequest) { _ in
+            if showsSearchChrome { isQueryFocused = true }
+        }
     }
 
     /// The consent card (D15) stands alone, without search row and footer.
@@ -160,7 +167,11 @@ struct AgentHistoryView: View {
         case .loading:
             AgentHistoryMessageView(title: "Looking for agent sessions…", theme: theme)
         case .consent:
-            AgentHistoryConsentPendingView(theme: theme, onOpenSettings: model.openProblemLink)
+            if let consent = model.consent {
+                AgentHistoryConsentView(model: model, consent: consent)
+            } else {
+                AgentHistoryMessageView(title: "Looking for agent sessions…", theme: theme)
+            }
         case .noAgents(let checkedPaths):
             AgentHistoryNoAgentsView(checkedPaths: checkedPaths, theme: theme)
         case .indexUnavailable(let reason):
@@ -168,7 +179,7 @@ struct AgentHistoryView: View {
                 reason: reason,
                 isDiskFullPause: model.isPausedForDiskFull,
                 theme: theme,
-                onRebuild: { model.services.control.rebuildIndex() },
+                onRebuild: model.rebuildIndex,
                 onOpenSettings: model.openProblemLink
             )
         case .results:

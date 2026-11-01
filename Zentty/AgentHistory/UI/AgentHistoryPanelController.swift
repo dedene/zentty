@@ -5,9 +5,13 @@ import SwiftUI
 /// The Agent History palette's child panel: the command palette's panel, glass and backdrop
 /// with a SwiftUI body. Every keyDown in the panel goes through `AgentHistoryKeyRouter` first,
 /// so arrows, ↩ and ⇥ drive the list while the search field keeps focus.
+///
+/// Shows the consent card's "Add Folder…" picker through an injectable `folderPicker`.
+typealias AgentHistoryPaletteFolderPicker = @MainActor (_ parent: NSWindow?, _ completion: @escaping @MainActor ([URL]) -> Void) -> Void
+
 @MainActor
 final class AgentHistoryPanelController {
-    /// Until the consent card (UI7) reports its own height.
+    /// Until the consent card reports its measured height.
     static let defaultConsentHeight: CGFloat = 520
     static let fadeInDuration: TimeInterval = 0.15
     static let fadeOutDuration: TimeInterval = 0.10
@@ -23,6 +27,7 @@ final class AgentHistoryPanelController {
     private var clickMonitor: Any?
     private var exemptClickViews: () -> [NSView] = { [] }
     private var isDismissMonitorSuspended = false
+    private var isPresentingFolderPicker = false
     private var windowObservers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var pendingAnnouncement: String?
@@ -33,6 +38,9 @@ final class AgentHistoryPanelController {
     var onClosed: (() -> Void)?
 
     var isShown: Bool { panel != nil }
+
+    /// Hosted tests swap in a stub that mimics the open panel taking key focus.
+    var folderPicker: AgentHistoryPaletteFolderPicker = AgentHistoryPanelController.openPanelFolderPicker
 
     static var reducesMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -51,7 +59,7 @@ final class AgentHistoryPanelController {
             close(animated: false)
         }
 
-        let layout = AgentHistoryPanelLayout.resolve(windowFrame: window.frame, mode: Self.mode(for: model.body))
+        let layout = AgentHistoryPanelLayout.resolve(windowFrame: window.frame, mode: Self.mode(for: model))
         model.layout = layout
         model.updateTheme(theme)
 
@@ -174,7 +182,7 @@ final class AgentHistoryPanelController {
     /// Fits the panel to the parent window and the body (results or the consent card).
     func relayout() {
         guard let panel, let parentWindow, let model else { return }
-        let layout = AgentHistoryPanelLayout.resolve(windowFrame: parentWindow.frame, mode: Self.mode(for: model.body))
+        let layout = AgentHistoryPanelLayout.resolve(windowFrame: parentWindow.frame, mode: Self.mode(for: model))
         if model.layout != layout {
             model.layout = layout
         }
@@ -188,8 +196,42 @@ final class AgentHistoryPanelController {
         isDismissMonitorSuspended = suspended
     }
 
-    static func mode(for body: AgentHistoryViewModel.Body) -> AgentHistoryPanelLayout.Mode {
-        body == .consent ? .consent(fittingHeight: defaultConsentHeight) : .results
+    static func mode(for model: AgentHistoryViewModel) -> AgentHistoryPanelLayout.Mode {
+        guard model.body == .consent else { return .results }
+        return .consent(fittingHeight: model.consentFittingHeight ?? defaultConsentHeight)
+    }
+
+    // MARK: - Folder picker
+
+    /// "Add Folder…": clicks in the picker must not dismiss the palette, and when it closes the
+    /// palette takes key focus back (the picker leaves the parent window key otherwise).
+    func presentFolderPicker(_ completion: @escaping @MainActor ([URL]) -> Void) {
+        guard let panel, !isPresentingFolderPicker else { return }
+        isPresentingFolderPicker = true
+        setDismissMonitorSuspended(true)
+        folderPicker(parentWindow) { [weak self, weak panel] urls in
+            guard let self else { return }
+            self.isPresentingFolderPicker = false
+            self.setDismissMonitorSuspended(false)
+            guard let panel, panel === self.panel else { return }
+            panel.makeKey()
+            self.model?.requestQueryFocus()
+            completion(urls)
+        }
+    }
+
+    static func openPanelFolderPicker(_ parent: NSWindow?, _ completion: @escaping @MainActor ([URL]) -> Void) {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = false
+        openPanel.canChooseDirectories = true
+        openPanel.allowsMultipleSelection = true
+        openPanel.canCreateDirectories = false
+        openPanel.prompt = "Exclude"
+        openPanel.message = "Choose folders whose agent sessions Agent History should never index."
+        openPanel.begin { response in
+            let urls = response == .OK ? openPanel.urls : []
+            MainActorShim.assumeIsolated { completion(urls) }
+        }
     }
 
     // MARK: - Keys
@@ -283,6 +325,15 @@ final class AgentHistoryPanelController {
             .dropFirst()
             .sink { [weak self] _ in
                 // `@Published` emits before the value is stored.
+                DispatchQueue.main.async {
+                    MainActorShim.assumeIsolated { self?.relayout() }
+                }
+            }
+            .store(in: &cancellables)
+        model.$consentFittingHeight
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
                 DispatchQueue.main.async {
                     MainActorShim.assumeIsolated { self?.relayout() }
                 }

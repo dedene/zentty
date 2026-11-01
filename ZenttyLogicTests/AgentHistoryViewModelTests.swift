@@ -552,6 +552,6 @@ final class AgentHistoryViewModelTests: XCTestCase {
         let second = makeModel()
         second.start()
         XCTAssertEqual(second.body, .consent)
-        XCTAssertEqual(second.detectedSources.count, 1)
+        XCTAssertEqual(second.consent?.enabledAgents, [.codex])
     }
 }

@@ -143,29 +143,6 @@ struct AgentHistoryIndexUnavailableView: View {
     }
 }
 
-/// Shown until the consent card (UI7) is in place: the index is turned on in Settings.
-struct AgentHistoryConsentPendingView: View {
-    let theme: AgentHistoryTheme
-    let onOpenSettings: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Search your past agent sessions")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(theme.primaryText)
-            Text("Turn on Agent History in Settings to build a search index of your agent conversations.")
-                .font(.system(size: 12.5))
-                .foregroundStyle(theme.secondaryText)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            AgentHistoryActionButton(title: "Open Settings", keys: nil, isPrimary: true, theme: theme, action: onOpenSettings)
-        }
-        .frame(maxWidth: 420)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
-    }
-}
-
 /// One footer key hint, e.g. "⌘↩ split" (A-15).
 struct AgentHistoryKeyHint: Hashable {
     let keys: String

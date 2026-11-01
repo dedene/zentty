@@ -213,7 +213,7 @@ struct AgentHistoryFormatting {
 
     // MARK: - Helpers
 
-    private func number(_ value: Int) -> String {
+    func number(_ value: Int) -> String {
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .decimal

@@ -66,7 +66,7 @@ final class AgentHistoryViewModel: ObservableObject {
     static let statusRefreshInterval: TimeInterval = 1
 
     @Published private(set) var query = ""
-    @Published private(set) var body: Body = .loading
+    @Published internal(set) var body: Body = .loading
     @Published private(set) var scope: AgentHistoryScope
     @Published private(set) var pills: [AgentHistoryFilterPill] = []
     @Published internal(set) var sections: [AgentHistorySection] = []
@@ -78,8 +78,12 @@ final class AgentHistoryViewModel: ObservableObject {
     @Published internal(set) var footer: Footer
     @Published internal(set) var liveKeys: Set<AgentHistorySessionKey> = []
     @Published internal(set) var folderGoneKeys: Set<AgentHistorySessionKey> = []
-    /// What the pre-consent probe found; the consent card (UI7) builds its rows from it.
-    @Published private(set) var detectedSources: [AgentHistoryDetectedSource] = []
+    /// The first-run consent card (`+Consent`), built from the stat-only probe.
+    @Published internal(set) var consent: AgentHistoryConsentModel?
+    /// The consent card's measured height; the panel fits itself to it.
+    @Published var consentFittingHeight: CGFloat?
+    /// Bumped to put the caret back in the search field (after the folder picker).
+    @Published private(set) var queryFocusRequest = 0
     /// In-panel feedback ("Copied", "Removed …"); never a launch toast (A-20).
     @Published var transientMessage: String?
     /// Where to resume a session whose folder is gone (`+Actions`); nil while hidden.
@@ -221,8 +225,8 @@ final class AgentHistoryViewModel: ObservableObject {
 
     private func sourcesDetected(_ sources: [AgentHistoryDetectedSource]) {
         guard isStarted, body == .loading else { return }
-        detectedSources = sources
         if sources.contains(where: \.isFound) {
+            consent = makeConsent(from: sources)
             body = .consent
         } else {
             body = .noAgents(checkedPaths: sources.flatMap(\.checkedPaths))
@@ -231,6 +235,10 @@ final class AgentHistoryViewModel: ObservableObject {
 
     func updateTheme(_ zenttyTheme: ZenttyTheme) {
         theme = AgentHistoryTheme(zenttyTheme: zenttyTheme)
+    }
+
+    func requestQueryFocus() {
+        queryFocusRequest &+= 1
     }
 
     // MARK: - Query and scope
@@ -429,6 +437,9 @@ final class AgentHistoryViewModel: ObservableObject {
 
     private func statusDidChange(_ status: AgentHistoryStatus) {
         updateFooter(status: status)
+        if consentStatusDidChange(status) {
+            return
+        }
         switch (body, status.state) {
         case (_, .failed(let reason)) where body != .consent:
             body = .indexUnavailable(reason)
