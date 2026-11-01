@@ -3452,7 +3452,7 @@ extension RootViewController: AgentHistoryPaletteHost {
     }
 
     func agentHistoryShowSettings() {
-        onShowSettingsSectionRequested?(.agents)
+        onShowSettingsSectionRequested?(.agentHistory)
     }
 
     func agentHistoryRestoreFocus() {

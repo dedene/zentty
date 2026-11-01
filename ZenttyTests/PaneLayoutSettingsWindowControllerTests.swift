@@ -70,7 +70,7 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.sectionTitles,
             [
                 "General", "Appearance", "Shortcuts", "Notifications", "Updates & Privacy",
-                "Worklanes & Panes", "Open With", "Dev Servers", "Agents",
+                "Worklanes & Panes", "Open With", "Dev Servers", "Agents", "Agent History",
             ]
         )
         XCTAssertEqual(contentController.selectedSection, .paneLayout)

@@ -10,6 +10,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     case paneLayout
     case updatesPrivacy
     case agents
+    case agentHistory
 
     var title: String {
         switch self {
@@ -31,6 +32,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "Updates & Privacy"
         case .agents:
             "Agents"
+        case .agentHistory:
+            "Agent History"
         }
     }
 
@@ -54,6 +57,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "arrow.triangle.2.circlepath"
         case .agents:
             "cpu"
+        case .agentHistory:
+            "clock.arrow.circlepath"
         }
     }
 
@@ -77,6 +82,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "Update channel and crash reporting"
         case .agents:
             "Agent status, teams, and sleep behavior"
+        case .agentHistory:
+            "Search index, sources, privacy, and agent access"
         }
     }
 
@@ -102,6 +109,12 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             ["update", "channel", "beta", "stable", "crash", "error", "report", "privacy", "sentry"]
         case .agents:
             ["agent", "claude", "team", "caffeinate", "sleep", "subagent", "menu", "menu bar", "menubar", "status"]
+        case .agentHistory:
+            // Never "claude", "menu" or "worklane": those must keep landing on their own sections.
+            [
+                "history", "search", "session", "resume", "transcript", "conversation", "index",
+                "retention", "exclude", "excluded", "folder", "privacy", "past",
+            ]
         }
     }
 
@@ -125,6 +138,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             .systemCyan
         case .agents:
             .systemOrange
+        case .agentHistory:
+            .systemBrown
         }
     }
 
@@ -157,7 +172,7 @@ enum SettingsSidebarLayout {
             title: nil,
             sections: [.general, .appearance, .shortcuts, .notifications, .updatesPrivacy]
         ),
-        SettingsSidebarGroup(title: "Workspace", sections: [.paneLayout, .openWith, .devServers, .agents]),
+        SettingsSidebarGroup(title: "Workspace", sections: [.paneLayout, .openWith, .devServers, .agents, .agentHistory]),
     ]
 }
 
@@ -251,6 +266,7 @@ final class SettingsWindowController: NSWindowController {
         errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
         agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = AgentTeamsEnableWarning.present,
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess,
+        agentHistoryBackend: (any AgentHistorySettingsBackend)? = nil,
         initialSection: SettingsSection = .general
     ) {
         let settingsViewController = SettingsViewController(
@@ -263,6 +279,7 @@ final class SettingsWindowController: NSWindowController {
             errorReportingRestartHandler: errorReportingRestartHandler,
             agentTeamsEnableWarningPresenter: agentTeamsEnableWarningPresenter,
             runtimeErrorReportingEnabled: runtimeErrorReportingEnabled,
+            agentHistoryBackend: agentHistoryBackend,
             initialSection: initialSection
         )
         let window = SettingsWindow(
@@ -501,6 +518,11 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         configStore: configStore,
         agentTeamsEnableWarningPresenter: agentTeamsEnableWarningPresenter
     )
+    private lazy var agentHistoryViewController = AgentHistorySettingsSectionViewController(
+        configStore: configStore,
+        backend: agentHistoryBackend
+    )
+    private let agentHistoryBackend: (any AgentHistorySettingsBackend)?
     private let openWithViewController: OpenWithSettingsSectionViewController
     private let serverBrowserSettingsViewController: ServerBrowserSettingsSectionViewController
     private let errorReportingBundleConfigurationProvider: ErrorReportingBundleConfigurationProvider
@@ -540,9 +562,11 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         errorReportingRestartHandler: @escaping ErrorReportingRestartHandler,
         agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter,
         runtimeErrorReportingEnabled: Bool,
+        agentHistoryBackend: (any AgentHistorySettingsBackend)?,
         initialSection: SettingsSection
     ) {
         self.configStore = configStore
+        self.agentHistoryBackend = agentHistoryBackend
         self.selectedSection = initialSection
         self.history = SettingsNavigationHistory(initial: initialSection)
         self.errorReportingBundleConfigurationProvider = errorReportingBundleConfigurationProvider
@@ -743,6 +767,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         paneLayoutViewController.apply(worklanes: config.worklanes, panes: config.panes, paneLayout: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
         serverBrowserSettingsViewController.apply(serverDetection: config.serverDetection)
+        agentHistoryViewController.apply(agentHistory: config.agentHistory)
     }
 
     private func sectionViewController(for section: SettingsSection) -> NSViewController {
@@ -765,6 +790,8 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
             updatesPrivacyViewController
         case .agents:
             agentsViewController
+        case .agentHistory:
+            agentHistoryViewController
         }
     }
 }
