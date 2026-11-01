@@ -2760,7 +2760,13 @@ private final class StubOpenWithService: OpenWithServing {
 /// A stand-in history controller for hosted Settings tests: no index, no agent folders read.
 @MainActor
 final class HostedAgentHistorySettingsBackend: AgentHistorySettingsBackend {
-    var status = AgentHistoryStatus.off
+    /// state.json read, consented earlier, History off: the status switch is live.
+    var status: AgentHistoryStatus = {
+        var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
+        status.hasConsented = true
+        return status
+    }()
     private(set) var refreshCount = 0
     private(set) var detectCount = 0
     private var observers: [UUID: @MainActor (AgentHistoryStatus) -> Void] = [:]

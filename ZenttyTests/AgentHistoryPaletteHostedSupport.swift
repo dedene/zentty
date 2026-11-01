@@ -99,6 +99,7 @@ enum AgentHistoryHostedFixtures {
 
     static var readyStatus: AgentHistoryStatus {
         var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
         status.isEnabled = true
         status.hasConsented = true
         status.enabledAgents = Set(AgentHistoryAgent.allCases)
