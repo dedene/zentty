@@ -2050,7 +2050,7 @@ final class RootViewController: NSViewController {
         remotePaste.cancelAll()
     }
 
-    private func showToast(
+    func showToast(
         message: String,
         duration: TimeInterval? = nil
     ) {

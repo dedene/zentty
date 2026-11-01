@@ -569,6 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
+        wireAgentHistory(into: controller)
         PaneEventMonitor.shared.attach(windowID: controller.windowID, store: controller.worklaneStore)
         sessionScrollback.observe(controller.worklaneStore)
         syncMenuBarStatusSources()
@@ -927,13 +928,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncMenuBarStatusSources() {
         guard let menuBarStatusController else { return }
-        menuBarStatusController.syncSources(orderedWindowControllers.map { controller in
+        menuBarStatusController.syncSources(agentHistoryWorklaneSources())
+    }
+
+    /// Every window's worklane store in window order: the menu bar status and Agent History's
+    /// live-session index watch the same set.
+    func agentHistoryWorklaneSources() -> [MenuBarWorklaneSource] {
+        orderedWindowControllers.map { controller in
             MenuBarWorklaneSource(
                 windowID: controller.windowID,
                 windowTitle: controller.menuBarDisplayTitle,
                 worklaneStore: controller.worklaneStore
             )
-        })
+        }
+    }
+
+    /// Lets a window's Agent History reach every window, so a pick can jump to or fork a session
+    /// running in another one.
+    private func wireAgentHistory(into controller: MainWindowController) {
+        controller.agentHistoryHostsProvider = { [weak self] in
+            guard let self else { return [] }
+            return self.orderedWindowControllers
+        }
+        controller.agentHistorySourcesProvider = { [weak self] in
+            self?.agentHistoryWorklaneSources() ?? []
+        }
     }
 
     private func makeOnePasswordPromptFocusCoordinator() -> OnePasswordPromptFocusCoordinator {

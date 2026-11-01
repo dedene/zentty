@@ -212,6 +212,30 @@ final class PaneCommandExecutor {
         )
     }
 
+    /// Opens `request` in a new worklane placed per the new-worklane setting relative to the
+    /// active one (Agent History resume).
+    @discardableResult
+    func launchInNewWorklane(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane {
+        canvas.settlePaneStripPresentationNow()
+        return worklaneStore.openWorklane(request, anchorWorklaneID: worklaneStore.activeWorklane?.id)
+    }
+
+    /// Opens `request` in a split to the right of the active worklane's focused pane; nil when
+    /// there is no worklane to split.
+    @discardableResult
+    func launchInSplitRight(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane? {
+        guard let worklane = worklaneStore.activeWorklane else {
+            return nil
+        }
+        canvas.settlePaneStripPresentationNow()
+        return worklaneStore.openSplit(
+            in: worklane.id,
+            targetPaneID: worklane.paneStripState.focusedPaneID,
+            isHorizontal: true,
+            request
+        )
+    }
+
     private func showRestoreToast(message: String) {
         hooks.showToast(message)
     }

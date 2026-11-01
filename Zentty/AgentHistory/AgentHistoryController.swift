@@ -15,7 +15,7 @@ struct AgentHistoryIndexerCallbacks: Sendable {
 /// I/O; `stop()` at quit is the one exception and waits at most a second (A-7). Status,
 /// snapshot, storage, exclusions and the allow flag are mirrored under a lock for other threads.
 @MainActor
-final class AgentHistoryController {
+final class AgentHistoryController: Sendable {
     typealias IndexerFactory = (
         AgentHistoryStorage, AgentHistoryStateStore, AgentHistoryIndexerConfiguration, AgentHistoryIndexerCallbacks
     ) -> AgentHistoryIndexer
@@ -231,6 +231,11 @@ final class AgentHistoryController {
 
     func removeSession(_ key: AgentHistorySessionKey) {
         indexer?.removeSession(key)
+    }
+
+    /// Counts one open on the indexer's queue; dropped while the indexer is off.
+    func recordOpen(sessionRowID: Int64, atMs: Int64) {
+        indexer?.recordOpen(sessionRowID: sessionRowID, atMs: atMs)
     }
 
     // MARK: - State

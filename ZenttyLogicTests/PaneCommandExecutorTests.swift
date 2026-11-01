@@ -25,6 +25,41 @@ final class PaneCommandExecutorTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.panes.count, 2)
     }
 
+    func test_launch_in_new_worklane_settles_canvas_and_selects_new_lane() throws {
+        let store = makeStore()
+        let canvas = StubCanvas()
+        let executor = makeExecutor(store: store, canvas: canvas)
+
+        let launched = executor.launchInNewWorklane(
+            PaneLaunchRequest(workingDirectory: "/tmp/resume", command: "claude --resume abc")
+        )
+
+        XCTAssertEqual(canvas.settleCount, 1)
+        XCTAssertEqual(store.worklanes.map(\.id), [worklaneID, launched.worklaneID])
+        XCTAssertEqual(store.activeWorklaneID, launched.worklaneID)
+        let pane = try XCTUnwrap(store.activeWorklane?.paneStripState.panes.first)
+        XCTAssertEqual(pane.id, launched.paneID)
+        XCTAssertEqual(pane.sessionRequest.command, "claude --resume abc")
+        XCTAssertEqual(pane.sessionRequest.workingDirectory, "/tmp/resume")
+    }
+
+    func test_launch_in_split_right_settles_canvas_and_splits_after_focused_pane() throws {
+        let store = makeStore(paneCount: 2)
+        let canvas = StubCanvas()
+        let executor = makeExecutor(store: store, canvas: canvas)
+
+        let launched = try XCTUnwrap(executor.launchInSplitRight(
+            PaneLaunchRequest(workingDirectory: "/tmp/resume", command: "codex resume abc")
+        ))
+
+        XCTAssertEqual(canvas.settleCount, 1)
+        XCTAssertEqual(launched.worklaneID, worklaneID)
+        let columns = try XCTUnwrap(store.activeWorklane?.paneStripState.columns)
+        XCTAssertEqual(columns.map { $0.panes.map(\.id) }, [[paneA], [launched.paneID], [paneB]])
+        let pane = try XCTUnwrap(store.activeWorklane?.paneStripState.panes.first { $0.id == launched.paneID })
+        XCTAssertEqual(pane.sessionRequest.command, "codex resume abc")
+    }
+
     func test_split_startup_command_reconstructs_quoted_tokens() throws {
         let command = try parseSplitStartupCommand(from: [
             "down", "--golden", "--command-json", #"["codex","--model","gpt 5","it's ok",""]"#,

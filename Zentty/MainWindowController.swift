@@ -197,6 +197,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onMovePaneToNewWorklaneInThisWindowRequested: ((MainWindowController, PaneID) -> Void)?
     var moveToWorklaneCatalogProvider: ((MainWindowController, PaneID) -> WorklaneDestinationCatalog?)?
     var onWorkspaceStateDidChange: (() -> Void)?
+    /// Every main window, for Agent History jumps and forks across windows. Nil: just this one.
+    var agentHistoryHostsProvider: (() -> [any AgentHistoryWindowHost])?
+    /// Every window's worklane store, for the live-session index. Nil: just this window's.
+    var agentHistorySourcesProvider: (() -> [MenuBarWorklaneSource])?
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
@@ -988,6 +992,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             destination: destination,
             sessionOverride: sessionOverride
         )
+    }
+
+    func launchInNewWorklane(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane {
+        rootViewController.paneCommands.launchInNewWorklane(request)
+    }
+
+    func launchInSplitRight(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane? {
+        rootViewController.paneCommands.launchInSplitRight(request)
+    }
+
+    func showToast(message: String) {
+        rootViewController.showToast(message: message)
     }
 
     @objc
