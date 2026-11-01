@@ -174,19 +174,44 @@ enum HistoryMatcher {
             return []
         }
         let folded = AgentHistorySearchText.normalizeWithMap(displayText)
-        var ranges: [NSRange] = []
-        folded.utf8.withUnsafeBufferPointer { text in
-            guard !text.isEmpty else {
-                return
+        let occurrences = folded.utf8.withUnsafeBufferPointer {
+            creditedOccurrences(normalizedUTF8: $0, terms: query.terms, mode: mode)
+        }
+        return highlightRanges(for: occurrences, in: folded)
+    }
+
+    /// Every credited occurrence of every term, sorted by position (then term index). Unlike
+    /// `grade`, a term that is missing does not suppress the others.
+    static func creditedOccurrences(
+        normalizedUTF8 text: UnsafeBufferPointer<UInt8>,
+        terms: [HistoryQueryTerm],
+        mode: BoundaryMode = .text
+    ) -> [HistoryTermOccurrence] {
+        guard !text.isEmpty else {
+            return []
+        }
+        var occurrences: [HistoryTermOccurrence] = []
+        for (index, term) in terms.enumerated() {
+            forEachCreditedOccurrence(of: PreparedTerm(term), in: text, mode: mode) { range, matchClass in
+                occurrences.append(HistoryTermOccurrence(termIndex: index, bytes: range, matchClass: matchClass))
+                return true
             }
-            for term in query.terms {
-                forEachCreditedOccurrence(of: PreparedTerm(term), in: text, mode: mode) { range, _ in
-                    let mapped = folded.sourceRange(forBytes: range)
-                    if mapped.length > 0 {
-                        ranges.append(mapped)
-                    }
-                    return true
-                }
+        }
+        occurrences.sort {
+            ($0.bytes.lowerBound, $0.termIndex) < ($1.bytes.lowerBound, $1.termIndex)
+        }
+        return occurrences
+    }
+
+    /// Maps occurrences found in `folded.utf8` back to UTF-16 ranges of the text `folded` was
+    /// built from, sorted and coalesced.
+    static func highlightRanges(for occurrences: [HistoryTermOccurrence], in folded: AgentHistoryNormalizedText) -> [NSRange] {
+        var ranges: [NSRange] = []
+        ranges.reserveCapacity(occurrences.count)
+        for occurrence in occurrences {
+            let mapped = folded.sourceRange(forBytes: occurrence.bytes)
+            if mapped.length > 0 {
+                ranges.append(mapped)
             }
         }
         return coalesce(ranges)
