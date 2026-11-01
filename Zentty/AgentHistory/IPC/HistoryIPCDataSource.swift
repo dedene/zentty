@@ -149,12 +149,18 @@ extension HistoryIPCSearchHit {
                 match = nil
             }
         case .content(let role, let at, let snippet, _):
-            let atMs = Int64((at.timeIntervalSince1970 * 1000).rounded())
-            match = .content(
-                role: role == .user ? AgentHistoryRole.user.rawValue : AgentHistoryRole.agent.rawValue,
-                at: HistoryIPCDates.iso8601(milliseconds: atMs),
-                snippet: snippet?.text ?? ""
-            )
+            // No quote without the message text (it vanished between the grade and the read):
+            // an empty snippet would print a bare `You: ` line.
+            if let text = snippet?.text, !text.isEmpty {
+                let atMs = Int64((at.timeIntervalSince1970 * 1000).rounded())
+                match = .content(
+                    role: role == .user ? AgentHistoryRole.user.rawValue : AgentHistoryRole.agent.rawValue,
+                    at: HistoryIPCDates.iso8601(milliseconds: atMs),
+                    snippet: text
+                )
+            } else {
+                match = nil
+            }
         case .metadata(let note?):
             match = Self.metadataMatch(note)
         case .metadata(nil):

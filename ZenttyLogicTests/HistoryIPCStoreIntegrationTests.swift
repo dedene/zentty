@@ -48,6 +48,70 @@ final class HistoryIPCStoreIntegrationTests: XCTestCase {
         XCTAssertEqual(titled.results.first?.match, .metadata(field: "title", value: "Session a"))
     }
 
+    func test_artifact_and_metadata_hits_name_the_field_that_matched() throws {
+        let fixture = try Fixture(testCase: self)
+        let ran = try addSession(fixture, "ran", repo: Self.repoA, updatedDaysAgo: 1, text: "hello")
+        try fixture.addArtifact(session: ran, kind: .command, value: "swift test --filter Cache", daysAgo: 1)
+        let changed = try addSession(fixture, "changed", repo: Self.repoA, updatedDaysAgo: 2, text: "hello")
+        try fixture.addArtifact(session: changed, kind: .path, value: "Sources/App/QuotaStore.swift", daysAgo: 2)
+        try addSession(fixture, "branched", repo: Self.repoA, branch: "feature-oauth-login", text: "hello")
+
+        let command = try XCTUnwrap(
+            try respond(fixture, to: .search(HistorySearchIPCOptions(query: "swift test"))).search)
+        XCTAssertEqual(command.results.map(\.sessionId), ["ran"])
+        let commandMatch = try XCTUnwrap(command.results.first?.match)
+        XCTAssertEqual(commandMatch, .metadata(field: "command", value: "swift test --filter Cache"))
+        XCTAssertEqual(HistoryIPCFormatting.matchReason(commandMatch), "Ran: swift test --filter Cache")
+
+        let path = try XCTUnwrap(
+            try respond(fixture, to: .search(HistorySearchIPCOptions(query: "QuotaStore"))).search)
+        XCTAssertEqual(path.results.map(\.sessionId), ["changed"])
+        XCTAssertEqual(path.results.first?.match, .metadata(field: "path", value: "Sources/App/QuotaStore.swift"))
+
+        let branch = try XCTUnwrap(
+            try respond(fixture, to: .search(HistorySearchIPCOptions(query: "oauth"))).search)
+        XCTAssertEqual(branch.results.map(\.sessionId), ["branched"])
+        XCTAssertEqual(branch.results.first?.match, .metadata(field: "branch", value: "feature-oauth-login"))
+    }
+
+    func test_merged_result_mapping_covers_every_match_kind() {
+        let session = AgentHistorySessionSummary(
+            id: 1, sourceID: 1, sourceRoot: "/fixtures/claude", agent: .claude,
+            nativeID: "s", title: "Fix the cache", titleKind: .custom,
+            createdAtMs: 0, updatedAtMs: 1_000, turnCount: 2
+        )
+        let at = Date(timeIntervalSince1970: 1_793_534_400)
+        let atText = HistoryIPCDates.iso8601(milliseconds: 1_793_534_400_000)
+        let snippet = HistorySnippet(text: "the cache key", highlights: [], truncatedStart: false, truncatedEnd: false)
+        let empty = HistorySnippet(text: "", highlights: [], truncatedStart: false, truncatedEnd: false)
+
+        func mapped(_ match: HistoryMergedResult.Match, terms: Bool = true) -> HistoryIPCMatch? {
+            HistoryIPCSearchHit(
+                merged: HistoryMergedResult(session: session, score: 1, isWordLevel: true, match: match),
+                queryHasTerms: terms
+            ).match
+        }
+
+        XCTAssertEqual(mapped(.content(role: .user, at: at, snippet: snippet, note: nil)),
+                       .content(role: "user", at: atText, snippet: "the cache key"))
+        XCTAssertEqual(mapped(.content(role: .agent, at: at, snippet: snippet, note: nil)),
+                       .content(role: "agent", at: atText, snippet: "the cache key"))
+        XCTAssertNil(mapped(.content(role: .user, at: at, snippet: nil, note: nil)), "no quote, no bare `You: `")
+        XCTAssertNil(mapped(.content(role: .agent, at: at, snippet: empty, note: nil)))
+        for kind in AgentHistoryArtifactKind.allCases {
+            XCTAssertEqual(
+                mapped(.content(role: .artifact(kind), at: at, snippet: nil, note: .artifact(kind, value: "v"))),
+                .metadata(field: kind.rawValue, value: "v"))
+        }
+        XCTAssertNil(mapped(.content(role: .artifact(.command), at: at, snippet: nil, note: nil)))
+        XCTAssertEqual(mapped(.metadata(note: .field(.branch, value: "main"))), .metadata(field: "branch", value: "main"))
+        XCTAssertEqual(mapped(.metadata(note: .field(.repo, value: "app"))), .metadata(field: "repo", value: "app"))
+        XCTAssertEqual(mapped(.metadata(note: .field(.folder, value: "src"))), .metadata(field: "folder", value: "src"))
+        XCTAssertEqual(mapped(.metadata(note: .artifact(.pr, value: "#12"))), .metadata(field: "pr", value: "#12"))
+        XCTAssertEqual(mapped(.metadata(note: nil)), .metadata(field: "title", value: "Fix the cache"))
+        XCTAssertNil(mapped(.metadata(note: nil), terms: false), "filter-only: recency, nothing compared")
+    }
+
     func test_show_cannot_read_session_from_another_repo() throws {
         let fixture = try Fixture(testCase: self)
         try addSession(fixture, "theirs", repo: Self.repoB, text: "private notes")
