@@ -1,6 +1,7 @@
 import Foundation
 
-/// Why backfill is paused. Live events and database polls keep running except on `.diskFull`.
+/// Why backfill is paused. Live events and database polls keep running except on `.diskFull`
+/// and `.configUnreadable`.
 enum AgentHistoryPauseReason: String, Sendable {
     case lowPower
     case thermal
@@ -8,6 +9,10 @@ enum AgentHistoryPauseReason: String, Sendable {
     /// Another Zentty instance of this flavor owns the index (it keeps it fresh); this one
     /// shows the stored sessions read-only and takes over once that instance stops.
     case anotherInstance
+    /// config.toml couldn't be read at launch, so the excluded folders are unknown. Set by the
+    /// controller, never by the indexer: no indexer runs and nothing can be searched until a
+    /// readable config.toml loads.
+    case configUnreadable
 }
 
 /// Why the index can't be used at all.

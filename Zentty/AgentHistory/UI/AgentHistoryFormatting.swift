@@ -95,6 +95,8 @@ struct AgentHistoryFormatting {
             return AgentHistoryFooterHealth(text: "Indexing paused: the disk is full", isWarning: true)
         case .paused(.anotherInstance, _):
             return AgentHistoryFooterHealth(text: indexedLine(status, now: now), isWarning: false)
+        case .paused(.configUnreadable, _):
+            return AgentHistoryFooterHealth(text: "Paused: config.toml can't be read", isWarning: true)
         case .failed:
             return AgentHistoryFooterHealth(text: "Index unavailable", isWarning: true)
         case .watching:

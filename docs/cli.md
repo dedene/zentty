@@ -484,6 +484,7 @@ Bad arguments, such as `--limit 99` or an unknown agent, fail with a usage error
 | A remote pane, or a pane with no known folder | `… so its project is unknown.` |
 | The session is unknown or outside the project | `No session <id> in this project's Agent History.` |
 | The index is still starting, damaged, or from a newer Zentty | A line that says which, usually pointing to Settings › Agent History |
+| `config.toml` was unreadable when Zentty started | `Agent History is paused because Zentty's config.toml can't be read, …` |
 | No answer within about 5 seconds | `Agent History didn't answer in time. Try a narrower query.` |
 | The running Zentty predates Agent History | `This Zentty version doesn't support Agent History. …` |
 

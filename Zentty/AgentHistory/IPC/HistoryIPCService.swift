@@ -21,6 +21,8 @@ enum HistoryIPCMessages {
     static let noDirectory = "Zentty doesn't know this pane's folder, so its project is unknown."
     static let starting = "Agent History is still starting. Try again in a moment."
     static let readFailed = "Agent History can't read its index right now. Try again in a moment."
+    static let configUnreadable = "Agent History is paused because Zentty's config.toml can't be read, "
+        + "so its excluded folders aren't known. Fix the file to search again."
 
     static func unavailable(_ reason: AgentHistoryFailureReason) -> String {
         switch reason {

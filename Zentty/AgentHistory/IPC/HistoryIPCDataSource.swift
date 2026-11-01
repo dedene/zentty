@@ -79,6 +79,9 @@ final class AgentHistoryIPCDataSource: HistoryIPCDataSource, @unchecked Sendable
         if case .failed(let reason) = status.state {
             return .unavailable(HistoryIPCMessages.unavailable(reason))
         }
+        if case .paused(.configUnreadable, _) = status.state {
+            return .unavailable(HistoryIPCMessages.configUnreadable)
+        }
         guard engine() != nil else {
             return .unavailable(HistoryIPCMessages.starting)
         }

@@ -37,6 +37,10 @@ final class AgentHistoryController: Sendable {
     private var paths: AgentHistoryPaths?
     private var storageInstance: AgentHistoryStorage?
     private var configSection = AppConfig.AgentHistory.default
+    /// False from a launch with an unreadable config.toml until a readable one loads
+    /// (`AppConfigStore.isUsingFallbackDefaults`). The excluded folders are unknown then, so the
+    /// indexer stays stopped and nothing can be searched: exclusions fail closed.
+    private var isConfigReadable = true
     /// The last `state.json` contents read or written; nil until the first load.
     private var persistedState: AgentHistoryState?
     private var stateStore: AgentHistoryStateStore?
@@ -94,11 +98,12 @@ final class AgentHistoryController: Sendable {
         self.configStore = configStore
         self.paths = paths
         storageInstance = AgentHistoryStorage(paths: paths)
-        applyConfig(configStore.current.agentHistory)
-        configObserverID = configStore.addObserver { [weak self] config in
+        applyConfig(configStore.current.agentHistory, isReadable: !configStore.isUsingFallbackDefaults)
+        configObserverID = configStore.addObserver { [weak self, weak configStore] config in
             let section = config.agentHistory
+            let isReadable = !(configStore?.isUsingFallbackDefaults ?? false)
             Task { @MainActor in
-                self?.applyConfig(section)
+                self?.applyConfig(section, isReadable: isReadable)
             }
         }
     }
@@ -375,14 +380,18 @@ final class AgentHistoryController: Sendable {
         AgentHistoryIndexerConfiguration(enabledAgents: state.enabledAgents, excludedFolders: configSection.excludedFolders)
     }
 
-    private func applyConfig(_ section: AppConfig.AgentHistory) {
+    private func applyConfig(_ section: AppConfig.AgentHistory, isReadable: Bool) {
         mirror.setConfig(section)
-        guard section != configSection else {
+        let becameReadable = isReadable && !isConfigReadable
+        isConfigReadable = isReadable
+        guard section != configSection || becameReadable else {
             return
         }
         configSection = section
         if let indexer, let persistedState {
             indexer.update(configuration: configuration(for: persistedState))
+        } else if becameReadable, persistedState != nil, !startIfAllowed() {
+            publishOffStatus()
         }
         // Behind `mirror.setConfig`, so an open palette that re-runs its query on this status
         // already searches with the new exclusions.
@@ -398,7 +407,7 @@ final class AgentHistoryController: Sendable {
         guard indexer == nil else {
             return true
         }
-        guard let state = persistedState, Self.allowsIndexing(state),
+        guard isConfigReadable, let state = persistedState, Self.allowsIndexing(state),
               let stateStore, let storage = storageInstance else {
             return false
         }
@@ -486,6 +495,9 @@ final class AgentHistoryController: Sendable {
             next.isEnabled = state.enabled
             next.hasConsented = state.consentedAt != nil
             next.enabledAgents = state.enabledAgents
+            if !isConfigReadable, Self.allowsIndexing(state) {
+                next.state = .paused(.configUnreadable, nil)
+            }
         }
         next.excludedFolders = configSection.excludedFolders
         next.indexExists = disk?.indexExists ?? status.indexExists

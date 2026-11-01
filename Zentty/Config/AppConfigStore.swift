@@ -35,6 +35,14 @@ final class AppConfigStore: @unchecked Sendable {
     /// replace the user's file (a typo, or a newer build's syntax) with ours.
     /// Cleared as soon as a valid file is loaded again.
     private(set) var isWriteProtected: Bool
+    /// `true` from a launch with an unreadable config file until a readable
+    /// one loads (or the file is deleted): `current` then holds defaults, not
+    /// the user's settings. Features that must fail closed on settings they
+    /// can't see (Agent History's excluded folders) wait for this to clear.
+    /// A file that breaks later keeps the last good `current`, so this stays
+    /// `false` then. Observers are notified when it clears, even when the
+    /// loaded settings equal the defaults.
+    private(set) var isUsingFallbackDefaults: Bool
     private let fileWatcher = DirectoryChangeWatcher(label: "com.zentty.app-config-watcher")
     /// Bytes last read from or written to disk. A reload only counts as an
     /// external change when the file differs from these: `current` holds
@@ -65,16 +73,19 @@ final class AppConfigStore: @unchecked Sendable {
             current = persisted.normalized()
             didLoadFromValidFile = true
             isWriteProtected = false
+            isUsingFallbackDefaults = false
             lastKnownFileContents = contents
         case .missing:
             current = migrated.normalized()
             lastKnownFileContents = try? Self.persist(config: current, to: resolvedFileURL, fileManager: fileManager)
             didLoadFromValidFile = true
             isWriteProtected = false
+            isUsingFallbackDefaults = false
         case .invalid(let contents):
             current = AppConfig.default.normalized()
             didLoadFromValidFile = false
             isWriteProtected = true
+            isUsingFallbackDefaults = true
             lastKnownFileContents = contents
             appConfigLogger.error("Ignoring invalid config file at \(resolvedFileURL.path, privacy: .public)")
         }
@@ -211,7 +222,9 @@ final class AppConfigStore: @unchecked Sendable {
         switch result {
         case .loaded(let reloaded, _):
             isWriteProtected = false
-            guard reloaded != current else {
+            let leftFallback = isUsingFallbackDefaults
+            isUsingFallbackDefaults = false
+            guard reloaded != current || leftFallback else {
                 return
             }
 
@@ -222,6 +235,11 @@ final class AppConfigStore: @unchecked Sendable {
             appConfigLogger.error("Ignoring invalid config reload at \(self.fileURL.path, privacy: .public)")
         case .missing:
             isWriteProtected = false
+            // A deleted file holds no settings, as on a launch without one.
+            if isUsingFallbackDefaults {
+                isUsingFallbackDefaults = false
+                notifyChange(origin: .externalReload)
+            }
         }
     }
 

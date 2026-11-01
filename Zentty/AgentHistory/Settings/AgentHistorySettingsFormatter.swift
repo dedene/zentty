@@ -102,6 +102,12 @@ struct AgentHistorySettingsFormatter {
                 text: "Another running copy of Zentty keeps the index up to date.",
                 isWarning: false
             )
+        case .configUnreadable:
+            return AgentHistorySettingsActivity(
+                text: "Paused: config.toml can't be read, so the excluded folders aren't known. "
+                    + "Fix the file to resume.",
+                isWarning: true
+            )
         }
     }
 

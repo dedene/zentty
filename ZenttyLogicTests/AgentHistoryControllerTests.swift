@@ -34,9 +34,18 @@ final class AgentHistoryControllerTests: XCTestCase {
         let factory: FactoryLog
     }
 
-    private func makeFixture() -> Fixture {
+    /// `configContents` is written to config.toml before the config store reads it.
+    private func makeFixture(configContents: String? = nil) -> Fixture {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-history-\(UUID().uuidString)", isDirectory: true)
+        if let configContents {
+            try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+            try? configContents.write(
+                to: base.appendingPathComponent("config.toml", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
         let paths = AgentHistoryPaths(directoryURL: base.appendingPathComponent("AgentHistory", isDirectory: true))
         let claudeRoot = base.appendingPathComponent("claude-root", isDirectory: true)
         let codexRoot = base.appendingPathComponent("codex-root", isDirectory: true)
@@ -277,6 +286,42 @@ final class AgentHistoryControllerTests: XCTestCase {
         XCTAssertTrue(fixture.controller.allowsAgentsAllProjects)
         XCTAssertTrue(fixture.controller.exclusions.excludes("/work/secret/app"))
         XCTAssertFalse(fixture.controller.exclusions.excludes("/work/project"))
+    }
+
+    /// An unreadable config.toml at launch hides the excluded folders (the store falls back to
+    /// defaults). Nothing is read, stored or searchable until a readable file loads, and that
+    /// file's exclusions apply from the first read.
+    func test_unreadable_config_at_launch_pauses_indexing_until_the_file_is_fixed() throws {
+        let fixture = makeFixture(configContents: """
+        [agent_history]
+        excluded_folders = ["/work/secret"
+        """)
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(fixture.configStore.isUsingFallbackDefaults)
+
+        XCTAssertFalse(launch(fixture.controller))
+
+        waitForStatus(fixture.controller, "paused on the config") { $0.state == .paused(.configUnreadable, nil) }
+        XCTAssertEqual(fixture.factory.count, 0)
+        XCTAssertNil(fixture.controller.storage)
+        XCTAssertNil(fixture.controller.searchEngine)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
+        XCTAssertEqual(
+            AgentHistoryIPCDataSource(controller: fixture.controller).availability(),
+            .unavailable(HistoryIPCMessages.configUnreadable)
+        )
+
+        try """
+        [agent_history]
+        excluded_folders = ["/work/secret"]
+        """.write(to: fixture.configStore.fileURL, atomically: true, encoding: .utf8)
+        fixture.configStore.reloadFromDisk()
+
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+        XCTAssertEqual(fixture.factory.count, 1)
+        XCTAssertEqual(fixture.factory.lastConfiguration?.excludedFolders, ["/work/secret"])
+        waitForSnapshot(fixture.controller, "outside sessions indexed") { $0 == ["claude-outside", "codex-one"] }
+        XCTAssertEqual(try storedNativeIDs(fixture.paths), ["claude-outside", "codex-one"])
     }
 
     // MARK: - Disable

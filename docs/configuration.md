@@ -96,6 +96,8 @@ allow_agents_all_projects = false
 
 Keep `excluded_folders` on one line. Zentty reads `config.toml` a line at a time, so an array split over several lines makes the file unreadable, and Zentty won't save to it until you fix it (see [How changes arrive](#how-changes-arrive)).
 
+If `config.toml` is unreadable when Zentty starts, Agent History can't tell which folders you excluded, so it pauses. It reads nothing new, and the palette and `zentty history` can't search until the file loads again. Indexing resumes as soon as you fix it. If the file breaks while Zentty is running, Agent History keeps the excluded folders it already had.
+
 What the index holds:
 
 - Your messages and the agents' replies, session titles, branches and folders, and the file paths and commands a session touched. Raw tool output isn't stored. The folder is readable only by you and excluded from Time Machine backups.
