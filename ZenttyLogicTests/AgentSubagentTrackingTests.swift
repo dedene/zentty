@@ -1099,6 +1099,26 @@ final class AgentSubagentTrackingTests: XCTestCase {
         XCTAssertNil(AgentSubagentModelResolver.claudeAgentTranscriptPath(sessionTranscriptPath: nil, agentID: "a"))
     }
 
+    func test_claude_agent_transcript_path_finds_workflow_agent() throws {
+        // Agents started by a Claude Code workflow write their transcript under
+        // `subagents/workflows/<run id>/`, not directly under `subagents/`.
+        let directory = try makeTemporaryDirectory()
+        let sessionTranscriptPath = directory.appendingPathComponent("session-1.jsonl").path
+        let workflowDirectory = directory.appendingPathComponent("session-1/subagents/workflows/wf_1234", isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowDirectory, withIntermediateDirectories: true)
+        let transcriptPath = workflowDirectory.appendingPathComponent("agent-a0703.jsonl").path
+        try "".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+        try #"{"agentType":"general-purpose","workflowPhase":"Verify","spawnDepth":1,"model":"sonnet"}"#
+            .write(toFile: AgentSubagentModelResolver.claudeMetaPath(agentTranscriptPath: transcriptPath), atomically: true, encoding: .utf8)
+
+        let resolved = AgentSubagentModelResolver.claudeAgentTranscriptPath(
+            sessionTranscriptPath: sessionTranscriptPath,
+            agentID: "a0703"
+        )
+        XCTAssertEqual(resolved, transcriptPath)
+        XCTAssertEqual(AgentSubagentModelResolver.claudeModel(agentTranscriptPath: resolved), "sonnet")
+    }
+
     func test_codex_thread_info_reads_nickname_role_and_model_from_rollout_head() {
         let rollout = """
         {"timestamp":"t","type":"session_meta","payload":{"id":"01a07132","parent_thread_id":"01a07119","source":{"subagent":{"thread_spawn":{"parent_thread_id":"01a07119","depth":1,"agent_path":"/root/unread_ui","agent_nickname":"Dirac","agent_role":"worker"}}},"thread_source":"subagent"}}
