@@ -725,6 +725,26 @@ final class AgentSubagentTrackingTests: XCTestCase {
         XCTAssertEqual(groups[2].leadingText, "1 ×")
     }
 
+    func test_summary_groups_workflow_agents_into_one_line_per_run() {
+        let summary = PaneAgentSubagentSummary(entries: [
+            PaneAgentSubagentEntry(id: "a", agentType: "general-purpose", model: "sonnet",
+                                   transcriptPath: "/s/session-1/subagents/workflows/wf_1/agent-a.jsonl", workflowPhase: "Verify"),
+            PaneAgentSubagentEntry(id: "b", agentType: "Explore", model: "haiku",
+                                   transcriptPath: "/s/session-1/subagents/workflows/wf_1/agent-b.jsonl", workflowPhase: "Review"),
+            PaneAgentSubagentEntry(id: "c", agentType: "general-purpose", model: "claude-opus-5"),
+        ])
+
+        XCTAssertEqual(summary.count, 3)
+        let groups = summary.groups
+        XCTAssertEqual(groups.map(\.count), [2, 1])
+        XCTAssertEqual(groups[0].leadingText, "wf")
+        XCTAssertEqual(groups[0].modelText, "2 running")
+        XCTAssertEqual(groups[0].trailingText, "Review, Verify")
+        XCTAssertEqual(groups[1].leadingText, "1 ×")
+        XCTAssertEqual(groups[1].modelText, "opus")
+        XCTAssertEqual(groups[1].trailingText, "general-purpose")
+    }
+
     func test_summary_without_model_shows_placeholder() {
         let summary = PaneAgentSubagentSummary(entries: [PaneAgentSubagentEntry(id: "a", agentType: "Explore")])
         XCTAssertEqual(summary.tooltipText, "1 subagent\nClick for details")
@@ -1117,6 +1137,9 @@ final class AgentSubagentTrackingTests: XCTestCase {
         )
         XCTAssertEqual(resolved, transcriptPath)
         XCTAssertEqual(AgentSubagentModelResolver.claudeModel(agentTranscriptPath: resolved), "sonnet")
+        XCTAssertEqual(AgentSubagentModelResolver.claudeMetaWorkflowPhase(agentTranscriptPath: resolved), "Verify")
+        XCTAssertEqual(PaneAgentSubagentEntry(id: "a0703", transcriptPath: resolved).workflowRunID, "wf_1234")
+        XCTAssertNil(PaneAgentSubagentEntry(id: "x", transcriptPath: "/s/session-1/subagents/agent-x.jsonl").workflowRunID)
     }
 
     func test_codex_thread_info_reads_nickname_role_and_model_from_rollout_head() {

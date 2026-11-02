@@ -14,13 +14,23 @@ struct PaneAgentSubagentEntry: Codable, Equatable, Hashable, Sendable {
     let nickname: String?
     /// Subagent transcript / rollout on disk, used to resolve the model lazily.
     let transcriptPath: String?
+    /// Claude workflow phase from the agent's meta (`Verify`, `Review`).
+    let workflowPhase: String?
 
-    init(id: String, agentType: String? = nil, model: String? = nil, nickname: String? = nil, transcriptPath: String? = nil) {
+    init(
+        id: String,
+        agentType: String? = nil,
+        model: String? = nil,
+        nickname: String? = nil,
+        transcriptPath: String? = nil,
+        workflowPhase: String? = nil
+    ) {
         self.id = id
         self.agentType = agentType
         self.model = model
         self.nickname = nickname
         self.transcriptPath = transcriptPath
+        self.workflowPhase = workflowPhase
     }
 
     func with(model: String?, nickname: String? = nil) -> PaneAgentSubagentEntry {
@@ -29,8 +39,19 @@ struct PaneAgentSubagentEntry: Codable, Equatable, Hashable, Sendable {
             agentType: agentType,
             model: model ?? self.model,
             nickname: nickname ?? self.nickname,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            workflowPhase: workflowPhase
         )
+    }
+
+    /// Claude workflow run the agent belongs to, read from its transcript
+    /// path `…/subagents/workflows/<run id>/agent-<id>.jsonl`.
+    var workflowRunID: String? {
+        guard let transcriptPath else { return nil }
+        let components = transcriptPath.split(separator: "/")
+        guard components.count >= 3,
+              components[components.count - 3] == "workflows" else { return nil }
+        return String(components[components.count - 2])
     }
 
     /// Short model label for the sidebar (`opus`, `astra`, `auto-review`).
@@ -40,21 +61,28 @@ struct PaneAgentSubagentEntry: Codable, Equatable, Hashable, Sendable {
 }
 
 /// Rows of the expanded subagent list: `2 × opus  general-purpose`.
+/// A Claude workflow run collapses into one row: `wf  3 running  Verify`.
 struct PaneAgentSubagentGroup: Equatable, Sendable {
     let count: Int
     let modelLabel: String?
     let agentType: String?
     let nicknames: [String]
+    var workflowRunID: String? = nil
+    var workflowPhases: [String] = []
 
     var leadingText: String {
-        "\(count) ×"
+        workflowRunID == nil ? "\(count) ×" : "wf"
     }
 
     var modelText: String {
-        modelLabel ?? "model?"
+        if workflowRunID != nil { return "\(count) running" }
+        return modelLabel ?? "model?"
     }
 
     var trailingText: String? {
+        if workflowRunID != nil {
+            return workflowPhases.isEmpty ? nil : workflowPhases.joined(separator: ", ")
+        }
         let parts = [agentType, nicknames.isEmpty ? nil : nicknames.joined(separator: ", ")]
             .compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
@@ -84,7 +112,17 @@ struct PaneAgentSubagentSummary: Equatable, Sendable {
             let agentType: String?
         }
         var counts: [Key: (count: Int, nicknames: [String])] = [:]
+        var runs: [String: (count: Int, phases: Set<String>)] = [:]
         for entry in entries {
+            if let runID = entry.workflowRunID {
+                var run = runs[runID] ?? (0, [])
+                run.count += 1
+                if let phase = entry.workflowPhase, !phase.isEmpty {
+                    run.phases.insert(phase)
+                }
+                runs[runID] = run
+                continue
+            }
             let key = Key(modelLabel: entry.modelLabel, agentType: entry.agentType)
             var bucket = counts[key] ?? (0, [])
             bucket.count += 1
@@ -93,19 +131,32 @@ struct PaneAgentSubagentSummary: Equatable, Sendable {
             }
             counts[key] = bucket
         }
-        return counts
-            .map { key, value in
-                PaneAgentSubagentGroup(
-                    count: value.count,
-                    modelLabel: key.modelLabel,
-                    agentType: key.agentType,
-                    nicknames: value.nicknames.sorted()
-                )
-            }
+        let workflowGroups = runs.map { runID, run in
+            PaneAgentSubagentGroup(
+                count: run.count,
+                modelLabel: nil,
+                agentType: nil,
+                nicknames: [],
+                workflowRunID: runID,
+                workflowPhases: run.phases.sorted()
+            )
+        }
+        let agentGroups = counts.map { key, value in
+            PaneAgentSubagentGroup(
+                count: value.count,
+                modelLabel: key.modelLabel,
+                agentType: key.agentType,
+                nicknames: value.nicknames.sorted()
+            )
+        }
+        return (workflowGroups + agentGroups)
             .sorted { lhs, rhs in
                 if lhs.count != rhs.count { return lhs.count > rhs.count }
                 if lhs.modelText != rhs.modelText { return lhs.modelText < rhs.modelText }
-                return (lhs.agentType ?? "") < (rhs.agentType ?? "")
+                if (lhs.agentType ?? "") != (rhs.agentType ?? "") {
+                    return (lhs.agentType ?? "") < (rhs.agentType ?? "")
+                }
+                return (lhs.workflowRunID ?? "") < (rhs.workflowRunID ?? "")
             }
     }
 

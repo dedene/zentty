@@ -170,6 +170,16 @@ enum AgentSubagentModelResolver {
 
     private static let placeholderModelValues: Set<String> = ["inherit", "default", "auto"]
 
+    /// `workflowPhase` from the meta of an agent started by a workflow.
+    static func claudeMetaWorkflowPhase(agentTranscriptPath: String?) -> String? {
+        guard let agentTranscriptPath, !agentTranscriptPath.isEmpty,
+              let data = readHead(path: claudeMetaPath(agentTranscriptPath: agentTranscriptPath), maxBytes: 64 * 1024),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return nonEmpty(object["workflowPhase"] as? String)
+    }
+
     static func claudeTranscriptModel(transcriptPath: String) -> String? {
         guard let text = readHeadText(path: transcriptPath) else { return nil }
         return claudeTranscriptModel(transcriptText: text)

@@ -397,7 +397,8 @@ final class AgentSubagentRegistryStore {
             nickname: update.nickname ?? existing?.nickname,
             // The path recorded at start is the one the hook spelled out; a
             // later hook may only carry a derived guess, so the first wins.
-            transcriptPath: existing?.transcriptPath ?? update.transcriptPath
+            transcriptPath: existing?.transcriptPath ?? update.transcriptPath,
+            workflowPhase: update.workflowPhase ?? existing?.workflowPhase
         )
     }
 

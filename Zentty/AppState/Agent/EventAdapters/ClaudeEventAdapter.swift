@@ -601,7 +601,8 @@ extension AgentEventBridge {
             agentType: AgentInteractionClassifier.trimmed(input.agentType),
             model: AgentSubagentModelResolver.claudeModel(agentTranscriptPath: transcriptPath),
             nickname: nil,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            workflowPhase: AgentSubagentModelResolver.claudeMetaWorkflowPhase(agentTranscriptPath: transcriptPath)
         )
     }
 
