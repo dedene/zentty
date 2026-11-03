@@ -124,6 +124,43 @@ enum FloatLayout {
         clamped(frame.offsetBy(dx: splitOffset, dy: -splitOffset), in: canvas)
     }
 
+    /// Where a new float opens so it never hides exactly behind another:
+    /// while its origin lands on an occupied origin (within half a point),
+    /// it steps `splitOffset` down-right. A step that would leave the canvas
+    /// wraps to the canvas's top-left corner and the cascade goes on from
+    /// there. Gives up (keeps the last candidate) once every slot it tried
+    /// was taken.
+    static func cascadedFrame(_ frame: CGRect, avoiding occupied: [CGRect], canvas: CGRect) -> CGRect {
+        guard canvas.width > 0, canvas.height > 0 else {
+            return frame
+        }
+        func isTaken(_ candidate: CGRect) -> Bool {
+            occupied.contains {
+                abs($0.minX - candidate.minX) < 0.5 && abs($0.minY - candidate.minY) < 0.5
+            }
+        }
+        var candidate = frame
+        // One step per occupied frame, plus the wrap, always finds a free
+        // origin or proves there is none worth looking for.
+        for _ in 0...(occupied.count + 1) {
+            guard isTaken(candidate) else {
+                return candidate
+            }
+            let next = candidate.offsetBy(dx: splitOffset, dy: -splitOffset)
+            if next.maxX > canvas.maxX || next.minY < canvas.minY {
+                candidate = CGRect(
+                    x: canvas.minX,
+                    y: canvas.maxY - candidate.height,
+                    width: candidate.width,
+                    height: candidate.height
+                )
+            } else {
+                candidate = next
+            }
+        }
+        return candidate
+    }
+
     /// `size` (at least the minimum) centred in the canvas.
     static func centeredFrame(size: CGSize, canvas: CGRect) -> CGRect {
         let width = max(size.width, minimumFloatSize.width)

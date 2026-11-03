@@ -129,7 +129,11 @@ extension WorklaneStore {
             )
             frame = FloatLayout.clamped(CGRect(origin: initialFrame.origin, size: size), in: canvas)
         } else {
-            frame = FloatLayout.centeredFrame(size: FloatLayout.defaultFloatSize(canvas: canvas), canvas: canvas)
+            frame = Self.cascadedNewFloatFrame(
+                FloatLayout.centeredFrame(size: FloatLayout.defaultFloatSize(canvas: canvas), canvas: canvas),
+                in: worklane,
+                canvas: canvas
+            )
         }
         worklane.floatingPanes.append(
             FloatingPaneState(

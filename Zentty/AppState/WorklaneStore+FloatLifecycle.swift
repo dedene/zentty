@@ -86,8 +86,9 @@ extension WorklaneStore {
         setFloatsHidden(!worklane.floatsHidden)
     }
 
-    /// ⌥⌘N: opens a new shell as a focused float, centred at 60% of `canvas`,
-    /// in the cwd and shell context of the focused pane (tile or float). An
+    /// ⌥⌘N: opens a new shell as a focused float, centred at 60% of `canvas`
+    /// (cascaded off floats already there), in the cwd and shell context of
+    /// the focused pane (tile or float). An
     /// empty canvas (layout not done yet) falls back to `floatCanvasEstimate`.
     @discardableResult
     func newFloatFromFocus(canvas: CGRect) -> PaneID? {
@@ -103,7 +104,11 @@ extension WorklaneStore {
             workingDirectory: source?.workingDirectory,
             sourceShellContext: source?.shellContext
         )
-        let frame = FloatLayout.centeredFrame(size: FloatLayout.defaultFloatSize(canvas: canvas), canvas: canvas)
+        let frame = Self.cascadedNewFloatFrame(
+            FloatLayout.centeredFrame(size: FloatLayout.defaultFloatSize(canvas: canvas), canvas: canvas),
+            in: worklane,
+            canvas: canvas
+        )
         worklane.floatingPanes.append(
             FloatingPaneState(
                 pane: pane,
@@ -118,6 +123,16 @@ extension WorklaneStore {
         worklane.focusedFloatID = pane.id
         commitFloatChange(from: original, to: worklane)
         return pane.id
+    }
+
+    /// `frame` stepped down-right off every `.floating` float of `worklane`
+    /// whose origin it would land on, so a new float never opens exactly
+    /// behind another (`FloatLayout.cascadedFrame`).
+    static func cascadedNewFloatFrame(_ frame: CGRect, in worklane: WorklaneState, canvas: CGRect) -> CGRect {
+        let occupied = worklane.floatingPanes
+            .filter { $0.mode.isFloating }
+            .map { FloatLayout.clamped($0.floatFrame.resolved(in: canvas), in: canvas) }
+        return FloatLayout.cascadedFrame(frame, avoiding: occupied, canvas: canvas)
     }
 
     /// A split command while float `sourceID` has focus: a new float in the

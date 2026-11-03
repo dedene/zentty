@@ -512,6 +512,7 @@
 		8E847756B23CB6F02E3897BD /* PaneAgentReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E316EB04A90576B80F838D9 /* PaneAgentReducerTests.swift */; };
 		8EA1DD62A5C348364EE62B33 /* ClaudeLaunchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58AC2A95BE8E8EC8B8337D3 /* ClaudeLaunchPolicy.swift */; };
 		90582A9B06303894CB3DFC00 /* PaneEventStreamTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB91B852B5106185A48031B /* PaneEventStreamTests.swift */; };
+		90C73B2812EF6429E23EF6FF /* FloatCascadeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A4ABE33B377648EF45E7FF4 /* FloatCascadeTests.swift */; };
 		90D2109B108E2E52F4ADDB64 /* PaneProgramStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A7203449B0AE43BA21A7B4A /* PaneProgramStatusTests.swift */; };
 		9137EB19FD31738351963A80 /* FloatScrimHostedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 170B5801294EABBEC71F0FEE /* FloatScrimHostedTests.swift */; };
 		91C2DF0BCAC0ECC16E0B6B77 /* CommandAvailabilityResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28121A25243C98C3BFB947A /* CommandAvailabilityResolverTests.swift */; };
@@ -970,6 +971,7 @@
 		08F65940ED0F93690BAF103D /* SidebarSubagentBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSubagentBadgeTests.swift; sourceTree = "<group>"; };
 		0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreColorTests.swift; sourceTree = "<group>"; };
 		09D5BD5D05F43E217B794FB1 /* FloatDisplayNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatDisplayNameTests.swift; sourceTree = "<group>"; };
+		0A4ABE33B377648EF45E7FF4 /* FloatCascadeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatCascadeTests.swift; sourceTree = "<group>"; };
 		0ABE727DDE802F760725A780 /* NotificationSoundSharingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSharingTests.swift; sourceTree = "<group>"; };
 		0AD3FFBDDBB1362295BD5207 /* SettingsFormBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFormBuilder.swift; sourceTree = "<group>"; };
 		0AF5B9241156382C39C53043 /* WorklaneStoreCodexWriteBackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreCodexWriteBackTests.swift; sourceTree = "<group>"; };
@@ -2837,6 +2839,7 @@
 				6FF6CB64B74FA5E4841F9FCB /* ExternalOpenDirectoriesTests.swift */,
 				186ADFD7C4E5EC05B9F02340 /* FakeExecutableFixture.swift */,
 				02F82C671DE7FF0200C2DF6E /* FileManagerSymlinkWriteTests.swift */,
+				0A4ABE33B377648EF45E7FF4 /* FloatCascadeTests.swift */,
 				D8B61C65D9981C56285E4CC8 /* FloatConsumerSurfaceTests.swift */,
 				7B5BE380B4C8979B5594B93D /* FloatContainerViewTests.swift */,
 				3AC8E43AD4288580976B1EF4 /* FloatControlProtocolTests.swift */,
@@ -3402,6 +3405,7 @@
 				5F05312BCE89ABD68A21B6D0 /* ExternalOpenDirectoriesTests.swift in Sources */,
 				41E60B513EDBF924D547A1D8 /* FakeExecutableFixture.swift in Sources */,
 				05EECCAB1101344FE5F62D63 /* FileManagerSymlinkWriteTests.swift in Sources */,
+				90C73B2812EF6429E23EF6FF /* FloatCascadeTests.swift in Sources */,
 				C31068BF39D01A42D646DF04 /* FloatConsumerSurfaceTests.swift in Sources */,
 				D7FE745F01C0D954F39E3272 /* FloatContainerViewTests.swift in Sources */,
 				12F98B26DBB72E31D3FF250F /* FloatControlProtocolTests.swift in Sources */,
