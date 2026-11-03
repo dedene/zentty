@@ -382,6 +382,14 @@ final class PaneContainerView: NSView {
             updateBorderChrome()
         }
     }
+    /// The strip's only tile: it shows no border buttons (it can neither
+    /// float nor close from there).
+    var isSoleTile = false {
+        didSet {
+            guard oldValue != isSoleTile else { return }
+            updateBorderChrome()
+        }
+    }
     var onBorderActionRequested: ((PaneBorderAction) -> Void)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -1501,7 +1509,8 @@ final class PaneContainerView: NSView {
         ) else {
             return []
         }
-        let actions = PaneBorderActionsLayout.actions(for: chromeKind)
+        let actions = PaneBorderActionsLayout.actions(for: chromeKind, isSoleTile: chromeKind == .tile && isSoleTile)
+        guard !actions.isEmpty else { return [] }
         if chromeKind == .tile, bounds.width < PaneBorderActionsLayout.minimumPaneWidth(for: actions) {
             return []
         }

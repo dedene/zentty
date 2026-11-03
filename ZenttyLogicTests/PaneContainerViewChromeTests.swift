@@ -80,6 +80,29 @@ final class PaneContainerViewChromeTests: AppKitTestCase {
         XCTAssertNotNil(container.borderActionsFrameForTesting)
     }
 
+    func test_sole_tile_shows_no_actions_even_hovered_and_focused() {
+        let (container, pane) = makeContainer(isFocused: true)
+        container.isSoleTile = true
+        container.setHovered(true)
+        container.render(pane: pane, emphasis: 1, isFocused: true)
+        container.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(container.borderActionsFrameForTesting)
+        XCTAssertEqual(container.trailingBorderGapWidthForTesting, 0)
+
+        container.isSoleTile = false
+        XCTAssertNotNil(container.borderActionsFrameForTesting, "a second tile brings them back")
+    }
+
+    func test_sole_tile_flag_does_not_strip_float_actions() {
+        let (container, _) = makeContainer()
+        container.chromeKind = .float
+        container.isSoleTile = true
+        container.layoutSubtreeIfNeeded()
+
+        XCTAssertNotNil(container.borderActionsViewForTesting.buttonForTesting(.dock))
+    }
+
     func test_narrow_tile_keeps_legend_and_drops_actions() {
         let (container, _) = makeContainer(width: 140, isFocused: true)
         container.layoutSubtreeIfNeeded()

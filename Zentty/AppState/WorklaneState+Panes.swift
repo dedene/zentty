@@ -36,6 +36,17 @@ extension WorklaneState {
         floatingPanes.contains { $0.pane.id == id }
     }
 
+    /// The strip's only tile. It stays a tile: floating it (or minimizing it
+    /// or sending it to a PiP) would leave the worklane without one.
+    func isSoleTile(_ id: PaneID) -> Bool {
+        guard paneStripState.columns.count == 1,
+              let column = paneStripState.columns.first,
+              column.panes.count == 1 else {
+            return false
+        }
+        return column.panes[0].id == id
+    }
+
     /// Mutates the pane wherever it lives. Returns false when no pane matches.
     @discardableResult
     mutating func updatePane(id: PaneID, _ body: (inout PaneState) -> Void) -> Bool {

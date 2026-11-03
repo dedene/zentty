@@ -161,7 +161,7 @@ final class WorklaneStoreFloatFocusTests: XCTestCase {
     func test_strip_focus_move_in_float_only_worklane_keeps_float_focus() {
         let store = makeStore(tiles: ["only"])
         let id = PaneID("only")
-        store.floatPane(id, canvas: canvas, tileFrame: nil)
+        store.floatSoleTileForTesting(id, canvas: canvas)
 
         for command in [PaneCommand.focusLeft, .focusRight, .focusUp, .focusDown, .focusFirst, .focusLast] {
             store.send(command)
@@ -222,7 +222,7 @@ final class WorklaneStoreFloatFocusTests: XCTestCase {
     func test_unhide_in_float_only_worklane_gives_focus_back_to_front_float() {
         let store = makeStore(tiles: ["only"])
         let id = PaneID("only")
-        store.floatPane(id, canvas: canvas, tileFrame: nil)
+        store.floatSoleTileForTesting(id, canvas: canvas)
         store.setFloatsHidden(true)
         XCTAssertNil(worklane(store).focusedPaneID)
 
@@ -262,7 +262,7 @@ final class WorklaneStoreFloatFocusTests: XCTestCase {
     func test_ipc_split_down_in_float_only_worklane_returns_nil_and_keeps_focus() {
         let store = makeStore(tiles: ["only"])
         let id = PaneID("only")
-        store.floatPane(id, canvas: canvas, tileFrame: nil)
+        store.floatSoleTileForTesting(id, canvas: canvas)
         let before = worklane(store)
 
         let newPaneID = split(store, isHorizontal: false)

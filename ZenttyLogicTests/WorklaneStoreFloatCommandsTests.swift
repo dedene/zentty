@@ -201,7 +201,8 @@ final class WorklaneStoreFloatCommandsTests: XCTestCase {
         let subscription = store.subscribe { changes.append($0) }
         defer { _ = subscription }
 
-        try apply(store, .float, x)
+        // x is wl_other's only tile: `pane float` refuses it (SoleTileFloatTests).
+        store.floatSoleTileForTesting(x, canvas: canvas)
         XCTAssertEqual(store.activeWorklaneID, mainID)
         XCTAssertTrue(stripIDs(store, otherID).isEmpty)
         XCTAssertEqual(mode(store, x, in: otherID), .floating)
@@ -224,7 +225,7 @@ final class WorklaneStoreFloatCommandsTests: XCTestCase {
 
     func test_float_hide_and_show_in_another_worklane() throws {
         let store = makeStore()
-        try apply(store, .float, x)
+        store.floatSoleTileForTesting(x, canvas: canvas)
 
         store.setFloatsHidden(true, in: otherID)
         XCTAssertTrue(state(store, otherID).floatsHidden)
@@ -334,6 +335,7 @@ final class WorklaneStoreFloatCommandsTests: XCTestCase {
         try apply(store, .float, b)
         store.moveFloat(b, frame: NormalizedRect(x: 0.1, y: 0.5, width: 0.4, height: 0.3))
         try apply(store, .pip, a, corner: .topLeft)
+        store.floatSoleTileForTesting(c, canvas: canvas)
         try apply(store, .minimize, c)
 
         let entries = store.floatListEntries(in: mainID, windowID: WindowID("win_1"))
@@ -370,6 +372,7 @@ final class WorklaneStoreFloatCommandsTests: XCTestCase {
         let store = makeStore()
         try apply(store, .float, a)
         try apply(store, .pip, b)
+        store.floatSoleTileForTesting(c, canvas: canvas)
         try apply(store, .minimize, c)
         let temporary = try store.newFloat(from: a, workingDirectory: nil, command: nil, temporary: true, canvas: canvas)
         var worklanes = store.worklanes

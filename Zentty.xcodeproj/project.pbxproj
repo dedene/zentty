@@ -238,6 +238,7 @@
 		41AB115C7B413B073FA53BD0 /* TaskManagerWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA67AC0576349EF49539363 /* TaskManagerWindowControllerTests.swift */; };
 		41B9FDB8C96DF7949092A1D8 /* TerminalViewportSuspensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5F88856349FE9BF5FF875A /* TerminalViewportSuspensionTests.swift */; };
 		41E60B513EDBF924D547A1D8 /* FakeExecutableFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186ADFD7C4E5EC05B9F02340 /* FakeExecutableFixture.swift */; };
+		4280D1753EC0265325ACCEB5 /* SoleTileFloatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025BE6D514AEFFF75D9D3DA7 /* SoleTileFloatTests.swift */; };
 		428AF134920680848831C321 /* SessionScrollbackCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F0D198E393AE2B13E17A406 /* SessionScrollbackCoordinatorTests.swift */; };
 		42D0EF23D8A0FD6E2B074B1A /* FloatResizeMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00BE7F5B8B9377313F695EAE /* FloatResizeMathTests.swift */; };
 		431F20BE5D3B0B049221ADCC /* AgyHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */; };
@@ -332,6 +333,7 @@
 		5C90188186788922397ADD4A /* ProjectFileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB2531220560D56153939CB /* ProjectFileResolver.swift */; };
 		5CCCEA997B0C6BEA30A00A99 /* AboutMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */; };
 		5CD86FBA228D0DE27399B2B6 /* TmuxCommandLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251D866C696C4237F3605EDB /* TmuxCommandLine.swift */; };
+		5D91FF48F2794A54DF5B13B5 /* FloatOnlyWorklaneFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71331A45944AD7277DF00C11 /* FloatOnlyWorklaneFixture.swift */; };
 		5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */; };
 		5DCE3CE7975228B9DAED83B5 /* HooksInstalling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85455D40248CB5F5A9E5AFE3 /* HooksInstalling.swift */; };
 		5DDDDB62A468AE20378372CB /* PaneStripViewportResizeAnimationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17B775735080F61EB5E993FF /* PaneStripViewportResizeAnimationTests.swift */; };
@@ -949,6 +951,7 @@
 		01726A5B582A472B53D0CE1F /* FloatDockResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatDockResolver.swift; sourceTree = "<group>"; };
 		017D80D8C20309A5F3A34381 /* PanePresentationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanePresentationStateTests.swift; sourceTree = "<group>"; };
 		02126D22E8F87E9B608D3CB9 /* SidebarStatusResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarStatusResolver.swift; sourceTree = "<group>"; };
+		025BE6D514AEFFF75D9D3DA7 /* SoleTileFloatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoleTileFloatTests.swift; sourceTree = "<group>"; };
 		02C8698CDC6B6D23FD3F2310 /* TerminalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDiagnostics.swift; sourceTree = "<group>"; };
 		02EFFEB8F7C3F6D643AFAB82 /* FloatCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatCLITests.swift; sourceTree = "<group>"; };
 		02F71D1415EE0BF0891E75B0 /* TerminalClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardTests.swift; sourceTree = "<group>"; };
@@ -1328,6 +1331,7 @@
 		70E32F5D75A427D01A59BA93 /* TerminalPaneInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneInput.swift; sourceTree = "<group>"; };
 		7109E246F70CEBB6CD34E13F /* PassiveServerDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveServerDetection.swift; sourceTree = "<group>"; };
 		7120EEE7A0C06BD8315283B9 /* MainWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowControllerTests.swift; sourceTree = "<group>"; };
+		71331A45944AD7277DF00C11 /* FloatOnlyWorklaneFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatOnlyWorklaneFixture.swift; sourceTree = "<group>"; };
 		71CF324A458B6B3C2A777ED2 /* FloatingPanesSettingsCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPanesSettingsCardTests.swift; sourceTree = "<group>"; };
 		71F8B44C4FD096811C87A476 /* WorkspaceTemplateExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateExporter.swift; sourceTree = "<group>"; };
 		7201C22CC42607CEE4303F6A /* TerminalOpenURLAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOpenURLAlert.swift; sourceTree = "<group>"; };
@@ -2861,6 +2865,7 @@
 				109CA8868F1AF3CE2335AB80 /* FloatMotionTests.swift */,
 				47245A7B1B0BEF7102A320F7 /* FloatNameInferrerTests.swift */,
 				8B616CA7DA6B0FDC26BF8D4D /* FloatNeedsInputAnnouncerTests.swift */,
+				71331A45944AD7277DF00C11 /* FloatOnlyWorklaneFixture.swift */,
 				00BE7F5B8B9377313F695EAE /* FloatResizeMathTests.swift */,
 				84A09397BC8AF6F5B7DE19CD /* FloatScrimViewTests.swift */,
 				FA71BB061A1B2F7C463B0A48 /* FloatSnapSpringTests.swift */,
@@ -3016,6 +3021,7 @@
 				4225E34022CEC2DFB9C70338 /* SidebarWorklaneRowButtonTests.swift */,
 				57BC50CDB5D0B82695D9A2D4 /* SidebarWorklaneRowLayoutTests.swift */,
 				52C47988FC977CAE87970482 /* SidebarWorklaneRowPresentationTests.swift */,
+				025BE6D514AEFFF75D9D3DA7 /* SoleTileFloatTests.swift */,
 				96218BAE51D065EB4C3DF588 /* SparkleAppUpdateControllerTests.swift */,
 				1B5AF139C269A83C71C16267 /* StyledTerminalTextTests.swift */,
 				E7BC9EED84FE9E345309065D /* SubprocessRunnerTests.swift */,
@@ -3426,6 +3432,7 @@
 				3FC1794692F95BACF4B6AD8B /* FloatMotionTests.swift in Sources */,
 				018888C55B9D2B5D978AA7C9 /* FloatNameInferrerTests.swift in Sources */,
 				FE90905433F405621EDF9A01 /* FloatNeedsInputAnnouncerTests.swift in Sources */,
+				5D91FF48F2794A54DF5B13B5 /* FloatOnlyWorklaneFixture.swift in Sources */,
 				42D0EF23D8A0FD6E2B074B1A /* FloatResizeMathTests.swift in Sources */,
 				2F87BDDA757552525DDFBFEC /* FloatScrimViewTests.swift in Sources */,
 				3EF358CE1EC66AEF6EABC981 /* FloatSnapSpringTests.swift in Sources */,
@@ -3581,6 +3588,7 @@
 				DC6594609ADC8C26340A0B8A /* SidebarWorklaneRowButtonTests.swift in Sources */,
 				E9BF42DC69D4CF63845BCBE2 /* SidebarWorklaneRowLayoutTests.swift in Sources */,
 				E4DDBFE9C7BEAE5D693A2F85 /* SidebarWorklaneRowPresentationTests.swift in Sources */,
+				4280D1753EC0265325ACCEB5 /* SoleTileFloatTests.swift in Sources */,
 				48AAE3252CEE1E6E73CE2046 /* SparkleAppUpdateControllerTests.swift in Sources */,
 				01FF06AAAC95B45D77C7F427 /* StyledTerminalTextTests.swift in Sources */,
 				E270DCB043F4B942C5DAF42B /* SubprocessRunnerTests.swift in Sources */,

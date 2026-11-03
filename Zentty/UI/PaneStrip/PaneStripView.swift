@@ -1380,6 +1380,7 @@ final class PaneStripView: NSView {
 
             paneView.smoothScrollingEnabled = currentSmoothScrollingEnabled
             paneView.showPaneBorders = currentShowPaneBorders
+            paneView.isSoleTile = state.panes.count == 1
             let pane = state.panes[index]
             paneView.render(
                 pane: pane,

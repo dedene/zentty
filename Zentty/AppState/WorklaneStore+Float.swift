@@ -29,9 +29,11 @@ extension WorklaneStore {
 
     /// Lifts a tile out of the strip. `tileFrame` (canvas coordinates) lifts it
     /// in place; nil centres it at the default size. Focus moves to the float.
+    /// The worklane's only tile stays put (`WorklaneState.isSoleTile`).
     func floatPane(_ id: PaneID, canvas: CGRect, tileFrame: CGRect?) {
         guard let worklaneIndex = worklaneIndex(containingPane: id),
-              !worklanes[worklaneIndex].isFloating(id) else {
+              !worklanes[worklaneIndex].isFloating(id),
+              !worklanes[worklaneIndex].isSoleTile(id) else {
             return
         }
         let original = worklanes[worklaneIndex]

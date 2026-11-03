@@ -99,11 +99,11 @@ final class WorklaneStoreFloatTests: XCTestCase {
         XCTAssertEqual(worklane(store).focusedPaneID, id)
     }
 
-    func test_float_last_tile_keeps_worklane() {
+    func test_float_only_worklane_keeps_worklane() {
         let store = makeStore(tiles: ["only"])
         let id = PaneID("only")
 
-        store.floatPane(id, canvas: canvas, tileFrame: nil)
+        store.floatSoleTileForTesting(id, canvas: canvas)
 
         XCTAssertEqual(store.worklanes.count, 1)
         XCTAssertFalse(worklane(store).hasTiledPanes)
@@ -324,7 +324,7 @@ final class WorklaneStoreFloatTests: XCTestCase {
 
     func test_minimize_last_float_of_float_only_worklane_leaves_no_focus() {
         let store = makeStore(tiles: ["only"])
-        store.floatPane(PaneID("only"), canvas: canvas, tileFrame: nil)
+        store.floatSoleTileForTesting(PaneID("only"), canvas: canvas)
 
         store.minimizePane(PaneID("only"))
 

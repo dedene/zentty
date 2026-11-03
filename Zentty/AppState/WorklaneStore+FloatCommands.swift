@@ -26,6 +26,7 @@ extension WorklaneStore {
         if action == .restore, mode == nil {
             throw FloatControlIPCError.notFloating(paneID.rawValue)
         }
+        try Self.refuseFloatingSoleTile(action, paneID: paneID, in: worklanes[worklaneIndex])
         batchUpdate {
             switch action {
             case .float:
@@ -54,6 +55,19 @@ extension WorklaneStore {
             case .restore:
                 restoreFloat(paneID)
             }
+        }
+    }
+
+    /// Throws when `action` would float the worklane's only tile (`float`,
+    /// `pip` and `minimize` lift a tile first; `dock` and `restore` never do).
+    static func refuseFloatingSoleTile(_ action: PaneFloatAction, paneID: PaneID, in worklane: WorklaneState) throws {
+        switch action {
+        case .float, .pip, .minimize:
+            if worklane.isSoleTile(paneID) {
+                throw FloatControlIPCError.soleTile(paneID.rawValue)
+            }
+        case .dock, .restore:
+            break
         }
     }
 

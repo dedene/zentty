@@ -27,6 +27,7 @@ enum FloatControlIPCError: LocalizedError, Equatable {
     case notFloating(String)
     case invalidWorkingDirectory(String)
     case busy
+    case soleTile(String)
 
     var errorDescription: String? {
         switch self {
@@ -46,6 +47,8 @@ enum FloatControlIPCError: LocalizedError, Equatable {
             "Working directory does not exist: \(path)"
         case .busy:
             "Zentty is in the middle of a pane drag or worklane preview. Try again once it ends."
+        case .soleTile(let paneID):
+            "Pane \(paneID) is the only tile in its worklane and stays docked. Split or open another pane first."
         }
     }
 }

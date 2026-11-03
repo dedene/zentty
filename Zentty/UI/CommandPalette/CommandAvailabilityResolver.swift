@@ -27,6 +27,9 @@ struct CommandAvailabilityContext: Equatable {
     /// A `.floating` float owns keyboard focus: strip-relative move, resize
     /// and move-to-window commands would act on a tile the user isn't using.
     let focusedPaneIsFloat: Bool
+    /// The focused pane is the strip's only tile: Float or Dock Pane would
+    /// empty the strip, so it is unavailable.
+    let focusedPaneIsSoleTile: Bool
     /// `.floating` floats in the active worklane (hidden or not).
     let floatingFloatCount: Int
     /// `.floating` + PiP floats in the active worklane, hidden or not: what
@@ -52,6 +55,7 @@ struct CommandAvailabilityContext: Equatable {
         focusedPaneAgentFork: AgentForkAvailability? = nil,
         activeTiledPaneCount: Int? = nil,
         focusedPaneIsFloat: Bool = false,
+        focusedPaneIsSoleTile: Bool = false,
         floatingFloatCount: Int = 0,
         shownFloatCount: Int = 0,
         navigablePaneCount: Int? = nil
@@ -71,6 +75,7 @@ struct CommandAvailabilityContext: Equatable {
         self.focusedPaneAgentFork = focusedPaneAgentFork
         self.activeTiledPaneCount = activeTiledPaneCount ?? activePaneCount
         self.focusedPaneIsFloat = focusedPaneIsFloat
+        self.focusedPaneIsSoleTile = focusedPaneIsSoleTile
         self.floatingFloatCount = floatingFloatCount
         self.shownFloatCount = shownFloatCount
         self.navigablePaneCount = navigablePaneCount ?? totalPaneCount
@@ -162,7 +167,7 @@ enum CommandAvailabilityResolver {
         case .duplicateFocusedPane:
             return context.activePaneCount >= 1
         case .toggleFloat:
-            return context.activePaneCount >= 1
+            return context.activePaneCount >= 1 && !context.focusedPaneIsSoleTile
         case .minimizeFloat, .pipFloat:
             return context.focusedPaneIsFloat
         case .toggleFloatsHidden:

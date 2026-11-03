@@ -12,6 +12,9 @@ final class FloatCLIHostedTests: XCTestCase {
     private let tileID = PaneID("pane-a")
     private let otherTileID = PaneID("pane-b")
     private let offscreenTileID = PaneID("pane-c")
+    /// Keeps `offscreenTileID` from being its worklane's only tile (which
+    /// the CLI refuses to float).
+    private let offscreenSpareID = PaneID("pane-d")
 
     private var controller: MainWindowController?
     private var adapters: [PaneID: HostedSpyTerminalAdapter] = [:]
@@ -67,26 +70,46 @@ final class FloatCLIHostedTests: XCTestCase {
         XCTAssertEqual(adapterCreations.filter { $0 == otherTileID }.count, 1)
     }
 
-    func test_pip_and_minimize_take_a_tile_straight_to_a_pip_or_pill() throws {
+    func test_pip_takes_a_tile_straight_to_a_pip() throws {
         let controller = try makeSeededController()
         let layer = canvas(controller).floatLayerView
         let pipAdapter = try XCTUnwrap(adapters[otherTileID])
-        let pillAdapter = try XCTUnwrap(adapters[tileID])
 
         try dispatch(.panePip, arguments: ["--target", "2"])
         waitForLayout("tile to pip")
-        try dispatch(.paneMinimize, arguments: ["--target", "1"])
-        waitForLayout("tile to pill")
 
         XCTAssertEqual(mode(controller, otherTileID), .pip(corner: .bottomRight, order: 0))
         XCTAssertNotNil(layer.pipHostForTesting(otherTileID))
         XCTAssertNil(layer.floatHostForTesting(otherTileID))
+        XCTAssertTrue(adapters[otherTileID] === pipAdapter)
+        XCTAssertEqual(pipAdapter.closeCount, 0, "the process lives on")
+    }
+
+    func test_minimize_takes_a_tile_straight_to_a_pill() throws {
+        let controller = try makeSeededController()
+        let pillAdapter = try XCTUnwrap(adapters[tileID])
+
+        try dispatch(.paneMinimize, arguments: ["--target", "1"])
+        waitForLayout("tile to pill")
+
         XCTAssertEqual(mode(controller, tileID), .minimized(order: 0))
         XCTAssertNotNil(canvas(controller).pillBarView.pillViewForTesting(tileID))
-        XCTAssertEqual(store(controller).activeWorklane?.paneStripState.panes.count, 0)
-        XCTAssertTrue(adapters[otherTileID] === pipAdapter)
+        XCTAssertEqual(store(controller).activeWorklane?.paneStripState.panes.map(\.id), [otherTileID])
         XCTAssertTrue(adapters[tileID] === pillAdapter)
-        XCTAssertEqual(pipAdapter.closeCount + pillAdapter.closeCount, 0, "both processes live on")
+        XCTAssertEqual(pillAdapter.closeCount, 0, "the process lives on")
+    }
+
+    func test_float_pip_and_minimize_refuse_the_last_tile() throws {
+        let controller = try makeSeededController()
+        try dispatch(.paneMinimize, arguments: ["--target", "1"])
+        waitForLayout("first tile to pill")
+
+        for subcommand in [PaneIPCSubcommand.paneFloat, .panePip, .paneMinimize] {
+            XCTAssertThrowsError(try dispatch(subcommand, target: (worklaneID, otherTileID)), "\(subcommand)") { error in
+                XCTAssertEqual(error as? FloatControlIPCError, .soleTile(otherTileID.rawValue))
+            }
+        }
+        XCTAssertEqual(store(controller).activeWorklane?.paneStripState.panes.map(\.id), [otherTileID])
     }
 
     func test_restore_on_a_tile_fails_and_leaves_it() throws {
@@ -212,7 +235,10 @@ final class FloatCLIHostedTests: XCTestCase {
             WorklaneState(
                 id: offscreenWorklaneID,
                 title: nil,
-                paneStripState: PaneStripState(panes: [pane(offscreenTileID)], focusedPaneID: offscreenTileID),
+                paneStripState: PaneStripState(
+                    panes: [pane(offscreenSpareID), pane(offscreenTileID)],
+                    focusedPaneID: offscreenTileID
+                ),
                 auxiliaryStateByPaneID: [:]
             ),
         ], activeWorklaneID: worklaneID)

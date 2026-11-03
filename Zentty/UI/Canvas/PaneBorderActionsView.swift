@@ -64,9 +64,11 @@ enum PaneBorderActionsLayout {
     /// narrow for both keeps its legend and drops the buttons.
     static let minimumLegendWidth: CGFloat = 80
 
-    static func actions(for kind: PaneChromeKind) -> [PaneBorderAction] {
+    /// The buttons a pane shows. The worklane's only tile shows none: it can
+    /// neither float nor be closed from its border.
+    static func actions(for kind: PaneChromeKind, isSoleTile: Bool = false) -> [PaneBorderAction] {
         switch kind {
-        case .tile: [.float, .close]
+        case .tile: isSoleTile ? [] : [.float, .close]
         case .float: [.pip, .minimize, .dock, .close]
         case .pip: [.restore, .minimize, .close]
         }

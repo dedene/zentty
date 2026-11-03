@@ -381,7 +381,7 @@ final class WorklaneStoreFloatLifecycleTests: XCTestCase {
 
     func test_split_down_on_float_only_worklane_keeps_float_focus() throws {
         let store = makeStore(tiles: ["only"])
-        store.floatPane(PaneID("only"), canvas: canvas, tileFrame: nil)
+        store.floatSoleTileForTesting(PaneID("only"), canvas: canvas)
 
         store.send(.splitVertically)
 

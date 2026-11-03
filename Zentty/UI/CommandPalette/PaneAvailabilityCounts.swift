@@ -15,6 +15,8 @@ struct PaneAvailabilityCounts: Equatable, Sendable {
     let activeColumnCount: Int
     let focusedColumnPaneCount: Int
     let focusedPaneIsFloat: Bool
+    /// The focused pane is the strip's only tile (Float Pane can't take it).
+    let focusedPaneIsSoleTile: Bool
     /// `.floating` floats in the active worklane.
     let floatingFloatCount: Int
     /// `.floating` + PiP floats in the active worklane, ignoring `floatsHidden`.
@@ -31,6 +33,9 @@ struct PaneAvailabilityCounts: Equatable, Sendable {
         activeColumnCount = strip?.columns.count ?? 0
         focusedColumnPaneCount = strip?.focusedColumn?.panes.count ?? 0
         focusedPaneIsFloat = activeWorklane?.floatOwnsFocus ?? false
+        focusedPaneIsSoleTile = activeWorklane.map { worklane in
+            worklane.focusedPaneID.map(worklane.isSoleTile) ?? false
+        } ?? false
         let floats = activeWorklane?.floatingPanes ?? []
         floatingFloatCount = floats.count { $0.mode.isFloating }
         shownFloatCount = floats.count { float in
@@ -79,6 +84,7 @@ extension CommandAvailabilityContext {
             focusedPaneAgentFork: focusedPaneAgentFork,
             activeTiledPaneCount: counts.activeTiledPaneCount,
             focusedPaneIsFloat: counts.focusedPaneIsFloat,
+            focusedPaneIsSoleTile: counts.focusedPaneIsSoleTile,
             floatingFloatCount: counts.floatingFloatCount,
             shownFloatCount: counts.shownFloatCount,
             navigablePaneCount: counts.navigablePaneCount

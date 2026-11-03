@@ -82,9 +82,12 @@ final class FloatDockHostedTests: XCTestCase {
     }
 
     func test_option_drag_into_float_only_worklane_creates_first_column() throws {
-        let controller = try makeSeededController(panes: [PaneState(id: floatID, title: "b")])
+        let controller = try makeSeededController(panes: [PaneState(id: leftID, title: "a"), PaneState(id: floatID, title: "b")])
         controller.toggleFloat(nil)
         waitForLayout("floated", delay: 0.6)
+        // The sole tile can't float; closing it under the float empties the strip.
+        controller.rootViewControllerForTesting.handlePaneBorderAction(.close, paneID: leftID)
+        waitForLayout("last tile closed", delay: 0.3)
         XCTAssertTrue(store(controller).activeWorklane?.paneStripState.columns.isEmpty == true)
         let host = try XCTUnwrap(layer(controller).floatHostForTesting(floatID))
         let target = CGPoint(x: host.paneFrame.midX + 60, y: host.paneFrame.maxY - 40)

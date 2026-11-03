@@ -45,6 +45,9 @@ extension WorklaneStore {
             dockPane(paneID, target: .origin)
             return
         }
+        guard !worklane.isSoleTile(paneID) else {
+            return
+        }
         let usableCanvas = canvas.width > 0 && canvas.height > 0
         floatPane(
             paneID,

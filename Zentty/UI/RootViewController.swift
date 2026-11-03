@@ -3518,6 +3518,9 @@ extension RootViewController: AppActionRouterEnvironment {
             throw FloatControlIPCError.busy
         }
         let isTile = activeWorklane?.paneStripState.panes.contains { $0.id == paneID } == true
+        if isTile, let activeWorklane {
+            try WorklaneStore.refuseFloatingSoleTile(action, paneID: paneID, in: activeWorklane)
+        }
         if action == .float, isTile {
             routeFloatPane(paneID)
             return

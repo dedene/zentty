@@ -283,12 +283,15 @@ final class FloatInteractionHostedTests: XCTestCase {
         XCTAssertEqual(resume.containerSize, floatFrame.size, "the grid follows at the float size")
     }
 
-    func test_floating_last_tile_shows_empty_strip_hint() throws {
-        let controller = try makeSeededController(panes: [PaneState(id: floatID, title: "b")])
-        XCTAssertNil(canvas(controller).paneStripView.emptyStripHintTextForTesting)
-
+    func test_closing_the_last_tile_under_a_float_shows_empty_strip_hint() throws {
+        let controller = try makeSeededController()
         controller.toggleFloat(nil)
         waitForLayout("floated")
+        XCTAssertNil(canvas(controller).paneStripView.emptyStripHintTextForTesting)
+
+        // The sole tile can't float, but it can still close under a float.
+        controller.rootViewControllerForTesting.handlePaneBorderAction(.close, paneID: tileID)
+        waitForLayout("tile closed")
 
         XCTAssertEqual(canvas(controller).paneStripView.emptyStripHintTextForTesting, "No tiled panes")
 
