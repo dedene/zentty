@@ -139,8 +139,10 @@ final class PillView: NSView {
         nameLabel.stringValue = item.name
         subtitleLabel.stringValue = item.subtitle ?? ""
         subtitleLabel.isHidden = style == .compact || item.subtitle == nil
-        toolTip = [item.name, item.subtitle].compactMap { $0 }.joined(separator: " · ")
+        // No tooltip: the hover peek shows the pane. VoiceOver keeps the
+        // name and status (label) and the cwd (help).
         setAccessibilityLabel(item.accessibilityLabel)
+        setAccessibilityHelp(item.subtitle)
         applyColors()
         needsLayout = true
     }

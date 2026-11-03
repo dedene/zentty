@@ -340,4 +340,16 @@ final class PillBarViewTests: AppKitTestCase {
         let clamped = PillPeekView.frame(size: size, above: CGRect(x: 300, y: 5, width: 60, height: 28), in: short)
         XCTAssertEqual(clamped.maxY, short.maxY - PillPeekView.edgeInset, "no room above: kept on screen")
     }
+
+    func test_pill_has_no_tooltip_but_voiceover_keeps_name_status_and_cwd() throws {
+        setUpBar()
+        barView.render(PillBarContent(items: [
+            PillBarItem(paneID: PaneID("a"), name: "a", subtitle: "~/src", attention: .needsInput),
+        ]), theme: ZenttyTheme.fallback(for: nil))
+        let pill = try XCTUnwrap(barView.pillViewForTesting(PaneID("a")))
+
+        XCTAssertNil(pill.toolTip, "the hover peek covers it")
+        XCTAssertEqual(pill.accessibilityLabel(), pill.item.accessibilityLabel)
+        XCTAssertEqual(pill.accessibilityHelp(), "~/src")
+    }
 }
