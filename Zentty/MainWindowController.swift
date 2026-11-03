@@ -324,11 +324,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.runningQuickActionsClosingWithPane = { [weak self] paneID in
             guard let self else { return [] }
-            return self.runningOverlayFloats(self.worklaneStore.temporaryFloatIDs(closingWithPane: paneID))
+            return self.runningOverlayFloats(self.worklaneStore.terminalCheckedPaneIDs(closingWithPane: paneID))
         }
         rootViewController.runningQuickActionsClosingWithWorklane = { [weak self] worklaneID in
             guard let self else { return [] }
-            return self.runningOverlayFloats(self.worklaneStore.temporaryFloatIDs(closingWithWorklane: worklaneID))
+            return self.runningOverlayFloats(self.worklaneStore.terminalCheckedPaneIDs(closingWithWorklane: worklaneID))
         }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
             self?.refreshWindowTitle()
@@ -1335,7 +1335,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         try rootViewController.setFloatsHiddenFromCLI(hidden, in: worklaneID)
     }
 
-    /// Overlay floats among `ids` whose process would die unasked.
+    /// Panes among `ids` (overlays, docked or not) whose process would die
+    /// unasked.
     private func runningOverlayFloats(_ ids: [PaneID]) -> [RunningQuickAction] {
         ids.compactMap { id in
             guard runtimeRegistry.runtime(for: id)?.adapter.needsConfirmQuit == true else {
@@ -1517,11 +1518,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.anyPaneHasRunningProcessForQuitConfirmation || anyOverlayFloatIsRunning
     }
 
-    /// An overlay float's command often runs without the shell integration
-    /// reporting it (it is the session's native command), so ask the terminal.
+    /// An overlay's command often runs without the shell integration
+    /// reporting it (it is the session's native command), so ask the
+    /// terminal, also once the overlay was docked.
     private var anyOverlayFloatIsRunning: Bool {
         worklaneStore.worklanes.contains { worklane in
-            !runningOverlayFloats(worklaneStore.temporaryFloatIDs(closingWithWorklane: worklane.id)).isEmpty
+            !runningOverlayFloats(worklaneStore.terminalCheckedPaneIDs(closingWithWorklane: worklane.id)).isEmpty
         }
     }
 

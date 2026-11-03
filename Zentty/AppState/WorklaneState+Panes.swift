@@ -102,6 +102,12 @@ extension WorklaneState {
         return true
     }
 
+    /// Whether a close prompt must ask the pane's terminal if its process
+    /// still runs: overlays, temporary or not (`closePromptAsksTerminal`).
+    func closePromptAsksTerminal(_ id: PaneID) -> Bool {
+        !isPersistent(id) || auxiliaryStateByPaneID[id]?.closePromptAsksTerminal == true
+    }
+
     var hasLivePanes: Bool {
         hasTiledPanes || !floatingPanes.isEmpty
     }

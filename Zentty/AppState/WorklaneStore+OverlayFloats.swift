@@ -187,6 +187,7 @@ extension WorklaneStore {
         )
         pane.sessionRequest.nativeCommand = request.command.isEmpty ? nil : request.command
         pane.sessionRequest.waitAfterNativeCommand = request.waitAfterCommand
+        worklane.auxiliaryStateByPaneID[pane.id]?.closePromptAsksTerminal = true
         worklane.auxiliaryStateByPaneID[pane.id]?.lifetime = .temporary(
             owner: ownerID,
             placement: request.placement,
@@ -311,48 +312,6 @@ extension WorklaneStore {
     }
 
     // MARK: - Close confirmation
-
-    /// Every overlay (temporary float) that closing `paneID` ends, so the
-    /// close prompt can ask their terminals: `paneID` itself when it is an
-    /// overlay, its pane overlays at any depth (an overlay can own overlays;
-    /// reconciliation closes each once its owner is gone), and every overlay
-    /// of its worklane when it is the worklane's last persistent pane.
-    /// Worklane overlays otherwise re-anchor and survive.
-    func temporaryFloatIDs(closingWithPane paneID: PaneID) -> [PaneID] {
-        guard let worklaneIndex = worklaneIndex(containingPane: paneID) else {
-            return []
-        }
-        let worklane = worklanes[worklaneIndex]
-        let ordered = FloatingPaneState.bySequence(worklane.floatingPanes).map(\.pane.id)
-        if worklane.isLastPersistentPane(paneID) {
-            return ordered.filter { !worklane.isPersistent($0) }
-        }
-        var closing: Set<PaneID> = [paneID]
-        var grew = true
-        while grew {
-            grew = false
-            for id in ordered where !closing.contains(id) {
-                guard let anchor = worklane.overlayAnchor(of: id),
-                      anchor.placement == .pane,
-                      let owner = anchor.owner,
-                      closing.contains(owner) else {
-                    continue
-                }
-                closing.insert(id)
-                grew = true
-            }
-        }
-        return ordered.filter { closing.contains($0) && !worklane.isPersistent($0) }
-    }
-
-    func temporaryFloatIDs(closingWithWorklane worklaneID: WorklaneID) -> [PaneID] {
-        guard let worklane = worklanes.first(where: { $0.id == worklaneID }) else {
-            return []
-        }
-        return FloatingPaneState.bySequence(worklane.floatingPanes)
-            .map(\.pane.id)
-            .filter { !worklane.isPersistent($0) }
-    }
 
     // MARK: - Owner tracking
 

@@ -112,6 +112,29 @@ final class OverlayFloatHostedTests: XCTestCase {
         XCTAssertTrue(running(otherTileID).isEmpty)
     }
 
+    /// Review finding (P1): overlay → dock → close lost the prompt, because
+    /// docking made the pane persistent and only temporary floats asked
+    /// their terminal.
+    func test_a_docked_running_overlay_still_asks_before_closing() throws {
+        let controller = try makeSeededController()
+        let id = try controller.openOverlay(on: tileID, options: options(placement: .worklane)).id
+        waitForLayout("overlay mounted")
+        try controller.applyFloatAction(.dock, to: id, corner: nil)
+        waitForLayout("docked")
+        XCTAssertFalse(store(controller).activeWorklane?.isFloating(id) ?? true, "precondition: a tile now")
+        adapters[id]?.needsConfirmQuit = true
+        let running = try XCTUnwrap(controller.rootViewControllerForTesting.runningQuickActionsClosingWithPane)
+
+        XCTAssertEqual(running(id).count, 1)
+        XCTAssertNotNil(
+            store(controller).paneCloseConfirmationContext(id, runningQuickActions: running(id)),
+            "an idle shell state, but the terminal still runs the command"
+        )
+        XCTAssertTrue(running(tileID).isEmpty, "a docked overlay no longer closes with its owner")
+        XCTAssertTrue(controller.anyPaneRequiresQuitConfirmation)
+        XCTAssertTrue(controller.anyPaneHasRunningProcessForQuitConfirmation)
+    }
+
     func test_a_running_overlay_float_requires_quit_and_window_close_confirmation() throws {
         let controller = try makeSeededController()
         XCTAssertFalse(controller.anyPaneRequiresQuitConfirmation)

@@ -1232,6 +1232,10 @@ struct PaneAuxiliaryState: Equatable, Sendable {
     var lastCommandExitCode: Int?
     /// True when the pane was surfaced automatically (e.g. a needs-input pop).
     var autoPopped = false
+    /// The session runs its command directly (an overlay's, and still once
+    /// the overlay is docked or re-floated), so shell integration may never
+    /// report it running: close prompts ask the terminal (`needsConfirmQuit`).
+    var closePromptAsksTerminal = false
 
     init(
         raw: PaneRawState = PaneRawState(),

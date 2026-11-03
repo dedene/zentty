@@ -446,15 +446,43 @@ final class OverlayFloatAdapterTests: XCTestCase {
         let paneA = try open(store, on: "a", request(.pane)).id
         let paneB = try open(store, on: "b", request(.pane)).id
 
-        XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: PaneID("a")), [paneA])
-        XCTAssertEqual(Set(store.temporaryFloatIDs(closingWithWorklane: mainID)), [shared, paneA, paneB])
-        XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: paneA), [paneA], "closing an overlay takes itself")
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: PaneID("a")), [paneA])
+        XCTAssertEqual(Set(store.terminalCheckedPaneIDs(closingWithWorklane: mainID)), [shared, paneA, paneB])
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: paneA), [paneA], "closing an overlay takes itself")
 
         XCTAssertEqual(store.closePane(id: PaneID("b")), .closed)
         XCTAssertEqual(
-            Set(store.temporaryFloatIDs(closingWithPane: PaneID("a"))), [shared, paneA],
+            Set(store.terminalCheckedPaneIDs(closingWithPane: PaneID("a"))), [shared, paneA],
             "the worklane's last pane takes the worklane overlay too"
         )
+    }
+
+    /// Review finding (P1): docking made the overlay persistent and dropped
+    /// it from the terminal check, so closing it (or its worklane) could
+    /// kill a running native command without a prompt. Re-floating did not
+    /// bring the check back either.
+    func test_a_docked_overlay_keeps_its_close_prompt() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        let id = try open(store, on: "a", request(.pane)).id
+        XCTAssertTrue(store.dockPane(id, target: .origin))
+        XCTAssertEqual(lifetime(store, id), .persistent, "a normal pane for restore")
+
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: id), [id])
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: PaneID("a")), [], "no longer closes with its owner")
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithWorklane: mainID), [id])
+
+        store.floatPane(id, canvas: canvas, tileFrame: nil)
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: id), [id], "re-floated, still checked")
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithWorklane: mainID), [id])
+    }
+
+    func test_plain_panes_and_floats_are_not_terminal_checked() throws {
+        let store = makeStore(tiles: ["a", "b"])
+        let float = try XCTUnwrap(store.newFloat(request: TerminalSessionRequest(workingDirectory: "/tmp"), canvas: canvas))
+
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: PaneID("a")), [])
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: float), [])
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithWorklane: mainID), [])
     }
 
     /// Review finding: the prompt must see the overlay being closed and every
@@ -465,9 +493,9 @@ final class OverlayFloatAdapterTests: XCTestCase {
         let grandchild = try open(store, on: child.rawValue, request(.pane)).id
         let shared = try open(store, on: child.rawValue, request(.worklane)).id
 
-        XCTAssertEqual(Set(store.temporaryFloatIDs(closingWithPane: PaneID("a"))), [child, grandchild])
-        XCTAssertEqual(Set(store.temporaryFloatIDs(closingWithPane: child)), [child, grandchild])
-        XCTAssertEqual(store.temporaryFloatIDs(closingWithPane: grandchild), [grandchild])
+        XCTAssertEqual(Set(store.terminalCheckedPaneIDs(closingWithPane: PaneID("a"))), [child, grandchild])
+        XCTAssertEqual(Set(store.terminalCheckedPaneIDs(closingWithPane: child)), [child, grandchild])
+        XCTAssertEqual(store.terminalCheckedPaneIDs(closingWithPane: grandchild), [grandchild])
 
         // What reconciliation really closes: the worklane overlay re-anchors.
         XCTAssertEqual(store.closePane(id: PaneID("a")), .closed)
