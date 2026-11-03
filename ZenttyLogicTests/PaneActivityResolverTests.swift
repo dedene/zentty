@@ -146,6 +146,20 @@ final class PaneActivityResolverTests: XCTestCase {
         )
     }
 
+    func test_minimized_is_visible_but_never_focused_while_its_pill_is_peeked() {
+        XCTAssertEqual(
+            resolve(.minimized, isFocusedPane: true, isPillPeeked: true),
+            TerminalSurfaceActivity(keepsRuntimeLive: true, isVisible: true, isFocused: false)
+        )
+    }
+
+    func test_pill_peek_needs_the_active_worklane_a_visible_window_and_no_worklane_peek() {
+        let hidden = TerminalSurfaceActivity(keepsRuntimeLive: true, isVisible: false, isFocused: false)
+        XCTAssertEqual(resolve(.minimized, isActiveWorklane: false, isPillPeeked: true), hidden)
+        XCTAssertEqual(resolve(.minimized, windowIsVisible: false, isPillPeeked: true), hidden)
+        XCTAssertEqual(resolve(.minimized, isPeekOpen: true, isPillPeeked: true), hidden)
+    }
+
     func test_every_mode_keeps_runtime_live() {
         let modes: [PanePresentationMode] = [.tile, .floating, .pip, .minimized]
         for mode in modes {
@@ -178,7 +192,8 @@ final class PaneActivityResolverTests: XCTestCase {
         windowIsVisible: Bool = true,
         windowIsKey: Bool = true,
         isFocusedPane: Bool = true,
-        isPeekOpen: Bool = false
+        isPeekOpen: Bool = false,
+        isPillPeeked: Bool = false
     ) -> TerminalSurfaceActivity {
         PaneActivityResolver.activity(
             for: PaneActivityInput(
@@ -189,7 +204,8 @@ final class PaneActivityResolverTests: XCTestCase {
                 windowIsVisible: windowIsVisible,
                 windowIsKey: windowIsKey,
                 isFocusedPane: isFocusedPane,
-                isPeekOpen: isPeekOpen
+                isPeekOpen: isPeekOpen,
+                isPillPeeked: isPillPeeked
             )
         )
     }

@@ -103,6 +103,9 @@ final class WorklaneRenderCoordinator {
     /// previews keep streaming live instead of freezing on a still frame.
     /// Default returns an empty set (nothing peek-visible).
     var peekVisibleWorklaneIDsProvider: () -> Set<WorklaneID> = { [] }
+    /// Minimized panes whose pill peek draws their live terminal: kept
+    /// un-occluded while it shows. Default: none.
+    var pillPeekedPaneIDsProvider: () -> Set<PaneID> = { [] }
     var sidebarFocusOverrideProvider: () -> WorklaneSidebarFocusOverride? = { nil }
 
     init(
@@ -455,7 +458,8 @@ final class WorklaneRenderCoordinator {
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 windowIsVisible: windowState.isVisible,
                 windowIsKey: windowState.isKeyWindow,
-                peekVisibleWorklaneIDs: peekVisibleWorklaneIDsProvider()
+                peekVisibleWorklaneIDs: peekVisibleWorklaneIDsProvider(),
+                pillPeekedPaneIDs: pillPeekedPaneIDsProvider()
             )
         }
     }

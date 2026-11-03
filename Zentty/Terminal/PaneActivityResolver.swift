@@ -33,6 +33,9 @@ struct PaneActivityInput: Equatable, Sendable {
     /// A Worklane Peek session is open in the window. The float layer is
     /// hidden while it is, so floats and PiPs are not drawn.
     var isPeekOpen: Bool = false
+    /// A minimized pane's pill is hovered and its peek draws the live
+    /// terminal (see `PillPeekView`).
+    var isPillPeeked: Bool = false
 }
 
 /// Decides Ghostty occlusion and focus for one pane. The registry recomputes
@@ -45,7 +48,8 @@ struct PaneActivityInput: Equatable, Sendable {
 ///   strip, not floats), only while floats are shown and never while a peek
 ///   is open (the float layer is hidden then); focused like a tile.
 /// - pip: visible like a floating pane, never focused.
-/// - minimized: never visible, never focused.
+/// - minimized: visible only while its pill peek shows it (active worklane,
+///   window visible, no Worklane Peek open); never focused.
 ///
 /// Every mode keeps its runtime live: putting a pane away never ends its process.
 enum PaneActivityResolver {
@@ -63,7 +67,10 @@ enum PaneActivityResolver {
             isVisible = Self.floatLayerIsDrawn(for: input)
             canTakeFocus = false
         case .minimized:
-            isVisible = false
+            isVisible = input.isPillPeeked
+                && input.windowIsVisible
+                && input.isActiveWorklane
+                && !input.isPeekOpen
             canTakeFocus = false
         }
 

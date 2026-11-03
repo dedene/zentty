@@ -1258,7 +1258,8 @@ final class PaneRuntimeRegistry {
         activeWorklaneID: WorklaneID,
         windowIsVisible: Bool,
         windowIsKey: Bool,
-        peekVisibleWorklaneIDs: Set<WorklaneID> = []
+        peekVisibleWorklaneIDs: Set<WorklaneID> = [],
+        pillPeekedPaneIDs: Set<PaneID> = []
     ) {
         let liveRuntimeCount = runtimes.count
         var visiblePaneCount = 0
@@ -1292,7 +1293,8 @@ final class PaneRuntimeRegistry {
                         windowIsVisible: windowIsVisible,
                         windowIsKey: windowIsKey,
                         isFocusedPane: pane.id == focusedPaneID,
-                        isPeekOpen: isPeekOpen
+                        isPeekOpen: isPeekOpen,
+                        isPillPeeked: pillPeekedPaneIDs.contains(pane.id)
                     )
                 )
                 if isActiveWorklane, activity.isVisible {
