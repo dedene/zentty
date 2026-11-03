@@ -109,7 +109,103 @@ final class FloatLayerViewMouseOcclusionTests: AppKitTestCase {
         XCTAssertTrue(try suppresses(lowID, at: point, in: layer), "a fading copy reports no pointer motion")
     }
 
+    // MARK: - Resize cursors
+
+    /// A float's resize zones are cursor rects on its host; the terminal
+    /// inside reaches under their inner half, so it must leave them out of
+    /// its own (I-beam) cursor rects, without ignoring the pointer there.
+    func test_a_float_terminal_shows_no_cursor_in_its_resize_zones_but_keeps_the_pointer() throws {
+        let layer = makeLayer()
+        layer.render(content(float(lowID, frame: NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5), stackOrder: 0)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(lowID))
+        let pane = host.paneFrame
+        let insideBottomEdge = CGPoint(x: pane.midX, y: pane.minY + 4)
+        let insideRightEdge = CGPoint(x: pane.maxX - 4, y: pane.midY)
+        let centre = CGPoint(x: pane.midX, y: pane.midY)
+
+        XCTAssertTrue(try excludesCursor(lowID, at: insideBottomEdge, in: layer))
+        XCTAssertTrue(try excludesCursor(lowID, at: insideRightEdge, in: layer))
+        XCTAssertFalse(try excludesCursor(lowID, at: centre, in: layer))
+        XCTAssertFalse(try suppresses(lowID, at: insideBottomEdge, in: layer), "selections near the edge still work")
+        XCTAssertTrue(host.cursorOcclusionRects.isEmpty, "nothing above it")
+        XCTAssertEqual(
+            FloatResizeCursorZones.handle(
+                at: host.convert(insideBottomEdge, from: layer),
+                in: host.visibleResizeCursorZones
+            ),
+            .bottom
+        )
+    }
+
+    func test_a_covered_float_shows_no_cursor_where_the_float_above_owns_presses() throws {
+        let layer = makeLayer()
+        layer.render(content(
+            float(lowID, frame: NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5), stackOrder: 0),
+            // Taller than low: its left ring crosses low's lower edge.
+            float(highID, frame: NormalizedRect(x: 0.4, y: 0.05, width: 0.4, height: 0.9), stackOrder: 1)
+        ))
+        let low = try XCTUnwrap(layer.floatHostForTesting(lowID))
+        let high = try XCTUnwrap(layer.floatHostForTesting(highID))
+        // Low's bottom edge, under high's left resize zone (just outside high's pane).
+        let underHighRing = CGPoint(x: high.paneFrame.minX - 5, y: low.paneFrame.minY + 3)
+        XCTAssertTrue(low.paneFrame.contains(underHighRing), "precondition: over low's terminal")
+        XCTAssertFalse(high.paneFrame.contains(underHighRing), "precondition: outside high's pane")
+        XCTAssertEqual(
+            FloatResizeCursorZones.handle(
+                at: low.convert(underHighRing, from: layer),
+                in: FloatResizeCursorZones.zones(bounds: low.bounds, band: FloatGesture.band, cornerZone: FloatGesture.cornerZone)
+            ),
+            .bottom,
+            "precondition: in low's bottom zone"
+        )
+
+        XCTAssertNil(
+            FloatResizeCursorZones.handle(at: low.convert(underHighRing, from: layer), in: low.visibleResizeCursorZones),
+            "the covered float's zone gives way"
+        )
+        XCTAssertEqual(
+            FloatResizeCursorZones.handle(at: high.convert(underHighRing, from: layer), in: high.visibleResizeCursorZones),
+            .left
+        )
+        XCTAssertTrue(try excludesCursor(lowID, at: underHighRing, in: layer), "nor does low's terminal claim it")
+        XCTAssertEqual(
+            FloatResizeCursorZones.handle(
+                at: low.convert(CGPoint(x: low.paneFrame.minX + 3, y: low.paneFrame.midY), from: layer),
+                in: low.visibleResizeCursorZones
+            ),
+            .left,
+            "uncovered zones stay"
+        )
+    }
+
+    func test_strip_cursor_exclusion_covers_each_float_outset() throws {
+        let layer = makeLayer()
+        layer.render(content(float(lowID, frame: NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5), stackOrder: 0)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(lowID))
+        XCTAssertEqual(layer.cursorOwningFrames(in: layer), [host.frame])
+    }
+
+    func test_a_leaving_copy_shows_no_resize_cursor() throws {
+        let layer = makeLayer()
+        layer.render(content(float(lowID, frame: NormalizedRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5), stackOrder: 0)))
+        let host = try XCTUnwrap(layer.floatHostForTesting(lowID))
+        XCTAssertFalse(host.visibleResizeCursorZones.isEmpty)
+
+        layer.prepareTransitions(departures: [lowID: .close], entries: [:])
+        layer.render(content())
+
+        XCTAssertTrue(host.isDeparting, "precondition: the host is the leaving copy")
+        XCTAssertTrue(host.visibleResizeCursorZones.isEmpty)
+        XCTAssertTrue(layer.cursorOwningFrames(in: layer).isEmpty, "the strip gets its cursors back")
+    }
+
     // MARK: - Fixtures
+
+    private func excludesCursor(_ paneID: PaneID, at pointInLayer: CGPoint, in layer: FloatLayerView) throws -> Bool {
+        let view = try XCTUnwrap(adapters[paneID]?.view)
+        let point = view.convert(pointInLayer, from: layer)
+        return view.cursorExclusionRects.contains { $0.contains(point) }
+    }
 
     private func suppresses(_ paneID: PaneID, at pointInLayer: CGPoint, in layer: FloatLayerView) throws -> Bool {
         let view = try XCTUnwrap(adapters[paneID]?.view)
@@ -177,10 +273,16 @@ private final class SuppressionSpyAdapter: TerminalAdapter {
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
 }
 
-private final class SuppressionSpyView: NSView, TerminalMouseInteractionSuppressionControlling {
+private final class SuppressionSpyView: NSView, TerminalMouseInteractionSuppressionControlling,
+    TerminalCursorExclusionControlling {
     private(set) var suppressionRects: [CGRect] = []
+    private(set) var cursorExclusionRects: [CGRect] = []
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
         suppressionRects = rects
+    }
+
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        cursorExclusionRects = rects
     }
 }

@@ -41,11 +41,15 @@ extension FloatContainerView {
             isDockMode: FloatGesture.startsDockMode(kind: kind, modifiers: event.modifierFlags)
         )
         installGestureMonitors()
+        if case .resize(let handle) = kind {
+            beginResizeCursorHold(handle)
+        }
         onPressed?()
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard var gesture = activeGesture, let superview else { return }
+        defer { refreshResizeCursorHold() }
         gesture.session.move(to: superview.convert(event.locationInWindow, from: nil), timestamp: event.timestamp)
         let starts = !gesture.didBegin && !gesture.session.isClick
         if starts {
@@ -116,6 +120,7 @@ extension FloatContainerView {
 
     private func endGestureTracking() {
         activeGesture = nil
+        endResizeCursorHold()
         for monitor in gestureMonitors {
             NSEvent.removeMonitor(monitor)
         }

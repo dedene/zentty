@@ -62,8 +62,24 @@ final class FloatContainerView: NSView {
     /// drag sample.
     var lastReleasePoint: CGPoint?
     var gestureMonitors: [Any] = []
-    /// Drawing its way out after the model moved on: takes no events.
-    var isDeparting = false
+    /// Drawing its way out after the model moved on: takes no events and
+    /// shows no resize cursors.
+    var isDeparting = false {
+        didSet {
+            guard isDeparting != oldValue else { return }
+            invalidateResizeCursorRects()
+        }
+    }
+    /// Where floats and PiPs drawn above cover this one (bounds
+    /// coordinates): no resize cursor there (see `+Cursor`).
+    var cursorOcclusionRects: [CGRect] = [] {
+        didSet {
+            guard cursorOcclusionRects != oldValue else { return }
+            invalidateResizeCursorRects()
+        }
+    }
+    /// The resize cursor pinned for a live resize (see `+Cursor`).
+    var resizeCursorHold: FloatResizeCursorHold?
 
     init(paneID: PaneID) {
         self.paneID = paneID
@@ -111,21 +127,28 @@ final class FloatContainerView: NSView {
         hostedContainer?.resumeTerminalViewportSync(by: .floatLiftScale)
         hostedContainer = nil
         liftScale = 1
+        invalidateResizeCursorRects()
     }
 
     private func applyGeometry() {
         let outset = paneFrame.insetBy(dx: -Self.chromeOutset, dy: -Self.chromeOutset)
         let target = liftScale == 1 ? outset : FloatMotion.scaled(outset, by: liftScale)
+        var moved = false
         if frame != target {
             frame = target
+            moved = true
         }
         // Bounds must be re-set after every frame change, or AppKit drops
         // the scale (spike 0a).
         let unscaledBounds = CGRect(origin: .zero, size: outset.size)
         if bounds != unscaledBounds {
             bounds = unscaledBounds
+            moved = true
         }
         layoutHostedContainer()
+        if moved {
+            invalidateResizeCursorRects()
+        }
     }
 
     /// Re-parents `container` into this host at the pane rect. Removing a
@@ -138,6 +161,7 @@ final class FloatContainerView: NSView {
         }
         hostedContainer = container
         layoutHostedContainer()
+        invalidateResizeCursorRects()
     }
 
     /// Swaps between the resting and the deeper lifted shadow. The lift

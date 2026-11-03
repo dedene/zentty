@@ -56,6 +56,7 @@
 		0C96D9759AF2CF4004A9063D /* DockerContainerPollerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C671098E2B0FC1B68943B75E /* DockerContainerPollerTests.swift */; };
 		0D118FCB36F18F809879411C /* AppKitTestDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CBABCE53556478CD451A01 /* AppKitTestDisplayTests.swift */; };
 		0D16861AE92EDD029878BCBA /* LibghosttyViewScrollRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0253BE7E0C15D8168A3491D /* LibghosttyViewScrollRoutingTests.swift */; };
+		0D1CED361652E3FE3FE31166 /* FloatContainerView+Cursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A1EDF4888047C41A3C772A /* FloatContainerView+Cursor.swift */; };
 		0ED2C234E696C111255B212A /* LibghosttyAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2671C2153DB1DFA70522E94 /* LibghosttyAdapterTests.swift */; };
 		0EDFA608EF88DE90777D4214 /* SidebarFloatRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9601275D24F93784918EAE1B /* SidebarFloatRowTests.swift */; };
 		0F18CDAEECCFD9E840B2D10D /* TmuxFormatContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B139BDD98C09FA077C41A6 /* TmuxFormatContext.swift */; };
@@ -282,6 +283,7 @@
 		4C10AD98A50D72B27E181FD2 /* BookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CFD112F9402167A1785DB70 /* BookmarkStore.swift */; };
 		4C3C71DA023EC44853BE4A14 /* PaneDragSidebarEdgeScrollDriverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EEE5BDE38114E4E80B6C22A /* PaneDragSidebarEdgeScrollDriverTests.swift */; };
 		4CCDF0D69B99D52B07074B08 /* CopilotTitleNeedsInputReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E9FAF117E638BB9CC15508 /* CopilotTitleNeedsInputReducer.swift */; };
+		4D32D18BEDE537AFCF39FCED /* FloatResizeCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D203DC4ACC15D7088E2E2A7B /* FloatResizeCursor.swift */; };
 		4DA7426938463D7F07B7A515 /* WorklaneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CA54C85F2342CD81275B11 /* WorklaneStore.swift */; };
 		4E1373DAB8FC1A583D982FFA /* CleanCopyURLHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56D0544A9DC91F1BB3E0B88 /* CleanCopyURLHelpersTests.swift */; };
 		4E3C101E4C6C0B72F75ABBBE /* SidebarViewChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F557AF9F9BF4989153692316 /* SidebarViewChrome.swift */; };
@@ -457,6 +459,7 @@
 		7C7C9956FEE2B693F3D176C7 /* OnePasswordPromptAttributor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B7F7BF9DF753AEB2FC16031 /* OnePasswordPromptAttributor.swift */; };
 		7CBCE7294565593C5B5875E4 /* AgentResumeDraftLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC81518335714C8AED7CCB9E /* AgentResumeDraftLifecycleTests.swift */; };
 		7CE41197B205C6CF70AFC9E6 /* WorkspaceRecipeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 771FEDEE47A531015097EFC7 /* WorkspaceRecipeTests.swift */; };
+		7DCC6C26C21465EA78E1E8BA /* FloatContainerViewCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 390063ECFA52328F6C9982F4 /* FloatContainerViewCursorTests.swift */; };
 		7DD2CFCE524E07DC28C237AA /* OpenCodeOverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B5D7C3DB0445971F90C314 /* OpenCodeOverlayLayout.swift */; };
 		7E2999D87093675E3CCC70C1 /* FloatVisibilityCapsuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C14F90A048F0C6E25C82A3 /* FloatVisibilityCapsuleView.swift */; };
 		7E3CA767ECA9A97E751CE068 /* FloatAutoPopHostedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B193647B2DC08E5A44066D /* FloatAutoPopHostedTests.swift */; };
@@ -681,6 +684,7 @@
 		C0D977BB8AC73437601103F0 /* CommandFlattenAggressiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DB8F94BDF5915567FD8FE9 /* CommandFlattenAggressiveness.swift */; };
 		C121741D650BAD1DED2A0CC9 /* PaneAgentReducerState+Muse.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD64D83089F6BEE70F345262 /* PaneAgentReducerState+Muse.swift */; };
 		C15158B09F049B78C214CBD1 /* CodexToolStatusResolver+ShellReturn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE07AB1014F599610545628 /* CodexToolStatusResolver+ShellReturn.swift */; };
+		C15ADA95B02F4E52077B2647 /* FloatResizeCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37CD24C7F0D442E639334CFE /* FloatResizeCursorTests.swift */; };
 		C1E6E40E7FEAE93149414E37 /* PaneStripStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */; };
 		C31068BF39D01A42D646DF04 /* FloatConsumerSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B61C65D9981C56285E4CC8 /* FloatConsumerSurfaceTests.swift */; };
 		C32E363F24F23C57C1320536 /* SessionRestoreStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEEA79E63463D7882B80FE0 /* SessionRestoreStore.swift */; };
@@ -1141,12 +1145,14 @@
 		36884D94E01C92231D935C87 /* CommandPaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
 		36B139BDD98C09FA077C41A6 /* TmuxFormatContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxFormatContext.swift; sourceTree = "<group>"; };
 		375AC0B113C926F9F58086EC /* WorklaneContextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneContextFormatter.swift; sourceTree = "<group>"; };
+		37CD24C7F0D442E639334CFE /* FloatResizeCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatResizeCursorTests.swift; sourceTree = "<group>"; };
 		37E0680A29E838240CF80B0A /* PipStatusStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipStatusStripView.swift; sourceTree = "<group>"; };
 		37EC3597FE9F164BEC68A875 /* FloatLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatLayoutTests.swift; sourceTree = "<group>"; };
 		37F4631D0A8465D807F16977 /* PaneContainerViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneContainerViewTests.swift; sourceTree = "<group>"; };
 		37FEDC5ACCE392A113BBE81E /* BookmarkRestoreBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkRestoreBannerView.swift; sourceTree = "<group>"; };
 		38818AED458478BCB3C95168 /* WorklaneHeaderSummaryBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneHeaderSummaryBuilderTests.swift; sourceTree = "<group>"; };
 		38C15EEBB2B6060FDC3C8A05 /* AgentIPCDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIPCDiscoveryTests.swift; sourceTree = "<group>"; };
+		390063ECFA52328F6C9982F4 /* FloatContainerViewCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatContainerViewCursorTests.swift; sourceTree = "<group>"; };
 		3AC7BE76893171812BF6F374 /* FloatLayerViewMouseOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatLayerViewMouseOcclusionTests.swift; sourceTree = "<group>"; };
 		3AC8E43AD4288580976B1EF4 /* FloatControlProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatControlProtocolTests.swift; sourceTree = "<group>"; };
 		3AD475C34C6516B24829CF6A /* FloatDockHostedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatDockHostedTests.swift; sourceTree = "<group>"; };
@@ -1652,6 +1658,7 @@
 		C9407DEA6B0DE6363B46DE0A /* SidebarPaneRowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPaneRowViews.swift; sourceTree = "<group>"; };
 		C94D4DAD87041D3F7D24F41F /* PaneRestorationBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneRestorationBuilder.swift; sourceTree = "<group>"; };
 		C94E63B3F239632916F0BDE2 /* GhosttyConfigWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigWriter.swift; sourceTree = "<group>"; };
+		C9A1EDF4888047C41A3C772A /* FloatContainerView+Cursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FloatContainerView+Cursor.swift"; sourceTree = "<group>"; };
 		C9F75411847A448AECDBD466 /* ShortcutPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutPreset.swift; sourceTree = "<group>"; };
 		CA234A5208DB54F98E283842 /* FloatSnapSpring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatSnapSpring.swift; sourceTree = "<group>"; };
 		CA3810175E866C6CB11A8C87 /* SidebarMotionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMotionCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -1687,6 +1694,7 @@
 		D1BF48FCF3548F4ABF45950F /* AppUpdateStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateStateStore.swift; sourceTree = "<group>"; };
 		D1DB0F3E90C5CCF115A2E27B /* AgentStatusCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusCommand.swift; sourceTree = "<group>"; };
 		D1FFD1D69CCE5697BFE6636F /* WorklanePeekControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekControllerTests.swift; sourceTree = "<group>"; };
+		D203DC4ACC15D7088E2E2A7B /* FloatResizeCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatResizeCursor.swift; sourceTree = "<group>"; };
 		D24F62AFB71CBBAE4BC9B5A1 /* RootViewCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewCompositionTests.swift; sourceTree = "<group>"; };
 		D25EF5AC625776DA85911237 /* TrackpadPanGestureDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackpadPanGestureDriver.swift; sourceTree = "<group>"; };
 		D28121A25243C98C3BFB947A /* CommandAvailabilityResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandAvailabilityResolverTests.swift; sourceTree = "<group>"; };
@@ -2089,6 +2097,7 @@
 			isa = PBXGroup;
 			children = (
 				1F9E5B2BD74C36092CA5F6B8 /* FloatContainerView.swift */,
+				C9A1EDF4888047C41A3C772A /* FloatContainerView+Cursor.swift */,
 				4FE59C9498D424395EC021F1 /* FloatContainerView+Gestures.swift */,
 				7A2C55F6EE2780799D1DD2CC /* FloatDisplayName.swift */,
 				983E693A4C33CB6DAB148B3A /* FloatDockCoordinator.swift */,
@@ -2110,6 +2119,7 @@
 				9A87A41958AFA93174EDF6FE /* FloatModeTransition.swift */,
 				A1A15A7EA82E86736FC74579 /* FloatMotion.swift */,
 				1B399FB6159D76FB9344E21A /* FloatNeedsInputAnnouncer.swift */,
+				D203DC4ACC15D7088E2E2A7B /* FloatResizeCursor.swift */,
 				CCCED34F5D6B1C543EF62461 /* FloatResizeMath.swift */,
 				9C229BC32F27409BF7425D56 /* FloatScrimView.swift */,
 				CA234A5208DB54F98E283842 /* FloatSnapSpring.swift */,
@@ -2872,6 +2882,7 @@
 				02F82C671DE7FF0200C2DF6E /* FileManagerSymlinkWriteTests.swift */,
 				0A4ABE33B377648EF45E7FF4 /* FloatCascadeTests.swift */,
 				D8B61C65D9981C56285E4CC8 /* FloatConsumerSurfaceTests.swift */,
+				390063ECFA52328F6C9982F4 /* FloatContainerViewCursorTests.swift */,
 				7B5BE380B4C8979B5594B93D /* FloatContainerViewTests.swift */,
 				3AC8E43AD4288580976B1EF4 /* FloatControlProtocolTests.swift */,
 				09D5BD5D05F43E217B794FB1 /* FloatDisplayNameTests.swift */,
@@ -2895,6 +2906,7 @@
 				47245A7B1B0BEF7102A320F7 /* FloatNameInferrerTests.swift */,
 				8B616CA7DA6B0FDC26BF8D4D /* FloatNeedsInputAnnouncerTests.swift */,
 				71331A45944AD7277DF00C11 /* FloatOnlyWorklaneFixture.swift */,
+				37CD24C7F0D442E639334CFE /* FloatResizeCursorTests.swift */,
 				00BE7F5B8B9377313F695EAE /* FloatResizeMathTests.swift */,
 				84A09397BC8AF6F5B7DE19CD /* FloatScrimViewTests.swift */,
 				FA71BB061A1B2F7C463B0A48 /* FloatSnapSpringTests.swift */,
@@ -3443,6 +3455,7 @@
 				05EECCAB1101344FE5F62D63 /* FileManagerSymlinkWriteTests.swift in Sources */,
 				90C73B2812EF6429E23EF6FF /* FloatCascadeTests.swift in Sources */,
 				C31068BF39D01A42D646DF04 /* FloatConsumerSurfaceTests.swift in Sources */,
+				7DCC6C26C21465EA78E1E8BA /* FloatContainerViewCursorTests.swift in Sources */,
 				D7FE745F01C0D954F39E3272 /* FloatContainerViewTests.swift in Sources */,
 				12F98B26DBB72E31D3FF250F /* FloatControlProtocolTests.swift in Sources */,
 				9CCE7DF2531BA3BDC37B85EA /* FloatDisplayNameTests.swift in Sources */,
@@ -3465,6 +3478,7 @@
 				018888C55B9D2B5D978AA7C9 /* FloatNameInferrerTests.swift in Sources */,
 				FE90905433F405621EDF9A01 /* FloatNeedsInputAnnouncerTests.swift in Sources */,
 				5D91FF48F2794A54DF5B13B5 /* FloatOnlyWorklaneFixture.swift in Sources */,
+				C15ADA95B02F4E52077B2647 /* FloatResizeCursorTests.swift in Sources */,
 				42D0EF23D8A0FD6E2B074B1A /* FloatResizeMathTests.swift in Sources */,
 				2F87BDDA757552525DDFBFEC /* FloatScrimViewTests.swift in Sources */,
 				3EF358CE1EC66AEF6EABC981 /* FloatSnapSpringTests.swift in Sources */,
@@ -3833,6 +3847,7 @@
 				260AB2147508C0997EDC89BC /* FallbackTitleHeuristicReducer.swift in Sources */,
 				CDA589887C4F0F21EEE4A1DF /* FileManager+SymlinkWrite.swift in Sources */,
 				1B09BB8607C4D3B0775B3B6F /* FlippedSidebarDocumentView.swift in Sources */,
+				0D1CED361652E3FE3FE31166 /* FloatContainerView+Cursor.swift in Sources */,
 				6140634B30E29BF65C3E34E8 /* FloatContainerView+Gestures.swift in Sources */,
 				D530995E435EEA21012DDCC1 /* FloatContainerView.swift in Sources */,
 				5C60492EF0FE66B9FA2EEADE /* FloatControlProtocol.swift in Sources */,
@@ -3861,6 +3876,7 @@
 				2F379A212C1CE965064ECB08 /* FloatMotion.swift in Sources */,
 				D9A1A3C088104C66542D80F2 /* FloatNameInferrer.swift in Sources */,
 				F4DFD1AE544C57C74A7C2A24 /* FloatNeedsInputAnnouncer.swift in Sources */,
+				4D32D18BEDE537AFCF39FCED /* FloatResizeCursor.swift in Sources */,
 				0FD7E30D7F786CD73B69EF1B /* FloatResizeMath.swift in Sources */,
 				52CF48B57A931C1570CC3F71 /* FloatScrimView.swift in Sources */,
 				C59D585D1BEEBC5EC77CD7D4 /* FloatSnapSpring.swift in Sources */,

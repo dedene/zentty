@@ -402,6 +402,7 @@ final class AppCanvasView: NSView {
         floatLayerView.onOccludingFramesChanged = { [weak paneStripView, weak floatLayerView] in
             guard let paneStripView, let floatLayerView else { return }
             paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
+            paneStripView.setFloatCursorExclusionRects(floatLayerView.cursorOwningFrames(in: paneStripView))
         }
         floatLayerView.dockColumnsProvider = { [weak paneStripView, weak floatLayerView] in
             guard let paneStripView, let floatLayerView else { return [] }
@@ -531,6 +532,7 @@ final class AppCanvasView: NSView {
             )
             finishFloatTransitions(floatTransitions, from: floatTransitionStart)
             paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
+            paneStripView.setFloatCursorExclusionRects(floatLayerView.cursorOwningFrames(in: paneStripView))
         }
         if let leadingVisibleInset,
            abs(paneStripView.leadingVisibleInset - leadingVisibleInset) > 0.001 {

@@ -218,11 +218,16 @@ final class FloatInteractionHostedTests: XCTestCase {
         let startFrame = try paneFrame(in: controller)
         let start = layer.convert(CGPoint(x: startFrame.maxX, y: startFrame.minY), to: nil)
 
+        let host = try XCTUnwrap(layer.floatHostForTesting(floatID))
         try sendDown(at: start, in: controller)
+        XCTAssertEqual(host.resizeCursorHoldForTesting?.handle, .bottomRight, "the corner's cursor, pinned")
+        XCTAssertFalse(controller.window.areCursorRectsEnabled)
         try send(.leftMouseDragged, at: start.offsetBy(dx: 20, dy: -10), in: controller)
         try send(.leftMouseDragged, at: start.offsetBy(dx: 40, dy: -30), in: controller)
         try send(.leftMouseUp, at: start.offsetBy(dx: 40, dy: -30), in: controller)
         waitForLayout("resized")
+        XCTAssertNil(host.resizeCursorHoldForTesting)
+        XCTAssertTrue(controller.window.areCursorRectsEnabled, "cursor rects are back after the press")
 
         let frame = try storedFrame(in: controller)
         XCTAssertEqual(frame.minX, startFrame.minX, accuracy: 1)
