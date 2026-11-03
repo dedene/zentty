@@ -897,15 +897,28 @@ final class PaneStripView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-
-        for paneView in paneViews.values {
-            guard let frameInPane = paneView.interactiveBorderContextFrameInSelf else {
-                continue
-            }
-
-            let frameInSelf = convert(frameInPane, from: paneView)
-            addCursorRect(frameInSelf, cursor: .pointingHand)
+        for rect in borderContextCursorRects {
+            addCursorRect(rect, cursor: .pointingHand)
         }
+    }
+
+    /// The legend links' pointing-hand rects, minus where floats own the
+    /// cursor.
+    private var borderContextCursorRects: [CGRect] {
+        paneViews.values.flatMap { paneView -> [CGRect] in
+            guard let frameInPane = paneView.interactiveBorderContextFrameInSelf else { return [] }
+            let frameInSelf = convert(frameInPane, from: paneView)
+            return FloatResizeCursorZones.subtract(floatCursorExclusionRects, from: frameInSelf)
+                .filter { !$0.isEmpty }
+        }
+    }
+
+    var borderContextCursorRectsForTesting: [CGRect] {
+        borderContextCursorRects
+    }
+
+    func dragZoneViewForTesting(_ paneID: PaneID) -> PaneDragZoneView? {
+        dragZoneViews[paneID]
     }
 
     func paneContainerViewForTesting(_ paneID: PaneID) -> PaneContainerView? {
@@ -1611,6 +1624,7 @@ final class PaneStripView: NSView {
             dragZone.contextMenuProvider = { [weak paneView] in
                 paneView?.makeDragZoneContextMenu()
             }
+            dragZone.floatCursorExclusion = floatCursorExclusion(for: dragZone)
             dragZone.isHidden = paneView.isSearchHUDVisible
             paneView.onSearchHUDVisibilityDidChange = { [weak dragZone] isVisible in
                 dragZone?.isHidden = isVisible
@@ -1642,6 +1656,25 @@ final class PaneStripView: NSView {
         floatCursorExclusionRects = rectsInSelf
         for paneView in paneViews.values {
             paneView.setFloatCursorExclusionRects(floatRects(floatCursorExclusionRects, forPaneFrame: paneView.frame))
+        }
+        // The legend links, drag bars and dividers read the rects on demand
+        // (`floatCursorExclusion(for:)`); their cursor rects need a reset.
+        guard let window else { return }
+        window.invalidateCursorRects(for: self)
+        for dragZone in dragZoneViews.values {
+            window.invalidateCursorRects(for: dragZone)
+        }
+        for dividerView in dividerViews.values {
+            window.invalidateCursorRects(for: dividerView)
+        }
+    }
+
+    /// The float cursor-exclusion rects in `view`'s coordinates, read when
+    /// it builds its cursor rects or is about to set its cursor.
+    private func floatCursorExclusion(for view: NSView) -> FloatCursorExclusion {
+        FloatCursorExclusion { [weak self, weak view] in
+            guard let self, let view else { return [] }
+            return self.floatCursorExclusionRects.map { view.convert($0, from: self) }
         }
     }
 
@@ -1954,6 +1987,7 @@ final class PaneStripView: NSView {
                     }
                     self.handleDividerHover(divider, isHovered: isHovered)
                 }
+                createdDividerView.floatCursorExclusion = floatCursorExclusion(for: createdDividerView)
                 dividerViews[dividerPresentation.divider] = createdDividerView
                 viewportView.addSubview(createdDividerView)
                 dividerView = createdDividerView
@@ -3015,6 +3049,24 @@ final class PaneStripView: NSView {
         dividerViews[divider]?.cursorDescriptionForTesting
     }
 
+    func dividerCursorRectsForTesting(_ divider: PaneDivider) -> [CGRect]? {
+        dividerViews[divider].map { dividerView in
+            dividerView.cursorRectsForTesting.map { convert($0, from: dividerView) }
+        }
+    }
+
+    func dividerFrameForTesting(_ divider: PaneDivider) -> CGRect? {
+        dividerViews[divider].map { convert($0.bounds, from: $0) }
+    }
+
+    func dividerCursorClaimCountForTesting(_ divider: PaneDivider) -> Int? {
+        dividerViews[divider]?.cursorClaimCountForTesting
+    }
+
+    func simulateDividerCursorUpdateForTesting(_ divider: PaneDivider, with event: NSEvent) {
+        dividerViews[divider]?.cursorUpdate(with: event)
+    }
+
     func dividerHighlightStateForTesting(_ divider: PaneDivider) -> (highlighted: Bool, active: Bool)? {
         guard dividerViews[divider] != nil else {
             return nil
@@ -3367,6 +3419,8 @@ private final class PaneDividerHandleView: NSView {
     var onPan: ((NSPanGestureRecognizer) -> Void)?
     var onDoubleClick: (() -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
+    /// Where a float's outset covers the handle: its resize cursor stays out.
+    var floatCursorExclusion = FloatCursorExclusion()
 
     private let highlightLayer = CALayer()
     private var trackingAreaValue: NSTrackingArea?
@@ -3411,7 +3465,7 @@ private final class PaneDividerHandleView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        resolvedCursor.set()
+        claimCursor(atWindowPoint: event.locationInWindow)
         onHoverChanged?(true)
     }
 
@@ -3431,10 +3485,25 @@ private final class PaneDividerHandleView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: resolvedCursor)
+        for rect in cursorRects {
+            addCursorRect(rect, cursor: resolvedCursor)
+        }
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        claimCursor(atWindowPoint: event.locationInWindow)
+    }
+
+    private var cursorRects: [CGRect] {
+        floatCursorExclusion.cursorRects(covering: bounds)
+    }
+
+    /// Sets the resize cursor directly, unless a float owns the pointer.
+    private func claimCursor(atWindowPoint windowPoint: CGPoint) {
+        guard !floatCursorExclusion.excludes(windowPoint: windowPoint, in: self) else { return }
+        #if DEBUG
+            cursorClaimCountForTesting += 1
+        #endif
         resolvedCursor.set()
     }
 
@@ -3494,13 +3563,19 @@ private final class PaneDividerHandleView: NSView {
             return
         }
 
-        let locationInSelf = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        if bounds.contains(locationInSelf) {
-            resolvedCursor.set()
+        let pointer = window.mouseLocationOutsideOfEventStream
+        if bounds.contains(convert(pointer, from: nil)) {
+            claimCursor(atWindowPoint: pointer)
         }
     }
 
     #if DEBUG
+    private(set) var cursorClaimCountForTesting = 0
+
+    var cursorRectsForTesting: [CGRect] {
+        cursorRects
+    }
+
     var cursorDescriptionForTesting: String {
         axis == .horizontal ? "resizeLeftRight" : "resizeUpDown"
     }

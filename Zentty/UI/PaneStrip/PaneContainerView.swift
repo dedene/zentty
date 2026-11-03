@@ -577,6 +577,10 @@ final class PaneContainerView: NSView {
         borderContextView.translatesAutoresizingMaskIntoConstraints = true
         borderContextView.autoresizingMask = []
         borderContextView.isHidden = true
+        borderContextView.floatCursorExclusion = FloatCursorExclusion { [weak self] in
+            guard let self else { return [] }
+            return self.floatCursorExclusionRects.map { self.borderContextView.convert($0, from: self) }
+        }
         addSubview(borderContextView)
         borderActionsView.translatesAutoresizingMaskIntoConstraints = true
         borderActionsView.autoresizingMask = []
@@ -1315,6 +1319,10 @@ final class PaneContainerView: NSView {
         return borderContextView.truncationModeForTesting
     }
 
+    var borderContextCursorRectsForTesting: [CGRect] {
+        borderContextView.cursorRectsForTesting.map { convert($0, from: borderContextView) }
+    }
+
     var interactiveBorderContextFrameInSelf: CGRect? {
         guard !borderContextView.isHidden, borderContextView.onClick != nil else { return nil }
         return borderContextView.frame
@@ -2004,6 +2012,8 @@ final class PaneContainerView: NSView {
         guard floatCursorExclusionRects != rects else { return }
         floatCursorExclusionRects = rects
         updateSearchHUDMouseSuppression()
+        // The legend link leaves them out of its pointing-hand rect too.
+        window?.invalidateCursorRects(for: borderContextView)
     }
 
     func setLeadingMouseInteractionOcclusionWidth(_ width: CGFloat) {

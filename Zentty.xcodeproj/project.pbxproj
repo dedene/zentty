@@ -314,6 +314,7 @@
 		5409FF284008886CB8F87B1F /* GeneralSettingsRestoreScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259F6CA9592F972CEF74C72C /* GeneralSettingsRestoreScrollbackTests.swift */; };
 		542ED51FD16476C6BB46F285 /* ProgramStatusReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D6C82013D77D024CA440F2 /* ProgramStatusReducer.swift */; };
 		54429983035325D5F12099E2 /* SidebarWorklaneRowButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6036CEA3DA007CEA2955C180 /* SidebarWorklaneRowButton.swift */; };
+		545786DEBA0B40497AB82B4B /* FloatCursorExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4DA9A417C3E219C968CFE0 /* FloatCursorExclusion.swift */; };
 		5472AFE4A211F64A9357946B /* PaneControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EC71944FE7019D5E00E5AD8 /* PaneControlProtocol.swift */; };
 		54F653512AF268ACDA953D1C /* PaneAgentTaskItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610F72178BDBE4CFF98801C7 /* PaneAgentTaskItems.swift */; };
 		55C1CC506BD2F0613AD94835 /* AgentStatusSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003771A9512A8005B0DCF7DE /* AgentStatusSupportTests.swift */; };
@@ -871,6 +872,7 @@
 		F12EB9E3A329F13DDB765ADC /* NotificationChromeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B5C0E6A8057294C72424F6 /* NotificationChromeCoordinator.swift */; };
 		F1434301FC6C4A3BD531986E /* AgentForkCommandSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C536E08483BD362CED09FD /* AgentForkCommandSurfaceTests.swift */; };
 		F14EFDAEBEC035E87EDA68BE /* WorklaneStore+AutoPop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C3EC15DED09923C34E99647 /* WorklaneStore+AutoPop.swift */; };
+		F150D62166283CBE0E453183 /* PaneStripChromeFloatCursorExclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62C7DD1B1176FAEF89BAA649 /* PaneStripChromeFloatCursorExclusionTests.swift */; };
 		F17C5EDE0329D1956313C3AA /* SidebarBookmarksButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB93DE6432DD894D0CA2C72 /* SidebarBookmarksButton.swift */; };
 		F1A423CE593B1A50B31AC4BD /* LibghosttyViewMiddleClickTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FB9D05A6887CB439CE0E066 /* LibghosttyViewMiddleClickTests.swift */; };
 		F1E79CD825C39C592E844B63 /* PaneRuntimeRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76857E75C1FF0BD95C889941 /* PaneRuntimeRegistryTests.swift */; };
@@ -1315,6 +1317,7 @@
 		610F72178BDBE4CFF98801C7 /* PaneAgentTaskItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneAgentTaskItems.swift; sourceTree = "<group>"; };
 		61A8FD7688E72C2B2A8099EE /* PaneCommandExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneCommandExecutorTests.swift; sourceTree = "<group>"; };
 		61F7BA09CEEB123D53CB10C4 /* ServerRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerRegistry.swift; sourceTree = "<group>"; };
+		62C7DD1B1176FAEF89BAA649 /* PaneStripChromeFloatCursorExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripChromeFloatCursorExclusionTests.swift; sourceTree = "<group>"; };
 		62DFA87180028DF1155F1F7A /* OpenCodeGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeGenerationTests.swift; sourceTree = "<group>"; };
 		630B5B3D8685C9D8A186AC9B /* WorklaneStoreServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreServerTests.swift; sourceTree = "<group>"; };
 		63590216920018B71F1ACB7A /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
@@ -1670,6 +1673,7 @@
 		CA5FF4A62DCF952CE2C4614C /* ShellIntegrationSSHCacheAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationSSHCacheAssertions.swift; sourceTree = "<group>"; };
 		CAC113A53E86E67BCA330D9A /* PaneDragEdgeScrollDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDragEdgeScrollDriver.swift; sourceTree = "<group>"; };
 		CAFFD5CA764A873EAE678EA3 /* FloatGeometryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatGeometryStoreTests.swift; sourceTree = "<group>"; };
+		CB4DA9A417C3E219C968CFE0 /* FloatCursorExclusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatCursorExclusion.swift; sourceTree = "<group>"; };
 		CB5382921BB166EEA584F3E6 /* ProcessSignaling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSignaling.swift; sourceTree = "<group>"; };
 		CB8E940C5BA5732292398845 /* FallbackTitleHeuristicReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FallbackTitleHeuristicReducer.swift; sourceTree = "<group>"; };
 		CBF4079FD49C87B216061EB3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -2548,6 +2552,7 @@
 		C2E4B49720CCE21570420D3B /* PaneStrip */ = {
 			isa = PBXGroup;
 			children = (
+				CB4DA9A417C3E219C968CFE0 /* FloatCursorExclusion.swift */,
 				0B77CE7C6471C7FFD211BFDF /* MoveToWorklaneMenuBuilder.swift */,
 				7F299D46F21F8BC295D1F0B3 /* PaneContainerView.swift */,
 				EB3CF0787F91406CE385FEB3 /* PaneDragCoordinator.swift */,
@@ -3003,6 +3008,7 @@
 				76857E75C1FF0BD95C889941 /* PaneRuntimeRegistryTests.swift */,
 				4942E91A4F9D34EB0C281FA9 /* PaneSSHProcessProbeTests.swift */,
 				D3021D05279771E2CE572A2F /* PaneStripAccessAllowlistTests.swift */,
+				62C7DD1B1176FAEF89BAA649 /* PaneStripChromeFloatCursorExclusionTests.swift */,
 				CDD7AA3458BBF1FAEFFC158A /* PaneStripMotionControllerTests.swift */,
 				E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */,
 				CFB4690A6E06FB3FC4C1909E /* PaneStripStoreTests.swift */,
@@ -3575,6 +3581,7 @@
 				F1E79CD825C39C592E844B63 /* PaneRuntimeRegistryTests.swift in Sources */,
 				D7D69913E6869588E74D6C25 /* PaneSSHProcessProbeTests.swift in Sources */,
 				7EE7E2D5DDE77010C4DBD095 /* PaneStripAccessAllowlistTests.swift in Sources */,
+				F150D62166283CBE0E453183 /* PaneStripChromeFloatCursorExclusionTests.swift in Sources */,
 				74A2DE5A0880B028476E3D8D /* PaneStripMotionControllerTests.swift in Sources */,
 				C1E6E40E7FEAE93149414E37 /* PaneStripStateTests.swift in Sources */,
 				F75C8D5EDC0772F56DE54C52 /* PaneStripStoreTests.swift in Sources */,
@@ -3861,6 +3868,7 @@
 				6140634B30E29BF65C3E34E8 /* FloatContainerView+Gestures.swift in Sources */,
 				D530995E435EEA21012DDCC1 /* FloatContainerView.swift in Sources */,
 				5C60492EF0FE66B9FA2EEADE /* FloatControlProtocol.swift in Sources */,
+				545786DEBA0B40497AB82B4B /* FloatCursorExclusion.swift in Sources */,
 				CCAB4C7721D68AF4F9D04479 /* FloatDisplayName.swift in Sources */,
 				1D387612FB75592E284C2B5F /* FloatDockCoordinator.swift in Sources */,
 				D8AEC7602E84E4854CE9EBF3 /* FloatDockLabelView.swift in Sources */,

@@ -35,6 +35,8 @@ final class PaneBorderContextInsetView: NSView {
             updateCopyAffordanceState()
         }
     }
+    /// Where a float's outset covers the link: its pointing hand stays out.
+    var floatCursorExclusion = FloatCursorExclusion()
 
     private let textContentLayer = CALayer()
     private let leftBorderLineLayer = CALayer()
@@ -74,8 +76,18 @@ final class PaneBorderContextInsetView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard onClick != nil else { return }
-        addCursorRect(bounds, cursor: .pointingHand)
+        for rect in cursorRects {
+            addCursorRect(rect, cursor: .pointingHand)
+        }
+    }
+
+    private var cursorRects: [CGRect] {
+        guard onClick != nil else { return [] }
+        return floatCursorExclusion.cursorRects(covering: bounds)
+    }
+
+    var cursorRectsForTesting: [CGRect] {
+        cursorRects
     }
 
     override var isFlipped: Bool {
