@@ -87,6 +87,7 @@
 		147AD5C88EB02C00517B2AB5 /* OpenCodeGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3EB312272B1560710B4C35 /* OpenCodeGeneration.swift */; };
 		14A475BE89CAF59FEE26F706 /* FloatLayerCenteringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8403D0FF7E840ED314344D8B /* FloatLayerCenteringTests.swift */; };
 		14D00EA39B1EAE388A237025 /* TerminalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C8698CDC6B6D23FD3F2310 /* TerminalDiagnostics.swift */; };
+		14EE7B33E5A5740E52EFAA8B /* AppCanvasView+FloatTransitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28C570DB1BD2B9C02374EF84 /* AppCanvasView+FloatTransitions.swift */; };
 		1508EF2F9EBF1FC86196587D /* TerminalOpenURLPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3517102F57CE08E19C37DC84 /* TerminalOpenURLPolicy.swift */; };
 		15B1CD25199B045107EB9EAA /* AboutMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9964E75CAB137C49B15001 /* AboutMetadataTests.swift */; };
 		166BEE11322EC8809FACB201 /* AppCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4740E3F7FBB64DB5815643 /* AppCanvasView.swift */; };
@@ -324,6 +325,7 @@
 		5879663760748654C74B3759 /* SidebarViewDebugging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 559F037FFC52BB9F8C9AE5EB /* SidebarViewDebugging.swift */; };
 		59082A59F09FC3C1D67F30E1 /* HermesHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F5891F160455B55F41BB5F /* HermesHooksInstaller.swift */; };
 		5938E08D9E91EC7AEA7118C2 /* PaneProgramStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4D29664DFDE1D958EC02F6 /* PaneProgramStatus.swift */; };
+		59399561A17D3430B6795455 /* FloatModeTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A87A41958AFA93174EDF6FE /* FloatModeTransition.swift */; };
 		59604246555BCD7D58AE5FF9 /* SessionScrollbackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B01BA25E5E4C13458D22302 /* SessionScrollbackCoordinator.swift */; };
 		59D8562415BA0E40C383D6FD /* TmuxCompatArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF1C35E3E3441C4C57051CA /* TmuxCompatArguments.swift */; };
 		5A1F75007ABB9664D50969C1 /* ShellIntegrationSSHTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163F06DC9273E50EEE26E869 /* ShellIntegrationSSHTestSupport.swift */; };
@@ -691,6 +693,7 @@
 		C57DE7B45F0BEFFDC8EC7371 /* MenuBarStatusPillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6996377692DF2C92D7428A5 /* MenuBarStatusPillView.swift */; };
 		C5873608D623BCF0F56FADD2 /* HermesEventAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9BDBFAF4FD6C6BA172731D /* HermesEventAdapter.swift */; };
 		C59D585D1BEEBC5EC77CD7D4 /* FloatSnapSpring.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA234A5208DB54F98E283842 /* FloatSnapSpring.swift */; };
+		C5D6D0104013B32C69C3CDB1 /* FloatModeTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEBD4A790DF63D69A2663C9D /* FloatModeTransitionTests.swift */; };
 		C5DBEC37F75E581AE7697388 /* TmuxTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5146C8F4E94C9453A52B4BF2 /* TmuxTargetResolverTests.swift */; };
 		C6172682FC0925AEB869BAE8 /* SettingsDetailContainerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E1D70DC92F5918033D26D /* SettingsDetailContainerViewController.swift */; };
 		C6DC3C8DBF31DE43DBE58445 /* PaneCopyTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5AF078000EB0DB28D1C23F5 /* PaneCopyTargetResolverTests.swift */; };
@@ -702,6 +705,7 @@
 		C8AC887AB1E462D59D6619FF /* AgyHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEBD7620888C77CB6FE423 /* AgyHooksInstaller.swift */; };
 		C9042A63C4AF443C0A4C8A55 /* NotificationPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6480DAD70FC01A0FD0A8908 /* NotificationPopoverView.swift */; };
 		C989D4E5646E700C8802CBD9 /* PassiveServerDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7109E246F70CEBB6CD34E13F /* PassiveServerDetection.swift */; };
+		C990D2201A8665192F5E682F /* FloatLayerView+Transitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE1AFD23E348EC5787FC09F5 /* FloatLayerView+Transitions.swift */; };
 		C9ACF6200671CC901D3D0C6C /* CaretTooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDC8BA5388C2EC99E6DA4E4D /* CaretTooltip.swift */; };
 		C9B81248B5AA76BE4CD7129F /* ServerRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F7BA09CEEB123D53CB10C4 /* ServerRegistry.swift */; };
 		C9BCF024E2100C86C60ED966 /* WorkspaceRecipeColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79741EFBC870D776F45B8E7 /* WorkspaceRecipeColorTests.swift */; };
@@ -797,6 +801,7 @@
 		E0D0A39516DBC6367F61E913 /* MenuBarStatusKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E6AFBC242DD01217E89E74 /* MenuBarStatusKind.swift */; };
 		E101B246A7ECE252EE8CAD68 /* TmuxCompatIPCHandler+Panes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 807177ECA882B4E66F4B55EE /* TmuxCompatIPCHandler+Panes.swift */; };
 		E1386EB98808607C67C5A1DF /* WorklaneStoreColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */; };
+		E142F5CF868B971AE57AD1C0 /* FloatTransitionsHostedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75EDD408A21B4346C304B53 /* FloatTransitionsHostedTests.swift */; };
 		E15F7DE7AA81FFEA635869F5 /* WorklaneStoreFloatTmuxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29EB0CBDFD84563A0674D05E /* WorklaneStoreFloatTmuxTests.swift */; };
 		E1A94D74E0101FEB0BB2C79C /* PaneDragHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F876089DABC0460791806F3E /* PaneDragHitTesting.swift */; };
 		E20A9D6B71641BA2F1116451 /* WorklaneStateFloatAccessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC40D190F80D6085837CC8B4 /* WorklaneStateFloatAccessorTests.swift */; };
@@ -1081,6 +1086,7 @@
 		286DA9FA00CEA043F8DF3FE2 /* FloatLayerLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatLayerLayout.swift; sourceTree = "<group>"; };
 		288F2452125BCCDB961229C9 /* AppConfigAgentIntegrationsTOMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigAgentIntegrationsTOMLTests.swift; sourceTree = "<group>"; };
 		28B65FF8B847E8E743D485D4 /* GlassSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassSurfaceView.swift; sourceTree = "<group>"; };
+		28C570DB1BD2B9C02374EF84 /* AppCanvasView+FloatTransitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppCanvasView+FloatTransitions.swift"; sourceTree = "<group>"; };
 		28C607C2245D4E3FF7466E2B /* TmuxCompatIPCHandler+Query.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TmuxCompatIPCHandler+Query.swift"; sourceTree = "<group>"; };
 		28E15DDC0970C4214A4C9E5E /* PaneStripView+Transitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaneStripView+Transitions.swift"; sourceTree = "<group>"; };
 		290AC219C812A96036CA9061 /* AgentInteractionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInteractionClassifier.swift; sourceTree = "<group>"; };
@@ -1478,6 +1484,7 @@
 		994F524FDC5F10D6A7A96354 /* AboutMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutMetadata.swift; sourceTree = "<group>"; };
 		9A115E7091E147C322B6D35D /* TmuxTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxTopology.swift; sourceTree = "<group>"; };
 		9A877F28C926381BDC394539 /* OnePasswordPromptDarwinProcessProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePasswordPromptDarwinProcessProvider.swift; sourceTree = "<group>"; };
+		9A87A41958AFA93174EDF6FE /* FloatModeTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatModeTransition.swift; sourceTree = "<group>"; };
 		9B314CBC82EBD530AEDF0330 /* ClaudeApprovalResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeApprovalResumeTests.swift; sourceTree = "<group>"; };
 		9B4AE87CC3F4EB591D08B9A7 /* WorkspaceTemplateExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTemplateExporterTests.swift; sourceTree = "<group>"; };
 		9B7F7BF9DF753AEB2FC16031 /* OnePasswordPromptAttributor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePasswordPromptAttributor.swift; sourceTree = "<group>"; };
@@ -1570,6 +1577,7 @@
 		B65C78F4319054821F694BC9 /* ServerRelevanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerRelevanceTests.swift; sourceTree = "<group>"; };
 		B69983960CBA87599B87355C /* SidebarDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarDragCoordinator.swift; sourceTree = "<group>"; };
 		B7137F467A63630BC5D08A61 /* PaneSplitBehaviorOptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneSplitBehaviorOptionView.swift; sourceTree = "<group>"; };
+		B75EDD408A21B4346C304B53 /* FloatTransitionsHostedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatTransitionsHostedTests.swift; sourceTree = "<group>"; };
 		B79270EE2E7570926C4F2F85 /* WorkspaceRecipeFloatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecipeFloatTests.swift; sourceTree = "<group>"; };
 		B79741EFBC870D776F45B8E7 /* WorkspaceRecipeColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecipeColorTests.swift; sourceTree = "<group>"; };
 		B79972CCAB3361277D4E949C /* AgentStatusPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusPayload.swift; sourceTree = "<group>"; };
@@ -1809,8 +1817,10 @@
 		FD6F1935CE1012DD80C4954D /* MenuBarStatusPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusPresentationTests.swift; sourceTree = "<group>"; };
 		FDC8BA5388C2EC99E6DA4E4D /* CaretTooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaretTooltip.swift; sourceTree = "<group>"; };
 		FE03606CCDB80BACDE1EB39E /* URLQueryParamRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLQueryParamRules.swift; sourceTree = "<group>"; };
+		FE1AFD23E348EC5787FC09F5 /* FloatLayerView+Transitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FloatLayerView+Transitions.swift"; sourceTree = "<group>"; };
 		FE294CA433038226D3CD75B8 /* WorklaneStoreFloatStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreFloatStatusTests.swift; sourceTree = "<group>"; };
 		FE8E85EADB93A2FE0E71BEA6 /* TerminalPaneHostViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneHostViewTests.swift; sourceTree = "<group>"; };
+		FEBD4A790DF63D69A2663C9D /* FloatModeTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatModeTransitionTests.swift; sourceTree = "<group>"; };
 		FEDBA0948EBAE3E172B02AA7 /* FloatFrameRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatFrameRegion.swift; sourceTree = "<group>"; };
 		FEFFC2CAEA605772B62E73E5 /* PaneStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneStripView.swift; sourceTree = "<group>"; };
 		FF3E291B743D66D2A5474B10 /* PaneSSHDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneSSHDestinationResolver.swift; sourceTree = "<group>"; };
@@ -2084,6 +2094,8 @@
 				3532CE15AF8F9D0AC52E644D /* FloatLayerView+Interaction.swift */,
 				905DC01F85CDDE219EE067DE /* FloatLayerView+Pip.swift */,
 				3C72A443AE368DADF04D7670 /* FloatLayerView+PipGestures.swift */,
+				FE1AFD23E348EC5787FC09F5 /* FloatLayerView+Transitions.swift */,
+				9A87A41958AFA93174EDF6FE /* FloatModeTransition.swift */,
 				A1A15A7EA82E86736FC74579 /* FloatMotion.swift */,
 				1B399FB6159D76FB9344E21A /* FloatNeedsInputAnnouncer.swift */,
 				CCCED34F5D6B1C543EF62461 /* FloatResizeMath.swift */,
@@ -2108,6 +2120,7 @@
 			isa = PBXGroup;
 			children = (
 				4C4740E3F7FBB64DB5815643 /* AppCanvasView.swift */,
+				28C570DB1BD2B9C02374EF84 /* AppCanvasView+FloatTransitions.swift */,
 				55E0EF447A949F4090DF51E1 /* PaneBorderActionsView.swift */,
 			);
 			path = Canvas;
@@ -2428,6 +2441,7 @@
 				D75483427CD6DD980092D250 /* FloatInteractionHostedTests.swift */,
 				91D1D17FE2E26F8E9F3B6E42 /* FloatLifecycleHostedTests.swift */,
 				170B5801294EABBEC71F0FEE /* FloatScrimHostedTests.swift */,
+				B75EDD408A21B4346C304B53 /* FloatTransitionsHostedTests.swift */,
 				810F6A39773D41286D4D344F /* FuzzyMatcherTests.swift */,
 				568EC662ADC85D8B023A5ABF /* HostedTestDisplay.swift */,
 				B910DF7E780597C84A68B0A3 /* HostedTestDisplayTests.swift */,
@@ -2862,6 +2876,7 @@
 				D996811DDAB504E699BF9530 /* FloatLayerViewPipGestureTests.swift */,
 				215143312A3A21D11E675DB9 /* FloatLayerViewPipTests.swift */,
 				37EC3597FE9F164BEC68A875 /* FloatLayoutTests.swift */,
+				FEBD4A790DF63D69A2663C9D /* FloatModeTransitionTests.swift */,
 				109CA8868F1AF3CE2335AB80 /* FloatMotionTests.swift */,
 				47245A7B1B0BEF7102A320F7 /* FloatNameInferrerTests.swift */,
 				8B616CA7DA6B0FDC26BF8D4D /* FloatNeedsInputAnnouncerTests.swift */,
@@ -3429,6 +3444,7 @@
 				CB48A66F98F0978D69711910 /* FloatLayerViewPipGestureTests.swift in Sources */,
 				86D1B545DEB6C47911C43FEC /* FloatLayerViewPipTests.swift in Sources */,
 				1D5FCF0F49284F6D1E456ADA /* FloatLayoutTests.swift in Sources */,
+				C5D6D0104013B32C69C3CDB1 /* FloatModeTransitionTests.swift in Sources */,
 				3FC1794692F95BACF4B6AD8B /* FloatMotionTests.swift in Sources */,
 				018888C55B9D2B5D978AA7C9 /* FloatNameInferrerTests.swift in Sources */,
 				FE90905433F405621EDF9A01 /* FloatNeedsInputAnnouncerTests.swift in Sources */,
@@ -3718,6 +3734,7 @@
 				BD7EA4AEE8EB280F5A855B2C /* AmpPluginInstaller.swift in Sources */,
 				2C6C6FCC081720E010745882 /* AmpResumeArgumentSanitizer.swift in Sources */,
 				BA2E11FD5E7F4E71D7BF48D9 /* AppActionRouter.swift in Sources */,
+				14EE7B33E5A5740E52EFAA8B /* AppCanvasView+FloatTransitions.swift in Sources */,
 				166BEE11322EC8809FACB201 /* AppCanvasView.swift in Sources */,
 				D59DA89E6E0CE0E9766052F0 /* AppConfig.swift in Sources */,
 				8CD71AAD6A41F72F14EC9F52 /* AppConfigPreservedTOML.swift in Sources */,
@@ -3819,8 +3836,10 @@
 				3006E5B446013A7073D2340A /* FloatLayerView+Interaction.swift in Sources */,
 				8CAA9247DCCCA42EE3EF4E39 /* FloatLayerView+Pip.swift in Sources */,
 				242C6A2F4FE6A22EAEF0DC81 /* FloatLayerView+PipGestures.swift in Sources */,
+				C990D2201A8665192F5E682F /* FloatLayerView+Transitions.swift in Sources */,
 				1A8849520E4EFFD1AABAB39C /* FloatLayerView.swift in Sources */,
 				A858E8AA67C1B96DA24304EF /* FloatLayout.swift in Sources */,
+				59399561A17D3430B6795455 /* FloatModeTransition.swift in Sources */,
 				2F379A212C1CE965064ECB08 /* FloatMotion.swift in Sources */,
 				D9A1A3C088104C66542D80F2 /* FloatNameInferrer.swift in Sources */,
 				F4DFD1AE544C57C74A7C2A24 /* FloatNeedsInputAnnouncer.swift in Sources */,
@@ -4203,6 +4222,7 @@
 				35A72FBC73ED929D14CE44FE /* FloatInteractionHostedTests.swift in Sources */,
 				370C71942F86B3B84786F861 /* FloatLifecycleHostedTests.swift in Sources */,
 				9137EB19FD31738351963A80 /* FloatScrimHostedTests.swift in Sources */,
+				E142F5CF868B971AE57AD1C0 /* FloatTransitionsHostedTests.swift in Sources */,
 				E4DC3C68F7A49F94B7843556 /* FuzzyMatcherTests.swift in Sources */,
 				99F1AEBBC6DF1177B7EE472B /* HostedTestDisplay.swift in Sources */,
 				91D58FB97C55D4130A171673 /* HostedTestDisplayTests.swift in Sources */,

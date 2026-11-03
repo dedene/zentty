@@ -941,7 +941,7 @@ final class RootViewController: NSViewController {
         case .minimize:
             worklaneStore.minimizePane(paneID)
         case .dock:
-            worklaneStore.dockPane(paneID, target: .origin)
+            dockFloat(paneID)
         case .restore:
             worklaneStore.restoreFloat(paneID)
         case .close:
@@ -3489,6 +3489,10 @@ extension RootViewController: AppActionRouterEnvironment {
     /// Floats tile `paneID` in place, or docks it when it already floats.
     func routeFloatPane(_ paneID: PaneID) {
         guard !isFloatCommandBlocked else { return }
+        if worklaneStore.activeWorklane?.isFloating(paneID) == true {
+            dockFloat(paneID)
+            return
+        }
         appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         let floatLayer = appCanvasView.floatLayerView
         let motion = FloatMotion.reflowMotion
@@ -3523,6 +3527,10 @@ extension RootViewController: AppActionRouterEnvironment {
         }
         if action == .float, isTile {
             routeFloatPane(paneID)
+            return
+        }
+        if action == .dock, isOnScreen, activeWorklane?.isFloating(paneID) == true {
+            dockFloat(paneID)
             return
         }
         try worklaneStore.applyFloatAction(
@@ -3582,21 +3590,37 @@ extension RootViewController: AppActionRouterEnvironment {
     /// frame into the new slot while the strip reflows; a refused dock (the
     /// target went away) leaves it a float at `dropFrame`.
     private func handleFloatDock(_ paneID: PaneID, target: FloatDockTarget, dropFrame: CGRect, canvas: CGRect) {
+        if !dockFloat(paneID, target: target, fromFrame: dropFrame) {
+            worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: dropFrame, in: canvas))
+        }
+    }
+
+    /// Docks float, PiP or pill `paneID` (dock button, ⌥⌘F, `zentty pane
+    /// dock`): the tile flies from where the pane is drawn (`fromFrame`,
+    /// float-layer coordinates; nil reads it off the canvas) into its slot
+    /// while the strip reflows. Returns false when the store refused.
+    @discardableResult
+    func dockFloat(_ paneID: PaneID, target: FloatDockTarget = .origin, fromFrame: CGRect? = nil) -> Bool {
+        appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
         let paneStripView = appCanvasView.paneStripView
         let floatLayer = appCanvasView.floatLayerView
-        paneStripView.beginDropSettle(paneID: nil) { [weak paneStripView, weak floatLayer] in
-            guard let paneStripView, let floatLayer else { return }
-            paneStripView.settleDockedPane(paneID, fromFrame: dropFrame, in: floatLayer) {}
+        let isOnScreen = worklaneStore.activeWorklane?.isFloating(paneID) == true
+        let startFrame = isOnScreen ? fromFrame ?? appCanvasView.floatPictureFrame(for: paneID) : nil
+        if let startFrame {
+            paneStripView.beginDropSettle(paneID: nil) { [weak paneStripView, weak floatLayer] in
+                guard let paneStripView, let floatLayer else { return }
+                paneStripView.settleDockedPane(paneID, fromFrame: startFrame, in: floatLayer) {}
+            }
         }
         let motion = FloatMotion.reflowMotion
         var docked = false
         renderCoordinator.withCanvasMotion(duration: motion.duration, timing: motion.timing) {
             docked = worklaneStore.dockPane(paneID, target: target)
         }
-        if !docked {
+        if !docked, startFrame != nil {
             paneStripView.endDropSettle()
-            worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: dropFrame, in: canvas))
         }
+        return docked
     }
 
     func routeNavigateBack() {

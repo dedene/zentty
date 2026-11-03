@@ -45,6 +45,8 @@ final class PipContainerView: NSView {
     var swipeCaptureMonitor: Any?
     private(set) weak var hostedContainer: PaneContainerView?
     private(set) var isHovered = false
+    /// Drawing its way out after the model moved on: takes no events.
+    var isDeparting = false
     private(set) var status: PillBarItem?
 
     private var theme = ZenttyTheme.fallback(for: nil)
@@ -321,7 +323,7 @@ final class PipContainerView: NSView {
     // MARK: - Mouse ownership
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden else { return nil }
+        guard !isHidden, !isDeparting else { return nil }
         let local = convert(point, from: superview)
         if !actionsView.isHidden, actionsView.frame.contains(local),
            let hit = actionsView.hitTest(local) {

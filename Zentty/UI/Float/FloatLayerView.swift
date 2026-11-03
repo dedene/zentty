@@ -75,6 +75,13 @@ final class FloatLayerView: NSView {
     /// A PiP entered (PiP pane, from frame) or left (float pane, from frame)
     /// with motion.
     var onPipMotionForTesting: ((PaneID, CGRect) -> Void)?
+    /// Mode-change motion for the next render (see +Transitions).
+    var pendingDepartures: [PaneID: FloatDeparture] = [:]
+    var pendingEntries: [PaneID: FloatEntry] = [:]
+    /// Floats and PiPs drawing their way out, by pane.
+    var departingViews: [PaneID: NSView] = [:]
+    var onDepartureForTesting: ((PaneID, FloatDeparture) -> Void)?
+    var onEntryForTesting: ((PaneID, FloatEntry) -> Void)?
 
     init(runtimeRegistry: PaneRuntimeRegistry) {
         self.runtimeRegistry = runtimeRegistry
@@ -167,11 +174,24 @@ final class FloatLayerView: NSView {
 
         var newlyMounted: [PaneContainerView] = []
         var liftsInPlace: [(paneID: PaneID, container: PaneContainerView, frame: CGRect)] = []
+        var entries: [(PaneID, FloatEntry)] = []
         for placement in placements {
             guard let float = floatsByID[placement.paneID] else { continue }
             let (container, isNew) = container(for: float, size: placement.contentSize)
             if isNew {
                 newlyMounted.append(container)
+                if !duringLayout, pendingLiftSources[placement.paneID] == nil,
+                   let entry = pendingEntries[placement.paneID] {
+                    if case .fromFrame(let pillFrame) = entry, case .pip = placement.kind {
+                        pendingPipEntries[placement.paneID] = PipEntry(
+                            fromFrame: pillFrame,
+                            velocity: .zero,
+                            fadesIn: true
+                        )
+                    } else {
+                        entries.append((placement.paneID, entry))
+                    }
+                }
             }
             switch placement.kind {
             case .floating:
@@ -216,6 +236,8 @@ final class FloatLayerView: NSView {
         if !duringLayout {
             pendingLiftSources.removeAll()
             pendingPipEntries.removeAll()
+            pendingDepartures.removeAll()
+            pendingEntries.removeAll()
         }
 
         if !newlyMounted.isEmpty {
@@ -239,6 +261,9 @@ final class FloatLayerView: NSView {
         for lift in liftsInPlace {
             animateLiftInPlace(paneID: lift.paneID, container: lift.container, to: lift.frame)
         }
+        for (paneID, entry) in entries {
+            animateEntry(paneID, entry: entry)
+        }
     }
 
     private func container(for float: FloatingPaneState, size: CGSize) -> (PaneContainerView, Bool) {
@@ -251,6 +276,8 @@ final class FloatLayerView: NSView {
         }
 
         let paneID = float.pane.id
+        // Its leaving copy still holds the terminal: let it go first.
+        finishDeparture(paneID)
         let isPip: Bool
         if case .pip = float.mode { isPip = true } else { isPip = false }
         let container = PaneContainerView(
@@ -323,13 +350,18 @@ final class FloatLayerView: NSView {
         floatHosts[paneID]?.cancelGesture()
         interactiveFrames.removeValue(forKey: paneID)
         container.prepareForRemoval()
-        container.removeFromSuperview()
-        if let pip = pipHosts.removeValue(forKey: paneID) {
-            pip.cancelDrag()
-            pip.removeFromSuperview()
-        }
+        let pip = pipHosts.removeValue(forKey: paneID)
+        pip?.cancelDrag()
+        let host = floatHosts.removeValue(forKey: paneID)
         pipRestingFrames.removeValue(forKey: paneID)
-        floatHosts.removeValue(forKey: paneID)?.removeFromSuperview()
+        if let departure = pendingDepartures[paneID], let leaving: NSView = pip ?? host {
+            // Draws its way out with its terminal still inside (+Transitions).
+            beginDeparture(leaving, paneID: paneID, departure: departure, paneFrame: pip == nil ? host?.paneFrame : nil)
+        } else {
+            container.removeFromSuperview()
+            pip?.removeFromSuperview()
+            host?.removeFromSuperview()
+        }
         if lastFocusedFloatID == paneID {
             lastFocusedFloatID = nil
         }
@@ -346,6 +378,10 @@ final class FloatLayerView: NSView {
         )
         rankByView[ObjectIdentifier(scrimView)] = -2
         rankByView[ObjectIdentifier(dockPreviewView)] = -1
+        // Leaving copies stay in front until they are gone.
+        for (index, view) in departingViews.values.enumerated() {
+            rankByView[ObjectIdentifier(view)] = order.count + index
+        }
         let current = subviews.compactMap { rankByView[ObjectIdentifier($0)] }
         guard current != current.sorted() else { return }
 
@@ -455,18 +491,5 @@ private final class RankBox {
 
     init(_ ranks: [ObjectIdentifier: Int]) {
         self.ranks = ranks
-    }
-}
-
-private extension FloatLayerPlacement {
-    /// Size the float's content is laid out at (the float frame, or the
-    /// unscaled float size for a PiP).
-    var contentSize: CGSize {
-        switch kind {
-        case .floating:
-            frame.size
-        case .pip(let contentSize):
-            contentSize
-        }
     }
 }

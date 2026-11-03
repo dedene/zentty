@@ -6,6 +6,8 @@ import QuartzCore
 struct PipEntry: Equatable {
     var fromFrame: CGRect
     var velocity: CGVector
+    /// Out of a pill: the PiP also fades in from 0.2 (a morph).
+    var fadesIn = false
 }
 
 /// PiP mounting: the enter/leave order from spike 0a, the unscaled prime of
@@ -132,6 +134,13 @@ extension FloatLayerView {
         if reduceMotion, isModeChange {
             crossfadeIn(pip)
         } else {
+            if entry.fadesIn, let layer = pip.layer {
+                addFadeIn(
+                    to: layer,
+                    from: TransitionMotion.morphStartOpacity,
+                    duration: TransitionMotion.morphDuration
+                )
+            }
             animateSettle(
                 pip,
                 fromVisibleFrame: entry.fromFrame,

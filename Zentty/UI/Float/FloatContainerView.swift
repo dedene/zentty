@@ -62,6 +62,8 @@ final class FloatContainerView: NSView {
     /// drag sample.
     var lastReleasePoint: CGPoint?
     var gestureMonitors: [Any] = []
+    /// Drawing its way out after the model moved on: takes no events.
+    var isDeparting = false
 
     init(paneID: PaneID) {
         self.paneID = paneID
@@ -152,7 +154,7 @@ final class FloatContainerView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, frame.contains(point) else { return nil }
+        guard !isHidden, !isDeparting, frame.contains(point) else { return nil }
         if activeGesture != nil {
             return self
         }

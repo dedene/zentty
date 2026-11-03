@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// The pill bar: a row at the bottom of the canvas with one pill per
 /// minimized float of the active worklane. In flow (the strip shrinks by
@@ -17,6 +18,8 @@ final class PillBarView: NSView {
     /// The hovered pill and its frame in bar coordinates; nil when no pill
     /// is hovered (or a drag started).
     var onPeekChanged: ((PillBarItem?, CGRect) -> Void)?
+    /// A pill grew out of a float or PiP (pane, from frame in bar coordinates).
+    var onArrivalForTesting: ((PaneID, CGRect) -> Void)?
     /// Opens the overflow menu (tests replace it; AppKit's pop-up is modal).
     var overflowMenuPresenter: ((NSMenu, PillOverflowView) -> Void) = { menu, view in
         menu.popUp(positioning: nil, at: CGPoint(x: 0, y: view.bounds.maxY + 4), in: view)
@@ -253,6 +256,47 @@ final class PillBarView: NSView {
             return true
         }
     }
+
+    // MARK: - Mode-change motion
+
+    /// Frames of the pills on show (bar coordinates).
+    func pillFrames() -> [PaneID: CGRect] {
+        pillViews.filter { !$0.value.isHidden }.mapValues(\.frame)
+    }
+
+    /// `paneID`'s new pill grows out of `frame` (bar coordinates; the float
+    /// or PiP it replaces) while it fades in from 0.2, like the mockup's
+    /// minimize. Presentation only. Reduce Motion: a short fade in place.
+    func animateArrival(of paneID: PaneID, from frame: CGRect) {
+        guard window != nil, let view = pillViews[paneID], !view.isHidden,
+              let layer = view.layer, view.frame.width > 0, view.frame.height > 0,
+              frame.width > 0, frame.height > 0 else { return }
+        let motion = FloatLayerView.TransitionMotion.self
+        let opacity = CABasicAnimation(keyPath: "opacity")
+        opacity.fromValue = FloatMotion.reduceMotion ? 0 : motion.morphStartOpacity
+        opacity.toValue = 1
+        let group = CAAnimationGroup()
+        if FloatMotion.reduceMotion {
+            group.animations = [opacity]
+            group.duration = FloatMotion.reducedDuration
+            group.timingFunction = FloatMotion.reducedTiming
+        } else {
+            let transform = CABasicAnimation(keyPath: "transform")
+            transform.fromValue = NSValue(caTransform3D: FloatLayerView.transform(
+                mapping: view.frame,
+                to: frame,
+                anchorPoint: layer.anchorPoint
+            ))
+            transform.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+            group.animations = [transform, opacity]
+            group.duration = motion.morphDuration
+            group.timingFunction = FloatMotion.reflowTiming
+        }
+        layer.add(group, forKey: Self.arrivalAnimationKey)
+        onArrivalForTesting?(paneID, frame)
+    }
+
+    static let arrivalAnimationKey = "zentty.pill.arrival"
 
     // MARK: - Testing
 

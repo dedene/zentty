@@ -41,6 +41,7 @@ extension FloatLayerView {
     private func floatGestureBegan(_ paneID: PaneID, kind: FloatGestureKind) {
         guard let host = floatHost(paneID) else { return }
         host.layer?.removeAnimation(forKey: Self.settleAnimationKey)
+        host.layer?.removeAnimation(forKey: Self.fadeAnimationKey)
         interactiveFrames[paneID] = host.paneFrame
         guard kind == .move, !FloatMotion.reduceMotion else { return }
         let restingFrame = host.frame

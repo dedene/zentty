@@ -2,6 +2,9 @@ import Foundation
 
 /// What the float layer draws for the active worklane.
 struct FloatLayerContent: Equatable {
+    /// The worklane the floats belong to (mode-change motion only runs
+    /// between two renders of the same one).
+    var worklaneID: WorklaneID?
     var floats: [FloatingPaneState]
     var floatsHidden: Bool
     /// The float that owns keyboard focus (`WorklaneState.floatOwnsFocus`), else nil.
@@ -25,8 +28,10 @@ struct FloatLayerContent: Equatable {
         focusedFloatID: PaneID?,
         borderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         worklaneColor: WorklaneColor? = nil,
-        pipStatusByPaneID: [PaneID: PillBarItem] = [:]
+        pipStatusByPaneID: [PaneID: PillBarItem] = [:],
+        worklaneID: WorklaneID? = nil
     ) {
+        self.worklaneID = worklaneID
         self.floats = floats
         self.floatsHidden = floatsHidden
         self.focusedFloatID = focusedFloatID
@@ -45,7 +50,8 @@ struct FloatLayerContent: Equatable {
             focusedFloatID: worklane.floatOwnsFocus ? worklane.focusedFloatID : nil,
             borderContextByPaneID: Self.floatBorderContexts(worklane: worklane, base: borderContextByPaneID),
             worklaneColor: worklane.color,
-            pipStatusByPaneID: Self.pipStatuses(worklane: worklane)
+            pipStatusByPaneID: Self.pipStatuses(worklane: worklane),
+            worklaneID: worklane.id
         )
     }
 

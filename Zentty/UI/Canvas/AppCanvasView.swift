@@ -499,6 +499,7 @@ final class AppCanvasView: NSView {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
+        let floatTransitionStart = captureFloatTransitionStart()
         apply(theme: theme, animated: animated)
         paneStripView.floatHoldsFocus = floats.ownsFocus
         paneStripView.showsEmptyStripHint = state.panes.isEmpty && !floats.floats.isEmpty
@@ -509,12 +510,14 @@ final class AppCanvasView: NSView {
             // layer at its final frame (it borrows that host view).
             layoutFloatLayer()
             pillBarView.render(pills, theme: theme)
+            let floatTransitions = prepareFloatTransitions(from: floatTransitionStart, to: floats, strip: state)
             floatLayerView.render(
                 floats,
                 theme: theme,
                 showPaneBorders: showPaneBorders,
                 smoothScrollingEnabled: smoothScrollingEnabled
             )
+            finishFloatTransitions(floatTransitions, from: floatTransitionStart)
             paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
         }
         if let leadingVisibleInset,

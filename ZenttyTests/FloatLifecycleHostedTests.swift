@@ -76,7 +76,8 @@ final class FloatLifecycleHostedTests: XCTestCase {
         let runtime = try XCTUnwrap(registry?.runtime(for: floatID))
 
         store(controller).minimizePane(floatID)
-        waitForLayout("minimized")
+        // Long enough for the float's leaving copy to fly into its pill.
+        waitForLayout("minimized", delay: 0.6)
 
         XCTAssertNil(canvas(controller).floatLayerView.containerForTesting(floatID))
         XCTAssertNil(runtime.hostView.window, "a minimized float is not mounted anywhere")

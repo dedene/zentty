@@ -13,6 +13,17 @@ struct FloatLayerPlacement: Equatable, Sendable {
     let paneID: PaneID
     let kind: Kind
     let frame: CGRect
+
+    /// Size the float's content is laid out at (the float frame, or the
+    /// unscaled float size for a PiP).
+    var contentSize: CGSize {
+        switch kind {
+        case .floating:
+            frame.size
+        case .pip(let contentSize):
+            contentSize
+        }
+    }
 }
 
 /// Pure placement for the float layer: which floats are mounted, in which
