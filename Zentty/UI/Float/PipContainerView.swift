@@ -27,7 +27,8 @@ final class PipContainerView: NSView {
     var onDragChanged: ((PaneID, CGRect) -> Void)?
     /// Let go after a drag: the model frame and the release velocity (pt/s).
     var onDragEnded: ((PaneID, CGRect, CGVector) -> Void)?
-    /// A drag was dropped without a release (unmount).
+    /// A drag was dropped without a release (Escape, the window resigning
+    /// key, unmount).
     var onDragCancelled: ((PaneID) -> Void)?
     var onSwipe: ((PaneID, PipSwipeResolver.Action) -> Void)?
     /// The corner the PiP sits in (swipe direction is relative to it).
@@ -40,6 +41,8 @@ final class PipContainerView: NSView {
     private(set) var swipeOffset: CGVector = .zero
     /// The press being tracked, from mouse-down to mouse-up.
     var drag: PipDrag?
+    /// Escape cancels the press being tracked (see `+Gestures`).
+    var dragEscapeMonitor: Any?
     var swipeResolver = PipSwipeResolver()
     /// Swallows the rest of a swipe that flicked or bounced (see `+Gestures`).
     var swipeCaptureMonitor: Any?

@@ -314,6 +314,53 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         XCTAssertFalse(pip.captureSwipeTail(try XCTUnwrap(scrollEvent(phase: .changed, dx: -10, dy: 0))))
     }
 
+    // MARK: - Drag cancellation
+
+    func test_escape_cancels_a_pip_drag_and_is_swallowed() throws {
+        let (layer, pip) = try makePip()
+        let resting = pip.frame
+        let start = CGPoint(x: resting.midX, y: resting.midY)
+        pip.mouseDown(with: mouse(.leftMouseDown, at: start))
+        XCTAssertTrue(pip.isDragCancellationArmedForTesting)
+        pip.mouseDragged(with: mouse(.leftMouseDragged, at: start.offsetBy(dx: -300, dy: 100)))
+
+        let escape = try XCTUnwrap(keyEvent(keyCode: 53, characters: "\u{1b}"))
+        XCTAssertNil(pip.handleDragKeyDown(escape), "never reaches the focused terminal")
+
+        XCTAssertNil(pip.drag)
+        XCTAssertFalse(layer.isGestureActive, "float commands are unblocked")
+        XCTAssertFalse(pip.isDragCancellationArmedForTesting)
+        assertFrame(pip.modelFrame, resting)
+        pip.mouseUp(with: mouse(.leftMouseUp, at: start.offsetBy(dx: -300, dy: 100)))
+        XCTAssertTrue(moveRequests.isEmpty, "the release after a cancel commits nothing")
+        XCTAssertTrue(clicks.isEmpty)
+    }
+
+    func test_other_keys_pass_through_a_pip_drag() throws {
+        let (_, pip) = try makePip()
+        let start = CGPoint(x: pip.frame.midX, y: pip.frame.midY)
+        pip.mouseDown(with: mouse(.leftMouseDown, at: start))
+
+        let key = try XCTUnwrap(keyEvent(keyCode: 0, characters: "a"))
+        XCTAssertTrue(pip.handleDragKeyDown(key) === key)
+        XCTAssertNotNil(pip.drag)
+        pip.cancelDrag()
+    }
+
+    func test_window_resigning_key_cancels_a_pip_drag() throws {
+        let (layer, pip) = try makePip()
+        let resting = pip.frame
+        let start = CGPoint(x: resting.midX, y: resting.midY)
+        pip.mouseDown(with: mouse(.leftMouseDown, at: start))
+        pip.mouseDragged(with: mouse(.leftMouseDragged, at: start.offsetBy(dx: -300, dy: 100)))
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+
+        XCTAssertNil(pip.drag)
+        XCTAssertFalse(layer.isGestureActive)
+        assertFrame(pip.modelFrame, resting)
+    }
+
     // MARK: - Fixtures
 
     private func assertFrame(_ actual: CGRect, _ expected: CGRect, file: StaticString = #filePath, line: UInt = #line) {
@@ -398,6 +445,21 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
             delta: CGVector(dx: fingerDX, dy: 0),
             isDirectionInvertedFromDevice: true,
             timestamp: clock
+        )
+    }
+
+    private func keyEvent(keyCode: UInt16, characters: String) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: clock,
+            windowNumber: window?.windowNumber ?? 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
         )
     }
 

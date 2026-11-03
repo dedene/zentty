@@ -10,7 +10,8 @@ struct PipDrag {
 /// Click, drag and two-finger swipe. A press is a click until the pointer
 /// moves past `FloatDragSession.clickThreshold`; then it drags. The view
 /// only reports: the float layer lifts, moves and settles it, and the store
-/// decides the corner.
+/// decides the corner. Escape or the window resigning key cancels a press
+/// like a float's.
 extension PipContainerView {
     override func mouseDown(with event: NSEvent) {
         cancelDrag()
@@ -22,6 +23,7 @@ extension PipContainerView {
             ),
             didBegin: false
         )
+        installDragCancellation()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -43,7 +45,7 @@ extension PipContainerView {
         guard var current = drag else { return }
         // The release is a sample: pausing before letting go reads as slow.
         current.session.move(to: pointerLocation(event), timestamp: event.timestamp)
-        drag = nil
+        endDragTracking()
         guard current.didBegin || !current.session.isClick else {
             onClicked?(paneID)
             return
@@ -56,11 +58,54 @@ extension PipContainerView {
         (superview ?? self).convert(event.locationInWindow, from: nil)
     }
 
-    /// Drops a press without a release (the PiP unmounts mid-drag).
+    /// Drops a press without a release (Escape, the window resigning key,
+    /// the PiP unmounting mid-drag). No-op when nothing is tracked.
     func cancelDrag() {
         guard drag != nil else { return }
-        drag = nil
+        endDragTracking()
         onDragCancelled?(paneID)
+    }
+
+    private func endDragTracking() {
+        drag = nil
+        if let monitor = dragEscapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            dragEscapeMonitor = nil
+        }
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+    }
+
+    /// Escape is swallowed (it must not reach the focused terminal) and
+    /// cancels; so does the window resigning key, which can lose the release.
+    private func installDragCancellation() {
+        if dragEscapeMonitor == nil {
+            dragEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.handleDragKeyDown(event) ?? event
+            }
+        }
+        if let window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(dragWindowDidResignKey(_:)),
+                name: NSWindow.didResignKeyNotification,
+                object: window
+            )
+        }
+    }
+
+    /// The Escape monitor's step: nil (swallowed) when it cancelled a press.
+    func handleDragKeyDown(_ event: NSEvent) -> NSEvent? {
+        guard event.keyCode == 53, drag != nil else { return event }
+        cancelDrag()
+        return nil
+    }
+
+    @objc private func dragWindowDidResignKey(_ notification: Notification) {
+        cancelDrag()
+    }
+
+    var isDragCancellationArmedForTesting: Bool {
+        dragEscapeMonitor != nil
     }
 
     // MARK: - Two-finger swipe
@@ -113,6 +158,7 @@ extension PipContainerView {
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
             removeSwipeCaptureMonitor()
+            cancelDrag()
         }
     }
 
