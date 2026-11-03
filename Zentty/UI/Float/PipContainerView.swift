@@ -44,7 +44,8 @@ final class PipContainerView: NSView {
     /// Escape cancels the press being tracked (see `+Gestures`).
     var dragEscapeMonitor: Any?
     var swipeResolver = PipSwipeResolver()
-    /// Swallows the rest of a swipe that flicked or bounced (see `+Gestures`).
+    /// Routes every event of a swipe that began on the PiP to it, wherever
+    /// the pointer is by then (see `+Gestures`).
     var swipeCaptureMonitor: Any?
     private(set) weak var hostedContainer: PaneContainerView?
     private(set) var isHovered = false

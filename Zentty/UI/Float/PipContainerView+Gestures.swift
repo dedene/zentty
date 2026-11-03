@@ -118,34 +118,41 @@ extension PipContainerView {
 
     func handleSwipe(_ event: PipSwipeResolver.Event) {
         let action = swipeResolver.handle(event, corner: corner)
-        if swipeResolver.isLocked {
+        if swipeResolver.isOwning {
             installSwipeCaptureMonitor()
+        } else {
+            removeSwipeCaptureMonitor()
         }
         if action != .none {
             onSwipe?(paneID, action)
         }
     }
 
-    /// After a flick the PiP is gone from under the pointer: the rest of the
-    /// gesture (and its momentum) would scroll the terminal or switch strip
-    /// panes there. Swallow it until the resolver lets go.
+    /// The swipe is the PiP's from its first touch: the rubber band, and a
+    /// flick even more, move the PiP out from under the (still) pointer, and
+    /// the rest of the gesture and its momentum would scroll the terminal or
+    /// switch strip panes there, and strand the PiP offset without its
+    /// `ended`. Route it all here until the resolver lets go.
     private func installSwipeCaptureMonitor() {
         guard swipeCaptureMonitor == nil else { return }
         swipeCaptureMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self else { return event }
-            return self.captureSwipeTail(event) ? nil : event
+            return self.routeCapturedSwipe(event) ? nil : event
         }
     }
 
-    /// Whether `event` is the tail of a finished swipe (and so is dropped).
+    /// Feeds `event` to this PiP's swipe when it belongs to it, wherever the
+    /// pointer is. Returns whether it did (and so the event is consumed).
     @discardableResult
-    func captureSwipeTail(_ event: NSEvent) -> Bool {
+    func routeCapturedSwipe(_ event: NSEvent) -> Bool {
         guard event.window == nil || event.window === window else { return false }
-        let captured = swipeResolver.captures(PipSwipeResolver.Event(event))
-        if !swipeResolver.isLocked {
+        let swipeEvent = PipSwipeResolver.Event(event)
+        guard swipeResolver.owns(swipeEvent) else {
             removeSwipeCaptureMonitor()
+            return false
         }
-        return captured
+        handleSwipe(swipeEvent)
+        return true
     }
 
     func removeSwipeCaptureMonitor() {

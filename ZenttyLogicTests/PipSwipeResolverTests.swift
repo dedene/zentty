@@ -140,16 +140,45 @@ final class PipSwipeResolverTests: XCTestCase {
         XCTAssertEqual(resolver.accumulated, .zero)
     }
 
-    func test_momentum_tail_after_a_flick_is_captured_until_it_ends() {
+    func test_momentum_tail_after_a_flick_is_owned_until_it_ends() {
         _ = send(.began, corner: .bottomLeft)
         XCTAssertEqual(send(.changed, dx: 80, corner: .bottomLeft), .flick(to: .bottomRight))
         XCTAssertEqual(send(.ended), PipSwipeResolver.Action.none, "a flick needs no spring back")
 
-        XCTAssertTrue(resolver.captures(event(.none, momentum: .began, dx: 30)))
-        XCTAssertTrue(resolver.captures(event(.none, momentum: .changed, dx: 10)))
-        XCTAssertTrue(resolver.captures(event(.none, momentum: .ended)), "the last momentum event is still the tail")
+        XCTAssertTrue(route(.none, momentum: .began, dx: 30))
+        XCTAssertTrue(route(.none, momentum: .changed, dx: 10))
+        XCTAssertTrue(route(.none, momentum: .ended), "the last momentum event is still the tail")
         XCTAssertFalse(resolver.isLocked)
-        XCTAssertFalse(resolver.captures(event(.none, momentum: .changed, dx: 10)))
+        XCTAssertFalse(resolver.isOwning)
+        XCTAssertFalse(route(.none, momentum: .changed, dx: 10))
+    }
+
+    /// The rubber band moves the PiP off a pointer near its edge long before
+    /// 70pt: the swipe must stay the PiP's from its first touch.
+    func test_a_swipe_is_owned_from_its_first_touch_not_from_the_flick() {
+        XCTAssertFalse(resolver.isOwning)
+        XCTAssertEqual(send(.began, dx: -20), .follow(offset: CGVector(dx: -7, dy: 0)))
+
+        XCTAssertTrue(resolver.isOwning)
+        XCTAssertFalse(resolver.isLocked)
+        XCTAssertTrue(owns(.changed, dx: -30))
+        XCTAssertEqual(send(.changed, dx: -60), .flick(to: .bottomLeft))
+    }
+
+    func test_momentum_after_a_spring_back_stays_owned() {
+        _ = send(.began, dx: -20)
+        XCTAssertEqual(send(.ended), .settle)
+
+        XCTAssertTrue(owns(.none, momentum: .began, dx: -30), "not handed to the view underneath")
+        XCTAssertEqual(send(.none, momentum: .ended), PipSwipeResolver.Action.none)
+        XCTAssertFalse(resolver.isOwning)
+    }
+
+    func test_a_mouse_wheel_event_ends_ownership() {
+        _ = send(.began, dx: -20)
+
+        XCTAssertFalse(owns(.none, dy: 10))
+        XCTAssertFalse(resolver.isOwning)
     }
 
     func test_a_pause_of_220ms_releases_the_lock() {
@@ -157,8 +186,9 @@ final class PipSwipeResolverTests: XCTestCase {
         XCTAssertEqual(send(.changed, dx: 80, corner: .bottomLeft), .flick(to: .bottomRight))
 
         clock += 0.23
-        XCTAssertFalse(resolver.captures(event(.changed, dx: 5)))
+        XCTAssertFalse(owns(.changed, dx: 5))
         XCTAssertFalse(resolver.isLocked)
+        XCTAssertFalse(resolver.isOwning)
     }
 
     func test_events_within_220ms_keep_the_lock() {
@@ -166,13 +196,14 @@ final class PipSwipeResolverTests: XCTestCase {
         XCTAssertEqual(send(.changed, dx: 80, corner: .bottomLeft), .flick(to: .bottomRight))
 
         clock += 0.2
-        XCTAssertTrue(resolver.captures(event(.changed, dx: 5)))
+        XCTAssertTrue(owns(.changed, dx: 5))
     }
 
     func test_a_new_touch_starts_a_new_swipe() {
         _ = send(.began, corner: .bottomLeft)
         XCTAssertEqual(send(.changed, dx: 80, corner: .bottomLeft), .flick(to: .bottomRight))
-        XCTAssertFalse(resolver.captures(event(.began)), "a fresh touch is not the tail")
+        XCTAssertFalse(owns(.began), "a fresh touch is not the tail")
+        XCTAssertFalse(owns(.mayBegin))
 
         _ = send(.began, dx: -50)
         XCTAssertEqual(send(.changed, dx: -30, corner: .bottomRight), .flick(to: .bottomLeft))
@@ -217,6 +248,28 @@ final class PipSwipeResolverTests: XCTestCase {
             isDirectionInvertedFromDevice: inverted,
             timestamp: clock
         )
+    }
+
+    /// The capture monitor's question for an event that may not be over the
+    /// PiP any more.
+    private func owns(
+        _ phase: PipSwipeResolver.Phase,
+        momentum: PipSwipeResolver.Phase = .none,
+        dx: CGFloat = 0,
+        dy: CGFloat = 0
+    ) -> Bool {
+        resolver.owns(event(phase, momentum: momentum, dx: dx, dy: dy))
+    }
+
+    /// What the capture monitor does: an owned event goes to `handle`.
+    private func route(
+        _ phase: PipSwipeResolver.Phase,
+        momentum: PipSwipeResolver.Phase = .none,
+        dx: CGFloat = 0
+    ) -> Bool {
+        guard owns(phase, momentum: momentum, dx: dx) else { return false }
+        _ = send(phase, momentum: momentum, dx: dx)
+        return true
     }
 
     private func send(

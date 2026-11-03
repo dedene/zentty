@@ -86,6 +86,33 @@ final class PipGestureHostedTests: XCTestCase {
         XCTAssertGreaterThan(tileSpy.scrollEventCount, 0, "without the capture the tail would have scrolled the tile")
     }
 
+    /// Regression: a swipe starting near the PiP's edge slid it off the
+    /// still pointer with the rubber band before the 70pt flick latched the
+    /// capture, so the tile underneath got the rest of the gesture.
+    func test_swipe_starting_near_the_edge_stays_on_the_pip_after_the_rubber_band_moves_it() throws {
+        let controller = try makePipController()
+        let pip = try XCTUnwrap(canvas(controller).floatLayerView.pipHostForTesting(floatID))
+        // 3pt inside the trailing edge; fingers moving left pull the PiP away.
+        let point = pip.convert(CGPoint(x: pip.bounds.maxX - 3, y: pip.bounds.midY), to: nil)
+        let contentView = try XCTUnwrap(controller.window.contentView)
+        XCTAssertTrue(contentView.hitTest(contentView.convert(point, from: nil)) === pip)
+        let tileSpy = try XCTUnwrap(adapters[tileID]?.spyView)
+        FloatMotion.reduceMotionOverride = false
+
+        try sendScroll(phase: .began, dx: -20, at: point, in: controller)
+        XCTAssertFalse(contentView.hitTest(contentView.convert(point, from: nil)) is PipContainerView, "the rubber band slid it off the pointer")
+        XCTAssertTrue(pip.isSwipeCaptureActiveForTesting, "owned from the first touch")
+        try sendScroll(phase: .changed, dx: -30, at: point, in: controller)
+        try sendScroll(phase: .changed, dx: -30, at: point, in: controller)
+        waitForLayout("flicked")
+
+        XCTAssertEqual(tileSpy.scrollEventCount, 0, "the tile never saw the swipe")
+        XCTAssertEqual(adapters[floatID]?.spyView.scrollEventCount, 0)
+        XCTAssertEqual(store(controller).activeWorklane?.floatingPane(id: floatID)?.mode, .pip(corner: .bottomLeft, order: 0))
+        try sendScroll(phase: .ended, dx: 0, at: point, in: controller)
+        XCTAssertEqual(tileSpy.scrollEventCount, 0)
+    }
+
     // MARK: - Events
 
     private func sendMouse(
@@ -150,7 +177,7 @@ final class PipGestureHostedTests: XCTestCase {
         XCTAssertEqual(event.locationInWindow.x, windowPoint.x, accuracy: 0.5)
         XCTAssertEqual(event.locationInWindow.y, windowPoint.y, accuracy: 0.5)
         if let pip = canvas(controller).floatLayerView.pipHostForTesting(floatID),
-           pip.isSwipeCaptureActiveForTesting, pip.captureSwipeTail(event) {
+           pip.isSwipeCaptureActiveForTesting, pip.routeCapturedSwipe(event) {
             return
         }
         controller.window.sendEvent(event)

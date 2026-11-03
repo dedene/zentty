@@ -307,11 +307,31 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         pip.handleSwipe(swipe(.began, fingerDX: -80))
         XCTAssertTrue(pip.isSwipeCaptureActiveForTesting)
 
-        XCTAssertTrue(pip.captureSwipeTail(tail))
-        XCTAssertTrue(pip.captureSwipeTail(try XCTUnwrap(scrollEvent(phase: nil, momentum: .end, dx: 0, dy: 0))))
+        XCTAssertTrue(pip.routeCapturedSwipe(tail))
+        XCTAssertTrue(pip.routeCapturedSwipe(try XCTUnwrap(scrollEvent(phase: nil, momentum: .end, dx: 0, dy: 0))))
 
         XCTAssertFalse(pip.isSwipeCaptureActiveForTesting)
-        XCTAssertFalse(pip.captureSwipeTail(try XCTUnwrap(scrollEvent(phase: .changed, dx: -10, dy: 0))))
+        XCTAssertFalse(pip.routeCapturedSwipe(try XCTUnwrap(scrollEvent(phase: .changed, dx: -10, dy: 0))))
+    }
+
+    /// Regression: ownership used to latch only at the 70pt flick, so a
+    /// rubber band that slid the PiP off the pointer handed the rest of the
+    /// swipe to the view underneath and stranded the PiP offset.
+    func test_swipe_is_captured_from_its_first_touch_and_finishes_on_the_pip() throws {
+        let (_, pip) = try makePip()
+        let resting = pip.frame
+        let changed = try XCTUnwrap(scrollEvent(phase: .changed, dx: -40, dy: 0))
+        clock = changed.timestamp - 0.05
+
+        pip.handleSwipe(swipe(.began, fingerDX: -20))
+
+        XCTAssertNotEqual(pip.swipeOffset, .zero, "the rubber band moved it")
+        XCTAssertTrue(pip.isSwipeCaptureActiveForTesting, "owned before any flick")
+        XCTAssertTrue(pip.routeCapturedSwipe(changed), "reaches the PiP wherever the pointer is")
+        XCTAssertTrue(pip.routeCapturedSwipe(try XCTUnwrap(scrollEvent(phase: .ended, dx: 0, dy: 0))))
+        XCTAssertEqual(pip.swipeOffset, .zero, "the end springs it home")
+        assertFrame(pip.frame, resting)
+        XCTAssertTrue(moveRequests.isEmpty, "below the threshold")
     }
 
     // MARK: - Drag cancellation

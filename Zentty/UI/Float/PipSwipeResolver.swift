@@ -9,10 +9,12 @@ import Foundation
 ///   or bounces 14pt when it already sits against that wall. Either ends the
 ///   swipe: one swipe moves one corner.
 /// - Lifting the fingers below the threshold springs it back.
-/// - Only touch phases (`began`/`changed`) move it. Momentum never does, and
-///   after a flick or bounce the rest of the gesture, momentum included, is
-///   captured (`captures`) so it can't scroll whatever ends up under the
-///   pointer. A new touch or a 220ms pause ends the capture.
+/// - Only touch phases (`began`/`changed`) move it. Momentum never does.
+/// - A swipe that reaches the PiP is owned by it from that first event
+///   (`isOwning`): the rest of it, momentum included, belongs to the PiP
+///   (`owns`) wherever the pointer is by then, so the rubber band or a flick
+///   moving the PiP away can't hand the gesture to whatever is underneath.
+///   A new touch, a phaseless (wheel) event or a 220ms pause ends it.
 /// - Travel follows the fingers whatever the scroll direction setting
 ///   (`isDirectionInvertedFromDevice`). Coordinates are y-up.
 struct PipSwipeResolver: Equatable, Sendable {
@@ -52,8 +54,10 @@ struct PipSwipeResolver: Equatable, Sendable {
 
     /// Finger travel of the current swipe (y-up points).
     private(set) var accumulated: CGVector = .zero
-    /// A flick or bounce ended this swipe; the rest of it is captured.
+    /// A flick or bounce ended this swipe; the rest of it moves nothing.
     private(set) var isLocked = false
+    /// The current swipe (fingers, then momentum) belongs to the PiP.
+    private(set) var isOwning = false
     private var lastTimestamp: TimeInterval?
 
     mutating func handle(_ event: Event, corner: FloatCorner) -> Action {
@@ -66,8 +70,10 @@ struct PipSwipeResolver: Equatable, Sendable {
         case .began:
             accumulated = .zero
             isLocked = false
+            isOwning = true
             return accumulate(event, corner: corner)
         case .changed:
+            isOwning = true
             guard !isLocked else { return .none }
             return accumulate(event, corner: corner)
         case .ended, .cancelled:
@@ -79,17 +85,20 @@ struct PipSwipeResolver: Equatable, Sendable {
         }
     }
 
-    /// Whether `event` belongs to a swipe that already flicked or bounced,
-    /// wherever the pointer is now. A new touch or a pause ends the capture.
-    mutating func captures(_ event: Event) -> Bool {
-        resetAfterPause(event.timestamp)
-        guard isLocked else { return false }
-        if event.phase == .began || event.phase == .mayBegin {
-            isLocked = false
+    /// Whether `event` belongs to the swipe the PiP owns, wherever the
+    /// pointer is now; feed it to `handle` when it does. A new touch, a
+    /// phaseless (wheel) event or a pause ends the ownership.
+    mutating func owns(_ event: Event) -> Bool {
+        if let lastTimestamp, event.timestamp - lastTimestamp > Self.resetGap {
+            release()
+        }
+        guard isOwning else { return false }
+        let isNewTouch = event.phase == .began || event.phase == .mayBegin
+        let isWheel = event.phase == .none && event.momentumPhase == .none
+        if isNewTouch || isWheel {
+            release()
             return false
         }
-        lastTimestamp = event.timestamp
-        endCaptureIfMomentumEnds(event.momentumPhase)
         return true
     }
 
@@ -157,16 +166,21 @@ struct PipSwipeResolver: Equatable, Sendable {
 
     private mutating func resetAfterPause(_ timestamp: TimeInterval) {
         if let lastTimestamp, timestamp - lastTimestamp > Self.resetGap {
-            accumulated = .zero
-            isLocked = false
+            release()
         }
         lastTimestamp = timestamp
     }
 
     private mutating func endCaptureIfMomentumEnds(_ momentumPhase: Phase) {
         if momentumPhase == .ended || momentumPhase == .cancelled {
-            isLocked = false
+            release()
         }
+    }
+
+    private mutating func release() {
+        accumulated = .zero
+        isLocked = false
+        isOwning = false
     }
 
     private static func rubberBand(_ value: CGFloat) -> CGFloat {
