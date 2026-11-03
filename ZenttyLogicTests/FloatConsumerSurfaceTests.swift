@@ -196,21 +196,18 @@ final class FloatConsumerSurfaceTests: XCTestCase {
         XCTAssertFalse(isAvailable(.minimizeFloat, makeStore()), "no floats at all")
     }
 
-    func test_hide_all_needs_shown_float_or_hidden_state() {
-        XCTAssertFalse(isAvailable(.toggleFloatsHidden, makeStore()))
+    func test_toggle_floating_panes_is_always_available() {
+        XCTAssertTrue(isAvailable(.toggleFloatingPanes, makeStore()), "no floats: it opens one")
 
         let store = makeStoreWithFloat()
-        XCTAssertTrue(isAvailable(.toggleFloatsHidden, store))
+        XCTAssertTrue(isAvailable(.toggleFloatingPanes, store))
 
         store.setFloatsHidden(true)
-        XCTAssertTrue(isAvailable(.toggleFloatsHidden, store), "Show Floating Panes stays on while hidden")
+        XCTAssertTrue(isAvailable(.toggleFloatingPanes, store))
 
         store.setFloatsHidden(false)
-        store.pipPane(floatID)
-        XCTAssertTrue(isAvailable(.toggleFloatsHidden, store), "a PiP alone can be hidden")
-
         store.minimizePane(floatID)
-        XCTAssertFalse(isAvailable(.toggleFloatsHidden, store), "a pill alone isn't hidden by it")
+        XCTAssertTrue(isAvailable(.toggleFloatingPanes, store), "a pill alone: it restores it")
     }
 
     func test_cycle_needs_floating_float() {

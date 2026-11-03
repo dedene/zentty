@@ -1455,7 +1455,7 @@ final class RootViewController: NSViewController {
             self?.onServerMenuRequested?()
         }
         windowChromeView.onFloatVisibilityToggle = { [weak self] in
-            self?.routeToggleFloatsHidden()
+            self?.routeFloatVisibilityCapsule()
         }
         windowChromeView.onRefreshPullRequestStatus = { [weak self] in
             self?.handle(.refreshPullRequestStatus, syncingFocusWith: nil)
@@ -3447,7 +3447,13 @@ extension RootViewController: AppActionRouterEnvironment {
         worklaneStore.pipPane(paneID)
     }
 
-    func routeToggleFloatsHidden() {
+    func routeToggleFloatingPanes() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.toggleFloatingPanes(canvas: appCanvasView.floatLayerView.bounds)
+    }
+
+    /// The title-bar eye capsule: a pure hide/show toggle.
+    func routeFloatVisibilityCapsule() {
         guard !isFloatCommandBlocked else { return }
         worklaneStore.toggleFloatsHidden()
     }

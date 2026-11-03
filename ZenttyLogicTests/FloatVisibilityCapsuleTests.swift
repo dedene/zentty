@@ -70,8 +70,8 @@ final class FloatVisibilityCapsuleTests: XCTestCase {
     /// every other chrome tooltip.
     func test_tooltip_names_the_action_and_its_shortcut() throws {
         let manager = ShortcutManager(shortcuts: .default)
-        let shortcut = try XCTUnwrap(manager.shortcut(for: .toggleFloatsHidden))
-        XCTAssertEqual(shortcut.key, .character("."))
+        let shortcut = try XCTUnwrap(manager.shortcut(for: .toggleFloatingPanes))
+        XCTAssertEqual(shortcut.key, .character("h"))
         XCTAssertEqual(shortcut.modifiers, [.command, .option])
         let capsule = FloatVisibilityCapsuleView(frame: .zero)
         capsule.updateShortcutTooltip(manager)

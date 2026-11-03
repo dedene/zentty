@@ -70,32 +70,51 @@ final class FloatCommandsHostedTests: XCTestCase {
         XCTAssertNotNil(canvas(controller).floatLayerView.pipHostForTesting(floatID))
     }
 
-    func test_option_command_period_hides_and_shows_floats() throws {
+    func test_option_command_h_toggles_floats_from_focus() throws {
         let controller = try makeFloatedController()
         let layer = canvas(controller).floatLayerView
 
-        try press(".", keyCode: kVK_ANSI_Period, modifiers: [.command, .option], in: controller)
+        try press("h", keyCode: kVK_ANSI_H, modifiers: [.command, .option], in: controller)
         waitForLayout("hidden")
 
-        XCTAssertEqual(store(controller).activeWorklane?.floatsHidden, true)
+        XCTAssertEqual(store(controller).activeWorklane?.floatsHidden, true, "a focused float hides")
         XCTAssertNil(layer.containerForTesting(floatID))
         XCTAssertTrue(controller.rootViewControllerForTesting.floatsAreHidden)
+        XCTAssertNotEqual(store(controller).activeWorklane?.focusedPaneID, floatID, "focus went back to the strip")
         let menuItem = NSMenuItem(
             title: "",
-            action: #selector(MainWindowController.toggleFloatsHidden(_:)),
+            action: #selector(MainWindowController.toggleFloatingPanes(_:)),
             keyEquivalent: ""
         )
         XCTAssertTrue(controller.validateMenuItem(menuItem))
-        XCTAssertEqual(menuItem.title, "Show Floating Panes")
 
-        try press(".", keyCode: kVK_ANSI_Period, modifiers: [.command, .option], in: controller)
+        try press("h", keyCode: kVK_ANSI_H, modifiers: [.command, .option], in: controller)
         waitForLayout("shown")
 
         XCTAssertEqual(store(controller).activeWorklane?.floatsHidden, false)
+        XCTAssertEqual(store(controller).activeWorklane?.focusedPaneID, floatID, "showing refocuses the float")
         XCTAssertNotNil(layer.containerForTesting(floatID))
         XCTAssertEqual(adapters[floatID]?.closeCount, 0)
-        XCTAssertTrue(controller.validateMenuItem(menuItem))
-        XCTAssertEqual(menuItem.title, "Hide Floating Panes")
+
+        store(controller).focusPane(id: tileID)
+        waitForLayout("tile focused")
+        try press("h", keyCode: kVK_ANSI_H, modifiers: [.command, .option], in: controller)
+        waitForLayout("summoned")
+
+        XCTAssertEqual(store(controller).activeWorklane?.floatsHidden, false, "a tile's press summons, never hides")
+        XCTAssertEqual(store(controller).activeWorklane?.focusedPaneID, floatID)
+    }
+
+    func test_option_command_h_opens_a_float_when_there_is_none() throws {
+        let controller = try makeSeededController()
+
+        try press("h", keyCode: kVK_ANSI_H, modifiers: [.command, .option], in: controller)
+        waitForLayout("opened", delay: 0.3)
+
+        let worklane = try XCTUnwrap(store(controller).activeWorklane)
+        XCTAssertEqual(worklane.floatingPanes.count, 1)
+        XCTAssertTrue(worklane.floatOwnsFocus)
+        XCTAssertEqual(worklane.paneStripState.panes.map(\.id), [tileID, floatID, otherTileID])
     }
 
     func test_option_command_n_opens_centred_float_with_focus() throws {
@@ -153,7 +172,7 @@ final class FloatCommandsHostedTests: XCTestCase {
         let before = try XCTUnwrap(store(controller).activeWorklane)
 
         try press("m", keyCode: kVK_ANSI_M, modifiers: [.command, .option], in: controller)
-        try press(".", keyCode: kVK_ANSI_Period, modifiers: [.command, .option], in: controller)
+        try press("h", keyCode: kVK_ANSI_H, modifiers: [.command, .option], in: controller)
         try press("n", keyCode: kVK_ANSI_N, modifiers: [.command, .option], in: controller)
         controller.toggleFloat(nil)
         waitForLayout("ignored")

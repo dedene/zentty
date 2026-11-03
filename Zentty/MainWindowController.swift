@@ -944,8 +944,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
-    func toggleFloatsHidden(_ sender: Any?) {
-        handle(.toggleFloatsHidden)
+    func toggleFloatingPanes(_ sender: Any?) {
+        handle(.toggleFloatingPanes)
     }
 
     @objc
@@ -2323,11 +2323,6 @@ extension MainWindowController: NSMenuItemValidation {
                 let toggle = rootViewController.focusedPaneUnreadToggle
                 menuItem.title = (toggle ?? .markUnread).title
                 return toggle != nil
-            case .toggleFloatsHidden:
-                menuItem.title = rootViewController.floatsAreHidden
-                    ? "Show Floating Panes"
-                    : AppCommandRegistry.definition(for: .toggleFloatsHidden).title
-                return rootViewController.isCommandAvailable(commandID)
             default:
                 return rootViewController.isCommandAvailable(commandID)
             }

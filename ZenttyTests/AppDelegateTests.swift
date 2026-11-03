@@ -311,7 +311,7 @@ final class AppDelegateTests: XCTestCase {
                 "Float or Dock Pane",
                 "Minimize Float",
                 "Picture in Picture",
-                "Hide Floating Panes",
+                "Toggle Floating Panes",
                 "New Float",
                 "Cycle Floating Panes",
             ]

@@ -235,7 +235,7 @@ final class FloatVisibilityCapsuleView: NSButton {
     private func updateToolTip() {
         toolTip = CommandTooltipFormatter.title(
             capsuleState.actionTitle,
-            commandID: .toggleFloatsHidden,
+            commandID: .toggleFloatingPanes,
             shortcutManager: shortcutManager
         )
     }

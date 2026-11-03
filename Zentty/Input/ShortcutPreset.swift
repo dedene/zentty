@@ -215,7 +215,7 @@ extension ShortcutPreset {
         .init(commandID: .toggleFloat, key: .character("f"), modifiers: [.command, .option]),
         .init(commandID: .minimizeFloat, key: .character("m"), modifiers: [.command, .option]),
         .init(commandID: .pipFloat, key: .character("p"), modifiers: [.command, .option]),
-        .init(commandID: .toggleFloatsHidden, key: .character("."), modifiers: [.command, .option]),
+        .init(commandID: .toggleFloatingPanes, key: .character("h"), modifiers: [.command, .option]),
         .init(commandID: .newFloat, key: .character("n"), modifiers: [.command, .option]),
         .init(commandID: .cycleFloatFocus, key: .character("`"), modifiers: [.command, .option]),
     ]

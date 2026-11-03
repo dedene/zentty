@@ -52,7 +52,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case toggleFloat = "float.toggle"
     case minimizeFloat = "float.minimize"
     case pipFloat = "float.pip"
-    case toggleFloatsHidden = "float.hideAll"
+    case toggleFloatingPanes = "float.toggleAll"
     case newFloat = "float.new"
     case cycleFloatFocus = "float.cycleFocus"
     case splitHorizontally = "pane.split.horizontal"
@@ -131,8 +131,10 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     /// Retired command ids a saved config may still bind, mapped to the
     /// command that replaced them. Re-saving the config writes the new id.
     static let retiredConfigIDs: [String: AppCommandID] = [
-        // "Toggle Quick Action Overlay" became "New Float".
-        "overlay.toggle": .newFloat,
+        // "Toggle Quick Action Overlay" (often bound to ⌥⌘H) and the
+        // pre-release "Hide Floating Panes" became "Toggle Floating Panes".
+        "overlay.toggle": .toggleFloatingPanes,
+        "float.hideAll": .toggleFloatingPanes,
     ]
 
     /// Decodes a command id from a config file, accepting retired ids.
@@ -175,7 +177,7 @@ enum AppAction: Equatable, Sendable {
     case toggleFloat
     case minimizeFloat
     case pipFloat
-    case toggleFloatsHidden
+    case toggleFloatingPanes
     case newFloat
     case cycleFloatFocus
     case navigateBack
@@ -558,15 +560,15 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
-            id: .toggleFloatsHidden,
-            title: "Hide Floating Panes",
+            id: .toggleFloatingPanes,
+            title: "Toggle Floating Panes",
             category: .panes,
-            defaultShortcut: .init(key: .character("."), modifiers: [.command, .option]),
-            action: .toggleFloatsHidden,
+            defaultShortcut: .init(key: .character("h"), modifiers: [.command, .option]),
+            action: .toggleFloatingPanes,
             menuItem: AppCommandMenuItem(
                 section: .view,
-                title: "Hide Floating Panes",
-                selector: #selector(MainWindowController.toggleFloatsHidden(_:))
+                title: "Toggle Floating Panes",
+                selector: #selector(MainWindowController.toggleFloatingPanes(_:))
             )
         ),
         AppCommandDefinition(
@@ -1179,7 +1181,7 @@ enum AppCommandRegistry {
                 .command(.toggleFloat),
                 .command(.minimizeFloat),
                 .command(.pipFloat),
-                .command(.toggleFloatsHidden),
+                .command(.toggleFloatingPanes),
                 .separator,
                 .command(.newFloat),
                 .command(.cycleFloatFocus),
@@ -1295,8 +1297,8 @@ extension AppCommandDefinition {
             "Put the focused float away; it keeps running."
         case .pipFloat:
             "Shrink the focused float into a picture-in-picture corner; it keeps running."
-        case .toggleFloatsHidden:
-            "Hide the floats and picture-in-picture panes of this worklane, or show them again."
+        case .toggleFloatingPanes:
+            "Bring this worklane's floats forward, or hide them when one has focus. Opens a new float when there are none."
         case .newFloat:
             "Open a new shell as a float in the focused pane's working directory."
         case .cycleFloatFocus:
@@ -1426,7 +1428,7 @@ extension AppCommandDefinition {
             [title, detailDescription, "floating float overlay quick action shell window"]
                 .joined(separator: " ")
                 .lowercased()
-        case .toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatsHidden, .cycleFloatFocus:
+        case .toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatingPanes, .cycleFloatFocus:
             [title, detailDescription, "floating float overlay window pip picture in picture"]
                 .joined(separator: " ")
                 .lowercased()

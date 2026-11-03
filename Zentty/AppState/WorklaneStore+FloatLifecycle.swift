@@ -81,12 +81,60 @@ extension WorklaneStore {
         focusFloat(target)
     }
 
-    /// ⌥⌘.: hides or shows the active worklane's floats and PiPs.
+    /// The title-bar eye capsule: hides or shows the active worklane's floats
+    /// and PiPs, nothing else.
     func toggleFloatsHidden() {
         guard let worklane = activeWorklane else {
             return
         }
         setFloatsHidden(!worklane.floatsHidden)
+    }
+
+    /// ⌥⌘H, "Toggle Floating Panes": one key that summons and dismisses the
+    /// active worklane's floats.
+    /// - No floats, PiPs or pills: opens a new float (as ⌥⌘N).
+    /// - A float has focus: hides floats and PiPs; focus returns to the strip.
+    /// - Floats hidden: shows them and focuses the front float, which is the
+    ///   last focused one (focusing always raises).
+    /// - Shown, a tile has focus: focuses the front float without hiding.
+    /// - Shown PiPs but no float: hides them (the next press shows them).
+    /// - Only pills: restores the most recently minimized one as a float.
+    @discardableResult
+    func toggleFloatingPanes(canvas: CGRect) -> PaneID? {
+        guard let worklane = activeWorklane else {
+            return nil
+        }
+        guard !worklane.floatingPanes.isEmpty else {
+            return newFloatFromFocus(canvas: canvas)
+        }
+        if worklane.floatOwnsFocus {
+            setFloatsHidden(true)
+            return nil
+        }
+        let front = worklane.floatsByStackOrder.last { $0.mode.isFloating }
+        let hasPip = worklane.floatingPanes.contains { float in
+            if case .pip = float.mode { return true }
+            return false
+        }
+        if let front {
+            focusFloat(front.pane.id)
+            return front.pane.id
+        }
+        if hasPip {
+            setFloatsHidden(!worklane.floatsHidden)
+            return nil
+        }
+        let newestPill = worklane.floatingPanes
+            .compactMap { float -> (PaneID, Int)? in
+                guard case .minimized(let order) = float.mode else { return nil }
+                return (float.pane.id, order)
+            }
+            .max { $0.1 < $1.1 }
+        guard let newestPill else {
+            return nil
+        }
+        restoreFloat(newestPill.0)
+        return newestPill.0
     }
 
     /// ⌥⌘N: opens a new shell as a focused float, centred at 60% of `canvas`

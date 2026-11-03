@@ -34,7 +34,7 @@ final class AppActionRouterTests: XCTestCase {
             (.toggleFloat, "routeToggleFloat"),
             (.minimizeFloat, "routeMinimizeFloat"),
             (.pipFloat, "routePipFloat"),
-            (.toggleFloatsHidden, "routeToggleFloatsHidden"),
+            (.toggleFloatingPanes, "routeToggleFloatingPanes"),
             (.newFloat, "routeNewFloat"),
             (.cycleFloatFocus, "routeCycleFloatFocus"),
             (.navigateBack, "routeNavigateBack"),
@@ -125,7 +125,7 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     func routeToggleFloat() { calls.append("routeToggleFloat") }
     func routeMinimizeFloat() { calls.append("routeMinimizeFloat") }
     func routePipFloat() { calls.append("routePipFloat") }
-    func routeToggleFloatsHidden() { calls.append("routeToggleFloatsHidden") }
+    func routeToggleFloatingPanes() { calls.append("routeToggleFloatingPanes") }
     func routeNewFloat() { calls.append("routeNewFloat") }
     func routeCycleFloatFocus() { calls.append("routeCycleFloatFocus") }
     func routeNavigateBack() { calls.append("routeNavigateBack") }

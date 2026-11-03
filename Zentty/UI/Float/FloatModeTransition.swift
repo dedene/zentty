@@ -19,7 +19,8 @@ struct FloatModeTransitionPlan: Equatable, Sendable {
         case toPill
         /// Fade and shrink a little: it closed.
         case close
-        /// Fade and shrink a little less: Hide Floating Panes.
+        /// Fade and shrink a little less: floats hidden (Toggle Floating
+        /// Panes or the title-bar eye capsule).
         case hide
     }
 

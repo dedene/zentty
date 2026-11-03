@@ -30,7 +30,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeToggleFloat()
     func routeMinimizeFloat()
     func routePipFloat()
-    func routeToggleFloatsHidden()
+    func routeToggleFloatingPanes()
     func routeNewFloat()
     func routeCycleFloatFocus()
     func routeNavigateBack()
@@ -108,8 +108,8 @@ struct AppActionRouter {
             environment.routeMinimizeFloat()
         case .pipFloat:
             environment.routePipFloat()
-        case .toggleFloatsHidden:
-            environment.routeToggleFloatsHidden()
+        case .toggleFloatingPanes:
+            environment.routeToggleFloatingPanes()
         case .newFloat:
             environment.routeNewFloat()
         case .cycleFloatFocus:

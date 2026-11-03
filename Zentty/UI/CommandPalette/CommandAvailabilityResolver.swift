@@ -32,9 +32,6 @@ struct CommandAvailabilityContext: Equatable {
     let focusedPaneIsSoleTile: Bool
     /// `.floating` floats in the active worklane (hidden or not).
     let floatingFloatCount: Int
-    /// `.floating` + PiP floats in the active worklane, hidden or not: what
-    /// Hide/Show Floating Panes acts on.
-    let shownFloatCount: Int
     /// Panes next/previous pane can land on, across worklanes: tiles plus
     /// visible `.floating` floats (never PiPs, pills or hidden floats).
     let navigablePaneCount: Int
@@ -57,7 +54,6 @@ struct CommandAvailabilityContext: Equatable {
         focusedPaneIsFloat: Bool = false,
         focusedPaneIsSoleTile: Bool = false,
         floatingFloatCount: Int = 0,
-        shownFloatCount: Int = 0,
         navigablePaneCount: Int? = nil
     ) {
         self.worklaneCount = worklaneCount
@@ -77,7 +73,6 @@ struct CommandAvailabilityContext: Equatable {
         self.focusedPaneIsFloat = focusedPaneIsFloat
         self.focusedPaneIsSoleTile = focusedPaneIsSoleTile
         self.floatingFloatCount = floatingFloatCount
-        self.shownFloatCount = shownFloatCount
         self.navigablePaneCount = navigablePaneCount ?? totalPaneCount
     }
 }
@@ -170,8 +165,8 @@ enum CommandAvailabilityResolver {
             return context.activePaneCount >= 1 && !context.focusedPaneIsSoleTile
         case .minimizeFloat, .pipFloat:
             return context.focusedPaneIsFloat
-        case .toggleFloatsHidden:
-            return context.shownFloatCount >= 1
+        case .toggleFloatingPanes:
+            return context.worklaneCount >= 1
         case .newFloat:
             return context.worklaneCount >= 1
         case .cycleFloatFocus:

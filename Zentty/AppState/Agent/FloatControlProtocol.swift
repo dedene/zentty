@@ -215,7 +215,7 @@ struct FloatListEntry: Codable, Equatable, Sendable {
     let status: String
     let agentTool: String?
     let isFocused: Bool
-    /// Hidden with the worklane's other floats (`float hide`, ⌥⌘.). Pills
+    /// Hidden with the worklane's other floats (`float hide`, ⌥⌘H, the eye capsule). Pills
     /// never hide.
     let isHidden: Bool
     /// Not restored on relaunch (`float new --temporary`, overlays).
