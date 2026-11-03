@@ -1946,6 +1946,10 @@ final class PaneContainerView: NSView {
     }
 
     private func updateSearchHUDMouseSuppression() {
+        // The terminal host is shared: once another container borrowed it
+        // (a float docking, a PiP restoring), this one must not overwrite
+        // the borrower's rects.
+        guard terminalHostView.isDescendant(of: self) else { return }
         var suppressionRects = [dragZoneSuppressionRect]
         if leadingMouseInteractionOcclusionWidth > 0 {
             let paneRect = CGRect(

@@ -65,6 +65,7 @@ extension FloatLayerView {
         let clamped = FloatLayout.clamped(frame, in: bounds)
         interactiveFrames[paneID] = clamped
         pip.apply(frame: clamped, contentSize: pip.contentSize)
+        updateFloatMouseOcclusion()
     }
 
     /// Momentum projection picks the corner: the quadrant the PiP's centre
@@ -125,8 +126,8 @@ extension FloatLayerView {
         let visible = pip.frame
         onPipTouched?(paneID)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak pip] in
-            pip?.layer?.zPosition = 0
+        CATransaction.setCompletionBlock { [weak self, weak pip] in
+            MainActor.assumeIsolated { self?.lowerAfterSettle(pip) }
         }
         settlePip(pip, velocity: velocity, resetsLayerOrder: false)
         if corner != pip.corner {
@@ -144,13 +145,14 @@ extension FloatLayerView {
         let visible = pip.frame
         if resetsLayerOrder {
             CATransaction.begin()
-            CATransaction.setCompletionBlock { [weak pip] in
-                pip?.layer?.zPosition = 0
+            CATransaction.setCompletionBlock { [weak self, weak pip] in
+                MainActor.assumeIsolated { self?.lowerAfterSettle(pip) }
             }
         }
         pip.setLifted(false)
         pip.setSwipeOffset(.zero)
         pip.apply(frame: pipRestingFrames[pip.paneID] ?? pip.modelFrame, contentSize: pip.contentSize)
+        updateFloatMouseOcclusion()
         let reduceMotion = FloatMotion.reduceMotion
         animateSettle(
             pip,
@@ -163,6 +165,12 @@ extension FloatLayerView {
         if resetsLayerOrder {
             CATransaction.commit()
         }
+    }
+
+    /// Back in its stack slot once settled; what it covers changes with it.
+    private func lowerAfterSettle(_ pip: PipContainerView?) {
+        pip?.layer?.zPosition = 0
+        updateFloatMouseOcclusion()
     }
 
     /// Toward a wall it already touches: from the rubber band out to

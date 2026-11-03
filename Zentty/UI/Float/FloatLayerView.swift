@@ -22,6 +22,8 @@ final class FloatLayerView: NSView {
     /// A move/resize/throw gesture ended; the canvas is the layer's bounds
     /// (normalize the frames against it). `.click` needs no store change.
     var onFloatGestureEnded: ((PaneID, FloatGestureOutcome, CGRect) -> Void)?
+    /// A float or PiP moved or the set changed (see +MouseOcclusion).
+    var onOccludingFramesChanged: (() -> Void)?
     var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
     /// Wires a new float container like a strip pane (providers, copy path).
     /// Runs once per container, right after it is created.
@@ -233,6 +235,7 @@ final class FloatLayerView: NSView {
         }
 
         sortMountedViews(by: placements.map(\.paneID))
+        updateFloatMouseOcclusion()
         if !duringLayout {
             pendingLiftSources.removeAll()
             pendingPipEntries.removeAll()

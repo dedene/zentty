@@ -74,6 +74,7 @@ extension FloatLayerView {
         }
         (view as? FloatContainerView)?.isDeparting = true
         (view as? PipContainerView)?.isDeparting = true
+        muteMouseTracking(ofDeparting: view)
         departingViews[paneID] = view
 
         let model = view.frame

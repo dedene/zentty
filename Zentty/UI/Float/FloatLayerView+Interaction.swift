@@ -62,6 +62,7 @@ extension FloatLayerView {
         interactiveFrames[paneID] = frame
         host.setPaneFrame(frame)
         updateDock(host)
+        updateFloatMouseOcclusion()
     }
 
     private func floatGestureEnded(_ paneID: PaneID, outcome: FloatGestureOutcome, velocity: CGVector) {
@@ -81,6 +82,7 @@ extension FloatLayerView {
                 pendingPipEntries[paneID] = PipEntry(fromFrame: finalFrame, velocity: velocity)
             }
             settle(host, to: finalFrame, velocity: velocity)
+            updateFloatMouseOcclusion()
         }
         onFloatGestureEnded?(paneID, outcome, bounds)
     }
@@ -90,6 +92,7 @@ extension FloatLayerView {
         endDockMode(paneID)
         guard let host = floatHost(paneID) else { return }
         settle(host, to: storeFrame(for: paneID) ?? host.paneFrame, velocity: .zero)
+        updateFloatMouseOcclusion()
     }
 
     // MARK: - Settle

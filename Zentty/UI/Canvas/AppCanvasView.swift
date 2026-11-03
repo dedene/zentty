@@ -397,6 +397,12 @@ final class AppCanvasView: NSView {
         pillBarView.onPeekChanged = { [weak self] item, pillFrame in
             self?.updatePeek(item, pillFrame: pillFrame)
         }
+        // Floats and PiPs move between renders (gestures, settles): keep the
+        // strip's terminals ignoring the pointer under where they are now.
+        floatLayerView.onOccludingFramesChanged = { [weak paneStripView, weak floatLayerView] in
+            guard let paneStripView, let floatLayerView else { return }
+            paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
+        }
         floatLayerView.dockColumnsProvider = { [weak paneStripView, weak floatLayerView] in
             guard let paneStripView, let floatLayerView else { return [] }
             return paneStripView.dockHitTestColumns(in: floatLayerView)
