@@ -37,8 +37,12 @@ extension FloatLayerView {
 
     // MARK: - Drag
 
+    /// The drag is the user's from here: an auto-popped PiP must not go back
+    /// to its pill (and unmount under the pointer) if its agent moves on
+    /// before the release.
     private func pipDragBegan(_ paneID: PaneID) {
         guard let pip = pipHosts[paneID] else { return }
+        onPipTouched?(paneID)
         pip.layer?.removeAnimation(forKey: Self.settleAnimationKey)
         interactiveFrames[paneID] = pip.modelFrame
         // Above the floats while it moves (layer order only: no re-parent).

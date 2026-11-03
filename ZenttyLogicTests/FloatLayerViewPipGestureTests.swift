@@ -160,7 +160,7 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         pip.mouseUp(with: mouse(.leftMouseUp, at: start.offsetBy(dx: -40, dy: 30), after: 0.3))
 
         XCTAssertTrue(moveRequests.isEmpty, "same corner: nothing to ask the store")
-        XCTAssertEqual(touched, [pipID], "a drag home still counts as the user touching it")
+        XCTAssertEqual(Set(touched), [pipID], "a drag home still counts as the user touching it")
         XCTAssertEqual(settled, [.bottomRight])
         assertFrame(pip.frame, resting)
         XCTAssertFalse(pip.isLifted)
@@ -379,6 +379,20 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         XCTAssertNil(pip.drag)
         XCTAssertFalse(layer.isGestureActive)
         assertFrame(pip.modelFrame, resting)
+    }
+
+    func test_drag_begin_counts_as_a_touch_before_the_release() throws {
+        let (layer, pip) = try makePip()
+        var touched: [PaneID] = []
+        layer.onPipTouched = { touched.append($0) }
+        let start = CGPoint(x: pip.frame.midX, y: pip.frame.midY)
+
+        pip.mouseDown(with: mouse(.leftMouseDown, at: start))
+        XCTAssertTrue(touched.isEmpty, "a press alone is not a drag")
+        pip.mouseDragged(with: mouse(.leftMouseDragged, at: start.offsetBy(dx: -100, dy: 0)))
+
+        XCTAssertEqual(touched, [pipID], "recognized drag: auto-pop must leave it alone from here")
+        pip.cancelDrag()
     }
 
     // MARK: - Fixtures

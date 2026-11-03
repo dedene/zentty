@@ -62,6 +62,31 @@ final class FloatAutoPopHostedTests: XCTestCase {
         XCTAssertEqual(adapters[agentID]?.closeCount ?? 0, 0, "the process lives through the round trip")
     }
 
+    /// Regression: the touch used to land only on mouse-up, so an agent
+    /// resuming mid-drag sent the popped PiP back to its pill (unmounting it
+    /// under the pointer and dropping the drag).
+    func test_resume_mid_drag_keeps_the_popped_pip_under_the_pointer() throws {
+        let controller = try makeFloatedController()
+        store(controller).minimizePane(agentID)
+        waitForLayout("minimized")
+        store(controller).applyAgentStatusPayload(payload(.needsInput))
+        waitForLayout("popped")
+        let pip = try XCTUnwrap(canvas(controller).floatLayerView.pipHostForTesting(agentID))
+        let start = pip.convert(CGPoint(x: pip.bounds.midX, y: pip.bounds.midY), to: nil)
+
+        pip.mouseDown(with: try XCTUnwrap(mouseEvent(.leftMouseDown, at: start, in: controller)))
+        pip.mouseDragged(with: try XCTUnwrap(mouseEvent(.leftMouseDragged, at: CGPoint(x: start.x - 80, y: start.y + 40), in: controller)))
+        store(controller).applyAgentStatusPayload(payload(.running))
+        waitForLayout("resumed mid-drag")
+
+        XCTAssertTrue(canvas(controller).floatLayerView.pipHostForTesting(agentID) === pip, "still mounted")
+        XCTAssertNotNil(pip.drag, "the drag survives")
+        XCTAssertEqual(store(controller).activeWorklane?.floatingPane(id: agentID)?.mode, .pip(corner: .bottomRight, order: 0))
+        pip.mouseUp(with: try XCTUnwrap(mouseEvent(.leftMouseUp, at: CGPoint(x: start.x - 80, y: start.y + 40), in: controller)))
+        waitForLayout("released")
+        XCTAssertEqual(store(controller).activeWorklane?.floatingPane(id: agentID)?.mode.wireName, "pip", "the user placed it")
+    }
+
     func test_hidden_floats_keep_the_pill_amber_and_stay_hidden() throws {
         let controller = try makeFloatedController()
         store(controller).minimizePane(agentID)
