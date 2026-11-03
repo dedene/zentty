@@ -345,7 +345,10 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         pip.mouseDragged(with: mouse(.leftMouseDragged, at: start.offsetBy(dx: -300, dy: 100)))
 
         let escape = try XCTUnwrap(keyEvent(keyCode: 53, characters: "\u{1b}"))
-        XCTAssertNil(pip.handleDragKeyDown(escape), "never reaches the focused terminal")
+        XCTAssertNil(
+            PipContainerView.dragEscapeMonitorStep(pip, escape),
+            "the installed monitor swallows it: never reaches the focused terminal"
+        )
 
         XCTAssertNil(pip.drag)
         XCTAssertFalse(layer.isGestureActive, "float commands are unblocked")
@@ -362,7 +365,9 @@ final class FloatLayerViewPipGestureTests: AppKitTestCase {
         pip.mouseDown(with: mouse(.leftMouseDown, at: start))
 
         let key = try XCTUnwrap(keyEvent(keyCode: 0, characters: "a"))
-        XCTAssertTrue(pip.handleDragKeyDown(key) === key)
+        XCTAssertTrue(PipContainerView.dragEscapeMonitorStep(pip, key) === key)
+        let escape = try XCTUnwrap(keyEvent(keyCode: 53, characters: "\u{1b}"))
+        XCTAssertTrue(PipContainerView.dragEscapeMonitorStep(nil, escape) === escape, "a gone PiP passes Escape on")
         XCTAssertNotNil(pip.drag)
         pip.cancelDrag()
     }

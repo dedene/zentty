@@ -80,7 +80,7 @@ extension PipContainerView {
     private func installDragCancellation() {
         if dragEscapeMonitor == nil {
             dragEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                self?.handleDragKeyDown(event) ?? event
+                Self.dragEscapeMonitorStep(self, event)
             }
         }
         if let window {
@@ -91,6 +91,14 @@ extension PipContainerView {
                 object: window
             )
         }
+    }
+
+    /// What the installed Escape monitor returns. Not `self?.handle(...) ??
+    /// event`: optional chaining flattens the handler's nil (swallowed) into
+    /// "no PiP", which would hand Escape back to the terminal.
+    static func dragEscapeMonitorStep(_ pip: PipContainerView?, _ event: NSEvent) -> NSEvent? {
+        guard let pip else { return event }
+        return pip.handleDragKeyDown(event)
     }
 
     /// The Escape monitor's step: nil (swallowed) when it cancelled a press.
