@@ -66,6 +66,25 @@ enum FloatModeTransition {
         return result
     }
 
+    /// Pills whose pane closed (no longer a float, PiP, pill or tile): they
+    /// fade out like a closing float. Only within one worklane. Known before
+    /// the pill bar renders, which is when the pill would vanish.
+    static func closingPills(
+        from old: FloatLayerContent,
+        oldPillIDs: Set<PaneID>,
+        to new: FloatLayerContent,
+        newPillIDs: Set<PaneID>,
+        stripPaneIDs: Set<PaneID>
+    ) -> Set<PaneID> {
+        guard let worklaneID = new.worklaneID, old.worklaneID == worklaneID else {
+            return []
+        }
+        return oldPillIDs
+            .subtracting(newPillIDs)
+            .subtracting(new.floats.map(\.pane.id))
+            .subtracting(stripPaneIDs)
+    }
+
     /// The motion from `old` to `new`. Only within one worklane: a worklane
     /// switch (or the first render) swaps the layer's content without motion.
     /// `stripPaneIDs` are the new strip's panes (a float that docked).

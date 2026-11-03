@@ -101,6 +101,47 @@ final class FloatModeTransitionTests: XCTestCase {
         )
     }
 
+    // MARK: - Closing pills
+
+    func test_a_pill_whose_pane_closed_fades_but_a_restored_or_docked_one_does_not() {
+        let pill = [float(f, .minimized(order: 0))]
+        XCTAssertEqual(closingPills(old: pill, oldPills: [f], new: []), [f], "closed")
+        XCTAssertEqual(closingPills(old: pill, oldPills: [f], new: [float(f)]), [], "restored: the float grows out of it")
+        XCTAssertEqual(
+            closingPills(old: pill, oldPills: [f], new: [float(f, .pip(corner: .bottomRight, order: 0))]),
+            []
+        )
+        XCTAssertEqual(closingPills(old: pill, oldPills: [f], new: [], strip: [f]), [], "docked: the strip flies it")
+        XCTAssertEqual(closingPills(old: pill, oldPills: [f], new: pill, newPills: [f]), [], "still a pill")
+    }
+
+    func test_a_worklane_switch_closes_no_pills() {
+        let closing = FloatModeTransition.closingPills(
+            from: content([float(f, .minimized(order: 0))]),
+            oldPillIDs: [f],
+            to: FloatLayerContent(floats: [], floatsHidden: false, focusedFloatID: nil, worklaneID: WorklaneID("other")),
+            newPillIDs: [],
+            stripPaneIDs: []
+        )
+        XCTAssertEqual(closing, [])
+    }
+
+    private func closingPills(
+        old: [FloatingPaneState],
+        oldPills: Set<PaneID>,
+        new: [FloatingPaneState],
+        newPills: Set<PaneID> = [],
+        strip: Set<PaneID> = []
+    ) -> Set<PaneID> {
+        FloatModeTransition.closingPills(
+            from: content(old),
+            oldPillIDs: oldPills,
+            to: content(new),
+            newPillIDs: newPills,
+            stripPaneIDs: strip
+        )
+    }
+
     // MARK: - Fixtures
 
     private func float(_ id: PaneID, _ mode: FloatingPaneMode = .floating) -> FloatingPaneState {

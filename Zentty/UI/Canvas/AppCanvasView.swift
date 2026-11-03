@@ -515,7 +515,13 @@ final class AppCanvasView: NSView {
             // Strip first (it releases a lifted pane's host view), then the
             // layer at its final frame (it borrows that host view).
             layoutFloatLayer()
-            pillBarView.render(pills, theme: theme)
+            pillBarView.render(pills, theme: theme, closing: FloatModeTransition.closingPills(
+                from: floatTransitionStart.content,
+                oldPillIDs: floatTransitionStart.pillIDs,
+                to: floats,
+                newPillIDs: Set(pills.items.map(\.paneID)),
+                stripPaneIDs: Set(state.panes.map(\.id))
+            ))
             let floatTransitions = prepareFloatTransitions(from: floatTransitionStart, to: floats, strip: state)
             floatLayerView.render(
                 floats,

@@ -51,6 +51,71 @@ final class PillBarViewTests: AppKitTestCase {
         ))
     }
 
+    // MARK: - Closing
+
+    func test_a_closing_pill_fades_in_place_and_keeps_the_bar_up_until_it_is_gone() throws {
+        setUpBar()
+        let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        addTeardownBlock { MainActor.assumeIsolated { window.close() } }
+        render(["a", "b"])
+        let pill = try XCTUnwrap(barView.pillViewForTesting(PaneID("a")))
+        let point = CGPoint(x: pill.frame.midX, y: pill.frame.midY)
+
+        barView.render(PillBarContent(items: []), theme: ZenttyTheme.fallback(for: nil), closing: [PaneID("a")])
+
+        XCTAssertNil(barView.pillViewForTesting(PaneID("a")), "no longer a pill")
+        XCTAssertEqual(barView.closingPaneIDsForTesting, [PaneID("a")])
+        XCTAssertIdentical(pill.superview, barView, "still drawing")
+        XCTAssertFalse(barView.isHidden, "the bar stays up for the fade")
+        XCTAssertNil(barView.hitTest(barView.convert(point, to: root)), "a fading pill takes no clicks")
+        let fade = try XCTUnwrap(pill.layer?.animation(forKey: PillBarView.closingAnimationKey) as? CAAnimationGroup)
+        XCTAssertEqual(fade.animations?.count, 1, "Reduce Motion: the fade only")
+        XCTAssertEqual(fade.duration, FloatMotion.reducedDuration, accuracy: 0.0001)
+        XCTAssertNil(barView.pillViewForTesting(PaneID("b")), "b left without a close: gone at once")
+
+        barView.finishClosing(PaneID("a"))
+        XCTAssertNil(pill.superview)
+        XCTAssertTrue(barView.isHidden)
+    }
+
+    func test_a_closing_pill_shrinks_with_the_float_close_motion() throws {
+        setUpBar()
+        FloatMotion.reduceMotionOverride = false
+        let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        addTeardownBlock { MainActor.assumeIsolated { window.close() } }
+        render(["a"])
+        let pill = try XCTUnwrap(barView.pillViewForTesting(PaneID("a")))
+
+        barView.render(PillBarContent(items: []), theme: ZenttyTheme.fallback(for: nil), closing: [PaneID("a")])
+
+        let fade = try XCTUnwrap(pill.layer?.animation(forKey: PillBarView.closingAnimationKey) as? CAAnimationGroup)
+        XCTAssertEqual(fade.duration, FloatLayerView.TransitionMotion.closeDuration, accuracy: 0.0001)
+        let transform = try XCTUnwrap(fade.animations?.compactMap { $0 as? CABasicAnimation }.first { $0.keyPath == "transform" })
+        let end = try XCTUnwrap((transform.toValue as? NSValue)?.caTransform3DValue)
+        XCTAssertEqual(end.m11, FloatLayerView.TransitionMotion.closeScale, accuracy: 0.0001, "96%")
+    }
+
+    func test_a_pill_that_returns_drops_its_fading_copy() throws {
+        setUpBar()
+        let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        addTeardownBlock { MainActor.assumeIsolated { window.close() } }
+        render(["a"])
+        let fading = try XCTUnwrap(barView.pillViewForTesting(PaneID("a")))
+        barView.render(PillBarContent(items: []), theme: ZenttyTheme.fallback(for: nil), closing: [PaneID("a")])
+
+        render(["a"])
+
+        XCTAssertNil(fading.superview)
+        XCTAssertTrue(barView.closingPaneIDsForTesting.isEmpty)
+        XCTAssertNotNil(barView.pillViewForTesting(PaneID("a")))
+    }
+
     // MARK: - Visibility and layout
 
     func test_bar_is_hidden_without_pills_and_shows_one_pill_per_item() throws {

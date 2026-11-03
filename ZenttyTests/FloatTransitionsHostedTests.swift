@@ -138,6 +138,30 @@ final class FloatTransitionsHostedTests: XCTestCase {
         XCTAssertNil(host.superview)
     }
 
+    func test_closing_a_pill_from_its_own_action_fades_it_like_a_float() throws {
+        let controller = try makeFloatedController()
+        store(controller).minimizePane(floatID)
+        waitFor(0.5)
+        let bar = canvas(controller).pillBarView
+        let pill = try XCTUnwrap(bar.pillViewForTesting(floatID))
+        let size = pill.frame.size
+
+        controller.rootViewControllerForTesting.handlePaneBorderAction(.close, paneID: floatID)
+
+        XCTAssertTrue(store(controller).activeWorklane?.containsPane(id: floatID) == false, "already closed")
+        XCTAssertEqual(bar.closingPaneIDsForTesting, [floatID])
+        XCTAssertIdentical(pill.superview, bar)
+        XCTAssertFalse(bar.isHidden, "the bar waits for the fade")
+        waitFor(0.08)
+        let drawn = try XCTUnwrap(pill.layer?.presentation())
+        XCTAssertLessThan(drawn.opacity, 0.95, "fading out")
+        XCTAssertLessThan(drawn.frame.width, size.width - 0.1, "shrinking a little")
+
+        waitFor(0.4)
+        XCTAssertNil(pill.superview, "gone once faded")
+        XCTAssertTrue(bar.isHidden)
+    }
+
     func test_restoring_while_the_copy_still_leaves_drops_the_copy() throws {
         let controller = try makeFloatedController()
         let layer = canvas(controller).floatLayerView

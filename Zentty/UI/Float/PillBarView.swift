@@ -28,6 +28,8 @@ final class PillBarView: NSView {
     private(set) var content = PillBarContent.empty
     private var theme = ZenttyTheme.fallback(for: nil)
     private var pillViews: [PaneID: PillView] = [:]
+    /// Pills of closed panes fading out (see +Closing); no longer pills.
+    var closingPills: [PaneID: PillView] = [:]
     private let overflowView = PillOverflowView()
     private(set) var layoutResult = PillBarLayout.layout(fullWidths: [], compactWidths: [], in: .zero)
     private var hoveredPaneID: PaneID?
@@ -60,18 +62,26 @@ final class PillBarView: NSView {
 
     // MARK: - Render
 
-    func render(_ content: PillBarContent, theme: ZenttyTheme) {
+    /// `closing`: panes whose pill leaves because the pane closed; those
+    /// fade out like a closing float. Other removed pills go at once (a
+    /// restore or a dock has its own motion out of the pill).
+    func render(_ content: PillBarContent, theme: ZenttyTheme, closing: Set<PaneID> = []) {
         self.content = content
         self.theme = theme
         let ids = Set(content.items.map(\.paneID))
         for (paneID, view) in pillViews where !ids.contains(paneID) {
-            view.removeFromSuperview()
             pillViews.removeValue(forKey: paneID)
+            if closing.contains(paneID) {
+                beginClosing(view, paneID: paneID)
+            } else {
+                view.removeFromSuperview()
+            }
             if press?.paneID == paneID {
                 press = nil
             }
         }
         for item in content.items where pillViews[item.paneID] == nil {
+            finishClosing(item.paneID)
             let view = PillView(item: item)
             let paneID = item.paneID
             view.onHoverChanged = { [weak self] hovered in
@@ -86,7 +96,7 @@ final class PillBarView: NSView {
             pillViews[paneID] = view
             addSubview(view)
         }
-        isHidden = content.isEmpty
+        updateVisibility()
         layoutPills()
         if let hoveredPaneID, pillViews[hoveredPaneID] == nil {
             self.hoveredPaneID = nil
