@@ -104,47 +104,96 @@ final class AppCanvasPillBarTests: AppKitTestCase {
         XCTAssertGreaterThan(peekIndex, barIndex)
     }
 
-    func test_hovering_a_pill_opens_the_peek_above_it_and_leaving_closes_it() throws {
+    func test_hovering_a_pill_lends_its_live_container_to_a_pip_above_it_and_leaving_gives_it_back() throws {
         let canvas = makeCanvas()
-        canvas.pillPeekView.textProvider = { _ in "$ make\nok" }
+        let pillID = PaneID("pill")
         render(canvas, floats: [float("pill", mode: .minimized(order: 0))])
-        let pill = try XCTUnwrap(canvas.pillBarView.pillViewForTesting(PaneID("pill")))
+        let pill = try XCTUnwrap(canvas.pillBarView.pillViewForTesting(pillID))
+        var changes = 0
+        canvas.onPillPeekChanged = { changes += 1 }
 
         pill.setHovered(true)
 
         let peek = canvas.pillPeekView
         XCTAssertFalse(peek.isHidden)
-        XCTAssertTrue(peek.isPolling)
-        XCTAssertEqual(peek.paneID, PaneID("pill"))
+        XCTAssertEqual(peek.paneID, pillID)
+        XCTAssertEqual(canvas.pillPeekedPaneIDs, [pillID])
+        XCTAssertEqual(changes, 1)
+        let pip = try XCTUnwrap(peek.pip)
+        XCTAssertTrue(pip.isDisplayOnly)
+        let container = try XCTUnwrap(pip.hostedContainer)
+        XCTAssertNil(canvas.floatLayerView.containerForTesting(pillID), "lent, not mounted in the layer")
+        XCTAssertTrue(container.terminalViewportSuspensionOwners.contains(.pillPeek))
+        let floatSize = CGSize(width: 500, height: 300)
+        // Bounds scaling: the scaled view keeps the float's size (AppKit
+        // rounds a bounds it derives from a scaled frame).
+        XCTAssertEqual(pip.scaleViewForTesting.bounds.width, floatSize.width, accuracy: 0.001)
+        XCTAssertEqual(pip.scaleViewForTesting.bounds.height, floatSize.height, accuracy: 0.001)
+        XCTAssertEqual(container.frame.size, floatSize)
+        let pipSize = FloatLayout.pipSize(floatSize: floatSize, width: canvas.floatLayerView.pipWidth)
+        XCTAssertEqual(peek.frame.size, pipSize)
+        XCTAssertEqual(pip.frame, CGRect(origin: .zero, size: pipSize))
         let pillInCanvas = canvas.convert(pill.frame, from: canvas.pillBarView)
         XCTAssertEqual(peek.frame.minY, pillInCanvas.maxY + PillPeekView.anchorGap)
-        XCTAssertEqual(peek.bodyTextForTesting, "$ make\nok")
+        XCTAssertNil(peek.hitTest(CGPoint(x: peek.frame.midX, y: peek.frame.midY)), "display only")
 
         pill.setHovered(false)
 
-        XCTAssertFalse(peek.isPolling)
         XCTAssertNil(peek.paneID)
+        XCTAssertNil(peek.pip)
+        XCTAssertNil(container.superview, "given back and dropped")
+        XCTAssertEqual(canvas.pillPeekedPaneIDs, [])
+        XCTAssertEqual(changes, 2)
     }
 
-    func test_restoring_the_hovered_pill_closes_the_peek() throws {
+    func test_restoring_the_hovered_pill_gives_the_container_back_before_the_layer_mounts_it() throws {
         let canvas = makeCanvas()
+        let pillID = PaneID("pill")
         render(canvas, floats: [float("pill", mode: .minimized(order: 0))])
-        try XCTUnwrap(canvas.pillBarView.pillViewForTesting(PaneID("pill"))).setHovered(true)
-        XCTAssertTrue(canvas.pillPeekView.isPolling)
+        try XCTUnwrap(canvas.pillBarView.pillViewForTesting(pillID)).setHovered(true)
+        let lent = try XCTUnwrap(canvas.pillPeekView.pip?.hostedContainer)
 
         render(canvas, floats: [float("pill", mode: .floating)])
 
-        XCTAssertFalse(canvas.pillPeekView.isPolling)
+        XCTAssertNil(canvas.pillPeekView.paneID)
+        XCTAssertNil(canvas.pillPeekView.pip)
+        XCTAssertTrue(canvas.pillPeekView.isHidden)
+        XCTAssertNil(lent.superview)
+        let mounted = try XCTUnwrap(canvas.floatLayerView.containerForTesting(pillID))
+        XCTAssertFalse(mounted === lent)
+        XCTAssertTrue(mounted.superview is FloatContainerView)
+    }
+
+    func test_hovering_another_pill_swaps_the_loan() throws {
+        let canvas = makeCanvas()
+        render(canvas, floats: [
+            float("one", mode: .minimized(order: 0)),
+            float("two", mode: .minimized(order: 1)),
+        ])
+        let one = try XCTUnwrap(canvas.pillBarView.pillViewForTesting(PaneID("one")))
+        let two = try XCTUnwrap(canvas.pillBarView.pillViewForTesting(PaneID("two")))
+        one.setHovered(true)
+        let first = try XCTUnwrap(canvas.pillPeekView.pip?.hostedContainer)
+
+        two.setHovered(true)
+        one.setHovered(false)
+
+        XCTAssertEqual(canvas.pillPeekView.paneID, PaneID("two"))
+        XCTAssertEqual(canvas.pillPeekView.pip?.paneID, PaneID("two"))
+        XCTAssertNil(first.superview)
+        XCTAssertEqual(canvas.pillPeekedPaneIDs, [PaneID("two")])
     }
 
     func test_update_pills_refreshes_status_without_changing_the_set() throws {
         let canvas = makeCanvas()
         render(canvas, floats: [float("pill", mode: .minimized(order: 0))])
+        try XCTUnwrap(canvas.pillBarView.pillViewForTesting(PaneID("pill"))).setHovered(true)
 
         canvas.updatePills(PillBarContent(items: [
             PillBarItem(paneID: PaneID("pill"), name: "pill", subtitle: nil, attention: .needsInput),
         ]))
         XCTAssertEqual(canvas.pillBarView.pillViewForTesting(PaneID("pill"))?.item.attention, .needsInput)
+        XCTAssertEqual(canvas.pillPeekView.pip?.status?.attention, .needsInput, "the peek's strip follows")
 
         canvas.updatePills(PillBarContent(items: [
             PillBarItem(paneID: PaneID("other"), name: "other", subtitle: nil, attention: nil),

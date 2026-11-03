@@ -315,49 +315,29 @@ final class PillBarViewTests: AppKitTestCase {
         XCTAssertEqual(PillOverflowView.accessibilityLabel(count: 3), "3 more minimized panes")
     }
 
-    // MARK: - Peek view
+    // MARK: - Peek placement
 
-    func test_peek_polls_only_while_shown_and_shows_the_tail() throws {
-        setUpBar()
-        let peek = PillPeekView()
-        root.addSubview(peek)
-        var reads = 0
-        peek.textProvider = { paneID in
-            reads += 1
-            XCTAssertEqual(paneID, PaneID("a"))
-            return (1...15).map { "row \($0)" }.joined(separator: "\n") + "\n\n\n"
-        }
+    func test_peek_sits_above_the_pill_with_right_edges_aligned() {
+        let container = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let size = CGSize(width: 232, height: 140)
 
-        peek.show(item("a"), above: CGRect(x: 600, y: 5, width: 80, height: 28))
+        let frame = PillPeekView.frame(size: size, above: CGRect(x: 600, y: 5, width: 80, height: 28), in: container)
 
-        XCTAssertTrue(peek.isPolling)
-        XCTAssertEqual(reads, 1, "reads once right away")
-        XCTAssertEqual(peek.bodyTextForTesting.split(separator: "\n").first, "row 6")
-        XCTAssertEqual(peek.bodyTextForTesting.split(separator: "\n").last, "row 15")
-        XCTAssertEqual(peek.nameForTesting, "a")
-        XCTAssertEqual(peek.frame.size, PillPeekView.size)
-        XCTAssertEqual(peek.frame.maxX, 680, "right edges aligned")
-        XCTAssertEqual(peek.frame.minY, 5 + 28 + PillPeekView.anchorGap)
-
-        let polled = expectation(description: "polled again")
-        DispatchQueue.main.asyncAfter(deadline: .now() + PillPeekView.pollInterval * 2.5) { polled.fulfill() }
-        wait(for: [polled], timeout: 3)
-        XCTAssertGreaterThanOrEqual(reads, 2)
-
-        peek.hide()
-        XCTAssertFalse(peek.isPolling)
-        let readsAtHide = reads
-        let idle = expectation(description: "idle")
-        DispatchQueue.main.asyncAfter(deadline: .now() + PillPeekView.pollInterval * 2.5) { idle.fulfill() }
-        wait(for: [idle], timeout: 3)
-        XCTAssertEqual(reads, readsAtHide, "no reads while hidden")
-        XCTAssertTrue(peek.isHidden)
+        XCTAssertEqual(frame, CGRect(x: 680 - 232, y: 5 + 28 + PillPeekView.anchorGap, width: 232, height: 140))
     }
 
     func test_peek_stays_inside_the_container() {
-        let container = CGRect(x: 0, y: 0, width: 700, height: 500)
+        let container = CGRect(x: 40, y: 0, width: 700, height: 500)
+        let size = CGSize(width: 232, height: 140)
 
-        let nearLeft = PillPeekView.frame(above: CGRect(x: 10, y: 5, width: 60, height: 28), in: container)
-        XCTAssertEqual(nearLeft.minX, PillPeekView.edgeInset)
+        let nearLeft = PillPeekView.frame(size: size, above: CGRect(x: 50, y: 5, width: 60, height: 28), in: container)
+        XCTAssertEqual(nearLeft.minX, 40 + PillPeekView.edgeInset)
+
+        let nearRight = PillPeekView.frame(size: size, above: CGRect(x: 700, y: 5, width: 60, height: 28), in: container)
+        XCTAssertEqual(nearRight.maxX, container.maxX - PillPeekView.edgeInset)
+
+        let short = CGRect(x: 0, y: 0, width: 700, height: 160)
+        let clamped = PillPeekView.frame(size: size, above: CGRect(x: 300, y: 5, width: 60, height: 28), in: short)
+        XCTAssertEqual(clamped.maxY, short.maxY - PillPeekView.edgeInset, "no room above: kept on screen")
     }
 }

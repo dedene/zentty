@@ -3,7 +3,7 @@ import XCTest
 
 /// Pills through the real window: minimizing puts the float in the bar and
 /// the strip gives up the bar's height; a click restores, a drag up promotes
-/// to a PiP; a minimized surface stays occluded while its pill is peeked.
+/// to a PiP. The hover peek has its own suite (`PillPeekHostedTests`).
 @MainActor
 final class PillBarHostedTests: XCTestCase {
     private let worklaneID = WorklaneID("wl-pills")
@@ -84,24 +84,6 @@ final class PillBarHostedTests: XCTestCase {
         XCTAssertNotNil(layer.pipHostForTesting(floatID))
         XCTAssertTrue(bar.isHidden)
         XCTAssertEqual(adapters[floatID]?.closeCount, 0)
-    }
-
-    func test_a_peeked_pill_stays_occluded() throws {
-        let controller = try makeMinimizedController()
-        let canvas = canvas(controller)
-        XCTAssertEqual(adapters[floatID]?.lastActivity?.isVisible, false)
-        XCTAssertEqual(adapters[floatID]?.lastActivity?.isFocused, false)
-
-        try XCTUnwrap(canvas.pillBarView.pillViewForTesting(floatID)).setHovered(true)
-        XCTAssertTrue(canvas.pillPeekView.isPolling)
-        waitForLayout("peek polled", delay: PillPeekView.pollInterval * 3)
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: controller.window)
-        waitForLayout("window activation")
-
-        XCTAssertGreaterThanOrEqual(canvas.pillPeekView.pollCount, 2)
-        XCTAssertEqual(adapters[floatID]?.lastActivity?.isVisible, false, "peeking never un-occludes")
-        XCTAssertEqual(adapters[floatID]?.lastActivity?.isFocused, false)
-        XCTAssertEqual(adapters[floatID]?.lastActivity?.keepsRuntimeLive, true)
     }
 
     func test_an_overlay_opened_out_of_sight_is_reachable_from_its_worklanes_pill_bar() throws {

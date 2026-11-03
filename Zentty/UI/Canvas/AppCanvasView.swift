@@ -352,8 +352,10 @@ final class AppCanvasView: NSView {
     let floatLayerView: FloatLayerView
     /// Minimized floats of the active worklane, in flow below the strip.
     let pillBarView = PillBarView()
-    /// Hover peek above a pill; front-most.
+    /// Hover peek above a pill (the pane's live terminal); front-most.
     let pillPeekView = PillPeekView()
+    /// The pill peek started or stopped drawing a pane live.
+    var onPillPeekChanged: (() -> Void)?
     /// Height the pill bar takes from the strip (0 while there are no pills).
     private(set) var pillBarReservedHeight: CGFloat = 0
     /// The strip's height changed because the pill bar showed or left.
@@ -397,6 +399,7 @@ final class AppCanvasView: NSView {
         pillBarView.onPeekChanged = { [weak self] item, pillFrame in
             self?.updatePeek(item, pillFrame: pillFrame)
         }
+        wirePillPeek()
         // Floats and PiPs move between renders (gestures, settles): keep the
         // strip's terminals ignoring the pointer under where they are now.
         floatLayerView.onOccludingFramesChanged = { [weak paneStripView, weak floatLayerView] in
@@ -475,15 +478,7 @@ final class AppCanvasView: NSView {
     func updatePills(_ pills: PillBarContent) {
         guard pills.items.map(\.paneID) == pillBarView.content.items.map(\.paneID) else { return }
         pillBarView.render(pills, theme: currentTheme)
-    }
-
-    private func updatePeek(_ item: PillBarItem?, pillFrame: CGRect) {
-        // No peek while the bar is hidden or faded out (worklane peek).
-        guard let item, !pillBarView.isHidden, pillBarView.alphaValue > 0 else {
-            pillPeekView.hide()
-            return
-        }
-        pillPeekView.show(item, above: convert(pillFrame, from: pillBarView))
+        pillPeekView.updateStatus(pills.items)
     }
 
     func render(
@@ -516,6 +511,9 @@ final class AppCanvasView: NSView {
             // Strip first (it releases a lifted pane's host view), then the
             // layer at its final frame (it borrows that host view).
             layoutFloatLayer()
+            // A peeked pane that stops being a pill goes back before the
+            // layer mounts it (restore, auto-pop) or it is gone (close).
+            pillPeekView.release(keeping: Set(pills.items.map(\.paneID)))
             pillBarView.render(pills, theme: theme, closing: FloatModeTransition.closingPills(
                 from: floatTransitionStart.content,
                 oldPillIDs: floatTransitionStart.pillIDs,

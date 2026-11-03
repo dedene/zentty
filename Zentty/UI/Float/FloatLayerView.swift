@@ -29,7 +29,7 @@ final class FloatLayerView: NSView {
     /// Runs once per container, right after it is created.
     var containerConfigurator: ((PaneContainerView, PaneID) -> Void)?
 
-    private let runtimeRegistry: PaneRuntimeRegistry
+    let runtimeRegistry: PaneRuntimeRegistry
     var containers: [PaneID: PaneContainerView] = [:]
     var pipHosts: [PaneID: PipContainerView] = [:]
     var floatHosts: [PaneID: FloatContainerView] = [:]
@@ -46,8 +46,8 @@ final class FloatLayerView: NSView {
     private(set) var shortcutManager: ShortcutManager?
     private(set) var content = FloatLayerContent.empty
     private(set) var currentTheme = ZenttyTheme.fallback(for: nil)
-    private var showPaneBorders = AppConfig.Panes.default.showBorders
-    private var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
+    private(set) var showPaneBorders = AppConfig.Panes.default.showBorders
+    private(set) var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var lastFocusedFloatID: PaneID?
     /// Room at the bottom the PiPs keep clear (the pill bar while it shows).
     var bottomInset: CGFloat = 0

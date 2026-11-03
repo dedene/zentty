@@ -15,9 +15,14 @@ import QuartzCore
 /// Owns every click: the scaled terminal must never receive mouse events at
 /// scaled coordinates. Only the legend buttons are passed through. Drags
 /// and two-finger swipes move it between corners (see `+Gestures`).
+///
+/// `isDisplayOnly` (a pill peek): same picture and chrome, but it takes no
+/// events at all, tracks no hover (so the legend never shows) and is no
+/// accessibility element.
 @MainActor
 final class PipContainerView: NSView {
     let paneID: PaneID
+    let isDisplayOnly: Bool
     /// A press let go without moving.
     var onClicked: ((PaneID) -> Void)?
     var onActionRequested: ((PaneID, PaneBorderAction) -> Void)?
@@ -48,6 +53,8 @@ final class PipContainerView: NSView {
     /// the pointer is by then (see `+Gestures`).
     var swipeCaptureMonitor: Any?
     private(set) weak var hostedContainer: PaneContainerView?
+    /// Who holds the hosted container's viewport sync while it is here.
+    private(set) var hostedSuspensionOwner: TerminalViewportSuspensionOwner = .pip
     private(set) var isHovered = false
     /// Drawing its way out after the model moved on: takes no events.
     var isDeparting = false
@@ -62,8 +69,9 @@ final class PipContainerView: NSView {
     private let glowLayer = CALayer()
     private var hoverArea: NSTrackingArea?
 
-    init(paneID: PaneID) {
+    init(paneID: PaneID, isDisplayOnly: Bool = false) {
         self.paneID = paneID
+        self.isDisplayOnly = isDisplayOnly
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
@@ -104,7 +112,7 @@ final class PipContainerView: NSView {
         }
         addSubview(actionsView)
 
-        setAccessibilityElement(true)
+        setAccessibilityElement(!isDisplayOnly)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PipChrome.accessibilityLabel(for: nil))
         // The legend only shows on hover; VoiceOver reaches its buttons as
@@ -126,12 +134,18 @@ final class PipContainerView: NSView {
 
     // MARK: - Hosting (viewport suspension order, spike 0a)
 
-    /// Enter PiP: freezes the grid (the `.pip` suspension owner) before the
-    /// container is re-parented and scaled, then hosts it at `contentSize`.
-    /// The container must sit unscaled when this is called.
-    func host(_ container: PaneContainerView, contentSize: CGSize) {
+    /// Enter PiP: freezes the grid (under `owner`: `.pip`, or `.pillPeek`
+    /// for a peek) before the container is re-parented and scaled, then
+    /// hosts it at `contentSize`. The container must sit unscaled when this
+    /// is called.
+    func host(
+        _ container: PaneContainerView,
+        contentSize: CGSize,
+        suspendedBy owner: TerminalViewportSuspensionOwner = .pip
+    ) {
         guard container.superview !== scaleView else { return }
-        container.suspendTerminalViewportSync(by: .pip)
+        container.suspendTerminalViewportSync(by: owner)
+        hostedSuspensionOwner = owner
         container.removeFromSuperview()
         container.frame = CGRect(origin: .zero, size: contentSize)
         scaleView.addSubview(container)
@@ -142,7 +156,13 @@ final class PipContainerView: NSView {
     /// elsewhere. Drops the PiP's suspension; sync resumes unless another
     /// owner (a lift still landing) holds it.
     func relinquishHostedContainer() {
-        hostedContainer?.resumeTerminalViewportSync(by: .pip)
+        hostedContainer?.resumeTerminalViewportSync(by: hostedSuspensionOwner)
+        hostedContainer = nil
+    }
+
+    /// Lets go of the container without resuming its sync (its pane is
+    /// gone: there is no grid left to keep right).
+    func abandonHostedContainer() {
         hostedContainer = nil
     }
 
@@ -305,7 +325,9 @@ final class PipContainerView: NSView {
         super.updateTrackingAreas()
         if let hoverArea {
             removeTrackingArea(hoverArea)
+            self.hoverArea = nil
         }
+        guard !isDisplayOnly else { return }
         let area = NSTrackingArea(
             rect: PipChrome.hoverRect(in: bounds),
             options: [.mouseEnteredAndExited, .activeInActiveApp],
@@ -327,7 +349,7 @@ final class PipContainerView: NSView {
     // MARK: - Mouse ownership
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, !isDeparting else { return nil }
+        guard !isHidden, !isDeparting, !isDisplayOnly else { return nil }
         let local = convert(point, from: superview)
         if !actionsView.isHidden, actionsView.frame.contains(local),
            let hit = actionsView.hitTest(local) {

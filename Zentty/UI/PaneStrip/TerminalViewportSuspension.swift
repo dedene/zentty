@@ -30,6 +30,9 @@ struct TerminalViewportSuspensionOwner: Hashable, Sendable, CustomStringConverti
     static let dockSettle = Self("float.dockSettle")
     /// A PiP: the live container drawn scaled down.
     static let pip = Self("pip")
+    /// A pill peek: a minimized float's live container lent to the hover
+    /// preview, drawn scaled down like a PiP.
+    static let pillPeek = Self("pill.peek")
 }
 
 /// The owners holding one container's viewport sync suspended.

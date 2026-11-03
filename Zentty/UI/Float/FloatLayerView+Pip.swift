@@ -107,17 +107,22 @@ extension FloatLayerView {
     }
 
     /// Lets a freshly created container sync its grid at the float size
-    /// while it still sits unscaled in this layer. Runs in one pass with the
-    /// re-parent into the PiP, so it is never drawn here. Needs a window:
-    /// without one the backing scale (and so the grid) would be a guess.
-    private func primeUnscaled(_ container: PaneContainerView, contentSize: CGSize) {
+    /// while it still sits unscaled in this layer (`owner` is the suspension
+    /// it was created under). Runs in one pass with the re-parent into the
+    /// PiP or peek, so it is never drawn here. Needs a window: without one
+    /// the backing scale (and so the grid) would be a guess.
+    func primeUnscaled(
+        _ container: PaneContainerView,
+        contentSize: CGSize,
+        owner: TerminalViewportSuspensionOwner = .pip
+    ) {
         guard window != nil, contentSize.width > 0, contentSize.height > 0 else { return }
         container.frame = CGRect(origin: .zero, size: contentSize)
         if container.superview !== self {
             container.removeFromSuperview()
             addSubview(container)
         }
-        if container.resumeTerminalViewportSync(by: .pip) {
+        if container.resumeTerminalViewportSync(by: owner) {
             container.forceTerminalViewportSync()
         }
     }

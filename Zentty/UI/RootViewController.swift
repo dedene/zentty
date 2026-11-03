@@ -899,13 +899,12 @@ final class RootViewController: NSViewController {
             let point = floatLayer.convert(pointInBar, from: self.appCanvasView.pillBarView)
             self.worklaneStore.pipPane(paneID, corner: FloatLayout.nearestCorner(to: point, in: floatLayer.bounds))
         }
-        appCanvasView.pillPeekView.textProvider = { [weak self] paneID in
-            guard let reader = self?.runtimeRegistry.runtime(for: paneID)?.adapter as? TerminalTextReading else {
-                return nil
-            }
-            // The whole visible screen: the peek drops trailing blank rows
-            // before it takes the last lines.
-            return reader.readStyledText(includeScrollback: false, lineLimit: nil)
+        // The peeked pane draws live: un-occlude it while the peek shows.
+        renderCoordinator.pillPeekedPaneIDsProvider = { [weak self] in
+            self?.appCanvasView.pillPeekedPaneIDs ?? []
+        }
+        appCanvasView.onPillPeekChanged = { [weak self] in
+            self?.renderCoordinator.updateSurfaceActivities()
         }
         appCanvasView.onPaneViewportHeightChanged = { [weak self] in
             self?.updatePaneViewportHeight()
