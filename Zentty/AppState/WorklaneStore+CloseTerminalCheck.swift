@@ -36,8 +36,7 @@ extension WorklaneStore {
                 }
             }
         }
-        let tiles = worklane.paneStripState.panes.map(\.id)
-        return (tiles + ordered).filter { closing.contains($0) && worklane.closePromptAsksTerminal($0) }
+        return worklane.allPanes.map(\.id).filter { closing.contains($0) && worklane.closePromptAsksTerminal($0) }
     }
 
     /// Every such pane of `worklaneID`, tiles first, then floats in creation
@@ -46,8 +45,6 @@ extension WorklaneStore {
         guard let worklane = worklanes.first(where: { $0.id == worklaneID }) else {
             return []
         }
-        let tiles = worklane.paneStripState.panes.map(\.id)
-        let floats = FloatingPaneState.bySequence(worklane.floatingPanes).map(\.pane.id)
-        return (tiles + floats).filter(worklane.closePromptAsksTerminal)
+        return worklane.allPanes.map(\.id).filter(worklane.closePromptAsksTerminal)
     }
 }
