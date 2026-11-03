@@ -367,6 +367,7 @@ final class PaneContainerView: NSView {
     private var hasRenderedSearchState = false
     private var leadingMouseInteractionOcclusionWidth: CGFloat = 0
     private var floatMouseOcclusionRects: [CGRect] = []
+    private var floatCursorExclusionRects: [CGRect] = []
     private var terminalResizePreview: TerminalResizePreview?
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
@@ -1980,6 +1981,10 @@ final class PaneContainerView: NSView {
         }
 
         terminalHostView.setMouseInteractionSuppressionRects(suppressionRects)
+        terminalHostView.setCursorExclusionRects(floatCursorExclusionRects.compactMap { rect in
+            let covered = rect.intersection(bounds)
+            return covered.isNull || covered.isEmpty ? nil : terminalHostView.convert(covered, from: self)
+        })
     }
 
     /// Floats and PiPs drawn over this tile (self coordinates). The tile's
@@ -1988,6 +1993,16 @@ final class PaneContainerView: NSView {
     func setFloatMouseOcclusionRects(_ rects: [CGRect]) {
         guard floatMouseOcclusionRects != rects else { return }
         floatMouseOcclusionRects = rects
+        updateSearchHUDMouseSuppression()
+    }
+
+    /// Float resize zones over this pane (self coordinates): the terminal
+    /// shows no cursor of its own there, so the zone's resize cursor rect is
+    /// the only one. It still tracks the pointer (selections, scrolling and
+    /// right clicks near the edge keep working).
+    func setFloatCursorExclusionRects(_ rects: [CGRect]) {
+        guard floatCursorExclusionRects != rects else { return }
+        floatCursorExclusionRects = rects
         updateSearchHUDMouseSuppression()
     }
 

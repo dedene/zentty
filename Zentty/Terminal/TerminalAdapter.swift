@@ -264,6 +264,15 @@ protocol TerminalMouseInteractionSuppressionControlling: AnyObject {
     func setMouseInteractionSuppressionRects(_ rects: [CGRect])
 }
 
+/// Terminal views that leave rects out of their own cursor rects without
+/// ignoring the pointer there: another view's cursor rects own them (a
+/// float's resize zones), and overlapping cursor rects have no defined
+/// winner.
+@MainActor
+protocol TerminalCursorExclusionControlling: AnyObject {
+    func setCursorExclusionRects(_ rects: [CGRect])
+}
+
 /// Terminal views whose content fades out under the pane's top border
 /// (the legends sit on it). `topFadeHeight` 0 disables the fade.
 @MainActor

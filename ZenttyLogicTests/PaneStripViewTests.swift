@@ -1607,6 +1607,41 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertFalse(suppressesCentre())
     }
 
+    /// A float's outset (its move band and resize zones) reaches past its
+    /// pane over the strip: the terminal there leaves it to the float's
+    /// cursor rects but keeps tracking the pointer.
+    @MainActor
+    func test_float_cursor_exclusion_rects_reach_strip_terminals_without_suppressing_them() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter)
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let state = PaneStripState(
+            panes: [makePane("logs"), makePane("editor")],
+            focusedPaneID: PaneID("logs")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        let coveredPane = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let adapter = try XCTUnwrap(adapterFactory.adapter(for: coveredPane.paneID))
+        let ring = CGRect(x: coveredPane.frame.midX - 100, y: coveredPane.frame.midY - 60, width: 200, height: 120)
+        let centreInTerminal = adapter.terminalView.convert(CGPoint(x: ring.midX, y: ring.midY), from: paneStripView)
+
+        paneStripView.setFloatCursorExclusionRects([ring])
+        XCTAssertTrue(adapter.terminalView.cursorExclusionRects.contains { $0.contains(centreInTerminal) })
+        XCTAssertFalse(
+            adapter.terminalView.mouseInteractionSuppressionRects.contains { $0.contains(centreInTerminal) },
+            "the pointer is still the terminal's"
+        )
+
+        paneStripView.render(state, animated: false)
+        XCTAssertTrue(adapter.terminalView.cursorExclusionRects.contains { $0.contains(centreInTerminal) })
+        paneStripView.setFloatCursorExclusionRects([])
+        XCTAssertTrue(adapter.terminalView.cursorExclusionRects.isEmpty)
+    }
+
     @MainActor
     func test_sidebar_inset_suppresses_cursor_ownership_for_panes_under_sidebar() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
@@ -4754,7 +4789,8 @@ private final class PaneStripTerminalViewSpy:
     TerminalViewportSyncControlling,
     TerminalFocusReporting,
     TerminalFocusTargetProviding,
-    TerminalMouseInteractionSuppressionControlling
+    TerminalMouseInteractionSuppressionControlling,
+    TerminalCursorExclusionControlling
 {
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var hasValidViewportSync = false
@@ -4765,6 +4801,7 @@ private final class PaneStripTerminalViewSpy:
     private(set) var displayIfNeededCallCount = 0
     private(set) var layoutPassCount = 0
     private(set) var mouseInteractionSuppressionRects: [CGRect] = []
+    private(set) var cursorExclusionRects: [CGRect] = []
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
 
@@ -4795,6 +4832,10 @@ private final class PaneStripTerminalViewSpy:
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
         mouseInteractionSuppressionRects = rects
+    }
+
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        cursorExclusionRects = rects
     }
 
     func simulateFocusChange(_ isFocused: Bool) {

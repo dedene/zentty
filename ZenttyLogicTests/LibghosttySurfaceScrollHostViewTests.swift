@@ -56,6 +56,19 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(harness.surfaceView.frame.origin.y, 32, accuracy: 0.01)
     }
 
+    func test_cursor_exclusion_cuts_terminal_cursor_rects_alongside_suppression() {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        hostView.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 120, width: 800, height: 40)])
+        // A float's resize zone (cursor only: the pointer is still tracked there).
+        hostView.setCursorExclusionRects([CGRect(x: 790, y: 0, width: 10, height: 160)])
+
+        XCTAssertEqual(hostView.terminalCursorRectsForTesting, [CGRect(x: 0, y: 0, width: 790, height: 120)])
+
+        hostView.setCursorExclusionRects([])
+        XCTAssertEqual(hostView.terminalCursorRectsForTesting, [CGRect(x: 0, y: 0, width: 800, height: 120)])
+    }
+
     func test_redraw_mouse_shape_change_does_not_invalidate_fixed_cursor_owner() {
         let harness = makeScrollHostHarness()
         let hostView = harness.hostView

@@ -172,6 +172,7 @@ final class PaneStripView: NSView {
     private var emptyStripHintLabel: NSTextField?
     /// Float and PiP frames over the strip, in strip coordinates.
     private var floatOcclusionRects: [CGRect] = []
+    private var floatCursorExclusionRects: [CGRect] = []
     private var hidesFocusEmphasis: Bool {
         floatHoldsFocus
     }
@@ -1401,6 +1402,7 @@ final class PaneStripView: NSView {
                 leadingMouseInteractionOcclusionWidth(for: targetFrame)
             )
             paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: targetFrame))
+            paneView.setFloatCursorExclusionRects(floatRects(floatCursorExclusionRects, forPaneFrame: targetFrame))
             let targetAlpha: CGFloat
             if panePresentation.paneID == dropSettleCoveredPaneID {
                 targetAlpha = 0
@@ -1555,6 +1557,9 @@ final class PaneStripView: NSView {
                     leadingMouseInteractionOcclusionWidth(for: paneView.frame)
                 )
                 paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: paneView.frame))
+                paneView.setFloatCursorExclusionRects(
+                    floatRects(floatCursorExclusionRects, forPaneFrame: paneView.frame)
+                )
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
                 if startsWithViewportSyncSuspended {
@@ -1628,10 +1633,26 @@ final class PaneStripView: NSView {
         }
     }
 
-    /// The float rects in the coordinates of a pane laid out at `paneFrame`
-    /// (viewport coordinates; the target frame while it animates).
+    /// Where floats own presses (their outset, resize zones included; strip
+    /// coordinates): strip terminals show no cursor of their own there, so
+    /// a float's resize cursor rect is the only one. They still track the
+    /// pointer there.
+    func setFloatCursorExclusionRects(_ rectsInSelf: [CGRect]) {
+        guard floatCursorExclusionRects != rectsInSelf else { return }
+        floatCursorExclusionRects = rectsInSelf
+        for paneView in paneViews.values {
+            paneView.setFloatCursorExclusionRects(floatRects(floatCursorExclusionRects, forPaneFrame: paneView.frame))
+        }
+    }
+
     private func floatOcclusionRects(forPaneFrame paneFrame: CGRect) -> [CGRect] {
-        floatOcclusionRects.compactMap { rect in
+        floatRects(floatOcclusionRects, forPaneFrame: paneFrame)
+    }
+
+    /// Float rects in the coordinates of a pane laid out at `paneFrame`
+    /// (viewport coordinates; the target frame while it animates).
+    private func floatRects(_ rectsInSelf: [CGRect], forPaneFrame paneFrame: CGRect) -> [CGRect] {
+        rectsInSelf.compactMap { rect in
             let inViewport = viewportView.convert(rect, from: self)
             guard inViewport.intersects(paneFrame) else { return nil }
             return inViewport.offsetBy(dx: -paneFrame.minX, dy: -paneFrame.minY)

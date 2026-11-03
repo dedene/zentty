@@ -138,6 +138,11 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
             .setMouseInteractionSuppressionRects(rects)
     }
 
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        (terminalView as? any TerminalCursorExclusionControlling)?
+            .setCursorExclusionRects(rects)
+    }
+
     func forceViewportSync() {
         syncTerminalViewFrameIfNeeded()
         needsLayout = true

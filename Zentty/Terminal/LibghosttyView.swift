@@ -421,7 +421,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalTopFadeConfiguring, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalCursorExclusionControlling, TerminalTopFadeConfiguring, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -467,6 +467,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var terminalCursor: NSCursor = .iBeam
     private var retainedProgrammaticViewportCursor: NSCursor?
     private var terminalCursorSuppressionRects: [CGRect] = []
+    /// Cursor-only cut-outs (another view's cursor rects, e.g. float resize
+    /// zones): the pointer is still tracked there.
+    private var terminalCursorExclusionRects: [CGRect] = []
     private var isTerminalScrollCursorActive = false
     private var isPointerInsideTerminal = false
     private var isLiveScrolling = false
@@ -796,6 +799,12 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView.setMouseInteractionSuppressionRects(surfaceRects)
     }
 
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        guard terminalCursorExclusionRects != rects else { return }
+        terminalCursorExclusionRects = rects
+        window?.invalidateCursorRects(for: self)
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
         for rect in terminalCursorRects {
@@ -892,7 +901,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 
     private var terminalCursorRects: [CGRect] {
-        terminalCursorSuppressionRects.reduce(into: [bounds]) { rects, suppressionRect in
+        (terminalCursorSuppressionRects + terminalCursorExclusionRects).reduce(into: [bounds]) { rects, suppressionRect in
             rects = rects.flatMap { Self.subtract(suppressionRect, from: $0) }
         }
     }
