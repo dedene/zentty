@@ -126,7 +126,7 @@ A pane can leave the tiled layout and float above its worklane. A float can also
 ```
 
 - `pane float|dock|pip|minimize|restore [pane]` take a pane index or ID and default to the calling pane. Indexes follow `pane list`: tiles first, then floats in the order they were created.
-- Each command sets a target state, so repeating it does nothing. `pip` and `minimize` float a tile first. `float` brings a picture-in-picture pane or pill back as a float. `restore` does the same and focuses it; on a tile it fails. `dock` puts a float back in the column it came from.
+- Each command sets a target state, so repeating it does nothing. `pip` and `minimize` float a tile first. The only tile left in a worklane stays a tile: `float`, `pip` and `minimize` on it fail with "Pane … is the only tile in its worklane and stays docked"; split or open another pane first. `float` brings a picture-in-picture pane or pill back as a float. `restore` does the same and focuses it; on a tile it fails. `dock` puts a float back in the column it came from.
 - `pip` keeps a picture-in-picture pane in its corner unless `--corner` is given (`top-left`, `top-right`, `bottom-left`, `bottom-right`); others go bottom-right. A corner holds two; a third sends the oldest to the bottom bar. Picture-in-picture panes and pills never hold keyboard focus.
 - The commands act on the pane's own worklane even when the user is looking at another one, and never switch worklanes.
 - `float new` opens a focused float in the calling pane's worklane, in that pane's directory unless `--cwd` is given, and prints its pane ID. A command after `--` is typed into its shell, so the float stays open when the command ends. `--temporary` floats are not restored when Zentty relaunches and do not keep their worklane open.
@@ -134,7 +134,7 @@ A pane can leave the tiled layout and float above its worklane. A float can also
 - `float hide` hides the worklane's floats and picture-in-picture panes (pills stay); `float show` brings them back. Hidden panes keep running.
 - While the user is dragging a pane, the commands fail with a message to retry.
 
-The user drives the same states with ⌥⌘F (float or dock), ⌥⌘P, ⌥⌘M, ⌥⌘. (hide or show), ⌥⌘N (new float), and ⌥⌘` (cycle floats). A minimized agent that needs input pops up as picture in picture unless the user turned that off.
+The user drives the same states with ⌥⌘F (float or dock), ⌥⌘P, ⌥⌘M, ⌥⌘H (toggle floating panes: brings the floats forward, hides them when one has focus, opens a new float when there are none), ⌥⌘N (new float), and ⌥⌘` (cycle floats). A minimized agent that needs input pops up as picture in picture unless the user turned that off.
 
 ## Overlays
 
