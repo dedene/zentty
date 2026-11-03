@@ -1422,7 +1422,7 @@ final class AgentIPCServer: @unchecked Sendable {
                     return nil
                 }
                 guard let worklane = controller.discoveryWorkspaceState.worklanes.first(where: { $0.id == explicitWorklaneID }),
-                      let paneID = worklane.focusedPaneID else {
+                      let paneID = worklane.selectorRoutingPaneID(caller: envPaneID) else {
                     return nil
                 }
                 return Candidate(
@@ -1445,7 +1445,7 @@ final class AgentIPCServer: @unchecked Sendable {
             }
             guard let activeWorklaneID = controller.discoveryWorkspaceState.activeWorklaneID,
                   let worklane = controller.discoveryWorkspaceState.worklanes.first(where: { $0.id == activeWorklaneID }),
-                  let paneID = worklane.focusedPaneID else {
+                  let paneID = worklane.selectorRoutingPaneID(caller: envPaneID) else {
                 throw PaneRoutingError.paneNotFound
             }
             return AgentIPCTarget(

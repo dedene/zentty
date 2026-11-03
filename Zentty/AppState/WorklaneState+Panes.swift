@@ -75,6 +75,20 @@ extension WorklaneState {
         return paneStripState.focusedPaneID
     }
 
+    /// The pane a CLI selector that names only this worklane (or its window)
+    /// routes through: the focused pane. A float-only worklane whose floats
+    /// are hidden, PiPs or pills has none, so it falls back to `caller` when
+    /// that pane lives here, else the front-most float. Focus never moves.
+    func selectorRoutingPaneID(caller: PaneID?) -> PaneID? {
+        if let focusedPaneID {
+            return focusedPaneID
+        }
+        if let caller, containsPane(id: caller) {
+            return caller
+        }
+        return paneStripState.panes.first?.id ?? floatsByStackOrder.last?.pane.id
+    }
+
     /// Float-aware counterpart of `paneStripState.focusedPane`.
     var focusedPane: PaneState? {
         focusedPaneID.flatMap { pane(id: $0) }

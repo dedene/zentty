@@ -41,6 +41,35 @@ final class WorklaneStateFloatAccessorTests: XCTestCase {
         )
     }
 
+    // MARK: - CLI selector routing
+
+    /// Review finding: `--worklane-id`/`--window-id` routed through the
+    /// focused pane, which a float-only worklane with hidden floats lacks,
+    /// so `float show` failed with pane_not_found right after `float hide`.
+    func test_selector_routing_survives_a_float_only_worklane_without_focus() {
+        let hidden = worklane(
+            tiles: [],
+            floats: [float(floatX, stackOrder: 0), float(floatY, stackOrder: 1)],
+            floatsHidden: true
+        )
+        XCTAssertNil(hidden.focusedPaneID, "precondition: nothing has focus")
+
+        XCTAssertEqual(hidden.selectorRoutingPaneID(caller: floatX.id), floatX.id, "the caller, when it lives here")
+        XCTAssertEqual(hidden.selectorRoutingPaneID(caller: tileA.id), floatY.id, "else the front-most float")
+        XCTAssertEqual(hidden.selectorRoutingPaneID(caller: nil), floatY.id)
+
+        let pills = worklane(tiles: [], floats: [
+            float(floatX, mode: .minimized(order: 0), stackOrder: 0),
+        ])
+        XCTAssertEqual(pills.selectorRoutingPaneID(caller: nil), floatX.id)
+    }
+
+    func test_selector_routing_prefers_the_focused_pane() {
+        let lane = worklane(tiles: [tileA, tileB], focusedTile: tileB.id, floats: [float(floatX, stackOrder: 0)])
+
+        XCTAssertEqual(lane.selectorRoutingPaneID(caller: tileA.id), tileB.id, "focus wins over the caller")
+    }
+
     func test_defaults_have_no_floats() {
         let state = WorklaneState(
             id: WorklaneID("w"),
