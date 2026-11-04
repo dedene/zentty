@@ -348,7 +348,7 @@ extension AgentHistoryIndexer {
                 queued.append((ref, unit.identity?.mtimeNs ?? 0))
             }
         }
-        workQueue.enqueueBackfill(queued)
+        scheduleBackfill(queued)
         return !queued.isEmpty
     }
 

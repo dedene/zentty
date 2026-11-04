@@ -101,12 +101,37 @@ final class AgentHistoryIndexerConditionsTests: XCTestCase {
         guard case let .paused(.lowPower, progress) = indexer.currentStatus.state else {
             return XCTFail("expected a low-power pause, got \(indexer.currentStatus.state)")
         }
-        XCTAssertEqual(progress, AgentHistoryBackfillProgress(indexedSessions: 4, totalSessions: 5))
+        // Units, not sessions: `a`, `db` and `live` are done; `backfill` waits.
+        XCTAssertEqual(progress, AgentHistoryBackfillProgress(indexedSessions: 3, totalSessions: 4))
 
         conditions.setPauseReason(nil)
         indexer.drainSynchronouslyForTesting()
         XCTAssertEqual(try harness.count("SELECT count(*) FROM sessions WHERE native_id = 'backfill'"), 1)
         XCTAssertEqual(indexer.currentStatus.state, .watching)
+    }
+
+    func test_total_holds_when_units_yield_no_session_or_many() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let sessions = (1...3).map {
+            FakeHistorySession(nativeID: "db-\($0)", title: "Session \($0)", cwd: "/work/project", messages: ["q", "a"])
+        }
+        harness.source.setUnits([
+            FakeHistoryUnit(key: "empty", mtimeNs: 3, sessions: []),
+            FakeHistoryUnit(key: "db", kind: .database, mtimeNs: 2, sessions: sessions),
+            .single("a", mtimeNs: 1),
+        ])
+        let indexer = harness.makeIndexer()
+
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+
+        XCTAssertEqual(try harness.count("SELECT count(*) FROM sessions"), 4)
+        let totals = harness.recorder.statuses.compactMap { status -> Int? in
+            guard case .backfilling(let progress) = status.state, progress.totalSessions > 0 else { return nil }
+            return progress.totalSessions
+        }
+        XCTAssertEqual(Set(totals).subtracting([3]), [], "the total never moves")
+        XCTAssertEqual(indexer.progress, AgentHistoryBackfillProgress(indexedSessions: 3, totalSessions: 3))
     }
 
     func test_thermal_serious_pauses_and_nominal_resumes() throws {

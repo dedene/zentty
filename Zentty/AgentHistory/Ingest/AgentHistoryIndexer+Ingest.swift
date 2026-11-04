@@ -35,11 +35,19 @@ extension AgentHistoryIndexer {
             }
             pending.append((AgentHistoryUnitRef(sourceID: sourceState.id, unitKey: unit.key), unit.identity?.mtimeNs ?? 0))
         }
-        workQueue.enqueueBackfill(pending)
+        scheduleBackfill(pending)
         AgentHistoryLog.indexer.debug(
             "Agent History discovered agent=\(sourceState.source.agent.rawValue, privacy: .public) units=\(units.count, privacy: .public) queued=\(pending.count, privacy: .public)"
         )
         return true
+    }
+
+    /// Queues backfill work, noting where the first batch of a run starts counting from.
+    func scheduleBackfill(_ items: [(ref: AgentHistoryUnitRef, mtimeNs: Int64)]) {
+        if workQueue.backfillScheduled == 0 {
+            backfillBaseline = snapshotBuilder.count
+        }
+        workQueue.enqueueBackfill(items)
     }
 
     // MARK: - Step loop

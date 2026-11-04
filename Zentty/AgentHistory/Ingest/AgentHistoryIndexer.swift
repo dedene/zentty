@@ -126,6 +126,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     var workQueue = AgentHistoryWorkQueue()
     var snapshotBuilder = AgentHistoryMetadataSnapshotBuilder()
     var backfillEstimator = AgentHistoryBackfillEstimator()
+    /// Sessions already indexed when the current backfill was scheduled.
+    var backfillBaseline = 0
     var snapshotDirty = false
     var state: AgentHistoryIndexerState = .off
     /// Persisted: a full backfill finished once (the snapshot is complete).

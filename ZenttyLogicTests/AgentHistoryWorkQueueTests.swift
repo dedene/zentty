@@ -14,6 +14,56 @@ final class AgentHistoryWorkQueueTests: XCTestCase {
         return keys
     }
 
+    func test_progress_total_stays_put_while_units_finish() {
+        var queue = AgentHistoryWorkQueue()
+        queue.enqueueBackfill([(ref: ref("a"), mtimeNs: 3), (ref: ref("b"), mtimeNs: 2), (ref: ref("c"), mtimeNs: 1)])
+
+        XCTAssertEqual(queue.backfillScheduled, 3)
+        XCTAssertEqual(queue.backfillFinished, 0)
+
+        _ = queue.popNext(allowBackfill: true)
+        XCTAssertEqual(queue.backfillScheduled, 3)
+        XCTAssertEqual(queue.backfillFinished, 1)
+
+        _ = drain(&queue)
+        XCTAssertEqual(queue.backfillScheduled, 3)
+        XCTAssertEqual(queue.backfillFinished, 3)
+    }
+
+    func test_progress_counts_a_requeued_unit_once() {
+        var queue = AgentHistoryWorkQueue()
+        queue.enqueueBackfill([(ref: ref("a"), mtimeNs: 1), (ref: ref("b"), mtimeNs: 2)])
+        queue.enqueueBackfill([(ref: ref("a"), mtimeNs: 9)])
+
+        XCTAssertEqual(queue.backfillScheduled, 2, "a newer mtime is the same work")
+    }
+
+    func test_progress_counts_a_long_unit_as_unfinished_until_its_last_batch() throws {
+        var queue = AgentHistoryWorkQueue()
+        queue.enqueueBackfill([(ref: ref("long"), mtimeNs: 2), (ref: ref("next"), mtimeNs: 1)])
+
+        let next = try XCTUnwrap(queue.popNext(allowBackfill: true))
+        queue.setContinuation(next.ref, tier: .backfill)
+
+        XCTAssertEqual(queue.backfillScheduled, 2)
+        XCTAssertEqual(queue.backfillFinished, 0)
+    }
+
+    func test_progress_drops_units_of_a_removed_source_from_the_total() {
+        var queue = AgentHistoryWorkQueue()
+        queue.enqueueBackfill([
+            (ref: ref("kept", source: 1), mtimeNs: 3),
+            (ref: ref("gone-1", source: 2), mtimeNs: 2),
+            (ref: ref("gone-2", source: 2), mtimeNs: 1),
+        ])
+        _ = queue.popNext(allowBackfill: true)
+
+        queue.removeAll(sourceID: 2)
+
+        XCTAssertEqual(queue.backfillScheduled, 1)
+        XCTAssertEqual(queue.backfillFinished, 1, "turning a source off doesn't look like progress")
+    }
+
     func test_backfill_pops_newest_mtime_first() {
         var queue = AgentHistoryWorkQueue()
         queue.enqueueBackfill([

@@ -40,10 +40,16 @@ struct AgentHistoryWorkQueue: Sendable {
     private var backfillPending: [AgentHistoryUnitRef: (sequence: UInt64, mtimeNs: Int64)] = [:]
     private var nextSequence: UInt64 = 0
 
+    /// Units handed to backfill since this queue was created: the stable total behind the
+    /// progress bar. Units dropped from the queue without being processed come off it again.
+    private(set) var backfillScheduled = 0
+
     init() {}
 
     var liveCount: Int { live.count + liveContinuations.count }
     var backfillCount: Int { backfillPending.count + backfillContinuations.count }
+    /// Scheduled units that left the queue for good, whatever they turned out to hold.
+    var backfillFinished: Int { max(0, backfillScheduled - backfillCount) }
     var isEmpty: Bool { liveCount == 0 && backfillCount == 0 }
 
     /// Queues a unit for live processing. Ignored when it is already queued live; a unit
@@ -71,6 +77,9 @@ struct AgentHistoryWorkQueue: Sendable {
             }
             if backfillPending[ref]?.mtimeNs == item.mtimeNs {
                 continue
+            }
+            if backfillPending[ref] == nil {
+                backfillScheduled += 1
             }
             let sequence = nextSequence
             nextSequence &+= 1
@@ -131,6 +140,8 @@ struct AgentHistoryWorkQueue: Sendable {
 
     /// Drops every queued unit of a source (source turned off, deleted or rebuilt).
     mutating func removeAll(sourceID: Int64) {
+        let queuedBefore = backfillCount
+        defer { backfillScheduled = max(0, backfillScheduled - (queuedBefore - backfillCount)) }
         live.removeAll { $0.sourceID == sourceID }
         liveContinuations.removeAll { $0.sourceID == sourceID }
         backfillContinuations.removeAll { $0.sourceID == sourceID }

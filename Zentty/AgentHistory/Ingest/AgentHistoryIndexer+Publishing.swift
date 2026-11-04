@@ -17,9 +17,14 @@ extension AgentHistoryIndexer {
         state = next
     }
 
+    /// Counts queued units on both sides, so the total stays put: a unit can hold no visible
+    /// session (an empty transcript) or many (opencode's database), and mixing those with
+    /// sessions already indexed made the total drift while the bar moved.
     var progress: AgentHistoryBackfillProgress {
-        let indexed = snapshotBuilder.count
-        return AgentHistoryBackfillProgress(indexedSessions: indexed, totalSessions: indexed + workQueue.backfillCount)
+        AgentHistoryBackfillProgress(
+            indexedSessions: backfillBaseline + workQueue.backfillFinished,
+            totalSessions: backfillBaseline + workQueue.backfillScheduled
+        )
     }
 
     /// Keeps `.backfilling` / `.paused` progress current while work is queued. A full disk
