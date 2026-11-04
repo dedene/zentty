@@ -41,17 +41,22 @@ final class FloatTransitionsHostedTests: XCTestCase {
         XCTAssertIdentical(host.superview, layer, "the float keeps drawing while it leaves")
         XCTAssertNil(layer.floatHostForTesting(floatID), "but the layer no longer counts it")
         XCTAssertNotNil(pill.layer?.animation(forKey: PillBarView.arrivalAnimationKey))
+        waitFor(0.03)
+        XCTAssertLessThan(pill.layer?.presentation()?.opacity ?? 1, 0.05, "out of sight until the float lands")
 
-        waitFor(0.12)
+        waitFor(0.09)
         let ghost = try XCTUnwrap(host.layer?.presentation())
         XCTAssertLessThan(ghost.opacity, 0.95, "fading out")
         XCTAssertLessThan(ghost.frame.width, host.frame.width - 1, "shrinking toward the pill")
         let pillDrawn = try XCTUnwrap(pill.layer?.presentation())
-        XCTAssertGreaterThan(pillDrawn.frame.width, pill.frame.width + 1, "the pill grows out of the float")
+        XCTAssertLessThanOrEqual(pillDrawn.frame.width, pill.frame.width + 1, "the pill and its label never blow up")
+        XCTAssertLessThanOrEqual(pillDrawn.frame.height, pill.frame.height + 1)
+        XCTAssertEqual(pillDrawn.frame.midX, pill.frame.midX, accuracy: 3, "it appears where it lives")
 
         waitFor(0.5)
         XCTAssertTrue(layer.departingPaneIDsForTesting.isEmpty)
         XCTAssertNil(host.superview, "gone once faded")
+        XCTAssertEqual(pill.layer?.presentation()?.opacity ?? 0, 1, accuracy: 0.01, "landed")
     }
 
     func test_restore_from_the_pill_grows_the_float_out_of_it() throws {

@@ -19,7 +19,6 @@ final class PillBarView: NSView {
     /// is hovered (or a drag started).
     var onPeekChanged: ((PillBarItem?, CGRect) -> Void)?
     /// A pill grew out of a float or PiP (pane, from frame in bar coordinates).
-    var onArrivalForTesting: ((PaneID, CGRect) -> Void)?
     /// Opens the overflow menu (tests replace it; AppKit's pop-up is modal).
     var overflowMenuPresenter: ((NSMenu, PillOverflowView) -> Void) = { menu, view in
         menu.popUp(positioning: nil, at: CGPoint(x: 0, y: view.bounds.maxY + 4), in: view)
@@ -274,16 +273,16 @@ final class PillBarView: NSView {
         pillViews.filter { !$0.value.isHidden }.mapValues(\.frame)
     }
 
-    /// `paneID`'s new pill grows out of `frame` (bar coordinates; the float
-    /// or PiP it replaces) while it fades in from 0.2, like the mockup's
-    /// minimize. Presentation only. Reduce Motion: a short fade in place.
-    func animateArrival(of paneID: PaneID, from frame: CGRect) {
+    /// `paneID`'s new pill settles in on its own spot as the float or PiP
+    /// flying into it lands. The flight is the leaving picture's alone: a
+    /// 28pt capsule blown up to a float's size would stretch its label
+    /// across the window. Presentation only. Reduce Motion: a short fade.
+    func animateArrival(of paneID: PaneID) {
         guard window != nil, let view = pillViews[paneID], !view.isHidden,
-              let layer = view.layer, view.frame.width > 0, view.frame.height > 0,
-              frame.width > 0, frame.height > 0 else { return }
+              let layer = view.layer, view.frame.width > 0, view.frame.height > 0 else { return }
         let motion = FloatLayerView.TransitionMotion.self
         let opacity = CABasicAnimation(keyPath: "opacity")
-        opacity.fromValue = FloatMotion.reduceMotion ? 0 : motion.morphStartOpacity
+        opacity.fromValue = 0
         opacity.toValue = 1
         let group = CAAnimationGroup()
         if FloatMotion.reduceMotion {
@@ -294,16 +293,17 @@ final class PillBarView: NSView {
             let transform = CABasicAnimation(keyPath: "transform")
             transform.fromValue = NSValue(caTransform3D: FloatLayerView.transform(
                 mapping: view.frame,
-                to: frame,
+                to: FloatMotion.scaled(view.frame, by: motion.pillArrivalScale),
                 anchorPoint: layer.anchorPoint
             ))
             transform.toValue = NSValue(caTransform3D: CATransform3DIdentity)
             group.animations = [transform, opacity]
-            group.duration = motion.morphDuration
+            group.duration = motion.morphDuration - motion.pillArrivalDelay
             group.timingFunction = FloatMotion.reflowTiming
+            group.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + motion.pillArrivalDelay
+            group.fillMode = .backwards
         }
         layer.add(group, forKey: Self.arrivalAnimationKey)
-        onArrivalForTesting?(paneID, frame)
     }
 
     static let arrivalAnimationKey = "zentty.pill.arrival"

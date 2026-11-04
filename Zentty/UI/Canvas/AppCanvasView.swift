@@ -540,7 +540,7 @@ final class AppCanvasView: NSView {
                 showPaneBorders: showPaneBorders,
                 smoothScrollingEnabled: smoothScrollingEnabled
             )
-            finishFloatTransitions(floatTransitions, from: floatTransitionStart)
+            finishFloatTransitions(floatTransitions)
             paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
             paneStripView.setFloatCursorExclusionRects(floatLayerView.cursorOwningFrames(in: paneStripView))
         }

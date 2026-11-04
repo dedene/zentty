@@ -67,12 +67,11 @@ extension AppCanvasView {
         return plan
     }
 
-    /// Runs after the float layer's render: new pills grow out of the float
-    /// or PiP they replace.
-    func finishFloatTransitions(_ plan: FloatModeTransitionPlan, from start: FloatTransitionStart) {
+    /// Runs after the float layer's render: new pills settle in as the float
+    /// or PiP they replace lands on them.
+    func finishFloatTransitions(_ plan: FloatModeTransitionPlan) {
         for paneID in plan.pillArrivals {
-            guard let frame = start.frames[paneID] else { continue }
-            pillBarView.animateArrival(of: paneID, from: pillBarView.convert(frame, from: floatLayerView))
+            pillBarView.animateArrival(of: paneID)
         }
     }
 

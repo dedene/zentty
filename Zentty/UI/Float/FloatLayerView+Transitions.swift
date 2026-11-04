@@ -33,6 +33,10 @@ extension FloatLayerView {
         static let morphDuration: CFTimeInterval = 0.38
         /// Opacity the arriving picture starts from in a morph.
         static let morphStartOpacity: Float = 0.2
+        /// A pill waits for the picture flying into it, then settles in
+        /// from this scale, ending with the flight.
+        static let pillArrivalDelay: CFTimeInterval = 0.14
+        static let pillArrivalScale: CGFloat = 0.92
         static let closeDuration: CFTimeInterval = 0.16
         static let closeScale: CGFloat = 0.96
         static let closeTiming = CAMediaTimingFunction(name: .easeIn)

@@ -34,7 +34,7 @@ struct FloatModeTransitionPlan: Equatable, Sendable {
 
     var departures: [PaneID: Departure] = [:]
     var entries: [PaneID: Entry] = [:]
-    /// Pills that grow out of the float or PiP they replace.
+    /// Pills that settle in as the float or PiP they replace lands on them.
     var pillArrivals: Set<PaneID> = []
 
     var isEmpty: Bool {
