@@ -395,7 +395,8 @@ final class AgentSubagentRegistryStore {
             agentType: update.agentType ?? existing?.agentType,
             model: update.model ?? existing?.model,
             nickname: update.nickname ?? existing?.nickname,
-            transcriptPath: mergedTranscriptPath(existing: existing?.transcriptPath, update: update.transcriptPath)
+            transcriptPath: mergedTranscriptPath(existing: existing?.transcriptPath, update: update.transcriptPath),
+            workflowPhase: update.workflowPhase ?? existing?.workflowPhase
         )
     }
 

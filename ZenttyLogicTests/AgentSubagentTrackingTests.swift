@@ -725,6 +725,26 @@ final class AgentSubagentTrackingTests: XCTestCase {
         XCTAssertEqual(groups[2].leadingText, "1 ×")
     }
 
+    func test_summary_groups_workflow_agents_into_one_line_per_run() {
+        let summary = PaneAgentSubagentSummary(entries: [
+            PaneAgentSubagentEntry(id: "a", agentType: "general-purpose", model: "sonnet",
+                                   transcriptPath: "/s/session-1/subagents/workflows/wf_1/agent-a.jsonl", workflowPhase: "Verify"),
+            PaneAgentSubagentEntry(id: "b", agentType: "Explore", model: "haiku",
+                                   transcriptPath: "/s/session-1/subagents/workflows/wf_1/agent-b.jsonl", workflowPhase: "Review"),
+            PaneAgentSubagentEntry(id: "c", agentType: "general-purpose", model: "claude-opus-5"),
+        ])
+
+        XCTAssertEqual(summary.count, 3)
+        let groups = summary.groups
+        XCTAssertEqual(groups.map(\.count), [2, 1])
+        XCTAssertEqual(groups[0].leadingText, "wf")
+        XCTAssertEqual(groups[0].modelText, "2 running")
+        XCTAssertEqual(groups[0].trailingText, "Review, Verify")
+        XCTAssertEqual(groups[1].leadingText, "1 ×")
+        XCTAssertEqual(groups[1].modelText, "opus")
+        XCTAssertEqual(groups[1].trailingText, "general-purpose")
+    }
+
     func test_summary_without_model_shows_placeholder() {
         let summary = PaneAgentSubagentSummary(entries: [PaneAgentSubagentEntry(id: "a", agentType: "Explore")])
         XCTAssertEqual(summary.tooltipText, "1 subagent\nClick for details")
@@ -1117,6 +1137,9 @@ final class AgentSubagentTrackingTests: XCTestCase {
         )
         XCTAssertEqual(resolved, transcriptPath)
         XCTAssertEqual(AgentSubagentModelResolver.claudeModel(agentTranscriptPath: resolved), "sonnet")
+        XCTAssertEqual(AgentSubagentModelResolver.claudeMetaWorkflowPhase(agentTranscriptPath: resolved), "Verify")
+        XCTAssertEqual(PaneAgentSubagentEntry(id: "a0703", transcriptPath: resolved).workflowRunID, "wf_1234")
+        XCTAssertNil(PaneAgentSubagentEntry(id: "x", transcriptPath: "/s/session-1/subagents/agent-x.jsonl").workflowRunID)
     }
 
     func test_claude_workflow_agent_resolves_path_and_model_after_files_appear() throws {
@@ -1150,6 +1173,108 @@ final class AgentSubagentTrackingTests: XCTestCase {
         let entry = try XCTUnwrap(toolUse.first?.subagents?.entries.first)
         XCTAssertEqual(entry.transcriptPath, transcriptPath)
         XCTAssertEqual(entry.model, "claude-sonnet-5")
+    }
+
+    func test_claude_workflow_agent_groups_into_run_line_after_files_appear() throws {
+        // Live hook order: SubagentStart fires before the agent's files exist,
+        // so only the first hook from inside the agent can find the workflow
+        // folder. That later path has to replace the one derived at spawn.
+        let directory = try makeTemporaryDirectory()
+        let sessionTranscriptPath = directory.appendingPathComponent("session-1.jsonl").path
+        let workflowDirectory = directory.appendingPathComponent("session-1/subagents/workflows/wf_1234", isDirectory: true)
+        let transcriptPath = workflowDirectory.appendingPathComponent("agent-a0703.jsonl").path
+        let sessionStore = try makeClaudeSessionStore()
+        let subagentStore = try makeRegistryStore(transcriptModificationDate: { path in
+            (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        })
+
+        _ = try claudePayloads(
+            #"{"hook_event_name":"SubagentStart","session_id":"session-1","transcript_path":"\#(sessionTranscriptPath)","agent_id":"a0703","agent_type":"workflow-subagent"}"#,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+
+        try FileManager.default.createDirectory(at: workflowDirectory, withIntermediateDirectories: true)
+        try #"{"type":"assistant","message":{"model":"claude-sonnet-5","role":"assistant"}}"#
+            .write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+        try #"{"agentType":"workflow-subagent","workflowPhase":"Verify","spawnDepth":1}"#
+            .write(toFile: AgentSubagentModelResolver.claudeMetaPath(agentTranscriptPath: transcriptPath), atomically: true, encoding: .utf8)
+        let toolUse = try claudePayloads(
+            #"{"hook_event_name":"PreToolUse","session_id":"session-1","transcript_path":"\#(sessionTranscriptPath)","tool_name":"Read","agent_id":"a0703","agent_type":"workflow-subagent"}"#,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+        let summary = try XCTUnwrap(toolUse.first?.subagents)
+        XCTAssertEqual(summary.entries.first?.transcriptPath, transcriptPath)
+        XCTAssertEqual(summary.groups.first?.leadingText, "wf")
+        XCTAssertEqual(summary.groups.first?.modelText, "1 running")
+        XCTAssertEqual(summary.groups.first?.trailingText, "Verify")
+    }
+
+    func test_claude_workflow_hook_trace_recorded_by_agent_bench_replays_through_the_registry() throws {
+        // A hook stream recorded from real Claude Code by the agent bench
+        // `subagents_workflow` scenario, with the files that existed at each
+        // hook. Point ZENTTY_BENCH_WORKFLOW_TRACE at a fresh recording to
+        // check a new Claude version without touching the fixture.
+        struct TraceLine: Decodable {
+            struct File: Decodable {
+                var meta: [String: String]?
+                var model: String?
+            }
+            let hook: [String: String]
+            let files: [String: File]
+        }
+
+        let tracePath = ProcessInfo.processInfo.environment["ZENTTY_BENCH_WORKFLOW_TRACE"]
+            ?? URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("scripts/agent-bench/fixtures/claude-workflow-trace.jsonl")
+                .path
+        let trace = try String(contentsOfFile: tracePath, encoding: .utf8)
+        let session = try makeTemporaryDirectory().appendingPathComponent("session-1").path
+        let sessionStore = try makeClaudeSessionStore()
+        let subagentStore = try makeRegistryStore(transcriptModificationDate: { path in
+            (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        })
+
+        var stopPaths: [String: String] = [:]
+        var registryPaths: [String: String] = [:]
+        var runLines: [PaneAgentSubagentGroup] = []
+        for rawLine in trace.split(separator: "\n") {
+            let line = try JSONDecoder().decode(TraceLine.self, from: Data(rawLine.utf8))
+            for (rawPath, file) in line.files {
+                let path = rawPath.replacingOccurrences(of: "$SESSION", with: session)
+                try FileManager.default.createDirectory(
+                    atPath: (path as NSString).deletingLastPathComponent,
+                    withIntermediateDirectories: true
+                )
+                let contents = try file.meta.map { try JSONEncoder().encode($0) }
+                    ?? Data((file.model.map { #"{"type":"assistant","message":{"model":"\#($0)"}}"# } ?? "").utf8)
+                try contents.write(to: URL(fileURLWithPath: path))
+            }
+            var hook = line.hook.mapValues { $0.replacingOccurrences(of: "$SESSION", with: session) }
+            hook["session_id"] = "session-1"
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: hook), as: UTF8.self)
+            _ = try claudePayloads(json, sessionStore: sessionStore, subagentStore: subagentStore)
+
+            if hook["hook_event_name"] == "SubagentStop", let id = hook["agent_id"] {
+                stopPaths[id] = hook["agent_transcript_path"]
+            }
+            let summary = try subagentStore.summary(key: paneKey)
+            for entry in summary?.entries ?? [] {
+                registryPaths[entry.id] = entry.transcriptPath
+            }
+            runLines += (summary?.groups ?? []).filter { $0.workflowRunID != nil }
+        }
+
+        XCTAssertFalse(stopPaths.isEmpty, "the trace holds no workflow agents")
+        XCTAssertEqual(registryPaths, stopPaths, "the registry must hold the path Claude reports at SubagentStop")
+        let fullRun = try XCTUnwrap(runLines.max { $0.count < $1.count }, "no workflow run line was ever shown")
+        XCTAssertEqual(fullRun.count, stopPaths.count)
+        XCTAssertEqual(fullRun.leadingText, "wf")
+        XCTAssertEqual(fullRun.modelText, "\(stopPaths.count) running")
+        XCTAssertEqual(fullRun.trailingText, "Review, Verify")
     }
 
     func test_codex_thread_info_reads_nickname_role_and_model_from_rollout_head() {
