@@ -100,9 +100,14 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertEqual(controller.progressIndicator.doubleValue, 312.0 / 1284.0, accuracy: 0.0001)
         XCTAssertEqual(controller.activityTextForTesting, "Indexing 312 of 1,284 sessions")
 
+        var estimated = progress
+        estimated.estimatedSecondsRemaining = 720
+        controller.apply(status: makeStatus(state: .backfilling(estimated)))
+        XCTAssertEqual(controller.activityTextForTesting, "Indexing 312 of 1,284 sessions · about 10 min left")
+
         controller.apply(status: makeStatus(state: .paused(.lowPower, progress)))
         XCTAssertTrue(controller.progressIndicator.isHidden)
-        XCTAssertEqual(controller.activityTextForTesting, "Paused while Low Power Mode is on")
+        XCTAssertEqual(controller.activityTextForTesting, "Paused while Low Power Mode is on · 312 of 1,284")
 
         controller.apply(status: makeStatus(state: .watching))
         XCTAssertTrue(controller.progressIndicator.isHidden)
