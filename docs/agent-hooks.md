@@ -237,21 +237,23 @@ session.
 
 ## GitHub Copilot CLI
 
-Zentty injects Copilot hooks via a temporary `COPILOT_HOME` overlay so the user's real `~/.copilot` config stays untouched. Official schema: https://docs.github.com/en/copilot/reference/hooks-configuration.
+Zentty injects Copilot hooks via a temporary `COPILOT_HOME` overlay so the user's real `~/.copilot` stays untouched. Official reference: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference.
 
-The overlay:
+Copilot loads user hooks from every `*.json` file in `$COPILOT_HOME/hooks/` (since 0.0.422) and no longer reads hooks from `config.json`. The overlay:
 
-- preserves existing Copilot config/state entries (deep-merged)
-- ensures `"version": 1` at the top level (required by Copilot)
-- appends Zentty hook commands without removing user hook commands
+- symlinks every entry of the real Copilot home except `hooks/`, so `config.json`, `settings.json`, sign-in and trust state write through to the real home
+- creates a real `hooks/` directory that symlinks the user's own hook files and adds Zentty's `hooks/zentty.json` (`{"version": 1, "hooks": {...}}`), so nothing is written into the user's `~/.copilot/hooks`; a user file already named `zentty.json` is linked as `user-zentty.json`
 
-Copilot CLI exposes six hook events (all camelCase). Zentty registers the bundled helper for each:
+Zentty registers the bundled helper for these camelCase events (payloads arrive camelCase; `notification` also carries `hook_event_name` and a snake_case `notification_type`):
 
 - `sessionStart`
 - `sessionEnd`
 - `userPromptSubmitted`
 - `preToolUse`
 - `postToolUse`
+- `postToolUseFailure`
+- `notification`
+- `agentStop`
 - `errorOccurred`
 
 Entry format: `{"type": "command", "bash": "<command>", "timeoutSec": N}`.
@@ -260,14 +262,19 @@ Entry format: `{"type": "command", "bash": "<command>", "timeoutSec": N}`.
 
 - `sessionStart` -> PID attach + seed agentStatus at `idle`
 - `sessionEnd` -> clear session (lifecycle payload with `state: null`)
-- `userPromptSubmitted` -> no-op; OSC 9;4 (libghostty progress) drives Running
-- `preToolUse` with `toolName` matching `askuserquestion*` -> `needs-input` with the parsed question text
-- `postToolUse` with the matching tool -> revert to `idle` so OSC drives Running again
+- `userPromptSubmitted` -> `running`
+- `preToolUse` with the `ask_user` tool (or a Claude-format `AskUserQuestion`) -> `needs-input` (question) with the parsed question text
+- `notification` with `notification_type: permission_prompt` -> `needs-input` (approval), text from `message`
+- `notification` with `notification_type: elicitation_dialog` -> `needs-input` (question)
+- both notification mappings use `strong` (not `explicit`) confidence: the hook is fire-and-forget, so a straggler landing within the post-stop grace window after `agentStop` is dropped
+- other `notification` types (`shell_completed`, `agent_completed`, `agent_idle`, ...) -> no-op; they report background work
+- `postToolUse` / `postToolUseFailure` -> `running` as `tool-activity` (an approved prompt or answered question resumes the turn). These also fire for subagents, so the reducer never lets Copilot tool activity wake a session that `agentStop` idled
+- `agentStop` -> `idle` (turn complete)
 - `errorOccurred` -> no-op for now
 
 ### Running detection
 
-Unlike Claude Code (which has a `Stop` hook), Copilot has no "turn complete" event. Running detection relies on libghostty's OSC 9;4 progress state (`TerminalProgressReport.indicatesActivity`): when Copilot emits `SET`/`INDETERMINATE`, the normalizer promotes the pane from `idle` to `running`; when Copilot emits `REMOVE`, it drops back to `idle`. The copilot special case in `PanePresentationNormalizer.normalizedRuntimePhase` implements this.
+`userPromptSubmitted` and `agentStop` bracket each turn. libghostty's OSC 9;4 progress state (`TerminalProgressReport.indicatesActivity`) still promotes an `idle` Copilot pane to `running` (`CopilotOSCProgressReducer`), which covers activity that starts without a prompt hook. OSC activity does not resolve a Copilot needs-input state (Copilot keeps its progress up while a dialog waits); only its hooks do.
 
 ## Gemini CLI
 

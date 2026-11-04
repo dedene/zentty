@@ -388,6 +388,7 @@ extension AgentEventBridge {
                     sessionID: input.sessionID, subagents: subagents
                 )]
             }
+            var replacedTaskProgress: PaneAgentTaskProgress?
             if let sessionID = input.sessionID {
                 // Finished calls leave the queue whether or not they prompted.
                 try sessionStore.forgetPreToolUse(sessionID: sessionID, toolUseID: input.toolUseID, agentID: input.agentID)
@@ -395,7 +396,7 @@ extension AgentEventBridge {
                     // TaskCreate/TaskUpdate PostToolUse carries the task list
                     // changes TaskCreated/TaskCompleted do not (the id join for
                     // `in_progress` lives only here).
-                    try claudeApplyTaskToolUse(input: input, sessionID: sessionID, sessionStore: sessionStore)
+                    replacedTaskProgress = try claudeApplyTaskToolUse(input: input, sessionID: sessionID, sessionStore: sessionStore)
                 }
             }
             if claudeShouldKeepPendingInteraction(
@@ -416,7 +417,7 @@ extension AgentEventBridge {
             return [claudeLifecyclePayload(
                 target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
                 interactionKind: PaneAgentInteractionKind.none, confidence: .explicit, sessionID: input.sessionID,
-                taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID)
+                taskProgress: try replacedTaskProgress ?? sessionStore.taskProgress(sessionID: input.sessionID)
             )]
 
         case "UserPromptSubmit":
@@ -644,17 +645,19 @@ extension AgentEventBridge {
     /// (a fallback for sessions where `TaskCreated` never fired); `TaskUpdate`
     /// carries `tool_input.{taskId,status}` joined onto the earlier `task_id`,
     /// with `tool_response.statusChange.to` as a fallback status source.
+    /// Returns progress that must replace the stored one (a deleted task), or nil.
+    @discardableResult
     private static func claudeApplyTaskToolUse(
         input: ClaudeAdapterInput,
         sessionID: String,
         sessionStore: ClaudeHookSessionStore
-    ) throws {
+    ) throws -> PaneAgentTaskProgress? {
         switch input.toolName {
         case "TaskCreate":
             let task = input.toolResponse?["task"] as? [String: Any]
             guard let taskID = JSONKeyAccess.firstString(in: task, keys: ["id"])
                 ?? JSONKeyAccess.firstString(in: input.toolResponse, keys: ["taskId", "task_id", "id"]) else {
-                return
+                return nil
             }
             let subject = JSONKeyAccess.firstString(in: task, keys: ["subject", "title"])
                 ?? JSONKeyAccess.firstString(in: input.toolInput, keys: ["subject", "title"])
@@ -663,15 +666,14 @@ extension AgentEventBridge {
         case "TaskUpdate":
             guard let taskID = JSONKeyAccess.firstString(in: input.toolInput, keys: ["taskId", "task_id", "id"])
                 ?? JSONKeyAccess.firstString(in: input.toolResponse, keys: ["taskId", "task_id", "id"]) else {
-                return
+                return nil
             }
             let statusChange = input.toolResponse?["statusChange"] as? [String: Any]
             let status = JSONKeyAccess.firstString(in: input.toolInput, keys: ["status", "state"])
                 ?? JSONKeyAccess.firstString(in: statusChange, keys: ["to"])
                 ?? JSONKeyAccess.firstString(in: input.toolResponse, keys: ["status", "state"])
             if status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "deleted" {
-                try sessionStore.removeTask(sessionID: sessionID, taskID: taskID)
-                return
+                return try sessionStore.removeTask(sessionID: sessionID, taskID: taskID)
             }
             _ = try sessionStore.updateTask(
                 sessionID: sessionID,
@@ -681,8 +683,9 @@ extension AgentEventBridge {
             )
 
         default:
-            return
+            return nil
         }
+        return nil
     }
 
     static func claudeResolvedTarget(

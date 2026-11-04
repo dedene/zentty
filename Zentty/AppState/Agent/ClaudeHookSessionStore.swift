@@ -693,21 +693,26 @@ final class ClaudeHookSessionStore {
     }
 
     /// `TaskUpdate` with status `deleted` drops the task from the list.
-    func removeTask(sessionID: String, taskID: String) throws {
+    /// Returns the progress to send, or nil when nothing was removed.
+    @discardableResult
+    func removeTask(sessionID: String, taskID: String) throws -> PaneAgentTaskProgress? {
         let normalizedSessionID = normalized(sessionID)
         let normalizedTaskID = normalized(taskID)
         guard !normalizedSessionID.isEmpty, !normalizedTaskID.isEmpty else {
-            return
+            return nil
         }
 
-        try withLockedState { state in
+        return try withLockedState { state in
             guard var record = state.sessions[normalizedSessionID],
                   record.tasks.contains(where: { $0.id == normalizedTaskID }) else {
-                return
+                return nil
             }
             record.tasks.removeAll { $0.id == normalizedTaskID }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionID] = record
+            // Optional taskProgress cannot distinguish "clear" from "unchanged";
+            // a complete sentinel overwrites and hides the stale list.
+            return progress(from: record.tasks) ?? PaneAgentTaskProgress(doneCount: 1, totalCount: 1)
         }
     }
 

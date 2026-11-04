@@ -436,6 +436,11 @@ def hook_record_event_names(record: TraceRecord) -> list[str | None]:
     tool_name = first_string(payload, ["tool_name", "toolName"])
     if tool_name:
         names.append(f"{record.event_name}:{tool_name}")
+    # Notification hooks (Copilot) carry their kind in `notification_type`,
+    # e.g. `notification:permission_prompt`.
+    notification_type = first_string(payload, ["notification_type", "notificationType"])
+    if notification_type:
+        names.append(f"{record.event_name}:{notification_type}")
     # Batch events (Muse PostToolBatch) carry their calls in `tool_calls`.
     batch_calls = payload.get("tool_calls")
     if isinstance(batch_calls, list):
@@ -2468,27 +2473,33 @@ class LaunchPlanner:
         )
 
     def _plan_copilot(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        # Mirrors AgentLaunchBootstrap.prepareCopilotOverlay: Copilot ignores
+        # hooks in config.json and loads every *.json in $COPILOT_HOME/hooks/.
         overlay = self._overlay_dir("copilot") / "home"
         source = config_source_dir(environment, "COPILOT_HOME", ".copilot")
-        symlink_directory_contents_skipping(source, overlay, {"config.json"})
-        config = read_json_object(source / "config.json")
-        config["version"] = 1
-        hooks = config.get("hooks") if isinstance(config.get("hooks"), dict) else {}
+        symlink_directory_contents_skipping(source, overlay, {"hooks"})
+        overlay_hooks = overlay / "hooks"
+        overlay_hooks.mkdir(parents=True, exist_ok=True)
+        if (source / "hooks").is_dir():
+            symlink_directory_contents_skipping(source / "hooks", overlay_hooks, {"zentty.json"})
+            renamed = overlay_hooks / "user-zentty.json"
+            if (source / "hooks" / "zentty.json").exists() and not (renamed.exists() or renamed.is_symlink()):
+                renamed.symlink_to(source / "hooks" / "zentty.json")
+        hooks: dict[str, Any] = {}
         for event, arg, timeout in (
             ("sessionStart", "session-start", 10),
             ("sessionEnd", "session-end", 10),
             ("userPromptSubmitted", "user-prompt-submitted", 10),
             ("preToolUse", "pre-tool-use", 5),
             ("postToolUse", "post-tool-use", 5),
+            ("postToolUseFailure", "post-tool-use-failure", 5),
+            ("notification", "notification", 5),
+            ("agentStop", "agent-stop", 10),
             ("errorOccurred", "error-occurred", 10),
         ):
             command = f'"{shell_escape_double_quoted(cli_path)}" ipc agent-event --adapter=copilot {arg} || true'
-            entries = hooks.get(event) if isinstance(hooks.get(event), list) else []
-            if not any(isinstance(entry, dict) and entry.get("type") == "command" and entry.get("bash") == command for entry in entries):
-                entries.append({"type": "command", "bash": command, "timeoutSec": timeout})
-            hooks[event] = entries
-        config["hooks"] = hooks
-        write_json(overlay / "config.json", config)
+            hooks[event] = [{"type": "command", "bash": command, "timeoutSec": timeout}]
+        write_json(overlay_hooks / "zentty.json", {"version": 1, "hooks": hooks})
         return self._launch_plan(executable, arguments, {"ZENTTY_AGENT_TOOL": "copilot", "COPILOT_HOME": str(overlay)})
 
     def _plan_cursor(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:

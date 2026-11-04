@@ -4617,6 +4617,22 @@ class LaunchPlannerTests(unittest.TestCase):
         self.assertEqual(extra["subagent"]["agent_id"], "01a1312f-40aa")
         self.assertEqual(extra["subagent"]["model"], "muse-spark-1.2")
 
+    def test_copilot_notification_record_satisfies_notification_type_qualified_event(self):
+        def record(notification_type):
+            return agent_bench.TraceRecord(
+                kind="hook",
+                agent="copilot",
+                scenario="approval",
+                event_name="notification",
+                adapter="copilot",
+                standard_input=json.dumps(
+                    {"hook_event_name": "Notification", "message": "Allow?", "notification_type": notification_type}
+                ),
+            )
+
+        self.assertIn("notification:permission_prompt", agent_bench.hook_record_event_names(record("permission_prompt")))
+        self.assertNotIn("notification:permission_prompt", agent_bench.hook_record_event_names(record("agent_idle")))
+
     def test_muse_post_tool_batch_reports_todos_and_qualified_event(self):
         record = agent_bench.TraceRecord(
             kind="hook",
@@ -4905,7 +4921,7 @@ class LaunchPlannerTests(unittest.TestCase):
                 self.assertIn(event, hooks)
             self.assertEqual(real_hooks.read_text(encoding="utf-8"), '{"hooks":{"user":[{"command":"echo user"}]}}\n')
 
-    def test_copilot_plan_preserves_user_config_without_hooks_and_adds_managed_hooks(self):
+    def test_copilot_plan_writes_hooks_dir_file_and_leaves_user_config_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             real_home = root / "real-home"
@@ -4937,12 +4953,58 @@ class LaunchPlannerTests(unittest.TestCase):
                 }
             )
 
-            overlay_config = pathlib.Path(plan["setEnvironment"]["COPILOT_HOME"]) / "config.json"
-            merged = json.loads(overlay_config.read_text(encoding="utf-8"))
+            overlay = pathlib.Path(plan["setEnvironment"]["COPILOT_HOME"])
+            self.assertTrue((overlay / "config.json").is_symlink())
+            self.assertEqual((overlay / "config.json").resolve(), config.resolve())
+            self.assertEqual(config.read_text(encoding="utf-8"), '{"theme":"dark"}\n')
 
-            self.assertEqual(merged["theme"], "dark")
-            for event in ("sessionStart", "sessionEnd", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred"):
-                self.assertIn(event, merged["hooks"])
+            hooks_file = json.loads((overlay / "hooks" / "zentty.json").read_text(encoding="utf-8"))
+            self.assertEqual(hooks_file["version"], 1)
+            for event in (
+                "sessionStart", "sessionEnd", "userPromptSubmitted", "preToolUse", "postToolUse",
+                "postToolUseFailure", "notification", "agentStop", "errorOccurred",
+            ):
+                self.assertIn(event, hooks_file["hooks"])
+
+    def test_copilot_plan_keeps_user_hooks_file_named_like_the_managed_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            real_home = root / "real-home"
+            user_hooks = real_home / ".copilot" / "hooks"
+            user_hooks.mkdir(parents=True)
+            (user_hooks / "zentty.json").write_text('{"version":1,"hooks":{}}\n', encoding="utf-8")
+            (user_hooks / "notify.json").write_text('{"version":1,"hooks":{}}\n', encoding="utf-8")
+
+            profile = agent_bench.AgentProfile(
+                name="copilot",
+                command="copilot",
+                real_binary_names=["copilot"],
+                version_args=["--version"],
+                launch_args_by_scenario={"smoke": []},
+                expectations={"smoke": agent_bench.ScenarioExpectation("smoke", ["session-start"])},
+            )
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="smoke",
+                run_dir=root / "run",
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": [],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/copilot",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_hooks = pathlib.Path(plan["setEnvironment"]["COPILOT_HOME"]) / "hooks"
+            self.assertFalse(overlay_hooks.is_symlink())
+            self.assertEqual((overlay_hooks / "user-zentty.json").resolve(), (user_hooks / "zentty.json").resolve())
+            self.assertEqual((overlay_hooks / "notify.json").resolve(), (user_hooks / "notify.json").resolve())
+            self.assertIn("agentStop", json.loads((overlay_hooks / "zentty.json").read_text(encoding="utf-8"))["hooks"])
+            self.assertEqual(sorted(p.name for p in user_hooks.iterdir()), ["notify.json", "zentty.json"])
 
     def test_kimi_plan_preserves_user_model_config_when_overlaying_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:

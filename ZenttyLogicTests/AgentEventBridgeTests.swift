@@ -1934,18 +1934,28 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
 
+    func test_copilot_adapter_pre_tool_use_builtin_ask_user_tool_is_question() throws {
+        let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName": "ask_user", "toolArgs": "{\"question\": \"Which branch?\", \"choices\": [\"main\", \"dev\"]}"}"#
+        let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "pre-tool-use", environment: copilotEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .question)
+        XCTAssertEqual(payloads[0].text, "Which branch?")
+    }
+
     func test_copilot_adapter_pre_tool_use_non_question_is_noop() throws {
         let json = #"{"toolName": "ReadFile"}"#
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "pre-tool-use", environment: copilotEnvironment())
         XCTAssertTrue(payloads.isEmpty)
     }
 
-    func test_copilot_adapter_post_tool_use_question_resets_to_idle() throws {
+    func test_copilot_adapter_post_tool_use_question_resumes_running() throws {
         let json = #"{"sessionId":"ffed296c-1964-4fc6-b831-efd206b7399f","toolName": "AskUserQuestion"}"#
         let payloads = try AgentEventBridge.copilotAdapter(data: json.data(using: .utf8)!, defaultEventName: "post-tool-use", environment: copilotEnvironment())
 
         XCTAssertEqual(payloads.count, 1)
-        XCTAssertEqual(payloads[0].state, .idle)
+        XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].interactionKind, .none)
         XCTAssertEqual(payloads[0].sessionID, "ffed296c-1964-4fc6-b831-efd206b7399f")
     }
