@@ -123,14 +123,37 @@ enum AgentSubagentModelResolver {
 
     /// Derives the subagent transcript path from the parent transcript and the
     /// agent id when the hook does not provide `agent_transcript_path`.
-    static func claudeAgentTranscriptPath(sessionTranscriptPath: String?, agentID: String?) -> String? {
+    /// Agents started by a workflow live under `subagents/workflows/<run id>/`;
+    /// that location is used when the agent's files are found there.
+    static func claudeAgentTranscriptPath(
+        sessionTranscriptPath: String?,
+        agentID: String?,
+        fileManager: FileManager = .default
+    ) -> String? {
         guard let sessionTranscriptPath, let agentID, !agentID.isEmpty,
               sessionTranscriptPath.hasSuffix(".jsonl") else {
             return nil
         }
-        let sessionDirectory = String(sessionTranscriptPath.dropLast(".jsonl".count))
+        let subagentsDirectory = String(sessionTranscriptPath.dropLast(".jsonl".count)) + "/subagents/"
         let fileName = agentID.hasPrefix("agent-") ? "\(agentID).jsonl" : "agent-\(agentID).jsonl"
-        return sessionDirectory + "/subagents/" + fileName
+        let directPath = subagentsDirectory + fileName
+        if claudeAgentFilesExist(transcriptPath: directPath, fileManager: fileManager) {
+            return directPath
+        }
+        let workflowsDirectory = subagentsDirectory + "workflows/"
+        let runs = (try? fileManager.contentsOfDirectory(atPath: workflowsDirectory)) ?? []
+        for run in runs.sorted() {
+            let candidate = workflowsDirectory + run + "/" + fileName
+            if claudeAgentFilesExist(transcriptPath: candidate, fileManager: fileManager) {
+                return candidate
+            }
+        }
+        return directPath
+    }
+
+    private static func claudeAgentFilesExist(transcriptPath: String, fileManager: FileManager) -> Bool {
+        fileManager.fileExists(atPath: transcriptPath)
+            || fileManager.fileExists(atPath: claudeMetaPath(agentTranscriptPath: transcriptPath))
     }
 
     static func claudeMetaModel(agentTranscriptPath: String) -> String? {
