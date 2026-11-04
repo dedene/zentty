@@ -196,17 +196,43 @@ final class PaneCommandExecutor {
         }
     }
 
-    /// Forks the agent in `paneID`. A nil destination uses the configured
-    /// `agents.fork_destination`.
+    /// Forks the agent in `paneID`, or the session in `sessionOverride`. A
+    /// nil destination uses the configured `agents.fork_destination`.
     @discardableResult
     func forkAgentConversation(
         paneID: PaneID,
-        destination: AgentForkDestination? = nil
+        destination: AgentForkDestination? = nil,
+        sessionOverride: AgentForkSessionOverride? = nil
     ) throws -> WorklaneStore.AgentForkResult {
         canvas.settlePaneStripPresentationNow()
         return try worklaneStore.forkAgentConversation(
             paneID: paneID,
-            destination: destination ?? configStore.current.agents.forkDestination
+            destination: destination ?? configStore.current.agents.forkDestination,
+            sessionOverride: sessionOverride
+        )
+    }
+
+    /// Opens `request` in a new worklane placed per the new-worklane setting relative to the
+    /// active one (Agent History resume).
+    @discardableResult
+    func launchInNewWorklane(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane {
+        canvas.settlePaneStripPresentationNow()
+        return worklaneStore.openWorklane(request, anchorWorklaneID: worklaneStore.activeWorklane?.id)
+    }
+
+    /// Opens `request` in a split to the right of the active worklane's focused pane; nil when
+    /// there is no worklane to split.
+    @discardableResult
+    func launchInSplitRight(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane? {
+        guard let worklane = worklaneStore.activeWorklane else {
+            return nil
+        }
+        canvas.settlePaneStripPresentationNow()
+        return worklaneStore.openSplit(
+            in: worklane.id,
+            targetPaneID: worklane.paneStripState.focusedPaneID,
+            isHorizontal: true,
+            request
         )
     }
 

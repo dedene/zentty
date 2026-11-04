@@ -636,7 +636,7 @@ enum SessionRestoreDraftExporter {
         return value
     }
 
-    private static func defaultIsProcessAlive(_ pid: Int32) -> Bool {
+    static func defaultIsProcessAlive(_ pid: Int32) -> Bool {
         guard pid > 0 else {
             return false
         }

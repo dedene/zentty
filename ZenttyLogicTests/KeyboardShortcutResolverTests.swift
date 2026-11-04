@@ -872,6 +872,7 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             .movePaneDown: .init(key: .downArrow, modifiers: [.command, .control, .option]),
             .resetPaneLayout: .init(key: .character("0"), modifiers: [.command, .control, .option]),
             .openBookmarksPopover: .init(key: .character("b"), modifiers: [.command, .shift]),
+            .showAgentHistory: .init(key: .character("h"), modifiers: [.command, .shift]),
             .toggleFloat: .init(key: .character("f"), modifiers: [.command, .option]),
             .minimizeFloat: .init(key: .character("m"), modifiers: [.command, .option]),
             .pipFloat: .init(key: .character("p"), modifiers: [.command, .option]),

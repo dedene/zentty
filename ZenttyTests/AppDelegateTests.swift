@@ -278,6 +278,7 @@ final class AppDelegateTests: XCTestCase {
             [
                 "Command Palette…",
                 "Show Bookmarks & Presets",
+                "Agent History…",
                 "Toggle Sidebar",
                 "Add Pane Right",
                 "New Pane Below",
@@ -617,7 +618,15 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(reply, .terminateLater)
         XCTAssertNil(blockingController.window.attachedSheet)
-        XCTAssertNotNil(keyController.window.attachedSheet)
+        let sheet = try XCTUnwrap(keyController.window.attachedSheet)
+
+        // Answer Cancel. A sheet left open outlives its window, and a later
+        // suite that orders out every window then trips over the stale panel.
+        let answered = expectation(description: "quit prompt dismissed")
+        keyController.window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        DispatchQueue.main.async { answered.fulfill() }
+        wait(for: [answered], timeout: 2.0)
+        XCTAssertNil(keyController.window.attachedSheet)
     }
 
     func test_new_windows_export_distinct_runtime_identity_environment() throws {

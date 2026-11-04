@@ -2126,7 +2126,7 @@ enum AgentLaunchBootstrap {
         return ["CODEX_HOME"]
     }
 
-    private static func isZenttyLaunchCachePath(_ path: String) -> Bool {
+    static func isZenttyLaunchCachePath(_ path: String) -> Bool {
         let components = URL(fileURLWithPath: path, isDirectory: true).pathComponents
         guard components.count >= 3 else {
             return false

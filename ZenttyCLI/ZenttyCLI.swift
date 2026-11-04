@@ -28,6 +28,7 @@ struct ZenttyCLI: ParsableCommand {
             ServerCommandGroup.self,
             NotifyCommand.self,
             EventsCommand.self,
+            HistoryCommandGroup.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             AgyHookCommand.self,

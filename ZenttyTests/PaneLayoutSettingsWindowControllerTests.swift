@@ -70,7 +70,7 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.sectionTitles,
             [
                 "General", "Appearance", "Shortcuts", "Notifications", "Updates & Privacy",
-                "Worklanes & Panes", "Open With", "Dev Servers", "Agents",
+                "Worklanes & Panes", "Open With", "Dev Servers", "Agents", "Agent History",
             ]
         )
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
@@ -512,6 +512,38 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(agentsController.isAgentTeamsSwitchOn)
         XCTAssertTrue(agentsController.isAgentCaffeinationSwitchOn)
         XCTAssertEqual(agentsController.experimentalBadgeText, "EXPERIMENTAL")
+    }
+
+    func test_show_agent_history_section_sets_title_and_controller() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let backend = HostedAgentHistorySettingsBackend()
+        let controller = SettingsWindowController(
+            configStore: store,
+            agentHistoryBackend: backend,
+            initialSection: .general
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .agentHistory, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        XCTAssertEqual(contentController.selectedSection, .agentHistory)
+        XCTAssertEqual(controller.window?.title, "Agent History")
+        XCTAssertEqual(contentController.contentSectionTitle, "Agent History")
+
+        let historyController = try XCTUnwrap(
+            contentController.currentSectionViewController as? AgentHistorySettingsSectionViewController
+        )
+        // The backend reached the section: its controls are live and presentation pulled status.
+        XCTAssertTrue(historyController.statusSwitch.isEnabled)
+        XCTAssertGreaterThanOrEqual(backend.refreshCount, 1)
+        XCTAssertGreaterThanOrEqual(backend.detectCount, 1)
+        XCTAssertEqual(backend.observerCount, 1)
     }
 
     func test_agents_section_updates_agent_caffeination_preference() throws {
@@ -2723,4 +2755,54 @@ private final class StubOpenWithService: OpenWithServing {
     func open(target: OpenWithResolvedTarget, workingDirectory: String) -> Bool {
         false
     }
+}
+
+/// A stand-in history controller for hosted Settings tests: no index, no agent folders read.
+@MainActor
+final class HostedAgentHistorySettingsBackend: AgentHistorySettingsBackend {
+    /// state.json read, consented earlier, History off: the status switch is live.
+    var status: AgentHistoryStatus = {
+        var status = AgentHistoryStatus.off
+        status.isStateLoaded = true
+        status.hasConsented = true
+        return status
+    }()
+    private(set) var refreshCount = 0
+    private(set) var detectCount = 0
+    private var observers: [UUID: @MainActor (AgentHistoryStatus) -> Void] = [:]
+
+    var observerCount: Int { observers.count }
+
+    @discardableResult
+    func addStatusObserver(_ handler: @escaping @MainActor (AgentHistoryStatus) -> Void) -> UUID {
+        let id = UUID()
+        observers[id] = handler
+        return id
+    }
+
+    func removeObserver(_ id: UUID) { observers[id] = nil }
+    func refreshStatus() { refreshCount += 1 }
+    func detectSources(_ completion: @escaping @MainActor ([AgentHistoryDetectedSource]) -> Void) {
+        detectCount += 1
+        completion([])
+    }
+    func enable(agents: Set<AgentHistoryAgent>, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        completion(.saved)
+    }
+    func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        completion(.saved)
+    }
+    func setAgentEnabled(
+        _ agent: AgentHistoryAgent,
+        _ enabled: Bool,
+        completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void
+    ) {
+        completion(.saved)
+    }
+    func disable(deleteIndex: Bool, completion: @escaping @MainActor (AgentHistoryDisableOutcome) -> Void) {
+        completion(.turnedOff)
+    }
+    func rebuildIndex() {}
+    func restoreAllRemovedSessions() {}
+    func removeSession(_ key: AgentHistorySessionKey) {}
 }

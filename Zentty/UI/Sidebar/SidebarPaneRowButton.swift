@@ -90,6 +90,8 @@ struct SidebarWorklaneContextMenuActions {
     var movePaneToNewWindowAction: Selector?
     var bookmarkAction: Selector
     var colorChanged: (WorklaneColor?) -> Void
+    /// Worklane-origin only; nil hides "Agent History for This Project".
+    var agentHistoryAction: Selector? = nil
 }
 
 @MainActor
@@ -279,6 +281,20 @@ enum SidebarWorklaneContextMenu {
             target: actions.target,
             bookmarkAction: actions.bookmarkAction
         )
+
+        if context.origin == .worklane,
+           let agentHistoryAction = actions.agentHistoryAction
+        {
+            SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+            menu.addItem(
+                SidebarContextMenu.item(
+                    title: "Agent History for This Project",
+                    action: agentHistoryAction,
+                    target: actions.target,
+                    symbolName: "clock.arrow.circlepath"
+                )
+            )
+        }
 
         if case let .paneRow(isLastPaneInWorklane) = context.origin,
            let splitHorizontalAction = actions.splitHorizontalAction,

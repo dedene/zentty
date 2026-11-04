@@ -21,7 +21,20 @@ final class SettingsSidebarLayoutTests: AppKitTestCase {
                 .section(.openWith),
                 .section(.devServers),
                 .section(.agents),
+                .section(.agentHistory),
             ]
+        )
+    }
+
+    func test_agent_history_section_metadata() {
+        let section = SettingsSection.agentHistory
+        XCTAssertEqual(section.title, "Agent History")
+        XCTAssertEqual(section.symbolName, "clock.arrow.circlepath")
+        XCTAssertEqual(section.subtitle, "Search index, sources, privacy, and agent access")
+        XCTAssertEqual(section.badgeColor, .systemBrown)
+        XCTAssertEqual(
+            SettingsSidebarLayout.groups.first { $0.title == "Workspace" }?.sections,
+            [.paneLayout, .openWith, .devServers, .agents, .agentHistory]
         )
     }
 
@@ -104,6 +117,21 @@ final class SettingsSidebarSearchFilterTests: AppKitTestCase {
             groups: SettingsSidebarLayout.groups
         )
         XCTAssertEqual(sections(worklaneRows), [.paneLayout])
+    }
+
+    func test_agent_history_keywords_match_only_agent_history() {
+        for query in ["history", "transcript", "retention", "conversation", "resume", "excluded", "index", "past"] {
+            let rows = SettingsSidebarViewController.filterRows(query: query, groups: SettingsSidebarLayout.groups)
+            XCTAssertEqual(sections(rows), [.agentHistory], query)
+        }
+        // These belong to other sections and must keep landing there alone.
+        for keyword in SettingsSection.agentHistory.searchKeywords {
+            XCTAssertFalse(["claude", "menu", "worklane"].contains { keyword.contains($0) }, keyword)
+        }
+        for (query, section) in [("claude", SettingsSection.agents), ("menu bar", .agents), ("worklane", .paneLayout)] {
+            let rows = SettingsSidebarViewController.filterRows(query: query, groups: SettingsSidebarLayout.groups)
+            XCTAssertEqual(sections(rows), [section], query)
+        }
     }
 
     func test_pane_layout_section_is_labeled_worklanes_and_panes() {

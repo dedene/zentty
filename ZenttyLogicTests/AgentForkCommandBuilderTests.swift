@@ -314,6 +314,77 @@ final class AgentForkCommandBuilderTests: XCTestCase {
         XCTAssertNil(AgentForkCommandBuilder.availability(pane: pane, auxiliary: auxiliary))
     }
 
+    // MARK: - Session override
+
+    func test_availability_with_override_uses_override_tool_and_session() {
+        let pane = PaneState(
+            id: PaneID("pane"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/launch")
+        )
+        let auxiliary = PaneAuxiliaryState(
+            shellContext: PaneShellContext(scope: .local, path: "/tmp/shell", home: nil, user: nil, host: nil),
+            agentStatus: agentStatus(tool: .claudeCode, sessionID: claudeID, workingDirectory: "/tmp/agent")
+        )
+        let override = AgentForkSessionOverride(tool: .codex, sessionID: "rollout_2026-10-18")
+
+        XCTAssertEqual(
+            AgentForkCommandBuilder.availability(pane: pane, auxiliary: auxiliary, sessionOverride: override)?.plan,
+            AgentForkPlan(tool: .codex, command: "codex fork rollout_2026-10-18", workingDirectory: "/tmp/agent")
+        )
+    }
+
+    func test_availability_with_override_works_when_no_agent_is_visible() {
+        let pane = PaneState(
+            id: PaneID("pane"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/launch")
+        )
+        let override = AgentForkSessionOverride(tool: .claudeCode, sessionID: claudeID)
+
+        XCTAssertEqual(
+            AgentForkCommandBuilder.availability(
+                pane: pane,
+                auxiliary: PaneAuxiliaryState(),
+                sessionOverride: override
+            )?.plan?.command,
+            "claude --resume 5b1f9e52-5c1d-4e8a-9d53-7f3e0b1c2a44 --fork-session"
+        )
+        XCTAssertNil(AgentForkCommandBuilder.availability(pane: pane, auxiliary: nil, sessionOverride: override))
+    }
+
+    func test_availability_with_override_rejects_invalid_session_id() {
+        let pane = PaneState(
+            id: PaneID("pane"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/launch")
+        )
+        let auxiliary = PaneAuxiliaryState(
+            agentStatus: agentStatus(tool: .claudeCode, sessionID: claudeID, workingDirectory: "/tmp/agent")
+        )
+        let override = AgentForkSessionOverride(tool: .claudeCode, sessionID: "not-a-uuid; rm -rf ~")
+
+        XCTAssertEqual(
+            AgentForkCommandBuilder.availability(pane: pane, auxiliary: auxiliary, sessionOverride: override)?
+                .unavailableReason,
+            "Claude Code reported a session ID that can't be forked."
+        )
+    }
+
+    func test_availability_with_override_rejects_remote_panes() {
+        let pane = PaneState(id: PaneID("pane"), title: "shell")
+        let auxiliary = PaneAuxiliaryState(
+            shellContext: PaneShellContext(scope: .remote, path: "/srv/app", home: nil, user: "deploy", host: "box")
+        )
+        let override = AgentForkSessionOverride(tool: .claudeCode, sessionID: claudeID)
+
+        XCTAssertEqual(
+            AgentForkCommandBuilder.availability(pane: pane, auxiliary: auxiliary, sessionOverride: override)?
+                .unavailableReason,
+            AgentForkCommandBuilder.remotePaneReason
+        )
+    }
+
     // MARK: - Title
 
     func test_forked_pane_title_carries_custom_title_once() {

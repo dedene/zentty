@@ -123,6 +123,7 @@ final class RootViewController: NSViewController {
     private let sidebarOuterResizeHandleView = SidebarResizeHandleView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
+    private let historyToolbarButton = HistoryToolbarButton()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let agentStatusCenter = AgentStatusCenter()
     private let agentCaffeinationController = AgentCaffeinationController.shared
@@ -210,7 +211,8 @@ final class RootViewController: NSViewController {
         toggle: sidebarToggleButton,
         layoutMenu: paneLayoutMenuCoordinator.menuButton,
         navigation: paneNavigationButtons,
-        inbox: notificationCoordinator.inboxButton
+        inbox: notificationCoordinator.inboxButton,
+        history: historyToolbarButton
     )
     private lazy var globalSearchCoordinator = GlobalSearchCoordinator(
         orderedTargetsProvider: { [weak self] in
@@ -258,6 +260,7 @@ final class RootViewController: NSViewController {
     )
     private var currentTheme: ZenttyTheme { themeCoordinator.currentTheme }
     private let commandPaletteController = CommandPaletteController()
+    private lazy var agentHistoryCoordinator = AgentHistoryPaletteCoordinator(host: self)
     private var appUpdateObserverID: UUID?
     private var configObserverID: UUID?
     private var isUpdateAvailable = false
@@ -824,6 +827,11 @@ final class RootViewController: NSViewController {
             self?.navigateToNotification(notification)
         }
 
+        historyToolbarButton.onClick = { [weak self] in
+            self?.toggleAgentHistory(entryPoint: .toolbar)
+        }
+        historyToolbarButton.configure(theme: currentTheme, animated: false)
+
         appCanvasView.paneStripView.onPaneBorderContextClicked = { [weak self] paneID in
             self?.copyPath(forPaneID: paneID)
         }
@@ -1327,6 +1335,11 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onBookmarkAction = { [weak self] worklaneID, action in
             self?.handleSidebarBookmarkAction(worklaneID: worklaneID, action: action)
+        }
+        // Same placeholder seam as the shortcut, menu and toolbar; the palette
+        // coordinator (UI5) opens scoped to this worklane's project instead.
+        sidebarView.onAgentHistoryRequested = { [weak self] worklaneID in
+            self?.routeShowAgentHistory(forWorklaneID: worklaneID)
         }
         sidebarView.bookmarkNameLookup = { [weak self] id in
             self?.bookmarkStore.template(withID: id)?.name
@@ -1864,6 +1877,7 @@ final class RootViewController: NSViewController {
     }
 
     private func showCommandPalette() {
+        agentHistoryCoordinator.close(restoreFocus: false)
         guard let window = view.window else { return }
 
         let activeWorklane = worklaneStore.activeWorklane
@@ -2140,7 +2154,7 @@ final class RootViewController: NSViewController {
         remotePaste.cancelAll()
     }
 
-    private func showToast(
+    func showToast(
         message: String,
         duration: TimeInterval? = nil
     ) {
@@ -2402,11 +2416,15 @@ final class RootViewController: NSViewController {
         paneLayoutMenuCoordinator.applyTheme(theme, animated: animated)
         paneNavigationButtons.configure(theme: theme, animated: animated)
         notificationCoordinator.applyTheme(theme, animated: animated)
+        historyToolbarButton.configure(theme: theme, animated: animated)
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
         if commandPaletteController.isShown {
             commandPaletteController.updateTheme(theme)
+        }
+        if agentHistoryCoordinator.isShown {
+            agentHistoryCoordinator.updateTheme(theme)
         }
         applySidebarMotionState(
             sidebarMotionCoordinator.currentMotionState,
@@ -3026,6 +3044,14 @@ final class RootViewController: NSViewController {
                 .filter { !$0.isSeparatorItem }
                 .map(\.title) ?? []
         }
+
+        var agentHistoryCoordinatorForTesting: AgentHistoryPaletteCoordinator {
+            agentHistoryCoordinator
+        }
+
+        var isCommandPaletteShownForTesting: Bool {
+            commandPaletteController.isShown
+        }
     #endif
 
     var workspaceState: WindowWorkspaceState {
@@ -3133,6 +3159,7 @@ final class RootViewController: NSViewController {
 
     private func refreshShortcutTooltips() {
         sidebarToggleButton.updateShortcutTooltip(shortcutManager)
+        historyToolbarButton.updateShortcutTooltip(shortcutManager)
         paneNavigationButtons.updateShortcutTooltips(shortcutManager)
         sidebarView.updateShortcutTooltips(shortcutManager)
         windowChromeView.updateShortcutTooltips(shortcutManager)
@@ -3686,6 +3713,61 @@ extension RootViewController: AppActionRouterEnvironment {
 
     func routeOpenBookmarksPopover() {
         toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
+    }
+
+    /// The shortcut, View menu and command palette entry: toggles the palette.
+    func routeShowAgentHistory() {
+        toggleAgentHistory(entryPoint: .shortcutOrMenu)
+    }
+
+    /// Worklane context-menu entry: opens the palette on the worklane's project.
+    func routeShowAgentHistory(forWorklaneID worklaneID: WorklaneID) {
+        commandPaletteController.close()
+        agentHistoryCoordinator.show(entryPoint: .worklaneContextMenu(worklaneID))
+    }
+
+    private func toggleAgentHistory(entryPoint: AgentHistoryEntryPoint) {
+        commandPaletteController.close()
+        agentHistoryCoordinator.toggle(entryPoint: entryPoint)
+    }
+
+    /// Injected per window by the services adapter (UI10).
+    var agentHistoryServices: AgentHistoryPaletteServices? {
+        get { agentHistoryCoordinator.services }
+        set { agentHistoryCoordinator.services = newValue }
+    }
+}
+
+extension RootViewController: AgentHistoryPaletteHost {
+    var agentHistoryWindow: NSWindow? { view.window }
+    var agentHistoryBackdropView: CommandPaletteBackdropView { commandPaletteBackdropView }
+    var agentHistoryTheme: ZenttyTheme { currentTheme }
+    var agentHistoryWindowID: WindowID { windowID }
+
+    func agentHistoryCurrentPane() -> AgentHistoryPaneLocation? {
+        AgentHistoryPaneLocation(presentation: worklaneStore.activeWorklane?.focusedPaneContext?.presentation)
+    }
+
+    func agentHistoryPane(forWorklane id: WorklaneID) -> AgentHistoryPaneLocation? {
+        let worklane = worklaneStore.worklanes.first { $0.id == id }
+        return AgentHistoryPaneLocation(presentation: worklane?.focusedPaneContext?.presentation)
+    }
+
+    func agentHistoryShowSettings() {
+        onShowSettingsSectionRequested?(.agentHistory)
+    }
+
+    func agentHistoryRestoreFocus() {
+        view.window?.makeKey()
+        appCanvasView.focusCurrentPaneIfNeeded()
+    }
+
+    func agentHistorySetToolbarPresented(_ presented: Bool) {
+        historyToolbarButton.setPalettePresented(presented)
+    }
+
+    func agentHistoryExemptClickViews() -> [NSView] {
+        [historyToolbarButton]
     }
 }
 

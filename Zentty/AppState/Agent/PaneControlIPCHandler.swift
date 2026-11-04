@@ -155,7 +155,7 @@ enum PaneControlIPCHandler {
         )
     }
 
-    private static func onMain<T: Sendable>(_ operation: @MainActor () throws -> T) throws -> T {
+    static func onMain<T: Sendable>(_ operation: @MainActor () throws -> T) throws -> T {
         if Thread.isMainThread {
             return try MainActorShim.assumeIsolated(operation)
         }

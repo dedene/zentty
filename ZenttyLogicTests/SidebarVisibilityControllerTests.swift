@@ -254,6 +254,35 @@ final class SidebarVisibilityControllerTests: AppKitTestCase {
         XCTAssertFalse(button.isActive)
     }
 
+    @MainActor
+    func test_window_chrome_leading_inset_accounts_for_history_button() {
+        let widthWithoutHistory =
+            SidebarToggleButton.buttonSize
+            + 4 + PaneLayoutMenuButton.buttonSize
+            + 4 + PaneNavigationButtons.totalWidth
+            + 8 + NotificationInboxButton.buttonWidth
+        XCTAssertEqual(
+            LeadingChromeControlsBar.totalWidth,
+            widthWithoutHistory + 4 + HistoryToolbarButton.buttonSize,
+            accuracy: 0.001
+        )
+
+        let trafficLightAnchorX: CGFloat = 80
+        for motionState in [SidebarMotionState.pinnedOpen, .hidden, .hoverPeek] {
+            let targets = SidebarChromeMotionTargets(
+                sidebarWidth: 280,
+                motionState: motionState,
+                trafficLightAnchorX: trafficLightAnchorX
+            )
+            XCTAssertEqual(
+                targets.windowChromeLeadingControlsInset,
+                targets.leadingChromeControlsLeadingConstant - ShellMetrics.outerInset
+                    + widthWithoutHistory + 4 + HistoryToolbarButton.buttonSize,
+                accuracy: 0.001
+            )
+        }
+    }
+
     private func makeTrafficLightTheme() -> ZenttyTheme {
         ZenttyTheme(
             resolvedTheme: GhosttyResolvedTheme(

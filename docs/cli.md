@@ -448,6 +448,54 @@ zentty events --json --type agent.phase --type attention
 zentty events --json | jq -c 'select(.type == "attention.raised")'
 ```
 
+## Agent History
+
+Search earlier Claude Code, Codex, Grok and opencode sessions that Agent History has indexed. Run these from a Zentty pane, with Agent History turned on in Settings › Agent History. [Agent History settings](configuration.md#agent-history-settings) explains what the index holds and what it redacts.
+
+```bash
+zentty history search <query...> [--all] [--agent <name>] [--limit <n>] [--json]
+zentty history show <session-id> [--all] [--agent <name>] [--turns <n>] [--json]
+```
+
+- `search` matches session titles, branches, repository and folder names, the files, commands, commits and pull requests a session touched, and the conversation itself. The query takes the palette's operators: `agent:`, `repo:`, `branch:`, `before:YYYY-MM-DD` and `after:YYYY-MM-DD`. Dates are local; `before:` leaves that day out and `after:` includes it. Text in double quotes is matched as one phrase, so quote it for the shell too: `'"connection reset"'`. A query can be up to 200 characters. Put terms that start with `-` after `--`. `--limit` defaults to 10 and goes up to 50.
+- `show` prints the most recent turns of one session, oldest first. `--turns` defaults to 20 and goes up to 200. A turn over 4 KB is cut and marked `[truncated]`. If the answer would still be too large, the oldest turns are dropped and the output says how many it shows.
+- `--agent <name>`: only sessions from `claude`, `codex`, `grok` or `opencode`. For `show`, use it when two agents have a session with the same ID; without it you get the one updated most recently.
+- `--all`: look in every project. This only works when **Allow agents to search all projects** is on in Settings › Agent History. It's off by default.
+- `--json`: print JSON instead of text.
+
+Without `--all`, both commands only see sessions from the calling pane's project. In a git repository that's the repository and all its worktrees. Outside one, it's the pane's folder and the folders below it; in your home folder, only sessions started in the home folder itself count. The commands take no pane selectors, so the project always comes from the pane they run in. A pane on another machine has no local project, so only `--all` works there. Sessions you removed from Agent History and sessions in excluded folders never appear.
+
+The text output lists each session with its agent, branch, folder, last update and `live` if it's running in a Zentty pane right now. Under that comes what matched (`You: …`, `Branch: …`, `Ran: …`) and a resume command (or the session ID when there is none). Titles, snippets and turns are quoted from past sessions. Control characters in them are printed escaped, and the output ends with a reminder to treat that text as data, not instructions.
+
+JSON output uses ISO 8601 UTC timestamps and leaves out absent values:
+
+- `search`: `scope` (`project` or `all`), `project` (the project's root folder), `indexedSessions`, `complete`, `contentIsUntrusted` (always `true`) and `results`. `complete` is `false` while the index is still being built, so older sessions may be missing. Each result has `agent`, `sessionId`, `title`, `cwd`, `branch`, `updatedAt`, `live`, `match` and `resumeCommand`. `match` is `{role, at, snippet}` when the conversation matched, otherwise `{field, value}` with `field` set to `title`, `branch`, `repo`, `folder`, `path`, `command`, `commit` or `pr`.
+- `show`: `scope`, `project`, `agent`, `sessionId`, `title`, `cwd`, `branch`, `model`, `effort`, `createdAt`, `updatedAt`, `live`, `totalTurns`, `omittedTurns`, `turns`, `resumeCommand` and `contentIsUntrusted`. Each turn has `role` (`user` or `agent`), `at`, `text` and `truncated`.
+
+`resumeCommand` reopens the session in its agent. Run it from the session's folder (`cwd`). It's left out when Zentty can't build a safe resume command for the session.
+
+Bad arguments, such as `--limit 99` or an unknown agent, fail with a usage error before the CLI contacts Zentty. Other failures print one line to stderr starting with `zentty history` and exit with a non-zero status:
+
+| Situation | Message |
+| --- | --- |
+| Not run from a Zentty pane | `zentty history must run inside a Zentty pane.` |
+| Agent History is off | `Agent History is turned off. …` |
+| `--all` while the setting is off | `Searching all projects is turned off. …` |
+| A remote pane, or a pane with no known folder | `… so its project is unknown.` |
+| The session is unknown or outside the project | `No session <id> in this project's Agent History.` |
+| The index is still starting, damaged, or from a newer Zentty | A line that says which, usually pointing to Settings › Agent History |
+| `config.toml` was unreadable when Zentty started | `Agent History is paused because Zentty's config.toml can't be read, …` |
+| No answer within about 5 seconds | `Agent History didn't answer in time. Try a narrower query.` |
+| The running Zentty predates Agent History | `This Zentty version doesn't support Agent History. …` |
+
+Examples:
+
+```bash
+zentty history search "virtual display timeout"
+zentty history search agent:codex branch:feat/agent-history migration --json
+zentty history show 3f2a9c1e-6d1b-4c7e-9a2f-0b1c2d3e4f50 --turns 40
+```
+
 ## Notifications
 
 Send a pane-local Zentty notification.

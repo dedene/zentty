@@ -43,6 +43,7 @@ enum AppConfigTOML {
         case agentCaffeination
         case agentLists
         case agents
+        case agentHistory
         case menuBar
         case floats
         case agentIntegrations
@@ -223,6 +224,11 @@ enum AppConfigTOML {
         lines.append("fork_destination = \(encode(string: config.agents.forkDestination.rawValue))")
 
         lines.append("")
+        lines.append("[agent_history]")
+        lines.append("excluded_folders = \(encode(strings: config.agentHistory.excludedFolders.map(portablePath)))")
+        lines.append("allow_agents_all_projects = \(config.agentHistory.allowAgentsAllProjects)")
+
+        lines.append("")
         lines.append("[menu_bar]")
         lines.append("show_status_item = \(config.menuBar.showStatusItem)")
 
@@ -356,6 +362,10 @@ enum AppConfigTOML {
                 section = .agents
                 continue
             }
+            if line == "[agent_history]" {
+                section = .agentHistory
+                continue
+            }
             if line == "[menu_bar]" {
                 section = .menuBar
                 continue
@@ -440,6 +450,8 @@ enum AppConfigTOML {
                 result = decodeAgentListsAssignment(assignment, into: &config)
             case .agents:
                 result = decodeAgentsAssignment(assignment, into: &config)
+            case .agentHistory:
+                result = decodeAgentHistoryAssignment(assignment, into: &config)
             case .menuBar:
                 result = decodeMenuBarAssignment(assignment, into: &config)
             case .floats:
@@ -948,6 +960,24 @@ enum AppConfigTOML {
                 return false
             }
             config.agents.forkDestination = destination
+        default:
+            return .unknownKey
+        }
+
+        return true
+    }
+
+    private static func decodeAgentHistoryAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> AssignmentResult {
+        switch assignment.key {
+        case "excluded_folders":
+            guard let folders = decodeStringArray(assignment.value) else { return false }
+            config.agentHistory.excludedFolders = folders.map { ($0 as NSString).expandingTildeInPath }
+        case "allow_agents_all_projects":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.agentHistory.allowAgentsAllProjects = value
         default:
             return .unknownKey
         }

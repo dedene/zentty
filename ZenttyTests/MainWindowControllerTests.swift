@@ -522,6 +522,29 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(settingsViewController.contentSectionTitle, "Open With")
     }
 
+    func test_show_settings_window_passes_agent_history_backend_to_settings() throws {
+        let controller = makeController()
+        let backend = HostedAgentHistorySettingsBackend()
+        controller.agentHistorySettingsBackend = backend
+
+        controller.showSettingsWindow(section: .agentHistory, sender: nil)
+
+        let settingsWindow = try XCTUnwrap(controller.settingsWindow)
+        addTeardownBlock { settingsWindow.close() }
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
+        )
+        settingsViewController.loadViewIfNeeded()
+        waitForLayout("agent history settings settled", delay: 0.1)
+
+        XCTAssertEqual(settingsViewController.selectedSection, .agentHistory)
+        let historyController = try XCTUnwrap(
+            settingsViewController.currentSectionViewController as? AgentHistorySettingsSectionViewController
+        )
+        XCTAssertTrue(historyController.statusSwitch.isEnabled)
+        XCTAssertGreaterThanOrEqual(backend.refreshCount, 1)
+    }
+
     func test_show_settings_window_follows_system_appearance() throws {
         let controller = makeController()
 

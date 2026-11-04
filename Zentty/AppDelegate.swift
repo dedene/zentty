@@ -158,6 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AgentIntegrationConsentPanel.present(tool: tool, completion: completion)
         }
 
+        // Agent History reads its consent off-main and starts indexing a few seconds after
+        // launch. Never in the inert test host: tests must not index the user's agent history.
+        if !Self.isHostedTestMode {
+            AgentHistoryController.shared.configure(
+                configStore: configStore,
+                paths: AgentHistoryPaths.resolve(configFileURL: configStore.fileURL)
+            )
+            AgentHistoryController.shared.scheduleStartAfterLaunch()
+        }
+
         guard shouldOpenMainWindow else { return }
 
         if isSessionRestoreEnabled {
@@ -478,6 +488,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // state out from under live agents. Tearing down first also lets an
         // agent's final hook events still be delivered.
         AgentIPCServer.shared.stop()
+        if !Self.isHostedTestMode {
+            AgentHistoryController.shared.stop()
+        }
         if let configObserverID {
             configStore.removeObserver(configObserverID)
         }
@@ -556,6 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
         }
+        wireAgentHistory(into: controller)
         PaneEventMonitor.shared.attach(windowID: controller.windowID, store: controller.worklaneStore)
         sessionScrollback.observe(controller.worklaneStore)
         syncMenuBarStatusSources()
@@ -915,13 +929,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncMenuBarStatusSources() {
         guard let menuBarStatusController else { return }
-        menuBarStatusController.syncSources(orderedWindowControllers.map { controller in
+        menuBarStatusController.syncSources(agentHistoryWorklaneSources())
+    }
+
+    /// Every window's worklane store in window order: the menu bar status and Agent History's
+    /// live-session index watch the same set.
+    func agentHistoryWorklaneSources() -> [MenuBarWorklaneSource] {
+        orderedWindowControllers.map { controller in
             MenuBarWorklaneSource(
                 windowID: controller.windowID,
                 windowTitle: controller.menuBarDisplayTitle,
                 worklaneStore: controller.worklaneStore
             )
-        })
+        }
+    }
+
+    /// Lets a window's Agent History reach every window, so a pick can jump to or fork a session
+    /// running in another one.
+    private func wireAgentHistory(into controller: MainWindowController) {
+        controller.agentHistoryHostsProvider = { [weak self] in
+            guard let self else { return [] }
+            return self.orderedWindowControllers
+        }
+        controller.agentHistorySourcesProvider = { [weak self] in
+            self?.agentHistoryWorklaneSources() ?? []
+        }
+        controller.agentHistoryServices = AgentHistoryPaletteServicesAdapter.make(
+            controller: .shared, host: controller, configStore: configStore)
+        controller.agentHistorySettingsBackend = AgentHistoryController.shared
     }
 
     private func makeOnePasswordPromptFocusCoordinator() -> OnePasswordPromptFocusCoordinator {

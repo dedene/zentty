@@ -245,6 +245,38 @@ final class AppConfigStoreTests: XCTestCase {
         )
     }
 
+    /// Agent History waits for a readable file before it trusts the excluded folders, so leaving
+    /// the launch fallback notifies observers even when the file's settings equal the defaults.
+    func test_store_reports_fallback_defaults_until_a_readable_file_loads() throws {
+        final class Count: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored = 0
+            var value: Int { lock.lock(); defer { lock.unlock() }; return stored }
+            func increment() { lock.lock(); stored += 1; lock.unlock() }
+        }
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try "[agent_history]\nexcluded_folders = [\"/secret\"\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertTrue(store.isUsingFallbackDefaults)
+        let notifications = Count()
+        _ = store.addObserver { _ in notifications.increment() }
+
+        try AppConfigTOML.encode(store.current).write(to: fileURL, atomically: true, encoding: .utf8)
+        store.reloadFromDisk()
+
+        XCTAssertFalse(store.isUsingFallbackDefaults)
+        XCTAssertEqual(notifications.value, 1, "leaving the fallback notifies even with unchanged settings")
+
+        try "[agent_history]\nexcluded_folders = [\"/secret\"\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        store.reloadFromDisk()
+        XCTAssertFalse(store.isUsingFallbackDefaults, "a file that breaks later keeps the last good settings")
+    }
+
     func test_store_reports_valid_load_for_parseable_and_missing_files() throws {
         // Missing file: store writes a fresh default — counts as valid.
         let missingURL = temporaryDirectoryURL.appendingPathComponent("missing.toml")

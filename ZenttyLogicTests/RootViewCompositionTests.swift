@@ -838,6 +838,33 @@ final class RootViewCompositionTests: AppKitTestCase {
         )
     }
 
+    func test_leading_chrome_controls_place_history_button_four_points_after_inbox() throws {
+        let controller = makeControllerWithCrowdedHeader(width: 1280)
+        let leadingControlsBar = try XCTUnwrap(
+            controller.view.subviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
+        let inboxButton = try XCTUnwrap(
+            leadingControlsBar.subviews.first { $0 is NotificationInboxButton } as? NotificationInboxButton
+        )
+        let historyButton = try XCTUnwrap(
+            leadingControlsBar.subviews.first { $0 is HistoryToolbarButton } as? HistoryToolbarButton
+        )
+
+        // Auto Layout pins alignment rects; an image-only NSButton's frame
+        // carries bezel insets (the sidebar toggle has the same).
+        let inboxRect = inboxButton.alignmentRect(forFrame: inboxButton.frame)
+        let historyRect = historyButton.alignmentRect(forFrame: historyButton.frame)
+
+        XCTAssertEqual(leadingControlsBar.frame.width, LeadingChromeControlsBar.totalWidth, accuracy: 0.5)
+        XCTAssertEqual(historyRect.minX - inboxRect.maxX, 4, accuracy: 0.5)
+        XCTAssertEqual(historyRect.maxX, leadingControlsBar.bounds.maxX, accuracy: 0.5)
+        XCTAssertEqual(historyRect.width, HistoryToolbarButton.buttonSize, accuracy: 0.5)
+        XCTAssertEqual(historyRect.height, HistoryToolbarButton.buttonSize, accuracy: 0.5)
+        XCTAssertEqual(historyRect.midY, inboxRect.midY, accuracy: 0.5)
+        XCTAssertEqual(historyButton.toolTip, "Agent History (⌘⇧H)")
+        XCTAssertNotNil(historyButton.onClick)
+    }
+
     func test_root_controller_centers_window_chrome_row_between_actual_left_and_right_controls_after_layout() throws {
         let target = OpenWithResolvedTarget(
             stableID: "cursor",

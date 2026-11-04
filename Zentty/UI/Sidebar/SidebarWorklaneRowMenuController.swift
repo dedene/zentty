@@ -7,6 +7,7 @@ final class SidebarWorklaneRowMenuController: NSObject {
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
+    var onAgentHistoryRequested: ((WorklaneID) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
 
     private var currentWorklaneID: WorklaneID?
@@ -52,7 +53,10 @@ final class SidebarWorklaneRowMenuController: NSObject {
                 colorChanged: { [weak self] picked in
                     guard let self, let worklaneID = self.currentWorklaneID else { return }
                     self.onWorklaneColorChanged?(worklaneID, picked)
-                }
+                },
+                agentHistoryAction: onAgentHistoryRequested == nil
+                    ? nil
+                    : #selector(handleAgentHistory)
             )
         )
         activeContextPicker = result.activePicker
@@ -76,6 +80,12 @@ final class SidebarWorklaneRowMenuController: NSObject {
             return
         }
         onBookmarkAction?(worklaneID, box.action)
+    }
+
+    @objc
+    private func handleAgentHistory() {
+        guard let worklaneID = currentWorklaneID else { return }
+        onAgentHistoryRequested?(worklaneID)
     }
 
     @objc

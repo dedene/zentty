@@ -370,6 +370,72 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(moves.map(\.1), [.up, .down])
     }
 
+    func test_worklaneContextMenu_offersAgentHistoryWhenWired_andInvokesCallbackWithWorklaneID() throws {
+        let event = try makeContextMenuEvent()
+        let row = makeRow()
+        var requested: [WorklaneID] = []
+        row.onAgentHistoryRequested = { worklaneID in
+            requested.append(worklaneID)
+        }
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code"),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.menu(for: event))
+        XCTAssertEqual(
+            menuTitles(menu),
+            [
+                "Rename Worklane…",
+                "Close Worklane",
+                "Worklane Color",
+                "Bookmark Worklane…",
+                "Save as Preset…",
+                "Agent History for This Project",
+            ]
+        )
+        let historyIndex = menu.indexOfItem(withTitle: "Agent History for This Project")
+        XCTAssertGreaterThan(historyIndex, 0)
+        XCTAssertTrue(menu.items[historyIndex - 1].isSeparatorItem)
+        let history = menu.items[historyIndex]
+        XCTAssertNotNil(history.image)
+
+        NSApp.sendAction(try XCTUnwrap(history.action), to: history.target, from: history)
+
+        XCTAssertEqual(requested, [WorklaneID("worklane-main")])
+    }
+
+    func test_worklaneContextMenu_omitsAgentHistoryWhenNotWired() throws {
+        let row = makeRow()
+        row.configure(
+            with: makeSummary(primaryText: "Claude Code"),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.menu(for: try makeContextMenuEvent()))
+
+        XCTAssertNil(menu.item(withTitle: "Agent History for This Project"))
+    }
+
+    func test_paneRowContextMenu_neverOffersAgentHistory() throws {
+        let row = makeRow(width: 320, height: 110)
+        row.onAgentHistoryRequested = { _ in }
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
+
+        XCTAssertNil(menu.item(withTitle: "Agent History for This Project"))
+    }
+
     func test_paneRowContextMenu_sharesWorklaneItemsAndIncludesPaneOnlyItems() throws {
         let row = makeRow(width: 320, height: 110)
         row.setWorklaneMoveAvailability(.init(canMoveUp: true, canMoveDown: true))

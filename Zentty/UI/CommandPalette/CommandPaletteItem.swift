@@ -530,6 +530,8 @@ enum CommandPaletteItemBuilder {
             "arrow.clockwise"
         case .forkAgentConversation:
             "arrow.triangle.branch"
+        case .showAgentHistory:
+            "clock.arrow.circlepath"
         case .toggleLightDarkTheme, .useDarkTheme, .useLightTheme, .useAutoTheme:
             "circle.lefthalf.filled"
         default:

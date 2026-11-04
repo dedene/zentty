@@ -205,6 +205,8 @@ enum AgentIPCBridge {
             // with the resolved plan. It never falls through to this generic
             // dispatch (same contract as discover/pane/server).
             throw AgentIPCError.unsupportedSubcommand("await_consent (must be handled by server)")
+        case .history:
+            throw AgentIPCError.unsupportedSubcommand("history (must be handled by server)")
         }
     }
 
@@ -892,6 +894,22 @@ final class AgentIPCServer: @unchecked Sendable {
                 return
             }
 
+            if request.kind == .history {
+                // No selectors: the pane token identifies the calling pane, whose project is the
+                // default scope. `--all` widens to every project only when the user turned on
+                // "Allow agents to search all projects". The token routes and identifies the
+                // caller; it is not a security boundary against other processes of the same user.
+                let target = try authenticatedEnvironmentTarget(
+                    environment: request.environment,
+                    authentication: authentication
+                )
+                let result = try HistoryIPCHandler.handle(request: request, target: target)
+                if request.expectsResponse {
+                    try writeResponse(AgentIPCResponse(id: request.id, ok: true, result: result), to: fileDescriptor)
+                }
+                return
+            }
+
             let canonicalRequest: AgentIPCRequest
             let target: AgentIPCTarget
 
@@ -1252,6 +1270,8 @@ final class AgentIPCServer: @unchecked Sendable {
             return "unexpected_argument"
         case PaneKeyNameError.unknownKey:
             return "unknown_key"
+        case let error as HistoryIPCError:
+            return error.ipcCode
         default:
             return "internal_error"
         }
@@ -1464,6 +1484,35 @@ final class AgentIPCServer: @unchecked Sendable {
         }
 
         throw PaneRoutingError.missingTargetContext
+    }
+
+    /// The pane the request's own environment names, when its token is valid. Unlike
+    /// `resolvedPaneRequest` it parses no selector arguments, so it can't reach another pane.
+    static func authenticatedEnvironmentTarget(
+        environment: [String: String],
+        authentication: AgentIPCAuthentication
+    ) throws -> AgentIPCTarget {
+        guard let worklaneID = environment["ZENTTY_WORKLANE_ID"], !worklaneID.isEmpty,
+              let paneID = environment["ZENTTY_PANE_ID"], !paneID.isEmpty
+        else {
+            throw PaneRoutingError.missingTargetContext
+        }
+        let target = AgentIPCTarget(
+            windowID: environment["ZENTTY_WINDOW_ID"].map(WindowID.init),
+            worklaneID: WorklaneID(worklaneID),
+            paneID: PaneID(paneID)
+        )
+        guard let token = environment["ZENTTY_PANE_TOKEN"], !token.isEmpty,
+              authentication.isValid(
+                  token: token,
+                  windowID: target.windowID,
+                  worklaneID: target.worklaneID,
+                  paneID: target.paneID
+              )
+        else {
+            throw PaneRoutingError.invalidPaneToken
+        }
+        return target
     }
 
     private static func validatedTarget(

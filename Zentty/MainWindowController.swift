@@ -196,6 +196,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onMovePaneToNewWorklaneInThisWindowRequested: ((MainWindowController, PaneID) -> Void)?
     var moveToWorklaneCatalogProvider: ((MainWindowController, PaneID) -> WorklaneDestinationCatalog?)?
     var onWorkspaceStateDidChange: (() -> Void)?
+    /// Every main window, for Agent History jumps and forks across windows. Nil: just this one.
+    var agentHistoryHostsProvider: (() -> [any AgentHistoryWindowHost])?
+    /// Every window's worklane store, for the live-session index. Nil: just this window's.
+    var agentHistorySourcesProvider: (() -> [MenuBarWorklaneSource])?
+    /// The Agent History palette's services; nil until the app delegate wires them (tests inject fakes).
+    var agentHistoryServices: AgentHistoryPaletteServices? {
+        get { rootViewController.agentHistoryServices }
+        set { rootViewController.agentHistoryServices = newValue }
+    }
+    /// Settings › Agent History's backend; read when the settings window is first created, so the
+    /// app delegate sets it before any window shows. Nil: the section says history isn't available.
+    var agentHistorySettingsBackend: (any AgentHistorySettingsBackend)?
 
     init(
         windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
@@ -487,6 +499,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 openWithService: openWithService,
                 serverOpening: serverOpenService,
                 runtimeErrorReportingEnabled: ErrorReportingRuntimeState.isEnabledForCurrentProcess,
+                agentHistoryBackend: agentHistorySettingsBackend,
                 initialSection: section
             )
             self.settingsWindowController = settingsWindowController
@@ -798,6 +811,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func showAgentHistory(_ sender: Any?) {
+        handle(.showAgentHistory)
+    }
+
+    @objc
     func openSettings(_ sender: Any?) {
         handle(.openSettings)
     }
@@ -975,9 +993,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     @discardableResult
     func forkAgentConversation(
         paneID: PaneID,
-        destination: AgentForkDestination?
+        destination: AgentForkDestination?,
+        sessionOverride: AgentForkSessionOverride? = nil
     ) throws -> WorklaneStore.AgentForkResult {
-        try rootViewController.paneCommands.forkAgentConversation(paneID: paneID, destination: destination)
+        try rootViewController.paneCommands.forkAgentConversation(
+            paneID: paneID,
+            destination: destination,
+            sessionOverride: sessionOverride
+        )
+    }
+
+    func launchInNewWorklane(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane {
+        rootViewController.paneCommands.launchInNewWorklane(request)
+    }
+
+    func launchInSplitRight(_ request: PaneLaunchRequest) -> WorklaneStore.LaunchedPane? {
+        rootViewController.paneCommands.launchInSplitRight(request)
+    }
+
+    func showToast(message: String) {
+        rootViewController.showToast(message: message)
     }
 
     @objc

@@ -47,6 +47,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeCloseWindow()
     func routeReloadConfig()
     func routeOpenBookmarksPopover()
+    func routeShowAgentHistory()
 }
 
 /// Translates an `AppAction` into the matching environment call. Pure routing:
@@ -142,6 +143,8 @@ struct AppActionRouter {
             environment.routeReloadConfig()
         case .openBookmarksPopover:
             environment.routeOpenBookmarksPopover()
+        case .showAgentHistory:
+            environment.routeShowAgentHistory()
         }
     }
 }

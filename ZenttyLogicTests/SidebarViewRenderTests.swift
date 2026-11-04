@@ -864,6 +864,60 @@ final class SidebarViewRenderTests: AppKitTestCase {
         )
     }
 
+    func test_worklaneContextMenu_relaysAgentHistoryOnlyWhileSidebarIsWired() throws {
+        let sidebar = makeSidebar()
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let event = try makeContextMenuEvent()
+        let buttons = try sidebarWorklaneButtons(in: sidebar)
+        let title = "Agent History for This Project"
+        XCTAssertNil(try XCTUnwrap(buttons[1].menu(for: event)).item(withTitle: title))
+
+        var requested: [WorklaneID] = []
+        sidebar.onAgentHistoryRequested = { requested.append($0) }
+
+        let item = try XCTUnwrap(try XCTUnwrap(buttons[1].menu(for: event)).item(withTitle: title))
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        XCTAssertEqual(requested, [WorklaneID("B")])
+
+        sidebar.onAgentHistoryRequested = nil
+        XCTAssertNil(try XCTUnwrap(buttons[1].menu(for: event)).item(withTitle: title))
+    }
+
+    func test_worklaneContextMenu_relaysAgentHistoryForRowsCreatedAfterWiring() throws {
+        let sidebar = makeSidebar()
+        let theme = ZenttyTheme.fallback(for: nil)
+        var requested: [WorklaneID] = []
+        sidebar.onAgentHistoryRequested = { requested.append($0) }
+
+        sidebar.render(
+            summaries: [makeSummary(worklaneID: "A", primaryText: "a")],
+            theme: theme
+        )
+        let originalButton = try XCTUnwrap(worklaneButton(in: sidebar, id: "A"))
+
+        sidebar.render(
+            summaries: [
+                makeSummary(worklaneID: "A", primaryText: "a"),
+                makeSummary(worklaneID: "B", primaryText: "b"),
+            ],
+            theme: theme
+        )
+
+        let newButton = try XCTUnwrap(worklaneButton(in: sidebar, id: "B"))
+        XCTAssertFalse(newButton === originalButton)
+        let title = "Agent History for This Project"
+        let event = try makeContextMenuEvent()
+        let item = try XCTUnwrap(try XCTUnwrap(newButton.menu(for: event)).item(withTitle: title))
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        XCTAssertEqual(requested, [WorklaneID("B")])
+    }
+
     func test_worklaneContextMoveCommandsCommitAdjacentTargetIndexes() throws {
         let sidebar = makeSidebar()
         let theme = ZenttyTheme.fallback(for: nil)
