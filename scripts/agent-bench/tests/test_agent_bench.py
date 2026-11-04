@@ -333,6 +333,46 @@ class SyntheticScenarioTests(unittest.TestCase):
             written = json.loads(config.read_text(encoding="utf-8"))
             self.assertTrue(written["projects"][str(repo)]["hasTrustDialogAccepted"])
 
+    def _workflow_records(self, *snapshots):
+        return [
+            agent_bench.TraceRecord(
+                kind="hook",
+                agent="claude",
+                scenario="subagents_workflow",
+                event_name=snapshot["hook"]["hook_event_name"],
+                extra={"workflow_hook": snapshot},
+            )
+            for snapshot in snapshots
+        ]
+
+    def test_workflow_contract_accepts_files_appearing_after_start(self):
+        path = "$SESSION/subagents/workflows/wf_1/agent-a.jsonl"
+        records = self._workflow_records(
+            {"hook": {"hook_event_name": "SubagentStart", "agent_id": "a"}, "files": {}},
+            {"hook": {"hook_event_name": "PreToolUse", "agent_id": "a"}, "files": {path: {"model": None}}},
+            {"hook": {"hook_event_name": "SubagentStop", "agent_id": "a", "agent_transcript_path": path}, "files": {path: {}}},
+        )
+        self.assertIsNone(agent_bench.missing_workflow_contract_detail(records))
+
+    def test_workflow_contract_reports_a_changed_upstream_order(self):
+        path = "$SESSION/subagents/workflows/wf_1/agent-a.jsonl"
+        stop = {"hook": {"hook_event_name": "SubagentStop", "agent_id": "a", "agent_transcript_path": path}, "files": {path: {}}}
+        files_at_start = self._workflow_records(
+            {"hook": {"hook_event_name": "SubagentStart", "agent_id": "a"}, "files": {path: {}}},
+            {"hook": {"hook_event_name": "PreToolUse", "agent_id": "a"}, "files": {path: {}}},
+            stop,
+        )
+        self.assertIn("recorded hook order changed", agent_bench.missing_workflow_contract_detail(files_at_start))
+        no_inner_hook = self._workflow_records(
+            {"hook": {"hook_event_name": "SubagentStart", "agent_id": "a"}, "files": {}},
+            stop,
+        )
+        self.assertIn("no hook from inside", agent_bench.missing_workflow_contract_detail(no_inner_hook))
+        direct_only = self._workflow_records(
+            {"hook": {"hook_event_name": "SubagentStop", "agent_id": "a", "agent_transcript_path": "$SESSION/subagents/agent-a.jsonl"}, "files": {}},
+        )
+        self.assertIn("no SubagentStop named", agent_bench.missing_workflow_contract_detail(direct_only))
+
     def test_claude_plan_mirrors_app_hook_set_including_post_tool_use(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

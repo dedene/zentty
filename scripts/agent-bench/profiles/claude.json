@@ -97,6 +97,22 @@
       "2.00",
       "For an integration hook regression test: use the Agent tool exactly once, with subagent_type Explore and run_in_background true, to list the files in the current directory. Do not wait for it: as soon as the Agent tool call returns, reply with exactly DONE and end your turn. Later, when the task notification for that agent arrives, reply with exactly DONE again."
     ],
+    "subagents_workflow": [
+      "--setting-sources",
+      "project,local",
+      "--print",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-hook-events",
+      "--allowedTools",
+      "Workflow,Bash(ls)",
+      "--model",
+      "haiku",
+      "--max-budget-usd",
+      "2.00",
+      "For an integration hook regression test, use a workflow: run the Workflow tool once with exactly this inline script. export const meta = {name:\"zentty-bench\",description:\"bench\",phases:[{title:\"Verify\"},{title:\"Review\"}]}; await parallel([() => agent(\"Run the Bash tool once with the command: ls. Then reply done.\", {label:\"a\",phase:\"Verify\"}), () => agent(\"Run the Bash tool once with the command: ls. Then reply done.\", {label:\"b\",phase:\"Review\"})]); When it finishes, reply with exactly DONE."
+    ],
     "subagents_nested": [
       "--setting-sources",
       "project,local",
@@ -221,6 +237,19 @@
           "SubagentStop"
         ]
       ]
+    },
+    "subagents_workflow": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStart",
+        "SubagentStop",
+        "SubagentStop",
+        "Stop"
+      ],
+      "subagent_payload_required": true,
+      "workflow_contract_required": true
     },
     "subagents_nested": {
       "required_events": [

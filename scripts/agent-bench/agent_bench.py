@@ -165,6 +165,12 @@ class ScenarioExpectation:
     # with distinct agent ids, every stop matching a start — a subagent that
     # itself spawned a subagent.
     subagent_nested_required: bool = False
+    # A Claude workflow run: each agent's SubagentStart fires before its files
+    # exist, only a later hook from inside the agent can see them under
+    # subagents/workflows/<run id>/. Also records the hook trace that
+    # ClaudeWorkflowTraceReplayTests replays through the real Swift adapter
+    # and registry, which this harness never runs itself.
+    workflow_contract_required: bool = False
     # A true end-to-end resume round-trip (modern kimi-code only): phase 1
     # creates a real session through the wrapper bootstrap against a bench-owned
     # home, phase 2 simulates a restart and resumes it by id, asserting the
@@ -1614,6 +1620,77 @@ def missing_subagent_payload_detail(observations: list[dict[str, Any]], model_re
     return None
 
 
+WORKFLOW_HOOK_KEYS = (
+    "hook_event_name",
+    "agent_id",
+    "agent_type",
+    "tool_name",
+    "agent_transcript_path",
+)
+
+
+def workflow_hook_snapshot(stdin_payload: str | None) -> dict[str, Any] | None:
+    """One Claude hook plus the subagent files on disk when it arrived, with
+    the session directory replaced by `$SESSION` so the trace can be replayed
+    anywhere. Keeps only derived facts, never transcript content."""
+    payload = parse_json_object(stdin_payload)
+    session_transcript = first_string(payload, ["transcript_path"]) or ""
+    if not session_transcript.endswith(".jsonl"):
+        return None
+    session_dir = pathlib.Path(session_transcript[: -len(".jsonl")])
+    hook = {
+        key: payload[key].replace(str(session_dir), "$SESSION")
+        for key in WORKFLOW_HOOK_KEYS
+        if isinstance(payload.get(key), str)
+    }
+    hook["transcript_path"] = "$SESSION.jsonl"
+    files: dict[str, dict[str, Any]] = {}
+    agent_id = hook.get("agent_id")
+    if agent_id:
+        for path in sorted((session_dir / "subagents").glob(f"**/*{agent_id}*")):
+            relative = f"$SESSION/{path.relative_to(session_dir)}"
+            if path.name.endswith(".meta.json"):
+                meta = parse_json_object(_read_head(path))
+                files[relative] = {"meta": {key: meta[key] for key in ("agentType", "workflowPhase", "model") if isinstance(meta.get(key), str)}}
+            elif path.name.endswith(".jsonl"):
+                files[relative] = {"model": resolve_subagent_model("claude", str(path), {}).get("model")}
+    return {"hook": hook, "files": files}
+
+
+def missing_workflow_contract_detail(records: list[TraceRecord]) -> str | None:
+    """None when the trace shows the order Zentty's workflow handling depends
+    on: a SubagentStart without files or a path, then a hook from inside the
+    agent that sees them under subagents/workflows/<run id>/."""
+    snapshots = [
+        record.extra["workflow_hook"]
+        for record in records
+        if isinstance(record.extra, dict) and isinstance(record.extra.get("workflow_hook"), dict)
+    ]
+    stop_paths: dict[str, str] = {}
+    for snapshot in snapshots:
+        hook = snapshot["hook"]
+        path = hook.get("agent_transcript_path") or ""
+        if hook.get("hook_event_name") == "SubagentStop" and "/subagents/workflows/" in path:
+            stop_paths[hook.get("agent_id") or ""] = path
+    if not stop_paths:
+        return "no SubagentStop named a transcript under subagents/workflows/"
+    starts = [s for s in snapshots if s["hook"].get("hook_event_name") == "SubagentStart" and s["hook"].get("agent_id") in stop_paths]
+    if any("agent_transcript_path" in s["hook"] for s in starts):
+        return "SubagentStart now carries agent_transcript_path; the derived path may no longer be needed"
+    if starts and all(s["files"] for s in starts):
+        return "every workflow agent already had files at SubagentStart; the recorded hook order changed"
+    for agent_id, path in stop_paths.items():
+        seen = any(
+            s["hook"].get("agent_id") == agent_id
+            and s["hook"].get("hook_event_name") != "SubagentStop"
+            and path in s["files"]
+            for s in snapshots
+        )
+        if not seen:
+            return f"no hook from inside workflow agent {agent_id} saw its transcript before SubagentStop"
+    return None
+
+
 def missing_nested_subagent_detail(observations: list[dict[str, Any]]) -> str | None:
     """None when the captured subagent hooks prove a nested spawn: at least
     two starts with distinct agent ids, at least two stops, and every stop id
@@ -1687,6 +1764,10 @@ def subagent_contract_failure(
         detail = missing_nested_subagent_detail(observations)
         if detail:
             return "missing-nested-subagent", detail
+    if expectation.workflow_contract_required:
+        detail = missing_workflow_contract_detail(records)
+        if detail:
+            return "workflow-contract", detail
     return None
 
 
@@ -1939,6 +2020,7 @@ class CaptureServer:
         self._thread: threading.Thread | None = None
         self._active = 0
         self._active_lock = threading.Lock()
+        self._workflow_trace_lock = threading.Lock()
         self.current_agent: str | None = None
 
     def start(self) -> None:
@@ -2121,6 +2203,15 @@ class CaptureServer:
         subagent_extra = subagent_trace_extra(agent, hook.event_name, stdin_payload if isinstance(stdin_payload, str) else None)
         if subagent_extra:
             extra = {**(extra or {}), **subagent_extra}
+        profile = self.profiles.get(agent or "")
+        expectation = profile.expectations.get(self.scenario) if profile else None
+        if expectation and expectation.workflow_contract_required:
+            snapshot = workflow_hook_snapshot(stdin_payload if isinstance(stdin_payload, str) else None)
+            if snapshot:
+                extra = {**(extra or {}), "workflow_hook": snapshot}
+                with self._workflow_trace_lock:
+                    with (self.run_dir / "claude-workflow-trace.jsonl").open("a", encoding="utf-8") as trace:
+                        trace.write(json.dumps(snapshot, sort_keys=True) + "\n")
         self.recorder.append(
             TraceRecord(
                 kind="hook",
@@ -3333,6 +3424,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 subagent_model_required=bool(value.get("subagent_model_required", True)),
                 event_order=parse_event_order(profile_path.name, name, value.get("event_order")),
                 subagent_nested_required=bool(value.get("subagent_nested_required", False)),
+                workflow_contract_required=bool(value.get("workflow_contract_required", False)),
                 resume_roundtrip=bool(value.get("resume_roundtrip", False)),
                 daemon_pane_routing=bool(value.get("daemon_pane_routing", False)),
             )

@@ -121,6 +121,19 @@ every Agent tool call asynchronously:
   `agent_id`s and every stop must match a start. A violation reports
   `missing-nested-subagent`.
 
+`subagents_workflow` (Claude only) runs a two-agent workflow and sets
+`workflow_contract_required: true`: `SubagentStart` must arrive before the
+agent's files exist, and a later hook from inside the agent must see them under
+`subagents/workflows/<run id>/`. A violation reports `workflow-contract`.
+
+The bench stands in for the app, so it never runs the Swift adapters or the
+registry. Instead this scenario writes `claude-workflow-trace.jsonl` to the run
+directory: each hook plus the files present when it arrived. The headless test
+`test_claude_workflow_hook_trace_recorded_by_agent_bench_replays_through_the_registry`
+replays `fixtures/claude-workflow-trace.jsonl` through the real code. To check a
+fresh recording, set `TEST_RUNNER_ZENTTY_BENCH_WORKFLOW_TRACE=<trace>` on
+`xcodebuild test`, and replace the fixture when a Claude bump changes the trace.
+
 `greeting_first_turn` and `multi_turn` (Muse only) drive the interactive TUI
 and set `title_spinner_phases: true`, which reads a title with a leading
 braille spinner frame (`⠋ repo`) as `running` and any other title as `idle`.
