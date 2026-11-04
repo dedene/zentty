@@ -130,7 +130,7 @@ final class PaneEventMonitor {
 
     private static func isRelevant(_ change: WorklaneChange) -> Bool {
         switch change {
-        case .paneStructure, .focusChanged, .auxiliaryStateUpdated, .activeWorklaneChanged, .worklaneListChanged:
+        case .paneStructure, .floats, .focusChanged, .auxiliaryStateUpdated, .activeWorklaneChanged, .worklaneListChanged:
             return true
         case .layoutResized, .volatileAgentTitleUpdated, .teamAnchorsChanged, .historyChanged:
             return false

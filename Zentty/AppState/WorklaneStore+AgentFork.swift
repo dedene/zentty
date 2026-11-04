@@ -23,13 +23,13 @@ extension WorklaneStore {
 
     /// Fork availability for a pane; `nil` when no agent runs in it.
     func agentForkAvailability(for paneID: PaneID) -> AgentForkAvailability? {
-        guard let worklane = worklanes.first(where: { $0.paneStripState.panes.contains { $0.id == paneID } }),
-              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID),
+              let pane = worklanes[worklaneIndex].pane(id: paneID) else {
             return nil
         }
         return AgentForkCommandBuilder.availability(
             pane: pane,
-            auxiliary: worklane.auxiliaryStateByPaneID[paneID]
+            auxiliary: worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]
         )
     }
 
@@ -41,12 +41,11 @@ extension WorklaneStore {
         paneID: PaneID,
         destination: AgentForkDestination
     ) throws -> AgentForkResult {
-        guard let sourceWorklane = worklanes.first(where: {
-            $0.paneStripState.panes.contains { $0.id == paneID }
-        }),
-            let sourcePane = sourceWorklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+        guard let sourceWorklaneIndex = worklaneIndex(containingPane: paneID),
+              let sourcePane = worklanes[sourceWorklaneIndex].pane(id: paneID) else {
             throw AgentForkError.paneNotFound
         }
+        let sourceWorklane = worklanes[sourceWorklaneIndex]
         let availability = AgentForkCommandBuilder.availability(
             pane: sourcePane,
             auxiliary: sourceWorklane.auxiliaryStateByPaneID[paneID]
@@ -65,6 +64,21 @@ extension WorklaneStore {
 
         let result: AgentForkResult
         switch destination {
+        case .splitRight where sourceWorklane.isFloating(paneID),
+             .splitDown where sourceWorklane.isFloating(paneID):
+            // A float is not a strip split target: fork into a new float
+            // offset from the source instead.
+            guard let newPaneID = openFloat(
+                besideFloat: paneID,
+                in: sourceWorklane.id,
+                workingDirectory: plan.workingDirectory,
+                sourceShellContext: sourceWorklane.auxiliaryStateByPaneID[paneID]?.shellContext,
+                command: plan.command,
+                configure: { $0.sessionRequest.replaysCommandOnRestore = false }
+            ) else {
+                throw AgentForkError.paneNotFound
+            }
+            result = AgentForkResult(paneID: newPaneID, worklaneID: sourceWorklane.id)
         case .splitRight, .splitDown:
             guard let newPaneID = splitWithLayout(
                 in: sourceWorklane.id,

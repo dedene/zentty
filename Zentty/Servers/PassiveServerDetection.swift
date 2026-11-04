@@ -141,7 +141,7 @@ struct PassiveServerDetectionSnapshot: Equatable, Sendable {
         var shouldContinuePolling = false
         var worklaneIDsWithoutContexts: [WorklaneID] = []
         let contexts = worklanes.compactMap { worklane -> PassiveServerDetectionContext? in
-            let panes = worklane.paneStripState.panes.compactMap { pane -> (scanner: PaneScanContext, docker: DockerPaneContext, isRunning: Bool)? in
+            let panes = worklane.allPanes.compactMap { pane -> (scanner: PaneScanContext, docker: DockerPaneContext, isRunning: Bool)? in
                 guard let auxiliary = worklane.auxiliaryStateByPaneID[pane.id],
                       let shellContext = auxiliary.shellContext,
                       shellContext.scope == .local,
@@ -183,7 +183,7 @@ struct PassiveServerDetectionSnapshot: Equatable, Sendable {
                 ),
                 docker: DockerDiscoveryContext(
                     worklaneID: worklane.id,
-                    focusedPaneID: worklane.paneStripState.focusedPaneID,
+                    focusedPaneID: worklane.focusedPaneID,
                     panes: panes.map(\.docker)
                 )
             )

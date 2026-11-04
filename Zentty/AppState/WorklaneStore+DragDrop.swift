@@ -257,11 +257,17 @@ extension WorklaneStore {
         if let auxiliaryState {
             targetWorklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         }
+        // The moved tile takes focus in the target, even over a focused float.
+        targetWorklane.focusedFloatID = nil
 
         worklanes[targetIndex] = targetWorklane
 
         let sourceWorklaneID = sourceWorklane.id
-        let sourceIsEmpty = sourceWorklane.paneStripState.columns.isEmpty
+        // Floats keep a worklane alive after its last tile leaves.
+        let sourceIsEmpty = !sourceWorklane.hasLivePanes
+        if !sourceIsEmpty {
+            Self.focusFrontFloatIfUnfocused(in: &worklanes[sourceIndex])
+        }
 
         if sourceIsEmpty, worklanes.count > 1 {
             worklanes.remove(at: worklanes.firstIndex(where: { $0.id == sourceWorklaneID })!)
@@ -296,14 +302,16 @@ extension WorklaneStore {
         atIndex insertionIndex: Int,
         singleColumnWidth: CGFloat
     ) {
-        guard let source = activeWorklane else { return }
+        // Floats don't move to other worklanes in v1; only tiles do.
+        guard let source = activeWorklane,
+              source.paneStripState.panes.contains(where: { $0.id == paneID }) else { return }
 
         // Moving a worklane's only pane to a new-worklane slot is just moving
         // the worklane itself — reorder it to the slot, preserving its
         // identity (title, state), instead of creating a fresh lane and
         // leaving an empty source behind. Option+drag (duplicate) is
-        // unaffected.
-        if source.paneStripState.panes.count == 1 {
+        // unaffected. A lone tile with floats moves alone: the floats stay.
+        if source.allPanes.count == 1 {
             guard source.paneStripState.panes.first?.id == paneID,
                   let fromIndex = worklanes.firstIndex(where: { $0.id == source.id })
             else { return }
@@ -342,13 +350,16 @@ extension WorklaneStore {
     // MARK: - Cross-Window Transfer
 
     func canSplitOutPaneToNewWindow(paneID: PaneID) -> Bool {
+        // Floats don't split out to a new window in v1; only tiles do.
         guard let sourceWorklane = worklanes.first(where: { worklane in
             worklane.paneStripState.panes.contains { $0.id == paneID }
         }) else {
             return false
         }
 
-        return !(worklanes.count == 1 && sourceWorklane.paneStripState.panes.count == 1)
+        // Overlay floats close once their owner leaves; they never count as
+        // a pane that keeps the source window open.
+        return !(worklanes.count == 1 && sourceWorklane.isLastPersistentPane(paneID))
     }
 
     @discardableResult
@@ -363,11 +374,13 @@ extension WorklaneStore {
         }
 
         var sourceWorklane = worklanes[sourceIndex]
-        guard !(worklanes.count == 1 && sourceWorklane.paneStripState.panes.count == 1) else {
+        guard !(worklanes.count == 1 && sourceWorklane.isLastPersistentPane(paneID)) else {
             return nil
         }
 
-        if sourceWorklane.paneStripState.panes.count == 1 {
+        // The worklane's only live pane: move the whole worklane. A lone tile
+        // with floats leaves alone below, so the floats stay behind.
+        if sourceWorklane.allPanes.count == 1 {
             var movedWorklane = worklanes.remove(at: sourceIndex)
             if let movedColumnIndex = movedWorklane.paneStripState.columns.firstIndex(where: { column in
                 column.panes.contains { $0.id == paneID }
@@ -413,8 +426,19 @@ extension WorklaneStore {
             previousColumnCount: previousSourceColumnCount,
             singleColumnWidth: layoutContext.singlePaneWidth
         )
+        Self.focusFrontFloatIfUnfocused(in: &sourceWorklane)
 
         worklanes[sourceIndex] = sourceWorklane
+        // Only overlays left: they close with the worklane (their owner just
+        // left this window), like the cross-window extraction.
+        let sourceWorklaneRemoved = !sourceWorklane.hasPersistentPanes
+        if sourceWorklaneRemoved {
+            worklanes.remove(at: sourceIndex)
+            serverRegistry.clear(worklaneID: sourceWorklane.id)
+            if activeWorklaneID == sourceWorklane.id, !worklanes.isEmpty {
+                activeWorklaneID = worklanes[min(max(sourceIndex - 1, 0), worklanes.count - 1)].id
+            }
+        }
 
         removal.pane.width = layoutContext.singlePaneWidth
         let destinationWorklaneID = runtimeIdentity.makeWorklaneID()
@@ -437,7 +461,11 @@ extension WorklaneStore {
         )
 
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(sourceWorklane.id))
+        if sourceWorklaneRemoved {
+            notify(.worklaneListChanged)
+        } else {
+            notify(.paneStructure(sourceWorklane.id))
+        }
 
         return PaneSplitOutResult(
             destinationWorkspaceState: WindowWorkspaceState(
@@ -445,7 +473,8 @@ extension WorklaneStore {
                 activeWorklaneID: destinationWorklaneID
             ),
             movedPaneID: paneID,
-            sourceWindowShouldClose: false
+            // Decided after the overlays went (notify reconciles them).
+            sourceWindowShouldClose: worklanes.allSatisfy { !$0.hasPersistentPanes }
         )
     }
 
@@ -487,6 +516,7 @@ extension WorklaneStore {
         paneID: PaneID,
         singleColumnWidth: CGFloat
     ) -> ExtractedPanePayload? {
+        // Floats don't move across windows in v1; only tiles are extracted.
         guard let sourceIndex = worklanes.firstIndex(where: { worklane in
             worklane.paneStripState.panes.contains { $0.id == paneID }
         }) else {
@@ -510,10 +540,13 @@ extension WorklaneStore {
         )
 
         let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
+        Self.focusFrontFloatIfUnfocused(in: &sourceWorklane)
         worklanes[sourceIndex] = sourceWorklane
 
         let sourceWorklaneID = sourceWorklane.id
-        let sourceIsEmpty = sourceWorklane.paneStripState.columns.isEmpty
+        // Floats keep the worklane (and the window) alive; overlay floats
+        // don't, and close with it (their owner just left this window).
+        let sourceIsEmpty = !sourceWorklane.hasPersistentPanes
         var sourceWorklaneRemoved = false
 
         if sourceIsEmpty {
@@ -524,7 +557,7 @@ extension WorklaneStore {
             }
         }
 
-        let sourceWindowShouldClose = worklanes.allSatisfy { $0.paneStripState.panes.isEmpty }
+        let sourceWindowShouldClose = worklanes.allSatisfy { !$0.hasPersistentPanes }
 
         refreshLastFocusedLocalWorkingDirectory()
 
@@ -581,6 +614,7 @@ extension WorklaneStore {
         if let auxiliaryState = payload.auxiliary {
             targetWorklane.auxiliaryStateByPaneID[pane.id] = auxiliaryState
         }
+        targetWorklane.focusedFloatID = nil
 
         worklanes[targetIndex] = targetWorklane
         activeWorklaneID = targetWorklaneID
@@ -612,7 +646,7 @@ extension WorklaneStore {
         atPaneIndex flatPaneIndex: Int?,
         singleColumnWidth: CGFloat
     ) {
-        guard let sourceWorklane = worklanes.first(where: { $0.paneStripState.columns.contains(where: { $0.panes.contains(where: { $0.id == paneID }) }) }),
+        guard let sourceWorklane = worklanes.first(where: { $0.pane(id: paneID) != nil }),
               let targetIndex = worklanes.firstIndex(where: { $0.id == targetWorklaneID }) else {
             return
         }
@@ -674,6 +708,7 @@ extension WorklaneStore {
                 width: insertWidth
             )
         }
+        targetWorklane.focusedFloatID = nil
 
         worklanes[targetIndex] = targetWorklane
         activeWorklaneID = targetWorklaneID
@@ -950,21 +985,22 @@ extension WorklaneStore {
 
     // MARK: - Private — Duplicate Source Info
 
-    private struct DuplicateSourceInfo {
+    struct DuplicateSourceInfo {
         let workingDirectory: String?
         let shellContext: PaneShellContext?
         let command: String?
         let sourceColumnWidth: CGFloat
     }
 
-    private func duplicateSourceInfo(for paneID: PaneID, in worklane: WorklaneState) -> DuplicateSourceInfo? {
+    func duplicateSourceInfo(for paneID: PaneID, in worklane: WorklaneState) -> DuplicateSourceInfo? {
         let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID]
         let workingDirectory = auxiliaryState?.raw.shellContext?.path
         let shellContext = auxiliaryState?.raw.shellContext
         let command = duplicateCommand(auxiliaryState: auxiliaryState)
+        // A float has no column; size its duplicate like a lone column.
         let sourceColumnWidth = worklane.paneStripState.columns
             .first(where: { $0.panes.contains(where: { $0.id == paneID }) })?
-            .width ?? 0
+            .width ?? layoutContext.singlePaneWidth
         return DuplicateSourceInfo(
             workingDirectory: workingDirectory,
             shellContext: shellContext,

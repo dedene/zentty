@@ -65,6 +65,7 @@ targets:
       - path: Zentty/AppState/Agent/CursorHooksInstaller.swift
       - path: Zentty/AppState/Agent/DevinConfigWriteBack.swift
       - path: Zentty/AppState/Agent/DroidHooksInstaller.swift
+      - path: Zentty/AppState/Agent/FloatControlProtocol.swift
       - path: Zentty/AppState/Agent/GrokHooksInstaller.swift
       - path: Zentty/AppState/Agent/GrokCanonicalReEmitter.swift
       - path: Zentty/AppState/Agent/HookCanonicalReEmitter.swift

@@ -60,7 +60,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     var subtitle: String {
         switch self {
         case .general:
-            "Confirmations, restore, and clipboard"
+            "Confirmations, floating panes, restore, and clipboard"
         case .appearance:
             "Theme, opacity, and terminal colors"
         case .shortcuts:
@@ -85,7 +85,10 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     var searchKeywords: [String] {
         switch self {
         case .general:
-            ["confirm", "quit", "close", "restore", "workspace", "clipboard", "copy", "flatten", "markdown", "url"]
+            [
+                "confirm", "quit", "close", "restore", "workspace", "clipboard", "copy", "flatten", "markdown", "url",
+                "float", "picture in picture", "pip", "minimize", "overlay",
+            ]
         case .appearance:
             ["theme", "opacity", "color", "font", "terminal", "ghostty", "background"]
         case .shortcuts:
@@ -730,6 +733,7 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         generalViewController.apply(restore: config.restore)
         generalViewController.apply(clipboard: config.clipboard)
         generalViewController.apply(sidebar: config.sidebar)
+        generalViewController.apply(floats: config.floats)
         notificationsViewController.apply(notifications: config.notifications)
         updatesPrivacyViewController.apply(updates: config.updates)
         updatesPrivacyViewController.apply(errorReporting: config.errorReporting)

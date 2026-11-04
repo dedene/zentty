@@ -39,7 +39,8 @@ extension WorklaneStore {
     ) -> [WorklaneDestinationSummary] {
         worklanes.compactMap { worklane in
             guard worklane.id != excluded else { return nil }
-            let panes = worklane.paneStripState.panes
+            // A float-only worklane is a valid destination; the moved pane lands as a tile.
+            let panes = worklane.allPanes
             guard !panes.isEmpty else { return nil }
             let primary = destinationPrimaryTitle(for: worklane)
             return WorklaneDestinationSummary(
@@ -60,7 +61,7 @@ extension WorklaneStore {
             return contextualTitle
         }
 
-        let firstTitle = worklane.paneStripState.panes.first?.title ?? ""
+        let firstTitle = worklane.allPanes.first?.title ?? ""
         return firstTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Untitled"
             : firstTitle

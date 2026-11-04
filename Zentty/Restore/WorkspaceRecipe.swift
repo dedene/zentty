@@ -18,9 +18,11 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
     /// auto-generated "MAIN"/"WS N" junk that gets sanitized once at import.
     /// Schema version 3 adds optional per-pane `customTitle` fields.
     /// Schema version 4 adds an optional per-window `sidebar` entry.
+    /// Schema version 5 adds optional per-worklane `floatingPanes`,
+    /// `floatsHidden` and `focusedFloatID`.
     /// Synthesized Decodable ignores the property default for optionals, so
     /// legacy JSON without the key decodes as nil.
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     var schemaVersion: Int?
     var windows: [Window]
@@ -159,6 +161,11 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var columns: [Column]
         var color: String?
         var bookmarkOriginID: String?
+        /// v5: persistent floats (PiPs and pills included). Nil when the
+        /// worklane has none, so float-free worklanes export like v4.
+        var floatingPanes: [FloatingPane]? = nil
+        var floatsHidden: Bool? = nil
+        var focusedFloatID: String? = nil
     }
 
     struct Column: Codable, Equatable, Sendable {
@@ -202,14 +209,18 @@ enum WorkspaceRecipeExporter {
     }
 
     private static func makeWorklane(_ worklane: WorklaneState) -> WorkspaceRecipe.Worklane {
-        WorkspaceRecipe.Worklane(
+        let floats = makeFloats(worklane)
+        return WorkspaceRecipe.Worklane(
             id: worklane.id.rawValue,
             title: worklane.title,
             nextPaneNumber: worklane.nextPaneNumber,
             focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
             columns: worklane.paneStripState.columns.map { makeColumn($0, worklane: worklane) },
             color: worklane.color?.rawValue,
-            bookmarkOriginID: worklane.bookmarkOriginID?.uuidString
+            bookmarkOriginID: worklane.bookmarkOriginID?.uuidString,
+            floatingPanes: floats.floatingPanes,
+            floatsHidden: floats.floatsHidden,
+            focusedFloatID: floats.focusedFloatID
         )
     }
 
@@ -227,7 +238,7 @@ enum WorkspaceRecipeExporter {
         )
     }
 
-    private static func makePane(
+    static func makePane(
         _ pane: PaneState,
         worklane: WorklaneState
     ) -> WorkspaceRecipe.Pane {
@@ -500,6 +511,19 @@ enum WorkspaceRecipeImporter {
                 agentTeamsEnabled: agentTeamsEnabled
             )
         }
+        let tiledPaneIDs = Set(columns.flatMap { $0.panes.map(\.id) })
+        let floatingPanes = makeFloatingPanes(
+            recipe,
+            tiledPaneIDs: tiledPaneIDs,
+            restoreDraftWindow: restoreDraftWindow,
+            windowID: windowID,
+            worklaneID: worklaneID,
+            layoutContext: layoutContext,
+            auxiliaryStateByPaneID: &auxiliaryStateByPaneID,
+            processEnvironment: processEnvironment,
+            agentTeamsEnabled: agentTeamsEnabled
+        )
+        let floatsHidden = !floatingPanes.isEmpty && recipe.floatsHidden == true
 
         return WorklaneState(
             id: worklaneID,
@@ -512,7 +536,15 @@ enum WorkspaceRecipeImporter {
             nextPaneNumber: max(recipe.nextPaneNumber, 1),
             auxiliaryStateByPaneID: auxiliaryStateByPaneID,
             color: recipe.color.flatMap(WorklaneColor.init(rawValue:)),
-            bookmarkOriginID: recipe.bookmarkOriginID.flatMap(UUID.init(uuidString:))
+            bookmarkOriginID: recipe.bookmarkOriginID.flatMap(UUID.init(uuidString:)),
+            floatingPanes: floatingPanes,
+            floatsHidden: floatsHidden,
+            focusedFloatID: focusedFloatID(
+                recipe,
+                floats: floatingPanes,
+                hasTiles: !tiledPaneIDs.isEmpty,
+                floatsHidden: floatsHidden
+            )
         )
     }
 
@@ -530,10 +562,12 @@ enum WorkspaceRecipeImporter {
         let panes = recipe.panes.enumerated().map { index, pane in
             makePane(
                 pane,
-                paneIndex: index,
-                paneCountInColumn: recipe.panes.count,
-                window: window,
-                worklane: worklane,
+                surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
+                    paneCountInColumn: recipe.panes.count,
+                    totalColumns: worklane.columns.count,
+                    totalWorklanes: window.worklanes.count,
+                    paneIndex: index
+                ),
                 restoreDraftWindow: restoreDraftWindow,
                 windowID: windowID,
                 worklaneID: worklaneID,
@@ -554,12 +588,9 @@ enum WorkspaceRecipeImporter {
         )
     }
 
-    private static func makePane(
+    static func makePane(
         _ recipe: WorkspaceRecipe.Pane,
-        paneIndex: Int,
-        paneCountInColumn: Int,
-        window: WorkspaceRecipe.Window,
-        worklane: WorkspaceRecipe.Worklane,
+        surfaceContext: TerminalSurfaceContext,
         restoreDraftWindow: SessionRestoreDraftWindow?,
         windowID: WindowID,
         worklaneID: WorklaneID,
@@ -585,12 +616,7 @@ enum WorkspaceRecipeImporter {
             prefillText: nil,
             environmentOverrides: [:],
             agentTeamsEnabled: agentTeamsEnabled,
-            surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
-                paneCountInColumn: paneCountInColumn,
-                totalColumns: worklane.columns.count,
-                totalWorklanes: window.worklanes.count,
-                paneIndex: paneIndex
-            ),
+            surfaceContext: surfaceContext,
             columnWidth: columnWidth,
             statusTextWhenWorkingDirectoryMissing: "Original path unavailable"
         )
@@ -762,6 +788,10 @@ enum WorkspaceRecipeImporter {
 ///   keys decode as `nil`, and a partial or malformed entry degrades per
 ///   field inside `Sidebar.init(from:)`, so no migration action is needed
 ///   for this hop either.
+/// - v5: adds optional per-worklane `floatingPanes`, `floatsHidden` and
+///   `focusedFloatID`. All Optional and nil for float-free worklanes, so
+///   v4 JSON decodes unchanged and this hop is a no-op too. Malformed float
+///   entries degrade per field (see `WorkspaceRecipe.FloatingPane`).
 /// - newer than current (forward-compat): treated exactly like the current
 ///   version — verbatim titles, no sanitization. This matches today's
 ///   behavior, where the only branch anywhere is `schemaVersion == nil`
@@ -801,6 +831,12 @@ enum WorkspaceRecipeMeaningfulness {
         }
 
         guard window.worklanes.count == 1, let worklane = window.worklanes.first else {
+            return true
+        }
+
+        // Any float is user intent; a default tile beside it must not make
+        // the recipe (and the float's saved output) look disposable.
+        if !(worklane.floatingPanes ?? []).isEmpty {
             return true
         }
 

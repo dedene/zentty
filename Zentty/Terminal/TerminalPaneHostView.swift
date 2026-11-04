@@ -138,6 +138,11 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
             .setMouseInteractionSuppressionRects(rects)
     }
 
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        (terminalView as? any TerminalCursorExclusionControlling)?
+            .setCursorExclusionRects(rects)
+    }
+
     func forceViewportSync() {
         syncTerminalViewFrameIfNeeded()
         needsLayout = true
@@ -233,8 +238,12 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         }
     }
 
+    /// Height over which terminal content fades out under the top border.
+    static let topFadeHeight: CGFloat = 12
+
     private func setup() {
         wantsLayer = true
+        (terminalView as? any TerminalTopFadeConfiguring)?.topFadeHeight = Self.topFadeHeight
         addSubview(terminalView)
         searchHUDView.isHidden = true
         searchHUDView.delegate = self
@@ -1105,7 +1114,9 @@ final class PaneRuntimeRegistry {
             var nextPaneIDs = Set<PaneID>()
 
             for worklane in worklanes {
-                for pane in worklane.paneStripState.panes {
+                // Every live pane, floats included: a pane missing here gets
+                // its surface closed below.
+                for pane in worklane.allPanes {
                     nextPaneIDs.insert(pane.id)
                     let runtime = runtime(for: pane)
                     let sourcePaneID = pane.sessionRequest.configInheritanceSourcePaneID
@@ -1247,21 +1258,15 @@ final class PaneRuntimeRegistry {
         activeWorklaneID: WorklaneID,
         windowIsVisible: Bool,
         windowIsKey: Bool,
-        peekVisibleWorklaneIDs: Set<WorklaneID> = []
+        peekVisibleWorklaneIDs: Set<WorklaneID> = [],
+        pillPeekedPaneIDs: Set<PaneID> = []
     ) {
-        let visiblePaneCount = worklanes
-            .first(where: { $0.id == activeWorklaneID && windowIsVisible })?
-            .paneStripState
-            .panes
-            .count ?? 0
-        diagnostics.recordRuntimeTopology(
-            liveRuntimeCount: runtimes.count,
-            visiblePaneCount: visiblePaneCount,
-            windowVisible: windowIsVisible,
-            windowKey: windowIsKey
-        )
-
+        let liveRuntimeCount = runtimes.count
+        var visiblePaneCount = 0
         let activeWorklaneIndex = worklanes.firstIndex { $0.id == activeWorklaneID } ?? 0
+        // A peek session always lists the original lane, so a non-empty set
+        // means peek is open (and the float layer is hidden).
+        let isPeekOpen = !peekVisibleWorklaneIDs.isEmpty
         var deferredCandidates: [(distance: Int, worklaneIndex: Int, paneIndex: Int, paneID: PaneID)] = []
 
         for (worklaneIndex, worklane) in worklanes.enumerated() {
@@ -1270,22 +1275,37 @@ final class PaneRuntimeRegistry {
             // keeps streaming frames) when the window is visible AND the
             // worklane is either the active one OR currently rendered as a
             // Worklane Peek neighbor preview. Focus stays gated on active.
+            // Floats follow their mode (see PaneActivityResolver).
             let isPeekVisible = peekVisibleWorklaneIDs.contains(worklane.id)
-            for (paneIndex, pane) in worklane.paneStripState.panes.enumerated() {
-                let isVisible = windowIsVisible && (isActiveWorklane || isPeekVisible)
-                let isFocused = isVisible && windowIsKey && isActiveWorklane
-                    && pane.id == worklane.paneStripState.focusedPaneID
+            let focusedPaneID = worklane.focusedPaneID
+            let floatModes = Dictionary(
+                worklane.floatingPanes.map { ($0.pane.id, $0.mode) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for (paneIndex, pane) in worklane.allPanes.enumerated() {
+                let mode = floatModes[pane.id].map(PanePresentationMode.init) ?? .tile
+                let activity = PaneActivityResolver.activity(
+                    for: PaneActivityInput(
+                        mode: mode,
+                        floatsHidden: worklane.floatsHidden,
+                        isActiveWorklane: isActiveWorklane,
+                        isPeekVisible: isPeekVisible,
+                        windowIsVisible: windowIsVisible,
+                        windowIsKey: windowIsKey,
+                        isFocusedPane: pane.id == focusedPaneID,
+                        isPeekOpen: isPeekOpen,
+                        isPillPeeked: pillPeekedPaneIDs.contains(pane.id)
+                    )
+                )
+                if isActiveWorklane, activity.isVisible {
+                    visiblePaneCount += 1
+                }
                 let runtime = runtime(for: pane)
                 let startsImmediately = isActiveWorklane || isPeekVisible
                 if startsImmediately {
                     removeDeferredStart(for: pane.id)
                 }
 
-                let activity = TerminalSurfaceActivity(
-                    keepsRuntimeLive: true,
-                    isVisible: isVisible,
-                    isFocused: isFocused
-                )
                 runtime.setSurfaceActivity(
                     activity,
                     startupPolicy: startsImmediately ? .immediate : .deferred
@@ -1302,6 +1322,13 @@ final class PaneRuntimeRegistry {
                 }
             }
         }
+
+        diagnostics.recordRuntimeTopology(
+            liveRuntimeCount: liveRuntimeCount,
+            visiblePaneCount: visiblePaneCount,
+            windowVisible: windowIsVisible,
+            windowKey: windowIsKey
+        )
 
         replaceDeferredStartQueue(
             with: deferredCandidates

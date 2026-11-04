@@ -105,15 +105,26 @@ extension TmuxCompatIPCHandler {
         )
         sessionRequest.environmentVariables["TMUX_PANE"] = "%\(location.pane.number)"
         let focusedPaneID = context.windowController.focusedPaneID(in: worklaneID)
-        guard let newPaneID = context.windowController.splitWithLayout(
-            in: worklaneID,
-            placement: .afterFocused,
-            isHorizontal: false,
-            layout: .none,
-            targetPaneID: oldPaneID,
-            preserveFocusPaneID: focusedPaneID == oldPaneID ? nil : focusedPaneID,
-            sessionRequest: sessionRequest
-        ) else {
+        // A floated pane is replaced by a float in its place; a split would
+        // drop the replacement into the user's strip.
+        let replacementPaneID: PaneID? = if context.windowController.isFloatingPane(oldPaneID) {
+            context.windowController.worklaneStore.openReplacementFloat(
+                for: oldPaneID,
+                in: worklaneID,
+                sessionRequest: sessionRequest
+            )
+        } else {
+            context.windowController.splitWithLayout(
+                in: worklaneID,
+                placement: .afterFocused,
+                isHorizontal: false,
+                layout: .none,
+                targetPaneID: oldPaneID,
+                preserveFocusPaneID: focusedPaneID == oldPaneID ? nil : focusedPaneID,
+                sessionRequest: sessionRequest
+            )
+        }
+        guard let newPaneID = replacementPaneID else {
             throw TmuxCompatIPCError.createFailed("respawn-pane")
         }
 

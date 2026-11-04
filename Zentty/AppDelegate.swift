@@ -603,7 +603,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sourceController: MainWindowController,
         paneID: PaneID
     ) -> WorklaneDestinationCatalog? {
-        guard let sourceWorklaneID = sourceController.worklaneID(containing: paneID) else {
+        guard let sourceWorklaneID = sourceController.worklaneID(containing: paneID),
+              !sourceController.isFloatingPane(paneID) else {
             return nil
         }
         let ordered = orderedControllers(sourceFirst: sourceController)
@@ -617,7 +618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        let canCreateNewWorklane = sourceController.paneCount(in: sourceWorklaneID) > 1
+        let canCreateNewWorklane = sourceController.livePaneCount(in: sourceWorklaneID) > 1
         return WorklaneDestinationCatalog(groups: groups, canCreateNewWorklane: canCreateNewWorklane)
     }
 
@@ -833,7 +834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.orderedWindowControllers.map { controller in
                 let store = controller.worklaneStore
                 return SessionScrollbackCoordinator.CaptureSource(
-                    paneIDs: store.worklanes.flatMap { $0.paneStripState.panes.map(\.id) },
+                    paneIDs: store.worklanes.flatMap { $0.persistentPanes.map(\.id) },
                     busyPaneIDs: Self.busyPaneIDs(in: store),
                     read: { [weak store] paneID in store?.styledScrollbackProvider?(paneID) }
                 )
@@ -956,7 +957,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func currentOnePasswordPromptFocusLocation() -> OnePasswordPromptFocusLocation? {
         guard let controller = keyWindowController,
               let worklane = controller.worklaneStore.activeWorklane,
-              let paneID = worklane.paneStripState.focusedPaneID else {
+              let paneID = worklane.focusedPaneID else {
             return nil
         }
         return OnePasswordPromptFocusLocation(
@@ -980,7 +981,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func onePasswordPromptPaneSources() -> [OnePasswordPromptPaneSource] {
         orderedWindowControllers.flatMap { controller in
             controller.worklaneStore.worklanes.flatMap { worklane in
-                worklane.paneStripState.panes.map { pane in
+                worklane.allPanes.map { pane in
                     OnePasswordPromptPaneSource(
                         windowID: controller.windowID,
                         worklaneID: worklane.id,
@@ -1182,7 +1183,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let destinationWorklaneID = workspaceState.activeWorklaneID,
               let destinationPaneID = workspaceState.worklanes
                 .first(where: { $0.id == destinationWorklaneID })?
-                .paneStripState
                 .focusedPaneID else {
             return nil
         }

@@ -44,6 +44,7 @@ enum AppConfigTOML {
         case agentLists
         case agents
         case menuBar
+        case floats
         case agentIntegrations
         case agentIntegrationStates
     }
@@ -226,6 +227,11 @@ enum AppConfigTOML {
         lines.append("show_status_item = \(config.menuBar.showStatusItem)")
 
         lines.append("")
+        lines.append("[floats]")
+        lines.append("auto_pop_needs_input = \(config.floats.autoPopNeedsInput)")
+        lines.append("pip_size = \(encode(string: config.floats.pipSize.rawValue))")
+
+        lines.append("")
         lines.append("[agent_integrations]")
         lines.append("grandfathered_v1 = \(config.agentIntegrations.grandfatheredV1)")
 
@@ -354,6 +360,10 @@ enum AppConfigTOML {
                 section = .menuBar
                 continue
             }
+            if line == "[floats]" {
+                section = .floats
+                continue
+            }
             if line == "[agent_integrations]" {
                 section = .agentIntegrations
                 continue
@@ -432,6 +442,8 @@ enum AppConfigTOML {
                 result = decodeAgentsAssignment(assignment, into: &config)
             case .menuBar:
                 result = decodeMenuBarAssignment(assignment, into: &config)
+            case .floats:
+                result = decodeFloatsAssignment(assignment, into: &config)
             case .agentIntegrations:
                 result = decodeAgentIntegrationsAssignment(assignment, into: &config)
             case .agentIntegrationStates:
@@ -794,7 +806,7 @@ enum AppConfigTOML {
         switch assignment.key {
         case "command_id":
             guard let raw = decodeString(assignment.value),
-                  let commandID = AppCommandID(rawValue: raw) else {
+                  let commandID = AppCommandID(configValue: raw) else {
                 return false
             }
 
@@ -1063,6 +1075,26 @@ enum AppConfigTOML {
             config.menuBar.showStatusItem = value
         case "indicator_style", "hide_idle_panes", "show_waiting_count_on_icon", "click_focuses_waiting_pane":
             return true
+        default:
+            return .unknownKey
+        }
+        return true
+    }
+
+    private static func decodeFloatsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> AssignmentResult {
+        switch assignment.key {
+        case "auto_pop_needs_input":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.floats.autoPopNeedsInput = value
+        case "pip_size":
+            guard let raw = decodeString(assignment.value),
+                  let size = AppConfig.Floats.PipSize(rawValue: raw) else {
+                return false
+            }
+            config.floats.pipSize = size
         default:
             return .unknownKey
         }

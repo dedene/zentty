@@ -141,7 +141,7 @@ final class WorklanePeekController {
             phase = .idle
             delegate?.peekDidEnd(self)
         case let .peeking(selection, _):
-            commit(focusing: selection.current)
+            commit(focusing: selection.committed)
         }
     }
 
@@ -195,9 +195,15 @@ final class WorklanePeekController {
         // boundaries when crossing the end of a worklane's panes — the
         // gesture's granularity stays "one pane forward" regardless of
         // whether the user taps or holds.
-        guard let current = currentPaneReference() else { return }
         let traversal = WorklanePeekTraversal.from(worklanes: worklaneAccess.worklanes)
-        guard let next = traversal.step(from: current, direction: direction) else { return }
+        let next: WorklaneStore.PaneReference?
+        if let current = currentPaneReference() {
+            next = traversal.step(from: current, direction: direction)
+        } else {
+            // Float-only worklane: hop to the neighbouring lane's strip.
+            next = floatOnlyEntry(in: traversal, direction: direction)
+        }
+        guard let next else { return }
         worklaneAccess.selectWorklaneAndFocusPane(
             worklaneID: next.worklaneID,
             paneID: next.paneID
@@ -205,13 +211,16 @@ final class WorklanePeekController {
     }
 
     private func openPeek() {
-        guard let origin = currentPaneReference() else {
+        let traversal = WorklanePeekTraversal.from(worklanes: worklaneAccess.worklanes)
+        guard let origin = currentPaneReference() ?? floatOnlyEntry(in: traversal, direction: .forward) else {
             phase = .idle
             delegate?.peekDidEnd(self)
             return
         }
-        let traversal = WorklanePeekTraversal.from(worklanes: worklaneAccess.worklanes)
-        let selection = WorklanePeekSelectionState.opening(at: origin)
+        let selection = WorklanePeekSelectionState.opening(
+            at: origin,
+            restoring: focusedPaneReference() ?? origin
+        )
         phase = .peeking(selection, traversal: traversal)
         TerminalViewportDiagnostics.shared.record(
             .peekOpened,
@@ -270,12 +279,34 @@ final class WorklanePeekController {
         delegate?.peekDidClose(self)
     }
 
+    /// Strip focus of the active worklane: where peek highlight and
+    /// traversal start (peek shows strip panes only).
     private func currentPaneReference() -> WorklaneStore.PaneReference? {
         let activeID = worklaneAccess.activeWorklaneID
         guard let worklane = worklaneAccess.worklanes.first(where: { $0.id == activeID }),
               let paneID = worklane.paneStripState.focusedPaneID
         else { return nil }
         return WorklaneStore.PaneReference(worklaneID: activeID, paneID: paneID)
+    }
+
+    /// Real keyboard focus (a focused float included); Escape restores it.
+    private func focusedPaneReference() -> WorklaneStore.PaneReference? {
+        let activeID = worklaneAccess.activeWorklaneID
+        guard let worklane = worklaneAccess.worklanes.first(where: { $0.id == activeID }),
+              let paneID = worklane.focusedPaneID
+        else { return nil }
+        return WorklaneStore.PaneReference(worklaneID: activeID, paneID: paneID)
+    }
+
+    private func floatOnlyEntry(
+        in traversal: WorklanePeekTraversal,
+        direction: WorklanePeekDirection
+    ) -> WorklaneStore.PaneReference? {
+        traversal.entry(
+            leaving: worklaneAccess.activeWorklaneID,
+            worklaneOrder: worklaneAccess.worklanes.map(\.id),
+            direction: direction
+        )
     }
 
     private func scheduleHoldTimer(for armedAt: CFTimeInterval) {

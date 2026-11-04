@@ -363,6 +363,9 @@ struct PaneListEntry: Codable, Equatable {
     let isFocused: Bool
     let agentTool: String?
     let agentStatus: String?
+    /// Float mode (`floating`, `pip`, `minimized`); nil for strip panes.
+    /// Floats list after strip panes and report `column` 0.
+    var mode: String? = nil
 }
 
 struct DiscoveredWindow: Codable, Equatable {
@@ -396,6 +399,8 @@ struct DiscoveredPane: Codable, Equatable {
     let agentTool: String?
     let agentStatus: String?
     let controlToken: String?
+    /// Float mode (`floating`, `pip`, `minimized`); nil for strip panes.
+    var mode: String? = nil
 }
 
 struct ServerListEntry: Codable, Equatable {
@@ -442,6 +447,9 @@ struct AgentIPCResponseResult: Codable, Equatable {
     /// Screen contents returned by `pane read`. Optional for decode
     /// tolerance across version-skewed app/CLI pairs.
     let paneRead: PaneReadResult?
+    /// Rows of `float list`. Optional for decode tolerance across
+    /// version-skewed app/CLI pairs.
+    let floatList: [FloatListEntry]?
 
     init(
         launchPlan: AgentLaunchPlan? = nil,
@@ -452,7 +460,8 @@ struct AgentIPCResponseResult: Codable, Equatable {
         serverState: ServerListResult? = nil,
         stdout: String? = nil,
         consentRequired: Bool? = nil,
-        paneRead: PaneReadResult? = nil
+        paneRead: PaneReadResult? = nil,
+        floatList: [FloatListEntry]? = nil
     ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
@@ -463,6 +472,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         self.stdout = stdout
         self.consentRequired = consentRequired
         self.paneRead = paneRead
+        self.floatList = floatList
     }
 }
 

@@ -18,12 +18,23 @@ struct CommandAvailabilityContext: Equatable {
     let activeWorklaneHasReviewLookup: Bool
     /// What Mark as Unread would do for the focused pane; `nil` hides it.
     let focusedPaneUnreadToggle: PaneUnreadToggle?
-    /// A quick-action overlay holds keyboard focus. Pane search would act on
-    /// the terminal hidden under it, so it is off until focus leaves the overlay.
-    let isQuickActionFocused: Bool
     /// Fork state of the focused pane's agent; `nil` (no agent) hides the
     /// fork command, an unavailable value shows it disabled with its reason.
     let focusedPaneAgentFork: AgentForkAvailability?
+    /// Strip panes in the active worklane. `activePaneCount` counts every
+    /// live pane (tiles and floats); strip-only commands gate on this one.
+    let activeTiledPaneCount: Int
+    /// A `.floating` float owns keyboard focus: strip-relative move, resize
+    /// and move-to-window commands would act on a tile the user isn't using.
+    let focusedPaneIsFloat: Bool
+    /// The focused pane is the strip's only tile: Float or Dock Pane would
+    /// empty the strip, so it is unavailable.
+    let focusedPaneIsSoleTile: Bool
+    /// `.floating` floats in the active worklane (hidden or not).
+    let floatingFloatCount: Int
+    /// Panes next/previous pane can land on, across worklanes: tiles plus
+    /// visible `.floating` floats (never PiPs, pills or hidden floats).
+    let navigablePaneCount: Int
 
     init(
         worklaneCount: Int,
@@ -38,8 +49,12 @@ struct CommandAvailabilityContext: Equatable {
         activeWorklaneHasPrimaryServer: Bool = false,
         activeWorklaneHasReviewLookup: Bool = false,
         focusedPaneUnreadToggle: PaneUnreadToggle? = nil,
-        isQuickActionFocused: Bool = false,
-        focusedPaneAgentFork: AgentForkAvailability? = nil
+        focusedPaneAgentFork: AgentForkAvailability? = nil,
+        activeTiledPaneCount: Int? = nil,
+        focusedPaneIsFloat: Bool = false,
+        focusedPaneIsSoleTile: Bool = false,
+        floatingFloatCount: Int = 0,
+        navigablePaneCount: Int? = nil
     ) {
         self.worklaneCount = worklaneCount
         self.activePaneCount = activePaneCount
@@ -53,8 +68,12 @@ struct CommandAvailabilityContext: Equatable {
         self.activeWorklaneHasPrimaryServer = activeWorklaneHasPrimaryServer
         self.activeWorklaneHasReviewLookup = activeWorklaneHasReviewLookup
         self.focusedPaneUnreadToggle = focusedPaneUnreadToggle
-        self.isQuickActionFocused = isQuickActionFocused
         self.focusedPaneAgentFork = focusedPaneAgentFork
+        self.activeTiledPaneCount = activeTiledPaneCount ?? activePaneCount
+        self.focusedPaneIsFloat = focusedPaneIsFloat
+        self.focusedPaneIsSoleTile = focusedPaneIsSoleTile
+        self.floatingFloatCount = floatingFloatCount
+        self.navigablePaneCount = navigablePaneCount ?? totalPaneCount
     }
 }
 
@@ -131,41 +150,55 @@ enum CommandAvailabilityResolver {
         case .toggleFocusedPaneUnread:
             return context.focusedPaneUnreadToggle != nil
         case .find, .useSelectionForFind:
-            return !context.isQuickActionFocused
+            return true
         case .findNext, .findPrevious:
-            return !context.isQuickActionFocused
-                && (context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch)
+            return context.focusedPaneHasRememberedSearch || context.globalSearchHasRememberedSearch
         case .focusPreviousPane, .focusNextPane:
-            return context.totalPaneCount > 1
+            return context.navigablePaneCount > 1
         case .closeFocusedPane:
             // Available whenever there's a pane to close — closing the last
             // pane in the last worklane closes the window.
             return context.activePaneCount >= 1
-        case .toggleQuickActionOverlay:
-            return context.activePaneCount >= 1
         case .duplicateFocusedPane:
             return context.activePaneCount >= 1
+        case .toggleFloat:
+            return context.activePaneCount >= 1 && !context.focusedPaneIsSoleTile
+        case .minimizeFloat, .pipFloat:
+            return context.focusedPaneIsFloat
+        case .toggleFloatingPanes:
+            return context.worklaneCount >= 1
+        case .newFloat:
+            return context.worklaneCount >= 1
+        case .cycleFloatFocus:
+            return context.floatingFloatCount >= 1
         case .forkAgentConversation:
             return context.focusedPaneAgentFork != nil
         case .movePaneToNewWindow:
-            return context.activePaneCount >= 1
+            // Floats stay in their worklane in v1.
+            return !context.focusedPaneIsFloat
+                && context.activePaneCount >= 1
                 && !(context.worklaneCount == 1 && context.activePaneCount == 1)
-        case .focusLeftPane,
-             .focusRightPane,
-             .movePaneLeft,
+        case .focusLeftPane, .focusRightPane:
+            // From a float, strip navigation first returns to the strip focus.
+            return context.activeTiledPaneCount > 1
+                || (context.focusedPaneIsFloat && context.activeTiledPaneCount >= 1)
+        case .movePaneLeft,
              .movePaneRight,
              .movePaneUp,
              .movePaneDown,
              .resizePaneLeft,
              .resizePaneRight,
              .resizePaneUp,
-             .resizePaneDown,
-             .resetPaneLayout:
-            return context.activePaneCount > 1
+             .resizePaneDown:
+            return !context.focusedPaneIsFloat && context.activeTiledPaneCount > 1
+        case .resetPaneLayout:
+            return context.activeTiledPaneCount > 1
         case .focusUpInColumn, .focusDownInColumn:
-            return context.activePaneCount > 1 || context.worklaneCount > 1
+            return context.activeTiledPaneCount > 1
+                || context.worklaneCount > 1
+                || (context.focusedPaneIsFloat && context.activeTiledPaneCount >= 1)
         case .arrangeWidthFull:
-            return context.activePaneCount >= 2
+            return context.activeTiledPaneCount >= 2
         case .arrangeWidthHalves:
             return context.activeColumnCount >= 2
         case .arrangeWidthThirds:
@@ -173,15 +206,16 @@ enum CommandAvailabilityResolver {
         case .arrangeWidthQuarters:
             return context.activeColumnCount >= 4
         case .arrangeHeightFull, .arrangeHeightTwoPerColumn:
-            return context.activePaneCount >= 2
+            return context.activeTiledPaneCount >= 2
         case .arrangeHeightThreePerColumn:
-            return context.activePaneCount >= 3
+            return context.activeTiledPaneCount >= 3
         case .arrangeHeightFourPerColumn:
-            return context.activePaneCount >= 4
+            return context.activeTiledPaneCount >= 4
         case .arrangeWidthGoldenFocusWide, .arrangeWidthGoldenFocusNarrow:
-            return context.activeColumnCount >= 2
+            // Golden presets size the focused column; a focused float has none.
+            return !context.focusedPaneIsFloat && context.activeColumnCount >= 2
         case .arrangeHeightGoldenFocusTall, .arrangeHeightGoldenFocusShort:
-            return context.focusedColumnPaneCount >= 2
+            return !context.focusedPaneIsFloat && context.focusedColumnPaneCount >= 2
         case .worklaneMoveUp, .worklaneMoveDown:
             return context.worklaneCount > 1
         case .renameCurrentWorklane:

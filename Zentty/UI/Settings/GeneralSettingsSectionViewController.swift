@@ -35,9 +35,11 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let stripURLTrackingParametersSwitch = NSSwitch()
     private let quotePathsWithSpacesSwitch = NSSwitch()
     private let showCopyMarkdownCommandSwitch = NSSwitch()
+    let floatingPanesCard: FloatingPanesSettingsCard
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
+        self.floatingPanesCard = FloatingPanesSettingsCard(configStore: configStore)
         self.currentConfirmations = configStore.current.confirmations
         self.currentRestore = configStore.current.restore
         self.currentClipboard = configStore.current.clipboard
@@ -59,12 +61,16 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         let overlayRow = makeSwitchRow(
             title: "Show overlays in worklane info",
-            subtitle: "List terminal overlays below the panes in the sidebar.",
+            subtitle: "List floats opened with zentty overlay among the panes in the sidebar.",
             toggle: showOverlaysSwitch,
             action: #selector(handleShowOverlaysChanged(_:))
         )
         stackView.addArrangedSubview(overlayRow)
         overlayRow.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        let floatsCard = floatingPanesCard.view
+        stackView.addArrangedSubview(floatsCard)
+        floatsCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         // Confirmations card
         let confirmCard = SettingsCardView()
@@ -279,6 +285,10 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         guard isViewLoaded else { return }
         syncClipboardControlsFromConfig(clipboard)
         applyClipboardAndPipelineSideEffects(clipboard)
+    }
+
+    func apply(floats: AppConfig.Floats) {
+        floatingPanesCard.apply(floats: floats)
     }
 
     func apply(sidebar: AppConfig.Sidebar) {

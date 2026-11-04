@@ -114,9 +114,7 @@ final class SidebarPaneRowRenderer {
                 isRemote: panePresentation.isRemotePane,
                 label: panePresentation.remotePaneLabel
             )
-            if paneRow.isOverlay {
-                panePrimaryRows[index].configureOverlayIndicator()
-            }
+            panePrimaryRows[index].configureFloatIndicator(paneRow.floatMode)
             panePrimaryRows[index].setShimmerPhaseOffset(panePhaseOffset)
 
             paneDetailLabels[index].stringValue = paneRow.detailText ?? ""
@@ -143,15 +141,16 @@ final class SidebarPaneRowRenderer {
 
             let button = paneRowButtons[index]
             button.paneID = paneRow.paneID
-            button.isOverlay = paneRow.isOverlay
-            button.isIndented = paneRow.overlayOwnerPaneID != nil
-            button.isLastPaneInWorklane = !paneRow.isOverlay && panePresentations.filter { !$0.row.isOverlay }.count == 1
+            // Overlay floats close with the worklane's last pane, so they
+            // don't count when deciding whether a row can close on its own.
+            button.isLastPaneInWorklane = !paneRow.isTemporaryFloat
+                && panePresentations.filter { !$0.row.isTemporaryFloat }.count == 1
             button.isLastPaneInOnlyWorklane = callbacks.isOnlyWorklane && button.isLastPaneInWorklane
             button.currentWorklaneColor = worklaneColor
             button.setAccessibilityLabel(
-                paneRow.isOverlay && paneRow.primaryText.isEmpty
-                    ? WorklaneSidebarOverlay.accessibilityTitle
-                    : paneRow.primaryText
+                [paneRow.primaryText, paneRow.floatMode?.accessibilityLabel]
+                    .compactMap { $0 }
+                    .joined(separator: ", ")
             )
             button.onPaneClicked = callbacks.onPaneSelected
             button.onCloseWorklane = callbacks.onCloseWorklaneRequested

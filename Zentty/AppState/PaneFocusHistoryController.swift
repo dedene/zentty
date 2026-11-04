@@ -33,6 +33,12 @@ final class PaneFocusHistoryController {
 
     var onChange: (() -> Void)?
 
+    /// The entry waiting out the debounce, if any. Focus fallback reads it so a
+    /// pane focused just before (not yet committed) still counts as previous.
+    var pendingReference: WorklaneStore.PaneReference? {
+        pendingEntry
+    }
+
     init(
         debounceInterval: TimeInterval = 0.5,
         scheduleDebounce: @escaping DebounceScheduler = PaneFocusHistoryController.defaultDebounceScheduler
@@ -85,7 +91,8 @@ final class PaneFocusHistoryController {
         pendingEntry = nil
     }
 
-    private func commitPending() {
+    /// Records the debounced entry now. Internal so tests can commit history.
+    func commitPending() {
         guard let entry = pendingEntry else { return }
         pendingEntry = nil
         debounceHandle = nil

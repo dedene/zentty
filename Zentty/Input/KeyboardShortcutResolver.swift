@@ -49,6 +49,12 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case duplicateFocusedPane = "pane.duplicate"
     case forkAgentConversation = "pane.fork_agent_conversation"
     case movePaneToNewWindow = "pane.move_to_new_window"
+    case toggleFloat = "float.toggle"
+    case minimizeFloat = "float.minimize"
+    case pipFloat = "float.pip"
+    case toggleFloatingPanes = "float.toggleAll"
+    case newFloat = "float.new"
+    case cycleFloatFocus = "float.cycleFocus"
     case splitHorizontally = "pane.split.horizontal"
     case forceSplitRight = "pane.split.right.force"
     case forceAddPaneRight = "pane.add_right.force"
@@ -85,7 +91,6 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
-    case toggleQuickActionOverlay = "overlay.toggle"
     case showTaskManager = "task_manager.show"
     case openWithSelectedApp = "open_with.selected_app"
     case openSelectedServer = "server.open_selected"
@@ -122,6 +127,23 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
         }
         return index + 1
     }
+
+    /// Retired command ids a saved config may still bind, mapped to the
+    /// command that replaced them. Re-saving the config writes the new id.
+    static let retiredConfigIDs: [String: AppCommandID] = [
+        // "Toggle Quick Action Overlay" (often bound to ⌥⌘H) and the
+        // pre-release "Hide Floating Panes" became "Toggle Floating Panes".
+        "overlay.toggle": .toggleFloatingPanes,
+        "float.hideAll": .toggleFloatingPanes,
+    ]
+
+    /// Decodes a command id from a config file, accepting retired ids.
+    init?(configValue: String) {
+        guard let commandID = AppCommandID(rawValue: configValue) ?? Self.retiredConfigIDs[configValue] else {
+            return nil
+        }
+        self = commandID
+    }
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -152,10 +174,15 @@ enum AppAction: Equatable, Sendable {
     case toggleFocusedPaneUnread
     case pane(PaneCommand)
     case moveFocusedPaneToNewWindow
+    case toggleFloat
+    case minimizeFloat
+    case pipFloat
+    case toggleFloatingPanes
+    case newFloat
+    case cycleFloatFocus
     case navigateBack
     case navigateForward
     case showCommandPalette
-    case toggleQuickActionOverlay
     case showTaskManager
     case openWithSelectedApp
     case openSelectedServer
@@ -494,6 +521,78 @@ enum AppCommandRegistry {
                 section: .view,
                 title: "Move Pane to New Window",
                 selector: #selector(MainWindowController.movePaneToNewWindow(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .toggleFloat,
+            title: "Float or Dock Pane",
+            category: .panes,
+            defaultShortcut: .init(key: .character("f"), modifiers: [.command, .option]),
+            action: .toggleFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Float or Dock Pane",
+                selector: #selector(MainWindowController.toggleFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .minimizeFloat,
+            title: "Minimize Float",
+            category: .panes,
+            defaultShortcut: .init(key: .character("m"), modifiers: [.command, .option]),
+            action: .minimizeFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Minimize Float",
+                selector: #selector(MainWindowController.minimizeFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .pipFloat,
+            title: "Picture in Picture",
+            category: .panes,
+            defaultShortcut: .init(key: .character("p"), modifiers: [.command, .option]),
+            action: .pipFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Picture in Picture",
+                selector: #selector(MainWindowController.pipFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .toggleFloatingPanes,
+            title: "Toggle Floating Panes",
+            category: .panes,
+            defaultShortcut: .init(key: .character("h"), modifiers: [.command, .option]),
+            action: .toggleFloatingPanes,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Toggle Floating Panes",
+                selector: #selector(MainWindowController.toggleFloatingPanes(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .newFloat,
+            title: "New Float",
+            category: .panes,
+            defaultShortcut: .init(key: .character("n"), modifiers: [.command, .option]),
+            action: .newFloat,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "New Float",
+                selector: #selector(MainWindowController.newFloat(_:))
+            )
+        ),
+        AppCommandDefinition(
+            id: .cycleFloatFocus,
+            title: "Cycle Floating Panes",
+            category: .panes,
+            defaultShortcut: .init(key: .character("`"), modifiers: [.command, .option]),
+            action: .cycleFloatFocus,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Cycle Floating Panes",
+                selector: #selector(MainWindowController.cycleFloatFocus(_:))
             )
         ),
         AppCommandDefinition(
@@ -897,18 +996,6 @@ enum AppCommandRegistry {
             )
         ),
         AppCommandDefinition(
-            id: .toggleQuickActionOverlay,
-            title: "Toggle Quick Action Overlay",
-            category: .general,
-            defaultShortcut: nil,
-            action: .toggleQuickActionOverlay,
-            menuItem: AppCommandMenuItem(
-                section: .view,
-                title: "Toggle Quick Action Overlay",
-                selector: #selector(MainWindowController.toggleQuickActionOverlay(_:))
-            )
-        ),
-        AppCommandDefinition(
             id: .openBranchOnRemote,
             title: "Open Branch on Remote",
             category: .general,
@@ -1083,7 +1170,6 @@ enum AppCommandRegistry {
         ],
         .view: [
             .command(.showCommandPalette),
-            .command(.toggleQuickActionOverlay),
             .separator,
             .command(.openBookmarksPopover),
             .command(.toggleSidebar),
@@ -1091,6 +1177,15 @@ enum AppCommandRegistry {
             .command(.splitHorizontally),
             .command(.splitVertically),
             .command(.movePaneToNewWindow),
+            .submenu("Floating Panes", [
+                .command(.toggleFloat),
+                .command(.minimizeFloat),
+                .command(.pipFloat),
+                .command(.toggleFloatingPanes),
+                .separator,
+                .command(.newFloat),
+                .command(.cycleFloatFocus),
+            ]),
             .separator,
             .submenu("Arrange Width", [
                 .command(.arrangeWidthFull),
@@ -1196,6 +1291,18 @@ extension AppCommandDefinition {
             "Mark the focused agent pane as Check back until you visit it again, or mark it as read."
         case .duplicateFocusedPane:
             "Duplicate the focused pane in a new column, keeping its working directory."
+        case .toggleFloat:
+            "Lift the focused pane out of the strip as a float, or dock a focused float back."
+        case .minimizeFloat:
+            "Put the focused float away; it keeps running."
+        case .pipFloat:
+            "Shrink the focused float into a picture-in-picture corner; it keeps running."
+        case .toggleFloatingPanes:
+            "Bring this worklane's floats forward, or hide them when one has focus. Opens a new float when there are none."
+        case .newFloat:
+            "Open a new shell as a float in the focused pane's working directory."
+        case .cycleFloatFocus:
+            "Focus the next floating pane, or the front float when a tiled pane has focus."
         case .forkAgentConversation:
             "Continue the focused agent's conversation in a new pane, leaving the original running."
         case .movePaneToNewWindow:
@@ -1268,8 +1375,6 @@ extension AppCommandDefinition {
             "Reset pane sizes to their defaults."
         case .showCommandPalette:
             "Open the command palette."
-        case .toggleQuickActionOverlay:
-            "Open or close a shell overlay on the focused pane."
         case .showTaskManager:
             "Show CPU and memory usage for live panes."
         case .openWithSelectedApp:
@@ -1317,6 +1422,14 @@ extension AppCommandDefinition {
                 .lowercased()
         case .toggleFocusedPaneUnread:
             [title, detailDescription, PaneUnreadToggle.markRead.title, "unread read remind later revisit flag"]
+                .joined(separator: " ")
+                .lowercased()
+        case .newFloat:
+            [title, detailDescription, "floating float overlay quick action shell window"]
+                .joined(separator: " ")
+                .lowercased()
+        case .toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatingPanes, .cycleFloatFocus:
+            [title, detailDescription, "floating float overlay window pip picture in picture"]
                 .joined(separator: " ")
                 .lowercased()
         default:

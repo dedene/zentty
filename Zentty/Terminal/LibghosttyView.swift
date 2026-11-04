@@ -421,7 +421,7 @@ private final class LibghosttyScrollView: NSScrollView {
 }
 
 @MainActor
-final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
+final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControlling, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalOverlayHosting, TerminalScrollRouting, TerminalSmoothScrollConfiguring, TerminalMouseInteractionSuppressionControlling, TerminalCursorExclusionControlling, TerminalTopFadeConfiguring, TerminalContextMenuConfiguring, TerminalRemoteImagePasteConfiguring, TerminalViewportDiagnosticsContextConfiguring, LibghosttyScrollbarHandling {
     private struct ScrollHostSyncMetrics {
         let geometryApplied: Bool
         let documentHeightChanged: Bool
@@ -450,6 +450,15 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let scrollFrameSampler: any TerminalScrollFrameSampling
     private let scrollView: LibghosttyScrollView
     private let overlayHostView = LibghosttyOverlayHostView()
+    /// Fades the terminal (not the overlay host with the search HUD and
+    /// frame meter) out under the top border.
+    private var topFadeMaskLayer: CAGradientLayer?
+    var topFadeHeight: CGFloat = 0 {
+        didSet {
+            guard oldValue != topFadeHeight else { return }
+            updateTopFadeMask()
+        }
+    }
     private let frameMeterSampler: any TerminalScrollFrameSampling
     private let currentSystemCursorProvider: () -> NSCursor?
     private let frameMeterHUDView = TerminalFrameMeterHUDView(frame: NSRect(x: 0, y: 0, width: 128, height: 48))
@@ -458,6 +467,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var terminalCursor: NSCursor = .iBeam
     private var retainedProgrammaticViewportCursor: NSCursor?
     private var terminalCursorSuppressionRects: [CGRect] = []
+    /// Cursor-only cut-outs (another view's cursor rects, e.g. float resize
+    /// zones): the pointer is still tracked there.
+    private var terminalCursorExclusionRects: [CGRect] = []
     private var isTerminalScrollCursorActive = false
     private var isPointerInsideTerminal = false
     private var isLiveScrolling = false
@@ -550,7 +562,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = false
+        // Hidden while everything fits: AppKit would otherwise flash a
+        // full-height knob, with nothing to scroll, when a float lifts.
+        scrollView.autohidesScrollers = true
         scrollView.usesPredominantAxisScrolling = true
         scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
@@ -663,6 +677,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         startFrameMeterSamplingIfNeeded()
+        // A new ancestor chain can change how the scroll layer is flipped.
+        updateTopFadeMask()
     }
 
     override func layout() {
@@ -670,6 +686,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             super.layout()
             scrollView.frame = bounds
             overlayHostView.frame = bounds
+            updateTopFadeMask()
             layoutFrameMeterHUD()
             surfaceView.frame.size = scrollView.bounds.size
             documentView.frame.size.width = scrollView.bounds.width
@@ -709,8 +726,64 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         surfaceView.menu(for: event)
     }
 
+    var topFadeMaskLayerForTesting: CAGradientLayer? {
+        topFadeMaskLayer
+    }
+
+    var scrollViewLayerForTesting: CALayer? {
+        scrollView.layer
+    }
+
+    var verticalScrollerForTesting: NSScroller? {
+        scrollView.verticalScroller
+    }
+
+    var overlayHostLayerForTesting: CALayer? {
+        overlayHostView.layer
+    }
+
+    /// Opaque below the fade, clear at the very top edge. AppKit renders the
+    /// scroll view's layer flipped (y = 0 at the top) even though the view
+    /// itself is unflipped, so the gradient direction follows
+    /// `contentsAreFlipped()` rather than `isFlipped`.
+    private func updateTopFadeMask() {
+        guard topFadeHeight > 0 else {
+            if topFadeMaskLayer != nil {
+                scrollView.layer?.mask = nil
+                topFadeMaskLayer = nil
+            }
+            return
+        }
+        scrollView.wantsLayer = true
+        guard let scrollLayer = scrollView.layer else { return }
+        let mask: CAGradientLayer
+        if let existing = topFadeMaskLayer {
+            mask = existing
+        } else {
+            mask = CAGradientLayer()
+            mask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+            topFadeMaskLayer = mask
+        }
+        let height = max(1, scrollLayer.bounds.height)
+        let fadeStart = max(0, min(1, (height - topFadeHeight) / height))
+        let topIsMinY = scrollLayer.contentsAreFlipped()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.startPoint = CGPoint(x: 0.5, y: topIsMinY ? 1 : 0)
+        mask.endPoint = CGPoint(x: 0.5, y: topIsMinY ? 0 : 1)
+        mask.frame = scrollLayer.bounds
+        mask.locations = [0, NSNumber(value: Double(fadeStart)), 1]
+        if scrollLayer.mask !== mask {
+            scrollLayer.mask = mask
+        }
+        CATransaction.commit()
+    }
+
     func setViewportSyncSuspended(_ suspended: Bool) {
         recordViewportDiagnostics(.scrollHostSyncSuspended, suspended: suspended)
+        // A scaled or moving terminal never shows a scroller. Alpha, not
+        // `isHidden`: the scroll view's tile undoes that.
+        scrollView.verticalScroller?.alphaValue = suspended ? 0 : 1
         if suspended {
             surfaceView.setViewportSyncSuspended(true)
         } else {
@@ -733,6 +806,12 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         }
         let surfaceRects = rects.map { surfaceView.convert($0, from: self) }
         surfaceView.setMouseInteractionSuppressionRects(surfaceRects)
+    }
+
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        guard terminalCursorExclusionRects != rects else { return }
+        terminalCursorExclusionRects = rects
+        window?.invalidateCursorRects(for: self)
     }
 
     override func resetCursorRects() {
@@ -831,7 +910,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 
     private var terminalCursorRects: [CGRect] {
-        terminalCursorSuppressionRects.reduce(into: [bounds]) { rects, suppressionRect in
+        (terminalCursorSuppressionRects + terminalCursorExclusionRects).reduce(into: [bounds]) { rects, suppressionRect in
             rects = rects.flatMap { Self.subtract(suppressionRect, from: $0) }
         }
     }

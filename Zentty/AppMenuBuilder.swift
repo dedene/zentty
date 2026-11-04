@@ -44,10 +44,12 @@ enum AppMenuBuilder {
             action: #selector(NSApplication.hide(_:)),
             keyEquivalent: "h"
         )
+        // No ⌥⌘H here: app-menu key equivalents win the menu search, and
+        // ⌥⌘H belongs to Toggle Floating Panes.
         let hideOthersItem = NSMenuItem(
             title: "Hide Others",
             action: #selector(NSApplication.hideOtherApplications(_:)),
-            keyEquivalent: "h"
+            keyEquivalent: ""
         )
         let showAllItem = NSMenuItem(
             title: "Show All",
@@ -63,7 +65,7 @@ enum AppMenuBuilder {
         apply(shortcutManager.shortcut(for: .openSettings), to: settingsItem)
         applySystemImage("gearshape", title: "Settings…", to: settingsItem)
         hideItem.keyEquivalentModifierMask = [.command]
-        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        hideOthersItem.keyEquivalentModifierMask = []
         showAllItem.keyEquivalentModifierMask = []
         quitItem.keyEquivalentModifierMask = [.command]
         appMenu.addItem(aboutItem)

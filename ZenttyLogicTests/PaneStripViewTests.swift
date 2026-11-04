@@ -163,7 +163,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_focus_follows_mouse_ignores_hover_under_a_quick_action_overlay() {
+    func test_focus_follows_mouse_ignores_hover_under_a_float() throws {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)
         paneStripView.hoverFocusWindowIsKeyForTesting = true
@@ -184,19 +184,43 @@ final class PaneStripViewTests: AppKitTestCase {
             focusFollowsMouseDelay: .immediate
         )
         paneStripView.layoutSubtreeIfNeeded()
-        // Pane tracking areas still fire under an overlay; only the hit test sees it.
-        let overlay = TerminalOverlayContainerView(frame: paneStripView.bounds)
-        paneStripView.addSubview(overlay, positioned: .above, relativeTo: nil)
+        // Pane tracking areas are geometric: they still fire under a float.
+        let floatLayer = FloatLayerView(runtimeRegistry: stubRegistry())
+        floatLayer.frame = paneStripView.bounds
+        paneStripView.addSubview(floatLayer, positioned: .above, relativeTo: nil)
+        floatLayer.render(
+            FloatLayerContent(
+                floats: [
+                    FloatingPaneState(
+                        pane: PaneState(id: PaneID("float"), title: "float"),
+                        mode: .floating,
+                        floatFrame: NormalizedRect(x: 0.3, y: 0.3, width: 0.4, height: 0.4),
+                        stackOrder: 0,
+                        origin: nil
+                    ),
+                ],
+                floatsHidden: false,
+                focusedFloatID: nil
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            showPaneBorders: true,
+            smoothScrollingEnabled: false
+        )
+        XCTAssertNotNil(floatLayer.floatHostForTesting(PaneID("float")))
         paneStripView.hoverFocusMouseLocationForTesting = paneStripView.convert(
             NSPoint(x: paneStripView.bounds.midX, y: paneStripView.bounds.midY),
             to: nil
         )
 
         paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
-        XCTAssertTrue(selectedPaneIDs.isEmpty)
+        XCTAssertTrue(selectedPaneIDs.isEmpty, "hover under a float never focuses the tile")
 
+        // Off the float (the layer is hit-transparent there) hover still focuses.
         paneStripView.simulatePaneHoverExitedForTesting(PaneID("editor"))
-        overlay.isHidden = true
+        paneStripView.hoverFocusMouseLocationForTesting = paneStripView.convert(
+            NSPoint(x: paneStripView.bounds.maxX - 40, y: paneStripView.bounds.midY),
+            to: nil
+        )
         paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
         XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
     }
@@ -1540,6 +1564,82 @@ final class PaneStripViewTests: AppKitTestCase {
             assertRetinaAligned(paneView.frame.minY)
             assertRetinaAligned(paneView.frame.maxY)
         }
+    }
+
+    @MainActor
+    func test_float_occlusion_rects_suppress_strip_terminal_mouse() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter)
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let state = PaneStripState(
+            panes: [makePane("logs"), makePane("editor")],
+            focusedPaneID: PaneID("logs")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        let coveredPane = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let adapter = try XCTUnwrap(adapterFactory.adapter(for: coveredPane.paneID))
+        let floatRect = CGRect(
+            x: coveredPane.frame.midX - 100,
+            y: coveredPane.frame.midY - 60,
+            width: 200,
+            height: 120
+        )
+        let centreInTerminal = adapter.terminalView.convert(
+            CGPoint(x: floatRect.midX, y: floatRect.midY),
+            from: paneStripView
+        )
+        let suppressesCentre = {
+            adapter.terminalView.mouseInteractionSuppressionRects.contains { $0.contains(centreInTerminal) }
+        }
+        XCTAssertFalse(suppressesCentre())
+
+        paneStripView.setFloatOcclusionRects([floatRect])
+        XCTAssertTrue(suppressesCentre(), "the terminal ignores the pointer under the float")
+
+        // A re-render keeps it; clearing the floats lifts it.
+        paneStripView.render(state, animated: false)
+        XCTAssertTrue(suppressesCentre())
+        paneStripView.setFloatOcclusionRects([])
+        XCTAssertFalse(suppressesCentre())
+    }
+
+    /// A float's outset (its move band and resize zones) reaches past its
+    /// pane over the strip: the terminal there leaves it to the float's
+    /// cursor rects but keeps tracking the pointer.
+    @MainActor
+    func test_float_cursor_exclusion_rects_reach_strip_terminals_without_suppressing_them() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter)
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        let state = PaneStripState(
+            panes: [makePane("logs"), makePane("editor")],
+            focusedPaneID: PaneID("logs")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        let coveredPane = try XCTUnwrap(paneStripView.descendantPaneViews().first)
+        let adapter = try XCTUnwrap(adapterFactory.adapter(for: coveredPane.paneID))
+        let ring = CGRect(x: coveredPane.frame.midX - 100, y: coveredPane.frame.midY - 60, width: 200, height: 120)
+        let centreInTerminal = adapter.terminalView.convert(CGPoint(x: ring.midX, y: ring.midY), from: paneStripView)
+
+        paneStripView.setFloatCursorExclusionRects([ring])
+        XCTAssertTrue(adapter.terminalView.cursorExclusionRects.contains { $0.contains(centreInTerminal) })
+        XCTAssertFalse(
+            adapter.terminalView.mouseInteractionSuppressionRects.contains { $0.contains(centreInTerminal) },
+            "the pointer is still the terminal's"
+        )
+
+        paneStripView.render(state, animated: false)
+        XCTAssertTrue(adapter.terminalView.cursorExclusionRects.contains { $0.contains(centreInTerminal) })
+        paneStripView.setFloatCursorExclusionRects([])
+        XCTAssertTrue(adapter.terminalView.cursorExclusionRects.isEmpty)
     }
 
     @MainActor
@@ -3923,6 +4023,46 @@ final class PaneStripViewTests: AppKitTestCase {
         paneStripView.endDividerDragForTesting()
     }
 
+    /// The float toggle checks this to stay out of a divider drag, whose
+    /// cancel restores the strip from drag start.
+    @MainActor
+    func test_divider_drag_is_reported_active_until_it_ends_or_cancels() throws {
+        let paneStripView = makePaneStripView(width: 1400, height: 720)
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["left"], width: 320),
+                makeColumn("right", paneIDs: ["right"], width: 520),
+            ],
+            focusedColumnID: PaneColumnID("right")
+        )
+        paneStripView.onDividerResizeRequested = { _, delta in delta }
+        paneStripView.onPaneStripStateRestoreRequested = { _ in }
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+        XCTAssertFalse(paneStripView.isDividerDragActive)
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        XCTAssertTrue(paneStripView.isDividerDragActive)
+        XCTAssertFalse(paneStripView.isDragActive, "a divider drag is not a pane drag")
+        paneStripView.cancelDividerDragForTesting()
+        XCTAssertFalse(paneStripView.isDividerDragActive)
+
+        _ = try XCTUnwrap(
+            paneStripView.beginDividerDragForTesting(
+                .column(afterColumnID: PaneColumnID("left")),
+                locationInDividerView: CGPoint(x: 4, y: 2)
+            )
+        )
+        XCTAssertTrue(paneStripView.isDividerDragActive)
+        paneStripView.endDividerDragForTesting()
+        XCTAssertFalse(paneStripView.isDividerDragActive)
+    }
+
     @MainActor
     func test_cancel_divider_drag_restores_initial_drag_scroll_offset() throws {
         let paneStripView = makePaneStripView(width: 1400, height: 720)
@@ -4649,7 +4789,8 @@ private final class PaneStripTerminalViewSpy:
     TerminalViewportSyncControlling,
     TerminalFocusReporting,
     TerminalFocusTargetProviding,
-    TerminalMouseInteractionSuppressionControlling
+    TerminalMouseInteractionSuppressionControlling,
+    TerminalCursorExclusionControlling
 {
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var hasValidViewportSync = false
@@ -4660,6 +4801,7 @@ private final class PaneStripTerminalViewSpy:
     private(set) var displayIfNeededCallCount = 0
     private(set) var layoutPassCount = 0
     private(set) var mouseInteractionSuppressionRects: [CGRect] = []
+    private(set) var cursorExclusionRects: [CGRect] = []
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
 
@@ -4690,6 +4832,10 @@ private final class PaneStripTerminalViewSpy:
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {
         mouseInteractionSuppressionRects = rects
+    }
+
+    func setCursorExclusionRects(_ rects: [CGRect]) {
+        cursorExclusionRects = rects
     }
 
     func simulateFocusChange(_ isFocused: Bool) {
