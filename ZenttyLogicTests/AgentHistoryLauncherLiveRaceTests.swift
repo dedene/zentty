@@ -135,6 +135,32 @@ extension AgentHistoryLauncherTests {
         XCTAssertEqual(host.toasts, ["Resuming Ship it", "Jumped to Ship it"])
     }
 
+    func test_second_resume_goes_to_a_just_launched_pane_the_user_floated() throws {
+        let host = LauncherFakeHost(windowID: windowA, store: makeStore(windowA, liveSession: false))
+        let launcher = makeLauncher(hosts: [host], presenting: host)
+        let ended = source(endedSessionID, rowID: 1, title: "Ship it")
+
+        guard case .resumed(let launched) = launcher.perform(.primary, source: ended) else {
+            return XCTFail("the first resume launches")
+        }
+        // A worklane's only tile can't float, so give it a neighbour first.
+        XCTAssertNotNil(host.worklaneStore.openSplit(
+            in: launched.worklaneID,
+            targetPaneID: launched.paneID,
+            PaneLaunchRequest(workingDirectory: "/work/repo", command: nil)
+        ))
+        host.worklaneStore.floatPane(
+            launched.paneID,
+            canvas: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            tileFrame: nil
+        )
+        XCTAssertTrue(try XCTUnwrap(host.worklaneStore.activeWorklane).isFloating(launched.paneID))
+
+        XCTAssertEqual(launcher.perform(.primary, source: ended), .resumed(launched))
+        XCTAssertEqual(host.worklaneStore.worklanes.count, 2, "no second process")
+        XCTAssertEqual(host.navigations.last, LauncherNavigation(worklaneID: launched.worklaneID, paneID: launched.paneID))
+    }
+
     func test_just_launched_session_is_not_resumed_again_from_another_window() {
         let hostA = LauncherFakeHost(windowID: windowA, store: makeStore(windowA, liveSession: false))
         let hostB = LauncherFakeHost(windowID: windowB, store: makeStore(windowB, liveSession: false))

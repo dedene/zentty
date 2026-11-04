@@ -40,6 +40,41 @@ final class LiveAgentSessionSnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(snapshot.allPrimaryLocations, [location])
     }
 
+    func test_session_in_a_float_is_live() throws {
+        let source = makeSource(windowA, panes: [
+            pane("pn-1", title: "codex", status: status(.codex, id: codexID, pid: 200, cwd: "/Users/test/src/zentty")),
+            pane("pn-2", title: "claude", status: status(.claudeCode, id: claudeID, pid: 100, cwd: "/Users/test/src/zentty")),
+        ])
+        source.worklaneStore.floatPane(
+            PaneID("pn-2"),
+            canvas: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            tileFrame: nil
+        )
+        XCTAssertTrue(try XCTUnwrap(source.worklaneStore.activeWorklane).isFloating(PaneID("pn-2")))
+
+        let snapshot = build([source], alive: [100])
+
+        XCTAssertEqual(snapshot.primaryLocation(for: claudeKey)?.paneID, PaneID("pn-2"))
+    }
+
+    func test_session_in_a_minimized_float_is_live() {
+        let source = makeSource(windowA, panes: [
+            pane("pn-1", title: "codex", status: status(.codex, id: codexID, pid: 200, cwd: "/Users/test/src/zentty")),
+            pane("pn-2", title: "claude", status: status(.claudeCode, id: claudeID, pid: 100, cwd: "/Users/test/src/zentty")),
+        ])
+        source.worklaneStore.floatPane(
+            PaneID("pn-2"),
+            canvas: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            tileFrame: nil
+        )
+        source.worklaneStore.minimizePane(PaneID("pn-2"))
+        guard case .minimized? = source.worklaneStore.activeWorklane?.floatingPane(id: PaneID("pn-2"))?.mode else {
+            return XCTFail("the pane should be a pill")
+        }
+
+        XCTAssertTrue(build([source], alive: [100]).isLive(claudeKey))
+    }
+
     func test_status_session_with_dead_pid_is_not_live() {
         let source = makeSource(windowA, panes: [
             pane("pn-1", status: status(.claudeCode, id: claudeID, pid: 100)),

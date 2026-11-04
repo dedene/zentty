@@ -212,9 +212,7 @@ final class AgentHistoryLauncher {
         case .launched(let windowID, let pane, _):
             // The agent exited and its pane closed (or its window did) before it registered.
             guard let host = host(for: windowID),
-                  let worklane = host.worklaneStore.worklanes.first(where: { worklane in
-                      worklane.paneStripState.panes.contains { $0.id == pane.paneID }
-                  })
+                  let worklane = host.worklaneStore.worklanes.first(where: { $0.containsPane(id: pane.paneID) })
             else {
                 sessionReservations.release(source.key)
                 return nil

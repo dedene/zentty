@@ -20,7 +20,7 @@ enum LiveAgentSessionSnapshotBuilder {
             let store = source.worklaneStore
             for (index, worklane) in store.worklanes.enumerated() {
                 let worklaneDisplayName = worklane.title ?? "Worklane \(index + 1)"
-                for pane in worklane.paneStripState.panes {
+                for pane in worklane.allPanes {
                     guard let auxiliary = worklane.auxiliaryStateByPaneID[pane.id] else {
                         continue
                     }
