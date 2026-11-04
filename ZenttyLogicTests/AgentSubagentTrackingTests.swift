@@ -1119,6 +1119,39 @@ final class AgentSubagentTrackingTests: XCTestCase {
         XCTAssertEqual(AgentSubagentModelResolver.claudeModel(agentTranscriptPath: resolved), "sonnet")
     }
 
+    func test_claude_workflow_agent_resolves_path_and_model_after_files_appear() throws {
+        // Live hook order: SubagentStart fires before the agent's files exist,
+        // so only the first hook from inside the agent can find the workflow
+        // folder. That later path has to replace the one derived at spawn.
+        let directory = try makeTemporaryDirectory()
+        let sessionTranscriptPath = directory.appendingPathComponent("session-1.jsonl").path
+        let workflowDirectory = directory.appendingPathComponent("session-1/subagents/workflows/wf_1234", isDirectory: true)
+        let transcriptPath = workflowDirectory.appendingPathComponent("agent-a0703.jsonl").path
+        let sessionStore = try makeClaudeSessionStore()
+        let subagentStore = try makeRegistryStore(transcriptModificationDate: { path in
+            (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        })
+
+        let started = try claudePayloads(
+            #"{"hook_event_name":"SubagentStart","session_id":"session-1","transcript_path":"\#(sessionTranscriptPath)","agent_id":"a0703","agent_type":"workflow-subagent"}"#,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+        XCTAssertNil(started.first?.subagents?.entries.first?.model, "nothing is on disk yet at spawn")
+
+        try FileManager.default.createDirectory(at: workflowDirectory, withIntermediateDirectories: true)
+        try #"{"type":"assistant","message":{"model":"claude-sonnet-5","role":"assistant"}}"#
+            .write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+        let toolUse = try claudePayloads(
+            #"{"hook_event_name":"PreToolUse","session_id":"session-1","transcript_path":"\#(sessionTranscriptPath)","tool_name":"Read","agent_id":"a0703","agent_type":"workflow-subagent"}"#,
+            sessionStore: sessionStore,
+            subagentStore: subagentStore
+        )
+        let entry = try XCTUnwrap(toolUse.first?.subagents?.entries.first)
+        XCTAssertEqual(entry.transcriptPath, transcriptPath)
+        XCTAssertEqual(entry.model, "claude-sonnet-5")
+    }
+
     func test_codex_thread_info_reads_nickname_role_and_model_from_rollout_head() {
         let rollout = """
         {"timestamp":"t","type":"session_meta","payload":{"id":"01a07132","parent_thread_id":"01a07119","source":{"subagent":{"thread_spawn":{"parent_thread_id":"01a07119","depth":1,"agent_path":"/root/unread_ui","agent_nickname":"Dirac","agent_role":"worker"}}},"thread_source":"subagent"}}
