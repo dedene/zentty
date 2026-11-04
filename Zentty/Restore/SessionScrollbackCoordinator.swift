@@ -87,7 +87,7 @@ final class SessionScrollbackCoordinator {
     func prepareRestoredPanes(in state: inout WindowWorkspaceState, from window: WorkspaceRecipe.Window) {
         guard isEnabled else { return }
         let fileNames = Dictionary(
-            window.worklanes.flatMap(\.columns).flatMap(\.panes).compactMap { pane in
+            window.worklanes.flatMap(\.allPanes).compactMap { pane in
                 pane.scrollbackFile.map { (PaneID(pane.id), $0) }
             },
             uniquingKeysWith: { first, _ in first }
@@ -95,20 +95,16 @@ final class SessionScrollbackCoordinator {
         guard !fileNames.isEmpty else { return }
 
         for worklaneIndex in state.worklanes.indices {
-            var strip = state.worklanes[worklaneIndex].paneStripState
-            for columnIndex in strip.columns.indices {
-                for paneIndex in strip.columns[columnIndex].panes.indices {
-                    let paneID = strip.columns[columnIndex].panes[paneIndex].id
-                    guard let fileName = fileNames[paneID],
-                          let path = archive.existingFilePath(forFileName: fileName) else {
-                        continue
-                    }
-                    strip.columns[columnIndex].panes[paneIndex]
-                        .sessionRequest.environmentVariables[Self.environmentKey] = path
-                    fileNameByPaneID[paneID] = fileName
+            for paneID in state.worklanes[worklaneIndex].allPanes.map(\.id) {
+                guard let fileName = fileNames[paneID],
+                      let path = archive.existingFilePath(forFileName: fileName) else {
+                    continue
                 }
+                state.worklanes[worklaneIndex].updatePane(id: paneID) { pane in
+                    pane.sessionRequest.environmentVariables[Self.environmentKey] = path
+                }
+                fileNameByPaneID[paneID] = fileName
             }
-            state.worklanes[worklaneIndex].paneStripState = strip
         }
     }
 
@@ -195,7 +191,7 @@ final class SessionScrollbackCoordinator {
         var recipe = recipe
         var referenced: [PaneID: String] = [:]
         var savedPaneIDs = Set<PaneID>()
-        recipe.updatePanes { pane in
+        recipe.updateAllPanes { pane in
             let paneID = PaneID(pane.id)
             savedPaneIDs.insert(paneID)
             pane.scrollbackFile = fileNameByPaneID[paneID]
@@ -243,20 +239,6 @@ final class SessionScrollbackCoordinator {
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled, let self else { return }
                 self.checkpoint()
-            }
-        }
-    }
-}
-
-private extension WorkspaceRecipe {
-    mutating func updatePanes(_ update: (inout Pane) -> Void) {
-        for windowIndex in windows.indices {
-            for worklaneIndex in windows[windowIndex].worklanes.indices {
-                for columnIndex in windows[windowIndex].worklanes[worklaneIndex].columns.indices {
-                    for paneIndex in windows[windowIndex].worklanes[worklaneIndex].columns[columnIndex].panes.indices {
-                        update(&windows[windowIndex].worklanes[worklaneIndex].columns[columnIndex].panes[paneIndex])
-                    }
-                }
             }
         }
     }

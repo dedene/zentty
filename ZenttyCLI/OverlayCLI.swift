@@ -4,7 +4,7 @@ import Foundation
 struct OverlayCommandGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "overlay",
-        abstract: "Run a temporary terminal over a pane without changing worklanes.",
+        abstract: "Run a command in a temporary floating pane over a worklane or pane.",
         subcommands: [OverlayOpenCommand.self, OverlayListCommand.self,
                       OverlayShowCommand.self, OverlayCloseCommand.self]
     )
@@ -24,7 +24,10 @@ struct OverlayOpenCommand: ParsableCommand {
         let optionArguments = rawArguments.prefix { $0 != "--" }
         if optionArguments.contains("--help") || optionArguments.contains("-h") {
             print("""
-            OVERVIEW: Run a temporary command over a pane without changing its worklane layout.
+            OVERVIEW: Run a command in a temporary floating pane without changing the worklane layout.
+
+            Overlays are floats: 'zentty pane pip|minimize|restore' put them away and bring them back,
+            and 'zentty pane dock' turns one into a normal pane.
 
             USAGE: zentty overlay open [--wait] [--follow] [--notify] [--cwd DIR] [--placement worklane|pane] [--size-percent N] [--window-id ID] [--worklane-id ID] [--pane-id ID] [--pane-index N] [--pane-token TOKEN] -- command ...
 
@@ -67,12 +70,21 @@ struct OverlayOpenCommand: ParsableCommand {
     ) -> [String] {
         var options = options
         for index in options.indices.dropLast() where options[index] == "--cwd" {
-            let path = (options[index + 1] as NSString).expandingTildeInPath
-            guard !path.isEmpty else { continue }
-            let base = URL(fileURLWithPath: currentDirectory, isDirectory: true)
-            options[index + 1] = URL(fileURLWithPath: path, relativeTo: base).standardizedFileURL.path
+            options[index + 1] = absolutePath(options[index + 1], currentDirectory: currentDirectory)
         }
         return options
+    }
+
+    /// `path` with `~` expanded and resolved against `currentDirectory`.
+    /// Empty stays empty so the app reports it.
+    static func absolutePath(
+        _ path: String,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        guard !expanded.isEmpty else { return path }
+        let base = URL(fileURLWithPath: currentDirectory, isDirectory: true)
+        return URL(fileURLWithPath: expanded, relativeTo: base).standardizedFileURL.path
     }
 }
 
@@ -87,7 +99,7 @@ struct OverlayListCommand: ParsableCommand {
 }
 
 struct OverlayShowCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "show", abstract: "Reveal the target pane's overlay.")
+    static let configuration = CommandConfiguration(commandName: "show", abstract: "Show and focus the target pane's overlay.")
     @OptionGroup var target: PaneTargetOptions
 
     mutating func run() throws {

@@ -197,6 +197,7 @@ final class LiveAgentSessionIndexTests: XCTestCase {
 
     func test_relevance_matches_changes_that_can_move_a_session() {
         XCTAssertTrue(LiveAgentSessionIndex.isRelevant(.paneStructure(worklaneID)))
+        XCTAssertTrue(LiveAgentSessionIndex.isRelevant(.floats(worklaneID)))
         XCTAssertTrue(LiveAgentSessionIndex.isRelevant(.auxiliaryStateUpdated(worklaneID, PaneID("pn-1"), [.sidebar])))
         XCTAssertTrue(LiveAgentSessionIndex.isRelevant(.worklaneListChanged))
         XCTAssertTrue(LiveAgentSessionIndex.isRelevant(.activeWorklaneChanged))

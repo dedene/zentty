@@ -656,9 +656,9 @@ final class SidebarPanePrimaryRowView: NSView {
     private static let remoteSymbolPointSize: CGFloat = 11
     private static let remoteIconSide: CGFloat = 13
     private static let remoteAccessibilityLabel = "Remote session"
-    private static let overlaySymbolName = "rectangle.on.rectangle"
-    private static let overlayAccessibilityLabel = WorklaneSidebarOverlay.accessibilityTitle
 
+    private let floatIconView = NSImageView()
+    private var floatMode: WorklaneSidebarFloatMode?
     private let remoteIconView = NSImageView()
     private var iconSymbolName = SidebarPanePrimaryRowView.remoteSymbolName
     private let textContainer = SidebarPrimaryTextContainerView()
@@ -715,6 +715,14 @@ final class SidebarPanePrimaryRowView: NSView {
         remoteIconView.contentTintColor
     }
 
+    var floatIconSymbolNameForTesting: String? {
+        floatIconView.isHidden ? nil : floatMode?.symbolName
+    }
+
+    var floatIconAccessibilityLabelForTesting: String {
+        floatIconView.accessibilityLabel() ?? ""
+    }
+
     override var intrinsicContentSize: NSSize {
         NSSize(
             width: NSView.noIntrinsicMetric,
@@ -750,6 +758,13 @@ final class SidebarPanePrimaryRowView: NSView {
         remoteIconView.setContentHuggingPriority(.required, for: .horizontal)
         remoteIconView.setAccessibilityRole(.image)
 
+        floatIconView.translatesAutoresizingMaskIntoConstraints = false
+        floatIconView.imageScaling = .scaleProportionallyDown
+        floatIconView.isHidden = true
+        floatIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        floatIconView.setContentHuggingPriority(.required, for: .horizontal)
+        floatIconView.setAccessibilityRole(.image)
+
         textContainer.translatesAutoresizingMaskIntoConstraints = false
         textContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -778,6 +793,7 @@ final class SidebarPanePrimaryRowView: NSView {
         stack.alignment = .top
         stack.spacing = SidebarPaneRowPresentationMode.inlineSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(floatIconView)
         stack.addArrangedSubview(remoteIconView)
         stack.addArrangedSubview(textContainer)
         stack.addArrangedSubview(trailingLabelView)
@@ -789,6 +805,8 @@ final class SidebarPanePrimaryRowView: NSView {
         NSLayoutConstraint.activate([
             remoteIconView.widthAnchor.constraint(equalToConstant: Self.remoteIconSide),
             remoteIconView.heightAnchor.constraint(equalToConstant: Self.remoteIconSide),
+            floatIconView.widthAnchor.constraint(equalToConstant: Self.remoteIconSide),
+            floatIconView.heightAnchor.constraint(equalToConstant: Self.remoteIconSide),
             baseLabel.topAnchor.constraint(equalTo: textContainer.topAnchor),
             baseLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
             baseLabel.trailingAnchor.constraint(equalTo: textContainer.trailingAnchor),
@@ -841,13 +859,18 @@ final class SidebarPanePrimaryRowView: NSView {
         remoteIconView.setAccessibilityLabel(isRemote ? accessibilityText : "")
     }
 
-    /// Marks a quick-action overlay line; it takes the remote indicator's slot,
-    /// since an overlay is never a remote pane of its own.
-    func configureOverlayIndicator() {
-        setIconSymbol(Self.overlaySymbolName, accessibilityDescription: Self.overlayAccessibilityLabel)
-        remoteIconView.isHidden = false
-        remoteIconView.toolTip = Self.overlayAccessibilityLabel
-        remoteIconView.setAccessibilityLabel(Self.overlayAccessibilityLabel)
+    /// Marks a floated pane with its mode glyph (float, PiP or minimized);
+    /// nil hides it. Sits before the remote indicator, which a float keeps.
+    func configureFloatIndicator(_ mode: WorklaneSidebarFloatMode?) {
+        floatIconView.isHidden = mode == nil
+        guard mode != floatMode else { return }
+        floatMode = mode
+        floatIconView.image = mode.flatMap { mode in
+            NSImage(systemSymbolName: mode.symbolName, accessibilityDescription: mode.accessibilityLabel)?
+                .withSymbolConfiguration(.init(pointSize: Self.remoteSymbolPointSize, weight: .semibold, scale: .medium))
+        }
+        floatIconView.toolTip = mode?.accessibilityLabel
+        floatIconView.setAccessibilityLabel(mode?.accessibilityLabel ?? "")
     }
 
     private func setIconSymbol(_ name: String, accessibilityDescription: String) {
@@ -873,6 +896,7 @@ final class SidebarPanePrimaryRowView: NSView {
         self.trailingColor = trailingColor
         trailingLabelView.textColor = trailingColor
         remoteIconView.contentTintColor = trailingColor
+        floatIconView.contentTintColor = trailingColor
         // The pane row primary stays single-line with tail truncation (see
         // `applyPresentationMode`) so the shimmer overlay always has a line
         // to clip against — hiding it on wrap would kill the shimmer on

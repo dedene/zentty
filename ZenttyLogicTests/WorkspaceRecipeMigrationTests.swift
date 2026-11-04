@@ -28,6 +28,41 @@ final class WorkspaceRecipeMigrationTests: XCTestCase {
         XCTAssertEqual(recipe.windows[0].worklanes[0].columns[0].panes[0].customTitle, "Nimbu API")
     }
 
+    func test_v4_json_decodes_without_floats() throws {
+        let recipe = try decodeFixture(v4FixtureJSONWithSidebar)
+        XCTAssertEqual(recipe.schemaVersion, 4)
+        let worklane = recipe.windows[0].worklanes[0]
+        XCTAssertNil(worklane.floatingPanes)
+        XCTAssertNil(worklane.floatsHidden)
+        XCTAssertNil(worklane.focusedFloatID)
+
+        let migrated = WorkspaceRecipeMigration.migrate(recipe)
+        XCTAssertEqual(migrated.schemaVersion, 5)
+        XCTAssertEqual(migrated.windows, recipe.windows, "v4 -> v5 is a no-op hop")
+
+        let imported = WorkspaceRecipeImporter.makeWorklanes(
+            from: migrated.windows[0],
+            windowID: WindowID("window-main"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": "/tmp"]
+        )
+        XCTAssertTrue(imported.worklanes[0].floatingPanes.isEmpty)
+        XCTAssertFalse(imported.worklanes[0].floatsHidden)
+        XCTAssertNil(imported.worklanes[0].focusedFloatID)
+    }
+
+    func test_decodes_v5_json_with_floats() throws {
+        let recipe = try decodeFixture(v5FixtureJSONWithFloats)
+        XCTAssertEqual(recipe.schemaVersion, 5)
+        let worklane = recipe.windows[0].worklanes[0]
+        XCTAssertEqual(worklane.floatsHidden, true)
+        XCTAssertEqual(worklane.focusedFloatID, "pane-float")
+        XCTAssertEqual(worklane.floatingPanes?.map(\.mode), ["floating", "pip"])
+        XCTAssertEqual(worklane.floatingPanes?[1].corner, "topRight")
+        XCTAssertEqual(worklane.floatingPanes?[1].floatingMode, .pip(corner: .topRight, order: 0))
+        XCTAssertEqual(worklane.allPanes.map(\.id), ["pane-main", "pane-float", "pane-pip"])
+    }
+
     // MARK: - Migration hop: unversioned -> current
 
     func test_migrate_sanitizes_legacy_junk_titles_from_unversioned_recipe() throws {
@@ -148,6 +183,86 @@ final class WorkspaceRecipeMigrationTests: XCTestCase {
                 { "id": "worklane-0", "title": "MAIN", "nextPaneNumber": 1, "columns": [] },
                 { "id": "worklane-1", "title": "WS 3", "nextPaneNumber": 1, "columns": [] },
                 { "id": "worklane-2", "title": "Nimbu support", "nextPaneNumber": 1, "columns": [] }
+              ],
+              "activeWorklaneID": "worklane-0"
+            }
+          ],
+          "activeWindowID": "window-main"
+        }
+        """
+    }
+
+    private var v4FixtureJSONWithSidebar: String {
+        """
+        {
+          "schemaVersion": 4,
+          "windows": [
+            {
+              "id": "window-main",
+              "sidebar": { "visibility": "pinnedOpen", "width": 280 },
+              "worklanes": [
+                {
+                  "id": "worklane-0",
+                  "nextPaneNumber": 2,
+                  "focusedColumnID": "column-main",
+                  "columns": [
+                    {
+                      "id": "column-main",
+                      "width": 640,
+                      "paneHeights": [480],
+                      "panes": [{ "id": "pane-main", "workingDirectory": "/tmp" }]
+                    }
+                  ]
+                }
+              ],
+              "activeWorklaneID": "worklane-0"
+            }
+          ],
+          "activeWindowID": "window-main"
+        }
+        """
+    }
+
+    private var v5FixtureJSONWithFloats: String {
+        """
+        {
+          "schemaVersion": 5,
+          "windows": [
+            {
+              "id": "window-main",
+              "worklanes": [
+                {
+                  "id": "worklane-0",
+                  "nextPaneNumber": 4,
+                  "focusedColumnID": "column-main",
+                  "columns": [
+                    {
+                      "id": "column-main",
+                      "width": 640,
+                      "paneHeights": [480],
+                      "panes": [{ "id": "pane-main" }]
+                    }
+                  ],
+                  "floatingPanes": [
+                    {
+                      "pane": { "id": "pane-float" },
+                      "mode": "floating",
+                      "frame": [0.1, 0.2, 0.5, 0.4],
+                      "stackOrder": 1,
+                      "originColumnIndex": 0
+                    },
+                    {
+                      "pane": { "id": "pane-pip" },
+                      "mode": "pip",
+                      "frame": [0.2, 0.2, 0.6, 0.6],
+                      "stackOrder": 0,
+                      "corner": "topRight",
+                      "order": 0
+                    }
+                  ],
+                  "floatsHidden": true,
+                  "focusedFloatID": "pane-float"
+                }
               ],
               "activeWorklaneID": "worklane-0"
             }

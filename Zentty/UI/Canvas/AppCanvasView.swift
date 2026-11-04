@@ -35,11 +35,16 @@ final class PaneBorderContextInsetView: NSView {
             updateCopyAffordanceState()
         }
     }
+    /// Where a float's outset covers the link: its pointing hand stays out.
+    var floatCursorExclusion = FloatCursorExclusion()
 
     private let textContentLayer = CALayer()
     private let leftBorderLineLayer = CALayer()
     private let rightBorderLineLayer = CALayer()
     private let textFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .semibold)
+    private let nameFont = NSFont.systemFont(ofSize: Layout.paneContextFontSize, weight: .bold)
+    /// Separates a float's bold name from its cwd.
+    static let nameSeparator = " \u{00B7} "
     private var textColorToken = ""
     private var naturalTextWidth: CGFloat = 0
     private var currentAttributedText = NSAttributedString(string: "")
@@ -71,8 +76,18 @@ final class PaneBorderContextInsetView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard onClick != nil else { return }
-        addCursorRect(bounds, cursor: .pointingHand)
+        for rect in cursorRects {
+            addCursorRect(rect, cursor: .pointingHand)
+        }
+    }
+
+    private var cursorRects: [CGRect] {
+        guard onClick != nil else { return [] }
+        return floatCursorExclusion.cursorRects(covering: bounds)
+    }
+
+    var cursorRectsForTesting: [CGRect] {
+        cursorRects
     }
 
     override var isFlipped: Bool {
@@ -85,9 +100,9 @@ final class PaneBorderContextInsetView: NSView {
 
     override func updateLayer() {}
 
-    func measure(text: String, maxWidth: CGFloat, prefixGlyph: String? = nil) -> CGSize {
-        let displayText = (prefixGlyph ?? "") + text
-        naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText, font: textFont))
+    func measure(text: String, name: String? = nil, maxWidth: CGFloat, prefixGlyph: String? = nil) -> CGSize {
+        let displayText = attributedText(text: text, name: name, prefixGlyph: prefixGlyph, color: nil)
+        naturalTextWidth = ceil(Self.naturalTextWidth(for: displayText))
         return CGSize(
             width: min(maxWidth, naturalTextWidth + (Layout.paneContextHorizontalPadding * 2)),
             height: Layout.paneContextPreferredHeight
@@ -96,6 +111,7 @@ final class PaneBorderContextInsetView: NSView {
 
     func render(
         text: String,
+        name: String? = nil,
         isFocused: Bool,
         theme: ZenttyTheme,
         backingScaleFactor: CGFloat,
@@ -105,17 +121,7 @@ final class PaneBorderContextInsetView: NSView {
             ? theme.paneBorderFocused
             : theme.paneBorderUnfocused).brightenedForLabel
         let textHeight = ceil(Self.textLineHeight(for: textFont))
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: textFont,
-            .foregroundColor: textColor,
-        ]
-        let attributedText = NSMutableAttributedString()
-        if let prefixGlyph, !prefixGlyph.isEmpty {
-            attributedText.append(NSAttributedString(string: prefixGlyph, attributes: attributes))
-        }
-        if !text.isEmpty {
-            attributedText.append(NSAttributedString(string: text, attributes: attributes))
-        }
+        let attributedText = attributedText(text: text, name: name, prefixGlyph: prefixGlyph, color: textColor)
 
         let borderColor = (isFocused
             ? theme.paneBorderFocused
@@ -166,6 +172,40 @@ final class PaneBorderContextInsetView: NSView {
 
     var textForTesting: String {
         currentAttributedText.string
+    }
+
+    var attributedTextForTesting: NSAttributedString {
+        currentAttributedText
+    }
+
+    /// `prefixGlyph` + bold `name` + " · " + `text`. A float shows its name
+    /// first; tiles pass no name and keep the plain cwd label.
+    private func attributedText(
+        text: String,
+        name: String?,
+        prefixGlyph: String?,
+        color: NSColor?
+    ) -> NSAttributedString {
+        var attributes: [NSAttributedString.Key: Any] = [.font: textFont]
+        var nameAttributes: [NSAttributedString.Key: Any] = [.font: nameFont]
+        if let color {
+            attributes[.foregroundColor] = color
+            nameAttributes[.foregroundColor] = color
+        }
+        let result = NSMutableAttributedString()
+        if let prefixGlyph, !prefixGlyph.isEmpty {
+            result.append(NSAttributedString(string: prefixGlyph, attributes: attributes))
+        }
+        if let name, !name.isEmpty {
+            result.append(NSAttributedString(string: name, attributes: nameAttributes))
+            if !text.isEmpty {
+                result.append(NSAttributedString(string: Self.nameSeparator, attributes: attributes))
+            }
+        }
+        if !text.isEmpty {
+            result.append(NSAttributedString(string: text, attributes: attributes))
+        }
+        return result
     }
 
     var textColorTokenForTesting: String {
@@ -228,11 +268,8 @@ final class PaneBorderContextInsetView: NSView {
         updateCopyAffordanceState()
     }
 
-    private static func naturalTextWidth(for text: String, font: NSFont) -> CGFloat {
-        NSAttributedString(
-            string: text,
-            attributes: [.font: font]
-        ).boundingRect(
+    private static func naturalTextWidth(for text: NSAttributedString) -> CGFloat {
+        text.boundingRect(
             with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
@@ -319,11 +356,23 @@ final class AppCanvasView: NSView {
         get { paneStripView.leadingVisibleInset }
         set {
             paneStripView.setLeadingVisibleInset(newValue, animated: false)
-            layoutOverlayContainer()
+            layoutFloatLayer()
         }
     }
     let paneStripView: PaneStripView
-    let quickActionOverlayContainer = QuickActionOverlayContainerView()
+    /// Floats and PiPs of the active worklane, above the strip.
+    let floatLayerView: FloatLayerView
+    /// Minimized floats of the active worklane, in flow below the strip.
+    let pillBarView = PillBarView()
+    /// Hover peek above a pill (the pane's live terminal); front-most.
+    let pillPeekView = PillPeekView()
+    /// The pill peek started or stopped drawing a pane live.
+    var onPillPeekChanged: (() -> Void)?
+    /// Height the pill bar takes from the strip (0 while there are no pills).
+    private(set) var pillBarReservedHeight: CGFloat = 0
+    /// The strip's height changed because the pill bar showed or left.
+    var onPaneViewportHeightChanged: (() -> Void)?
+    private var stripBottomConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 
     init(
@@ -335,6 +384,7 @@ final class AppCanvasView: NSView {
             runtimeRegistry: runtimeRegistry,
             backingScaleFactorProvider: backingScaleFactorProvider
         )
+        self.floatLayerView = FloatLayerView(runtimeRegistry: runtimeRegistry)
         super.init(frame: frameRect)
         setup()
     }
@@ -353,34 +403,100 @@ final class AppCanvasView: NSView {
 
         paneStripView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneStripView)
-        addSubview(quickActionOverlayContainer)
+        addSubview(floatLayerView)
+        // Above the floats: a float can sit behind the bar, never on its pills.
+        addSubview(pillBarView)
+        addSubview(pillPeekView)
+        pillBarView.isHidden = true
+        pillBarView.onPeekChanged = { [weak self] item, pillFrame in
+            self?.updatePeek(item, pillFrame: pillFrame)
+        }
+        wirePillPeek()
+        // Floats and PiPs move between renders (gestures, settles): keep the
+        // strip's terminals ignoring the pointer under where they are now.
+        floatLayerView.onOccludingFramesChanged = { [weak paneStripView, weak floatLayerView] in
+            guard let paneStripView, let floatLayerView else { return }
+            paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
+            paneStripView.setFloatCursorExclusionRects(floatLayerView.cursorOwningFrames(in: paneStripView))
+        }
+        floatLayerView.dockColumnsProvider = { [weak paneStripView, weak floatLayerView] in
+            guard let paneStripView, let floatLayerView else { return [] }
+            return paneStripView.dockHitTestColumns(in: floatLayerView)
+        }
 
+        let stripBottomConstraint = paneStripView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        self.stripBottomConstraint = stripBottomConstraint
         NSLayoutConstraint.activate([
             paneStripView.topAnchor.constraint(equalTo: topAnchor),
             paneStripView.leadingAnchor.constraint(equalTo: leadingAnchor),
             paneStripView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            paneStripView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stripBottomConstraint,
         ])
 
         paneStripView.apply(theme: currentTheme, animated: false)
         paneStripView.setLeadingVisibleInset(0, animated: false)
+        pillPeekView.apply(theme: currentTheme)
     }
 
     override func layout() {
         super.layout()
-        layoutOverlayContainer()
+        layoutFloatLayer()
     }
 
-    private func layoutOverlayContainer() {
+    /// The float layer covers the visible canvas, right of the sidebar inset;
+    /// the pill bar is its bottom `PillBarLayout.barHeight`.
+    private func layoutFloatLayer() {
         let inset = min(max(0, leadingVisibleInset), bounds.width)
-        quickActionOverlayContainer.frame = NSRect(
+        let frame = NSRect(
             x: bounds.minX + inset, y: bounds.minY,
             width: bounds.width - inset, height: bounds.height
         )
+        if floatLayerView.frame != frame {
+            floatLayerView.frame = frame
+        }
+        let barFrame = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: PillBarLayout.barHeight)
+        if pillBarView.frame != barFrame {
+            pillBarView.frame = barFrame
+        }
+    }
+
+    /// The strip's height: the canvas minus the pill bar while it shows.
+    var paneViewportHeight: CGFloat {
+        max(0, bounds.height - pillBarReservedHeight)
+    }
+
+    /// Shows the pill bar (strip shrinks) or removes it (strip grows). The
+    /// strip frame changes right away so the render that follows animates
+    /// the reflow instead of a layout pass snapping it.
+    private func setPillBarReservedHeight(_ height: CGFloat, animated: Bool) {
+        guard height != pillBarReservedHeight else { return }
+        pillBarReservedHeight = height
+        stripBottomConstraint?.constant = -height
+        if bounds.height > 0 {
+            paneStripView.frame = NSRect(
+                x: bounds.minX,
+                y: bounds.minY + height,
+                width: bounds.width,
+                height: max(0, bounds.height - height)
+            )
+        }
+        paneStripView.animatesNextViewportResize = animated
+        floatLayerView.bottomInset = height
+        onPaneViewportHeightChanged?()
+    }
+
+    /// Refreshes the pills (status, name, cwd) without a canvas render. The
+    /// set of pills must be unchanged; structure changes render the canvas.
+    func updatePills(_ pills: PillBarContent) {
+        guard pills.items.map(\.paneID) == pillBarView.content.items.map(\.paneID) else { return }
+        pillBarView.render(pills, theme: currentTheme)
+        pillPeekView.updateStatus(pills.items)
     }
 
     func render(
         state: PaneStripState,
+        floats: FloatLayerContent = .empty,
+        pills: PillBarContent = .empty,
         metadataByPaneID: [PaneID: TerminalMetadata] = [:],
         paneBorderContextByPaneID: [PaneID: PaneBorderContextDisplayModel] = [:],
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
@@ -397,8 +513,37 @@ final class AppCanvasView: NSView {
         duration: TimeInterval = PaneStripMotionController.defaultAnimationDuration,
         timingFunction: CAMediaTimingFunction = PaneStripMotionController.defaultAnimationTimingFunction
     ) {
+        let floatTransitionStart = captureFloatTransitionStart()
         apply(theme: theme, animated: animated)
-        defer { layoutOverlayContainer() }
+        paneStripView.floatHoldsFocus = floats.ownsFocus
+        paneStripView.showsEmptyStripHint = state.panes.isEmpty && !floats.floats.isEmpty
+        setPillBarReservedHeight(pills.isEmpty ? 0 : PillBarLayout.barHeight, animated: animated)
+        defer {
+            paneStripView.animatesNextViewportResize = false
+            // Strip first (it releases a lifted pane's host view), then the
+            // layer at its final frame (it borrows that host view).
+            layoutFloatLayer()
+            // A peeked pane that stops being a pill goes back before the
+            // layer mounts it (restore, auto-pop) or it is gone (close).
+            pillPeekView.release(keeping: Set(pills.items.map(\.paneID)))
+            pillBarView.render(pills, theme: theme, closing: FloatModeTransition.closingPills(
+                from: floatTransitionStart.content,
+                oldPillIDs: floatTransitionStart.pillIDs,
+                to: floats,
+                newPillIDs: Set(pills.items.map(\.paneID)),
+                stripPaneIDs: Set(state.panes.map(\.id))
+            ))
+            let floatTransitions = prepareFloatTransitions(from: floatTransitionStart, to: floats, strip: state)
+            floatLayerView.render(
+                floats,
+                theme: theme,
+                showPaneBorders: showPaneBorders,
+                smoothScrollingEnabled: smoothScrollingEnabled
+            )
+            finishFloatTransitions(floatTransitions)
+            paneStripView.setFloatOcclusionRects(floatLayerView.occludingFrames(in: paneStripView))
+            paneStripView.setFloatCursorExclusionRects(floatLayerView.cursorOwningFrames(in: paneStripView))
+        }
         if let leadingVisibleInset,
            abs(paneStripView.leadingVisibleInset - leadingVisibleInset) > 0.001 {
             paneStripView.transition(
@@ -439,10 +584,20 @@ final class AppCanvasView: NSView {
 
     func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
         paneStripView.updateShortcutTooltips(shortcutManager)
+        floatLayerView.updateShortcutTooltips(shortcutManager)
     }
 
     func focusCurrentPaneIfNeeded() {
+        if floatLayerView.focusOwningFloatIfNeeded() {
+            return
+        }
         paneStripView.focusCurrentPaneIfNeeded()
+    }
+
+    /// A strip pane's frame in float-layer coordinates (where a lifted float
+    /// starts), or nil when the pane is not mounted in the strip.
+    func tileFrameInFloatLayer(for paneID: PaneID) -> CGRect? {
+        paneStripView.convertPaneFrame(paneID, to: floatLayerView)
     }
 
     func cancelPendingPaneStripScrollSwitchGesture() {
@@ -481,7 +636,7 @@ final class AppCanvasView: NSView {
             duration: duration,
             timingFunction: timingFunction
         )
-        layoutOverlayContainer()
+        layoutFloatLayer()
     }
 
     func updateMetadata(for paneID: PaneID, metadata: TerminalMetadata) {
@@ -511,19 +666,12 @@ final class AppCanvasView: NSView {
 
         if didChange {
             paneStripView.apply(theme: theme, animated: animated)
+            pillPeekView.apply(theme: theme)
         }
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = NSColor.clear.cgColor
             self.layer?.borderColor = NSColor.clear.cgColor
         }
-    }
-}
-
-/// Empty space around quick actions remains interactive for the worklane below.
-final class QuickActionOverlayContainerView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
-        return hit === self ? nil : hit
     }
 }

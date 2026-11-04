@@ -44,6 +44,7 @@ final class PaneStripView: NSView {
     var onPaneSelected: ((PaneID) -> Void)?
     var onPaneCloseRequested: ((PaneID) -> Void)?
     var onPaneBorderContextClicked: ((PaneID) -> Void)?
+    var onPaneBorderActionRequested: ((PaneID, PaneBorderAction) -> Void)?
     var onDividerInteraction: ((PaneDivider) -> Void)?
     var onDividerResizeRequested: ((PaneResizeTarget, CGFloat) -> CGFloat)?
     var onDividerEqualizeRequested: ((PaneDivider) -> Void)?
@@ -70,13 +71,16 @@ final class PaneStripView: NSView {
     var agentForkAvailabilityProvider: ((PaneID) -> AgentForkAvailability?)?
     var sidebarWidthProvider: (() -> CGFloat)?
     var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
-    /// Lets a quick action overlay keep, or take, keyboard focus meant for a pane
-    /// it covers. Returning true means the pane's focus was handled by the overlay.
-    var overlayTerminalFocusInterceptor: ((PaneID) -> Bool)?
     weak var dragOverlayView: NSView? {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
     }
     private(set) var isDragActive = false
+    /// True while a strip divider is being dragged. Its cancel restores the
+    /// strip snapshot taken at drag start, so callers that change the strip's
+    /// pane set (float toggle, dock) hold off until it ends.
+    var isDividerDragActive: Bool {
+        dividerDragSession != nil
+    }
     private(set) var isDropSettling = false
     private var dropSettleCoveredPaneID: PaneID?
     private var afterNextRenderCallback: (() -> Void)?
@@ -154,13 +158,23 @@ final class PaneStripView: NSView {
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
     private var currentShowPaneBorders = AppConfig.Panes.default.showBorders
-    /// Set while a quick-action overlay holds the keyboard: the pane it covers
-    /// is not the one typing, so no pane draws as focused.
-    var suppressesFocusEmphasis = false {
+    /// Set while a float owns keyboard focus: no strip pane draws as focused
+    /// or takes first responder. Applied on the next render (no re-render of
+    /// its own, so it can be set right before an animated render).
+    var floatHoldsFocus = false
+    /// "No tiled panes", shown while every pane of the worklane floats.
+    var showsEmptyStripHint = false {
         didSet {
-            guard suppressesFocusEmphasis != oldValue, let currentState, bounds.size != .zero else { return }
-            renderCurrentState(currentState, animated: false)
+            guard oldValue != showsEmptyStripHint else { return }
+            updateEmptyStripHint()
         }
+    }
+    private var emptyStripHintLabel: NSTextField?
+    /// Float and PiP frames over the strip, in strip coordinates.
+    private var floatOcclusionRects: [CGRect] = []
+    private var floatCursorExclusionRects: [CGRect] = []
+    private var hidesFocusEmphasis: Bool {
+        floatHoldsFocus
     }
     private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
     private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
@@ -210,6 +224,10 @@ final class PaneStripView: NSView {
     private var pendingTargetOffsetOverride: PendingTargetOffsetOverride?
     private var hostDrivenResizeRenderRequestPending = false
     var prefersHostDrivenResizeRendering = false
+    /// One-shot: the next render animates even though the viewport size
+    /// changed since the last one (the pill bar showing or leaving shrinks
+    /// or grows the strip with the usual reflow). Consumed by that render.
+    var animatesNextViewportResize = false
     var onHostDrivenResizeRenderRequested: (() -> Void)?
     #if DEBUG
         private(set) var renderSnapshotsForTesting: [RenderSnapshot] = []
@@ -473,7 +491,7 @@ final class PaneStripView: NSView {
         guard bounds.size != .zero else {
             return
         }
-        if hasViewportSizeChangeSinceLastRender {
+        if hasViewportSizeChangeSinceLastRender, !animatesNextViewportResize {
             markResizeAnimationSuppressionPending()
         }
         renderCurrentState(
@@ -611,11 +629,43 @@ final class PaneStripView: NSView {
         paneViews.values.forEach { paneView in
             paneView.apply(theme: theme, animated: animated)
         }
+        emptyStripHintLabel?.textColor = theme.tertiaryText
+    }
+
+    private func updateEmptyStripHint() {
+        guard showsEmptyStripHint else {
+            emptyStripHintLabel?.isHidden = true
+            return
+        }
+        let label: NSTextField
+        if let existing = emptyStripHintLabel {
+            label = existing
+        } else {
+            label = NSTextField(labelWithString: "No tiled panes")
+            label.font = .systemFont(ofSize: NSFont.systemFontSize)
+            label.alignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label, positioned: .above, relativeTo: viewportView)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            emptyStripHintLabel = label
+        }
+        label.textColor = currentTheme.tertiaryText
+        label.isHidden = false
+    }
+
+    var emptyStripHintTextForTesting: String? {
+        guard let label = emptyStripHintLabel, !label.isHidden else { return nil }
+        return label.stringValue
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let borderContextHitView = hitTestBorderContext(at: point) {
-            return borderContextHitView
+        // Border chrome (copy-path legend, right-legend buttons) sits under
+        // each tile's drag zone, so it gets first pick.
+        if let borderChromeHitView = hitTestBorderChrome(at: point) {
+            return borderChromeHitView
         }
 
         return super.hitTest(point)
@@ -744,8 +794,8 @@ final class PaneStripView: NSView {
         return true
     }
 
-    /// Pane tracking areas keep firing under a quick action overlay, so hover
-    /// focus must check what is actually under the pointer.
+    /// Pane tracking areas keep firing under a float, so hover focus must
+    /// check what is actually under the pointer.
     private func isHoverFocusMouseLocationCoveredByOverlay(_ mouseLocation: NSPoint?) -> Bool {
         guard let mouseLocation, let frameView = window?.contentView?.superview else {
             return false
@@ -754,7 +804,9 @@ final class PaneStripView: NSView {
         // The frame view has no superview, so hitTest takes window coordinates.
         var view = frameView.hitTest(mouseLocation)
         while let current = view {
-            if current is TerminalOverlayContainerView {
+            // The float layer is hit-transparent over empty space, so a hit
+            // inside it is a float or PiP.
+            if current is FloatLayerView {
                 return true
             }
             view = current.superview
@@ -845,15 +897,32 @@ final class PaneStripView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-
-        for paneView in paneViews.values {
-            guard let frameInPane = paneView.interactiveBorderContextFrameInSelf else {
-                continue
-            }
-
-            let frameInSelf = convert(frameInPane, from: paneView)
-            addCursorRect(frameInSelf, cursor: .pointingHand)
+        for rect in borderContextCursorRects {
+            addCursorRect(rect, cursor: .pointingHand)
         }
+    }
+
+    /// The legend links' pointing-hand rects, minus where floats own the
+    /// cursor.
+    private var borderContextCursorRects: [CGRect] {
+        paneViews.values.flatMap { paneView -> [CGRect] in
+            guard let frameInPane = paneView.interactiveBorderContextFrameInSelf else { return [] }
+            let frameInSelf = convert(frameInPane, from: paneView)
+            return FloatResizeCursorZones.subtract(floatCursorExclusionRects, from: frameInSelf)
+                .filter { !$0.isEmpty }
+        }
+    }
+
+    var borderContextCursorRectsForTesting: [CGRect] {
+        borderContextCursorRects
+    }
+
+    func dragZoneViewForTesting(_ paneID: PaneID) -> PaneDragZoneView? {
+        dragZoneViews[paneID]
+    }
+
+    func paneContainerViewForTesting(_ paneID: PaneID) -> PaneContainerView? {
+        paneViews[paneID]
     }
 
     var leadingVisibleInsetForTesting: CGFloat {
@@ -957,7 +1026,10 @@ final class PaneStripView: NSView {
             previousOffset: previousOffset,
             targetOffsetOverride: targetOffsetOverride
         )
+        let animatesViewportResize = animatesNextViewportResize
+        animatesNextViewportResize = false
         let isResizeSuppressedRender = animated
+            && !animatesViewportResize
             && sharesAnyPane(with: state, previousPresentation: previousPresentation)
             && (renderGuard.isResizeSuppressed || hasViewportSizeChangeSinceLastRender)
         let shouldAnimate = animated
@@ -968,6 +1040,11 @@ final class PaneStripView: NSView {
             && !isResizeSuppressedRender
             && !isZoomedOut
         lastRenderWasAnimated = shouldAnimate
+        if animatesViewportResize {
+            // This render owns the new size: a layout pass it triggers must
+            // not re-render it without animation.
+            lastRenderedSize = bounds.size
+        }
         let removalTransition = shouldAnimate && !suppressDiffBasedTransitions
             ? removalTransition(from: previousPresentation, to: presentation)
             : nil
@@ -1128,9 +1205,11 @@ final class PaneStripView: NSView {
         }
     }
 
-    private func hitTestBorderContext(at pointInSelf: CGPoint) -> PaneBorderContextInsetView? {
+    /// `point` is in the superview's coordinates, like `hitTest(_:)`.
+    private func hitTestBorderChrome(at point: CGPoint) -> NSView? {
+        let pointInSelf = superview.map { convert(point, from: $0) } ?? point
         for paneView in paneViews.values.reversed() {
-            if let hitView = paneView.hitTestBorderContext(pointInSelf, from: self) {
+            if let hitView = paneView.hitTestBorderChrome(pointInSelf, from: self) {
                 return hitView
             }
         }
@@ -1315,11 +1394,12 @@ final class PaneStripView: NSView {
 
             paneView.smoothScrollingEnabled = currentSmoothScrollingEnabled
             paneView.showPaneBorders = currentShowPaneBorders
+            paneView.isSoleTile = state.panes.count == 1
             let pane = state.panes[index]
             paneView.render(
                 pane: pane,
                 emphasis: panePresentation.emphasis,
-                isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
+                isFocused: panePresentation.isFocused && !hidesFocusEmphasis,
                 borderContext: currentShowsPaneLabels
                     ? currentPaneBorderContextByPaneID[panePresentation.paneID]
                     : nil,
@@ -1334,6 +1414,8 @@ final class PaneStripView: NSView {
             paneView.setLeadingMouseInteractionOcclusionWidth(
                 leadingMouseInteractionOcclusionWidth(for: targetFrame)
             )
+            paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: targetFrame))
+            paneView.setFloatCursorExclusionRects(floatRects(floatCursorExclusionRects, forPaneFrame: targetFrame))
             let targetAlpha: CGFloat
             if panePresentation.paneID == dropSettleCoveredPaneID {
                 targetAlpha = 0
@@ -1408,7 +1490,7 @@ final class PaneStripView: NSView {
                     width: panePresentation.frame.width,
                     height: panePresentation.frame.height,
                     emphasis: panePresentation.emphasis,
-                    isFocused: panePresentation.isFocused && !suppressesFocusEmphasis,
+                    isFocused: panePresentation.isFocused && !hidesFocusEmphasis,
                     runtime: runtime,
                     theme: currentTheme,
                     initialViewportSyncSuspended: startsWithViewportSyncSuspended,
@@ -1450,6 +1532,9 @@ final class PaneStripView: NSView {
                 paneView.onBorderContextClicked = { [weak self] paneID in
                     self?.onPaneBorderContextClicked?(paneID)
                 }
+                paneView.onBorderActionRequested = { [weak self] action in
+                    self?.onPaneBorderActionRequested?(pane.id, action)
+                }
                 paneView.onScrollWheel = { [weak self] event in
                     self?.handlePaneSwitchScroll(event) ?? false
                 }
@@ -1483,6 +1568,10 @@ final class PaneStripView: NSView {
                 }
                 paneView.setLeadingMouseInteractionOcclusionWidth(
                     leadingMouseInteractionOcclusionWidth(for: paneView.frame)
+                )
+                paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: paneView.frame))
+                paneView.setFloatCursorExclusionRects(
+                    floatRects(floatCursorExclusionRects, forPaneFrame: paneView.frame)
                 )
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
@@ -1535,6 +1624,7 @@ final class PaneStripView: NSView {
             dragZone.contextMenuProvider = { [weak paneView] in
                 paneView?.makeDragZoneContextMenu()
             }
+            dragZone.floatCursorExclusion = floatCursorExclusion(for: dragZone)
             dragZone.isHidden = paneView.isSearchHUDVisible
             paneView.onSearchHUDVisibilityDidChange = { [weak dragZone] isVisible in
                 dragZone?.isHidden = isVisible
@@ -1544,6 +1634,61 @@ final class PaneStripView: NSView {
             }
 
             lastFocusedPaneID = lastFocusedPaneID.flatMap { paneViews[$0] == nil ? nil : $0 }
+        }
+    }
+
+    /// Tells strip terminals where floats and PiPs cover them (rects in
+    /// strip coordinates), so they stop tracking the pointer there.
+    func setFloatOcclusionRects(_ rectsInSelf: [CGRect]) {
+        guard floatOcclusionRects != rectsInSelf else { return }
+        floatOcclusionRects = rectsInSelf
+        for paneView in paneViews.values {
+            paneView.setFloatMouseOcclusionRects(floatOcclusionRects(forPaneFrame: paneView.frame))
+        }
+    }
+
+    /// Where floats own presses (their outset, resize zones included; strip
+    /// coordinates): strip terminals show no cursor of their own there, so
+    /// a float's resize cursor rect is the only one. They still track the
+    /// pointer there.
+    func setFloatCursorExclusionRects(_ rectsInSelf: [CGRect]) {
+        guard floatCursorExclusionRects != rectsInSelf else { return }
+        floatCursorExclusionRects = rectsInSelf
+        for paneView in paneViews.values {
+            paneView.setFloatCursorExclusionRects(floatRects(floatCursorExclusionRects, forPaneFrame: paneView.frame))
+        }
+        // The legend links, drag bars and dividers read the rects on demand
+        // (`floatCursorExclusion(for:)`); their cursor rects need a reset.
+        guard let window else { return }
+        window.invalidateCursorRects(for: self)
+        for dragZone in dragZoneViews.values {
+            window.invalidateCursorRects(for: dragZone)
+        }
+        for dividerView in dividerViews.values {
+            window.invalidateCursorRects(for: dividerView)
+        }
+    }
+
+    /// The float cursor-exclusion rects in `view`'s coordinates, read when
+    /// it builds its cursor rects or is about to set its cursor.
+    private func floatCursorExclusion(for view: NSView) -> FloatCursorExclusion {
+        FloatCursorExclusion { [weak self, weak view] in
+            guard let self, let view else { return [] }
+            return self.floatCursorExclusionRects.map { view.convert($0, from: self) }
+        }
+    }
+
+    private func floatOcclusionRects(forPaneFrame paneFrame: CGRect) -> [CGRect] {
+        floatRects(floatOcclusionRects, forPaneFrame: paneFrame)
+    }
+
+    /// Float rects in the coordinates of a pane laid out at `paneFrame`
+    /// (viewport coordinates; the target frame while it animates).
+    private func floatRects(_ rectsInSelf: [CGRect], forPaneFrame paneFrame: CGRect) -> [CGRect] {
+        rectsInSelf.compactMap { rect in
+            let inViewport = viewportView.convert(rect, from: self)
+            guard inViewport.intersects(paneFrame) else { return nil }
+            return inViewport.offsetBy(dx: -paneFrame.minX, dy: -paneFrame.minY)
         }
     }
 
@@ -1667,14 +1812,16 @@ final class PaneStripView: NSView {
             return
         }
 
-        guard force || paneID != lastFocusedPaneID else {
+        if floatHoldsFocus {
+            // Forget the last focus so the strip takes it back once the
+            // float lets go, even when its focused pane did not change.
+            lastFocusedPaneID = nil
+            pendingProgrammaticFocusPaneID = nil
+            focusGeneration &+= 1
             return
         }
 
-        if overlayTerminalFocusInterceptor?(paneID) == true {
-            lastFocusedPaneID = paneID
-            pendingProgrammaticFocusPaneID = nil
-            focusGeneration &+= 1
+        guard force || paneID != lastFocusedPaneID else {
             return
         }
 
@@ -1689,6 +1836,13 @@ final class PaneStripView: NSView {
 
     private func attemptFocus(paneID: PaneID, generation: UInt64, retryCount: Int) {
         guard generation == focusGeneration else { return }
+        if floatHoldsFocus {
+            if pendingProgrammaticFocusPaneID == paneID {
+                pendingProgrammaticFocusPaneID = nil
+            }
+            lastFocusedPaneID = nil
+            return
+        }
         if shouldSuppressProgrammaticTerminalFocus?() == true {
             if pendingProgrammaticFocusPaneID == paneID {
                 pendingProgrammaticFocusPaneID = nil
@@ -1697,14 +1851,6 @@ final class PaneStripView: NSView {
             return
         }
         guard retryCount < 50 else {
-            if pendingProgrammaticFocusPaneID == paneID {
-                pendingProgrammaticFocusPaneID = nil
-            }
-            return
-        }
-
-        // An overlay can appear between retries (e.g. `overlay open --follow`).
-        if retryCount > 0, overlayTerminalFocusInterceptor?(paneID) == true {
             if pendingProgrammaticFocusPaneID == paneID {
                 pendingProgrammaticFocusPaneID = nil
             }
@@ -1841,6 +1987,7 @@ final class PaneStripView: NSView {
                     }
                     self.handleDividerHover(divider, isHovered: isHovered)
                 }
+                createdDividerView.floatCursorExclusion = floatCursorExclusion(for: createdDividerView)
                 dividerViews[dividerPresentation.divider] = createdDividerView
                 viewportView.addSubview(createdDividerView)
                 dividerView = createdDividerView
@@ -2184,10 +2331,6 @@ final class PaneStripView: NSView {
         paneViews[paneID]?.frame
     }
 
-    func quickActionOverlayAnchor(for paneID: PaneID) -> NSView? {
-        paneViews[paneID]
-    }
-
     /// Convert a pane's current frame into the coordinate system of `target`,
     /// which must share an ancestor with this view. Returns `nil` if the pane
     /// isn't currently mounted. Used by the Worklane Peek overlay to track
@@ -2225,6 +2368,95 @@ final class PaneStripView: NSView {
         guard let first = frames.first else { return nil }
         let union = frames.dropFirst().reduce(first) { $0.union($1) }
         return viewportView.convert(union, to: target)
+    }
+
+    // MARK: - Float docking
+
+    /// The strip's columns with their live (model) frames in `view`'s
+    /// coordinates, for float dock targeting. A column's frame is its
+    /// presentation frame (stack gaps sit between its edge and its panes),
+    /// shifted like its panes; unmounted panes are skipped.
+    func dockHitTestColumns(in view: NSView) -> [ColumnPresentation] {
+        guard let state = currentState else { return [] }
+        let presentedColumns = Dictionary(
+            (currentPresentation?.columns ?? []).map { ($0.columnID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return state.columns.compactMap { column -> ColumnPresentation? in
+            let panes = column.panes.compactMap { pane -> PanePresentation? in
+                guard let frame = livePaneFrame(pane.id) else { return nil }
+                return PanePresentation(
+                    paneID: pane.id,
+                    columnID: column.id,
+                    frame: viewportView.convert(frame, to: view),
+                    emphasis: 1,
+                    isFocused: pane.id == state.focusedPaneID
+                )
+            }
+            guard let firstPane = panes.first else { return nil }
+            let union = panes.dropFirst().reduce(firstPane.frame) { $0.union($1.frame) }
+            var columnFrame = union
+            if let presented = presentedColumns[column.id],
+               let presentedPane = presented.panes.first(where: { $0.paneID == firstPane.paneID }),
+               let liveFrame = livePaneFrame(firstPane.paneID) {
+                let shifted = presented.frame.offsetBy(
+                    dx: liveFrame.minX - presentedPane.frame.minX,
+                    dy: liveFrame.minY - presentedPane.frame.minY
+                )
+                columnFrame = viewportView.convert(shifted, to: view).union(union)
+            }
+            return ColumnPresentation(columnID: column.id, frame: columnFrame, panes: panes)
+        }
+    }
+
+    /// Lands a pane that just docked from a float: after the docking render,
+    /// its new tile container starts at the float's frame (`fromFrame` in
+    /// `sourceView`) and animates to its slot with the float reflow motion.
+    /// The grid stays frozen until it lands. Reduce Motion snaps.
+    func settleDockedPane(
+        _ paneID: PaneID,
+        fromFrame: CGRect,
+        in sourceView: NSView,
+        completion: @escaping @MainActor @Sendable () -> Void
+    ) {
+        // The render that docked it has run; nothing is covered.
+        endDropSettle()
+        guard let paneView = paneViews[paneID] else {
+            completion()
+            return
+        }
+        let finalFrame = paneView.frame
+        let startFrame = viewportView.convert(fromFrame, from: sourceView)
+        let motion = FloatMotion.reflowMotion
+        guard !FloatMotion.reduceMotion, startFrame != finalFrame,
+              startFrame.width > 0, startFrame.height > 0 else {
+            completion()
+            return
+        }
+        paneView.suspendTerminalViewportSync(by: .dockSettle)
+        paneView.layer?.removeAllAnimations()
+        paneView.frame = startFrame
+        paneView.syncInsetBorderNow()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = motion.duration
+            context.timingFunction = motion.timing
+            context.allowsImplicitAnimation = true
+            paneView.animateInsetBorder(to: finalFrame.size)
+            paneView.animator().frame = finalFrame
+        } completionHandler: { [weak self, weak paneView] in
+            Task { @MainActor [weak self, weak paneView] in
+                // Only the landing's own hold goes: peek or a drag zoom that
+                // started meanwhile keeps the grid frozen under its scale.
+                let resumed = paneView?.resumeTerminalViewportSync(by: .dockSettle) ?? false
+                if let self, let paneView, self.paneViews[paneID] === paneView {
+                    paneView.syncInsetBorderNow()
+                    if resumed {
+                        paneView.forceTerminalViewportSync()
+                    }
+                }
+                completion()
+            }
+        }
     }
 
     /// Enter peek zoom-out using the same approach drag-zoom uses
@@ -2817,6 +3049,24 @@ final class PaneStripView: NSView {
         dividerViews[divider]?.cursorDescriptionForTesting
     }
 
+    func dividerCursorRectsForTesting(_ divider: PaneDivider) -> [CGRect]? {
+        dividerViews[divider].map { dividerView in
+            dividerView.cursorRectsForTesting.map { convert($0, from: dividerView) }
+        }
+    }
+
+    func dividerFrameForTesting(_ divider: PaneDivider) -> CGRect? {
+        dividerViews[divider].map { convert($0.bounds, from: $0) }
+    }
+
+    func dividerCursorClaimCountForTesting(_ divider: PaneDivider) -> Int? {
+        dividerViews[divider]?.cursorClaimCountForTesting
+    }
+
+    func simulateDividerCursorUpdateForTesting(_ divider: PaneDivider, with event: NSEvent) {
+        dividerViews[divider]?.cursorUpdate(with: event)
+    }
+
     func dividerHighlightStateForTesting(_ divider: PaneDivider) -> (highlighted: Bool, active: Bool)? {
         guard dividerViews[divider] != nil else {
             return nil
@@ -3169,6 +3419,8 @@ private final class PaneDividerHandleView: NSView {
     var onPan: ((NSPanGestureRecognizer) -> Void)?
     var onDoubleClick: (() -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
+    /// Where a float's outset covers the handle: its resize cursor stays out.
+    var floatCursorExclusion = FloatCursorExclusion()
 
     private let highlightLayer = CALayer()
     private var trackingAreaValue: NSTrackingArea?
@@ -3213,7 +3465,7 @@ private final class PaneDividerHandleView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        resolvedCursor.set()
+        claimCursor(atWindowPoint: event.locationInWindow)
         onHoverChanged?(true)
     }
 
@@ -3233,10 +3485,25 @@ private final class PaneDividerHandleView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: resolvedCursor)
+        for rect in cursorRects {
+            addCursorRect(rect, cursor: resolvedCursor)
+        }
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        claimCursor(atWindowPoint: event.locationInWindow)
+    }
+
+    private var cursorRects: [CGRect] {
+        floatCursorExclusion.cursorRects(covering: bounds)
+    }
+
+    /// Sets the resize cursor directly, unless a float owns the pointer.
+    private func claimCursor(atWindowPoint windowPoint: CGPoint) {
+        guard !floatCursorExclusion.excludes(windowPoint: windowPoint, in: self) else { return }
+        #if DEBUG
+            cursorClaimCountForTesting += 1
+        #endif
         resolvedCursor.set()
     }
 
@@ -3296,13 +3563,19 @@ private final class PaneDividerHandleView: NSView {
             return
         }
 
-        let locationInSelf = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        if bounds.contains(locationInSelf) {
-            resolvedCursor.set()
+        let pointer = window.mouseLocationOutsideOfEventStream
+        if bounds.contains(convert(pointer, from: nil)) {
+            claimCursor(atWindowPoint: pointer)
         }
     }
 
     #if DEBUG
+    private(set) var cursorClaimCountForTesting = 0
+
+    var cursorRectsForTesting: [CGRect] {
+        cursorRects
+    }
+
     var cursorDescriptionForTesting: String {
         axis == .horizontal ? "resizeLeftRight" : "resizeUpDown"
     }

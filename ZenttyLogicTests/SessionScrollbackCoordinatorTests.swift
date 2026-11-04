@@ -341,6 +341,66 @@ final class SessionScrollbackCoordinatorTests: XCTestCase {
         XCTAssertEqual(try archiveContents(), ["pn_1-L1.txt"])
     }
 
+    func test_floated_pane_output_survives_purge_and_restore() throws {
+        // Launch 1: the float's output is captured and the save keeps it.
+        screens = [PaneID("pn_1"): "tile\n", PaneID("pn_f"): "$ tail -f log\nfloat output\n"]
+        coordinator.captureAll(synchronously: true)
+        var recipe = SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"], workingDirectory: stateDirectory.path)
+        recipe.windows[0].worklanes[0].floatingPanes = [
+            WorkspaceRecipe.FloatingPane(
+                pane: WorkspaceRecipe.Pane(id: "pn_f", titleSeed: nil, workingDirectory: stateDirectory.path),
+                mode: "minimized",
+                frame: [0.2, 0.2, 0.6, 0.6],
+                stackOrder: 0,
+                order: 0
+            ),
+        ]
+        let firstSave = coordinator.prepareForSave(recipe)
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertEqual(firstSave.windows[0].worklanes[0].floatingPanes?.first?.pane.scrollbackFile, "pn_f-L1.txt")
+        XCTAssertEqual(try archiveContents(), ["pn_1-L1.txt", "pn_f-L1.txt"], "the purge keeps the float's file")
+
+        // Launch 2: restore points the float's shell at its file.
+        let relaunched = SessionScrollbackCoordinator(stateDirectoryURL: stateDirectory, launchID: "L2")
+        relaunched.setEnabled(true, startsCheckpoints: false)
+        relaunched.sourcesProvider = { [] }
+        let decoded = WorkspaceRecipeMigration.migrate(
+            try JSONDecoder().decode(WorkspaceRecipe.self, from: try JSONEncoder().encode(firstSave))
+        )
+        var state = WorkspaceRecipeImporter.makeWorklanes(
+            from: decoded.windows[0],
+            windowID: WindowID("wd_1"),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": stateDirectory.path]
+        )
+        relaunched.prepareRestoredPanes(in: &state, from: decoded.windows[0])
+
+        let float = try XCTUnwrap(state.worklanes[0].floatingPane(id: PaneID("pn_f")))
+        XCTAssertEqual(float.mode, .minimized(order: 0))
+        XCTAssertEqual(
+            float.pane.sessionRequest.environmentVariables[SessionScrollbackCoordinator.environmentKey],
+            try fileURL("pn_f-L1.txt").path
+        )
+
+        // Saved again before the float's shell starts: the file must survive.
+        let secondSave = relaunched.prepareForSave(
+            WorkspaceRecipe(
+                windows: [
+                    WorkspaceRecipeExporter.makeWindow(
+                        windowID: WindowID("wd_1"),
+                        worklanes: state.worklanes,
+                        activeWorklaneID: state.activeWorklaneID
+                    ),
+                ]
+            )
+        )
+        relaunched.waitForPendingWritesForTesting()
+
+        XCTAssertEqual(secondSave.windows[0].worklanes[0].floatingPanes?.first?.pane.scrollbackFile, "pn_f-L1.txt")
+        XCTAssertEqual(try archiveContents(), ["pn_1-L1.txt", "pn_f-L1.txt"])
+    }
+
     func test_launches_use_distinct_file_names() {
         XCTAssertNotEqual(SessionScrollbackCoordinator.makeLaunchID(), SessionScrollbackCoordinator.makeLaunchID())
         XCTAssertTrue(

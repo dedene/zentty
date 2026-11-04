@@ -74,6 +74,7 @@ final class WindowChromeView: NSView {
     private let openWithPrimaryButton = WindowChromeSegmentButton()
     private let openWithMenuButton = WindowChromeSegmentButton()
     private let openWithDividerView = NSView()
+    private let floatVisibilityCapsule = FloatVisibilityCapsuleView()
     private var animatesNextRowLayout = false
 #if DEBUG
     private(set) var lastRowLayoutWasAnimatedForTesting = false
@@ -116,6 +117,7 @@ final class WindowChromeView: NSView {
     )
     private var currentServerState: WindowChromeServerState?
     private var currentOpenWithState: WindowChromeOpenWithState?
+    private var currentFloatVisibilityState: FloatVisibilityCapsuleState?
     private var currentPanesConfig: AppConfig.Panes = .default
     private var displayedReviewChips: [WorklaneReviewChip] = []
     private var reviewChipViews: [WindowChromeReviewChipView] = []
@@ -128,6 +130,8 @@ final class WindowChromeView: NSView {
     var onOpenWithMenuAction: (() -> Void)?
     var onServerPrimaryAction: (() -> Void)?
     var onServerMenuAction: (() -> Void)?
+    /// The hide-all capsule was clicked.
+    var onFloatVisibilityToggle: (() -> Void)?
     /// Invoked by the PR badge's right-click "Refresh PR Status" item.
     var onRefreshPullRequestStatus: (() -> Void)?
 
@@ -181,6 +185,7 @@ final class WindowChromeView: NSView {
         animatesNextRowLayout = false
         layoutOpenWithControl()
         layoutServerControl()
+        layoutFloatVisibilityControl()
         syncVisibleRowContent(forceChipRefresh: false)
         layoutRowContent(animated: animatesRowLayout)
         syncFocusedSpinnerFrameAndVisibility()
@@ -325,6 +330,11 @@ final class WindowChromeView: NSView {
         addSubview(rowContainerView)
         addSubview(serverContainerView)
         addSubview(openWithContainerView)
+        floatVisibilityCapsule.isHidden = true
+        floatVisibilityCapsule.onToggle = { [weak self] in
+            self?.onFloatVisibilityToggle?()
+        }
+        addSubview(floatVisibilityCapsule)
         serverContainerView.addSubview(serverDividerView)
         serverContainerView.addSubview(serverPrimaryButton)
         serverContainerView.addSubview(serverMenuButton)
@@ -408,6 +418,7 @@ final class WindowChromeView: NSView {
         reviewChipViews.forEach { $0.apply(theme: theme, animated: animated) }
         updateServerAppearance(animated: animated)
         updateOpenWithAppearance(animated: animated)
+        floatVisibilityCapsule.apply(theme: theme, animated: animated)
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = theme.topChromeBackground.cgColor
@@ -442,6 +453,17 @@ final class WindowChromeView: NSView {
             && !focusedLabel.isHidden
             && !rowContainerView.isHidden
             && focusedLabel.frame.width > 0.5
+    }
+
+    /// The hide-all capsule; nil (no floats or PiPs) hides it.
+    func render(floatVisibility state: FloatVisibilityCapsuleState?) {
+        guard state != currentFloatVisibilityState else { return }
+        currentFloatVisibilityState = state
+        floatVisibilityCapsule.isHidden = state == nil
+        if let state {
+            floatVisibilityCapsule.render(state)
+        }
+        needsLayout = true
     }
 
     func render(server state: WindowChromeServerState?) {
@@ -509,6 +531,7 @@ final class WindowChromeView: NSView {
     func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
         self.shortcutManager = shortcutManager
         branchLabel.toolTip = branchToolTip(isClickable: branchLabel.isInteractive)
+        floatVisibilityCapsule.updateShortcutTooltip(shortcutManager)
     }
 
     @objc
@@ -1049,6 +1072,30 @@ final class WindowChromeView: NSView {
         )
     }
 
+    /// Left of the server capsule (else Open With, else the trailing edge).
+    private func layoutFloatVisibilityControl() {
+        guard currentFloatVisibilityState != nil else {
+            floatVisibilityCapsule.isHidden = true
+            floatVisibilityCapsule.frame = .zero
+            return
+        }
+
+        let width = FloatVisibilityCapsuleView.width
+        let height = FloatVisibilityCapsuleView.height
+        let trailingControlMinX: CGFloat
+        if currentServerState != nil, serverContainerView.frame.width > 0.5 {
+            trailingControlMinX = serverContainerView.frame.minX - Self.openWithSectionSpacing - width
+        } else if currentOpenWithState != nil, openWithContainerView.frame.width > 0.5 {
+            trailingControlMinX = openWithContainerView.frame.minX - Self.openWithSectionSpacing - width
+        } else {
+            trailingControlMinX = bounds.width - ChromeGeometry.headerHorizontalInset - width - 2
+        }
+        let originX = max(ChromeGeometry.headerHorizontalInset, trailingControlMinX)
+        let originY = floor((bounds.height - height) / 2) - 2
+        floatVisibilityCapsule.isHidden = false
+        floatVisibilityCapsule.frame = NSRect(x: originX, y: originY, width: width, height: height)
+    }
+
     private func makeLayoutPlan(
         leadingViews: [NSView],
         chipViews: [WindowChromeReviewChipView],
@@ -1266,6 +1313,10 @@ final class WindowChromeView: NSView {
     }
 
     private var trailingControlLaneMaxX: CGFloat? {
+        if currentFloatVisibilityState != nil, floatVisibilityCapsule.frame.width > 0.5 {
+            return floatVisibilityCapsule.frame.minX - Self.trailingControlGap
+        }
+
         if currentServerState != nil, serverContainerView.frame.width > 0.5 {
             return serverContainerView.frame.minX - Self.trailingControlGap
         }
@@ -1290,6 +1341,10 @@ final class WindowChromeView: NSView {
 
         if currentServerState != nil {
             width += Self.openWithControlWidth + Self.openWithSectionSpacing
+        }
+
+        if currentFloatVisibilityState != nil {
+            width += FloatVisibilityCapsuleView.width + Self.openWithSectionSpacing
         }
 
         return width
@@ -1386,6 +1441,8 @@ final class WindowChromeView: NSView {
     var isFocusedProxyIconUsingPopupMenu: Bool { focusedProxyIconView.usesPopupMenuForTesting }
     var focusedProxyIconFrame: NSRect { focusedProxyIconView.frame }
     var currentPanesConfigForTesting: AppConfig.Panes { currentPanesConfig }
+
+    var openWithStateForTesting: WindowChromeOpenWithState? { currentOpenWithState }
     var focusedProxyIconImage: NSImage? { focusedProxyIconView.image }
     var focusedLabelText: String { focusedLabel.stringValue }
     var focusedLabelFrame: NSRect { focusedLabel.frame }
@@ -1480,6 +1537,8 @@ final class WindowChromeView: NSView {
     var serverMenuFrame: NSRect { serverMenuButton.frame }
     var serverMenuAnchorRect: NSRect { serverContainerView.frame }
     var openWithControlFrame: NSRect { openWithContainerView.frame }
+    var floatVisibilityControlFrame: NSRect { floatVisibilityCapsule.isHidden ? .zero : floatVisibilityCapsule.frame }
+    var floatVisibilityCapsuleForTesting: FloatVisibilityCapsuleView { floatVisibilityCapsule }
     var openWithPrimaryFrame: NSRect { openWithPrimaryButton.frame }
     var openWithMenuFrame: NSRect { openWithMenuButton.frame }
     var openWithMenuAnchorRect: NSRect { openWithContainerView.frame }

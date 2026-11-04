@@ -1673,15 +1673,11 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.paneStripState.columns.first?.width ?? 0, 978, accuracy: 0.001)
     }
 
-    func test_restore_pane_layout_emits_split_curve_layout_resize_change() {
+    func test_restore_pane_layout_emits_split_curve_layout_resize_change() throws {
         let store = WorklaneStore()
-        let restoredState = PaneStripState(
-            panes: [
-                PaneState(id: PaneID("left"), title: "left", width: 520),
-                PaneState(id: PaneID("right"), title: "right", width: 520),
-            ],
-            focusedPaneID: PaneID("right")
-        )
+        // A divider-drag snapshot: the store's own panes, other geometry.
+        var restoredState = try XCTUnwrap(store.activeWorklane?.paneStripState)
+        restoredState.columns[0].width = 520
         var changes: [WorklaneChange] = []
         store.subscribe { changes.append($0) }
         let activeWorklaneID = store.activeWorklaneID

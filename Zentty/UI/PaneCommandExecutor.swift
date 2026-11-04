@@ -148,7 +148,7 @@ final class PaneCommandExecutor {
         case .resetLayout:
             worklaneStore.resetActiveWorklaneLayout()
         case .closeFocusedPane:
-            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+            let focusedPaneID = worklaneStore.activeWorklane?.focusedPaneID
             if configStore.current.confirmations.confirmBeforeClosingPane,
                 let focusedPaneID,
                 let context = worklaneStore.paneCloseConfirmationContext(
@@ -186,7 +186,7 @@ final class PaneCommandExecutor {
     }
 
     private func performForkAgentConversation() {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else {
             return
         }
         do {
@@ -511,37 +511,41 @@ final class PaneCommandExecutor {
         worklaneStore.equalizeFocusedColumnPaneHeights()
     }
 
+    /// Strip panes in strip order (1-based index, real column), then floats
+    /// in `allPanes` order with column 0 and their mode. `resolvePaneID`
+    /// uses the same numbering.
     func paneListEntries(for worklaneID: WorklaneID) -> [PaneListEntry] {
         guard let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }) else {
             return []
         }
 
-        var entries: [PaneListEntry] = []
-        var index = 1
+        let focusedPaneID = worklane.focusedPaneID
+        var columnByPaneID: [PaneID: Int] = [:]
         for (columnIndex, column) in worklane.paneStripState.columns.enumerated() {
             for pane in column.panes {
-                let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
-                let isFocused = worklane.paneStripState.focusedPaneID == pane.id
-                entries.append(
-                    PaneListEntry(
-                        index: index,
-                        id: pane.id.rawValue,
-                        column: columnIndex + 1,
-                        title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
-                        workingDirectory: auxiliaryState?.shellContext?.path,
-                        isFocused: isFocused,
-                        agentTool: auxiliaryState?.agentStatus?.tool.displayName,
-                        agentStatus: auxiliaryState?.agentStatus?.state.rawValue
-                    ))
-                index += 1
+                columnByPaneID[pane.id] = columnIndex + 1
             }
         }
-        return entries
+
+        return worklane.allPanes.enumerated().map { offset, pane in
+            let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
+            return PaneListEntry(
+                index: offset + 1,
+                id: pane.id.rawValue,
+                column: columnByPaneID[pane.id] ?? 0,
+                title: WorklaneContextFormatter.trimmed(pane.customTitle) ?? pane.title,
+                workingDirectory: auxiliaryState?.shellContext?.path,
+                isFocused: focusedPaneID == pane.id,
+                agentTool: auxiliaryState?.agentStatus?.tool.displayName,
+                agentStatus: auxiliaryState?.agentStatus?.state.rawValue,
+                mode: worklane.floatingPane(id: pane.id)?.mode.wireName
+            )
+        }
     }
 
     func taskManagerPaneSources(windowID: WindowID, windowTitle: String) -> [TaskManagerPaneSource] {
         worklaneStore.worklanes.enumerated().flatMap { worklaneIndex, worklane in
-            worklane.paneStripState.panes.map { pane in
+            worklane.allPanes.map { pane in
                 let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id]
                 return TaskManagerPaneSource(
                     windowID: windowID,
@@ -587,16 +591,17 @@ final class PaneCommandExecutor {
 
         if target.hasPrefix("pn_") {
             let paneID = PaneID(target)
-            if worklane.paneStripState.panes.contains(where: { $0.id == paneID }) {
+            if worklane.containsPane(id: paneID) {
                 return paneID
             }
             return nil
         }
 
+        // Same numbering as `paneListEntries`: strip panes, then floats.
         if let displayIndex = Int(target), displayIndex >= 1 {
-            let allPanes = worklane.paneStripState.columns.flatMap(\.panes)
-            if displayIndex <= allPanes.count {
-                return allPanes[displayIndex - 1].id
+            let panes = worklane.allPanes
+            if displayIndex <= panes.count {
+                return panes[displayIndex - 1].id
             }
         }
 

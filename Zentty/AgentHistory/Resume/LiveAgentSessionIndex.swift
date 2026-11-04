@@ -125,7 +125,7 @@ final class LiveAgentSessionIndex {
 
     static func isRelevant(_ change: WorklaneChange) -> Bool {
         switch change {
-        case .paneStructure, .auxiliaryStateUpdated, .worklaneListChanged, .activeWorklaneChanged:
+        case .paneStructure, .floats, .auxiliaryStateUpdated, .worklaneListChanged, .activeWorklaneChanged:
             return true
         case .focusChanged, .layoutResized, .volatileAgentTitleUpdated, .teamAnchorsChanged, .historyChanged:
             return false

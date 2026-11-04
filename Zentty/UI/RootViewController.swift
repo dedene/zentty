@@ -14,7 +14,7 @@ enum FocusedTerminalInterruptBridge {
         guard matchesInterrupt,
               isFocusedPaneTerminalFocused,
               let activeWorklane,
-              let paneID = activeWorklane.paneStripState.focusedPaneID,
+              let paneID = activeWorklane.focusedPaneID,
               let status = activeWorklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
               status.tool == .kimi,
               status.source == .explicit,
@@ -131,8 +131,6 @@ final class RootViewController: NSViewController {
     private let themeCoordinator: ThemeCoordinator
     private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
-    var onSidebarOverlaySelected: ((PaneID) -> Bool)?
-    var onSidebarOverlayClosed: ((PaneID) -> Bool)?
     private var staleAgentSweepTimer: Timer?
     private(set) var serverCommands: WindowServerCommandService!
     private var bookmarksPopover: NSPopover?
@@ -187,6 +185,7 @@ final class RootViewController: NSViewController {
     /// The sidebar section of the config as this window last observed it. Used to
     /// tell a real on-disk sidebar edit apart from an unrelated external change.
     private var lastObservedConfigSidebar: AppConfig.Sidebar
+    private var floatNeedsInputAnnouncer = FloatNeedsInputAnnouncer()
     private var currentPaneLayoutContext: PaneLayoutContext
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarLeadingConstraint: NSLayoutConstraint?
@@ -218,14 +217,14 @@ final class RootViewController: NSViewController {
     private lazy var globalSearchCoordinator = GlobalSearchCoordinator(
         orderedTargetsProvider: { [weak self] in
             self?.worklaneStore.worklanes.flatMap { worklane in
-                worklane.paneStripState.panes.map { pane in
+                worklane.allPanes.map { pane in
                     GlobalSearchTarget(worklaneID: worklane.id, paneID: pane.id)
                 }
             } ?? []
         },
         currentTargetProvider: { [weak self] in
             guard let worklane = self?.worklaneStore.activeWorklane,
-                  let paneID = worklane.paneStripState.focusedPaneID
+                  let paneID = worklane.focusedPaneID
             else {
                 return nil
             }
@@ -266,12 +265,6 @@ final class RootViewController: NSViewController {
     private var configObserverID: UUID?
     private var isUpdateAvailable = false
     var onWindowChromeNeedsUpdate: (() -> Void)?
-    var onThemeDidChange: ((ZenttyTheme) -> Void)?
-    /// Offers a shell-integration payload to the quick-action overlays first;
-    /// true when it belonged to one, since overlays are not in the store.
-    var onOverlayAgentStatusPayload: ((AgentStatusPayload) -> Bool)?
-    /// What Copy Path copies while a quick-action overlay has focus.
-    var focusedQuickActionCopyTarget: (() -> PaneCopyTarget?)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onServerPrimaryRequested: (() -> Void)?
@@ -280,11 +273,7 @@ final class RootViewController: NSViewController {
     var onShowSettingsSectionRequested: ((SettingsSection) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
-    var onToggleQuickActionOverlayRequested: (() -> Void)?
-    var onCloseFocusedOverlayRequested: ((NSResponder?) -> Bool)?
-    var overlayTerminalFocusInterceptor: ((PaneID) -> Bool)?
-    /// Live quick-action overlays a close would terminate. Overlays live outside
-    /// the worklane store, so its close prompts can't see them on their own.
+    /// Running overlay floats a close would terminate, for the close prompts.
     var runningQuickActionsClosingWithPane: ((PaneID) -> [RunningQuickAction])?
     var runningQuickActionsClosingWithWorklane: ((WorklaneID) -> [RunningQuickAction])?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
@@ -357,6 +346,9 @@ final class RootViewController: NSViewController {
             },
             programStatusEnabledProvider: { [weak configStore] in
                 configStore?.current.panes.programStatusEnabled ?? true
+            },
+            autoPopNeedsInputProvider: { [weak configStore] in
+                configStore?.current.floats.autoPopNeedsInput ?? true
             },
             claudeHookSessionStoreProvider: { ClaudeHookSessionStore() }
         )
@@ -445,7 +437,9 @@ final class RootViewController: NSViewController {
         preloadProjectIcons()
         _ = worklaneStore.subscribe { [weak self] _ in
             self?.preloadProjectIcons()
+            self?.announceFloatNeedsInputChanges()
         }
+        _ = floatNeedsInputAnnouncer.update(worklane: worklaneStore.activeWorklane)
         wirePeek()
     }
 
@@ -755,6 +749,13 @@ final class RootViewController: NSViewController {
             }
 
             switch change {
+            case .paneStructure, .worklaneListChanged, .activeWorklaneChanged, .floats:
+                self.updateFloatVisibilityChromeState()
+            default:
+                break
+            }
+
+            switch change {
             case .paneStructure, .worklaneListChanged:
                 self.remotePaste.cancelUploadsForRemovedPanes()
                 if self.isGlobalSearchSessionActive {
@@ -767,7 +768,9 @@ final class RootViewController: NSViewController {
                 self.updateServerChromeState()
                 self.updatePaneNavigationButtonState()
                 self.serverCommands.schedulePassiveServerDetectionRefresh()
-            case .focusChanged, .activeWorklaneChanged:
+            case .focusChanged, .activeWorklaneChanged, .floats:
+                // `.floats` covers float focus and float-only structure
+                // changes: chrome follows the float-aware focused pane.
                 self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
                 self.updateOpenWithChromeState()
                 self.updateServerChromeState()
@@ -834,6 +837,125 @@ final class RootViewController: NSViewController {
         }
     }
 
+    private func requestPaneClose(_ paneID: PaneID) {
+        if configStore.current.confirmations.confirmBeforeClosingPane,
+            let context = paneCloseConfirmationContext(paneID)
+        {
+            showClosePaneConfirmation(
+                context: context,
+                highlighting: { self.worklaneStore.focusPane(id: paneID) }
+            ) {
+                self.paneCommands.closePane(id: paneID)
+            }
+        } else {
+            paneCommands.closePane(id: paneID)
+        }
+    }
+
+    private func setupFloatLayerCallbacks() {
+        let floatLayer = appCanvasView.floatLayerView
+        floatLayer.pipWidth = FloatLayout.pipWidth(for: configStore.current.floats.pipSize)
+        floatLayer.shouldSuppressProgrammaticTerminalFocus = { [weak self] in
+            self?.globalSearchChoreographer.shouldRetainFocus ?? false
+        }
+        floatLayer.onFloatSelected = { [weak self] paneID in
+            self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
+            self?.worklaneStore.focusPane(id: paneID)
+        }
+        floatLayer.onFloatCloseRequested = { [weak self] paneID in
+            self?.requestPaneClose(paneID)
+        }
+        floatLayer.onPipClicked = { [weak self] paneID in
+            self?.worklaneStore.restoreFloat(paneID)
+        }
+        floatLayer.onPipMoveRequested = { [weak self] paneID, corner in
+            self?.worklaneStore.movePip(paneID, to: corner)
+        }
+        floatLayer.onPipTouched = { [weak self] paneID in
+            self?.worklaneStore.markFloatTouched(paneID)
+        }
+        floatLayer.onFloatActionRequested = { [weak self] paneID, action in
+            self?.handlePaneBorderAction(action, paneID: paneID)
+        }
+        floatLayer.onFloatGestureEnded = { [weak self] paneID, outcome, canvas in
+            self?.commitFloatGesture(paneID, outcome: outcome, canvas: canvas)
+        }
+        floatLayer.containerConfigurator = { [weak self] container, _ in
+            self?.configureFloatContainer(container)
+        }
+        appCanvasView.paneStripView.onPaneBorderActionRequested = { [weak self] paneID, action in
+            self?.handlePaneBorderAction(action, paneID: paneID)
+        }
+        setupPillBarCallbacks()
+    }
+
+    private func setupPillBarCallbacks() {
+        let pillBar = appCanvasView.pillBarView
+        pillBar.onPillClicked = { [weak self] paneID in
+            guard let self, !self.isFloatCommandBlocked else { return }
+            self.appCanvasView.pillPeekView.hide()
+            self.worklaneStore.restoreFloat(paneID)
+        }
+        pillBar.onPillActionRequested = { [weak self] paneID, action in
+            guard let self, !self.isFloatCommandBlocked else { return }
+            self.appCanvasView.pillPeekView.hide()
+            self.handlePaneBorderAction(action, paneID: paneID)
+        }
+        pillBar.onPillPromoted = { [weak self] paneID, pointInBar in
+            guard let self, !self.isFloatCommandBlocked else { return }
+            let floatLayer = self.appCanvasView.floatLayerView
+            let point = floatLayer.convert(pointInBar, from: self.appCanvasView.pillBarView)
+            self.worklaneStore.pipPane(paneID, corner: FloatLayout.nearestCorner(to: point, in: floatLayer.bounds))
+        }
+        // The peeked pane draws live: un-occlude it while the peek shows.
+        renderCoordinator.pillPeekedPaneIDsProvider = { [weak self] in
+            self?.appCanvasView.pillPeekedPaneIDs ?? []
+        }
+        appCanvasView.onPillPeekChanged = { [weak self] in
+            self?.renderCoordinator.updateSurfaceActivities()
+        }
+        appCanvasView.onPaneViewportHeightChanged = { [weak self] in
+            self?.updatePaneViewportHeight()
+        }
+    }
+
+    /// Gives a float container what strip panes get from `PaneStripView`:
+    /// copy-path on the legend and the context-menu providers.
+    private func configureFloatContainer(_ container: PaneContainerView) {
+        container.onBorderContextClicked = { [weak self] paneID in
+            self?.copyPath(forPaneID: paneID)
+        }
+        container.rightPaneCommandPresentationProvider = { [weak self] in
+            self?.currentPaneLayoutContext.rightPaneCommandPresentation ?? .addsToWorklane
+        }
+        container.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            self?.moveToWorklaneCatalogProvider?(paneID)
+        }
+        container.restoredRerunnableCommandProvider = { [weak self] paneID in
+            self?.worklaneStore.restoredRerunnableCommand(for: paneID)
+        }
+        container.agentForkAvailabilityProvider = { [weak self] paneID in
+            self?.worklaneStore.agentForkAvailability(for: paneID)
+        }
+    }
+
+    func handlePaneBorderAction(_ action: PaneBorderAction, paneID: PaneID) {
+        switch action {
+        case .float:
+            routeFloatPane(paneID)
+        case .pip:
+            worklaneStore.pipPane(paneID)
+        case .minimize:
+            worklaneStore.minimizePane(paneID)
+        case .dock:
+            dockFloat(paneID)
+        case .restore:
+            worklaneStore.restoreFloat(paneID)
+        case .close:
+            requestPaneClose(paneID)
+        }
+    }
+
     private func setupCanvasCallbacks() {
         appCanvasView.paneStripView.onHostDrivenResizeRenderRequested = { [weak self] in
             self?.renderCoordinator.renderCanvas(animated: false)
@@ -842,9 +964,6 @@ final class RootViewController: NSViewController {
             guard let self else { return false }
 
             return self.globalSearchChoreographer.shouldRetainFocus
-        }
-        appCanvasView.paneStripView.overlayTerminalFocusInterceptor = { [weak self] paneID in
-            self?.overlayTerminalFocusInterceptor?(paneID) ?? false
         }
         appCanvasView.paneStripView.onFocusSettled = { [weak self] paneID in
             self?.appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
@@ -855,20 +974,9 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.focusPane(id: paneID)
         }
         appCanvasView.paneStripView.onPaneCloseRequested = { [weak self] paneID in
-            guard let self else { return }
-            if self.configStore.current.confirmations.confirmBeforeClosingPane,
-                let context = self.paneCloseConfirmationContext(paneID)
-            {
-                self.showClosePaneConfirmation(
-                    context: context,
-                    highlighting: { self.worklaneStore.focusPane(id: paneID) }
-                ) {
-                    self.paneCommands.closePane(id: paneID)
-                }
-            } else {
-                self.paneCommands.closePane(id: paneID)
-            }
+            self?.requestPaneClose(paneID)
         }
+        setupFloatLayerCallbacks()
         appCanvasView.paneStripView.onDividerInteraction = { [weak self] divider in
             self?.worklaneStore.markDividerInteraction(divider)
         }
@@ -879,7 +987,7 @@ final class RootViewController: NSViewController {
             return self.worklaneStore.resize(
                 target,
                 delta: delta,
-                availableSize: self.appCanvasView.bounds.size,
+                availableSize: self.appCanvasView.paneStripView.bounds.size,
                 leadingVisibleInset: self.appCanvasView.leadingVisibleInset,
                 minimumSizeByPaneID: self.paneCommands.paneMinimumSizesByPaneID()
             )
@@ -889,7 +997,7 @@ final class RootViewController: NSViewController {
                 return
             }
             self.worklaneStore.equalizeDivider(
-                divider, availableSize: self.appCanvasView.bounds.size)
+                divider, availableSize: self.appCanvasView.paneStripView.bounds.size)
         }
         appCanvasView.paneStripView.onPaneStripStateRestoreRequested = { [weak self] state in
             self?.worklaneStore.restorePaneLayout(state)
@@ -1001,7 +1109,7 @@ final class RootViewController: NSViewController {
                     paneID: paneID,
                     toColumnID: columnID,
                     atPaneIndex: paneIndex,
-                    availableHeight: appCanvasView.bounds.height,
+                    availableHeight: appCanvasView.paneViewportHeight,
                     singleColumnWidth: singleColumnWidth
                 )
             } else {
@@ -1020,7 +1128,7 @@ final class RootViewController: NSViewController {
                     ontoTargetPaneID: targetPaneID,
                     axis: axis,
                     leading: leading,
-                    availableHeight: appCanvasView.bounds.height,
+                    availableHeight: appCanvasView.paneViewportHeight,
                     singleColumnWidth: singleColumnWidth
                 )
             } else {
@@ -1029,7 +1137,7 @@ final class RootViewController: NSViewController {
                     ontoTargetPaneID: targetPaneID,
                     axis: axis,
                     leading: leading,
-                    availableHeight: appCanvasView.bounds.height,
+                    availableHeight: appCanvasView.paneViewportHeight,
                     singleColumnWidth: singleColumnWidth
                 )
             }
@@ -1083,7 +1191,6 @@ final class RootViewController: NSViewController {
             self?.selectWorklaneFromNavigation(id: id)
         }
         sidebarView.onPaneSelected = { [weak self] worklaneID, paneID in
-            if self?.onSidebarOverlaySelected?(paneID) == true { return }
             self?.worklaneStore.selectWorklaneAndFocusPane(
                 worklaneID: worklaneID,
                 paneID: paneID
@@ -1116,7 +1223,6 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
-            if self.onSidebarOverlayClosed?(paneID) == true { return }
             if self.configStore.current.confirmations.confirmBeforeClosingPane,
                 let context = self.paneCloseConfirmationContext(paneID)
             {
@@ -1296,8 +1402,7 @@ final class RootViewController: NSViewController {
             self?.remotePaste.configure(runtime: runtime)
         }
         agentStatusCenter.onPayload = { [weak self] payload in
-            guard let self, self.onOverlayAgentStatusPayload?(payload) != true else { return }
-            self.worklaneStore.applyAgentStatusPayload(payload)
+            self?.worklaneStore.applyAgentStatusPayload(payload)
         }
         agentStatusCenter.start()
     }
@@ -1361,11 +1466,15 @@ final class RootViewController: NSViewController {
         windowChromeView.onServerMenuAction = { [weak self] in
             self?.onServerMenuRequested?()
         }
+        windowChromeView.onFloatVisibilityToggle = { [weak self] in
+            self?.routeFloatVisibilityCapsule()
+        }
         windowChromeView.onRefreshPullRequestStatus = { [weak self] in
             self?.handle(.refreshPullRequestStatus, syncingFocusWith: nil)
         }
         updateOpenWithChromeState()
         updateServerChromeState()
+        updateFloatVisibilityChromeState()
         serverCommands.schedulePassiveServerDetectionRefresh()
     }
 
@@ -1377,15 +1486,12 @@ final class RootViewController: NSViewController {
         updateWindowChromeLeadingControlsInset()
     }
 
-    func quickActionOverlayAnchor(for paneID: PaneID, placement: PaneOverlayIPCOptions.Placement) -> NSView? {
-        switch placement {
-        case .worklane: appCanvasView.quickActionOverlayContainer
-        case .pane: appCanvasView.paneStripView.quickActionOverlayAnchor(for: paneID)
-        }
-    }
-
-    func restoreTerminalFocusAfterOverlay() {
-        appCanvasView.focusCurrentPaneIfNeeded()
+    /// Where an overlay float for `ownerID` opens: the float layer's bounds,
+    /// and the owner's tile frame in them when the owner is on screen.
+    func overlayFloatPlacement(owner ownerID: PaneID) -> (canvas: CGRect, ownerFrame: CGRect?) {
+        let canvas = appCanvasView.floatLayerView.bounds
+        let ownerIsTileOnScreen = worklaneStore.activeWorklane?.paneStripState.panes.contains { $0.id == ownerID } == true
+        return (canvas, ownerIsTileOnScreen ? appCanvasView.tileFrameInFloatLayer(for: ownerID) : nil)
     }
 
     func activateWindowBindingsIfNeeded() {
@@ -1539,10 +1645,6 @@ final class RootViewController: NSViewController {
     }
 
     func handle(_ action: AppAction, syncingFocusWith responder: NSResponder?) {
-        if case .pane(.closeFocusedPane) = action,
-           onCloseFocusedOverlayRequested?(responder) == true {
-            return
-        }
         syncFocusedPaneWithResponderIfNeeded(responder)
         cancelPendingPaneStripScrollSwitchGestureIfNeeded(for: action)
 
@@ -1755,7 +1857,7 @@ final class RootViewController: NSViewController {
 
     private func endAllLocalSearches() {
         for worklane in worklaneStore.worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 runtimeRegistry.runtime(for: pane.id)?.endSearch()
             }
         }
@@ -1784,17 +1886,16 @@ final class RootViewController: NSViewController {
             activeWorklane?.focusedPaneContext?.presentation.branchDisplayText
         )
         let focusedPanePath: String? = {
-            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            guard let paneID = activeWorklane?.focusedPaneID else { return nil }
             return activeWorklane?.auxiliaryStateByPaneID[paneID]?.shellContext?.path
         }()
         let focusedPaneCopyTarget: PaneCopyTarget? = {
-            if isQuickActionFocused { return focusedQuickActionCopyTarget?() }
-            guard let paneID = activeWorklane?.paneStripState.focusedPaneID,
+            guard let paneID = activeWorklane?.focusedPaneID,
                   let auxiliaryState = activeWorklane?.auxiliaryStateByPaneID[paneID] else { return nil }
             return PaneCopyTargetResolver.target(for: auxiliaryState)
         }()
         let focusedRestoredCommand: String? = {
-            guard let paneID = activeWorklane?.paneStripState.focusedPaneID else { return nil }
+            guard let paneID = activeWorklane?.focusedPaneID else { return nil }
             return worklaneStore.restoredRerunnableCommand(for: paneID)
         }()
 
@@ -1850,7 +1951,7 @@ final class RootViewController: NSViewController {
 
     @discardableResult
     func runLastCommandAgain(in requestedPaneID: PaneID? = nil) -> Bool {
-        guard let paneID = requestedPaneID ?? worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+        guard let paneID = requestedPaneID ?? worklaneStore.activeWorklane?.focusedPaneID,
               let command = worklaneStore.restoredRerunnableCommand(for: paneID),
               let runtime = runtimeRegistry.runtime(for: paneID)
         else {
@@ -1930,7 +2031,7 @@ final class RootViewController: NSViewController {
         guard
             action.environment.isEmpty,
             let activeWorklane = worklaneStore.activeWorklane,
-            let focusedPaneID = activeWorklane.paneStripState.focusedPaneID,
+            let focusedPaneID = activeWorklane.focusedPaneID,
             runtimeRegistry.runtime(for: focusedPaneID) != nil,
             let auxiliaryState = activeWorklane.auxiliaryStateByPaneID[focusedPaneID],
             auxiliaryState.shellActivityState == .promptIdle,
@@ -1946,7 +2047,7 @@ final class RootViewController: NSViewController {
         let request = TerminalSessionRequest(
             workingDirectory: action.workingDirectory,
             command: action.executionCommand,
-            inheritFromPaneID: worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+            inheritFromPaneID: worklaneStore.activeWorklane?.focusedPaneID,
             environmentVariables: action.environment
         )
         guard let paneID = paneCommands.splitWithLayout(
@@ -1973,13 +2074,8 @@ final class RootViewController: NSViewController {
     }
 
     private func copyFocusedPanePath() {
-        if isQuickActionFocused {
-            guard let target = focusedQuickActionCopyTarget?() else { return }
-            copyToPasteboard(target)
-            return
-        }
         guard
-            let focusedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+            let focusedPaneID = worklaneStore.activeWorklane?.focusedPaneID
         else {
             return
         }
@@ -1996,9 +2092,17 @@ final class RootViewController: NSViewController {
         copyToPasteboard(target)
     }
 
+    /// Replaces the system pasteboard for copy-path in tests (never touch the
+    /// user's clipboard from a test run).
+    var pasteboardStringWriterForTesting: ((String) -> Void)?
+
     private func copyToPasteboard(_ target: PaneCopyTarget) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(target.pasteboardString, forType: .string)
+        if let pasteboardStringWriterForTesting {
+            pasteboardStringWriterForTesting(target.pasteboardString)
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(target.pasteboardString, forType: .string)
+        }
         showToast(message: target.copiedToastMessage)
     }
 
@@ -2058,17 +2162,8 @@ final class RootViewController: NSViewController {
     }
 
     private func commandAvailabilityContext() -> CommandAvailabilityContext {
-        let activeWorklane = worklaneStore.activeWorklane
-        let paneStripState = activeWorklane?.paneStripState
-        let totalPaneCount = worklaneStore.worklanes.reduce(0) { partialResult, worklane in
-            partialResult + worklane.paneStripState.panes.count
-        }
-        return CommandAvailabilityContext(
-            worklaneCount: worklaneStore.worklanes.count,
-            activePaneCount: paneStripState?.panes.count ?? 0,
-            totalPaneCount: totalPaneCount,
-            activeColumnCount: paneStripState?.columns.count ?? 0,
-            focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
+        CommandAvailabilityContext(
+            counts: PaneAvailabilityCounts(worklaneStore: worklaneStore),
             focusedPaneHasRememberedSearch: focusedPaneHasRememberedSearch,
             globalSearchHasRememberedSearch: globalSearchHasRememberedSearch,
             activeWorklaneHasBranchURL: activeWorklaneHasBranchRemoteURL,
@@ -2076,26 +2171,16 @@ final class RootViewController: NSViewController {
             activeWorklaneHasPrimaryServer: activeServerContext.primaryServer != nil,
             activeWorklaneHasReviewLookup: activeWorklaneHasReviewLookup,
             focusedPaneUnreadToggle: focusedPaneUnreadToggle,
-            isQuickActionFocused: isQuickActionFocused,
             focusedPaneAgentFork: focusedPaneAgentForkAvailability
         )
     }
 
-    private var isQuickActionFocused: Bool {
-        var view = view.window?.firstResponder as? NSView
-        while let current = view {
-            if current is TerminalOverlayContainerView { return true }
-            view = current.superview
-        }
-        return false
-    }
-
     var focusedPaneAgentForkAvailability: AgentForkAvailability? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.agentForkAvailability(for:))
+        worklaneStore.activeWorklane?.focusedPaneID.flatMap(worklaneStore.agentForkAvailability(for:))
     }
 
     var focusedPaneUnreadToggle: PaneUnreadToggle? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID.flatMap(worklaneStore.unreadToggle(for:))
+        worklaneStore.activeWorklane?.focusedPaneID.flatMap(worklaneStore.unreadToggle(for:))
     }
 
     private var activeWorklaneHasReviewLookup: Bool {
@@ -2166,6 +2251,15 @@ final class RootViewController: NSViewController {
         postWorklaneMoveAccessibilityAnnouncement()
     }
 
+    /// VoiceOver: a pill or PiP of the active worklane started needing input.
+    private func announceFloatNeedsInputChanges() {
+        let messages = floatNeedsInputAnnouncer.update(worklane: worklaneStore.activeWorklane)
+        guard isViewLoaded else { return }
+        for message in messages {
+            FloatNeedsInputAnnouncer.post(message, from: view)
+        }
+    }
+
     private func postWorklaneMoveAccessibilityAnnouncement() {
         guard let index = worklaneStore.worklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) else {
             return
@@ -2186,7 +2280,7 @@ final class RootViewController: NSViewController {
 
     private func syncFocusedPaneWithResponderIfNeeded(_ responder: NSResponder?) {
         guard let paneID = paneID(containing: responder),
-            worklaneStore.activeWorklane?.paneStripState.focusedPaneID != paneID
+            worklaneStore.activeWorklane?.focusedPaneID != paneID
         else {
             return
         }
@@ -2276,7 +2370,7 @@ final class RootViewController: NSViewController {
         guard let worklane = worklaneStore.activeWorklane else {
             return
         }
-        for pane in worklane.paneStripState.panes {
+        for pane in worklane.allPanes {
             runtimeRegistry.runtime(for: pane.id)?.forceViewportSync()
         }
     }
@@ -2337,7 +2431,6 @@ final class RootViewController: NSViewController {
             animated: false,
             forceLayout: false
         )
-        onThemeDidChange?(theme)
         onWindowChromeNeedsUpdate?()
     }
 
@@ -2631,33 +2724,28 @@ final class RootViewController: NSViewController {
     }
 
     func focusedPaneID(in worklaneID: WorklaneID) -> PaneID? {
-        worklaneStore.worklanes.first { $0.id == worklaneID }?.paneStripState.focusedPaneID
+        worklaneStore.worklanes.first { $0.id == worklaneID }?.focusedPaneID
     }
 
     func isPaneFocused(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
         guard let active = worklaneStore.activeWorklane, active.id == worklaneID else {
             return false
         }
-        return active.paneStripState.focusedPaneID == paneID
+        return active.focusedPaneID == paneID
     }
 
     func containsPane(worklaneID: WorklaneID, paneID: PaneID) -> Bool {
         worklaneStore.worklanes.contains { worklane in
-            worklane.id == worklaneID
-                && worklane.paneStripState.panes.contains(where: { $0.id == paneID })
+            worklane.id == worklaneID && worklane.containsPane(id: paneID)
         }
     }
 
     func containsPane(_ paneID: PaneID) -> Bool {
-        worklaneStore.worklanes.contains { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }
+        worklaneStore.worklaneIndex(containingPane: paneID) != nil
     }
 
     func worklaneID(containing paneID: PaneID) -> WorklaneID? {
-        worklaneStore.worklanes.first { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }?.id
+        worklaneStore.worklaneIndex(containingPane: paneID).map { worklaneStore.worklanes[$0].id }
     }
 
     /// Token of the pane's current attention, as carried by the notification
@@ -2672,7 +2760,7 @@ final class RootViewController: NSViewController {
     }
 
     func focusedPaneID() -> PaneID? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.focusedPaneID
     }
 
     func canSplitOutPaneToNewWindow(paneID: PaneID) -> Bool {
@@ -2702,15 +2790,19 @@ final class RootViewController: NSViewController {
     }
 
     var activePaneTitles: [String] {
-        worklaneStore.activeWorklane?.paneStripState.panes.map(\.title) ?? []
+        worklaneStore.activeWorklane?.allPanes.map(\.title) ?? []
     }
 
     var focusedPaneTitle: String? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPane?.title
+        worklaneStore.activeWorklane?.focusedPane?.title
     }
 
     var focusedOpenWithContext: WorklaneOpenWithContext? {
         worklaneStore.focusedOpenWithContext
+    }
+
+    var openWithChromeStateForTesting: WindowChromeOpenWithState? {
+        windowChromeView.openWithStateForTesting
     }
 
     var focusedPaneHasRememberedSearch: Bool {
@@ -2727,7 +2819,7 @@ final class RootViewController: NSViewController {
     }
 
     var focusedPaneIDForTesting: PaneID? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.focusedPaneID
     }
 
     var focusedPaneSearchStateForTesting: PaneSearchState? {
@@ -2739,7 +2831,7 @@ final class RootViewController: NSViewController {
     }
 
     private func focusedPaneRuntime() -> PaneRuntime? {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else {
             return nil
         }
 
@@ -2763,7 +2855,7 @@ final class RootViewController: NSViewController {
     }
 
     private func updatePaneViewportHeight() {
-        worklaneStore.updatePaneViewportHeight(appCanvasView.bounds.height)
+        worklaneStore.updatePaneViewportHeight(appCanvasView.paneViewportHeight)
     }
 
     var chromeView: WindowChromeView {
@@ -2776,7 +2868,7 @@ final class RootViewController: NSViewController {
         }
 
         var focusedPaneEnvironmentForTesting: [String: String]? {
-            worklaneStore.activeWorklane?.paneStripState.focusedPane?.sessionRequest
+            worklaneStore.activeWorklane?.focusedPane?.sessionRequest
                 .environmentVariables
         }
 
@@ -2786,6 +2878,14 @@ final class RootViewController: NSViewController {
 
         var appCanvasViewForTesting: AppCanvasView {
             appCanvasView
+        }
+
+        var windowChromeViewForTesting: WindowChromeView {
+            windowChromeView
+        }
+
+        var peekControllerForTesting: WorklanePeekController {
+            peekController
         }
 
         var pathCopiedToastViewForTesting: PathCopiedToastView? {
@@ -3076,6 +3176,7 @@ final class RootViewController: NSViewController {
         refreshShortcutTooltips()
         preloadOpenWithIcons()
         windowChromeView.apply(panes: config.panes)
+        appCanvasView.floatLayerView.pipWidth = FloatLayout.pipWidth(for: config.floats.pipSize)
         worklaneStore.clearProgramStatusesIfDisabled()
         preloadProjectIcons()
         // Sidebar visibility and width are per-window state. The config store only
@@ -3139,6 +3240,11 @@ final class RootViewController: NSViewController {
             ))
     }
 
+    /// Title-bar hide-all capsule: floats + PiPs of the active worklane.
+    private func updateFloatVisibilityChromeState() {
+        windowChromeView.render(floatVisibility: FloatVisibilityCapsuleState(worklane: worklaneStore.activeWorklane))
+    }
+
     private func updateServerChromeState() {
         guard let server = activeServerContext.primaryServer else {
             windowChromeView.render(server: nil)
@@ -3162,7 +3268,7 @@ final class RootViewController: NSViewController {
     private func preloadProjectIcons() {
         guard configStore.current.panes.showProjectIcons else { return }
         for worklane in worklaneStore.worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 guard let cwd = worklane.auxiliaryStateByPaneID[pane.id]?.presentation.cwd else {
                     continue
                 }
@@ -3275,7 +3381,11 @@ extension RootViewController: AppActionRouterEnvironment {
     private func selectWorklaneFromNavigation(id worklaneID: WorklaneID) {
         if case .peeking = peekController.phase,
            let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
-           let paneID = worklane.paneStripState.focusedPaneID ?? worklane.paneStripState.panes.first?.id {
+           // Peek thumbnails are the strip; a float-only lane falls back to a live pane.
+           let paneID = worklane.paneStripState.focusedPaneID
+               ?? worklane.paneStripState.panes.first?.id
+               ?? worklane.focusedPaneID
+               ?? worklane.allPanes.first?.id {
             peekController.handleClick(at: .init(worklaneID: worklaneID, paneID: paneID))
             return
         }
@@ -3336,7 +3446,7 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeToggleFocusedPaneUnread() {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else { return }
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else { return }
         worklaneStore.toggleUnread(paneID: paneID)
     }
 
@@ -3345,7 +3455,204 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeMoveFocusedPaneToNewWindow() {
-        onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.paneStripState.focusedPaneID)
+        onMovePaneToNewWindowRequested?(worklaneStore.activeWorklane?.focusedPaneID)
+    }
+
+    func routeToggleFloat() {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else { return }
+        routeFloatPane(paneID)
+    }
+
+    func routeMinimizeFloat() {
+        guard !isFloatCommandBlocked, let paneID = focusedFloatID else { return }
+        worklaneStore.minimizePane(paneID)
+    }
+
+    func routePipFloat() {
+        guard !isFloatCommandBlocked, let paneID = focusedFloatID else { return }
+        worklaneStore.pipPane(paneID)
+    }
+
+    func routeToggleFloatingPanes() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.toggleFloatingPanes(canvas: appCanvasView.floatLayerView.bounds)
+    }
+
+    /// The title-bar eye capsule: a pure hide/show toggle.
+    func routeFloatVisibilityCapsule() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.toggleFloatsHidden()
+    }
+
+    func routeNewFloat() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.newFloatFromFocus(canvas: appCanvasView.floatLayerView.bounds)
+    }
+
+    func routeCycleFloatFocus() {
+        guard !isFloatCommandBlocked else { return }
+        worklaneStore.cycleFloatFocus()
+    }
+
+    /// Whether the active worklane's floats are hidden (View menu title).
+    var floatsAreHidden: Bool {
+        worklaneStore.activeWorklane?.floatsHidden ?? false
+    }
+
+    /// The float that owns keyboard focus, if any.
+    private var focusedFloatID: PaneID? {
+        guard let worklane = worklaneStore.activeWorklane, worklane.floatOwnsFocus else { return nil }
+        return worklane.focusedFloatID
+    }
+
+    /// Float commands wait while a drag owns the canvas: mid strip drag the
+    /// canvas render bails out (the store would change without the UI
+    /// following), a divider drag's cancel restores the strip from before
+    /// the command, peek hides the float layer, and a float gesture commits
+    /// its own store change on mouse-up.
+    private var isFloatCommandBlocked: Bool {
+        let paneStripView = appCanvasView.paneStripView
+        return isWorklanePeekActive
+            || paneStripView.isDragActive
+            || paneStripView.isDividerDragActive
+            || appCanvasView.floatLayerView.isGestureActive
+    }
+
+    /// Floats tile `paneID` in place, or docks it when it already floats.
+    func routeFloatPane(_ paneID: PaneID) {
+        guard !isFloatCommandBlocked else { return }
+        if worklaneStore.activeWorklane?.isFloating(paneID) == true {
+            dockFloat(paneID)
+            return
+        }
+        appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
+        let floatLayer = appCanvasView.floatLayerView
+        let motion = FloatMotion.reflowMotion
+        renderCoordinator.withCanvasMotion(duration: motion.duration, timing: motion.timing) {
+            worklaneStore.toggleFloat(paneID, canvas: floatLayer.bounds) { [appCanvasView] paneID in
+                guard let tileFrame = appCanvasView.tileFrameInFloatLayer(for: paneID) else {
+                    return nil
+                }
+                // The float mounts at the tile's slot and grows to its frame
+                // in the same motion as the strip reflow.
+                floatLayer.prepareLift(paneID: paneID, fromTileFrame: tileFrame)
+                return tileFrame
+            }
+        }
+    }
+
+    // MARK: - `zentty pane float|…`, `zentty float …`
+
+    /// `zentty pane <action>`: floating a tile on screen lifts it in place
+    /// like the legend button; everything else (and any pane of a worklane
+    /// that is not on screen) goes straight to the store. Refused while a
+    /// drag owns the canvas.
+    func applyFloatAction(_ action: PaneFloatAction, to paneID: PaneID, corner: FloatCorner?) throws {
+        let activeWorklane = worklaneStore.activeWorklane
+        let isOnScreen = activeWorklane?.containsPane(id: paneID) == true
+        guard !isOnScreen || !isFloatCommandBlocked else {
+            throw FloatControlIPCError.busy
+        }
+        let isTile = activeWorklane?.paneStripState.panes.contains { $0.id == paneID } == true
+        if isTile, let activeWorklane {
+            try WorklaneStore.refuseFloatingSoleTile(action, paneID: paneID, in: activeWorklane)
+        }
+        if action == .float, isTile {
+            routeFloatPane(paneID)
+            return
+        }
+        if action == .dock, isOnScreen, activeWorklane?.isFloating(paneID) == true {
+            dockFloat(paneID)
+            return
+        }
+        try worklaneStore.applyFloatAction(
+            action,
+            to: paneID,
+            corner: corner,
+            canvas: appCanvasView.floatLayerView.bounds,
+            tileFrame: isTile ? appCanvasView.tileFrameInFloatLayer(for: paneID) : nil
+        )
+    }
+
+    /// `zentty float new`, in `sourcePaneID`'s worklane.
+    func openFloatFromCLI(
+        from sourcePaneID: PaneID,
+        workingDirectory: String?,
+        command: String?,
+        temporary: Bool
+    ) throws -> PaneID {
+        try refuseFloatCommandWhileBlocked(in: worklaneStore.worklaneIndex(containingPane: sourcePaneID))
+        return try worklaneStore.newFloat(
+            from: sourcePaneID,
+            workingDirectory: workingDirectory,
+            command: command,
+            temporary: temporary,
+            canvas: appCanvasView.floatLayerView.bounds
+        )
+    }
+
+    /// `zentty float hide|show`.
+    func setFloatsHiddenFromCLI(_ hidden: Bool, in worklaneID: WorklaneID) throws {
+        try refuseFloatCommandWhileBlocked(in: worklaneStore.worklanes.firstIndex { $0.id == worklaneID })
+        worklaneStore.setFloatsHidden(hidden, in: worklaneID)
+    }
+
+    private func refuseFloatCommandWhileBlocked(in worklaneIndex: Int?) throws {
+        if let worklaneIndex, worklaneStore.worklanes[worklaneIndex].id == worklaneStore.activeWorklaneID,
+           isFloatCommandBlocked {
+            throw FloatControlIPCError.busy
+        }
+    }
+
+    /// Commits a finished float gesture: one store change per gesture.
+    private func commitFloatGesture(_ paneID: PaneID, outcome: FloatGestureOutcome, canvas: CGRect) {
+        switch outcome {
+        case .click:
+            break
+        case .move(let frame), .resize(let frame):
+            worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: frame, in: canvas))
+        case .throwToPip(let corner):
+            worklaneStore.pipPane(paneID, corner: corner)
+        case .dock(let target, let frame):
+            handleFloatDock(paneID, target: target, dropFrame: frame, canvas: canvas)
+        }
+    }
+
+    /// Docks a float released over `target`. The pane lands from its float
+    /// frame into the new slot while the strip reflows; a refused dock (the
+    /// target went away) leaves it a float at `dropFrame`.
+    private func handleFloatDock(_ paneID: PaneID, target: FloatDockTarget, dropFrame: CGRect, canvas: CGRect) {
+        if !dockFloat(paneID, target: target, fromFrame: dropFrame) {
+            worklaneStore.moveFloat(paneID, frame: NormalizedRect(rect: dropFrame, in: canvas))
+        }
+    }
+
+    /// Docks float, PiP or pill `paneID` (dock button, ⌥⌘F, `zentty pane
+    /// dock`): the tile flies from where the pane is drawn (`fromFrame`,
+    /// float-layer coordinates; nil reads it off the canvas) into its slot
+    /// while the strip reflows. Returns false when the store refused.
+    @discardableResult
+    func dockFloat(_ paneID: PaneID, target: FloatDockTarget = .origin, fromFrame: CGRect? = nil) -> Bool {
+        appCanvasView.cancelPendingPaneStripScrollSwitchGesture()
+        let paneStripView = appCanvasView.paneStripView
+        let floatLayer = appCanvasView.floatLayerView
+        let isOnScreen = worklaneStore.activeWorklane?.isFloating(paneID) == true
+        let startFrame = isOnScreen ? fromFrame ?? appCanvasView.floatPictureFrame(for: paneID) : nil
+        if let startFrame {
+            paneStripView.beginDropSettle(paneID: nil) { [weak paneStripView, weak floatLayer] in
+                guard let paneStripView, let floatLayer else { return }
+                paneStripView.settleDockedPane(paneID, fromFrame: startFrame, in: floatLayer) {}
+            }
+        }
+        let motion = FloatMotion.reflowMotion
+        var docked = false
+        renderCoordinator.withCanvasMotion(duration: motion.duration, timing: motion.timing) {
+            docked = worklaneStore.dockPane(paneID, target: target)
+        }
+        if !docked, startFrame != nil {
+            paneStripView.endDropSettle()
+        }
+        return docked
     }
 
     func routeNavigateBack() {
@@ -3362,11 +3669,6 @@ extension RootViewController: AppActionRouterEnvironment {
 
     var isWorklanePeekActive: Bool {
         peekController.phase != .idle
-    }
-
-    func routeToggleQuickActionOverlay() {
-        guard !isWorklanePeekActive else { return }
-        onToggleQuickActionOverlayRequested?()
     }
 
     func routeShowTaskManager() {
@@ -3636,7 +3938,7 @@ private extension RootViewController {
     }
 
     private func beginRenameActivePane() {
-        guard let paneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID else {
+        guard let paneID = worklaneStore.activeWorklane?.focusedPaneID else {
             return
         }
         beginRenamePane(id: paneID)
@@ -3647,7 +3949,7 @@ private extension RootViewController {
             return
         }
         let pane = worklaneStore.worklanes
-            .flatMap(\.paneStripState.panes)
+            .flatMap(\.allPanes)
             .first(where: { $0.id == paneID })
         let alert = NSAlert()
         alert.messageText = "Rename Pane"
@@ -4002,6 +4304,9 @@ extension RootViewController: WorklanePeekControllerDelegate {
         )
         peekView.attach(paneStripView: appCanvasView.paneStripView)
         peekView.isHidden = false
+        appCanvasView.floatLayerView.isHidden = true
+        appCanvasView.pillBarView.alphaValue = 0
+        appCanvasView.pillPeekView.hide()
         // Force layout so the overlay's bounds reflect AppCanvasView's frame
         // before we compute the HUD position from those bounds.
         peekView.layoutSubtreeIfNeeded()
@@ -4099,20 +4404,10 @@ extension RootViewController: WorklanePeekControllerDelegate {
             centerOnPaneID: committedPaneID
         )
         peekView.isHidden = true
+        appCanvasView.floatLayerView.isHidden = false
+        appCanvasView.pillBarView.alphaValue = 1
         peekView.detach()
         peekKeyMonitor.uninstall()
-    }
-
-    /// A focused overlay takes focus from the pane under it, so that pane
-    /// drops its focus border while the overlay has the keyboard.
-    func setPaneFocusSuppressedByOverlay(_ suppressed: Bool) {
-        appCanvasView.paneStripView.suppressesFocusEmphasis = suppressed
-    }
-
-    func updateSidebarOverlays(_ overlays: [WorklaneID: [WorklaneSidebarOverlay]]) {
-        guard renderCoordinator.sidebarOverlaysByWorklaneID != overlays else { return }
-        renderCoordinator.sidebarOverlaysByWorklaneID = overlays
-        renderCoordinator.renderSidebar()
     }
 
     private func updatePeekSidebarFocusOverride(_ reference: WorklaneStore.PaneReference?) {

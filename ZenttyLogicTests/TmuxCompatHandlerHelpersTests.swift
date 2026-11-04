@@ -253,4 +253,39 @@ final class TmuxCompatHandlerHelpersTests: XCTestCase {
             "respawn pane failed: pane %4 still active"
         )
     }
+
+    // MARK: - Window geometry with floats
+
+    func test_window_geometry_excludes_floats() {
+        let grids: [PaneID: (columns: Int, rows: Int)] = [
+            PaneID("a"): (80, 24), PaneID("b"): (80, 11), PaneID("c"): (60, 12),
+            PaneID("f1"): (100, 30), PaneID("f2"): (40, 10),
+        ]
+        let layout = TmuxWindowGeometry.make(
+            columns: [[PaneID("a")], [PaneID("b"), PaneID("c")]],
+            floats: [PaneID("f1"), PaneID("f2")],
+            gridSize: { grids[$0]! }
+        )
+
+        XCTAssertEqual(layout.placements.map(\.paneID.rawValue), ["a", "b", "c", "f1", "f2"])
+        XCTAssertEqual(layout.columns, 80 + 1 + 80, "window width is the strip only")
+        XCTAssertEqual(layout.rows, 24)
+        let c = layout.placements[2]
+        XCTAssertEqual([c.left, c.top], [81, 12])
+        for float in layout.placements.suffix(2) {
+            XCTAssertEqual([float.left, float.top], [0, 0], "floats sit at the origin")
+        }
+        XCTAssertEqual([layout.placements[3].columns, layout.placements[3].rows], [100, 30], "with their own size")
+    }
+
+    func test_window_geometry_of_float_only_worklane_uses_largest_float() {
+        let layout = TmuxWindowGeometry.make(
+            columns: [],
+            floats: [PaneID("f1"), PaneID("f2")],
+            gridSize: { $0 == PaneID("f1") ? (100, 20) : (60, 30) }
+        )
+
+        XCTAssertEqual(layout.columns, 100)
+        XCTAssertEqual(layout.rows, 30)
+    }
 }

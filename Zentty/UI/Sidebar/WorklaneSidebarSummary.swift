@@ -15,11 +15,44 @@ struct WorklaneSidebarServerPort: Equatable {
     let port: Int
 }
 
+/// How a floated pane is shown, for the small glyph on its sidebar row
+/// (`rectangle.on.rectangle` family, UX spec §13).
+enum WorklaneSidebarFloatMode: Equatable {
+    case floating
+    case pip
+    case minimized
+
+    init(_ mode: FloatingPaneMode) {
+        switch mode {
+        case .floating: self = .floating
+        case .pip: self = .pip
+        case .minimized: self = .minimized
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .floating: "rectangle.on.rectangle"
+        case .pip: "pip"
+        case .minimized: "dock.rectangle"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .floating: "Floating pane"
+        case .pip: "Picture in picture"
+        case .minimized: "Minimized pane"
+        }
+    }
+}
+
 struct WorklaneSidebarPaneRow: Equatable {
-    var isOverlay = false
-    /// The pane a pane overlay hangs under; nil for panes and worklane overlays.
-    var overlayOwnerPaneID: PaneID?
-    var isOverlayHidden = false
+    /// Set for a floated pane; nil for a tile.
+    var floatMode: WorklaneSidebarFloatMode?
+    /// An overlay (temporary) float: it never keeps its worklane alive, so
+    /// the pane next to it still counts as the worklane's last pane.
+    var isTemporaryFloat = false
     let paneID: PaneID
     let primaryText: String
     let usesCustomTitle: Bool
@@ -84,23 +117,8 @@ struct WorklaneSidebarPaneRow: Equatable {
 }
 
 struct WorklaneSidebarSummary: Equatable {
-    var overlayRows: [WorklaneSidebarPaneRow] = []
-    /// Pane rows with each pane overlay right under its pane and worklane
-    /// overlays (or ones whose pane is gone) at the end.
-    var displayPaneRows: [WorklaneSidebarPaneRow] {
-        guard !overlayRows.isEmpty else { return paneRows }
-        let paneIDs = Set(paneRows.map(\.paneID))
-        // A focused overlay has the keyboard, not the pane under it.
-        let overlayHasFocus = overlayRows.contains(where: \.isFocused)
-        var rows: [WorklaneSidebarPaneRow] = []
-        for var paneRow in paneRows {
-            if overlayHasFocus { paneRow.isFocused = false }
-            rows.append(paneRow)
-            rows += overlayRows.filter { $0.overlayOwnerPaneID == paneRow.paneID }
-        }
-        rows += overlayRows.filter { $0.overlayOwnerPaneID.map { !paneIDs.contains($0) } ?? true }
-        return rows
-    }
+    /// The pane rows the card lists: tiles, then floats (each a normal row).
+    var displayPaneRows: [WorklaneSidebarPaneRow] { paneRows }
     let worklaneID: WorklaneID
     let badgeText: String
     let topLabel: String?

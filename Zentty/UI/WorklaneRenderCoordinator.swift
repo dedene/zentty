@@ -93,6 +93,8 @@ final class WorklaneRenderCoordinator {
     private var worklaneStoreSubscription: WorklaneChangeSubscription?
     private let reviewPollingScheduler: ReviewPollingScheduler
     private var previousActiveWorklaneID: WorklaneID?
+    /// Canvas motion for animated renders inside `withCanvasMotion`.
+    private var canvasMotionOverride: (duration: TimeInterval, timing: CAMediaTimingFunction)?
 
     weak var environment: RenderEnvironmentProviding?
 
@@ -101,7 +103,9 @@ final class WorklaneRenderCoordinator {
     /// previews keep streaming live instead of freezing on a still frame.
     /// Default returns an empty set (nothing peek-visible).
     var peekVisibleWorklaneIDsProvider: () -> Set<WorklaneID> = { [] }
-    var sidebarOverlaysByWorklaneID: [WorklaneID: [WorklaneSidebarOverlay]] = [:]
+    /// Minimized panes whose pill peek draws their live terminal: kept
+    /// un-occluded while it shows. Default: none.
+    var pillPeekedPaneIDsProvider: () -> Set<PaneID> = { [] }
     var sidebarFocusOverrideProvider: () -> WorklaneSidebarFocusOverride? = { nil }
 
     init(
@@ -174,6 +178,21 @@ final class WorklaneRenderCoordinator {
         )
     }
 
+    /// Runs `body` (a store change) so every animated canvas render it
+    /// triggers uses `duration`/`timing`. A float op notifies `.paneStructure`
+    /// before `.floats`, so the strip reflow happens in the first render; this
+    /// gives all of them the same curve.
+    func withCanvasMotion(
+        duration: TimeInterval,
+        timing: CAMediaTimingFunction,
+        _ body: () -> Void
+    ) {
+        let previous = canvasMotionOverride
+        canvasMotionOverride = (duration, timing)
+        defer { canvasMotionOverride = previous }
+        body()
+    }
+
     func updateSurfaceActivities() {
         updateReviewPolling()
         updateRuntimeSurfaceActivities()
@@ -195,27 +214,12 @@ final class WorklaneRenderCoordinator {
 
     // MARK: - Internal
 
-    private func withOverlayRows(_ summary: WorklaneSidebarSummary) -> WorklaneSidebarSummary {
-        guard configStore?.current.sidebar.showOverlays ?? true,
-              let overlays = sidebarOverlaysByWorklaneID[summary.worklaneID], !overlays.isEmpty else {
-            return summary
-        }
-        let worklane = worklaneStore.worklanes.first { $0.id == summary.worklaneID }
-        var summary = summary
-        summary.overlayRows = overlays.map { overlay in
-            overlay.sidebarRow(
-                anchorWorkingDirectory: worklane?.auxiliaryStateByPaneID[overlay.anchorPaneID]?.presentation.cwd
-            )
-        }
-        return summary
-    }
-
     private var currentTheme: ZenttyTheme {
         environment?.renderTheme ?? ZenttyTheme.fallback(for: nil)
     }
 
     private var activePaneID: PaneID? {
-        worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        worklaneStore.activeWorklane?.focusedPaneID
     }
 
     private func renderSidebar(in views: ViewBindings) {
@@ -225,8 +229,10 @@ final class WorklaneRenderCoordinator {
                 for: worklaneStore.worklanes,
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 focusOverride: sidebarFocusOverrideProvider(),
-                serverContextsByWorklaneID: serverContextsByWorklaneID()
-            ).map(withOverlayRows),
+                serverContextsByWorklaneID: serverContextsByWorklaneID(),
+                // `show_overlays` now hides temporary (overlay) floats only.
+                showsTemporaryFloats: configStore?.current.sidebar.showOverlays ?? true
+            ),
             theme: currentTheme
         )
         environment?.renderSidebarSyncNeeded()
@@ -245,6 +251,11 @@ final class WorklaneRenderCoordinator {
         case .paneStructure:
             needsRuntimeSynchronization = true
             renderCurrentWorklane(animated: true)
+            updateRuntimeSurfaceActivities()
+        case .floats:
+            needsRuntimeSynchronization = true
+            let motion = canvasMotionOverride ?? FloatMotion.reflowMotion
+            renderCurrentWorklane(animated: true, duration: motion.duration, timingFunction: motion.timing)
             updateRuntimeSurfaceActivities()
         case .focusChanged:
             renderCurrentWorklane(animated: true)
@@ -279,7 +290,7 @@ final class WorklaneRenderCoordinator {
     ) {
         guard let views,
               let worklane = worklaneStore.worklanes.first(where: { $0.id == worklaneID }),
-              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }),
+              let pane = worklane.pane(id: paneID),
               PaneDisplayIdentityResolver.hasCustomTitle(for: pane) == false,
               let metadata = worklane.auxiliaryStateByPaneID[paneID]?.metadata,
               let titleText = WorklaneContextFormatter.trimmed(metadata.title)
@@ -294,12 +305,16 @@ final class WorklaneRenderCoordinator {
         )
 
         if worklaneID == worklaneStore.activeWorklaneID,
-           worklane.paneStripState.focusedPaneID == paneID {
+           worklane.focusedPaneID == paneID {
             views.windowChromeView.setFocusedLabelText(titleText)
         }
     }
 
-    private func renderCurrentWorklane(animated: Bool = false) {
+    private func renderCurrentWorklane(
+        animated: Bool = false,
+        duration: TimeInterval? = nil,
+        timingFunction: CAMediaTimingFunction? = nil
+    ) {
         ZenttyPerformanceSignposts.interval("WorklaneRenderCurrent") {
             guard let views else {
                 return
@@ -346,7 +361,15 @@ final class WorklaneRenderCoordinator {
                 let headerSummary = WorklaneHeaderSummaryBuilder.summary(for: worklane)
                 terminalDiagnostics.recordRender(.header, activePaneID: activePaneID)
                 renderWindowChrome(headerSummary, in: views)
-                renderCanvasForCurrentWorklane(animated: animated, transitionDirection: transitionDirection)
+                let motion = canvasMotionOverride
+                renderCanvasForCurrentWorklane(
+                    animated: animated,
+                    transitionDirection: transitionDirection,
+                    duration: duration ?? motion?.duration ?? PaneStripMotionController.defaultAnimationDuration,
+                    timingFunction: timingFunction
+                        ?? motion?.timing
+                        ?? PaneStripMotionController.defaultAnimationTimingFunction
+                )
                 let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
                 attentionNotificationCoordinator.update(
                     windowID: windowID,
@@ -387,19 +410,25 @@ final class WorklaneRenderCoordinator {
             let focusFollowsMouseEnabled = paneSettings.focusFollowsMouse
                 && paneLayout.allowsFocusFollowsMouse
 
-            terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
+            terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.focusedPaneID)
             let teamAnchor = worklaneStore.teamAnchorByWorklaneID[worklane.id]
             let leaderPaneID = teamAnchor.map { PaneID($0.leaderPaneID) }
             let memberPaneIDs: Set<PaneID> = teamAnchor
                 .map { Set($0.columnPaneIDs.map(PaneID.init)) }
                 ?? []
+            let paneBorderContextByPaneID = worklane.paneBorderContextDisplayByPaneID(
+                leaderPaneID: leaderPaneID,
+                memberPaneIDs: memberPaneIDs
+            )
             views.appCanvasView.render(
                 state: worklane.paneStripState,
-                metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
-                paneBorderContextByPaneID: worklane.paneBorderContextDisplayByPaneID(
-                    leaderPaneID: leaderPaneID,
-                    memberPaneIDs: memberPaneIDs
+                floats: FloatLayerContent(
+                    worklane: worklane,
+                    borderContextByPaneID: paneBorderContextByPaneID
                 ),
+                pills: PillBarContent(worklane: worklane),
+                metadataByPaneID: worklane.auxiliaryStateByPaneID.compactMapValues(\.metadata),
+                paneBorderContextByPaneID: paneBorderContextByPaneID,
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
                 smoothScrollingEnabled: paneSettings.smoothScrollingEnabled,
@@ -429,7 +458,8 @@ final class WorklaneRenderCoordinator {
                 activeWorklaneID: worklaneStore.activeWorklaneID,
                 windowIsVisible: windowState.isVisible,
                 windowIsKey: windowState.isKeyWindow,
-                peekVisibleWorklaneIDs: peekVisibleWorklaneIDsProvider()
+                peekVisibleWorklaneIDs: peekVisibleWorklaneIDsProvider(),
+                pillPeekedPaneIDs: pillPeekedPaneIDsProvider()
             )
         }
     }
@@ -553,7 +583,7 @@ final class WorklaneRenderCoordinator {
         let windowState = environment?.renderWindowState ?? (isVisible: false, isKeyWindow: false)
         guard windowState.isVisible, windowState.isKeyWindow,
               let worklane = worklaneStore.activeWorklane,
-              let paneID = worklane.paneStripState.focusedPaneID,
+              let paneID = worklane.focusedPaneID,
               let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
               let repoRoot = auxiliaryState.presentation.repoRoot,
               let branch = auxiliaryState.presentation.lookupBranch
@@ -597,6 +627,19 @@ final class WorklaneRenderCoordinator {
         if impacts.contains(.canvas),
            worklaneID == worklaneStore.activeWorklaneID {
             renderCanvasForCurrentWorklane(animated: false)
+        } else if worklaneID == worklaneStore.activeWorklaneID,
+                  let worklane = worklaneStore.activeWorklane,
+                  let mode = worklane.floatingPane(id: paneID)?.mode {
+            // A pill's or PiP's status dot, name and cwd follow its pane's
+            // state without a canvas render.
+            switch mode {
+            case .minimized:
+                views.appCanvasView.updatePills(PillBarContent(worklane: worklane))
+            case .pip:
+                views.appCanvasView.floatLayerView.updatePipStatuses(FloatLayerContent.pipStatuses(worklane: worklane))
+            case .floating:
+                break
+            }
         }
 
         if impacts.contains(.attention) {
@@ -678,7 +721,7 @@ final class WorklaneRenderCoordinator {
     func refreshFocusedReviewState(forceReload: Bool = true) {
         guard
             let worklane = worklaneStore.activeWorklane,
-            let paneID = worklane.paneStripState.focusedPaneID
+            let paneID = worklane.focusedPaneID
         else {
             return
         }

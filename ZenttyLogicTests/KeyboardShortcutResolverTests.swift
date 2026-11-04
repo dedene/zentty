@@ -495,22 +495,61 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertTrue(available.contains(.duplicateFocusedPane))
     }
 
-    func test_overlay_shortcut_is_opt_in_and_remapping_releases_control_backtick() {
+    func test_retired_overlay_toggle_and_hide_all_bind_toggle_floating_panes() throws {
         let backtick = KeyboardShortcut(key: .character("`"), modifiers: [.control])
         XCTAssertNil(KeyboardShortcutResolver.resolve(backtick))
-        for preset in ShortcutPreset.allCases {
-            let shortcuts = AppConfig.Shortcuts(bindings: ShortcutPresetResolver().resolve(preset))
-            XCTAssertNil(ShortcutManager(shortcuts: shortcuts).shortcut(for: .toggleQuickActionOverlay))
-            XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: shortcuts))
+        for retiredID in ["overlay.toggle", "float.hideAll"] {
+            XCTAssertNil(AppCommandID(rawValue: retiredID), "\(retiredID) is retired")
+            XCTAssertEqual(AppCommandID(configValue: retiredID), .toggleFloatingPanes)
+            let legacy = AppConfigTOML.encodeShortcuts([.init(commandID: .toggleFloatingPanes, shortcut: backtick)])
+                .replacingOccurrences(of: "\"float.toggleAll\"", with: "\"\(retiredID)\"")
+            XCTAssertTrue(legacy.contains(retiredID))
+
+            let bindings = try XCTUnwrap(AppConfigTOML.decodeShortcuts(legacy))
+
+            XCTAssertEqual(bindings, [.init(commandID: .toggleFloatingPanes, shortcut: backtick)])
+            XCTAssertEqual(
+                KeyboardShortcutResolver.resolve(backtick, shortcuts: AppConfig.Shortcuts(bindings: bindings)),
+                .toggleFloatingPanes
+            )
+            XCTAssertFalse(AppConfigTOML.encodeShortcuts(bindings).contains(retiredID), "saved back as float.toggleAll")
+            let unbound = try XCTUnwrap(AppConfigTOML.decodeShortcuts(
+                legacy.replacingOccurrences(of: backtick.storageString, with: "")
+            ))
+            XCTAssertEqual(unbound, [.init(commandID: .toggleFloatingPanes, shortcut: nil)])
         }
-        let optIn = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: backtick)])
-        XCTAssertEqual(KeyboardShortcutResolver.resolve(backtick, shortcuts: optIn), .toggleQuickActionOverlay)
-        let remappedKey = KeyboardShortcut(key: .character("o"), modifiers: [.command, .control])
-        let remapped = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: remappedKey)])
-        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: remapped))
-        XCTAssertEqual(KeyboardShortcutResolver.resolve(remappedKey, shortcuts: remapped), .toggleQuickActionOverlay)
-        let unbound = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleQuickActionOverlay, shortcut: nil)])
-        XCTAssertNil(KeyboardShortcutResolver.resolve(backtick, shortcuts: unbound))
+    }
+
+    func test_legacy_overlay_toggle_binding_survives_a_full_config_decode() throws {
+        let commandOptionH = KeyboardShortcut(key: .character("h"), modifiers: [.command, .option])
+        let backtick = KeyboardShortcut(key: .character("`"), modifiers: [.control])
+        var config = AppConfig.default
+        config.shortcuts = AppConfig.Shortcuts(bindings: [.init(commandID: .toggleFloatingPanes, shortcut: backtick)])
+        let legacy = AppConfigTOML.encode(config)
+            .replacingOccurrences(of: "\"float.toggleAll\"", with: "\"overlay.toggle\"")
+
+        let decoded = try XCTUnwrap(AppConfigTOML.decode(legacy))
+
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(backtick, shortcuts: decoded.shortcuts), .toggleFloatingPanes)
+        XCTAssertNil(KeyboardShortcutResolver.resolve(commandOptionH, shortcuts: decoded.shortcuts), "rebound away from ⌥⌘H")
+    }
+
+    @MainActor
+    func test_toggle_floating_panes_owns_option_command_h_and_period_is_free() {
+        let commandOptionH = KeyboardShortcut(key: .character("h"), modifiers: [.command, .option])
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(commandOptionH), .toggleFloatingPanes)
+        XCTAssertNil(
+            KeyboardShortcutResolver.resolve(.init(key: .character("."), modifiers: [.command, .option])),
+            "⌥⌘. is no longer bound"
+        )
+        let manager = ShortcutManager(shortcuts: .default)
+        XCTAssertNil(manager.conflict(for: commandOptionH, assigningTo: .toggleFloatingPanes))
+        let mainMenu = AppMenuBuilder.makeMainMenu(appName: "Zentty")
+        let hideOthers = mainMenu.items.first?.submenu?.items.first {
+            $0.action == #selector(NSApplication.hideOtherApplications(_:))
+        }
+        XCTAssertNotNil(hideOthers, "Hide Others stays in the app menu")
+        XCTAssertEqual(hideOthers?.keyEquivalent, "", "…without ⌥⌘H, so the menu search reaches the toggle")
     }
 
     func test_resolves_remapped_shortcuts_from_overrides() {
@@ -834,6 +873,12 @@ final class KeyboardShortcutResolverTests: XCTestCase {
             .resetPaneLayout: .init(key: .character("0"), modifiers: [.command, .control, .option]),
             .openBookmarksPopover: .init(key: .character("b"), modifiers: [.command, .shift]),
             .showAgentHistory: .init(key: .character("h"), modifiers: [.command, .shift]),
+            .toggleFloat: .init(key: .character("f"), modifiers: [.command, .option]),
+            .minimizeFloat: .init(key: .character("m"), modifiers: [.command, .option]),
+            .pipFloat: .init(key: .character("p"), modifiers: [.command, .option]),
+            .toggleFloatingPanes: .init(key: .character("h"), modifiers: [.command, .option]),
+            .newFloat: .init(key: .character("n"), modifiers: [.command, .option]),
+            .cycleFloatFocus: .init(key: .character("`"), modifiers: [.command, .option]),
             .selectWorklane1: .init(key: .character("1"), modifiers: [.command]),
             .selectWorklane2: .init(key: .character("2"), modifiers: [.command]),
             .selectWorklane3: .init(key: .character("3"), modifiers: [.command]),
@@ -1321,6 +1366,84 @@ final class KeyboardShortcutResolverTests: XCTestCase {
 
     private func appMenu(named title: String, in mainMenu: NSMenu) -> NSMenu? {
         mainMenu.items.first { $0.submenu?.title == title }?.submenu
+    }
+
+    // MARK: - Floating panes
+
+    private static let floatShortcuts: [(AppCommandID, String, AppAction)] = [
+        (.toggleFloat, "f", .toggleFloat),
+        (.minimizeFloat, "m", .minimizeFloat),
+        (.pipFloat, "p", .pipFloat),
+        (.toggleFloatingPanes, "h", .toggleFloatingPanes),
+        (.newFloat, "n", .newFloat),
+        (.cycleFloatFocus, "`", .cycleFloatFocus),
+    ]
+
+    func test_float_commands_have_default_shortcuts() {
+        for (commandID, key, action) in Self.floatShortcuts {
+            let shortcut = KeyboardShortcut(key: .character(key), modifiers: [.command, .option])
+            XCTAssertEqual(AppCommandRegistry.definition(for: commandID).defaultShortcut, shortcut, "\(commandID)")
+            XCTAssertEqual(KeyboardShortcutResolver.resolve(shortcut), action, "\(commandID)")
+            XCTAssertFalse(AppCommandRegistry.definition(for: commandID).detailDescription.isEmpty)
+        }
+        XCTAssertEqual(
+            KeyboardShortcutResolver.resolve(.init(key: .character("m"), modifiers: [.command])),
+            nil,
+            "⌘M stays the window's Minimize"
+        )
+    }
+
+    func test_cycle_floats_matches_option_command_backtick() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "`",
+            charactersIgnoringModifiers: "`",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Grave)
+        ))
+        let shortcut = try XCTUnwrap(KeyboardShortcut(event: event))
+        XCTAssertEqual(KeyboardShortcutResolver.resolve(shortcut), .cycleFloatFocus)
+    }
+
+    func test_float_commands_survive_every_preset() {
+        for preset in ShortcutPreset.allCases {
+            let manager = ShortcutManager(
+                shortcuts: AppConfig.Shortcuts(bindings: ShortcutPresetResolver().resolve(preset))
+            )
+            for (commandID, key, _) in Self.floatShortcuts {
+                XCTAssertEqual(
+                    manager.shortcut(for: commandID),
+                    KeyboardShortcut(key: .character(key), modifiers: [.command, .option]),
+                    "\(preset) unbinds \(commandID)"
+                )
+            }
+        }
+    }
+
+    func test_view_menu_has_floating_panes_submenu() throws {
+        let viewEntries = AppCommandRegistry.menuEntriesBySection[.view] ?? []
+        let submenu = viewEntries.compactMap { entry -> [AppMenuEntry]? in
+            if case .submenu("Floating Panes", let entries) = entry { return entries }
+            return nil
+        }.first
+        let entries = try XCTUnwrap(submenu)
+        let commandIDs = entries.compactMap { entry -> AppCommandID? in
+            if case .command(let id) = entry { return id }
+            return nil
+        }
+        XCTAssertEqual(
+            commandIDs,
+            [.toggleFloat, .minimizeFloat, .pipFloat, .toggleFloatingPanes, .newFloat, .cycleFloatFocus]
+        )
+        XCTAssertFalse(viewEntries.contains { entry in
+            if case .command(.toggleFloat) = entry { return true }
+            return false
+        }, "Float or Dock moved into the submenu")
     }
 }
 

@@ -92,27 +92,6 @@ enum WorklaneSessionEnvironment {
         return environment
     }
 
-    /// Environment for a quick-action overlay's shell. It gets the shell
-    /// integration and its own IPC identity, so the overlay can follow the
-    /// shell's directory, branch and activity, but none of the pane's agent
-    /// wrappers, manifest table or agent-teams shim: overlays are not panes.
-    static func overlay(
-        windowID: WindowID,
-        worklaneID: WorklaneID,
-        overlayID: PaneID,
-        processEnvironment: [String: String]
-    ) -> [String: String] {
-        var environment: [String: String] = [
-            "ZENTTY_WINDOW_ID": windowID.rawValue,
-            "ZENTTY_WORKLANE_ID": worklaneID.rawValue,
-            "ZENTTY_PANE_ID": overlayID.rawValue,
-        ]
-        applyIPCConnection(to: &environment, windowID: windowID, worklaneID: worklaneID, paneID: overlayID)
-        environment["COLORTERM"] = TerminalColorEnvironment.colorTerm(inheritedFrom: processEnvironment)
-        applyShellIntegration(to: &environment, processEnvironment: processEnvironment)
-        return environment
-    }
-
     private static func applyIPCConnection(
         to environment: inout [String: String],
         windowID: WindowID,

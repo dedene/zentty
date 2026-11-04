@@ -313,7 +313,7 @@ final class WorklaneAttentionNotificationCoordinator {
         // this also resolves items for panes without one (e.g. `zentty notify`).
         var liveKeys = Set<NotificationPaneKey>()
         for worklane in worklanes {
-            for pane in worklane.paneStripState.panes {
+            for pane in worklane.allPanes {
                 liveKeys.insert(NotificationPaneKey(worklaneID: worklane.id, paneID: pane.id))
             }
         }
@@ -715,7 +715,9 @@ final class WorklaneAttentionNotificationCoordinator {
     ) -> Bool {
         windowIsKey
             && worklane.id == activeWorklaneID
-            && worklane.paneStripState.focusedPaneID == paneID
+            // Float-aware: PiP/minimized/hidden floats never hold focus, so
+            // their attention still notifies.
+            && worklane.focusedPaneID == paneID
     }
 
     private func systemNotificationBody(

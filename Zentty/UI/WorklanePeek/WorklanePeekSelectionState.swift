@@ -25,17 +25,18 @@ enum WorklanePeekSpatialDirection: Equatable {
     case down
 }
 
-/// A linear, wrap-around traversal of every pane in the workspace, ordered the
-/// same way `WorklaneStore.paneReferencesInSidebarOrder` orders them: each
+/// A linear, wrap-around traversal of every strip pane in the workspace: each
 /// worklane in `worklanes` order, then each pane in `paneStripState.panes`
-/// order.
+/// order. Unlike `WorklaneStore.paneReferencesInSidebarOrder` it skips
+/// floats on purpose: the peek shows strip thumbnails only, so a float has no
+/// rect to highlight.
 ///
 /// Built once when the Worklane Peek opens, then queried for next/previous
 /// hops. Stepping past the last reference cycles to the first, and vice versa.
 struct WorklanePeekTraversal: Equatable {
     let references: [WorklaneStore.PaneReference]
 
-    /// Build the traversal by mirroring `WorklaneStore.paneReferencesInSidebarOrder`.
+    /// Build the strip-only traversal (see the type comment).
     static func from(worklanes: [WorklaneState]) -> Self {
         let references = worklanes.flatMap { worklane in
             worklane.paneStripState.panes.map { pane in
@@ -47,6 +48,28 @@ struct WorklanePeekTraversal: Equatable {
 
     func index(of reference: WorklaneStore.PaneReference) -> Int? {
         references.firstIndex(of: reference)
+    }
+
+    /// Entry point when the starting worklane has no strip panes (float-only):
+    /// the first strip pane of the next worklane going `direction`, wrapping.
+    /// Nil when no other worklane has strip panes.
+    func entry(
+        leaving worklaneID: WorklaneID,
+        worklaneOrder: [WorklaneID],
+        direction: WorklanePeekDirection
+    ) -> WorklaneStore.PaneReference? {
+        guard let startIndex = worklaneOrder.firstIndex(of: worklaneID) else {
+            return nil
+        }
+        let count = worklaneOrder.count
+        for step in 1..<max(count, 1) {
+            let candidateID = worklaneOrder[(startIndex + direction.offset * step + count * step) % count]
+            let lane = references.filter { $0.worklaneID == candidateID }
+            if let reference = direction == .forward ? lane.first : lane.last {
+                return reference
+            }
+        }
+        return nil
     }
 
     func step(
@@ -96,9 +119,33 @@ struct WorklanePeekTraversal: Equatable {
 struct WorklanePeekSelectionState: Equatable {
     var current: WorklaneStore.PaneReference
     let original: WorklaneStore.PaneReference
+    /// Where the highlight started. Differs from `original` when a float had
+    /// focus (peek highlights strip panes only).
+    var start: WorklaneStore.PaneReference
+
+    init(current: WorklaneStore.PaneReference, original: WorklaneStore.PaneReference) {
+        self.current = current
+        self.original = original
+        self.start = current
+    }
+
+    /// What releasing Ctrl commits: an untouched highlight keeps the original
+    /// focus (so a focused float isn't swapped for its strip neighbour).
+    var committed: WorklaneStore.PaneReference {
+        current == start ? original : current
+    }
 
     static func opening(at reference: WorklaneStore.PaneReference) -> Self {
         Self(current: reference, original: reference)
+    }
+
+    /// Highlight starts on a strip pane, but Escape restores `original`, the
+    /// real keyboard focus (which may be a float).
+    static func opening(
+        at reference: WorklaneStore.PaneReference,
+        restoring original: WorklaneStore.PaneReference
+    ) -> Self {
+        Self(current: reference, original: original)
     }
 
     func advancing(

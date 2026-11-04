@@ -2,9 +2,7 @@ import Foundation
 
 extension WorklaneStore {
     func updateReviewResolution(paneID: PaneID, resolution: WorklaneReviewResolution) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 
@@ -34,9 +32,7 @@ extension WorklaneStore {
     }
 
     func updateReviewState(paneID: PaneID, reviewState: WorklaneReviewState?) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 

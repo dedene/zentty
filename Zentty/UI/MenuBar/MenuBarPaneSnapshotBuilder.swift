@@ -26,7 +26,7 @@ enum MenuBarPaneSnapshotBuilder {
             )
             let worklaneTitle = displayTitle(for: worklane, displayOrder: index + 1)
 
-            return worklane.paneStripState.panes.compactMap { pane in
+            return worklane.allPanes.compactMap { pane in
                 snapshot(
                     pane: pane,
                     paneRow: paneRowsByID[pane.id],

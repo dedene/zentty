@@ -19,9 +19,7 @@ extension WorklaneStore {
     func updateMetadata(paneID: PaneID, metadata: TerminalMetadata) {
         terminalDiagnostics.recordStoreMetadataUpdate(paneID: paneID)
 
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 
@@ -223,9 +221,7 @@ extension WorklaneStore {
         paneID: PaneID,
         destination: SSHDestination?
     ) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 
@@ -1012,9 +1008,7 @@ extension WorklaneStore {
     }
 
     func updateGitContext(paneID: PaneID, gitContext: PaneGitContext?) {
-        guard let worklaneIndex = worklanes.firstIndex(where: { worklane in
-            worklane.paneStripState.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 
@@ -1038,7 +1032,7 @@ extension WorklaneStore {
     }
 
     func recomputePresentation(for paneID: PaneID, in worklane: inout WorklaneState) {
-        guard let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+        guard let pane = worklane.pane(id: paneID) else {
             return
         }
 
@@ -1108,7 +1102,7 @@ extension WorklaneStore {
     ) {
         guard
             let worklaneIndex = worklanes.firstIndex(where: { $0.id == paneReference.worklaneID }),
-            worklanes[worklaneIndex].paneStripState.panes.contains(where: { $0.id == paneReference.paneID })
+            worklanes[worklaneIndex].containsPane(id: paneReference.paneID)
         else {
             return
         }
@@ -1191,7 +1185,7 @@ extension WorklaneStore {
         for paneReference in paneReferences {
             guard
                 let worklaneIndex = worklanes.firstIndex(where: { $0.id == paneReference.worklaneID }),
-                worklanes[worklaneIndex].paneStripState.panes.contains(where: { $0.id == paneReference.paneID })
+                worklanes[worklaneIndex].containsPane(id: paneReference.paneID)
             else {
                 continue
             }

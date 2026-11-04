@@ -187,7 +187,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var isApplicationActive = true
     private var isWindowKey = true
     private var shouldBypassNextCloseConfirmation = false
-    private let overlays: TerminalOverlayCoordinator
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
@@ -224,8 +223,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         windowIndex: Int = 0,
         initialPaneLayoutFrame: NSRect? = nil,
         initialWorkspaceState: WindowWorkspaceState? = nil,
-        initialWorkingDirectory: String? = nil,
-        overlayAdapterFactory: @escaping (PaneID) -> any TerminalAdapter = { LibghosttyAdapter(paneID: $0) }
+        initialWorkingDirectory: String? = nil
     ) {
         let resolvedConfigStore = configStore ?? AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "Zentty.MainWindowController"),
@@ -287,10 +285,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             window.setFrameAutosaveName(Self.windowFrameAutosaveName(forWindowIndex: windowIndex))
         }
 
-        self.overlays = TerminalOverlayCoordinator(
-            rootViewController: rootViewController,
-            adapterFactory: overlayAdapterFactory
-        )
         self.rootViewController = rootViewController
         self.windowID = windowID
         self.windowOrder = windowIndex
@@ -340,39 +334,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
-        rootViewController.onCloseFocusedOverlayRequested = { [weak self] responder in
-            self?.overlays.closeFocusedOverlay(responder: responder) ?? false
-        }
-        rootViewController.focusedQuickActionCopyTarget = { [weak self] in
-            self?.overlays.focusedOverlay?.copyTarget
-        }
-        rootViewController.onOverlayAgentStatusPayload = { [weak self] payload in
-            self?.overlays.apply(payload) ?? false
-        }
-        rootViewController.onThemeDidChange = { [weak self] theme in
-            self?.overlays.apply(theme: theme)
-        }
-        rootViewController.onSidebarOverlaySelected = { [weak self] paneID in
-            self?.overlays.selectSidebarOverlay(id: paneID.rawValue) ?? false
-        }
-        rootViewController.onSidebarOverlayClosed = { [weak self] paneID in
-            self?.overlays.closeSidebarOverlay(id: paneID.rawValue) ?? false
-        }
-        rootViewController.onToggleQuickActionOverlayRequested = { [weak self] in
-            self?.overlays.toggleQuickAction()
-        }
-        rootViewController.overlayTerminalFocusInterceptor = { [weak self] paneID in
-            self?.overlays.interceptTerminalFocus(paneID: paneID) ?? false
-        }
         rootViewController.runningQuickActionsClosingWithPane = { [weak self] paneID in
-            self?.overlays.runningQuickActions(closingWithPane: paneID) ?? []
+            guard let self else { return [] }
+            return self.runningOverlayFloats(self.worklaneStore.terminalCheckedPaneIDs(closingWithPane: paneID))
         }
         rootViewController.runningQuickActionsClosingWithWorklane = { [weak self] worklaneID in
-            self?.overlays.runningQuickActions(closingWithWorklane: worklaneID) ?? []
+            guard let self else { return [] }
+            return self.runningOverlayFloats(self.worklaneStore.terminalCheckedPaneIDs(closingWithWorklane: worklaneID))
         }
         rootViewController.onWorkspaceStateDidChange = { [weak self] in
             self?.refreshWindowTitle()
-            self?.overlays.syncVisibility()
             self?.onWorkspaceStateDidChange?()
         }
         // Restored workspaces set their state before this closure exists, so
@@ -454,7 +425,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        overlays.closeAll()
         rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)
@@ -910,7 +880,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         rootViewController.navigateToPane(worklaneID: worklaneID, paneID: paneID)
-        overlays.revealOverlayAwaitingNavigation(on: paneID)
+        worklaneStore.revealOverlayFloatAwaitingNavigation(on: paneID)
     }
 
     /// Selects a pane without activating Zentty or stealing key status. Used
@@ -974,6 +944,36 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func worklaneID(containing paneID: PaneID) -> WorklaneID? {
         rootViewController.worklaneID(containing: paneID)
+    }
+
+    @objc
+    func toggleFloat(_ sender: Any?) {
+        handle(.toggleFloat)
+    }
+
+    @objc
+    func minimizeFloat(_ sender: Any?) {
+        handle(.minimizeFloat)
+    }
+
+    @objc
+    func pipFloat(_ sender: Any?) {
+        handle(.pipFloat)
+    }
+
+    @objc
+    func toggleFloatingPanes(_ sender: Any?) {
+        handle(.toggleFloatingPanes)
+    }
+
+    @objc
+    func newFloat(_ sender: Any?) {
+        handle(.newFloat)
+    }
+
+    @objc
+    func cycleFloatFocus(_ sender: Any?) {
+        handle(.cycleFloatFocus)
     }
 
     @objc
@@ -1047,10 +1047,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
-    func paneCount(in worklaneID: WorklaneID) -> Int {
+    /// Live panes (tiles + floats) in the worklane: moving one out leaves the
+    /// worklane alive while this is above 1.
+    func livePaneCount(in worklaneID: WorklaneID) -> Int {
         rootViewController.worklaneStore.worklanes
             .first(where: { $0.id == worklaneID })?
-            .paneStripState.panes.count ?? 0
+            .allPanes.count ?? 0
+    }
+
+    /// Floats stay in their worklane in v1; move-to-worklane/window is tile-only.
+    func isFloatingPane(_ paneID: PaneID) -> Bool {
+        rootViewController.worklaneStore.worklanes.contains { $0.isFloating(paneID) }
     }
 
     func transferPaneToWorklaneInThisWindow(paneID: PaneID, targetWorklaneID: WorklaneID) {
@@ -1077,12 +1084,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// (or any context where the right-clicked pane isn't in the active
     /// worklane), pre-select so the transfer targets the right source.
     private func ensureSourceWorklaneActive(for paneID: PaneID, in store: WorklaneStore) {
-        guard let sourceWorklaneID = store.worklanes.first(where: { worklane in
-            worklane.paneStripState.panes.contains { $0.id == paneID }
-        })?.id, sourceWorklaneID != store.activeWorklaneID else {
+        guard let sourceWorklaneIndex = store.worklaneIndex(containingPane: paneID),
+              store.worklanes[sourceWorklaneIndex].id != store.activeWorklaneID else {
             return
         }
-        store.selectWorklane(id: sourceWorklaneID)
+        store.selectWorklane(id: store.worklanes[sourceWorklaneIndex].id)
     }
 
     func extractPaneForCrossWindowTransfer(
@@ -1309,26 +1315,72 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.paneCommands.focusPaneByID(id, in: worklaneID)
     }
 
-    @discardableResult
-    func openOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> String {
-        try overlays.open(on: paneID, options: options)
-    }
+    // MARK: - `zentty overlay` (temporary floats)
 
-    @objc
-    func toggleQuickActionOverlay(_ sender: Any?) {
-        overlays.toggleQuickAction()
+    /// Opens a temporary float over `paneID`'s worklane or pane, or returns
+    /// the one already open for that owner and placement.
+    @discardableResult
+    func openOverlay(on paneID: PaneID, options: PaneOverlayIPCOptions) throws -> OverlayFloatOpenResult {
+        let placement = rootViewController.overlayFloatPlacement(owner: paneID)
+        return try worklaneStore.openOverlayFloat(
+            on: paneID,
+            request: options.floatRequest,
+            canvas: placement.canvas,
+            ownerFrame: placement.ownerFrame
+        )
     }
 
     func showOverlay(on paneID: PaneID) throws {
-        try overlays.show(on: paneID)
+        try worklaneStore.showOverlayFloat(targeting: paneID)
     }
 
     func closeOverlay(on paneID: PaneID) throws {
-        try overlays.close(on: paneID)
+        try worklaneStore.closeOverlayFloat(targeting: paneID)
     }
 
     func overlayListJSON(on paneID: PaneID? = nil) throws -> String {
-        try overlays.listJSON(on: paneID)
+        try OverlayFloatEntry.json(worklaneStore.overlayFloatEntries(targeting: paneID))
+    }
+
+    // MARK: - `zentty pane float|dock|pip|minimize|restore`, `zentty float`
+
+    func applyFloatAction(_ action: PaneFloatAction, to paneID: PaneID, corner: FloatCorner?) throws {
+        try rootViewController.applyFloatAction(action, to: paneID, corner: corner)
+    }
+
+    func openFloat(
+        from sourcePaneID: PaneID,
+        workingDirectory: String?,
+        command: String?,
+        temporary: Bool
+    ) throws -> PaneID {
+        try rootViewController.openFloatFromCLI(
+            from: sourcePaneID,
+            workingDirectory: workingDirectory,
+            command: command,
+            temporary: temporary
+        )
+    }
+
+    func floatListEntries(in worklaneID: WorklaneID) -> [FloatListEntry] {
+        worklaneStore.floatListEntries(in: worklaneID, windowID: windowID)
+    }
+
+    func setFloatsHidden(_ hidden: Bool, in worklaneID: WorklaneID) throws {
+        try rootViewController.setFloatsHiddenFromCLI(hidden, in: worklaneID)
+    }
+
+    /// Panes among `ids` (overlays, docked or not) whose process would die
+    /// unasked.
+    private func runningOverlayFloats(_ ids: [PaneID]) -> [RunningQuickAction] {
+        ids.compactMap { id in
+            guard runtimeRegistry.runtime(for: id)?.adapter.needsConfirmQuit == true else {
+                return nil
+            }
+            let command = worklaneStore.worklaneIndex(containingPane: id)
+                .flatMap { worklaneStore.worklanes[$0].pane(id: id)?.sessionRequest.nativeCommand }
+            return RunningQuickAction(command: command?.isEmpty == false ? command : nil)
+        }
     }
 
     func closePane(id: PaneID) {
@@ -1494,11 +1546,20 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     var anyPaneRequiresQuitConfirmation: Bool {
-        rootViewController.anyPaneRequiresQuitConfirmation || overlays.anyNeedsCloseConfirmation
+        rootViewController.anyPaneRequiresQuitConfirmation || anyOverlayFloatIsRunning
     }
 
     var anyPaneHasRunningProcessForQuitConfirmation: Bool {
-        rootViewController.anyPaneHasRunningProcessForQuitConfirmation || overlays.anyNeedsCloseConfirmation
+        rootViewController.anyPaneHasRunningProcessForQuitConfirmation || anyOverlayFloatIsRunning
+    }
+
+    /// An overlay's command often runs without the shell integration
+    /// reporting it (it is the session's native command), so ask the
+    /// terminal, also once the overlay was docked.
+    private var anyOverlayFloatIsRunning: Bool {
+        worklaneStore.worklanes.contains { worklane in
+            !runningOverlayFloats(worklaneStore.terminalCheckedPaneIDs(closingWithWorklane: worklane.id)).isEmpty
+        }
     }
 
     var terminalAppearance: NSAppearance? {
@@ -2233,10 +2294,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
-    func overlaySessionForTesting(on paneID: PaneID) -> TerminalOverlaySession? {
-        overlays.overlay(on: paneID)
-    }
-
     var rootViewControllerForTesting: RootViewController {
         rootViewController
     }
@@ -2246,7 +2303,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     var focusedPaneEnvironmentForTesting: [String: String]? {
-        rootViewController.paneStripStateForTesting.focusedPane?.sessionRequest.environmentVariables
+        rootViewController.focusedPaneEnvironmentForTesting
     }
 
     func openWithMenuForTesting() -> NSMenu {

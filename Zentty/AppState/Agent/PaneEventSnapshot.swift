@@ -53,22 +53,22 @@ extension PaneEventSnapshot {
                     worklaneID: worklane.id.rawValue,
                     Worklane(
                         windowID: window.windowID.rawValue,
-                        focusedPaneID: worklane.paneStripState.focusedPaneID?.rawValue,
+                        focusedPaneID: worklane.focusedPaneID?.rawValue,
                         isActive: worklane.id == window.activeWorklaneID
                     )
                 )
-                for column in worklane.paneStripState.columns {
-                    for pane in column.panes {
-                        let presentation = worklane.auxiliaryStateByPaneID[pane.id]?.presentation
-                        snapshot.insert(
-                            paneID: pane.id.rawValue,
-                            paneEntry(
-                                windowID: window.windowID,
-                                worklaneID: worklane.id,
-                                presentation: presentation
-                            )
+                // Floats count as live panes: floating or docking one must not
+                // read as a close + create.
+                for pane in worklane.allPanes {
+                    let presentation = worklane.auxiliaryStateByPaneID[pane.id]?.presentation
+                    snapshot.insert(
+                        paneID: pane.id.rawValue,
+                        paneEntry(
+                            windowID: window.windowID,
+                            worklaneID: worklane.id,
+                            presentation: presentation
                         )
-                    }
+                    )
                 }
             }
         }

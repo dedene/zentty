@@ -9,18 +9,17 @@ extension WorklaneStore {
     }
 
     func captureClosedPane(paneID: PaneID, in worklane: WorklaneState) {
-        guard let columnIndex = worklane.paneStripState.columns.firstIndex(where: { column in
-            column.panes.contains(where: { $0.id == paneID })
-        }) else {
+        guard let pane = worklane.pane(id: paneID),
+              let placement = closedPanePlacement(for: paneID, in: worklane) else {
             return
         }
-        let column = worklane.paneStripState.columns[columnIndex]
-        guard let paneIndex = column.panes.firstIndex(where: { $0.id == paneID }) else {
-            return
-        }
-        let pane = column.panes[paneIndex]
 
         let auxiliary = worklane.auxiliaryStateByPaneID[paneID]
+
+        // Temporary (overlay-style) panes die with their command; never reopen.
+        if case .temporary = auxiliary?.lifetime {
+            return
+        }
 
         // Don't capture SSH/remote panes — the cwd, agent session, and CLI
         // all live on the remote host, so a local prefill can't resume them.
@@ -49,30 +48,71 @@ extension WorklaneStore {
 
         let scrollbackText = scrollbackProvider?(paneID)
 
-        let originalHeightInColumn: CGFloat? = column.panes.count > 1
-            && column.paneHeights.indices.contains(paneIndex)
-            ? column.paneHeights[paneIndex]
-            : nil
-
         let entry = ClosedPaneEntry(
             closedAt: currentDateProvider(),
             originalPaneID: paneID,
             originalWorklaneID: worklane.id,
-            originalColumnID: column.id,
-            originalColumnIndex: columnIndex,
-            originalPaneIndex: paneIndex,
-            originalColumnWidth: column.width,
-            originalHeightInColumn: originalHeightInColumn,
+            originalColumnID: placement.columnID,
+            originalColumnIndex: placement.columnIndex,
+            originalPaneIndex: placement.paneIndex,
+            originalColumnWidth: placement.columnWidth,
+            originalHeightInColumn: placement.heightInColumn,
             title: pane.title,
             customTitle: pane.customTitle,
             workingDirectory: workingDirectory,
             originalNativeCommand: pane.sessionRequest.nativeCommand,
             originalCommand: pane.sessionRequest.replaysCommandOnRestore ? pane.sessionRequest.command : nil,
             agentSnapshot: agentSnapshot,
-            scrollbackText: scrollbackText
+            scrollbackText: scrollbackText,
+            floatFrame: placement.floatFrame
         )
 
         closedPaneStack.push(entry, now: currentDateProvider())
+    }
+
+    private struct ClosedPanePlacement {
+        let columnID: PaneColumnID
+        let columnIndex: Int
+        let paneIndex: Int
+        let columnWidth: CGFloat
+        let heightInColumn: CGFloat?
+        let floatFrame: NormalizedRect?
+    }
+
+    /// Where the pane sat at close time: its column slot for a tile, its
+    /// frame (and origin column index) for a float.
+    private func closedPanePlacement(for paneID: PaneID, in worklane: WorklaneState) -> ClosedPanePlacement? {
+        if let float = worklane.floatingPane(id: paneID) {
+            return ClosedPanePlacement(
+                columnID: PaneColumnID(""),
+                columnIndex: float.origin?.columnIndex ?? worklane.paneStripState.columns.count,
+                paneIndex: 0,
+                columnWidth: float.pane.width,
+                heightInColumn: nil,
+                floatFrame: float.floatFrame
+            )
+        }
+        guard let columnIndex = worklane.paneStripState.columns.firstIndex(where: { column in
+            column.panes.contains(where: { $0.id == paneID })
+        }) else {
+            return nil
+        }
+        let column = worklane.paneStripState.columns[columnIndex]
+        guard let paneIndex = column.panes.firstIndex(where: { $0.id == paneID }) else {
+            return nil
+        }
+        let heightInColumn: CGFloat? = column.panes.count > 1
+            && column.paneHeights.indices.contains(paneIndex)
+            ? column.paneHeights[paneIndex]
+            : nil
+        return ClosedPanePlacement(
+            columnID: column.id,
+            columnIndex: columnIndex,
+            paneIndex: paneIndex,
+            columnWidth: column.width,
+            heightInColumn: heightInColumn,
+            floatFrame: nil
+        )
     }
 
     @discardableResult
@@ -124,20 +164,32 @@ extension WorklaneStore {
         }
 
         var worklane = worklanes[worklaneIndex]
+        let original = worklane
         worklane.auxiliaryStateByPaneID[newPaneID] = makeRestoredPaneAuxiliary(
             for: restoredPane,
             workingDirectory: cwdResolution.path
         )
-        insertRestoredPane(
-            restoredPane,
-            into: &worklane,
-            target: target,
-            originalHeightInColumn: entry.originalHeightInColumn
-        )
+        if let floatFrame = target.floatFrame {
+            insertRestoredFloat(restoredPane, frame: floatFrame, originColumnIndex: target.columnIndex, into: &worklane)
+        } else {
+            insertRestoredPane(
+                restoredPane,
+                into: &worklane,
+                target: target,
+                originalHeightInColumn: entry.originalHeightInColumn
+            )
+            // The reopened tile takes focus, even over a focused float.
+            worklane.focusedFloatID = nil
+        }
         worklanes[worklaneIndex] = worklane
         recomputePresentation(for: newPaneID, in: &worklanes[worklaneIndex])
         refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(target.worklaneID))
+        batchUpdate {
+            notify(.paneStructure(target.worklaneID))
+            if original.floatingPanes != worklane.floatingPanes || original.focusedFloatID != worklane.focusedFloatID {
+                notify(.floats(target.worklaneID))
+            }
+        }
 
         return RestoreClosedPaneResult(
             restoredPaneID: newPaneID,
@@ -198,9 +250,19 @@ extension WorklaneStore {
         let columnID: PaneColumnID?
         let columnIndex: Int
         let paneIndex: Int
+        /// Set for a closed float: reopen as a float at this frame.
+        var floatFrame: NormalizedRect?
     }
 
     private func resolveRestoreTarget(for entry: ClosedPaneEntry) -> RestoreTarget? {
+        guard var target = resolveTileRestoreTarget(for: entry) else {
+            return nil
+        }
+        target.floatFrame = entry.floatFrame
+        return target
+    }
+
+    private func resolveTileRestoreTarget(for entry: ClosedPaneEntry) -> RestoreTarget? {
         if let worklaneIndex = worklanes.firstIndex(where: { $0.id == entry.originalWorklaneID }) {
             let worklane = worklanes[worklaneIndex]
             if let columnIndex = worklane.paneStripState.columns.firstIndex(where: { $0.id == entry.originalColumnID }) {
@@ -234,6 +296,27 @@ extension WorklaneStore {
             columnIndex: max(0, worklane.paneStripState.columns.count),
             paneIndex: 0
         )
+    }
+
+    /// Reopens a closed float as a float at its last frame, raised and focused.
+    private func insertRestoredFloat(
+        _ pane: PaneState,
+        frame: NormalizedRect,
+        originColumnIndex: Int,
+        into worklane: inout WorklaneState
+    ) {
+        worklane.floatingPanes.append(
+            FloatingPaneState(
+                pane: pane,
+                mode: .floating,
+                floatFrame: frame,
+                stackOrder: Self.nextStackOrder(in: worklane),
+                origin: FloatOrigin(columnIndex: originColumnIndex),
+                sequence: Self.nextFloatSequence(in: worklane)
+            )
+        )
+        worklane.floatsHidden = false
+        worklane.focusedFloatID = pane.id
     }
 
     private func insertRestoredPane(

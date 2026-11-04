@@ -5,6 +5,35 @@ import XCTest
 
 @MainActor
 final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
+    func test_scroll_host_masks_scroll_view_not_overlay_host() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+
+        hostView.topFadeHeight = 12
+        hostView.layoutSubtreeIfNeeded()
+
+        let mask = try XCTUnwrap(hostView.topFadeMaskLayerForTesting)
+        let scrollLayer = try XCTUnwrap(hostView.scrollViewLayerForTesting)
+        XCTAssertTrue(scrollLayer.mask === mask)
+        XCTAssertNil(hostView.layer?.mask, "the host keeps the search HUD and frame meter unfaded")
+        XCTAssertNil(hostView.overlayHostLayerForTesting?.mask)
+        XCTAssertEqual(mask.frame, scrollLayer.bounds)
+        // Opaque up to 12pt below the top (y-up), clear at the top edge.
+        let locations = try XCTUnwrap(mask.locations).map(\.doubleValue)
+        XCTAssertEqual(locations.count, 3)
+        XCTAssertEqual(locations[1], Double((160 - 12) / 160.0), accuracy: 0.0001)
+        // The clear end of the gradient lands on the view's top edge (the
+        // host is unflipped and y-up; AppKit renders the scroll layer flipped).
+        let hostLayer = try XCTUnwrap(hostView.layer)
+        XCTAssertFalse(hostView.isFlipped)
+        XCTAssertFalse(hostLayer.contentsAreFlipped())
+        let clearEnd = CGPoint(x: 0, y: mask.endPoint.y * scrollLayer.bounds.height)
+        XCTAssertEqual(scrollLayer.convert(clearEnd, to: hostLayer).y, hostView.bounds.maxY, accuracy: 0.5)
+
+        hostView.topFadeHeight = 0
+        XCTAssertNil(scrollLayer.mask)
+    }
+
     func test_fixed_overlay_owns_terminal_cursor_rects_when_surface_moves() throws {
         let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
         let hostView = harness.hostView
@@ -25,6 +54,19 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(hostView.terminalCursorRectsForTesting, initialRects)
         XCTAssertEqual(initialRects, [CGRect(x: 200, y: 0, width: 600, height: 120)])
         XCTAssertEqual(harness.surfaceView.frame.origin.y, 32, accuracy: 0.01)
+    }
+
+    func test_cursor_exclusion_cuts_terminal_cursor_rects_alongside_suppression() {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        hostView.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 120, width: 800, height: 40)])
+        // A float's resize zone (cursor only: the pointer is still tracked there).
+        hostView.setCursorExclusionRects([CGRect(x: 790, y: 0, width: 10, height: 160)])
+
+        XCTAssertEqual(hostView.terminalCursorRectsForTesting, [CGRect(x: 0, y: 0, width: 790, height: 120)])
+
+        hostView.setCursorExclusionRects([])
+        XCTAssertEqual(hostView.terminalCursorRectsForTesting, [CGRect(x: 0, y: 0, width: 800, height: 120)])
     }
 
     func test_redraw_mouse_shape_change_does_not_invalidate_fixed_cursor_owner() {
@@ -195,6 +237,50 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         hostView.syncTerminalCursorForPointerActivityForTesting()
 
         XCTAssertTrue(hostView.displayedTerminalCursorForTesting === NSCursor.pointingHand)
+    }
+
+    // A window of 160pt shows 10 rows of 16pt, so 10 rows of total fit exactly.
+    func test_scroller_stays_hidden_while_everything_fits() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        let window = hostInVisibleWindow(hostView)
+        defer { window.orderOut(nil) }
+
+        hostView.applyScrollbarUpdate(.init(total: 10, offset: 0, len: 10))
+        hostView.layoutSubtreeIfNeeded()
+
+        let scroller = try XCTUnwrap(hostView.verticalScrollerForTesting)
+        XCTAssertTrue(scroller.isHidden, "a full-height knob has nothing to say and only flashes")
+    }
+
+    func test_scroller_comes_back_once_there_is_scrollback() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        let window = hostInVisibleWindow(hostView)
+        defer { window.orderOut(nil) }
+        hostView.applyScrollbarUpdate(.init(total: 10, offset: 0, len: 10))
+
+        hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        hostView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(try XCTUnwrap(hostView.verticalScrollerForTesting).isHidden)
+    }
+
+    func test_scroller_is_invisible_while_viewport_sync_is_suspended() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        let window = hostInVisibleWindow(hostView)
+        defer { window.orderOut(nil) }
+        hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scroller = try XCTUnwrap(hostView.verticalScrollerForTesting)
+
+        hostView.setViewportSyncSuspended(true)
+        hostView.needsLayout = true
+        hostView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(scroller.alphaValue, 0, "a lifted or scaled terminal must not flash a scroller")
+
+        hostView.setViewportSyncSuspended(false)
+        XCTAssertEqual(scroller.alphaValue, 1)
     }
 
     func test_outputDrivenViewportGrowth_preservesSemanticCursor() {
