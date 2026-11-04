@@ -53,6 +53,10 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
     let originalCommand: String?
     let agentSnapshot: ClosedPaneAgentSnapshot?
     let scrollbackText: String?
+    /// Non-nil when the pane was a float: reopen brings it back as a float at
+    /// this frame instead of into a column (the column fields then only hold
+    /// its origin column index).
+    let floatFrame: NormalizedRect?
 
     init(
         id: UUID = UUID(),
@@ -70,7 +74,8 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
         originalNativeCommand: String?,
         originalCommand: String?,
         agentSnapshot: ClosedPaneAgentSnapshot?,
-        scrollbackText: String?
+        scrollbackText: String?,
+        floatFrame: NormalizedRect? = nil
     ) {
         self.id = id
         self.closedAt = closedAt
@@ -88,5 +93,6 @@ struct ClosedPaneEntry: Identifiable, Equatable, Sendable {
         self.originalCommand = originalCommand
         self.agentSnapshot = agentSnapshot
         self.scrollbackText = scrollbackText
+        self.floatFrame = floatFrame
     }
 }

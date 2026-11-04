@@ -277,12 +277,13 @@ final class AppDelegateTests: XCTestCase {
             actionItems.map(\.title),
             [
                 "Command Palette…",
-                "Toggle Quick Action Overlay",
                 "Show Bookmarks & Presets",
+                "Agent History…",
                 "Toggle Sidebar",
                 "Add Pane Right",
                 "New Pane Below",
                 "Move Pane to New Window",
+                "Floating Panes",
                 "Arrange Width",
                 "Arrange Height",
                 "Resize Pane Left",
@@ -303,6 +304,19 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNil(controlCommandFullScreenItem.target)
         XCTAssertEqual(controlCommandFullScreenItem.keyEquivalent, "f")
         XCTAssertTrue(controlCommandFullScreenItem.allowsKeyEquivalentWhenHidden)
+
+        let floatingPanesMenu = try XCTUnwrap(submenu(named: "Floating Panes", in: viewMenu))
+        XCTAssertEqual(
+            floatingPanesMenu.items.filter { !$0.isSeparatorItem }.map(\.title),
+            [
+                "Float or Dock Pane",
+                "Minimize Float",
+                "Picture in Picture",
+                "Toggle Floating Panes",
+                "New Float",
+                "Cycle Floating Panes",
+            ]
+        )
 
         let arrangeWidthMenu = try XCTUnwrap(submenu(named: "Arrange Width", in: viewMenu))
         XCTAssertEqual(
@@ -604,7 +618,15 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(reply, .terminateLater)
         XCTAssertNil(blockingController.window.attachedSheet)
-        XCTAssertNotNil(keyController.window.attachedSheet)
+        let sheet = try XCTUnwrap(keyController.window.attachedSheet)
+
+        // Answer Cancel. A sheet left open outlives its window, and a later
+        // suite that orders out every window then trips over the stale panel.
+        let answered = expectation(description: "quit prompt dismissed")
+        keyController.window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        DispatchQueue.main.async { answered.fulfill() }
+        wait(for: [answered], timeout: 2.0)
+        XCTAssertNil(keyController.window.attachedSheet)
     }
 
     func test_new_windows_export_distinct_runtime_identity_environment() throws {

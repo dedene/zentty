@@ -334,6 +334,79 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         XCTAssertEqual(template.capturedReadableWidth, 1234)
     }
 
+    // MARK: - Floats (bookmarks store them as tiles in v1)
+
+    func test_capture_docks_floats_back_into_their_origin_column_and_appends_the_rest() {
+        let worklane = makeWorklane(
+            tiles: [
+                paneFixture(id: "p1", cwd: "/Users/peter/proj/api", processName: nil),
+                paneFixture(id: "p3", cwd: "/Users/peter/proj/web", processName: nil),
+            ],
+            floats: [
+                (paneFixture(id: "p2", cwd: "/Users/peter/proj/server", processName: "rails"), FloatOrigin(columnIndex: 1)),
+                (paneFixture(id: "p4", cwd: "/Users/peter/proj/logs", processName: nil), nil),
+            ]
+        )
+
+        let template = WorkspaceTemplateCapture.capture(worklane: worklane, kind: .bookmark, name: "Demo")
+
+        XCTAssertEqual(template.columns.map { $0.panes.map(\.id) }, [["p1"], ["p2"], ["p3"], ["p4"]])
+        XCTAssertEqual(template.allPanes.first { $0.id == "p2" }?.command, "rails")
+        XCTAssertEqual(template.allPanes.first { $0.id == "p2" }?.workingDirectory, "/Users/peter/proj/server")
+        XCTAssertEqual(template.focusedColumnID, "c0", "strip focus stays the template focus")
+        XCTAssertEqual(Set(template.columns.map(\.id)).count, template.columns.count, "column IDs stay unique")
+    }
+
+    func test_capture_restores_strip_order_for_floats_lifted_from_the_same_index() {
+        // Strip was [p1, p2, p3]: p2 floated (origin 1), then p3 (origin 1 too).
+        let worklane = makeWorklane(
+            tiles: [paneFixture(id: "p1", cwd: "/Users/peter", processName: nil)],
+            floats: [
+                (paneFixture(id: "p2", cwd: "/Users/peter", processName: nil), FloatOrigin(columnIndex: 1)),
+                (paneFixture(id: "p3", cwd: "/Users/peter", processName: nil), FloatOrigin(columnIndex: 1)),
+            ]
+        )
+
+        let template = WorkspaceTemplateCapture.capture(worklane: worklane, kind: .bookmark, name: "Demo")
+
+        XCTAssertEqual(template.columns.map { $0.panes.map(\.id) }, [["p1"], ["p2"], ["p3"]])
+    }
+
+    func test_capture_float_only_worklane_yields_a_usable_template() {
+        var worklane = makeWorklane(
+            tiles: [],
+            floats: [
+                (paneFixture(id: "f1", cwd: "/Users/peter/proj", processName: "claude"), FloatOrigin(columnIndex: 0)),
+                (paneFixture(id: "f2", cwd: "/Users/peter/proj", processName: nil), nil),
+            ]
+        )
+        worklane.focusedFloatID = PaneID("f2")
+
+        let template = WorkspaceTemplateCapture.capture(worklane: worklane, kind: .bookmark, name: "Demo")
+
+        XCTAssertEqual(template.columns.map { $0.panes.map(\.id) }, [["f1"], ["f2"]])
+        XCTAssertEqual(template.allPanes.map(\.command), ["claude", nil])
+        XCTAssertEqual(template.projectRoot, "/Users/peter/proj")
+        let focusedColumn = template.columns.first { $0.id == template.focusedColumnID }
+        XCTAssertEqual(focusedColumn?.panes.map(\.id), ["f2"], "the focused float's column takes focus")
+    }
+
+    func test_capture_skips_temporary_floats() {
+        var worklane = makeWorklane(
+            tiles: [paneFixture(id: "p1", cwd: "/Users/peter", processName: nil)],
+            floats: [(paneFixture(id: "overlay", cwd: "/Users/peter", processName: "htop"), nil)]
+        )
+        worklane.auxiliaryStateByPaneID[PaneID("overlay")]?.lifetime = .temporary(
+            owner: PaneID("p1"),
+            placement: .worklane,
+            waitAfterCommand: false
+        )
+
+        let template = WorkspaceTemplateCapture.capture(worklane: worklane, kind: .bookmark, name: "Demo")
+
+        XCTAssertEqual(template.allPanes.map(\.id), ["p1"])
+    }
+
     private struct PaneFixture {
         let pane: PaneState
         let auxiliary: PaneAuxiliaryState
@@ -376,6 +449,27 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
             presentation: presentation
         )
         return PaneFixture(pane: pane, auxiliary: auxiliary)
+    }
+
+    private func makeWorklane(
+        tiles: [PaneFixture],
+        floats: [(fixture: PaneFixture, origin: FloatOrigin?)]
+    ) -> WorklaneState {
+        var worklane = makeWorklane(panes: tiles, color: nil)
+        worklane.floatingPanes = floats.enumerated().map { index, entry in
+            FloatingPaneState(
+                pane: entry.fixture.pane,
+                mode: .floating,
+                floatFrame: NormalizedRect(x: 0.2, y: 0.2, width: 0.6, height: 0.6),
+                stackOrder: floats.count - index,
+                origin: entry.origin,
+                sequence: index
+            )
+        }
+        for entry in floats {
+            worklane.auxiliaryStateByPaneID[entry.fixture.pane.id] = entry.fixture.auxiliary
+        }
+        return worklane
     }
 
     private func makeWorklane(

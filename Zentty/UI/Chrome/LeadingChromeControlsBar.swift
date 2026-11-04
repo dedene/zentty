@@ -1,20 +1,22 @@
 import AppKit
 
-/// Container for the four leading chrome controls: sidebar toggle, pane
-/// layout menu, pane navigation, notification inbox. Owns the inter-button
-/// spacings and exposes a single anchor point so the surrounding sidebar-
-/// motion code only has to move one view instead of chaining four.
+/// Container for the five leading chrome controls: sidebar toggle, pane
+/// layout menu, pane navigation, notification inbox, agent history. Owns the
+/// inter-button spacings and exposes a single anchor point so the surrounding
+/// sidebar-motion code only has to move one view instead of chaining five.
 @MainActor
 final class LeadingChromeControlsBar: NSView {
     private static let toggleToLayoutSpacing: CGFloat = 4
     private static let layoutToNavigationSpacing: CGFloat = 4
     private static let navigationToInboxSpacing: CGFloat = 8
+    private static let inboxToHistorySpacing: CGFloat = 4
 
     static let totalWidth: CGFloat =
         SidebarToggleButton.buttonSize
         + toggleToLayoutSpacing + PaneLayoutMenuButton.buttonSize
         + layoutToNavigationSpacing + PaneNavigationButtons.totalWidth
         + navigationToInboxSpacing + NotificationInboxButton.buttonWidth
+        + inboxToHistorySpacing + HistoryToolbarButton.buttonSize
 
     static let height: CGFloat = SidebarToggleButton.buttonSize
 
@@ -22,12 +24,13 @@ final class LeadingChromeControlsBar: NSView {
         toggle: SidebarToggleButton,
         layoutMenu: PaneLayoutMenuButton,
         navigation: PaneNavigationButtons,
-        inbox: NotificationInboxButton
+        inbox: NotificationInboxButton,
+        history: HistoryToolbarButton
     ) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        [toggle, layoutMenu, navigation, inbox].forEach {
+        [toggle, layoutMenu, navigation, inbox, history].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -58,10 +61,18 @@ final class LeadingChromeControlsBar: NSView {
                 equalTo: navigation.trailingAnchor,
                 constant: Self.navigationToInboxSpacing
             ),
-            inbox.trailingAnchor.constraint(equalTo: trailingAnchor),
             inbox.centerYAnchor.constraint(equalTo: centerYAnchor),
             inbox.widthAnchor.constraint(equalToConstant: NotificationInboxButton.buttonWidth),
             inbox.heightAnchor.constraint(equalToConstant: NotificationInboxButton.buttonSize),
+
+            history.leadingAnchor.constraint(
+                equalTo: inbox.trailingAnchor,
+                constant: Self.inboxToHistorySpacing
+            ),
+            history.trailingAnchor.constraint(equalTo: trailingAnchor),
+            history.centerYAnchor.constraint(equalTo: centerYAnchor),
+            history.widthAnchor.constraint(equalToConstant: HistoryToolbarButton.buttonSize),
+            history.heightAnchor.constraint(equalToConstant: HistoryToolbarButton.buttonSize),
         ])
     }
 

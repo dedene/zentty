@@ -1225,6 +1225,17 @@ enum PanePresentationNormalizer {
 struct PaneAuxiliaryState: Equatable, Sendable {
     var raw: PaneRawState
     var presentation: PanePresentationState
+    /// `.temporary` for overlay-style panes that close with their command.
+    var lifetime: PaneLifetime = .persistent
+    /// Exit status of the last finished command; cleared when a new one is
+    /// submitted. `zentty overlay list` reports it.
+    var lastCommandExitCode: Int?
+    /// True when the pane was surfaced automatically (e.g. a needs-input pop).
+    var autoPopped = false
+    /// The session runs its command directly (an overlay's, and still once
+    /// the overlay is docked or re-floated), so shell integration may never
+    /// report it running: close prompts ask the terminal (`needsConfirmQuit`).
+    var closePromptAsksTerminal = false
 
     init(
         raw: PaneRawState = PaneRawState(),
@@ -1429,11 +1440,9 @@ struct WorklaneGitContextResolver: PaneGitContextResolving {
         }
     }
 
+    /// Shared with Agent History so stored repository roots compare equal to pane git contexts.
     private func canonicalRepositoryRoot(_ value: String) -> String {
-        URL(fileURLWithPath: value, isDirectory: true)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
+        AgentHistoryPath.canonical(value)
     }
 }
 

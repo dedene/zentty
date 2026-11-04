@@ -6,7 +6,7 @@ enum WorklaneAttentionSummaryBuilder {
     }
 
     static func summaries(for worklane: WorklaneState) -> [WorklaneAttentionSummary] {
-        worklane.paneStripState.panes
+        worklane.allPanes
             .compactMap { pane in
                 summary(for: pane, in: worklane)
             }
@@ -112,7 +112,7 @@ enum WorklaneAttentionSummaryBuilder {
         return nil
     }
 
-    private static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {
+    static func attentionState(for presentation: PanePresentationState) -> WorklaneAttentionState? {
         if presentation.isReady {
             return .ready
         }

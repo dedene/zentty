@@ -43,7 +43,9 @@ enum AppConfigTOML {
         case agentCaffeination
         case agentLists
         case agents
+        case agentHistory
         case menuBar
+        case floats
         case agentIntegrations
         case agentIntegrationStates
     }
@@ -222,8 +224,18 @@ enum AppConfigTOML {
         lines.append("fork_destination = \(encode(string: config.agents.forkDestination.rawValue))")
 
         lines.append("")
+        lines.append("[agent_history]")
+        lines.append("excluded_folders = \(encode(strings: config.agentHistory.excludedFolders.map(portablePath)))")
+        lines.append("allow_agents_all_projects = \(config.agentHistory.allowAgentsAllProjects)")
+
+        lines.append("")
         lines.append("[menu_bar]")
         lines.append("show_status_item = \(config.menuBar.showStatusItem)")
+
+        lines.append("")
+        lines.append("[floats]")
+        lines.append("auto_pop_needs_input = \(config.floats.autoPopNeedsInput)")
+        lines.append("pip_size = \(encode(string: config.floats.pipSize.rawValue))")
 
         lines.append("")
         lines.append("[agent_integrations]")
@@ -350,8 +362,16 @@ enum AppConfigTOML {
                 section = .agents
                 continue
             }
+            if line == "[agent_history]" {
+                section = .agentHistory
+                continue
+            }
             if line == "[menu_bar]" {
                 section = .menuBar
+                continue
+            }
+            if line == "[floats]" {
+                section = .floats
                 continue
             }
             if line == "[agent_integrations]" {
@@ -430,8 +450,12 @@ enum AppConfigTOML {
                 result = decodeAgentListsAssignment(assignment, into: &config)
             case .agents:
                 result = decodeAgentsAssignment(assignment, into: &config)
+            case .agentHistory:
+                result = decodeAgentHistoryAssignment(assignment, into: &config)
             case .menuBar:
                 result = decodeMenuBarAssignment(assignment, into: &config)
+            case .floats:
+                result = decodeFloatsAssignment(assignment, into: &config)
             case .agentIntegrations:
                 result = decodeAgentIntegrationsAssignment(assignment, into: &config)
             case .agentIntegrationStates:
@@ -794,7 +818,7 @@ enum AppConfigTOML {
         switch assignment.key {
         case "command_id":
             guard let raw = decodeString(assignment.value),
-                  let commandID = AppCommandID(rawValue: raw) else {
+                  let commandID = AppCommandID(configValue: raw) else {
                 return false
             }
 
@@ -943,6 +967,24 @@ enum AppConfigTOML {
         return true
     }
 
+    private static func decodeAgentHistoryAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> AssignmentResult {
+        switch assignment.key {
+        case "excluded_folders":
+            guard let folders = decodeStringArray(assignment.value) else { return false }
+            config.agentHistory.excludedFolders = folders.map { ($0 as NSString).expandingTildeInPath }
+        case "allow_agents_all_projects":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.agentHistory.allowAgentsAllProjects = value
+        default:
+            return .unknownKey
+        }
+
+        return true
+    }
+
     private static func decodeWorklanesAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
@@ -1063,6 +1105,26 @@ enum AppConfigTOML {
             config.menuBar.showStatusItem = value
         case "indicator_style", "hide_idle_panes", "show_waiting_count_on_icon", "click_focuses_waiting_pane":
             return true
+        default:
+            return .unknownKey
+        }
+        return true
+    }
+
+    private static func decodeFloatsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> AssignmentResult {
+        switch assignment.key {
+        case "auto_pop_needs_input":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.floats.autoPopNeedsInput = value
+        case "pip_size":
+            guard let raw = decodeString(assignment.value),
+                  let size = AppConfig.Floats.PipSize(rawValue: raw) else {
+                return false
+            }
+            config.floats.pipSize = size
         default:
             return .unknownKey
         }

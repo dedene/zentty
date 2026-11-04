@@ -509,6 +509,53 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertTrue(didRequestOpen)
     }
 
+    func test_float_focus_change_refreshes_chrome_state() throws {
+        let target = OpenWithResolvedTarget(
+            stableID: "cursor",
+            kind: .editor,
+            displayName: "Cursor",
+            builtInID: .cursor,
+            appPath: nil
+        )
+        let controller = makeController(
+            openWithService: RootViewCompositionOpenWithService(primaryTarget: target)
+        )
+        controller.loadViewIfNeeded()
+        let tile = PaneState(
+            id: PaneID("tile"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: nil, surfaceContext: .window),
+            width: 720
+        )
+        let floatPane = PaneState(
+            id: PaneID("float"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/b", surfaceContext: .window),
+            width: 720
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane-main"),
+            title: "Main",
+            paneStripState: PaneStripState(panes: [tile], focusedPaneID: tile.id),
+            floatingPanes: [
+                FloatingPaneState(
+                    pane: floatPane,
+                    mode: .floating,
+                    floatFrame: NormalizedRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5),
+                    stackOrder: 0,
+                    origin: FloatOrigin(columnIndex: 0)
+                ),
+            ]
+        )
+        controller.replaceWorklanes([worklane], activeWorklaneID: worklane.id)
+        XCTAssertEqual(controller.openWithChromeStateForTesting?.isPrimaryEnabled, false)
+
+        controller.worklaneStore.focusFloat(floatPane.id)
+
+        XCTAssertEqual(controller.focusedOpenWithContext?.workingDirectory, "/tmp/b")
+        XCTAssertEqual(controller.openWithChromeStateForTesting?.isPrimaryEnabled, true)
+    }
+
     func test_open_selected_server_action_invokes_primary_server_request_when_available() throws {
         let worklaneID = WorklaneID("worklane-main")
         let paneID = PaneID("pane-main")
@@ -789,6 +836,33 @@ final class RootViewCompositionTests: AppKitTestCase {
             barMaxXInChrome,
             accuracy: 0.5
         )
+    }
+
+    func test_leading_chrome_controls_place_history_button_four_points_after_inbox() throws {
+        let controller = makeControllerWithCrowdedHeader(width: 1280)
+        let leadingControlsBar = try XCTUnwrap(
+            controller.view.subviews.first { $0 is LeadingChromeControlsBar } as? LeadingChromeControlsBar
+        )
+        let inboxButton = try XCTUnwrap(
+            leadingControlsBar.subviews.first { $0 is NotificationInboxButton } as? NotificationInboxButton
+        )
+        let historyButton = try XCTUnwrap(
+            leadingControlsBar.subviews.first { $0 is HistoryToolbarButton } as? HistoryToolbarButton
+        )
+
+        // Auto Layout pins alignment rects; an image-only NSButton's frame
+        // carries bezel insets (the sidebar toggle has the same).
+        let inboxRect = inboxButton.alignmentRect(forFrame: inboxButton.frame)
+        let historyRect = historyButton.alignmentRect(forFrame: historyButton.frame)
+
+        XCTAssertEqual(leadingControlsBar.frame.width, LeadingChromeControlsBar.totalWidth, accuracy: 0.5)
+        XCTAssertEqual(historyRect.minX - inboxRect.maxX, 4, accuracy: 0.5)
+        XCTAssertEqual(historyRect.maxX, leadingControlsBar.bounds.maxX, accuracy: 0.5)
+        XCTAssertEqual(historyRect.width, HistoryToolbarButton.buttonSize, accuracy: 0.5)
+        XCTAssertEqual(historyRect.height, HistoryToolbarButton.buttonSize, accuracy: 0.5)
+        XCTAssertEqual(historyRect.midY, inboxRect.midY, accuracy: 0.5)
+        XCTAssertEqual(historyButton.toolTip, "Agent History (⌘⇧H)")
+        XCTAssertNotNil(historyButton.onClick)
     }
 
     func test_root_controller_centers_window_chrome_row_between_actual_left_and_right_controls_after_layout() throws {

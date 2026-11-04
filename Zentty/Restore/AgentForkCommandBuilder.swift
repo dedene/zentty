@@ -7,6 +7,17 @@ struct AgentForkSource: Equatable, Sendable {
     var workingDirectory: String?
 }
 
+/// Forks one specific session of a pane instead of the agent the pane shows,
+/// e.g. a live session picked from Agent History.
+struct AgentForkSessionOverride: Equatable, Sendable {
+    var tool: AgentTool
+    var sessionID: String
+    /// The Claude config root the session lives in. The fork pane's fresh shell inherits no
+    /// `CLAUDE_CONFIG_DIR` from the source pane, so the command names the root itself. nil (an
+    /// unknown root) leaves the environment alone. Ignored for every other tool.
+    var claudeConfigRoot: ClaudeConfigRoot? = nil
+}
+
 /// A ready-to-run fork: the command typed at the new pane's shell prompt
 /// (so the Zentty agent wrapper on `PATH` launches it, exactly like a manual
 /// launch) and the directory the new pane starts in.
@@ -45,6 +56,58 @@ enum AgentForkAvailability: Equatable, Sendable {
 enum AgentForkCommandBuilder {
     static let noAgentReason = "No agent is running in this pane."
     static let remotePaneReason = "Forking isn't available in remote panes."
+    static let unsafeConfigRootReason = "This session's Claude config folder can't be used safely."
+
+    /// Availability for a live pane. `nil` when no agent runs in it. With a
+    /// `sessionOverride` the fork targets that session (validated like any
+    /// other) instead of the pane's visible agent; `nil` only when the pane
+    /// has no auxiliary state.
+    static func availability(
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState?,
+        sessionOverride: AgentForkSessionOverride?
+    ) -> AgentForkAvailability? {
+        guard let sessionOverride else {
+            return availability(pane: pane, auxiliary: auxiliary)
+        }
+        guard let auxiliary else {
+            return nil
+        }
+        guard auxiliary.shellContext?.scope != .remote else {
+            return .unavailable(reason: remotePaneReason)
+        }
+        let availability = availability(for: AgentForkSource(
+            tool: sessionOverride.tool,
+            sessionID: sessionOverride.sessionID,
+            workingDirectory: SessionRestoreDraftExporter.workingDirectory(
+                agentStatus: auxiliary.agentStatus,
+                auxiliary: auxiliary,
+                pane: pane,
+                restoredDraft: nil
+            )
+        ))
+        guard sessionOverride.tool == .claudeCode, let root = sessionOverride.claudeConfigRoot else {
+            return availability
+        }
+        return applying(root, to: availability)
+    }
+
+    /// Prefixes a Claude fork with its config root, like an Agent History resume. Only the `env`
+    /// prefix is added, never a flag; a root path matching a forbidden token is refused.
+    private static func applying(
+        _ root: ClaudeConfigRoot,
+        to availability: AgentForkAvailability
+    ) -> AgentForkAvailability {
+        guard var plan = availability.plan else {
+            return availability
+        }
+        if let directory = root.alternateDirectory,
+           AgentHistoryResumeCommandBuilder.isForbiddenArgument(directory) {
+            return .unavailable(reason: unsafeConfigRootReason)
+        }
+        plan.command = root.prefixing(plan.command)
+        return .available(plan)
+    }
 
     /// Availability for a live pane. `nil` when no agent runs in it.
     static func availability(

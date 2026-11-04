@@ -199,13 +199,26 @@ extension ShortcutPreset {
     var entries: [ShortcutPresetEntry] {
         switch self {
         case .leftHand:
-            Self.leftHandEntries
+            Self.leftHandEntries + Self.floatEntries
         case .rightHand:
-            Self.rightHandEntries
+            Self.rightHandEntries + Self.floatEntries
         case .ghosttyCompatible:
-            Self.ghosttyCompatibleEntries
+            Self.ghosttyCompatibleEntries + Self.floatEntries
         }
     }
+
+    // MARK: - Floating panes (every preset)
+    // A preset unbinds every defaulted command it doesn't list, so the float
+    // commands keep their ⌥⌘ defaults here. Logical keys, like the defaults.
+
+    private static let floatEntries: [ShortcutPresetEntry] = [
+        .init(commandID: .toggleFloat, key: .character("f"), modifiers: [.command, .option]),
+        .init(commandID: .minimizeFloat, key: .character("m"), modifiers: [.command, .option]),
+        .init(commandID: .pipFloat, key: .character("p"), modifiers: [.command, .option]),
+        .init(commandID: .toggleFloatingPanes, key: .character("h"), modifiers: [.command, .option]),
+        .init(commandID: .newFloat, key: .character("n"), modifiers: [.command, .option]),
+        .init(commandID: .cycleFloatFocus, key: .character("`"), modifiers: [.command, .option]),
+    ]
 
     // MARK: - Left-Hand Preset
     // Thumb on left Cmd, pinky on left Shift. WASD for directional.
@@ -261,6 +274,7 @@ extension ShortcutPreset {
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_J), keyKind: .character, modifiers: [.command]),
         .init(commandID: .toggleFocusedPaneUnread, keyCode: UInt16(kVK_ANSI_U), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_Comma), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .showAgentHistory, keyCode: UInt16(kVK_ANSI_H), keyKind: .character, modifiers: [.command, .shift]),
     ]
 
     // MARK: - Right-Hand Preset
@@ -317,6 +331,7 @@ extension ShortcutPreset {
         .init(commandID: .jumpToLatestNotification, keyCode: UInt16(kVK_ANSI_Semicolon), keyKind: .character, modifiers: [.command, .shift]),
         .init(commandID: .toggleFocusedPaneUnread, keyCode: UInt16(kVK_ANSI_U), keyKind: .character, modifiers: [.command]),
         .init(commandID: .openSettings, keyCode: UInt16(kVK_ANSI_O), keyKind: .character, modifiers: [.command]),
+        .init(commandID: .showAgentHistory, keyCode: UInt16(kVK_ANSI_H), keyKind: .character, modifiers: [.command, .shift]),
     ]
 
     // MARK: - Ghostty-Compatible Preset
@@ -393,5 +408,6 @@ extension ShortcutPreset {
         .init(commandID: .movePaneDown, key: .downArrow, modifiers: [.command, .control, .option]),
         .init(commandID: .resetPaneLayout, keyCode: UInt16(kVK_ANSI_0), keyKind: .character, modifiers: [.command, .control, .option]),
         .init(commandID: .openBookmarksPopover, key: .character("b"), modifiers: [.command, .shift]),
+        .init(commandID: .showAgentHistory, key: .character("h"), modifiers: [.command, .shift]),
     ]
 }

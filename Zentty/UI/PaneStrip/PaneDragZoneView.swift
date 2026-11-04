@@ -20,6 +20,9 @@ final class PaneDragZoneView: NSView {
     /// zone never forwards events to the terminal, so the menu is always reachable here.
     var contextMenuProvider: (() -> NSMenu?)?
 
+    /// Where a float's outset covers the bar: its open hand stays out.
+    var floatCursorExclusion = FloatCursorExclusion()
+
     private var trackingArea: NSTrackingArea?
     private var isPointerInside = false
     private var isDragActive = false
@@ -192,10 +195,26 @@ final class PaneDragZoneView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: resolvedCursor)
+        for rect in cursorRects {
+            addCursorRect(rect, cursor: resolvedCursor)
+        }
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        guard !floatCursorExclusion.excludes(windowPoint: event.locationInWindow, in: self) else { return }
+        claimCursor()
+    }
+
+    private var cursorRects: [CGRect] {
+        floatCursorExclusion.cursorRects(covering: bounds)
+    }
+
+    /// Sets the hand directly. Callers check first that no float owns the
+    /// pointer (a live drag keeps the hand wherever it goes).
+    private func claimCursor() {
+        #if DEBUG
+            cursorClaimCountForTesting += 1
+        #endif
         resolvedCursor.set()
     }
 
@@ -283,11 +302,13 @@ final class PaneDragZoneView: NSView {
         discardCursorRects()
         window?.invalidateCursorRects(for: self)
 
-        guard isPointerInside else {
+        guard isPointerInside,
+              isDragActive || !floatCursorExclusion.excludesCurrentPointer(in: self)
+        else {
             return
         }
 
-        resolvedCursor.set()
+        claimCursor()
     }
 
     /// Re-checks the actual mouse position and corrects hover state.
@@ -303,6 +324,12 @@ final class PaneDragZoneView: NSView {
     }
 
     #if DEBUG
+    private(set) var cursorClaimCountForTesting = 0
+
+    var cursorRectsForTesting: [CGRect] {
+        cursorRects
+    }
+
     var cursorDescriptionForTesting: String {
         if isDragActive {
             "closedHand"

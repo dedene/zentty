@@ -29,6 +29,10 @@ packages:
     # Vendored: upstream declares a macOS 14 platform floor, but the code is pure
     # Foundation and Zentty targets macOS 13. See Vendor/FuzzyMatch/Package.swift.
     path: Vendor/FuzzyMatch
+  Zstd:
+    # Vendored decompress-only Zstandard v1.5.7 for compressed Codex rollouts.
+    # See Vendor/Zstd/README.md.
+    path: Vendor/Zstd
 schemes:
   Zentty:
     build:
@@ -65,6 +69,7 @@ targets:
       - path: Zentty/AppState/Agent/CursorHooksInstaller.swift
       - path: Zentty/AppState/Agent/DevinConfigWriteBack.swift
       - path: Zentty/AppState/Agent/DroidHooksInstaller.swift
+      - path: Zentty/AppState/Agent/FloatControlProtocol.swift
       - path: Zentty/AppState/Agent/GrokHooksInstaller.swift
       - path: Zentty/AppState/Agent/GrokCanonicalReEmitter.swift
       - path: Zentty/AppState/Agent/HookCanonicalReEmitter.swift
@@ -84,6 +89,10 @@ targets:
       - path: Zentty/AppState/Agent/PaneControlProtocol.swift
       - path: Zentty/AppState/Agent/PaneEvent.swift
       - path: Zentty/AppState/Agent/PaneKeyNames.swift
+      - path: Zentty/AgentHistory/IPC/HistoryIPCCommand.swift
+      - path: Zentty/AgentHistory/IPC/HistoryIPCResult.swift
+      - path: Zentty/AgentHistory/IPC/HistoryIPCClientErrors.swift
+      - path: Zentty/AgentHistory/IPC/HistoryIPCFormatting.swift
       - path: Zentty/Servers/ServerIPCCommands.swift
       - path: Zentty/Servers/ServerOutputURLDetector.swift
       - path: Zentty/Servers/ServerURLNormalizer.swift
@@ -131,6 +140,9 @@ targets:
         product: Sparkle
       - package: FuzzyMatch
         product: FuzzyMatch
+      - package: Zstd
+        product: CZstd
+      - sdk: libsqlite3.tbd
     info:
       path: Zentty/Info.plist
       properties:
@@ -253,6 +265,8 @@ targets:
     platform: macOS
     sources:
       - path: ZenttyTests
+      # The Agent History palette fakes are shared with the logic tests.
+      - path: ZenttyLogicTests/Support/AgentHistoryFakes.swift
     info:
       path: ZenttyTests/Info.plist
     settings:
@@ -279,6 +293,8 @@ targets:
         PRODUCT_NAME: ZenttyIntegrationTests
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zenttyIntegrationTests
         INFOPLIST_FILE: ZenttyIntegrationTests/Info.plist
+        # `@testable import Zentty` needs the CZstd module (Zentty links the decoder).
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/Vendor/Zstd/Sources/CZstd/include"
         TEST_HOST: ""
         BUNDLE_LOADER: ""
       configs:
@@ -306,6 +322,8 @@ targets:
         PRODUCT_NAME: ZenttyLogicTests
         PRODUCT_BUNDLE_IDENTIFIER: be.zenjoy.zenttyLogicTests
         INFOPLIST_FILE: ZenttyLogicTests/Info.plist
+        # `@testable import Zentty` needs the CZstd module (Zentty links the decoder).
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/Vendor/Zstd/Sources/CZstd/include"
         TEST_HOST: ""
         BUNDLE_LOADER: ""
       configs:

@@ -384,11 +384,15 @@ enum TmuxCompatIPCHandler {
             }
         }
         context.windowController.refreshTeamAnchors()
-        context.windowController.resizeColumnContainingPane(
-            id: leaderPaneID,
-            in: worklaneID,
-            toFraction: goldenWideFraction
-        )
+        // A floated leader has no column: the split above left the user's
+        // strip as it was, and there is nothing to widen (or restore later).
+        if !context.windowController.isFloatingPane(leaderPaneID) {
+            context.windowController.resizeColumnContainingPane(
+                id: leaderPaneID,
+                in: worklaneID,
+                toFraction: goldenWideFraction
+            )
+        }
         if let name = parsed.value("-n"), !name.isEmpty {
             context.windowController.setPaneTitle(id: newPaneID, title: name)
         }

@@ -21,12 +21,14 @@ struct ZenttyCLI: ParsableCommand {
             VSplitCommand.self,
             GridCommand.self,
             OverlayCommandGroup.self,
+            FloatCommandGroup.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
             ThemeCommandGroup.self,
             ServerCommandGroup.self,
             NotifyCommand.self,
             EventsCommand.self,
+            HistoryCommandGroup.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             AgyHookCommand.self,
@@ -669,6 +671,11 @@ struct PaneCommandGroup: ParsableCommand {
             PaneSendCommand.self,
             PaneSendKeyCommand.self,
             PaneReadCommand.self,
+            PaneFloatCommand.self,
+            PaneDockCommand.self,
+            PanePipCommand.self,
+            PaneMinimizeCommand.self,
+            PaneRestoreCommand.self,
         ]
     )
 }

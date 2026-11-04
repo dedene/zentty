@@ -27,10 +27,15 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeToggleFocusedPaneUnread()
     func routePaneCommand(_ command: PaneCommand)
     func routeMoveFocusedPaneToNewWindow()
+    func routeToggleFloat()
+    func routeMinimizeFloat()
+    func routePipFloat()
+    func routeToggleFloatingPanes()
+    func routeNewFloat()
+    func routeCycleFloatFocus()
     func routeNavigateBack()
     func routeNavigateForward()
     func routeShowCommandPalette()
-    func routeToggleQuickActionOverlay()
     func routeShowTaskManager()
     func routeOpenWithSelectedApp()
     func routeOpenSelectedServer()
@@ -42,6 +47,7 @@ protocol AppActionRouterEnvironment: AnyObject {
     func routeCloseWindow()
     func routeReloadConfig()
     func routeOpenBookmarksPopover()
+    func routeShowAgentHistory()
 }
 
 /// Translates an `AppAction` into the matching environment call. Pure routing:
@@ -97,14 +103,24 @@ struct AppActionRouter {
             environment.routePaneCommand(command)
         case .moveFocusedPaneToNewWindow:
             environment.routeMoveFocusedPaneToNewWindow()
+        case .toggleFloat:
+            environment.routeToggleFloat()
+        case .minimizeFloat:
+            environment.routeMinimizeFloat()
+        case .pipFloat:
+            environment.routePipFloat()
+        case .toggleFloatingPanes:
+            environment.routeToggleFloatingPanes()
+        case .newFloat:
+            environment.routeNewFloat()
+        case .cycleFloatFocus:
+            environment.routeCycleFloatFocus()
         case .navigateBack:
             environment.routeNavigateBack()
         case .navigateForward:
             environment.routeNavigateForward()
         case .showCommandPalette:
             environment.routeShowCommandPalette()
-        case .toggleQuickActionOverlay:
-            environment.routeToggleQuickActionOverlay()
         case .showTaskManager:
             environment.routeShowTaskManager()
         case .openWithSelectedApp:
@@ -127,6 +143,8 @@ struct AppActionRouter {
             environment.routeReloadConfig()
         case .openBookmarksPopover:
             environment.routeOpenBookmarksPopover()
+        case .showAgentHistory:
+            environment.routeShowAgentHistory()
         }
     }
 }

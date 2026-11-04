@@ -106,6 +106,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
+    var onAgentHistoryRequested: ((WorklaneID) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
@@ -326,6 +327,7 @@ final class SidebarWorklaneRowButton: NSButton {
         menuController.onWorklaneColorChanged = onWorklaneColorChanged
         menuController.onWorklaneMoveRequested = onWorklaneMoveRequested
         menuController.onBookmarkAction = onBookmarkAction
+        menuController.onAgentHistoryRequested = onAgentHistoryRequested
         menuController.bookmarkNameLookup = bookmarkNameLookup
     }
 
@@ -1102,29 +1104,20 @@ final class SidebarWorklaneRowButton: NSButton {
             }
 
             let isActive = currentSummary?.isActive ?? false
-            var primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
+            let primaryColor = SidebarWorklaneRowStyleResolver.panePrimaryTextColor(
                 isFocused: paneRow.isFocused,
                 isActive: isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
-            var trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
+            let trailingColor = SidebarWorklaneRowStyleResolver.paneTrailingTextColor(
                 isFocused: paneRow.isFocused,
                 isActive: isActive,
                 activeTextColor: activeTextColor,
                 inactiveTextColor: inactiveTextColor,
                 theme: currentTheme
             )
-            if paneRow.isOverlay {
-                // Overlay lines read as secondary to the panes until focused,
-                // and fade further while hidden.
-                if !paneRow.isFocused { primaryColor = trailingColor }
-                if paneRow.isOverlayHidden {
-                    primaryColor = primaryColor.withAlphaComponent(primaryColor.alphaComponent * 0.6)
-                    trailingColor = trailingColor.withAlphaComponent(trailingColor.alphaComponent * 0.6)
-                }
-            }
             let presentationMode: SidebarPaneRowPresentationMode
             if let panePresentations = currentRenderPlan?.paneRows,
                panePresentations.indices.contains(index) {

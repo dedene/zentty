@@ -95,7 +95,7 @@ enum DiscoveryIPCHandler {
                 isFocused: controller.window.isKeyWindow,
                 worklaneCount: workspaceState.worklanes.count,
                 paneCount: workspaceState.worklanes.reduce(0) { partialResult, worklane in
-                    partialResult + worklane.paneStripState.panes.count
+                    partialResult + worklane.allPanes.count
                 }
             )
         }
@@ -113,9 +113,9 @@ enum DiscoveryIPCHandler {
                     order: order + 1,
                     title: worklane.title,
                     isFocused: workspaceState.activeWorklaneID == worklane.id,
-                    paneCount: worklane.paneStripState.panes.count,
+                    paneCount: worklane.allPanes.count,
                     columnCount: worklane.paneStripState.columns.count,
-                    focusedPaneID: worklane.paneStripState.focusedPaneID?.rawValue
+                    focusedPaneID: worklane.focusedPaneID?.rawValue
                 )
             }
         }
@@ -145,7 +145,8 @@ enum DiscoveryIPCHandler {
                                 worklaneID: worklane.id,
                                 paneID: PaneID(pane.id)
                             )
-                            : nil
+                            : nil,
+                        mode: pane.mode
                     )
                 }
             }

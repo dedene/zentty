@@ -211,7 +211,7 @@ final class GlobalSearchCoordinator {
         }
 
         let livePaneIDs = Set(worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.map(\.id)
+            worklane.allPanes.map(\.id)
         })
 
         frozenTargets.removeAll { !livePaneIDs.contains($0.paneID) }

@@ -23,33 +23,36 @@ extension WorklaneStore {
 
     /// Fork availability for a pane; `nil` when no agent runs in it.
     func agentForkAvailability(for paneID: PaneID) -> AgentForkAvailability? {
-        guard let worklane = worklanes.first(where: { $0.paneStripState.panes.contains { $0.id == paneID } }),
-              let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID),
+              let pane = worklanes[worklaneIndex].pane(id: paneID) else {
             return nil
         }
         return AgentForkCommandBuilder.availability(
             pane: pane,
-            auxiliary: worklane.auxiliaryStateByPaneID[paneID]
+            auxiliary: worklanes[worklaneIndex].auxiliaryStateByPaneID[paneID]
         )
     }
 
     /// Opens the agent's own fork command in a new pane next to `paneID`,
     /// leaving the source agent running. The command is typed at the new
-    /// pane's shell prompt so the Zentty agent wrapper launches it.
+    /// pane's shell prompt so the Zentty agent wrapper launches it. A
+    /// `sessionOverride` forks that session of the pane instead of the
+    /// visible agent.
     @discardableResult
     func forkAgentConversation(
         paneID: PaneID,
-        destination: AgentForkDestination
+        destination: AgentForkDestination,
+        sessionOverride: AgentForkSessionOverride? = nil
     ) throws -> AgentForkResult {
-        guard let sourceWorklane = worklanes.first(where: {
-            $0.paneStripState.panes.contains { $0.id == paneID }
-        }),
-            let sourcePane = sourceWorklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+        guard let sourceWorklaneIndex = worklaneIndex(containingPane: paneID),
+              let sourcePane = worklanes[sourceWorklaneIndex].pane(id: paneID) else {
             throw AgentForkError.paneNotFound
         }
+        let sourceWorklane = worklanes[sourceWorklaneIndex]
         let availability = AgentForkCommandBuilder.availability(
             pane: sourcePane,
-            auxiliary: sourceWorklane.auxiliaryStateByPaneID[paneID]
+            auxiliary: sourceWorklane.auxiliaryStateByPaneID[paneID],
+            sessionOverride: sessionOverride
         ) ?? .unavailable(reason: AgentForkCommandBuilder.noAgentReason)
         guard let plan = availability.plan else {
             throw AgentForkError.unavailable(availability.unavailableReason ?? AgentForkCommandBuilder.noAgentReason)
@@ -65,6 +68,21 @@ extension WorklaneStore {
 
         let result: AgentForkResult
         switch destination {
+        case .splitRight where sourceWorklane.isFloating(paneID),
+             .splitDown where sourceWorklane.isFloating(paneID):
+            // A float is not a strip split target: fork into a new float
+            // offset from the source instead.
+            guard let newPaneID = openFloat(
+                besideFloat: paneID,
+                in: sourceWorklane.id,
+                workingDirectory: plan.workingDirectory,
+                sourceShellContext: sourceWorklane.auxiliaryStateByPaneID[paneID]?.shellContext,
+                command: plan.command,
+                configure: { $0.sessionRequest.replaysCommandOnRestore = false }
+            ) else {
+                throw AgentForkError.paneNotFound
+            }
+            result = AgentForkResult(paneID: newPaneID, worklaneID: sourceWorklane.id)
         case .splitRight, .splitDown:
             guard let newPaneID = splitWithLayout(
                 in: sourceWorklane.id,
@@ -82,48 +100,18 @@ extension WorklaneStore {
             }
             result = AgentForkResult(paneID: newPaneID, worklaneID: sourceWorklane.id)
         case .newWorklane:
-            result = forkIntoNewWorklane(
-                plan: plan,
-                sourceShellContext: sourceWorklane.auxiliaryStateByPaneID[paneID]?.shellContext,
-                anchorWorklaneID: sourceWorklane.id
+            let launched = openWorklane(
+                workingDirectory: plan.workingDirectory,
+                command: plan.command,
+                anchorWorklaneID: sourceWorklane.id,
+                sourceShellContext: sourceWorklane.auxiliaryStateByPaneID[paneID]?.shellContext
             )
+            result = AgentForkResult(paneID: launched.paneID, worklaneID: launched.worklaneID)
         }
 
         if let title = AgentForkCommandBuilder.forkedPaneTitle(sourceCustomTitle: sourcePane.customTitle) {
             setPaneCustomTitle(title, on: result.paneID)
         }
         return result
-    }
-
-    private func forkIntoNewWorklane(
-        plan: AgentForkPlan,
-        sourceShellContext: PaneShellContext?,
-        anchorWorklaneID: WorklaneID
-    ) -> AgentForkResult {
-        var worklane = WorklaneState(
-            id: runtimeIdentity.makeWorklaneID(),
-            title: nil,
-            paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
-            nextPaneNumber: 1
-        )
-        var pane = makePaneWithDirectory(
-            in: &worklane,
-            existingPaneCount: 0,
-            workingDirectory: plan.workingDirectory,
-            sourceShellContext: sourceShellContext,
-            command: plan.command
-        )
-        pane.sessionRequest.surfaceContext = .tab
-        pane.sessionRequest.replaysCommandOnRestore = false
-        worklane.paneStripState.insertPaneAsColumn(
-            pane,
-            atColumnIndex: 0,
-            width: layoutContext.singlePaneWidth
-        )
-
-        worklanes.insert(worklane, at: insertionIndexForNewWorklane(anchorWorklaneID: anchorWorklaneID))
-        notify(.worklaneListChanged)
-        selectWorklane(id: worklane.id)
-        return AgentForkResult(paneID: pane.id, worklaneID: worklane.id)
     }
 }

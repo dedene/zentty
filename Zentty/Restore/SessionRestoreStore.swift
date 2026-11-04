@@ -282,13 +282,7 @@ private extension WorkspaceRecipe {
     func paneIDsByWindowID() -> [String: Set<String>] {
         Dictionary(
             uniqueKeysWithValues: windows.map { window in
-                let paneIDs = Set(
-                    window.worklanes.flatMap { worklane in
-                        worklane.columns.flatMap { column in
-                            column.panes.map(\.id)
-                        }
-                    }
-                )
+                let paneIDs = Set(window.worklanes.flatMap { $0.allPanes.map(\.id) })
                 return (window.id, paneIDs)
             }
         )
@@ -328,7 +322,8 @@ enum SessionRestoreDraftExporter {
         resolveLiveAgentPID: LiveAgentPIDResolver = defaultResolveLiveAgentPID
     ) -> SessionRestoreDraftWindow? {
         let paneDrafts = worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.compactMap { pane in
+            // Same set the recipe exporter saves: temporary floats are skipped.
+            worklane.persistentPanes.compactMap { pane in
                 makePaneDraft(
                     paneID: pane.id,
                     pane: pane,
@@ -641,7 +636,7 @@ enum SessionRestoreDraftExporter {
         return value
     }
 
-    private static func defaultIsProcessAlive(_ pid: Int32) -> Bool {
+    static func defaultIsProcessAlive(_ pid: Int32) -> Bool {
         guard pid > 0 else {
             return false
         }

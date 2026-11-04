@@ -30,8 +30,9 @@ enum CloseConfirmationActivity: Equatable, Sendable {
     }
 }
 
-/// A quick-action overlay with a live process. Overlays live outside the
-/// worklane store, so callers pass in the ones a close would terminate.
+/// An overlay float (`zentty overlay open`) with a live process. Its command
+/// is the session's native command, which the store's shell state may not
+/// see, so callers ask the terminal and pass in the ones a close would end.
 struct RunningQuickAction: Equatable, Sendable {
     /// The command the overlay was opened with; nil for an interactive shell.
     let command: String?
@@ -60,7 +61,7 @@ struct PaneCloseConfirmationContext: Equatable, Sendable {
         in worklane: WorklaneState,
         runningQuickActions: [RunningQuickAction] = []
     ) -> PaneCloseConfirmationContext? {
-        guard let pane = worklane.paneStripState.panes.first(where: { $0.id == paneID }) else {
+        guard let pane = worklane.pane(id: paneID) else {
             return nil
         }
         let auxiliaryState = worklane.auxiliaryStateByPaneID[paneID] ?? PaneAuxiliaryState()
@@ -216,7 +217,9 @@ struct WorklaneCloseConfirmationContext: Equatable, Sendable {
         var historyPaneCount = 0
         var runningActivities: [String] = []
 
-        for pane in worklane.paneStripState.panes {
+        // Closing a worklane kills its floats too (temporary ones included).
+        let panes = worklane.allPanes
+        for pane in panes {
             guard let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id],
                   let reason = WorklaneStore.quitConfirmationReason(for: auxiliaryState)
             else {
@@ -242,7 +245,7 @@ struct WorklaneCloseConfirmationContext: Equatable, Sendable {
         return WorklaneCloseConfirmationContext(
             reason: isRunning ? .runningProcess : .sessionHistory,
             worklaneName: worklane.title,
-            paneCount: worklane.paneStripState.panes.count,
+            paneCount: panes.count,
             runningPaneCount: runningPaneCount,
             historyPaneCount: historyPaneCount,
             runningActivities: runningActivities,
@@ -257,7 +260,7 @@ extension WorklaneStore {
         runningQuickActions: [RunningQuickAction] = []
     ) -> PaneCloseConfirmationContext? {
         for worklane in worklanes {
-            guard worklane.paneStripState.panes.contains(where: { $0.id == paneID }) else {
+            guard worklane.containsPane(id: paneID) else {
                 continue
             }
             return PaneCloseConfirmationContext.make(

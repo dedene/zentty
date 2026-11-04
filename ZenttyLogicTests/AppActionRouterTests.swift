@@ -31,10 +31,15 @@ final class AppActionRouterTests: XCTestCase {
             (.toggleFocusedPaneUnread, "routeToggleFocusedPaneUnread"),
             (.pane(.resetLayout), "routePaneCommand"),
             (.moveFocusedPaneToNewWindow, "routeMoveFocusedPaneToNewWindow"),
+            (.toggleFloat, "routeToggleFloat"),
+            (.minimizeFloat, "routeMinimizeFloat"),
+            (.pipFloat, "routePipFloat"),
+            (.toggleFloatingPanes, "routeToggleFloatingPanes"),
+            (.newFloat, "routeNewFloat"),
+            (.cycleFloatFocus, "routeCycleFloatFocus"),
             (.navigateBack, "routeNavigateBack"),
             (.navigateForward, "routeNavigateForward"),
             (.showCommandPalette, "routeShowCommandPalette"),
-            (.toggleQuickActionOverlay, "routeToggleQuickActionOverlay"),
             (.showTaskManager, "routeShowTaskManager"),
             (.openWithSelectedApp, "routeOpenWithSelectedApp"),
             (.openSelectedServer, "routeOpenSelectedServer"),
@@ -46,6 +51,7 @@ final class AppActionRouterTests: XCTestCase {
             (.closeWindow, "routeCloseWindow"),
             (.reloadConfig, "routeReloadConfig"),
             (.openBookmarksPopover, "routeOpenBookmarksPopover"),
+            (.showAgentHistory, "routeShowAgentHistory"),
         ]
 
         for (action, expected) in cases {
@@ -117,10 +123,15 @@ private final class MockEnvironment: AppActionRouterEnvironment {
         lastPaneCommand = command
     }
     func routeMoveFocusedPaneToNewWindow() { calls.append("routeMoveFocusedPaneToNewWindow") }
+    func routeToggleFloat() { calls.append("routeToggleFloat") }
+    func routeMinimizeFloat() { calls.append("routeMinimizeFloat") }
+    func routePipFloat() { calls.append("routePipFloat") }
+    func routeToggleFloatingPanes() { calls.append("routeToggleFloatingPanes") }
+    func routeNewFloat() { calls.append("routeNewFloat") }
+    func routeCycleFloatFocus() { calls.append("routeCycleFloatFocus") }
     func routeNavigateBack() { calls.append("routeNavigateBack") }
     func routeNavigateForward() { calls.append("routeNavigateForward") }
     func routeShowCommandPalette() { calls.append("routeShowCommandPalette") }
-    func routeToggleQuickActionOverlay() { calls.append("routeToggleQuickActionOverlay") }
     func routeShowTaskManager() { calls.append("routeShowTaskManager") }
     func routeOpenWithSelectedApp() { calls.append("routeOpenWithSelectedApp") }
     func routeOpenSelectedServer() { calls.append("routeOpenSelectedServer") }
@@ -135,4 +146,5 @@ private final class MockEnvironment: AppActionRouterEnvironment {
     func routeCloseWindow() { calls.append("routeCloseWindow") }
     func routeReloadConfig() { calls.append("routeReloadConfig") }
     func routeOpenBookmarksPopover() { calls.append("routeOpenBookmarksPopover") }
+    func routeShowAgentHistory() { calls.append("routeShowAgentHistory") }
 }

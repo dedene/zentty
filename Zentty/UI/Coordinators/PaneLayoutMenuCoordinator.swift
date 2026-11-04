@@ -174,13 +174,8 @@ final class PaneLayoutMenuCoordinator {
     }
 
     private func commandAvailabilityContext(worklaneStore: WorklaneStore) -> CommandAvailabilityContext {
-        let paneStripState = worklaneStore.activeWorklane?.paneStripState
-        return CommandAvailabilityContext(
-            worklaneCount: worklaneStore.worklanes.count,
-            activePaneCount: paneStripState?.panes.count ?? 0,
-            totalPaneCount: worklaneStore.worklanes.reduce(0) { $0 + $1.paneStripState.panes.count },
-            activeColumnCount: paneStripState?.columns.count ?? 0,
-            focusedColumnPaneCount: paneStripState?.focusedColumn?.panes.count ?? 0,
+        CommandAvailabilityContext(
+            counts: PaneAvailabilityCounts(worklaneStore: worklaneStore),
             focusedPaneHasRememberedSearch: false,
             globalSearchHasRememberedSearch: false,
             activeWorklaneHasBranchURL: false

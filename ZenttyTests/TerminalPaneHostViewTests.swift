@@ -281,7 +281,13 @@ final class TerminalPaneHostViewTests: XCTestCase {
             from: paneView.searchHUDCloseButtonForTesting
         )
 
+        // The button's action fires once AppKit reaches the queued mouse-up,
+        // after `sendEvent` has returned.
+        let closed = expectation(description: "close button ended the search")
+        adapter.onEndSearch = { closed.fulfill() }
+
         try sendHostedMouseClick(at: clickPoint, in: paneView, window: window)
+        wait(for: [closed], timeout: 2.0)
 
         XCTAssertEqual(adapter.bindingActions.last, "endSearch")
         XCTAssertEqual(terminalView.mouseDownCount, 0)
@@ -543,6 +549,7 @@ private final class PaneContainerHostedTerminalAdapterSpy: TerminalAdapter, Term
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private let terminalView: NSView
     private(set) var bindingActions: [String] = []
+    var onEndSearch: (() -> Void)?
 
     init(terminalView: NSView) {
         self.terminalView = terminalView
@@ -584,6 +591,7 @@ private final class PaneContainerHostedTerminalAdapterSpy: TerminalAdapter, Term
     func endSearch() {
         bindingActions.append("endSearch")
         searchDidChange?(.ended)
+        onEndSearch?()
     }
 }
 

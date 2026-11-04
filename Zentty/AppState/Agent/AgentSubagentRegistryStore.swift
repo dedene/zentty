@@ -158,7 +158,7 @@ final class AgentSubagentRegistryStore {
             let existing = entry.subagentsByID[subagent.id]
             entry.forgetPruned(subagent.id)
             entry.subagentsByID[subagent.id] = SubagentRecord(
-                entry: Self.merged(existing?.entry, with: subagent),
+                entry: merged(existing?.entry, with: subagent),
                 startedAt: existing?.startedAt ?? now().timeIntervalSince1970
             )
             entry.updatedAt = now().timeIntervalSince1970
@@ -268,7 +268,7 @@ final class AgentSubagentRegistryStore {
             for (id, record) in entry.subagentsByID where record.entry.model == nil {
                 guard let resolved = resolver(record.entry), resolved.model != nil else { continue }
                 entry.subagentsByID[id] = SubagentRecord(
-                    entry: Self.merged(record.entry, with: resolved),
+                    entry: merged(record.entry, with: resolved),
                     startedAt: record.startedAt
                 )
                 changed = true
@@ -389,17 +389,27 @@ final class AgentSubagentRegistryStore {
         var panes: [String: PaneEntry] = [:]
     }
 
-    private static func merged(_ existing: PaneAgentSubagentEntry?, with update: PaneAgentSubagentEntry) -> PaneAgentSubagentEntry {
+    private func merged(_ existing: PaneAgentSubagentEntry?, with update: PaneAgentSubagentEntry) -> PaneAgentSubagentEntry {
         PaneAgentSubagentEntry(
             id: update.id,
             agentType: update.agentType ?? existing?.agentType,
             model: update.model ?? existing?.model,
             nickname: update.nickname ?? existing?.nickname,
-            // The path recorded at start is the one the hook spelled out; a
-            // later hook may only carry a derived guess, so the first wins.
-            transcriptPath: existing?.transcriptPath ?? update.transcriptPath,
+            transcriptPath: mergedTranscriptPath(existing: existing?.transcriptPath, update: update.transcriptPath),
             workflowPhase: update.workflowPhase ?? existing?.workflowPhase
         )
+    }
+
+    /// The path recorded first wins, unless nothing is on disk there and the
+    /// update points at a file that exists. `SubagentStart` fires before a
+    /// Claude agent's files are written, so a workflow agent is recorded under
+    /// a guessed path until its first hook can see the real one.
+    private func mergedTranscriptPath(existing: String?, update: String?) -> String? {
+        guard let existing else { return update }
+        guard let update, update != existing,
+              transcriptModificationDate(existing) == nil,
+              transcriptModificationDate(update) != nil else { return existing }
+        return update
     }
 
     private func withLockedState<T>(_ body: (inout StoreFile) throws -> T) throws -> T {

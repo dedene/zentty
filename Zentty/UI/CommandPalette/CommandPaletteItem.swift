@@ -245,7 +245,7 @@ enum CommandPaletteItemBuilder {
         currentPaneReference: WorklaneStore.PaneReference?
     ) -> [CommandPaletteItem] {
         worklanes.flatMap { worklane in
-            worklane.paneStripState.panes.compactMap { pane -> CommandPaletteItem? in
+            worklane.allPanes.compactMap { pane -> CommandPaletteItem? in
                 let context = worklane.paneContext(for: pane.id)
                 let presentation = context?.presentation ?? PanePresentationState()
                 let title = paneTitle(pane: pane, presentation: presentation)
@@ -530,6 +530,8 @@ enum CommandPaletteItemBuilder {
             "arrow.clockwise"
         case .forkAgentConversation:
             "arrow.triangle.branch"
+        case .showAgentHistory:
+            "clock.arrow.circlepath"
         case .toggleLightDarkTheme, .useDarkTheme, .useLightTheme, .useAutoTheme:
             "circle.lefthalf.filled"
         default:

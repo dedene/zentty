@@ -12,6 +12,7 @@ Zentty keeps everything you set up in `~/.config/zentty/`. That folder is safe t
 | `~/.config/zentty/agents/` | Your own agent definitions ([Agent Hooks](agent-hooks.md)) | Yes |
 | `~/.config/zentty/run/` | The running app's socket, locks and agent wrapper scripts | **No** |
 | `~/Library/Application Support/Zentty/` | Session restore snapshot, saved pane output, agent session state | No |
+| `~/Library/Application Support/Zentty/AgentHistory/` | Agent History search index and its on/off state. Holds copies of your agent conversations, readable only by you and excluded from Time Machine | **No** |
 | `~/Library/Preferences/be.zenjoy.zentty.plist` | Window positions, update checks | No |
 
 The Zentty Dev build uses `~/.config/zentty-dev/` and `~/Library/Application Support/Zentty Dev/` instead.
@@ -73,6 +74,37 @@ The `[agents]` section holds agent behaviour that isn't tied to one integration:
 # Where "Fork Agent Conversation" opens the fork: split_right, split_down or new_worklane.
 fork_destination = "split_right"
 ```
+
+## Agent History settings
+
+Agent History indexes your past Claude Code, Codex, Grok and opencode conversations so you can search and resume them from **Agent History…** (⌘⇧H) or with `zentty history` (see [CLI](cli.md)). It's off until you turn it on in Settings → Agent History, and it doesn't read any conversations before then.
+
+Its settings live in two places.
+
+Whether Agent History is on, and which agents it reads, belong to one Mac. They're kept in `state.json` inside `~/Library/Application Support/Zentty/AgentHistory/` and don't sync. Each Mac builds its own index and asks before reading anything.
+
+Excluded folders and agent access are preferences, so they live in `config.toml` and sync with the rest of it:
+
+```toml
+[agent_history]
+excluded_folders = ["~/Development/client-secrets", "~/notes"]
+allow_agents_all_projects = false
+```
+
+- `excluded_folders`: Agent History never indexes a session whose working directory is inside one of these folders. Adding a folder removes its sessions from the index, and removing it lets them be read again. The check uses the folder the agent ran in, not the files it read, so a session started somewhere else that opened a file in an excluded folder is still indexed. Zentty writes paths under your home folder as `~/…`, so the list works on Macs with different user names.
+- `allow_agents_all_projects` (**Allow agents to search all projects**, off by default): `zentty history` only sees sessions from the calling pane's project. Turn this on to let `--all` reach every project.
+
+Keep `excluded_folders` on one line. Zentty reads `config.toml` a line at a time, so an array split over several lines makes the file unreadable, and Zentty won't save to it until you fix it (see [How changes arrive](#how-changes-arrive)).
+
+If `config.toml` is unreadable when Zentty starts, Agent History can't tell which folders you excluded, so it pauses. It reads nothing new, and the palette and `zentty history` can't search until the file loads again. Indexing resumes as soon as you fix it. If the file breaks while Zentty is running, Agent History keeps the excluded folders it already had.
+
+What the index holds:
+
+- Your messages and the agents' replies, session titles, branches and folders, and the file paths and commands a session touched. Raw tool output isn't stored. The folder is readable only by you and excluded from Time Machine backups.
+- Before storing text, Zentty replaces common API keys and tokens with `‹redacted›`: `sk-` keys, GitHub, GitLab, Slack, Stripe and npm tokens, Google API keys, AWS access key IDs, JWTs, PEM private keys and `Authorization: Bearer` values. It matches by pattern, so anything without a known shape is stored as written. That includes passwords, AWS secret keys and credentials inside connection strings. Exclude folders that hold secrets.
+- When an agent deletes one of its transcripts, the session leaves the index too. Claude Code deletes conversations after 30 days unless `cleanupPeriodDays` says otherwise. If it keeps them for less than a year, the Sources list offers **Keep 1 Year**, which sets `cleanupPeriodDays` to 365 in Claude Code's `settings.json` after saving a `settings.json.zentty-backup-…` copy next to it. Zentty changes that file only when you click the button, and doesn't offer it when your organization manages the setting.
+- Turning a source off removes that agent's sessions from the index. **Remove from Agent History** keeps a single session out, even after a rebuild. Settings shows how many you've removed and can restore them all.
+- Turning Agent History off stops indexing and keeps the index on disk. **Delete Index and Turn Off** removes the whole `AgentHistory` folder: the index, the removed-sessions list, usage data and the on/off state. Your agents' own transcripts aren't touched. Zentty won't delete the index while another running copy of Zentty is using it.
 
 ## Bookmarks
 

@@ -1,5 +1,8 @@
 import CoreGraphics
 import Foundation
+import os
+
+private let templateImportLogger = Logger(subsystem: "be.zenjoy.zentty", category: "BookmarkRestore")
 
 enum WorkspaceTemplateImporter {
     struct Fallback: Equatable, Sendable {
@@ -27,6 +30,7 @@ enum WorkspaceTemplateImporter {
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
         commandResolver: ((String) -> Bool)? = nil
     ) -> Result {
+        let template = withAtLeastOnePane(template)
         var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
         var fallbacks: [Fallback] = []
         let totalColumns = template.columns.count
@@ -104,6 +108,28 @@ enum WorkspaceTemplateImporter {
         )
 
         return Result(worklane: worklane, fallbacks: fallbacks)
+    }
+
+    /// `template`, or (when it holds no panes, e.g. saved from a float-only
+    /// worklane before floats were captured) a copy with one default pane,
+    /// so opening it never yields a worklane with nothing in it.
+    static func withAtLeastOnePane(_ template: WorkspaceTemplate) -> WorkspaceTemplate {
+        guard template.paneCount == 0 else {
+            return template
+        }
+        templateImportLogger.warning("Template \(template.id.uuidString, privacy: .public) has no panes; opening one default pane")
+        var copy = template
+        let column = WorkspaceTemplate.Column(
+            id: "column-default",
+            width: 0,
+            focusedPaneID: "pane-default",
+            lastFocusedPaneID: "pane-default",
+            paneHeights: [],
+            panes: [WorkspaceTemplate.Pane(id: "pane-default")]
+        )
+        copy.columns = [column]
+        copy.focusedColumnID = column.id
+        return copy
     }
 
     static func normalizedColumnWidths(
