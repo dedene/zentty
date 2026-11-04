@@ -73,12 +73,21 @@ struct AgentHistorySettingsFormatter {
         case .off, .starting:
             return nil
         case .backfilling(let progress):
-            let text = progress.totalSessions > 0
-                ? "Indexing \(number(progress.indexedSessions)) of \(number(progress.totalSessions)) sessions"
-                : "Looking for sessions"
-            return AgentHistorySettingsActivity(text: text, isWarning: false)
-        case .paused(let reason, _):
-            return pausedActivity(reason)
+            guard progress.totalSessions > 0 else {
+                return AgentHistorySettingsActivity(text: "Looking for sessions", isWarning: false)
+            }
+            let line = "Indexing \(number(progress.indexedSessions)) of \(number(progress.totalSessions)) sessions"
+            return AgentHistorySettingsActivity(
+                text: progress.remainingText.map { "\(line) · \($0)" } ?? line,
+                isWarning: false
+            )
+        case .paused(let reason, let progress):
+            let activity = pausedActivity(reason)
+            guard let progress, progress.totalSessions > 0, reason != .anotherInstance else {
+                return activity
+            }
+            let counts = "\(number(progress.indexedSessions)) of \(number(progress.totalSessions))"
+            return AgentHistorySettingsActivity(text: "\(activity.text) · \(counts)", isWarning: activity.isWarning)
         case .failed(let reason):
             return AgentHistorySettingsActivity(text: failureText(reason), isWarning: true)
         case .watching:

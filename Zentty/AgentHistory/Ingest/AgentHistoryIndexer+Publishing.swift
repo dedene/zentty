@@ -36,14 +36,26 @@ extension AgentHistoryIndexer {
             break
         }
         if let reason = pauseReason, reason == .diskFull || workQueue.backfillCount > 0 {
+            backfillEstimator.reset()
             setState(.paused(reason, progress))
         } else if hasDrainedOnce {
             if case .paused = state {
                 setState(.watching)
             }
         } else {
-            setState(.backfilling(progress))
+            setState(.backfilling(progressWithEstimate()))
         }
+    }
+
+    private func progressWithEstimate() -> AgentHistoryBackfillProgress {
+        var current = progress
+        let uptime = ProcessInfo.processInfo.systemUptime
+        backfillEstimator.record(indexed: current.indexedSessions, at: uptime)
+        current.estimatedSecondsRemaining = backfillEstimator.secondsRemaining(
+            sessionsLeft: current.totalSessions - current.indexedSessions,
+            at: uptime
+        )
+        return current
     }
 
     /// True once, when the visible sessions first reach `snapshotPublishThreshold`.

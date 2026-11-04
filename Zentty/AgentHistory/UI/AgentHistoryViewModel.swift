@@ -64,6 +64,8 @@ final class AgentHistoryViewModel: ObservableObject {
         var problemLink: String?
         /// "Type 3+ characters to search conversations".
         var hint: String?
+        /// The initial index is running or paused: a bar, and the health text opens the details.
+        var indexProgress: AgentHistoryIndexProgress?
     }
 
     static let shortTermsHint = "Type 3+ characters to search conversations"
@@ -84,6 +86,8 @@ final class AgentHistoryViewModel: ObservableObject {
     @Published internal(set) var transcript: Loadable<HistoryTranscript> = .idle
     @Published internal(set) var detail: DetailMode = .none
     @Published internal(set) var footer: Footer
+    /// The initial index's details fill the results area; Esc goes back to search.
+    @Published internal(set) var isShowingIndexProgress = false
     @Published internal(set) var liveKeys: Set<AgentHistorySessionKey> = []
     @Published internal(set) var folderGoneKeys: Set<AgentHistorySessionKey> = []
     /// Rows whose transcript file was found; only they offer "Reveal Transcript in Finder".
@@ -291,6 +295,7 @@ final class AgentHistoryViewModel: ObservableObject {
     func updateQuery(_ raw: String) {
         guard raw != query else { return }
         query = raw
+        isShowingIndexProgress = false
         parsedQuery = HistoryQueryParser.parse(raw)
         pills = AgentHistoryFilterPill.pills(for: parsedQuery)
         closeDetailForNewResults()

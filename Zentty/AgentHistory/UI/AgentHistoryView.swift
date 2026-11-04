@@ -188,7 +188,16 @@ struct AgentHistoryView: View {
                 onOpenSettings: model.openProblemLink
             )
         case .results:
-            results
+            if model.isShowingIndexProgress, let progress = model.footer.indexProgress {
+                AgentHistoryIndexProgressView(
+                    progress: progress,
+                    status: model.footer.health,
+                    theme: theme,
+                    onClose: model.closeIndexProgress
+                )
+            } else {
+                results
+            }
         }
     }
 

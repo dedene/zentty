@@ -126,6 +126,7 @@ extension AgentHistoryViewModel {
         guard outcome == .refusedConfigUnreadable, body == .consent, var consent, consent.isIndexing else { return }
         consent.isIndexing = false
         consent.overallProgress = nil
+        consent.indexingStatus = nil
         consent.saveError = AgentHistoryConsentModel.configUnreadableError
         self.consent = consent
     }
@@ -151,11 +152,22 @@ extension AgentHistoryViewModel {
             return true
         }
         consent.applyProgress(status)
+        consent.indexingStatus = indexingStatus(status)
         self.consent = consent
         if AgentHistoryConsentModel.isReadyForResults(status) {
             showResults()
         }
         return true
+    }
+
+    /// Only once the indexer is at work: before that there's nothing to say yet.
+    private func indexingStatus(_ status: AgentHistoryStatus) -> AgentHistoryFooterHealth? {
+        switch status.state {
+        case .backfilling, .paused:
+            return formatting.footerHealth(status: status, now: services.now())
+        default:
+            return nil
+        }
     }
 
     private func leaveConsentCard(status: AgentHistoryStatus) {

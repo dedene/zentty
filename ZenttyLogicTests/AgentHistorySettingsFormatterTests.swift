@@ -108,7 +108,7 @@ final class AgentHistorySettingsFormatterTests: XCTestCase {
         )
         XCTAssertEqual(
             formatter.activity(for: status(state: .paused(.lowPower, progress))),
-            AgentHistorySettingsActivity(text: "Paused while Low Power Mode is on", isWarning: true)
+            AgentHistorySettingsActivity(text: "Paused while Low Power Mode is on · 312 of 1,284", isWarning: true)
         )
         XCTAssertEqual(
             formatter.activity(for: status(state: .paused(.thermal, nil))),

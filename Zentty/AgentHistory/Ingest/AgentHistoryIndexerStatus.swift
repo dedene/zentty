@@ -31,6 +31,32 @@ enum AgentHistoryFailureReason: Equatable, Sendable {
 struct AgentHistoryBackfillProgress: Equatable, Sendable {
     var indexedSessions: Int
     var totalSessions: Int
+    /// Time left at the recent pace; nil until there's a pace, and while paused.
+    var estimatedSecondsRemaining: TimeInterval? = nil
+
+    /// Share of the sessions done, for a progress bar; nil before any were found.
+    var fraction: Double? {
+        guard totalSessions > 0 else { return nil }
+        return min(1, Double(indexedSessions) / Double(totalSessions))
+    }
+
+    /// "about 12 min left". The numbers round coarsely: this is an estimate.
+    var remainingText: String? {
+        guard let seconds = estimatedSecondsRemaining else { return nil }
+        if seconds < 60 {
+            return "less than a minute left"
+        }
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 10 {
+            return "about \(minutes) min left"
+        }
+        let roundedMinutes = Int((Double(minutes) / 5).rounded()) * 5
+        if roundedMinutes < 60 {
+            return "about \(roundedMinutes) min left"
+        }
+        let hours = Int((Double(roundedMinutes) / 60).rounded())
+        return hours == 1 ? "about 1 hour left" : "about \(hours) hours left"
+    }
 }
 
 enum AgentHistoryIndexerState: Equatable, Sendable {

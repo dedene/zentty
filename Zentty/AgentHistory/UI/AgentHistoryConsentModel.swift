@@ -48,6 +48,8 @@ struct AgentHistoryConsentModel: Equatable {
     /// Set by "Index ‹N› Sessions": checkboxes lock and the card shows progress.
     var isIndexing = false
     var overallProgress: AgentHistoryConsentProgress?
+    /// What the indexer is doing right now, above the note: counts and time left, or why it paused.
+    var indexingStatus: AgentHistoryFooterHealth?
 
     /// Sessions counted across every found source (database sources add nothing, D11).
     var totalFound: Int {

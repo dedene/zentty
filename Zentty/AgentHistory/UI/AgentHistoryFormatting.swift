@@ -83,16 +83,13 @@ struct AgentHistoryFormatting {
         case .starting:
             return AgentHistoryFooterHealth(text: "Starting…", isWarning: false)
         case .backfilling(let progress):
-            let text = progress.totalSessions > 0
-                ? "Indexing \(number(progress.indexedSessions)) of \(number(progress.totalSessions)) sessions"
-                : "Looking for sessions"
-            return AgentHistoryFooterHealth(text: text, isWarning: false)
-        case .paused(.lowPower, _):
-            return AgentHistoryFooterHealth(text: "Indexing paused while Low Power Mode is on", isWarning: true)
-        case .paused(.thermal, _):
-            return AgentHistoryFooterHealth(text: "Indexing paused while the Mac is hot", isWarning: true)
-        case .paused(.diskFull, _):
-            return AgentHistoryFooterHealth(text: "Indexing paused: the disk is full", isWarning: true)
+            return AgentHistoryFooterHealth(text: indexingLine(progress), isWarning: false)
+        case .paused(.lowPower, let progress):
+            return pausedHealth("Indexing paused while Low Power Mode is on", progress)
+        case .paused(.thermal, let progress):
+            return pausedHealth("Indexing paused while the Mac is hot", progress)
+        case .paused(.diskFull, let progress):
+            return pausedHealth("Indexing paused: the disk is full", progress)
         case .paused(.anotherInstance, _):
             return AgentHistoryFooterHealth(text: indexedLine(status, now: now), isWarning: false)
         case .paused(.configUnreadable, _):
@@ -108,6 +105,23 @@ struct AgentHistoryFormatting {
             }
             return AgentHistoryFooterHealth(text: indexedLine(status, now: now), isWarning: false)
         }
+    }
+
+    /// "Indexing 312 of 1,284 sessions · about 12 min left".
+    func indexingLine(_ progress: AgentHistoryBackfillProgress) -> String {
+        guard progress.totalSessions > 0 else {
+            return "Looking for sessions"
+        }
+        let line = "Indexing \(number(progress.indexedSessions)) of \(number(progress.totalSessions)) sessions"
+        return progress.remainingText.map { "\(line) · \($0)" } ?? line
+    }
+
+    private func pausedHealth(_ text: String, _ progress: AgentHistoryBackfillProgress?) -> AgentHistoryFooterHealth {
+        guard let progress, progress.totalSessions > 0 else {
+            return AgentHistoryFooterHealth(text: text, isWarning: true)
+        }
+        let counts = "\(number(progress.indexedSessions)) of \(number(progress.totalSessions))"
+        return AgentHistoryFooterHealth(text: "\(text) · \(counts)", isWarning: true)
     }
 
     /// The amber footer link to Settings when an enabled source has problems: "opencode: 2

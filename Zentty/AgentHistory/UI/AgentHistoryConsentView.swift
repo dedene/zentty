@@ -259,10 +259,18 @@ struct AgentHistoryConsentView: View {
             }
             .progressViewStyle(.linear)
             .accessibilityLabel("Indexing progress")
-            Text(AgentHistoryConsentModel.indexingNote)
-                .font(.system(size: 12))
-                .foregroundStyle(theme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+            if let status = consent.indexingStatus {
+                Text(status.text)
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(status.isWarning ? theme.warning : theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if consent.indexingStatus?.isWarning != true {
+                Text(AgentHistoryConsentModel.indexingNote)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

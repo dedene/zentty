@@ -96,6 +96,7 @@ extension AgentHistoryViewModel {
         transcriptPresentKeys = []
         consent = nil
         transientMessage = nil
+        isShowingIndexProgress = false
         onRequestClose?(false)
     }
 
@@ -119,11 +120,25 @@ extension AgentHistoryViewModel {
 
     func updateFooter(status: AgentHistoryStatus? = nil) {
         let status = status ?? services.control.status
+        let indexProgress = AgentHistoryIndexProgress(status: status)
         footer = Footer(
             health: formatting.footerHealth(status: status, now: services.now()),
             problemLink: formatting.problemLink(status: status),
-            hint: contentPhase == .shortTermsOnly ? Self.shortTermsHint : nil
+            hint: contentPhase == .shortTermsOnly ? Self.shortTermsHint : nil,
+            indexProgress: indexProgress
         )
+        if indexProgress == nil {
+            isShowingIndexProgress = false
+        }
+    }
+
+    func toggleIndexProgress() {
+        guard footer.indexProgress != nil else { return }
+        isShowingIndexProgress.toggle()
+    }
+
+    func closeIndexProgress() {
+        isShowingIndexProgress = false
     }
 
     /// Marks when the empty-query view was last built (for the status refresh throttle).

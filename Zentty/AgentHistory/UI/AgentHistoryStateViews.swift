@@ -169,6 +169,11 @@ struct AgentHistoryFooterView: View {
         .lineLimit(1)
         .padding(.horizontal, 14)
         .frame(height: 34)
+        .overlay(alignment: .top) {
+            if let fraction = model.footer.indexProgress?.fraction {
+                AgentHistoryFooterProgressBar(fraction: fraction, theme: theme)
+            }
+        }
     }
 
     static func fullHints(queryIsEmpty: Bool) -> [AgentHistoryKeyHint] {
@@ -212,16 +217,16 @@ struct AgentHistoryFooterView: View {
         HStack(spacing: 10) {
             if let hint = footer.hint {
                 Text(hint)
-            } else {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(footer.health.isWarning ? theme.warning : theme.live)
-                        .frame(width: 6, height: 6)
-                        .accessibilityHidden(true)
-                    Text(footer.health.text)
-                        .foregroundStyle(footer.health.isWarning ? theme.warning : theme.secondaryText)
+            } else if footer.indexProgress != nil {
+                Button(action: model.toggleIndexProgress) {
+                    healthLabel(footer.health, theme: theme, isLink: true)
                 }
-                .accessibilityElement(children: .combine)
+                .buttonStyle(.plain)
+                .focusable(false)
+                .help("Show indexing progress")
+                .accessibilityHint("Shows indexing progress")
+            } else {
+                healthLabel(footer.health, theme: theme, isLink: false)
             }
             if let problem = footer.problemLink {
                 Button(action: model.openProblemLink) {
@@ -235,6 +240,24 @@ struct AgentHistoryFooterView: View {
             }
         }
         .layoutPriority(1)
+    }
+
+    private func healthLabel(
+        _ health: AgentHistoryFooterHealth,
+        theme: AgentHistoryTheme,
+        isLink: Bool
+    ) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(health.isWarning ? theme.warning : theme.live)
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
+            Text(health.text)
+                .underline(isLink, color: theme.secondaryText.opacity(0.5))
+                .monospacedDigit()
+                .foregroundStyle(health.isWarning ? theme.warning : theme.secondaryText)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

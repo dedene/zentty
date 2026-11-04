@@ -112,6 +112,8 @@ extension AgentHistoryViewModel {
     func escape() {
         if folderSheet != nil {
             folderSheet = nil
+        } else if isShowingIndexProgress {
+            isShowingIndexProgress = false
         } else if closeDetail() {
             return
         } else if !query.isEmpty {
@@ -124,6 +126,11 @@ extension AgentHistoryViewModel {
     // MARK: - Launching
 
     func performSelected(_ intent: AgentHistoryLaunchIntent) {
+        // The selected row is hidden behind the details: ↩ goes back rather than resume it.
+        guard !isShowingIndexProgress else {
+            isShowingIndexProgress = false
+            return
+        }
         guard let selectedKey else { return }
         perform(intent, on: selectedKey)
     }
