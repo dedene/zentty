@@ -239,6 +239,50 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertTrue(hostView.displayedTerminalCursorForTesting === NSCursor.pointingHand)
     }
 
+    // A window of 160pt shows 10 rows of 16pt, so 10 rows of total fit exactly.
+    func test_scroller_stays_hidden_while_everything_fits() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        let window = hostInVisibleWindow(hostView)
+        defer { window.orderOut(nil) }
+
+        hostView.applyScrollbarUpdate(.init(total: 10, offset: 0, len: 10))
+        hostView.layoutSubtreeIfNeeded()
+
+        let scroller = try XCTUnwrap(hostView.verticalScrollerForTesting)
+        XCTAssertTrue(scroller.isHidden, "a full-height knob has nothing to say and only flashes")
+    }
+
+    func test_scroller_comes_back_once_there_is_scrollback() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        let window = hostInVisibleWindow(hostView)
+        defer { window.orderOut(nil) }
+        hostView.applyScrollbarUpdate(.init(total: 10, offset: 0, len: 10))
+
+        hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        hostView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(try XCTUnwrap(hostView.verticalScrollerForTesting).isHidden)
+    }
+
+    func test_scroller_is_invisible_while_viewport_sync_is_suspended() throws {
+        let harness = makeScrollHostHarness()
+        let hostView = harness.hostView
+        let window = hostInVisibleWindow(hostView)
+        defer { window.orderOut(nil) }
+        hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scroller = try XCTUnwrap(hostView.verticalScrollerForTesting)
+
+        hostView.setViewportSyncSuspended(true)
+        hostView.needsLayout = true
+        hostView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(scroller.alphaValue, 0, "a lifted or scaled terminal must not flash a scroller")
+
+        hostView.setViewportSyncSuspended(false)
+        XCTAssertEqual(scroller.alphaValue, 1)
+    }
+
     func test_outputDrivenViewportGrowth_preservesSemanticCursor() {
         let harness = makeScrollHostHarness()
         let hostView = harness.hostView

@@ -562,7 +562,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = false
+        // Hidden while everything fits: AppKit would otherwise flash a
+        // full-height knob, with nothing to scroll, when a float lifts.
+        scrollView.autohidesScrollers = true
         scrollView.usesPredominantAxisScrolling = true
         scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
@@ -732,6 +734,10 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollView.layer
     }
 
+    var verticalScrollerForTesting: NSScroller? {
+        scrollView.verticalScroller
+    }
+
     var overlayHostLayerForTesting: CALayer? {
         overlayHostView.layer
     }
@@ -775,6 +781,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     func setViewportSyncSuspended(_ suspended: Bool) {
         recordViewportDiagnostics(.scrollHostSyncSuspended, suspended: suspended)
+        // A scaled or moving terminal never shows a scroller. Alpha, not
+        // `isHidden`: the scroll view's tile undoes that.
+        scrollView.verticalScroller?.alphaValue = suspended ? 0 : 1
         if suspended {
             surfaceView.setViewportSyncSuspended(true)
         } else {
