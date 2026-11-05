@@ -396,7 +396,7 @@ final class WindowChromeView: NSView {
         branchLabel.isInteractive = isBranchClickable
         branchLabel.toolTip = branchToolTip(isClickable: isBranchClickable)
 
-        pullRequestButton.title = summary.pullRequest.map { "PR #\($0.number)" } ?? ""
+        pullRequestButton.title = summary.pullRequest?.shortLabel ?? ""
         pullRequestButton.isHidden = summary.pullRequest == nil
         updatePullRequestInteraction()
         updatePullRequestAppearance(animated: false)
@@ -605,23 +605,23 @@ final class WindowChromeView: NSView {
         let isClickable = pullRequest.url != nil
         pullRequestButton.isEnabled = isClickable
         pullRequestButton.isInteractive = isClickable
-        pullRequestButton.toolTip = pullRequestToolTip(number: pullRequest.number, isClickable: isClickable)
-        pullRequestButton.setAccessibilityLabel("Pull request #\(pullRequest.number)")
+        pullRequestButton.toolTip = pullRequestToolTip(label: pullRequest.longLabel, isClickable: isClickable)
+        pullRequestButton.setAccessibilityLabel(pullRequest.capitalizedLongLabel)
         pullRequestButton.setAccessibilityHelp(
             isClickable
-                ? "Opens pull request #\(pullRequest.number) in browser"
-                : "Pull request link unavailable"
+                ? "Opens \(pullRequest.longLabel) in browser"
+                : "\(pullRequest.capitalizedLongLabel) link unavailable"
         )
     }
 
     private func presentPullRequestMenu(with event: NSEvent) {
-        guard currentSummary.pullRequest != nil else {
+        guard let pullRequest = currentSummary.pullRequest else {
             return
         }
 
         let menu = NSMenu(title: "")
         let title = CommandTooltipFormatter.title(
-            "Refresh PR Status",
+            pullRequest.kind == .mergeRequest ? "Refresh MR Status" : "Refresh PR Status",
             commandID: .refreshPullRequestStatus,
             shortcutManager: shortcutManager
         )
@@ -644,10 +644,10 @@ final class WindowChromeView: NSView {
 
     /// Tooltip for the PR badge: the interaction hint plus a freshness line, and a failure line
     /// when the last refresh failed. The failure line is the primary "why is this stale" signal.
-    private func pullRequestToolTip(number: Int, isClickable: Bool) -> String? {
+    private func pullRequestToolTip(label: String, isClickable: Bool) -> String? {
         var lines: [String] = []
         if isClickable {
-            lines.append("Open pull request #\(number) in browser")
+            lines.append("Open \(label) in browser")
         }
         if let fetchedAt = currentSummary.reviewFetchedAt {
             lines.append("Updated \(ReviewAgeFormatter.string(since: fetchedAt, now: Date()))")
@@ -719,7 +719,7 @@ final class WindowChromeView: NSView {
         // recheck timer fades a badge whose tooltip still reports the age computed at render time.
         if let pullRequest = currentSummary.pullRequest {
             pullRequestButton.toolTip = pullRequestToolTip(
-                number: pullRequest.number,
+                label: pullRequest.longLabel,
                 isClickable: pullRequest.url != nil
             )
         }
