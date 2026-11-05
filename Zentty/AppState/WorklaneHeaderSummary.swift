@@ -65,9 +65,37 @@ struct WorklaneChromeSummary: Equatable, Sendable {
 }
 
 struct WorklanePullRequestSummary: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case pullRequest
+        case mergeRequest
+    }
+
     var number: Int
     var url: URL?
     var state: WorklanePullRequestState
+    var kind: Kind = .pullRequest
+
+    var shortLabel: String {
+        switch kind {
+        case .pullRequest:
+            return "PR #\(number)"
+        case .mergeRequest:
+            return "MR !\(number)"
+        }
+    }
+
+    var longLabel: String {
+        switch kind {
+        case .pullRequest:
+            return "pull request #\(number)"
+        case .mergeRequest:
+            return "merge request !\(number)"
+        }
+    }
+
+    var capitalizedLongLabel: String {
+        longLabel.prefix(1).uppercased() + longLabel.dropFirst()
+    }
 }
 
 enum WorklanePullRequestState: Equatable, Sendable {
