@@ -862,10 +862,20 @@ final class PaneDragCoordinator {
         }
     }
 
+    /// Decides the drag: from here on, mouse-up, Esc and cursor moves arriving
+    /// during the settle or spring are refused by the `.active` guards.
+    private func enterFinishingPhase() {
+        guard case .active(let activeState) = phase else { return }
+        phase = .finishing(activeState)
+        stopEdgeScroll()
+        stopSidebarEdgeScroll()
+    }
+
     // MARK: - Cancel
 
     func cancelDrag() {
         guard case .active = phase else { return }
+        enterFinishingPhase()
 
         guard let paneStripView else {
             teardown()
@@ -1163,6 +1173,7 @@ final class PaneDragCoordinator {
             return
         }
 
+        enterFinishingPhase()
         prepareForDropSettle()
         reparentPreviewToViewportForSettle()
 
@@ -1298,6 +1309,7 @@ final class PaneDragCoordinator {
         let isDuplicate = isOptionHeld
         let stripView = paneStripView
 
+        enterFinishingPhase()
         animateSidebarDrop(to: targetCenter) {
             MainActorShim.assumeIsolated {
                 self.dragLayer?.removeAllAnimations()
@@ -1346,6 +1358,7 @@ final class PaneDragCoordinator {
         let isDuplicate = isOptionHeld
         let stripView = paneStripView
 
+        enterFinishingPhase()
         animateSidebarDrop(to: targetCenter) {
             MainActorShim.assumeIsolated {
                 self.dragLayer?.removeAllAnimations()
@@ -2273,8 +2286,12 @@ final class PaneDragCoordinator {
 
 extension PaneDragPhase {
     var activeState: PaneDragActiveState? {
-        if case .active(let state) = self { return state }
-        return nil
+        switch self {
+        case .active(let state), .finishing(let state):
+            return state
+        case .idle, .pending:
+            return nil
+        }
     }
 }
 

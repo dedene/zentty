@@ -4661,6 +4661,68 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertTrue(paneStripView.isZoomedOut)
     }
 
+    // MARK: - Drag finishing
+
+    @MainActor
+    private func beginThreePaneDrag(
+        in paneStripView: PaneStripView
+    ) throws -> (state: PaneStripState, cursor: CGPoint) {
+        paneStripView.dragOverlayView = paneStripView
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta"), makePane("gamma")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let alphaPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("alpha") })
+        )
+        let cursor = paneStripView.convert(
+            CGPoint(x: alphaPane.frame.midX, y: alphaPane.frame.maxY - (PaneContainerView.dragZoneHeight / 2)),
+            from: alphaPane.superview
+        )
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("alpha"), cursorInStrip: cursor)
+        return (state, cursor)
+    }
+
+    @MainActor
+    private func dragInactiveExpectation(for paneStripView: PaneStripView) -> XCTestExpectation {
+        let inactive = expectation(description: "drag reported inactive")
+        inactive.assertForOverFulfill = false
+        paneStripView.onDragActiveChanged = { active in
+            if !active { inactive.fulfill() }
+        }
+        return inactive
+    }
+
+    @MainActor
+    private func pumpMainQueue(for delay: TimeInterval) {
+        let elapsed = expectation(description: "main queue pumped")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { elapsed.fulfill() }
+        wait(for: [elapsed], timeout: delay + 5)
+    }
+
+    @MainActor
+    func test_mouse_up_after_cancel_does_not_commit_drop() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        var outcomes: [PaneDragOutcome] = []
+        paneStripView.onPaneDragOutcome = { outcomes.append($0) }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        let gapCursor = CGPoint(x: cursor.x + 40, y: cursor.y)
+        paneStripView.movePaneDragForTesting(cursorInStrip: gapCursor)
+        paneStripView.cancelPaneDragForTesting()
+        paneStripView.endPaneDragForTesting(cursorInStrip: gapCursor)
+
+        wait(for: [inactive], timeout: 5)
+        XCTAssertTrue(outcomes.isEmpty, "Esc cancelled this drag; the late mouse-up must not commit it")
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
