@@ -384,6 +384,161 @@ final class WorklaneStoreMetadataVolatileFastPathTests: XCTestCase {
         )
     }
 
+    // MARK: - Turn-complete suppressed by a needs-input title
+
+    private func applyCodexNeedsInputTitle(paneID: PaneID, to store: WorklaneStore) {
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "[ . ] Action Required | zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+    }
+
+    private func applyCodexTurnComplete(
+        sessionID: String?,
+        transcriptPath: String,
+        paneID: PaneID,
+        to store: WorklaneStore
+    ) {
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                lifecycleEvent: .turnComplete,
+                confidence: .explicit,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentTranscriptPath: transcriptPath
+            )
+        )
+    }
+
+    private func applyCodexPlanPrompt(sessionID: String, paneID: PaneID, to store: WorklaneStore) {
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .needsInput,
+                origin: .heuristic,
+                toolName: "Codex",
+                text: "Plan mode prompt: Random",
+                interactionKind: .approval,
+                confidence: .strong,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+    }
+
+    func test_suppressed_codex_turn_complete_keeps_transcript_context_for_same_session() async throws {
+        let enriched = expectation(description: "question enrichment applied")
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 0,
+            codexQuestionResolver: { request in
+                XCTAssertEqual(request.transcriptPath, "/tmp/codex-turn-complete.jsonl")
+                return CodexTranscriptQuestion(
+                    text: "Which would you rather have right now?\n[Good coffee] [Quiet hour]",
+                    interactionKind: .decision
+                )
+            }
+        )
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        applyCodexPlanPrompt(sessionID: "session-1", paneID: paneID, to: store)
+        applyCodexNeedsInputTitle(paneID: paneID, to: store)
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated(_, let updatedPaneID, _) = change,
+                  updatedPaneID == paneID,
+                  store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind == .decision else {
+                return
+            }
+            enriched.fulfill()
+        }
+        defer { store.unsubscribe(subscription) }
+
+        applyCodexTurnComplete(
+            sessionID: "session-1",
+            transcriptPath: "/tmp/codex-turn-complete.jsonl",
+            paneID: paneID,
+            to: store
+        )
+
+        let aux = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(aux.agentStatus?.state, .needsInput)
+        XCTAssertEqual(aux.raw.codexTranscriptContext?.path, "/tmp/codex-turn-complete.jsonl")
+        XCTAssertEqual(aux.raw.codexTranscriptContext?.sessionID, "session-1")
+        await fulfillment(of: [enriched], timeout: 1)
+    }
+
+    func test_suppressed_codex_turn_complete_without_session_id_keeps_transcript_context() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0, codexQuestionResolver: { _ in nil })
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        applyCodexPlanPrompt(sessionID: "session-1", paneID: paneID, to: store)
+        applyCodexNeedsInputTitle(paneID: paneID, to: store)
+
+        applyCodexTurnComplete(
+            sessionID: nil,
+            transcriptPath: "/tmp/codex-turn-complete.jsonl",
+            paneID: paneID,
+            to: store
+        )
+
+        let aux = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(aux.agentStatus?.state, .needsInput)
+        XCTAssertEqual(aux.raw.codexTranscriptContext?.path, "/tmp/codex-turn-complete.jsonl")
+    }
+
+    func test_suppressed_turn_complete_from_other_session_does_not_replace_context() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0, codexQuestionResolver: { _ in nil })
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .lifecycle,
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Codex",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil,
+                agentTranscriptPath: "/tmp/codex-session-1.jsonl"
+            )
+        )
+        applyCodexPlanPrompt(sessionID: "session-1", paneID: paneID, to: store)
+        applyCodexNeedsInputTitle(paneID: paneID, to: store)
+
+        applyCodexTurnComplete(
+            sessionID: "session-2",
+            transcriptPath: "/tmp/codex-session-2.jsonl",
+            paneID: paneID,
+            to: store
+        )
+
+        let aux = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(aux.agentStatus?.state, .needsInput)
+        XCTAssertEqual(aux.agentStatus?.sessionID, "session-1")
+        XCTAssertEqual(aux.raw.codexTranscriptContext?.path, "/tmp/codex-session-1.jsonl")
+        XCTAssertEqual(aux.raw.codexTranscriptContext?.sessionID, "session-1")
+    }
+
     func test_codex_new_running_session_clears_stale_needs_input_session() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

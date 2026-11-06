@@ -537,6 +537,25 @@ extension WorklaneStore {
             stopSignalLogger.debug(
                 "codex.turnComplete skip=currentNeedsInputTitle pane=\(payload.paneID.rawValue, privacy: .public)"
             )
+            // Only the status change is suppressed; the transcript path still
+            // feeds question enrichment. Another session's path would fail
+            // that enrichment's session guard, so it is not kept.
+            let payloadSessionID = WorklaneContextFormatter.trimmed(payload.sessionID)
+            if payloadSessionID == nil
+                || payloadSessionID == WorklaneContextFormatter.trimmed(existingStatus?.sessionID) {
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+                recomputePresentation(for: payload.paneID, in: &worklane)
+                worklanes[worklaneIndex] = worklane
+                let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+                if !impacts.isEmpty {
+                    notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+                }
+                scheduleCodexQuestionEnrichmentIfPossible(
+                    worklaneID: worklane.id,
+                    paneID: payload.paneID,
+                    auxiliaryState: auxiliaryState
+                )
+            }
             return
         }
         if codexResolver.shouldSuppressPayloadDuringInterrupt(payload: payload, tool: tool, aux: auxiliaryState) {
