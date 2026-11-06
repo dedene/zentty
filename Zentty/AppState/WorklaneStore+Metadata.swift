@@ -1062,11 +1062,17 @@ extension WorklaneStore {
         // (.running, .needsInput) but the raw agentStatus hasn't recorded
         // that it was ever running, propagate the observation. This closes
         // the gap for agents like Copilot where "running" is derived from
-        // OSC progress at the presentation layer, not from hook events.
+        // OSC progress at the presentation layer, not from hook events. The
+        // reducer session gets it too: the sweep rewrites agentStatus from the
+        // reducer, and an explicit idle drops a session that never ran.
         if presentation.isWorking,
-           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil,
-           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.hasObservedRunning == false {
+           let status = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
+           status.hasObservedRunning == false {
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.hasObservedRunning = true
+            if let sessionID = status.sessionID {
+                worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState
+                    .sessionsByID[sessionID]?.hasObservedRunning = true
+            }
         }
 
         // Bridge: when the presentation phase transitions from actively
