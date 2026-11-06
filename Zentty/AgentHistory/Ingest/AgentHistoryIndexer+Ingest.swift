@@ -468,10 +468,12 @@ extension AgentHistoryIndexer {
         snapshotDirty = true
         let started = ProcessInfo.processInfo.systemUptime
         do {
+            try beforeHousekeepingWriteForTesting?(.optimize)
             try store.optimize()
-        } catch let error as AgentHistoryDatabaseError {
-            AgentHistoryLog.indexer.error("Agent History optimize failed \(error.description, privacy: .public)")
-        } catch {}
+        } catch {
+            // The marker is saved: only the optimize is lost.
+            logWriteFailure(error, action: "optimize the index")
+        }
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - started) * 1_000)
         AgentHistoryLog.indexer.info(
             "Agent History backfill complete sessions=\(self.snapshotBuilder.count, privacy: .public) optimizeMs=\(elapsedMs, privacy: .public)"

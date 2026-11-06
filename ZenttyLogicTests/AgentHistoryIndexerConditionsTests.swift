@@ -281,6 +281,98 @@ final class AgentHistoryIndexerConditionsTests: XCTestCase {
         XCTAssertTrue(indexer.currentSnapshot.isComplete)
     }
 
+    // MARK: - Housekeeping on a full disk
+
+    private func failsHousekeeping(
+        _ write: AgentHistoryIndexer.HousekeepingWrite,
+        _ error: AgentHistoryDatabaseError,
+        while fails: Flag,
+        on indexer: AgentHistoryIndexer
+    ) {
+        indexer.beforeHousekeepingWriteForTesting = { attempted in
+            if attempted == write, fails.isSet {
+                throw error
+            }
+        }
+    }
+
+    private func assertRetryResumes(
+        _ indexer: AgentHistoryIndexer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            isPaused(indexer.currentStatus.state, .diskFull),
+            "got \(indexer.currentStatus.state)", file: file, line: line
+        )
+        indexer.queue.sync { indexer.retryAfterDiskFull() }
+        indexer.drainSynchronouslyForTesting()
+        XCTAssertEqual(indexer.currentStatus.state, .watching, file: file, line: line)
+    }
+
+    func test_full_disk_saving_the_counters_pauses_and_the_retry_saves_them() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("a", mtimeNs: 1)])
+        let indexer = harness.makeIndexer()
+        let fails = Flag(false)
+        failsHousekeeping(.counters, Self.databaseError(.full, 13), while: fails, on: indexer)
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+        XCTAssertEqual(indexer.currentStatus.state, .watching)
+
+        fails.set(true)
+        harness.source.setUnits([.single("a", mtimeNs: 1), .single("b", mtimeNs: 2)])
+        indexer.requestReconcile()
+        indexer.drainSynchronouslyForTesting()
+        XCTAssertTrue(isPaused(indexer.currentStatus.state, .diskFull), "got \(indexer.currentStatus.state)")
+        XCTAssertEqual(try harness.count("SELECT count(*) FROM sources WHERE indexed = 2"), 0)
+
+        fails.set(false)
+        assertRetryResumes(indexer)
+        XCTAssertEqual(try harness.count("SELECT count(*) FROM sources WHERE indexed = 2"), 1)
+    }
+
+    func test_full_disk_storing_the_adapter_version_pauses_and_the_retry_stores_it() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("a", mtimeNs: 1)])
+        let indexer = harness.makeIndexer()
+        let fails = Flag(false)
+        failsHousekeeping(.adapterVersion, Self.databaseError(.full, 13), while: fails, on: indexer)
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+
+        fails.set(true)
+        indexer.queue.sync {
+            for state in indexer.sourceStates.values {
+                state.pendingAdapterVersion = 7
+            }
+        }
+        indexer.requestReconcile()
+        indexer.drainSynchronouslyForTesting()
+        XCTAssertTrue(isPaused(indexer.currentStatus.state, .diskFull), "got \(indexer.currentStatus.state)")
+
+        fails.set(false)
+        assertRetryResumes(indexer)
+        XCTAssertEqual(try harness.count("SELECT count(*) FROM sources WHERE adapter_version = 7"), 1)
+    }
+
+    /// The marker is saved before the optimize, so completion stands and the retry only resumes.
+    func test_full_disk_optimizing_pauses_and_keeps_the_backfill_marker() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("a", mtimeNs: 1)])
+        let indexer = harness.makeIndexer()
+        let fails = Flag(true)
+        failsHousekeeping(.optimize, Self.databaseError(.full, 13), while: fails, on: indexer)
+
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+
+        XCTAssertTrue(indexer.currentStatus.isBackfillComplete)
+        fails.set(false)
+        assertRetryResumes(indexer)
+        XCTAssertTrue(indexer.currentStatus.isBackfillComplete)
+    }
+
     // MARK: - Production conditions
 
     func test_live_conditions_map_low_power_and_thermal_state() {

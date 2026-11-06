@@ -91,6 +91,11 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     static let backfillCompletedMetaKey = "backfill_completed_at"
     static let busyRetryDelay: TimeInterval = 1
 
+    /// The bookkeeping writes `becomeIdle` makes.
+    enum HousekeepingWrite: Sendable {
+        case counters, adapterVersion, optimize
+    }
+
     enum Lifecycle: Equatable {
         /// `standby`: another instance owns the index; retried every `standbyRetryInterval`.
         case idle, standby, running, failed, stopped
@@ -157,6 +162,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     var beforeCarryOverRestoreForTesting: (() throws -> Void)?
     /// Runs inside a standby read, between the sessions and the tombstones; throwing fails it.
     var afterStandbySessionsReadForTesting: (() throws -> Void)?
+    /// Runs before each idle housekeeping write; throwing makes that write fail.
+    var beforeHousekeepingWriteForTesting: ((HousekeepingWrite) throws -> Void)?
     /// How long `start` waits for the writer lock before standing by. Set before `start()`.
     var writerLockWait: TimeInterval = 2
     /// How often a standby indexer tries to take over. Set before `start()`.
