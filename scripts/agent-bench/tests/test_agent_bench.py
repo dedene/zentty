@@ -1986,6 +1986,28 @@ class ExpectationTests(unittest.TestCase):
         for private in ("secret", "toolu_", home, "a549c", "file body", "write me", "/private/tmp"):
             self.assertNotIn(private, rendered)
 
+    def test_hook_trace_drops_a_workers_result_from_its_task_notification(self):
+        payload = {
+            "session_id": "s",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "<task-notification>\n<result>secret worker reply</result>\n</task-notification>",
+        }
+
+        lines = agent_bench.sanitized_hook_trace([(1.0, json.dumps(payload))], [])
+
+        self.assertEqual(lines[0]["hook"]["prompt"], "<task-notification>")
+
+    def test_committed_hook_traces_hold_no_private_data(self):
+        traces = sorted((ROOT / "fixtures").glob("claude-approval*-trace.jsonl"))
+
+        self.assertGreaterEqual(len(traces), 6)
+        for trace in traces:
+            text = trace.read_text(encoding="utf-8")
+            for private in ("/Users/", "/private/", "/tmp/", "/home/", "toolu_", "peter", "content\"", "tool_response\": {\"stdout"):
+                self.assertNotIn(private, text, f"{trace.name}: {private}")
+            for line in text.splitlines():
+                self.assertIn("t", json.loads(line))
+
     def test_codex_profile_uses_approval_policies_the_cli_still_accepts(self):
         # 0.167 dropped `untrusted`: clap rejects it before any hook can fire.
         profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]

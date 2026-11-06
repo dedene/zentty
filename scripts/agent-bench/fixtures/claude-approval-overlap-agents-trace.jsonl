@@ -1,0 +1,31 @@
+{"t": 0.0, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "SessionStart", "model": "claude-haiku-5-5", "session_id": "session-1", "source": "startup", "transcript_path": "$SESSION.jsonl"}, "t": 0.06}
+{"t": 0.09, "title": "◐ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "For an integration hook regression test: in one single assistant message, issue two Agent tool calls side by side as parallel tool calls, both with subagent_type Explore. The first lists the files in the current directory, the second reads README.md. Wait for both, then reply with exactly DONE.", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 0.12}
+{"t": 1.03, "title": "◑ Claude Code"}
+{"t": 1.07, "title": "◑ Parallel Explore agent test"}
+{"t": 1.64, "title": "✳ Parallel Explore agent test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "List current directory files", "subagent_type": "Explore"}, "tool_name": "Agent", "transcript_path": "$SESSION.jsonl"}, "t": 1.65}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "Read README.md contents", "subagent_type": "Explore"}, "tool_name": "Agent", "transcript_path": "$SESSION.jsonl"}, "t": 1.99}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 7.67}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 7.99}
+{"input": "approve-first", "t": 11.67}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "List current directory files", "subagent_type": "Explore"}, "tool_name": "Agent", "tool_response": {"status": "async_launched"}, "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 11.71}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStart", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 11.71}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "ls -1 $REPO", "description": "List files in the working directory"}, "tool_name": "Bash", "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 13.22}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "ls -1 $REPO", "description": "List files in the working directory"}, "tool_name": "Bash", "tool_response": {}, "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 13.42}
+{"hook": {"agent_id": "agent-1", "agent_transcript_path": "$SESSION/subagents/agent-agent-1.jsonl", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 14.55}
+{"input": "approve-second", "t": 21.77}
+{"t": 21.78, "title": "◑ Parallel Explore agent test"}
+{"hook": {"agent_id": "agent-2", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStart", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 21.81}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "Read README.md contents", "subagent_type": "Explore"}, "tool_name": "Agent", "tool_response": {"status": "async_launched"}, "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 21.81}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "<task-notification>", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 21.83}
+{"t": 22.74, "title": "◐ Parallel Explore agent test"}
+{"t": 23.7, "title": "◑ Parallel Explore agent test"}
+{"hook": {"agent_id": "agent-2", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/README.md"}, "tool_name": "Read", "tool_response": {"type": "text"}, "tool_use_id": "tool-4", "transcript_path": "$SESSION.jsonl"}, "t": 23.71}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 23.93}
+{"t": 24.66, "title": "◐ Parallel Explore agent test"}
+{"hook": {"agent_id": "agent-3", "agent_transcript_path": "$SESSION/subagents/agent-agent-3.jsonl", "agent_type": "", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 25.13}
+{"t": 25.62, "title": "◑ Parallel Explore agent test"}
+{"hook": {"agent_id": "agent-2", "agent_transcript_path": "$SESSION/subagents/agent-agent-2.jsonl", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 25.89}
+{"t": 25.89, "title": "✳ Parallel Explore agent test"}

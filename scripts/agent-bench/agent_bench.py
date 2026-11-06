@@ -1717,6 +1717,7 @@ HOOK_TRACE_TOOL_INPUT_KEYS = (
     "subagent_type",
 )
 HOOK_TRACE_TOOL_RESPONSE_KEYS = ("status", "type")
+HOOK_TRACE_TASK_NOTIFICATION = "<task-notification>"
 
 
 def sanitized_hook_trace(
@@ -1774,6 +1775,10 @@ def sanitized_hook_trace(
     lines: list[tuple[float, dict[str, Any]]] = []
     for timestamp, payload in parsed:
         hook = {key: scrub_value(payload[key]) for key in HOOK_TRACE_KEYS if key in payload}
+        # Claude hands a finished worker's result to the parent as a user
+        # prompt, so its text is model output.
+        if str(payload.get("prompt", "")).startswith(HOOK_TRACE_TASK_NOTIFICATION):
+            hook["prompt"] = HOOK_TRACE_TASK_NOTIFICATION
         for key in ("session_id", "agent_id", "tool_use_id", "transcript_path", "cwd"):
             if isinstance(payload.get(key), str):
                 hook[key] = scrub(payload[key])

@@ -1,0 +1,46 @@
+{"t": 0.0, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "SessionStart", "model": "claude-haiku-5-5", "session_id": "session-1", "source": "startup", "transcript_path": "$SESSION.jsonl"}, "t": 0.06}
+{"t": 0.1, "title": "◐ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "For an integration hook regression test: use the Agent tool exactly once, with subagent_type Explore, to list the files in the current directory. Wait for it to finish, then reply with exactly DONE.", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 0.12}
+{"t": 1.03, "title": "◑ Claude Code"}
+{"t": 1.79, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "List current directory files", "subagent_type": "Explore"}, "tool_name": "Agent", "transcript_path": "$SESSION.jsonl"}, "t": 1.81}
+{"t": 1.96, "title": "✳ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 7.82}
+{"input": "approve", "t": 9.86}
+{"t": 9.87, "title": "◑ Integration hook regression test"}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStart", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 9.91}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "List current directory files", "subagent_type": "Explore"}, "tool_name": "Agent", "tool_response": {"status": "async_launched"}, "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 9.91}
+{"t": 10.83, "title": "◐ Integration hook regression test"}
+{"t": 11.39, "title": "✳ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "Waiting on directory listing", "subagent_type": "Explore"}, "tool_name": "Agent", "transcript_path": "$SESSION.jsonl"}, "t": 11.4}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "ls -A \"$REPO\"", "description": "List all entries in the target directory"}, "tool_name": "Bash", "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 11.65}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "ls -A \"$REPO\"", "description": "List all entries in the target directory"}, "tool_name": "Bash", "tool_response": {}, "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 11.88}
+{"hook": {"agent_id": "agent-1", "agent_transcript_path": "$SESSION/subagents/agent-agent-1.jsonl", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 13.46}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 17.42}
+{"input": "approve-repeat-call", "t": 19.45}
+{"t": 19.46, "title": "◐ Integration hook regression test"}
+{"hook": {"agent_id": "agent-2", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStart", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 19.48}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "Waiting on directory listing", "subagent_type": "Explore"}, "tool_name": "Agent", "tool_response": {"status": "async_launched"}, "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 19.48}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "<task-notification>", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 19.5}
+{"t": 20.42, "title": "◑ Integration hook regression test"}
+{"hook": {"agent_id": "agent-2", "agent_transcript_path": "$SESSION/subagents/agent-agent-2.jsonl", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 20.92}
+{"t": 21.38, "title": "◐ Integration hook regression test"}
+{"t": 22.34, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 22.48}
+{"t": 22.49, "title": "✳ Integration hook regression test"}
+{"t": 22.49, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "<task-notification>", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 22.51}
+{"t": 23.46, "title": "◐ Integration hook regression test"}
+{"hook": {"agent_id": "agent-3", "agent_transcript_path": "$SESSION/subagents/agent-agent-3.jsonl", "agent_type": "", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 23.83}
+{"t": 24.42, "title": "◑ Integration hook regression test"}
+{"t": 25.38, "title": "◐ Integration hook regression test"}
+{"t": 26.34, "title": "◑ Integration hook regression test"}
+{"t": 27.3, "title": "◐ Integration hook regression test"}
+{"t": 28.26, "title": "◑ Integration hook regression test"}
+{"t": 29.23, "title": "◐ Integration hook regression test"}
+{"t": 30.19, "title": "◑ Integration hook regression test"}
+{"t": 31.15, "title": "◐ Integration hook regression test"}
+{"t": 32.11, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 32.28}
+{"t": 32.28, "title": "✳ Integration hook regression test"}
