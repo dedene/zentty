@@ -473,6 +473,16 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertFalse(controller.window.isVisible)
     }
 
+    func test_window_should_close_keeps_terminate_hook_quiet_for_unregistered_controller() {
+        let controller = makeController()
+        var terminationRequests = 0
+        controller.requestApplicationTermination = { terminationRequests += 1 }
+
+        XCTAssertTrue(controller.windowShouldClose(controller.window))
+
+        XCTAssertEqual(terminationRequests, 0)
+    }
+
     func test_show_settings_window_opens_settings_shell_on_general() throws {
         let controller = makeController()
 

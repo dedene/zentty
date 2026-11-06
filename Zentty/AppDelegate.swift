@@ -1262,6 +1262,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowControllers.count
     }
 
+    func isLastRegisteredWindow(_ controller: MainWindowController) -> Bool {
+        windowControllers.count == 1 && windowControllers[ObjectIdentifier(controller)] != nil
+    }
+
     #if DEBUG
     var aboutWindow: NSWindow? {
         aboutWindowController?.window

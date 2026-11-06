@@ -273,6 +273,9 @@ final class RootViewController: NSViewController {
     var onShowSettingsSectionRequested: ((SettingsSection) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
+    /// The Close Window command, which unlike a pane-driven close still has to
+    /// pass the close confirmation.
+    var onCloseWindowCommandRequested: (() -> Void)?
     /// Running overlay floats a close would terminate, for the close prompts.
     var runningQuickActionsClosingWithPane: ((PaneID) -> [RunningQuickAction])?
     var runningQuickActionsClosingWithWorklane: ((WorklaneID) -> [RunningQuickAction])?
@@ -3704,7 +3707,12 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeCloseWindow() {
-        view.window?.close()
+        if let onCloseWindowCommandRequested {
+            onCloseWindowCommandRequested()
+            return
+        }
+
+        view.window?.performClose(nil)
     }
 
     func routeReloadConfig() {

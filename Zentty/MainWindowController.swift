@@ -186,7 +186,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
     private var isApplicationActive = true
     private var isWindowKey = true
-    private var shouldBypassNextCloseConfirmation = false
+    /// Runs the app's quit decision when the last window is asked to close.
+    var requestApplicationTermination: () -> Void = { NSApp.terminate(nil) }
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
@@ -334,6 +335,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
+        rootViewController.onCloseWindowCommandRequested = { [weak self] in
+            self?.requestClose()
+        }
         rootViewController.runningQuickActionsClosingWithPane = { [weak self] paneID in
             guard let self else { return [] }
             return self.runningOverlayFloats(self.worklaneStore.terminalCheckedPaneIDs(closingWithPane: paneID))
@@ -395,16 +399,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if shouldBypassNextCloseConfirmation {
-            shouldBypassNextCloseConfirmation = false
-            return true
+        // Closing the last window quits, and applicationShouldTerminate owns
+        // that confirmation. Ask it now, while this controller and its runtimes
+        // still exist: a prompt can still be cancelled, and the quit path can
+        // still save the workspace. Quitting takes the window down with it.
+        if (NSApp.delegate as? AppDelegate)?.isLastRegisteredWindow(self) == true {
+            requestApplicationTermination()
+            return false
         }
 
-        let appDelegate = NSApp.delegate as? AppDelegate
-        let isLastWindow = (appDelegate?.windowControllerCount ?? 1) <= 1
-        // When this is the last window, applicationShouldTerminate handles confirmation — skip here to avoid double-prompt.
-        guard !isLastWindow,
-              configStore.current.confirmations.confirmBeforeClosingWindow,
+        guard configStore.current.confirmations.confirmBeforeClosingWindow,
               anyPaneRequiresQuitConfirmation else {
             return true
         }
@@ -1540,8 +1544,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         runtimeRegistry.destroyAll()
     }
 
+    /// Closes through the same confirmation as the title bar button. A plain
+    /// `performClose` would beep whenever the confirmation holds the close back.
+    func requestClose() {
+        guard window.attachedSheet == nil else { return }
+        if windowShouldClose(window) {
+            window.close()
+        }
+    }
+
     func closeWindowBypassingConfirmation() {
-        shouldBypassNextCloseConfirmation = true
         window.close()
     }
 

@@ -571,6 +571,107 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(visibleManagedWindows.count, 1)
     }
 
+    func test_last_window_close_asks_termination_before_destroying_runtimes() throws {
+        NSApp.mainMenu = nil
+
+        let adapterStore = CloseEmittingAdapterStore()
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: {
+                PaneRuntimeRegistry(adapterFactory: { paneID in
+                    adapterStore.makeAdapter(for: paneID)
+                })
+            }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        waitForAppWindows("window opened")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+        markPaneRunning(in: controller)
+        let closedBeforeCloseRequest = adapterStore.closedPaneIDs
+        XCTAssertGreaterThan(adapterStore.createdPaneIDs.count, closedBeforeCloseRequest.count)
+
+        var terminationRequests = 0
+        controller.requestApplicationTermination = { terminationRequests += 1 }
+
+        XCTAssertFalse(controller.windowShouldClose(controller.window))
+
+        XCTAssertEqual(terminationRequests, 1)
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        XCTAssertTrue(controller.window.isVisible)
+        XCTAssertEqual(adapterStore.closedPaneIDs, closedBeforeCloseRequest)
+    }
+
+    func test_last_window_quit_writes_clean_exit_snapshot_with_final_scrollback() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace { config in
+            config.confirmations.confirmBeforeQuitting = false
+        }
+        waitForAppWindows("restore launched")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+        controller.worklaneStore.styledScrollbackProvider = { _ in "final output" }
+        controller.requestApplicationTermination = {
+            XCTAssertEqual(delegate.applicationShouldTerminate(NSApp), .terminateNow)
+            delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        }
+
+        XCTAssertFalse(controller.windowShouldClose(controller.window))
+
+        let envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        XCTAssertEqual(envelope.reason, .cleanExit)
+        XCTAssertEqual(envelope.workspace.windows.map(\.id), ["window-main"])
+        let panes = envelope.workspace.windows.flatMap(\.worklanes).flatMap(\.allPanes)
+        XCTAssertFalse(panes.isEmpty)
+        XCTAssertTrue(panes.allSatisfy { $0.scrollbackFile != nil })
+    }
+
+    func test_close_window_command_respects_close_confirmation() throws {
+        NSApp.mainMenu = nil
+
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.AppDelegate.CloseCommand")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeClosingWindow = true
+        }
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+        waitForAppWindows("windows opened")
+
+        let controller = try XCTUnwrap(delegate.windowControllersForTesting.first)
+        markPaneRunning(in: controller)
+
+        controller.rootViewControllerForTesting.routeCloseWindow()
+        controller.rootViewControllerForTesting.routeCloseWindow()
+
+        XCTAssertTrue(controller.window.isVisible)
+        XCTAssertEqual(delegate.windowControllerCount, 2)
+        XCTAssertEqual(controller.window.sheets.count, 1)
+
+        // Cancel keeps the window; confirming closes it.
+        try answerSheet(on: controller.window, with: .alertSecondButtonReturn)
+        XCTAssertTrue(controller.window.isVisible)
+        XCTAssertEqual(delegate.windowControllerCount, 2)
+
+        controller.rootViewControllerForTesting.routeCloseWindow()
+        try answerSheet(on: controller.window, with: .alertFirstButtonReturn)
+        XCTAssertFalse(controller.window.isVisible)
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+    }
+
     func test_application_quit_prompt_attaches_to_key_window_when_background_window_has_active_terminal_progress() throws {
         NSApp.mainMenu = nil
 
@@ -1321,6 +1422,100 @@ private extension AppDelegateTests {
         button.performClick(button)
     }
 
+    /// A pane the quit and close confirmations treat as busy.
+    func markPaneRunning(in controller: MainWindowController) {
+        let paneID = PaneID("main-shell")
+        controller.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("main"),
+                title: nil,
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                terminalProgressByPaneID: [
+                    paneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+                ]
+            )
+        ], activeWorklaneID: WorklaneID("main"))
+        waitForAppWindows("worklane replaced", delay: 0.05)
+    }
+
+    func answerSheet(on window: NSWindow, with response: NSApplication.ModalResponse) throws {
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        window.endSheet(sheet, returnCode: response)
+        waitForAppWindows("sheet answered", delay: 0.05)
+        XCTAssertNil(window.attachedSheet)
+    }
+
+    /// Launches from a two-pane snapshot on disk. Returns right after launch,
+    /// so a test can look at the snapshot before the first debounced save.
+    func launchRestoredWorkspace(
+        configure: (inout AppConfig) -> Void = { _ in }
+    ) throws -> (delegate: AppDelegate, store: SessionRestoreStore) {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.Restore.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let frameDefaultsName = "ZenttyTests.AppDelegate.Restore.Frame.\(UUID().uuidString)"
+        let frameDefaults = try XCTUnwrap(UserDefaults(suiteName: frameDefaultsName))
+        testDefaultsSuiteNames.append(frameDefaultsName)
+
+        let configStore = AppConfigStore(fileURL: directoryURL.appendingPathComponent("config.toml"))
+        try configStore.update(configure)
+
+        let store = SessionRestoreStore(
+            snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+        )
+        func column(_ id: String) -> WorkspaceRecipe.Column {
+            WorkspaceRecipe.Column(
+                id: "column-\(id)",
+                width: 800,
+                focusedPaneID: "pane-\(id)",
+                lastFocusedPaneID: "pane-\(id)",
+                paneHeights: [1],
+                panes: [WorkspaceRecipe.Pane(id: "pane-\(id)", titleSeed: id, workingDirectory: nil)]
+            )
+        }
+        try store.saveSnapshot(
+            SessionRestoreEnvelope(
+                workspace: WorkspaceRecipe(
+                    windows: [
+                        WorkspaceRecipe.Window(
+                            id: "window-main",
+                            worklanes: [
+                                WorkspaceRecipe.Worklane(
+                                    id: "worklane-main",
+                                    title: "Main",
+                                    nextPaneNumber: 3,
+                                    focusedColumnID: "column-main",
+                                    columns: [column("main"), column("second")],
+                                    color: nil,
+                                    bookmarkOriginID: nil
+                                )
+                            ],
+                            activeWorklaneID: "worklane-main"
+                        )
+                    ],
+                    activeWindowID: "window-main"
+                )
+            )
+        )
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore,
+            appUpdateController: StubAppUpdateController(canCheckForUpdates: true),
+            sessionRestoreStore: store,
+            sessionRestoreEnabled: true,
+            windowFrameDefaults: frameDefaults
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        return (delegate, store)
+    }
+
     func waitForAppWindows(
         _ description: String = "windows settled",
         delay: TimeInterval = 0.1
@@ -1337,11 +1532,13 @@ private extension AppDelegateTests {
 private final class CloseEmittingAdapterStore {
     var paneIDThatEmitsSurfaceClosedOnClose: PaneID?
     private(set) var createdPaneIDs: [PaneID] = []
+    private(set) var closedPaneIDs: [PaneID] = []
 
     func makeAdapter(for paneID: PaneID) -> any TerminalAdapter {
         createdPaneIDs.append(paneID)
         return CloseEmittingTerminalAdapter(
-            emitsSurfaceClosedOnClose: paneID == paneIDThatEmitsSurfaceClosedOnClose
+            emitsSurfaceClosedOnClose: paneID == paneIDThatEmitsSurfaceClosedOnClose,
+            onClose: { [weak self] in self?.closedPaneIDs.append(paneID) }
         )
     }
 }
@@ -1350,6 +1547,7 @@ private final class CloseEmittingAdapterStore {
 private final class CloseEmittingTerminalAdapter: TerminalAdapter {
     private let terminalView = TerminalSurfaceMockView()
     private let emitsSurfaceClosedOnClose: Bool
+    private let onClose: () -> Void
 
     var hasScrollback = false
     var cellWidth: CGFloat = 0
@@ -1357,8 +1555,9 @@ private final class CloseEmittingTerminalAdapter: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
 
-    init(emitsSurfaceClosedOnClose: Bool) {
+    init(emitsSurfaceClosedOnClose: Bool, onClose: @escaping () -> Void) {
         self.emitsSurfaceClosedOnClose = emitsSurfaceClosedOnClose
+        self.onClose = onClose
     }
 
     func makeTerminalView() -> NSView {
@@ -1370,6 +1569,7 @@ private final class CloseEmittingTerminalAdapter: TerminalAdapter {
     }
 
     func close() {
+        onClose()
         if emitsSurfaceClosedOnClose {
             eventDidOccur?(.surfaceClosed)
         }
