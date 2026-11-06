@@ -121,6 +121,37 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
         try assertCarriedOver(harness, indexer)
     }
 
+    /// A rebuild forgets the tombstones in memory until the new file opens; the `.starting`
+    /// publish in between must not read as "nothing is removed".
+    func test_a_rebuild_never_publishes_a_snapshot_that_lists_a_removed_live_session() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let indexer = harness.makeIndexer()
+        try indexThreeSessions(harness, indexer)
+        flushMainQueue()
+        let alreadyPublished = harness.recorder.snapshots.count
+
+        indexer.rebuild()
+        indexer.drainSynchronouslyForTesting()
+        flushMainQueue()
+
+        let published = harness.recorder.snapshots.dropFirst(alreadyPublished)
+        XCTAssertFalse(published.isEmpty)
+        let key = AgentHistorySessionKey(agent: .claude, nativeID: "s3")
+        for snapshot in published {
+            let index = HistoryMetadataIndex(
+                snapshot: { snapshot },
+                exclusions: { AgentHistoryExclusionMatcher(folders: []) }
+            )
+            XCTAssertEqual(index.liveSessions([(key: key, workingDirectory: nil)]), [.hidden])
+        }
+    }
+
+    private func flushMainQueue() {
+        let flushed = expectation(description: "main queue flushed")
+        DispatchQueue.main.async { flushed.fulfill() }
+        wait(for: [flushed], timeout: 5)
+    }
+
     func test_failed_carry_over_restore_keeps_tombstones_in_force_and_is_retried() throws {
         let harness = AgentHistoryIndexerHarness(testCase: self)
         let indexer = harness.makeIndexer()

@@ -242,7 +242,8 @@ extension AgentHistoryIndexer {
             let summaries = stored.filter { enabledAgents.contains($0.agent) }
             if Set(summaries) != Set(snapshotBuilder.allSessions)
                 || tombstones != admission.tombstones
-                || isComplete != isBackfillComplete {
+                || isComplete != isBackfillComplete
+                || !admission.hasReadTombstones {
                 snapshotBuilder.replaceAll(summaries)
                 admission = AgentHistoryAdmission(exclusions: admission.exclusions, tombstones: tombstones)
                 isBackfillComplete = isComplete

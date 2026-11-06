@@ -70,14 +70,18 @@ final class HistoryMetadataIndex: @unchecked Sendable {
 
     /// Live panes ("Running now"), in order. Hidden: removed from History, its agent turned off,
     /// or its folder excluded (the indexed session's folder, else the pane's own). Only a session
-    /// that is none of those and has no row is `.notIndexed`.
+    /// that is none of those and has no row is `.notIndexed`. Until the snapshot knows the
+    /// removals nothing can vouch for any of them, so all are hidden.
     func liveSessions(
         _ sessions: [(key: AgentHistorySessionKey, workingDirectory: String?)]
     ) -> [HistoryLiveSessionLookup] {
         guard !sessions.isEmpty else { return [] }
         let derived = currentDerived()
+        guard case .known(let removedKeys) = derived.removals else {
+            return sessions.map { _ in .hidden }
+        }
         return sessions.map { session in
-            if !derived.enabledAgents.contains(session.key.agent) || derived.removedKeys.contains(session.key) {
+            if !derived.enabledAgents.contains(session.key.agent) || removedKeys.contains(session.key) {
                 return .hidden
             }
             if let position = derived.indexByKey[session.key] {
@@ -341,8 +345,8 @@ extension HistoryMetadataIndex {
         let entries: [Entry]
         let indexByID: [Int64: Int]
         let indexByKey: [AgentHistorySessionKey: Int]
-        /// The snapshot's tombstoned keys.
-        let removedKeys: Set<AgentHistorySessionKey>
+        /// The snapshot's tombstoned keys, once it knows them.
+        let removals: AgentHistoryRemovals
         /// Held sessions left out of `entries`: a turned-off agent's or in an excluded folder.
         let droppedKeys: Set<AgentHistorySessionKey>
 
@@ -374,13 +378,15 @@ extension HistoryMetadataIndex {
             self.entries = entries
             self.indexByID = indexByID
             self.indexByKey = indexByKey
-            removedKeys = snapshot.removedKeys
+            removals = snapshot.removals
             self.droppedKeys = droppedKeys
         }
 
-        /// Same generation and the very same session array (O(1); no element compare).
+        /// Same generation, removals and the very same session array (no session compare).
+        /// Generations restart with an indexer, so two empty arrays alone prove nothing.
         func isBuilt(from snapshot: AgentHistoryMetadataSnapshot) -> Bool {
-            guard generation == snapshot.generation, sessions.count == snapshot.sessions.count else {
+            guard generation == snapshot.generation, sessions.count == snapshot.sessions.count,
+                  removals == snapshot.removals else {
                 return false
             }
             if sessions.isEmpty {

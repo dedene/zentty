@@ -1,4 +1,5 @@
 import Foundation
+import os
 import XCTest
 @testable import Zentty
 
@@ -319,6 +320,25 @@ final class HistoryMetadataIndexTests: XCTestCase {
         XCTAssertEqual(lookups, [.indexed(two), .notIndexed, .indexed(one)])
         XCTAssertEqual(index.summary(forSessionID: 2)?.title, "Two")
         XCTAssertNil(index.summary(forSessionID: 99))
+    }
+
+    /// Generations restart with every indexer, so two empty snapshots can share one.
+    func test_live_lookup_follows_removals_when_an_empty_snapshot_repeats_a_generation() {
+        let key = AgentHistorySessionKey(agent: .claude, nativeID: "removed")
+        let current = OSAllocatedUnfairLock(
+            initialState: AgentHistoryMetadataSnapshot(generation: 1, sessions: [], isComplete: true)
+        )
+        let index = HistoryMetadataIndex(
+            snapshot: { current.withLock { $0 } },
+            exclusions: { AgentHistoryExclusionMatcher(folders: []) }
+        )
+        XCTAssertEqual(index.liveSessions([(key: key, workingDirectory: nil)]), [.notIndexed])
+
+        current.withLock {
+            $0 = AgentHistoryMetadataSnapshot(generation: 1, sessions: [], isComplete: true, removedKeys: [key])
+        }
+
+        XCTAssertEqual(index.liveSessions([(key: key, workingDirectory: nil)]), [.hidden])
     }
 
     func test_live_sessions_the_index_hides_are_told_apart_from_not_indexed_ones() {

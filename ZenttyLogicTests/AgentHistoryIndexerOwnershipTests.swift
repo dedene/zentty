@@ -185,6 +185,36 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
         XCTAssertEqual(second.currentStatus.removedSessionCount, 2)
     }
 
+    /// A standby that couldn't read the index knows nothing about removals. Its first good read
+    /// settles that even when the index holds nothing at all, so no snapshot differs from it.
+    func test_standby_hides_live_sessions_until_its_first_read_of_the_tombstones() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.standbyRetryInterval = 60
+        let readFails = Flag(true)
+        second.afterStandbySessionsReadForTesting = {
+            if readFails.value {
+                throw AgentHistoryDatabaseError(kind: .busy, code: 5, extendedCode: 5, message: "injected")
+            }
+        }
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+
+        let liveKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "live")
+        XCTAssertEqual(Self.liveLookup(liveKey, in: second.currentSnapshot), .hidden)
+
+        readFails.value = false
+        second.queue.sync { second.refreshStandbySnapshot() }
+
+        XCTAssertEqual(Self.liveLookup(liveKey, in: second.currentSnapshot), .notIndexed)
+    }
+
     /// The owner commits a removal between the standby's reads. All of them come from one SQLite
     /// snapshot, so the session is either listed and not removed, or removed and not listed.
     func test_standby_never_publishes_a_session_with_its_own_tombstone() throws {
@@ -220,6 +250,16 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
 
         XCTAssertEqual(second.currentSnapshot.sessions.map(\.nativeID), ["s1"])
         XCTAssertEqual(second.currentSnapshot.removedKeys, [key])
+    }
+
+    private static func liveLookup(
+        _ key: AgentHistorySessionKey,
+        in snapshot: AgentHistoryMetadataSnapshot
+    ) -> HistoryLiveSessionLookup? {
+        HistoryMetadataIndex(
+            snapshot: { snapshot },
+            exclusions: { AgentHistoryExclusionMatcher(folders: []) }
+        ).liveSessions([(key: key, workingDirectory: nil)]).first
     }
 
     /// An open that failed earlier must not shut a later standby out of a healthy index: a
