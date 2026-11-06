@@ -67,6 +67,8 @@ scrollback = true
 
 If Zentty crashes twice in a row while reopening your workspace, it stops trying. The next launch opens a new window and renames the saved workspace to `restore-snapshot.set-aside-1.json` in `~/Library/Application Support/Zentty/`, with a higher number if that name is taken. Zentty doesn't read that file again, and its saved output stays in `session-scrollback/`. You can delete both yourself, and turning `scrollback` or session restore off deletes the output.
 
+If the rename fails, the saved workspace stays where it is and Zentty tells you so. Nothing writes over it or deletes it: each save tries the rename again first, and is skipped while that keeps failing, so the new windows aren't saved until it works. The next launch tries again too.
+
 ## Agent settings
 
 The `[agents]` section holds agent behaviour that isn't tied to one integration:

@@ -200,18 +200,10 @@ final class SessionRestoreLaunchLimitTests: XCTestCase {
     }
 
     func test_a_snapshot_that_cannot_be_renamed_is_not_restored_and_keeps_its_count() throws {
-        try saveSnapshot()
-        _ = try launch()
-        _ = try launch()
-        let blockedStore = SessionRestoreStore(
-            snapshotURL: snapshotURL,
-            lifecycleURL: lifecycleURL,
-            fileManager: UnrenamableFileManager()
-        )
-
-        XCTAssertThrowsError(try blockedStore.beginLaunch(restorePreferenceEnabled: true))
+        _ = try launchWithFailedRename()
 
         XCTAssertTrue(exists(snapshotURL))
+        XCTAssertFalse(exists(firstSetAsideURL))
         XCTAssertEqual(try recordedIncompleteLaunches(), 2)
     }
 
@@ -253,6 +245,117 @@ final class SessionRestoreLaunchLimitTests: XCTestCase {
         let store = SessionRestoreStore(
             stateDirectoryURL: directoryURL.appendingPathComponent("missing", isDirectory: true)
         )
+
+        XCTAssertEqual(store.setAsideScrollbackFileNames(), [])
+    }
+
+    // MARK: - A rename that failed
+
+    func test_a_debounced_save_cannot_replace_a_snapshot_waiting_to_be_renamed() throws {
+        let (blockedStore, _) = try launchWithFailedRename()
+        let original = try Data(contentsOf: snapshotURL)
+        let persistence = SessionRestoreSnapshotPersistence(store: blockedStore)
+
+        persistence.persistAsync(.saveSnapshot(envelope(scrollbackFile: "pn_1-new.txt")), generation: 1)
+        persistence.waitForPendingOperationsForTesting()
+
+        XCTAssertEqual(try Data(contentsOf: snapshotURL), original)
+        XCTAssertEqual(try recordedIncompleteLaunches(), 2)
+    }
+
+    func test_a_delete_cannot_remove_a_snapshot_waiting_to_be_renamed() throws {
+        let (blockedStore, _) = try launchWithFailedRename()
+        let persistence = SessionRestoreSnapshotPersistence(store: blockedStore)
+
+        persistence.persistAsync(.deleteSnapshot, generation: 1)
+        persistence.waitForPendingOperationsForTesting()
+
+        XCTAssertThrowsError(try blockedStore.deleteSnapshot())
+        XCTAssertTrue(exists(snapshotURL))
+        XCTAssertEqual(try recordedIncompleteLaunches(), 2)
+    }
+
+    /// The quit path is the same save, and the launch after it must still
+    /// owe the rename instead of reading the snapshot as a clean one.
+    func test_a_clean_exit_leaves_a_snapshot_waiting_to_be_renamed_for_the_next_launch() throws {
+        let (blockedStore, _) = try launchWithFailedRename()
+        let original = try Data(contentsOf: snapshotURL)
+        let persistence = SessionRestoreSnapshotPersistence(store: blockedStore)
+        var cleanExit = envelope(scrollbackFile: "pn_1-new.txt")
+        cleanExit.reason = .cleanExit
+
+        persistence.persistSynchronously(.saveSnapshot(cleanExit), generation: 1)
+        try blockedStore.markCleanExit()
+
+        XCTAssertEqual(try Data(contentsOf: snapshotURL), original)
+        XCTAssertEqual(try recordedIncompleteLaunches(), 2)
+        XCTAssertEqual(try launch(), .setAside(firstSetAsideURL))
+        XCTAssertEqual(try Data(contentsOf: firstSetAsideURL), original)
+    }
+
+    func test_a_save_renames_the_snapshot_first_once_the_rename_works() throws {
+        let (blockedStore, fileManager) = try launchWithFailedRename()
+        let original = try Data(contentsOf: snapshotURL)
+        let persistence = SessionRestoreSnapshotPersistence(store: blockedStore)
+        let announced = URLRecorder()
+        blockedStore.observeDeferredSetAside { announced.record($0) }
+
+        persistence.persistAsync(.saveSnapshot(envelope(scrollbackFile: "pn_1-refused.txt")), generation: 1)
+        fileManager.setFailsRenames(false)
+        persistence.persistAsync(.saveSnapshot(envelope(scrollbackFile: "pn_1-new.txt")), generation: 2)
+        persistence.waitForPendingOperationsForTesting()
+
+        XCTAssertEqual(try Data(contentsOf: firstSetAsideURL), original)
+        XCTAssertEqual(try store.referencedScrollbackFileNames(), ["pn_1-new.txt"])
+        XCTAssertEqual(try recordedIncompleteLaunches(), 0)
+        XCTAssertEqual(announced.urls, [firstSetAsideURL])
+    }
+
+    func test_a_delete_renames_the_snapshot_instead_once_the_rename_works() throws {
+        let (blockedStore, fileManager) = try launchWithFailedRename()
+        let original = try Data(contentsOf: snapshotURL)
+        let announced = URLRecorder()
+        blockedStore.observeDeferredSetAside { announced.record($0) }
+
+        fileManager.setFailsRenames(false)
+        try blockedStore.deleteSnapshot()
+
+        XCTAssertFalse(exists(snapshotURL))
+        XCTAssertEqual(try Data(contentsOf: firstSetAsideURL), original)
+        XCTAssertEqual(try recordedIncompleteLaunches(), 0)
+        XCTAssertEqual(announced.urls, [firstSetAsideURL])
+    }
+
+    /// Another instance got there first. There is nothing left to protect,
+    /// and nothing of this launch's was set aside to announce.
+    func test_a_snapshot_another_instance_moved_stops_the_wait() throws {
+        let (blockedStore, fileManager) = try launchWithFailedRename()
+        let announced = URLRecorder()
+        blockedStore.observeDeferredSetAside { announced.record($0) }
+        try FileManager.default.moveItem(at: snapshotURL, to: firstSetAsideURL)
+        fileManager.setFailsRenames(false)
+
+        try blockedStore.saveSnapshot(envelope(scrollbackFile: "pn_1-new.txt"))
+
+        XCTAssertEqual(try store.referencedScrollbackFileNames(), ["pn_1-new.txt"])
+        XCTAssertFalse(exists(secondSetAsideURL))
+        XCTAssertEqual(try recordedIncompleteLaunches(), 0)
+        XCTAssertEqual(announced.urls, [])
+    }
+
+    func test_scrollback_of_a_snapshot_waiting_to_be_renamed_is_listed_on_both_sides_of_the_rename() throws {
+        let (blockedStore, fileManager) = try launchWithFailedRename()
+
+        XCTAssertEqual(blockedStore.setAsideScrollbackFileNames(), ["pn_1-original.txt"])
+
+        fileManager.setFailsRenames(false)
+        try blockedStore.saveSnapshot(envelope(scrollbackFile: "pn_1-new.txt"))
+
+        XCTAssertEqual(blockedStore.setAsideScrollbackFileNames(), ["pn_1-original.txt"])
+    }
+
+    func test_a_live_snapshot_is_not_listed_as_set_aside() throws {
+        try saveSnapshot(scrollbackFile: "pn_1-live.txt")
 
         XCTAssertEqual(store.setAsideScrollbackFileNames(), [])
     }
@@ -308,6 +411,25 @@ final class SessionRestoreLaunchLimitTests: XCTestCase {
         try store.beginLaunch(restorePreferenceEnabled: true)
     }
 
+    /// Brings a snapshot to the limit, then has the rename fail. `store` plays
+    /// the next launch, whose renames work.
+    private func launchWithFailedRename() throws -> (
+        store: SessionRestoreStore,
+        fileManager: RenameFailingFileManager
+    ) {
+        try saveSnapshot(scrollbackFile: "pn_1-original.txt")
+        _ = try launch()
+        _ = try launch()
+        let fileManager = RenameFailingFileManager()
+        let blockedStore = SessionRestoreStore(
+            snapshotURL: snapshotURL,
+            lifecycleURL: lifecycleURL,
+            fileManager: fileManager
+        )
+        XCTAssertEqual(try blockedStore.beginLaunch(restorePreferenceEnabled: true), .setAsideFailed)
+        return (blockedStore, fileManager)
+    }
+
     private func envelope(scrollbackFile: String? = nil) -> SessionRestoreEnvelope {
         var recipe = SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"])
         recipe.windows[0].worklanes[0].columns[0].panes[0].scrollbackFile = scrollbackFile
@@ -339,8 +461,31 @@ private extension SessionRestoreStore.LaunchAction {
     }
 }
 
-private final class UnrenamableFileManager: FileManager {
+private final class RenameFailingFileManager: FileManager, @unchecked Sendable {
+    private let lock = NSLock()
+    private var failsRenames = true
+
+    func setFailsRenames(_ fails: Bool) {
+        lock.withLock { failsRenames = fails }
+    }
+
     override func moveItem(at srcURL: URL, to dstURL: URL) throws {
-        throw CocoaError(.fileWriteNoPermission)
+        if lock.withLock({ failsRenames }) {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+}
+
+private final class URLRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [URL] = []
+
+    var urls: [URL] {
+        lock.withLock { recorded }
+    }
+
+    func record(_ url: URL) {
+        lock.withLock { recorded.append(url) }
     }
 }

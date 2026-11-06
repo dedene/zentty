@@ -694,6 +694,82 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNotNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
     }
 
+    func test_launch_that_cannot_set_the_snapshot_aside_keeps_it_when_the_default_window_saves_and_quits() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            fileManager: RenameFailingFileManager(),
+            beforeLaunch: { store in
+                try self.seedScrollback("pane-main-L0.txt", for: store)
+                try self.dieWhileRestoring(store, times: 2)
+            }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        let originalSnapshot = try Data(contentsOf: store.snapshotURL)
+        waitForAppWindows("launch settled")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertFalse(controller.workspaceRecipeWindow.id == "window-main")
+        let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It’s still saved.")
+
+        waitForStrayScrollbackPurge(for: store)
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        try assertSnapshotIsUntouched(originalSnapshot, store: store)
+    }
+
+    func test_launch_that_cannot_set_the_snapshot_aside_keeps_it_when_a_folder_window_saves_and_quits() throws {
+        NSApp.mainMenu = nil
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.Folder.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folderURL) }
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            fileManager: RenameFailingFileManager(),
+            beforeLaunch: { store in
+                try self.seedScrollback("pane-main-L0.txt", for: store)
+                try self.dieWhileRestoring(store, times: 2)
+            },
+            openingBeforeLaunch: [folderURL]
+        )
+        closeLastWindowInTeardown(of: delegate)
+        let originalSnapshot = try Data(contentsOf: store.snapshotURL)
+        waitForAppWindows("launch settled")
+
+        waitForStrayScrollbackPurge(for: store)
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        try assertSnapshotIsUntouched(originalSnapshot, store: store)
+    }
+
+    func test_a_rename_that_works_on_a_later_save_sets_the_snapshot_aside_and_says_so() throws {
+        NSApp.mainMenu = nil
+        let fileManager = RenameFailingFileManager()
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            fileManager: fileManager,
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 2) }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        fileManager.setFailsRenames(false)
+
+        let setAsideURL = store.snapshotURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("restore-snapshot.set-aside-1.json")
+        let renamed = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in FileManager.default.fileExists(atPath: setAsideURL.path) },
+            object: nil
+        )
+        wait(for: [renamed], timeout: 5.0)
+        waitForAppWindows("toast updated")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It was set aside.")
+    }
+
     func test_launch_after_one_incomplete_restore_still_restores_without_a_toast() throws {
         NSApp.mainMenu = nil
 
@@ -1708,6 +1784,7 @@ private extension AppDelegateTests {
     /// Launches from a two-pane snapshot on disk. Returns right after launch,
     /// so a test can look at the snapshot before the first debounced save.
     func launchRestoredWorkspace(
+        fileManager: FileManager = .default,
         sessionRestoreEnabled: Bool = true,
         configure: (inout AppConfig) -> Void = { _ in },
         beforeLaunch: (SessionRestoreStore) throws -> Void = { _ in },
@@ -1727,7 +1804,8 @@ private extension AppDelegateTests {
 
         let store = SessionRestoreStore(
             snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
-            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json")
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json"),
+            fileManager: fileManager
         )
         func column(_ id: String) -> WorkspaceRecipe.Column {
             WorkspaceRecipe.Column(
@@ -1811,6 +1889,33 @@ private extension AppDelegateTests {
         try archive.write("stray output\n", fileName: "pane-stray-L0.txt")
     }
 
+    /// Only the debounced first save purges, so this waits that save out.
+    func waitForStrayScrollbackPurge(for store: SessionRestoreStore) {
+        let archive = SessionScrollbackArchive(stateDirectoryURL: store.snapshotURL.deletingLastPathComponent())
+        let strayFilePath = archive.directoryURL.appendingPathComponent("pane-stray-L0.txt").path
+        let purged = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !FileManager.default.fileExists(atPath: strayFilePath) },
+            object: nil
+        )
+        wait(for: [purged], timeout: 5.0)
+    }
+
+    /// The saves ran by now: quitting waits for the persistence queue. The
+    /// next launch still owes the rename, and the saved output is still there.
+    func assertSnapshotIsUntouched(_ originalSnapshot: Data, store: SessionRestoreStore) throws {
+        let directoryURL = store.snapshotURL.deletingLastPathComponent()
+        XCTAssertEqual(try Data(contentsOf: store.snapshotURL), originalSnapshot)
+        XCTAssertNotNil(
+            SessionScrollbackArchive(stateDirectoryURL: directoryURL)
+                .existingFilePath(forFileName: "pane-main-L0.txt")
+        )
+        let nextLaunch = SessionRestoreStore(stateDirectoryURL: directoryURL)
+        XCTAssertEqual(
+            try nextLaunch.beginLaunch(restorePreferenceEnabled: true),
+            .setAside(directoryURL.appendingPathComponent("restore-snapshot.set-aside-1.json"))
+        )
+    }
+
     func waitForAppWindows(
         _ description: String = "windows settled",
         delay: TimeInterval = 0.1
@@ -1820,6 +1925,22 @@ private extension AppDelegateTests {
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 2.0)
+    }
+}
+
+private final class RenameFailingFileManager: FileManager, @unchecked Sendable {
+    private let lock = NSLock()
+    private var failsRenames = true
+
+    func setFailsRenames(_ fails: Bool) {
+        lock.withLock { failsRenames = fails }
+    }
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if lock.withLock({ failsRenames }) {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
     }
 }
 

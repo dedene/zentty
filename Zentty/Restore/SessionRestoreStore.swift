@@ -4,7 +4,7 @@ import OSLog
 
 private let sessionRestoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
 
-final class SessionRestoreStore {
+final class SessionRestoreStore: @unchecked Sendable {
     struct LaunchDecision: Equatable, Sendable {
         enum Reason: String, Codable, Equatable, Sendable {
             case normalRestore
@@ -21,6 +21,17 @@ final class SessionRestoreStore {
         case restore(LaunchDecision)
         /// The snapshot kept killing launches, so it now lives at this URL.
         case setAside(URL)
+        /// The snapshot kept killing launches and renaming it failed, so it
+        /// stayed where it was. Nothing restores it, and every write to it
+        /// retries the rename first and is refused while that keeps failing.
+        case setAsideFailed
+    }
+
+    /// Whether the snapshot may be written. Only `attemptSetAside` changes it.
+    private enum SnapshotAccess {
+        case open
+        /// A launch owes this snapshot a rename, so it can't be replaced yet.
+        case awaitingSetAside
     }
 
     private struct LifecycleState: Codable, Equatable, Sendable {
@@ -40,6 +51,11 @@ final class SessionRestoreStore {
     let snapshotURL: URL
     let lifecycleURL: URL
     private let fileManager: FileManager
+    /// Held across a rename and across the listing of set-aside scrollback, so
+    /// a purge on the scrollback queue sees the snapshot on one side of it.
+    private let setAsideLock = NSLock()
+    private var snapshotAccess = SnapshotAccess.open
+    private var deferredSetAsideHandler: (@Sendable (URL) -> Void)?
 
     init(
         snapshotURL: URL,
@@ -75,8 +91,7 @@ final class SessionRestoreStore {
     /// snapshot. The attempt is on disk before the snapshot is even decoded, so
     /// a crash anywhere in the restore counts. Crash recovery ignores the
     /// preference, so it counts too: a launch that would restore is limited.
-    /// Throws when the snapshot can't be read or set aside, which leaves
-    /// nothing to restore.
+    /// Throws when the snapshot can't be read, which leaves nothing to restore.
     func beginLaunch(restorePreferenceEnabled: Bool) throws -> LaunchAction {
         let lifecycle = lifecycleStateForLaunch()
         guard fileManager.fileExists(atPath: snapshotURL.path),
@@ -90,10 +105,17 @@ final class SessionRestoreStore {
 
         let incompleteRestoreLaunches = lifecycle?.incompleteRestoreLaunches ?? 0
         guard incompleteRestoreLaunches < Self.incompleteRestoreLaunchLimit else {
-            // Renamed first: dying here must leave the count for the next try.
-            let setAsideURL = try setAsideSnapshot()
-            recordLaunchStarted(incompleteRestoreLaunches: 0)
-            return .setAside(setAsideURL)
+            do {
+                // Renamed first: dying here must leave the count for the next try.
+                let setAsideURL = try attemptSetAside()
+                recordLaunchStarted(incompleteRestoreLaunches: 0)
+                return setAsideURL.map(LaunchAction.setAside) ?? .startFresh
+            } catch {
+                sessionRestoreLogger.error(
+                    "Failed to set restore snapshot aside: \(error.localizedDescription, privacy: .public)"
+                )
+                return .setAsideFailed
+            }
         }
 
         recordLaunchStarted(incompleteRestoreLaunches: incompleteRestoreLaunches + 1)
@@ -103,27 +125,41 @@ final class SessionRestoreStore {
         return .restore(LaunchDecision(reason: reason, envelope: envelope))
     }
 
-    /// The scrollback files set-aside snapshots point at. Runs on every launch
-    /// on files set aside because reopening them failed, so it reads plain JSON
-    /// instead of decoding them, and never fails.
+    /// Called with the new URL when a rename that failed at launch works on a
+    /// later try. Runs on whichever queue did the write. Set it before saving.
+    func observeDeferredSetAside(_ handler: @escaping @Sendable (URL) -> Void) {
+        setAsideLock.withLock { deferredSetAsideHandler = handler }
+    }
+
+    /// The scrollback files set-aside snapshots point at, and those of a
+    /// snapshot still waiting for its rename. Runs on files set aside because
+    /// reopening them failed, so it reads plain JSON instead of decoding them,
+    /// and never fails.
     func setAsideScrollbackFileNames() -> Set<String> {
-        let directoryURL = snapshotURL.deletingLastPathComponent()
-        let names = (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? []
-        var scrollbackFileNames = Set<String>()
-        for name in names where isSetAsideSnapshotName(name) {
-            do {
-                let data = try Data(contentsOf: directoryURL.appendingPathComponent(name, isDirectory: false))
-                Self.collectScrollbackFileNames(
-                    in: try JSONSerialization.jsonObject(with: data),
-                    into: &scrollbackFileNames
-                )
-            } catch {
-                sessionRestoreLogger.error(
-                    "Skipping unreadable set-aside snapshot \(name, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
+        setAsideLock.withLock {
+            let directoryURL = snapshotURL.deletingLastPathComponent()
+            var names = ((try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? [])
+                .filter(isSetAsideSnapshotName)
+            if snapshotAccess == .awaitingSetAside {
+                names.append(snapshotURL.lastPathComponent)
             }
+
+            var scrollbackFileNames = Set<String>()
+            for name in names {
+                do {
+                    let data = try Data(contentsOf: directoryURL.appendingPathComponent(name, isDirectory: false))
+                    Self.collectScrollbackFileNames(
+                        in: try JSONSerialization.jsonObject(with: data),
+                        into: &scrollbackFileNames
+                    )
+                } catch {
+                    sessionRestoreLogger.error(
+                        "Skipping unreadable set-aside snapshot \(name, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+            return scrollbackFileNames
         }
-        return scrollbackFileNames
     }
 
     func markLaunchStarted(incompleteRestoreLaunches: Int = 0) throws {
@@ -138,13 +174,17 @@ final class SessionRestoreStore {
     }
 
     func markCleanExit() throws {
+        // Left as it is, the next launch still owes the snapshot its rename.
+        guard !isAwaitingSetAside else { return }
         try persist(
             LifecycleState(cleanExit: true, updatedAt: Date()),
             to: lifecycleURL
         )
     }
 
+    /// Throws, writing nothing, while the snapshot can't be set aside.
     func saveSnapshot(_ envelope: SessionRestoreEnvelope) throws {
+        try settleOwedSetAside()
         let envelopeToPersist: SessionRestoreEnvelope
         if envelope.reason == .cleanExit {
             envelopeToPersist = envelope.mergingMissingRestoreDrafts(from: previousSnapshotForDraftMerge())
@@ -167,7 +207,9 @@ final class SessionRestoreStore {
         )
     }
 
+    /// Throws, deleting nothing, while the snapshot can't be set aside.
     func deleteSnapshot() throws {
+        try settleOwedSetAside()
         guard fileManager.fileExists(atPath: snapshotURL.path) else {
             return
         }
@@ -215,6 +257,39 @@ final class SessionRestoreStore {
             sessionRestoreLogger.error(
                 "Failed to clear incomplete restore launches: \(error.localizedDescription, privacy: .public)"
             )
+        }
+    }
+
+    private var isAwaitingSetAside: Bool {
+        setAsideLock.withLock { snapshotAccess == .awaitingSetAside }
+    }
+
+    /// Moves a snapshot the launch failed to set aside out of the way before
+    /// anything writes over it. A move that still fails throws, which refuses
+    /// the write.
+    private func settleOwedSetAside() throws {
+        guard isAwaitingSetAside else { return }
+        let setAsideURL = try attemptSetAside()
+        clearIncompleteRestoreLaunches()
+        guard let setAsideURL else { return }
+        setAsideLock.withLock { deferredSetAsideHandler }?(setAsideURL)
+    }
+
+    /// Returns where the snapshot went, or nil when it is already gone, which
+    /// means another instance moved it and there is nothing left to protect.
+    private func attemptSetAside() throws -> URL? {
+        setAsideLock.lock()
+        defer { setAsideLock.unlock() }
+        do {
+            let setAsideURL = try setAsideSnapshot()
+            snapshotAccess = .open
+            return setAsideURL
+        } catch CocoaError.fileNoSuchFile {
+            snapshotAccess = .open
+            return nil
+        } catch {
+            snapshotAccess = .awaitingSetAside
+            throw error
         }
     }
 

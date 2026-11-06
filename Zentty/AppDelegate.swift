@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RestoreSnapshot {
         static let debounceNanoseconds: UInt64 = 350_000_000
         static let setAsideToastMessage = "Couldn’t reopen your workspace. It was set aside."
+        static let setAsideFailedToastMessage = "Couldn’t reopen your workspace. It’s still saved."
         static let setAsideToastDuration: TimeInterval = 4
     }
 
@@ -187,17 +188,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard shouldOpenMainWindow else { return }
 
-        var setAsideSnapshotURL: URL?
+        var launchAction = SessionRestoreStore.LaunchAction.startFresh
         if isSessionRestoreEnabled {
             configureSessionScrollback()
+            sessionRestoreStore.observeDeferredSetAside { [weak self] snapshotURL in
+                Task { @MainActor in self?.announceSetAsideSnapshot(at: snapshotURL) }
+            }
             var launchDecision: SessionRestoreStore.LaunchDecision?
             do {
-                switch try sessionRestoreStore.beginLaunch(
+                launchAction = try sessionRestoreStore.beginLaunch(
                     restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
-                ) {
-                case .startFresh:
-                    break
-                case .restore(let decision):
+                )
+                if case .restore(let decision) = launchAction {
                     launchDecision = decision
                     ZenttyBreadcrumbs.record(
                         category: "zentty.launch.restore",
@@ -206,8 +208,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             "windowCount": decision.envelope.workspace.windows.count,
                         ]
                     )
-                case .setAside(let snapshotURL):
-                    setAsideSnapshotURL = snapshotURL
                 }
             } catch {
                 reportRestoreError("Failed to prepare restore launch", error: error)
@@ -250,8 +250,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let externalDirectories = pendingExternalOpenDirectories
         pendingExternalOpenDirectories = []
         openWindows(atDirectories: externalDirectories)
-        if let setAsideSnapshotURL {
-            announceSetAsideSnapshot(at: setAsideSnapshotURL)
+        switch launchAction {
+        case .startFresh, .restore:
+            break
+        case .setAside(let snapshotURL):
+            announceSetAsideSnapshot(at: snapshotURL)
+        case .setAsideFailed:
+            announceFailedSetAside()
         }
 
         if !Self.isHostedTestMode {
@@ -273,6 +278,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reportRestoreError("Set restore snapshot aside after repeated incomplete launches: \(snapshotURL.path)")
         orderedWindowControllers.last?.showToast(
             message: RestoreSnapshot.setAsideToastMessage,
+            duration: RestoreSnapshot.setAsideToastDuration
+        )
+    }
+
+    /// The snapshot stays where it is, and every save tries the rename again.
+    private func announceFailedSetAside() {
+        ZenttyBreadcrumbs.record(
+            category: "zentty.launch.restore",
+            message: "set aside failed",
+            data: ["success": false]
+        )
+        reportRestoreError("Could not set restore snapshot aside; keeping it until the rename works")
+        orderedWindowControllers.last?.showToast(
+            message: RestoreSnapshot.setAsideFailedToastMessage,
             duration: RestoreSnapshot.setAsideToastDuration
         )
     }
