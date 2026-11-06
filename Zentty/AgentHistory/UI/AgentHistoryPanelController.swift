@@ -15,6 +15,8 @@ final class AgentHistoryPanelController {
     static let defaultConsentHeight: CGFloat = 520
     static let fadeInDuration: TimeInterval = 0.15
     static let fadeOutDuration: TimeInterval = 0.10
+    /// Latest the closing panel stays attached when its fade can't run.
+    static let fadeOutDeadline: TimeInterval = 0.25
     static let announcementInterval: TimeInterval = 1
 
     private var panel: CommandPalettePanel?
@@ -161,16 +163,24 @@ final class AgentHistoryPanelController {
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 panel.animator().alphaValue = 0
             }, completionHandler: {
-                MainActorShim.assumeIsolated {
-                    parent.removeChildWindow(panel)
-                    panel.orderOut(nil)
-                }
+                MainActorShim.assumeIsolated { Self.detach(panel, from: parent) }
             })
+            // The window animator only ticks while the display draws. With the display off
+            // the fade never ends, so the panel also leaves on the clock. Detaching twice is
+            // harmless.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeOutDeadline) {
+                MainActorShim.assumeIsolated { Self.detach(panel, from: parent) }
+            }
         } else {
             parent?.removeChildWindow(panel)
             panel.orderOut(nil)
         }
         onClosed?()
+    }
+
+    private static func detach(_ panel: NSPanel, from parent: NSWindow) {
+        parent.removeChildWindow(panel)
+        panel.orderOut(nil)
     }
 
     func updateTheme(_ theme: ZenttyTheme) {
