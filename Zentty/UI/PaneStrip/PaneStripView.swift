@@ -2331,6 +2331,11 @@ final class PaneStripView: NSView {
         suppressDiffBasedTransitionsOnNextRender = true
     }
 
+    /// True from `beginDropSettle` until the render it waits for has run.
+    var isAwaitingDropRender: Bool {
+        isDropSettling && afterNextRenderCallback != nil
+    }
+
     /// End the settling phase, reveal the covered pane.
     func endDropSettle() {
         isDropSettling = false

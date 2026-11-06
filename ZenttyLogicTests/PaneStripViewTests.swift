@@ -4768,6 +4768,48 @@ final class PaneStripViewTests: AppKitTestCase {
         )
     }
 
+    @MainActor
+    func test_refused_internal_drop_finishes_settle_without_render() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        paneStripView.onPaneDragOutcome = { _ in }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: cursor)
+
+        XCTAssertFalse(paneStripView.isDropSettling, "no render will come, so nothing may wait for one")
+        wait(for: [inactive], timeout: 5)
+        XCTAssertFalse(paneStripView.isDragActive)
+        XCTAssertFalse(paneStripView.isDropSettling)
+    }
+
+    @MainActor
+    func test_rendered_internal_drop_settles_through_the_reveal() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        let reordered = PaneStripState(
+            panes: [makePane("beta"), makePane("alpha"), makePane("gamma")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.onPaneDragOutcome = { _ in
+            paneStripView.render(reordered, animated: true)
+        }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: cursor)
+
+        XCTAssertTrue(paneStripView.isDropSettling, "a synchronous render is not a refusal")
+        XCTAssertTrue(paneStripView.isDragActive)
+        wait(for: [inactive], timeout: 5)
+        XCTAssertFalse(paneStripView.isDropSettling)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }

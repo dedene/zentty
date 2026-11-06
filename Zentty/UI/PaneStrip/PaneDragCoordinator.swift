@@ -888,6 +888,12 @@ final class PaneDragCoordinator {
 
         // Reparent back to viewportView so the animation target (content space) is correct
         reparentToViewportForAnimation()
+        springBackToOrigin(in: paneStripView)
+    }
+
+    /// The preview must already live in viewportView. Not phase-guarded: each
+    /// caller has entered `.finishing` and runs this once for its drag.
+    private func springBackToOrigin(in paneStripView: PaneStripView) {
         let targetCenter = CGPoint(x: originalPaneFrame.midX, y: originalPaneFrame.midY)
 
         // Clear split and sidebar state before animating back
@@ -1197,6 +1203,14 @@ final class PaneDragCoordinator {
         }
 
         mutation()
+
+        // The store notifies synchronously, so a render that has not arrived
+        // is one that never will: it refused the drop because the worklane or
+        // pane moved on mid-drag. Nothing else would finish this settle.
+        if paneStripView.isAwaitingDropRender {
+            paneStripView.endDropSettle()
+            springBackToOrigin(in: paneStripView)
+        }
     }
 
     private func performInternalDropReveal(
