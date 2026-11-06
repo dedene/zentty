@@ -206,11 +206,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         "success": true,
                     ]
                 )
-                do {
-                    try sessionRestoreStore.consumeSnapshot()
-                } catch {
-                    reportRestoreError("Failed to consume restore snapshot after successful launch", error: error)
-                }
             } else {
                 if launchDecision != nil {
                     ZenttyBreadcrumbs.record(

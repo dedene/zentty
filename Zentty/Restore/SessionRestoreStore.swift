@@ -75,16 +75,12 @@ final class SessionRestoreStore {
     func saveSnapshot(_ envelope: SessionRestoreEnvelope) throws {
         let envelopeToPersist: SessionRestoreEnvelope
         if envelope.reason == .cleanExit {
-            envelopeToPersist = envelope.mergingMissingRestoreDrafts(from: try loadSnapshot())
+            envelopeToPersist = envelope.mergingMissingRestoreDrafts(from: previousSnapshotForDraftMerge())
         } else {
             envelopeToPersist = envelope
         }
 
         try persist(envelopeToPersist, to: snapshotURL)
-    }
-
-    func consumeSnapshot() throws {
-        try deleteSnapshot()
     }
 
     func deleteSnapshot() throws {
@@ -97,6 +93,18 @@ final class SessionRestoreStore {
 
     private func loadSnapshot() throws -> SessionRestoreEnvelope? {
         try load(SessionRestoreEnvelope.self, from: snapshotURL)
+    }
+
+    /// Old drafts are worth keeping, but never at the cost of the save itself.
+    private func previousSnapshotForDraftMerge() -> SessionRestoreEnvelope? {
+        do {
+            return try loadSnapshot()
+        } catch {
+            sessionRestoreLogger.error(
+                "Replacing unreadable restore snapshot: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     private func loadLifecycleState() throws -> LifecycleState? {

@@ -634,6 +634,33 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertTrue(panes.allSatisfy { $0.scrollbackFile != nil })
     }
 
+    func test_launch_keeps_snapshot_until_replacement_is_saved() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace()
+        let snapshotURL = store.snapshotURL
+        let snapshotAtLaunch = try Data(contentsOf: snapshotURL)
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+
+        let replaced = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let current = try? Data(contentsOf: snapshotURL) else { return false }
+                return current != snapshotAtLaunch
+            },
+            object: nil
+        )
+        wait(for: [replaced], timeout: 5.0)
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        XCTAssertEqual(envelope.workspace.windows.map(\.id), ["window-main"])
+    }
+
     func test_close_window_command_respects_close_confirmation() throws {
         NSApp.mainMenu = nil
 
