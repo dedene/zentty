@@ -110,6 +110,19 @@ final class LibghosttyViewIMETests: AppKitTestCase {
         XCTAssertEqual(surface.preeditUpdates, ["ㄘ", ""])
         XCTAssertFalse(view.hasMarkedText())
     }
+
+    func test_unmark_text_clears_selected_range() {
+        view.setMarkedText(
+            "ㄘ",
+            selectedRange: NSRange(location: 0, length: 1),
+            replacementRange: NSRange(location: 2, length: 3)
+        )
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 2, length: 3))
+
+        view.unmarkText()
+
+        XCTAssertEqual(view.selectedRange().location, NSNotFound)
+    }
 }
 
 @MainActor

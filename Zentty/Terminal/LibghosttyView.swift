@@ -3049,6 +3049,7 @@ extension LibghosttyView: NSTextInputClient {
         MainActorShim.assumeIsolated {
             self.markedTextStorage = ""
             self.markedTextSelection = NSRange(location: NSNotFound, length: 0)
+            self.selectedTextStorageRange = NSRange(location: NSNotFound, length: 0)
             self.surfaceController?.setPreedit("")
         }
     }
