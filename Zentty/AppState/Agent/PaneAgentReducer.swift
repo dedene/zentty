@@ -481,6 +481,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             explicitIdleSince: nil
         )
 
+        let sessionsBeforeMerge = sessionsByID
         if payload.origin != .inferred {
             mergeInferredSessions(into: &session, for: tool, excluding: sessionID)
         }
@@ -489,6 +490,8 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         if !shouldApplyLifecycle(payload, over: session, now: now) {
+            // The merged result is dropped, so its sources must stay.
+            sessionsByID = sessionsBeforeMerge
             return
         }
 

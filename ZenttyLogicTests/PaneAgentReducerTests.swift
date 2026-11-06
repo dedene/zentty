@@ -2373,4 +2373,44 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.taskProgress?.doneCount, 3)
         XCTAssertEqual(status?.taskProgress?.totalCount, 7)
     }
+
+    func test_rejected_payload_keeps_inferred_session() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+        reducerState.apply(claudePayload(state: .running, sessionID: "explicit"), now: now)
+        reducerState.apply(
+            claudePayload(state: .running, sessionID: "inferred", origin: .inferred),
+            now: now.addingTimeInterval(1)
+        )
+        let before = reducerState.sessionsByID
+        XCTAssertEqual(before.count, 2)
+
+        reducerState.apply(
+            claudePayload(state: .idle, sessionID: "explicit", origin: .heuristic),
+            now: now.addingTimeInterval(2)
+        )
+
+        XCTAssertEqual(reducerState.sessionsByID, before)
+    }
+
+    private func claudePayload(
+        state: PaneAgentState,
+        sessionID: String,
+        origin: AgentSignalOrigin = .explicitHook,
+        lifecycleEvent: AgentLifecycleEvent = .update
+    ) -> AgentStatusPayload {
+        AgentStatusPayload(
+            worklaneID: WorklaneID("worklane-main"),
+            paneID: PaneID("pane-shell"),
+            state: state,
+            origin: origin,
+            toolName: "Claude Code",
+            text: nil,
+            lifecycleEvent: lifecycleEvent,
+            sessionID: sessionID,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+    }
 }
