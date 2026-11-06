@@ -51,6 +51,59 @@ final class ThemeCoordinatorTests: AppKitTestCase {
         XCTAssertEqual(terminalReloadCount, 1)
     }
 
+    func test_rewatching_keeps_a_pending_change_notification() throws {
+        let fileURL = directoryURL.appendingPathComponent("ghostty-config")
+        try Data("window-padding-x = 4\n".utf8).write(to: fileURL)
+        let watcher = GhosttyThemeWatcher()
+        addTeardownBlock { watcher.stop() }
+        let delivered = expectation(description: "pending change survives a re-watch")
+        watcher.onChange = { delivered.fulfill() }
+        watcher.watch(urls: [fileURL])
+
+        watcher.simulateFileEventForTesting()
+        watcher.watch(urls: [fileURL])
+
+        wait(for: [delivered], timeout: 2)
+    }
+
+    func test_stopping_cancels_a_pending_change_notification() throws {
+        let fileURL = directoryURL.appendingPathComponent("ghostty-config")
+        try Data("window-padding-x = 4\n".utf8).write(to: fileURL)
+        let watcher = GhosttyThemeWatcher()
+        let delivered = expectation(description: "stopped watcher stays silent")
+        delivered.isInverted = true
+        watcher.onChange = { delivered.fulfill() }
+        watcher.watch(urls: [fileURL])
+
+        watcher.simulateFileEventForTesting()
+        watcher.stop()
+
+        wait(for: [delivered], timeout: 0.4)
+    }
+
+    /// Exercises the debounce state from both sides so a Thread Sanitizer run
+    /// has something to catch; a plain run only proves it doesn't crash.
+    func test_file_events_can_race_stopping_the_watcher() throws {
+        let fileURL = directoryURL.appendingPathComponent("ghostty-config")
+        try Data("window-padding-x = 4\n".utf8).write(to: fileURL)
+        nonisolated(unsafe) let watcher = GhosttyThemeWatcher()
+        addTeardownBlock { watcher.stop() }
+        watcher.watch(urls: [fileURL])
+        let finished = expectation(description: "background file events finished")
+
+        DispatchQueue.global().async {
+            for _ in 0..<500 {
+                watcher.simulateFileEventForTesting()
+            }
+            finished.fulfill()
+        }
+        for _ in 0..<500 {
+            watcher.stop()
+        }
+
+        wait(for: [finished], timeout: 10)
+    }
+
     func test_refreshTheme_threads_sidebar_selection_emphasis_from_provider() throws {
         let appearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
         let configURL = directoryURL.appendingPathComponent("ghostty-config")
