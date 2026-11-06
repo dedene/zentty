@@ -1082,6 +1082,53 @@ final class ClaudeSpinnerTitleResumeTests: XCTestCase {
         XCTAssertEqual(record.lastStructuredInteractionToolUseID, "tu-bash")
     }
 
+    func test_stale_spinner_resume_keeps_newer_prompt_with_identical_text() throws {
+        // PermissionRequest text falls back to one generic line, so the
+        // answered prompt and the next one can read exactly the same.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zentty-claude-spinner-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let sessionStore = ClaudeHookSessionStore(
+            stateURL: directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        )
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 0,
+            claudeHookSessionStoreProvider: { sessionStore }
+        )
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "◐ regression test"))
+        store.applyAgentStatusPayload(claudePayload(paneID: paneID, worklaneID: store.activeWorklaneID, state: .running))
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "✳ regression test"))
+        store.applyAgentStatusPayload(
+            claudePayload(
+                paneID: paneID, worklaneID: store.activeWorklaneID,
+                state: .needsInput, text: "Claude needs your approval", interactionKind: .approval
+            )
+        )
+        // The bridge has moved on to the next prompt before the title caught up.
+        try sessionStore.rememberStructuredInteraction(
+            sessionID: "session-claude-spinner",
+            worklaneID: store.activeWorklaneID,
+            paneID: paneID,
+            cwd: "/tmp/project",
+            pid: nil,
+            text: "Claude needs your approval",
+            kind: .approval,
+            confidence: .explicit,
+            toolUseID: "tu-bash",
+            toolName: "Bash"
+        )
+
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "◐ regression test"))
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        let record = try XCTUnwrap(sessionStore.lookup(sessionID: "session-claude-spinner"))
+        XCTAssertEqual(record.structuredInteractionKind, .approval)
+        XCTAssertEqual(record.lastStructuredInteractionToolUseID, "tu-bash", "the newer prompt must survive the stale resume")
+    }
+
     func test_stale_spinner_title_before_dialog_title_does_not_clear_prompt() throws {
         // Reverse race: PermissionRequest lands before the "✳" title does. The
         // spinner glyph that is still on screen must not be read as a resume.
