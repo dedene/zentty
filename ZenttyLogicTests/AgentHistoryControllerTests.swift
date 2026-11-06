@@ -355,6 +355,51 @@ final class AgentHistoryControllerTests: XCTestCase {
                        "reading the reset state never recreates the directory")
     }
 
+    func test_delete_right_after_a_state_change_leaves_no_index() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = false; $0.consentedAt = Date() }
+        XCTAssertFalse(launch(fixture.controller))
+
+        var outcome: AgentHistoryDisableOutcome?
+        let deleted = expectation(description: "delete finished")
+        fixture.controller.setEnabled(true)
+        fixture.controller.disable(deleteIndex: true) { result in
+            outcome = result
+            deleted.fulfill()
+        }
+        wait(for: [deleted], timeout: 10)
+        fixture.controller.drainControlQueueForTesting()
+
+        XCTAssertEqual(outcome, .deleted)
+        XCTAssertEqual(fixture.factory.count, 0, "the older delivery must not start an indexer behind the delete")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
+        XCTAssertNil(persistedState(fixture.paths).consentedAt)
+    }
+
+    func test_turning_off_right_after_an_agent_went_off_still_purges_it() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
+
+        var answers = 0
+        let settled = expectation(description: "both changes delivered")
+        settled.expectedFulfillmentCount = 2
+        fixture.controller.setAgentEnabled(.codex, false) { _ in
+            answers += 1
+            settled.fulfill()
+        }
+        fixture.controller.disable(deleteIndex: false) { _ in
+            answers += 1
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 10)
+        fixture.controller.drainControlQueueForTesting()
+
+        XCTAssertEqual(answers, 2, "a skipped update still answers its caller")
+        XCTAssertEqual(try storedNativeIDs(fixture.paths), ["claude-outside", "claude-inside"])
+    }
+
     func test_remove_session_without_an_indexer_completes_false() {
         let fixture = makeFixture()
         var answer: Bool?
