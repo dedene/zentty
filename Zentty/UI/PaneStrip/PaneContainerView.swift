@@ -558,6 +558,13 @@ final class PaneContainerView: NSView {
         contentClipView.layer?.cornerCurve = .continuous
         contentClipView.layer?.masksToBounds = true
         contentClipView.frame = bounds
+        // A view with no layer of its own animates on AppKit's display-link
+        // animator instead of Core Animation. A float lifts in place in a
+        // container no display pass has reached yet, and with the display off
+        // that animator never finishes, so the lift would never land and
+        // viewport sync would stay suspended. Settled panes get this layer
+        // from their first display pass anyway.
+        terminalAnchorView.wantsLayer = true
         terminalAnchorView.translatesAutoresizingMaskIntoConstraints = true
         terminalAnchorView.autoresizingMask = [.width, .height]
         terminalAnchorView.frame = contentClipView.bounds
@@ -1238,6 +1245,10 @@ final class PaneContainerView: NSView {
 
     var clipsContentToBounds: Bool {
         contentClipView.layer?.masksToBounds == true
+    }
+
+    var isTerminalAnchorLayerBackedForTesting: Bool {
+        terminalAnchorView.layer != nil
     }
 
     var isTerminalAnimationFrozenForTesting: Bool {

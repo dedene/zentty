@@ -620,6 +620,31 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertEqual(paneView.titleText, "logs")
     }
 
+    /// A float lifts in place in a container created moments earlier, before any display
+    /// pass. Without a layer of its own the anchor's implicit frame animation runs on AppKit's
+    /// display-link animator, not Core Animation, so with the display off the lift's completion
+    /// never comes and the terminal's viewport sync stays suspended.
+    func test_fresh_container_backs_terminal_anchor_with_a_layer_before_any_display_pass() {
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 640,
+            height: 480,
+            emphasis: 1,
+            isFocused: false,
+            runtime: PaneRuntime(
+                pane: pane,
+                adapter: PaneContainerTerminalAdapterSpy(),
+                metadataSink: { _, _ in },
+                eventSink: { _, _ in }
+            ),
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertNil(paneView.window, "no window has drawn this container yet")
+        XCTAssertTrue(paneView.isTerminalAnchorLayerBackedForTesting)
+    }
+
     func test_terminal_host_and_overlay_follow_bounds_after_resize() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
