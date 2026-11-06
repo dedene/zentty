@@ -124,6 +124,10 @@ enum AgentLifecycleEvent: String, Equatable, Sendable {
     /// The user stopped the turn (Escape / Ctrl-C): idle, but not a
     /// completion, so no "Agent ready".
     case interrupt
+    /// Worker and task-list news. Hooks of this kind fire around an open
+    /// prompt without answering it, so they refresh the session's task and
+    /// subagent data then and otherwise read like `update`.
+    case backgroundActivity = "background-activity"
 }
 
 enum PaneAgentState: String, Equatable, Sendable {

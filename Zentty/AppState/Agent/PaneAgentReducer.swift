@@ -492,6 +492,15 @@ struct PaneAgentReducerState: Equatable, Sendable {
             return
         }
 
+        // The dialog is still up: keep the attention signal and take only the
+        // news. `updatedAt` stays too, it dates the prompt the pane is showing.
+        if payload.lifecycleEvent == .backgroundActivity,
+           session.state == .needsInput || session.interactionKind.requiresHumanAttention {
+            mergeTaskAndSubagentData(from: payload, into: &session, now: now)
+            sessionsByID[sessionID] = session
+            return
+        }
+
         let interactionKind = payload.interactionKind ?? defaultInteractionKind(for: state)
         let payloadText = AgentInteractionClassifier.trimmed(payload.text)
         let existingText = AgentInteractionClassifier.trimmed(session.text)
@@ -509,14 +518,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.updatedAt = now
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
-        if let incomingTaskProgress = payload.taskProgress {
-            session.taskProgress = session.taskProgress?.mergingCountsOnlyUpdate(incomingTaskProgress)
-                ?? incomingTaskProgress
-        }
-        if let subagents = payload.subagents {
-            session.subagents = subagents
-            session.subagentsRefreshedAt = now
-        }
+        mergeTaskAndSubagentData(from: payload, into: &session, now: now)
 
         if payload.lifecycleEvent == .stopCandidate {
             session.state = .running
@@ -600,6 +602,21 @@ struct PaneAgentReducerState: Equatable, Sendable {
         stopSignalLogger.debug(
             "reducer.lifecycle applied session=\(sessionID, privacy: .public) tool=\(tool.displayName, privacy: .public) prev=\(previousState.rawValue, privacy: .public) => \(session.state.rawValue, privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) interaction=\(session.interactionKind.rawValue, privacy: .public) hasObservedRunning=\(session.hasObservedRunning, privacy: .public)"
         )
+    }
+
+    private func mergeTaskAndSubagentData(
+        from payload: AgentStatusPayload,
+        into session: inout PaneAgentSessionState,
+        now: Date
+    ) {
+        if let incomingTaskProgress = payload.taskProgress {
+            session.taskProgress = session.taskProgress?.mergingCountsOnlyUpdate(incomingTaskProgress)
+                ?? incomingTaskProgress
+        }
+        if let subagents = payload.subagents {
+            session.subagents = subagents
+            session.subagentsRefreshedAt = now
+        }
     }
 
     private mutating func mergeInferredSessions(

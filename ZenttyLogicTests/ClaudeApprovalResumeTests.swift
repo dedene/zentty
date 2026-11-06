@@ -144,6 +144,100 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertEqual(reducer.reducedStatus(now: base + 5)?.state, .idle)
     }
 
+    func test_registered_worker_stop_keeps_parent_prompt_open() throws {
+        // A worker finishing says nothing about the parent's dialog: the
+        // badge updates and the prompt stays.
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 1_000)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"worker-prompt"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"worker-prompt"}"#, into: &reducer, at: base + 0.5)
+        try replay(#"{"hook_event_name":"SubagentStart","session_id":"worker-prompt","agent_id":"finishing"}"#, into: &reducer, at: base + 1)
+        try replay(#"{"hook_event_name":"SubagentStart","session_id":"worker-prompt","agent_id":"still-going"}"#, into: &reducer, at: base + 1.5)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"worker-prompt","tool_name":"Bash","message":"Run make?"}"#, into: &reducer, at: base + 2)
+
+        try replay(#"{"hook_event_name":"SubagentStop","session_id":"worker-prompt","agent_id":"finishing"}"#, into: &reducer, at: base + 3)
+
+        let status = reducer.reducedStatus(now: base + 3)
+        XCTAssertEqual(status?.state, .needsInput)
+        XCTAssertEqual(status?.interactionKind, .approval)
+        XCTAssertEqual(status?.text, "Run make?")
+        XCTAssertEqual(status?.subagents?.entries.map(\.id), ["still-going"])
+        XCTAssertEqual(status?.updatedAt, base + 2, "the timestamp dates the prompt on screen")
+        XCTAssertEqual(reducer.sessionsByID["worker-prompt"]?.subagentsRefreshedAt, base + 3)
+        XCTAssertEqual(try sessionStore.lookup(sessionID: "worker-prompt")?.structuredInteractionKind, .approval)
+    }
+
+    func test_worker_start_keeps_parent_prompt_open() throws {
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 1_000)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"worker-start"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"worker-start"}"#, into: &reducer, at: base + 0.5)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"worker-start","tool_name":"Bash","message":"Run make?"}"#, into: &reducer, at: base + 2)
+
+        try replay(#"{"hook_event_name":"SubagentStart","session_id":"worker-start","agent_id":"background"}"#, into: &reducer, at: base + 3)
+
+        let status = reducer.reducedStatus(now: base + 3)
+        XCTAssertEqual(status?.state, .needsInput)
+        XCTAssertEqual(status?.interactionKind, .approval)
+        XCTAssertEqual(status?.text, "Run make?")
+        XCTAssertEqual(status?.subagents?.entries.map(\.id), ["background"])
+        XCTAssertEqual(try sessionStore.lookup(sessionID: "worker-start")?.structuredInteractionKind, .approval)
+    }
+
+    func test_task_events_keep_parent_prompt_open() throws {
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 1_000)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"task-prompt"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"task-prompt"}"#, into: &reducer, at: base + 0.5)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"task-prompt","tool_name":"Bash","message":"Run make?"}"#, into: &reducer, at: base + 2)
+
+        try replay(#"{"hook_event_name":"TaskCreated","session_id":"task-prompt","task_id":"1","task_subject":"Write the test"}"#, into: &reducer, at: base + 3)
+        XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.state, .needsInput)
+        XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.taskProgress?.totalCount, 1)
+
+        try replay(#"{"hook_event_name":"TaskCompleted","session_id":"task-prompt","task_id":"1","task_subject":"Write the test"}"#, into: &reducer, at: base + 4)
+        let status = reducer.reducedStatus(now: base + 4)
+        XCTAssertEqual(status?.state, .needsInput)
+        XCTAssertEqual(status?.interactionKind, .approval)
+        XCTAssertEqual(status?.text, "Run make?")
+        XCTAssertEqual(status?.taskProgress?.doneCount, 1)
+        XCTAssertEqual(try sessionStore.lookup(sessionID: "task-prompt")?.structuredInteractionKind, .approval)
+    }
+
+    func test_worker_stop_clears_its_own_prompt() throws {
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 1_000)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"own-prompt"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"own-prompt"}"#, into: &reducer, at: base + 0.5)
+        try replay(#"{"hook_event_name":"SubagentStart","session_id":"own-prompt","agent_id":"worker"}"#, into: &reducer, at: base + 1)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"own-prompt","agent_id":"worker","tool_name":"Bash","message":"Run make?"}"#, into: &reducer, at: base + 2)
+        XCTAssertEqual(reducer.reducedStatus(now: base + 2)?.state, .needsInput)
+
+        try replay(#"{"hook_event_name":"SubagentStop","session_id":"own-prompt","agent_id":"worker"}"#, into: &reducer, at: base + 3)
+
+        XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.state, .running)
+        XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.interactionKind, PaneAgentInteractionKind.none)
+        XCTAssertNil(try sessionStore.lookup(sessionID: "own-prompt")?.structuredInteractionKind)
+    }
+
+    func test_subagent_start_resolves_prompted_agent_tool() throws {
+        for toolName in ["Agent", "Task"] {
+            var reducer = PaneAgentReducerState()
+            let base = Date(timeIntervalSince1970: 1_000)
+            let sessionID = "agent-tool-\(toolName)"
+            try replay(#"{"hook_event_name":"SessionStart","session_id":"\#(sessionID)"}"#, into: &reducer, at: base)
+            try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"\#(sessionID)"}"#, into: &reducer, at: base + 0.5)
+            try replay(#"{"hook_event_name":"PermissionRequest","session_id":"\#(sessionID)","tool_name":"\#(toolName)","message":"Launch agent?"}"#, into: &reducer, at: base + 2)
+            XCTAssertEqual(reducer.reducedStatus(now: base + 2)?.state, .needsInput)
+
+            try replay(#"{"hook_event_name":"SubagentStart","session_id":"\#(sessionID)","agent_id":"approved"}"#, into: &reducer, at: base + 3)
+
+            XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.state, .running, toolName)
+            XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.subagents?.entries.map(\.id), ["approved"], toolName)
+            XCTAssertNil(try sessionStore.lookup(sessionID: sessionID)?.structuredInteractionKind, toolName)
+        }
+    }
+
     func test_anonymous_stop_without_live_worker_does_not_restart_parent() throws {
         var reducer = PaneAgentReducerState()
         let base = Date(timeIntervalSince1970: 1_000)
@@ -362,6 +456,35 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertNotEqual(status?.state, .needsInput, "interrupting the dialog must leave needsInput")
         XCTAssertEqual(status?.interactionKind, PaneAgentInteractionKind.none)
         XCTAssertNil(try sessionStore.lookup(sessionID: "s8b")?.structuredInteractionKind)
+    }
+
+    func test_interrupted_worker_tool_keeps_parent_prompt_open() throws {
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 8_200)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"s8c"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"s8c"}"#, into: &reducer, at: base + 0.1)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"s8c","tool_name":"Bash","message":"Run make?"}"#, into: &reducer, at: base + 1)
+
+        let payloads = try makePayloads(#"{"hook_event_name":"PostToolUseFailure","session_id":"s8c","tool_name":"Bash","tool_use_id":"tu-worker","agent_id":"worker","error":"interrupted","is_interrupt":true}"#)
+
+        XCTAssertTrue(payloads.isEmpty)
+        for payload in payloads { reducer.apply(payload, now: base + 2) }
+        XCTAssertEqual(reducer.reducedStatus(now: base + 2)?.state, .needsInput)
+        XCTAssertEqual(try sessionStore.lookup(sessionID: "s8c")?.structuredInteractionKind, .approval)
+    }
+
+    func test_interrupt_on_a_workers_own_prompt_emits_explicit_idle() throws {
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 8_300)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"s8d"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"s8d"}"#, into: &reducer, at: base + 0.1)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"s8d","agent_id":"worker","tool_name":"Bash","message":"Run make?"}"#, into: &reducer, at: base + 1)
+
+        let payloads = try makePayloads(#"{"hook_event_name":"PostToolUseFailure","session_id":"s8d","tool_name":"Bash","tool_use_id":"tu-worker","agent_id":"worker","error":"interrupted","is_interrupt":true}"#)
+
+        XCTAssertEqual(payloads.map(\.state), [.idle])
+        XCTAssertEqual(payloads.first?.lifecycleEvent, .interrupt)
+        XCTAssertNil(try sessionStore.lookup(sessionID: "s8d")?.structuredInteractionKind)
     }
 
     func test_pre_tool_use_slots_are_kept_per_agent() throws {

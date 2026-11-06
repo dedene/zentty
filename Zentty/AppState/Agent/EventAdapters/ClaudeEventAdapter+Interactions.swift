@@ -72,6 +72,34 @@ extension AgentEventBridge {
             != AgentInteractionClassifier.trimmed(input.agentID)
     }
 
+    /// Whether a `SubagentStart` answers the open prompt: the parent asked to
+    /// launch this very worker. Any other start happens beside the dialog.
+    static func claudeSubagentStartResolvesPrompt(existing: ClaudeHookSessionRecord?) -> Bool {
+        guard let existing,
+              existing.structuredInteractionKind?.requiresHumanAttention == true,
+              AgentInteractionClassifier.trimmed(existing.lastStructuredInteractionAgentID) == nil
+        else {
+            return false
+        }
+        return existing.lastStructuredInteractionToolName == "Agent"
+            || existing.lastStructuredInteractionToolName == "Task"
+    }
+
+    /// Whether a `SubagentStop` ends the open prompt: the dialog was the
+    /// stopping worker's own, so it went away with the worker.
+    static func claudeSubagentStopResolvesPrompt(
+        input: ClaudeAdapterInput,
+        existing: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard let existing,
+              existing.structuredInteractionKind?.requiresHumanAttention == true,
+              let promptAgentID = AgentInteractionClassifier.trimmed(existing.lastStructuredInteractionAgentID)
+        else {
+            return false
+        }
+        return promptAgentID == AgentInteractionClassifier.trimmed(input.agentID)
+    }
+
     /// `tool_use_id` already stored for the open prompt when a PermissionRequest
     /// re-describes the same tool call: PreToolUse(AskUserQuestion) carries the
     /// id, the PermissionRequest that follows it does not, and no PreToolUse
