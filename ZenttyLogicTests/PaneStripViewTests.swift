@@ -4810,6 +4810,117 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertFalse(paneStripView.isDropSettling)
     }
 
+    // MARK: - Superseded animated renders
+
+    @MainActor
+    private func stackedState(_ paneIDs: [String], focused: String) -> PaneStripState {
+        PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: paneIDs.map { PaneState(id: PaneID($0), title: $0) },
+                    width: 910,
+                    focusedPaneID: PaneID(focused),
+                    lastFocusedPaneID: PaneID(focused)
+                ),
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+    }
+
+    @MainActor
+    func test_stale_animated_render_completion_keeps_newer_render_frozen() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        paneStripView.render(stackedState(["shell"], focused: "shell"), animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.holdsAnimatedRenderCompletionsForTesting = true
+        paneStripView.render(stackedState(["shell", "one"], focused: "one"), animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.render(stackedState(["shell", "one", "two"], focused: "two"), animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let newerFrozenPaneID = try XCTUnwrap(paneStripView.lastInsertionTransition?.sourcePaneID)
+        func pane(_ id: PaneID) throws -> PaneContainerView {
+            try XCTUnwrap(paneStripView.descendantPaneViews().first(where: { $0.paneID == id }))
+        }
+
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+
+        XCTAssertTrue(paneStripView.hasPendingAnimatedSettleActionForTesting)
+        XCTAssertTrue(try pane(newerFrozenPaneID).isTerminalAnimationFrozen)
+        for id in ["shell", "one", "two"] {
+            XCTAssertTrue(try pane(PaneID(id)).isTerminalViewportSyncSuspended, id)
+        }
+
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+
+        XCTAssertFalse(paneStripView.hasPendingAnimatedSettleActionForTesting)
+        XCTAssertFalse(try pane(newerFrozenPaneID).isTerminalAnimationFrozen)
+        for id in ["shell", "one", "two"] {
+            XCTAssertFalse(try pane(PaneID(id)).isTerminalViewportSyncSuspended, id)
+        }
+    }
+
+    @MainActor
+    private func assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: Bool) throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1400, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated { paneStripView.prepareForTestingTearDown() }
+        }
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha")], focusedPaneID: PaneID("alpha")),
+            animated: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.holdsAnimatedRenderCompletionsForTesting = true
+        let attachedState = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("beta")
+        )
+        paneStripView.render(attachedState, animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+        let betaView = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta"))?.terminalView)
+        XCTAssertEqual(betaView.forceViewportSyncCallCount, 0)
+
+        let successor = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(successor, animated: successorAnimates)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+
+        XCTAssertGreaterThan(
+            betaView.forceViewportSyncCallCount, 0,
+            "the pane the superseded render attached still needs its viewport sync"
+        )
+    }
+
+    @MainActor
+    func test_animated_successor_syncs_pane_attached_by_superseded_render() throws {
+        try assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: true)
+    }
+
+    @MainActor
+    func test_non_animated_successor_syncs_pane_attached_by_superseded_render() throws {
+        try assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: false)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }

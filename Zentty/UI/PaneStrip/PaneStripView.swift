@@ -207,6 +207,7 @@ final class PaneStripView: NSView {
     private(set) var lastRenderWasAnimated = false
     private var pendingAnimatedSettleAction: (() -> Void)?
     private var renderGuard = RenderGuard()
+    private var owedRenderSettle = RenderSettleWork()
     private var suppressDiffBasedTransitionsOnNextRender = false
     private var isDetachingFromWindow = false
     private var isRenderingLayoutPass = false
@@ -334,6 +335,24 @@ final class PaneStripView: NSView {
         mutating func resetResizeSuppression() {
             isResizeSuppressed = false
             generation += 1
+        }
+    }
+
+    /// Terminal work animated renders owe once they settle. It stays here,
+    /// not in each completion: a superseded render's completion returns early,
+    /// and whichever render settles next inherits what that one still owed.
+    private struct RenderSettleWork {
+        private(set) var newlyAttachedPaneIDs: Set<PaneID> = []
+        private(set) var needsTerminalRedraw = false
+
+        mutating func add(newlyAttachedPaneIDs: Set<PaneID>, needsTerminalRedraw: Bool) {
+            self.newlyAttachedPaneIDs.formUnion(newlyAttachedPaneIDs)
+            self.needsTerminalRedraw = self.needsTerminalRedraw || needsTerminalRedraw
+        }
+
+        mutating func take() -> RenderSettleWork {
+            defer { self = RenderSettleWork() }
+            return self
         }
     }
 
@@ -998,6 +1017,7 @@ final class PaneStripView: NSView {
     ) {
         guard !isDragActive || isDropSettling else { return }
         let settleGeneration = renderGuard.advanceGeneration()
+        let renderCount = renderGuard.renderCount
         let previousPresentation = currentPresentation
         let previousOffset = currentOffset
         let targetOffsetOverride = pendingTargetOffsetOverride
@@ -1131,6 +1151,10 @@ final class PaneStripView: NSView {
         }
 
         if shouldAnimate {
+            owedRenderSettle.add(
+                newlyAttachedPaneIDs: newlyAttachedPaneIDs,
+                needsTerminalRedraw: needsTerminalRedrawAfterRender
+            )
             let settleAction: () -> Void = { [weak self] in
                 guard let self else { return }
                 self.finishAnimatedRender(
@@ -1138,23 +1162,23 @@ final class PaneStripView: NSView {
                     presentation: presentation,
                     state: state,
                     targetOffset: targetOffset,
-                    insertionTransition: insertionTransition,
-                    needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender,
-                    newlyAttachedPaneIDs: newlyAttachedPaneIDs
+                    insertionTransition: insertionTransition
                 )
             }
             pendingAnimatedSettleAction = settleAction
             let completeRender: @MainActor () -> Void = { [weak self] in
-                guard let self else { return }
+                // Superseded: the newer render owns the settle slot, the freeze
+                // and the suspension. `renderCount`, not `generation`, because
+                // resize bookkeeping also moves `generation` with no render to
+                // take over, which would strand this render's freeze.
+                guard let self, self.renderGuard.renderCount == renderCount else { return }
                 self.pendingAnimatedSettleAction = nil
                 self.finishAnimatedRender(
                     settleGeneration: settleGeneration,
                     presentation: presentation,
                     state: state,
                     targetOffset: targetOffset,
-                    insertionTransition: insertionTransition,
-                    needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender,
-                    newlyAttachedPaneIDs: newlyAttachedPaneIDs
+                    insertionTransition: insertionTransition
                 )
             }
             var motionCompletion: (@Sendable () -> Void)? = {
@@ -1175,22 +1199,29 @@ final class PaneStripView: NSView {
             )
         } else {
             pendingAnimatedSettleAction = nil
+            let supersededSettle = owedRenderSettle.take()
             updates()
             if !isZoomedOut {
                 applyTerminalAnimationFreeze(to: [])
                 clearTerminalResizePreviews()
             }
             flushViewportLayoutIfNeeded()
-            if forceViewportLayoutBeforeViewportSync || !newlyAttachedPaneIDs.isEmpty {
+            if forceViewportLayoutBeforeViewportSync
+                || !newlyAttachedPaneIDs.isEmpty
+                || !supersededSettle.newlyAttachedPaneIDs.isEmpty {
                 viewportView.layoutSubtreeIfNeeded()
             }
             if !isZoomedOut {
                 applyViewportSyncSuspension(to: [])
             }
             if !isZoomedOut {
-                forceTerminalViewportSync(for: newlyAttachedPaneIDs)
+                forceTerminalViewportSync(
+                    for: supersededSettle.needsTerminalRedraw
+                        ? Set(paneViews.keys)
+                        : newlyAttachedPaneIDs.union(supersededSettle.newlyAttachedPaneIDs)
+                )
             }
-            if needsTerminalRedrawAfterRender {
+            if needsTerminalRedrawAfterRender || supersededSettle.needsTerminalRedraw {
                 refreshTerminalDisplaysIfNeeded()
             }
         }
@@ -1353,10 +1384,9 @@ final class PaneStripView: NSView {
         presentation: StripPresentation,
         state: PaneStripState,
         targetOffset: CGFloat,
-        insertionTransition: PaneInsertionTransition?,
-        needsTerminalRedrawAfterRender: Bool,
-        newlyAttachedPaneIDs: Set<PaneID>
+        insertionTransition: PaneInsertionTransition?
     ) {
+        let settle = owedRenderSettle.take()
         if renderGuard.generation == settleGeneration {
             applyPresentation(
                 presentation,
@@ -1381,13 +1411,13 @@ final class PaneStripView: NSView {
         if !isZoomedOut {
             applyViewportSyncSuspension(to: [])
         }
-        if needsTerminalRedrawAfterRender {
+        if settle.needsTerminalRedraw {
             refreshTerminalDisplaysIfNeeded()
             if !isZoomedOut {
                 forceTerminalViewportSync(for: Set(paneViews.keys))
             }
         } else if !isZoomedOut {
-            forceTerminalViewportSync(for: newlyAttachedPaneIDs)
+            forceTerminalViewportSync(for: settle.newlyAttachedPaneIDs)
         }
     }
 
@@ -1939,6 +1969,7 @@ final class PaneStripView: NSView {
             paneView.setTerminalViewportSyncSuspended(false)
         }
         pendingAnimatedSettleAction = nil
+        owedRenderSettle = RenderSettleWork()
         endDropSettle()
         dragCoordinator.prepareForTestingTearDown()
         cancelDividerDrag()
