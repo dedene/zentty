@@ -1852,6 +1852,7 @@ final class RootViewController: NSViewController {
     private func navigateToNotification(_ notification: AppNotification) {
         if notification.windowID == windowID {
             navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
+            worklaneStore.revealOverlayFloatAwaitingNavigation(on: notification.paneID)
             return
         }
 
