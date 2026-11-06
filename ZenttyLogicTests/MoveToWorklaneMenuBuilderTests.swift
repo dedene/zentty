@@ -116,10 +116,11 @@ final class MoveToWorklaneMenuBuilderTests: XCTestCase {
 
         let menu = MoveToWorklaneMenuBuilder.makeSubmenu(catalog: catalog, paneID: sourcePaneID)
 
-        XCTAssertEqual(menu.items.count, 3)
+        XCTAssertEqual(menu.items.count, 4)
         XCTAssertEqual(menu.items[0].title, "vim")
         XCTAssertTrue(menu.items[1].isSeparatorItem)
         XCTAssertEqual(menu.items[2].title, "New Worklane in This Window")
+        XCTAssertEqual(menu.items[3].title, "New Named Worklane in This Window\u{2026}")
     }
 
     func test_emptyGroupsButCanCreateNewWorklane_omitsLeadingSeparator() {
@@ -130,9 +131,10 @@ final class MoveToWorklaneMenuBuilderTests: XCTestCase {
 
         let menu = MoveToWorklaneMenuBuilder.makeSubmenu(catalog: catalog, paneID: sourcePaneID)
 
-        XCTAssertEqual(menu.items.count, 1)
+        XCTAssertEqual(menu.items.count, 2)
         XCTAssertEqual(menu.items[0].title, "New Worklane in This Window")
         XCTAssertFalse(menu.items[0].isSeparatorItem)
+        XCTAssertEqual(menu.items[1].title, "New Named Worklane in This Window\u{2026}")
     }
 
     func test_destinationItem_carriesRequestRepresentedObject() {
@@ -159,6 +161,24 @@ final class MoveToWorklaneMenuBuilderTests: XCTestCase {
     func test_newWorklaneItem_actionTargetsMovePaneToNewWorklaneInThisWindow() {
         let item = MoveToWorklaneMenuBuilder.makeNewWorklaneItem(paneID: sourcePaneID)
         XCTAssertEqual(item.action, #selector(MainWindowController.movePaneToNewWorklaneInThisWindow(_:)))
+    }
+
+    func test_namedNewWorklaneItem_carriesPaneIDAndTargetsNamedAction() {
+        let item = MoveToWorklaneMenuBuilder.makeNamedNewWorklaneItem(paneID: sourcePaneID)
+        XCTAssertEqual(item.representedObject as? PaneID, sourcePaneID)
+        XCTAssertEqual(item.action, #selector(MainWindowController.movePaneToNamedNewWorklaneInThisWindow(_:)))
+    }
+
+    func test_cannotCreateNewWorklane_omitsNamedNewWorklaneItem() {
+        let summary = makeSummary(windowID: "w1", worklaneID: "A", primary: "vim", additional: 0)
+        let catalog = WorklaneDestinationCatalog(
+            groups: [WorklaneDestinationGroup(windowID: WindowID("w1"), summaries: [summary])],
+            canCreateNewWorklane: false
+        )
+
+        let menu = MoveToWorklaneMenuBuilder.makeSubmenu(catalog: catalog, paneID: sourcePaneID)
+
+        XCTAssertFalse(menu.items.contains { $0.action == #selector(MainWindowController.movePaneToNamedNewWorklaneInThisWindow(_:)) })
     }
 
     func test_worklaneColorDotImage_isNonNil() {
