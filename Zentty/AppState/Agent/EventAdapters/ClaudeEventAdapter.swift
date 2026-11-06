@@ -438,10 +438,9 @@ extension AgentEventBridge {
         case "SubagentStart":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
-            let resolvesPrompt = claudeSubagentStartResolvesPrompt(existing: existing)
-            if resolvesPrompt, let sessionID = input.sessionID {
-                try sessionStore.clearInteractionContext(sessionID: sessionID, keepsPreToolUseSlots: true)
-            }
+            // The hook names no tool call, so even during an open Agent/Task
+            // prompt this can be an earlier call's worker or a nested spawn.
+            // An approved launch resumes through its PostToolUse or the title.
             let entry = claudeSubagentEntry(
                 for: input,
                 sessionTranscriptPath: input.transcriptPath ?? existing?.transcriptPath
@@ -449,7 +448,7 @@ extension AgentEventBridge {
             let subagents = try subagentStore.start(key: claudeSubagentKey(target), entry: entry)
             return [claudeLifecyclePayload(
                 target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
-                lifecycleEvent: resolvesPrompt ? .update : .backgroundActivity,
+                lifecycleEvent: .backgroundActivity,
                 interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID),
                 subagents: subagents

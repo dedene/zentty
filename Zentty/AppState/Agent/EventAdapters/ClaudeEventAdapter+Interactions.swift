@@ -72,19 +72,6 @@ extension AgentEventBridge {
             != AgentInteractionClassifier.trimmed(input.agentID)
     }
 
-    /// Whether a `SubagentStart` answers the open prompt: the parent asked to
-    /// launch this very worker. Any other start happens beside the dialog.
-    static func claudeSubagentStartResolvesPrompt(existing: ClaudeHookSessionRecord?) -> Bool {
-        guard let existing,
-              existing.structuredInteractionKind?.requiresHumanAttention == true,
-              AgentInteractionClassifier.trimmed(existing.lastStructuredInteractionAgentID) == nil
-        else {
-            return false
-        }
-        return existing.lastStructuredInteractionToolName == "Agent"
-            || existing.lastStructuredInteractionToolName == "Task"
-    }
-
     /// Whether a `SubagentStop` ends the open prompt: the dialog was the
     /// stopping worker's own, so it went away with the worker.
     static func claudeSubagentStopResolvesPrompt(

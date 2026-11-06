@@ -220,7 +220,30 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertNil(try sessionStore.lookup(sessionID: "own-prompt")?.structuredInteractionKind)
     }
 
-    func test_subagent_start_resolves_prompted_agent_tool() throws {
+    func test_unrelated_worker_start_keeps_open_agent_tool_prompt() throws {
+        // Call A was already allowed and its SubagentStart lands while call B
+        // waits for approval. The hook names no tool call, so it cannot be
+        // read as the answer to B.
+        for toolName in ["Agent", "Task"] {
+            var reducer = PaneAgentReducerState()
+            let base = Date(timeIntervalSince1970: 1_000)
+            let sessionID = "unrelated-start-\(toolName)"
+            try replay(#"{"hook_event_name":"SessionStart","session_id":"\#(sessionID)"}"#, into: &reducer, at: base)
+            try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"\#(sessionID)"}"#, into: &reducer, at: base + 0.5)
+            try replay(#"{"hook_event_name":"PermissionRequest","session_id":"\#(sessionID)","tool_name":"\#(toolName)","message":"Launch agent B?"}"#, into: &reducer, at: base + 2)
+
+            try replay(#"{"hook_event_name":"SubagentStart","session_id":"\#(sessionID)","agent_id":"agent-a"}"#, into: &reducer, at: base + 3)
+
+            let status = reducer.reducedStatus(now: base + 3)
+            XCTAssertEqual(status?.state, .needsInput, toolName)
+            XCTAssertEqual(status?.interactionKind, .approval, toolName)
+            XCTAssertEqual(status?.text, "Launch agent B?", toolName)
+            XCTAssertEqual(status?.subagents?.entries.map(\.id), ["agent-a"], toolName)
+            XCTAssertEqual(try sessionStore.lookup(sessionID: sessionID)?.structuredInteractionKind, .approval, toolName)
+        }
+    }
+
+    func test_approved_agent_tool_resumes_on_its_post_tool_use() throws {
         for toolName in ["Agent", "Task"] {
             var reducer = PaneAgentReducerState()
             let base = Date(timeIntervalSince1970: 1_000)
