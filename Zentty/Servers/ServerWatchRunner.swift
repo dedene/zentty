@@ -50,11 +50,13 @@ struct ServerWatchRunner {
         // Serializes the handlers with the final drain so chunks stay ordered
         // and each one is forwarded exactly once.
         let forwardLock = NSLock()
+        let stdoutLines = ServerWatchLineBufferBox()
+        let stderrLines = ServerWatchLineBufferBox()
         stdoutPipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            forwardChunk(from: fileHandle, to: output, lock: forwardLock, detect: detect, handleDetection: handleDetection)
+            forwardChunk(from: fileHandle, to: output, lines: stdoutLines, lock: forwardLock, detect: detect, handleDetection: handleDetection)
         }
         stderrPipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            forwardChunk(from: fileHandle, to: errorOutput, lock: forwardLock, detect: detect, handleDetection: handleDetection)
+            forwardChunk(from: fileHandle, to: errorOutput, lines: stderrLines, lock: forwardLock, detect: detect, handleDetection: handleDetection)
         }
 
         try process.run()
@@ -70,10 +72,17 @@ struct ServerWatchRunner {
         var stderrHasData = true
         while stdoutHasData || stderrHasData, DispatchTime.now() < drainDeadline {
             if stdoutHasData {
-                stdoutHasData = forwardChunk(from: stdoutPipe.fileHandleForReading, to: output, lock: forwardLock, detect: detect, handleDetection: handleDetection)
+                stdoutHasData = forwardChunk(from: stdoutPipe.fileHandleForReading, to: output, lines: stdoutLines, lock: forwardLock, detect: detect, handleDetection: handleDetection)
             }
             if stderrHasData {
-                stderrHasData = forwardChunk(from: stderrPipe.fileHandleForReading, to: errorOutput, lock: forwardLock, detect: detect, handleDetection: handleDetection)
+                stderrHasData = forwardChunk(from: stderrPipe.fileHandleForReading, to: errorOutput, lines: stderrLines, lock: forwardLock, detect: detect, handleDetection: handleDetection)
+            }
+        }
+        forwardLock.withLock {
+            for lines in [stdoutLines, stderrLines] {
+                if let text = lines.buffer.flush() {
+                    detect(text).forEach(handleDetection)
+                }
             }
         }
         return process.terminationStatus
@@ -82,6 +91,51 @@ struct ServerWatchRunner {
     /// Upper bound on forwarding output that is still buffered after the
     /// watched command exited.
     static let finalDrainTimeout: TimeInterval = 0.25
+}
+
+/// Reassembles one output stream into whole lines for URL detection, since a
+/// pipe read can end anywhere, including inside a URL or a UTF-8 sequence.
+/// Text with no newline yet waits in the tail, capped so an endless line stays
+/// bounded; a URL inside a line longer than the cap can be lost.
+struct ServerWatchLineBuffer {
+    static let defaultCapacity = 64 * 1024
+
+    private let capacity: Int
+    private var tail = Data()
+
+    init(capacity: Int = ServerWatchLineBuffer.defaultCapacity) {
+        self.capacity = capacity
+    }
+
+    /// Returns the lines `data` completed, or `nil` when none ended in it.
+    mutating func append(_ data: Data) -> String? {
+        tail.append(data)
+        var completedLines: String?
+        if let lastNewline = tail.lastIndex(of: UInt8(ascii: "\n")) {
+            let tailStart = tail.index(after: lastNewline)
+            completedLines = String(decoding: tail[..<tailStart], as: UTF8.self)
+            tail = Data(tail[tailStart...])
+        }
+        if tail.count > capacity {
+            tail = Data(tail.suffix(capacity))
+        }
+        return completedLines
+    }
+
+    /// Returns the unterminated tail once the stream is done.
+    mutating func flush() -> String? {
+        guard !tail.isEmpty else {
+            return nil
+        }
+        defer { tail = Data() }
+        return String(decoding: tail, as: UTF8.self)
+    }
+}
+
+/// One stream's buffer, shared with its readability handler. `forwardLock`
+/// guards every access.
+private final class ServerWatchLineBufferBox: @unchecked Sendable {
+    var buffer = ServerWatchLineBuffer()
 }
 
 enum ServerWatchRunnerError: LocalizedError, Equatable {
@@ -101,6 +155,7 @@ enum ServerWatchRunnerError: LocalizedError, Equatable {
 private func forwardChunk(
     from source: FileHandle,
     to destination: FileHandle,
+    lines: ServerWatchLineBufferBox,
     lock: NSLock,
     detect: (String) -> [ServerURLCandidate],
     handleDetection: (ServerURLCandidate) -> Void
@@ -118,10 +173,8 @@ private func forwardChunk(
     }
 
     destination.write(data)
-    if let text = String(data: data, encoding: .utf8) {
-        for candidate in detect(text) {
-            handleDetection(candidate)
-        }
+    if let text = lines.buffer.append(data) {
+        detect(text).forEach(handleDetection)
     }
     return true
 }
