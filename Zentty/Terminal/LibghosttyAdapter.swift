@@ -115,6 +115,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
     private var hasAppliedSurfaceActivity = false
     private var inheritedConfigTemplate: ghostty_surface_config_s?
+    private var hasRequestedClose = false
 
     var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
     var needsConfirmQuit: Bool { surfaceController?.needsConfirmQuit ?? false }
@@ -146,6 +147,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             return
         }
 
+        hasRequestedClose = false
         try ZenttyPerformanceSignposts.interval("LibghosttyAdapterStartSession") {
             let surfaceController = try runtime.makeSurface(
                 for: hostView,
@@ -156,7 +158,12 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
                     self?.metadataDidChange?(metadata)
                 },
                 eventDidOccur: { [weak self] event in
-                    self?.eventDidOccur?(event)
+                    guard let self else { return }
+                    // A close we asked for is not the shell exiting.
+                    if event == .surfaceClosed, self.hasRequestedClose {
+                        return
+                    }
+                    self.eventDidOccur?(event)
                 }
             )
 
@@ -171,6 +178,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     }
 
     func close() {
+        hasRequestedClose = true
         surfaceController?.close()
         surfaceController = nil
     }

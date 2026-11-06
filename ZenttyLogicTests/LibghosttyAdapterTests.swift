@@ -428,6 +428,31 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(receivedEvent, .progressReport(report))
     }
 
+    func test_close_suppresses_surface_closed_event() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        adapter.close()
+        runtime.lastEventHandler?(.surfaceClosed)
+
+        XCTAssertTrue(receivedEvents.isEmpty)
+    }
+
+    func test_shell_exit_still_forwards_surface_closed() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        runtime.lastEventHandler?(.surfaceClosed)
+
+        XCTAssertEqual(receivedEvents, [.surfaceClosed])
+    }
+
     func test_repeated_surface_activity_does_not_resend_focus_or_refresh() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
