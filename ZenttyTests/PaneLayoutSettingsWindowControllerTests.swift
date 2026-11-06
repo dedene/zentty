@@ -1771,6 +1771,39 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Right Pane")
     }
 
+    func test_switching_sections_cancels_shortcut_recording() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.focusRightPane)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        XCTAssertTrue(shortcutsController.isRecordingForTesting)
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout("pane layout settled")
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout("shortcuts restored", delay: 0.2)
+
+        XCTAssertFalse(shortcutsController.isRecordingForTesting)
+        XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Right Pane")
+    }
+
     func test_settings_window_can_switch_to_open_with_section_and_read_config() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")

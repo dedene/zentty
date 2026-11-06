@@ -169,6 +169,10 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         super.viewDidDisappear()
         removeKeyMonitor()
         removeKeyboardInputSourceObserver()
+        if recordingCommandID != nil {
+            cancelRecording()
+            refreshVisibleState()
+        }
     }
 
     override func prepareForPresentation() {
