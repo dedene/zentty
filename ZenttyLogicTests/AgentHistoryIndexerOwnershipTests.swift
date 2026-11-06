@@ -142,6 +142,48 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
         wait(for: [shown], timeout: 5)
     }
 
+    /// A standby instance hides what the owner's user removed: `removedKeys` keeps such a session
+    /// out of "Running now" and Settings counts it, also when it has no row to compare.
+    func test_standby_snapshot_carries_the_owners_tombstones() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        // A retry re-reads the index only while state.json lets it try to take over.
+        try harness.stateStore.update { $0.enabled = true; $0.consentedAt = Date() }
+        harness.source.setUnits([.single("s1", mtimeNs: 2), .single("s2", mtimeNs: 1)])
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+        let removedKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "s2")
+        let removed = expectation(description: "removed")
+        owner.removeSession(removedKey) { ok in
+            XCTAssertTrue(ok)
+            removed.fulfill()
+        }
+        wait(for: [removed], timeout: 5)
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+
+        XCTAssertEqual(second.currentSnapshot.removedKeys, [removedKey])
+        XCTAssertEqual(second.currentStatus.removedSessionCount, 1)
+
+        // A live session with no row: the tombstones are all that changes.
+        let liveKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "live")
+        let refreshed = recorder.expectSnapshot(self, "tombstones refreshed") { $0.removedKeys.contains(liveKey) }
+        let database = try AgentHistoryDatabase(url: harness.index.paths.databaseURL, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        try database.run(
+            "INSERT INTO tombstones (agent, native_id, removed_at) VALUES (?, ?, 1)",
+            [.text(liveKey.agent.rawValue), .text(liveKey.nativeID)]
+        )
+        database.close()
+        wait(for: [refreshed], timeout: 5)
+
+        XCTAssertEqual(second.currentSnapshot.removedKeys, [removedKey, liveKey])
+        XCTAssertEqual(second.currentStatus.removedSessionCount, 2)
+    }
+
     func test_busy_batch_is_retried_instead_of_dropped() throws {
         let harness = AgentHistoryIndexerHarness(testCase: self)
         harness.source.setUnits([.single("a", mtimeNs: 2), .single("b", mtimeNs: 1)])

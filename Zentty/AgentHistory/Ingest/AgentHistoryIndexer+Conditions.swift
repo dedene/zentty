@@ -214,18 +214,26 @@ extension AgentHistoryIndexer {
         scheduleStandbyRetry()
     }
 
-    /// The sessions the owning instance stored, read through the reader pool. Agents turned off
-    /// here are left out: a standby never purges, and the owner may not have purged them yet.
+    /// The sessions and removals the owning instance stored, read through the reader pool. Agents
+    /// turned off here are left out: a standby never purges, and the owner may not have purged
+    /// them yet. A failed read keeps what was loaded before.
     func loadStandbySnapshot() {
         do {
             let enabledAgents = configuration.enabledAgents
-            let (stored, isComplete) = try storage.readers.withReader { database in
+            let (stored, tombstones, isComplete) = try storage.readers.withReader { database in
                 let store = AgentHistoryStore(database: database, now: now)
-                return (try store.allVisibleSessionSummaries(), try store.meta(Self.backfillCompletedMetaKey) != nil)
+                return (
+                    try store.allVisibleSessionSummaries(),
+                    try store.tombstones(),
+                    try store.meta(Self.backfillCompletedMetaKey) != nil
+                )
             }
             let summaries = stored.filter { enabledAgents.contains($0.agent) }
-            if Set(summaries) != Set(snapshotBuilder.allSessions) || isComplete != isBackfillComplete {
+            if Set(summaries) != Set(snapshotBuilder.allSessions)
+                || tombstones != admission.tombstones
+                || isComplete != isBackfillComplete {
                 snapshotBuilder.replaceAll(summaries)
+                admission = AgentHistoryAdmission(exclusions: admission.exclusions, tombstones: tombstones)
                 isBackfillComplete = isComplete
                 snapshotDirty = true
             }
