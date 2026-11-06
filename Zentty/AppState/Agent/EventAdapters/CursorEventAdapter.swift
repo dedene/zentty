@@ -142,8 +142,6 @@ extension AgentEventBridge {
 
         case "subagentstart":
             let parentSessionID = cursorParentSessionID(from: jsonObject) ?? sessionID
-            let subagentID = cursorSubagentID(from: jsonObject)
-            _ = try taskStore.trackSubagentStart(sessionID: parentSessionID, subagentID: subagentID)
             return [lifecyclePayload(
                 target: target,
                 toolName: toolName,
@@ -157,8 +155,6 @@ extension AgentEventBridge {
 
         case "subagentstop":
             let parentSessionID = cursorParentSessionID(from: jsonObject) ?? sessionID
-            let subagentID = cursorSubagentID(from: jsonObject)
-            _ = try taskStore.trackSubagentStop(sessionID: parentSessionID, subagentID: subagentID)
             // Parent usually continues synthesizing after workers finish.
             return [lifecyclePayload(
                 target: target,
@@ -261,18 +257,6 @@ extension AgentEventBridge {
                 "conversationId",
                 "session_id",
                 "sessionId",
-            ]
-        )
-    }
-
-    private static func cursorSubagentID(from jsonObject: [String: Any]) -> String? {
-        // Only real subagent ids. Do not fall back to tool_call_id — that value
-        // often differs between start/stop and poisons per-id bookkeeping.
-        JSONKeyAccess.firstString(
-            in: jsonObject,
-            keys: [
-                "subagent_id",
-                "subagentId",
             ]
         )
     }

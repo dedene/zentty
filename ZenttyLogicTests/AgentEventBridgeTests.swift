@@ -502,7 +502,6 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].lifecycleEvent, .toolActivity)
         XCTAssertEqual(payloads[0].sessionID, "parent-1")
-        XCTAssertTrue(try store.hasOpenSubagents(sessionID: "parent-1"))
     }
 
     func test_cursor_adapter_subagent_stop_keeps_parent_running() throws {
@@ -512,7 +511,7 @@ final class AgentEventBridgeTests: XCTestCase {
             environment: defaultEnvironment,
             taskStore: store
         )
-        // Cursor's subagentStop payload often omits subagent_id; count must still clear.
+        // Cursor's subagentStop payload often omits subagent_id; the parent must keep running.
         let payloads = try AgentEventBridge.cursorAdapter(
             data: Data(#"{"hook_event_name":"subagentStop","parent_conversation_id":"parent-1","status":"completed"}"#.utf8),
             environment: defaultEnvironment,
@@ -522,34 +521,6 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .running)
         XCTAssertEqual(payloads[0].lifecycleEvent, .toolActivity)
-        XCTAssertFalse(try store.hasOpenSubagents(sessionID: "parent-1"))
-    }
-
-    func test_cursor_subagent_stop_ignores_tool_call_id_and_clears_by_count() throws {
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
-        let stateURL = directoryURL.appendingPathComponent("cursor-task-sessions.json")
-
-        let store = CursorTaskStore(stateURL: stateURL)
-        _ = try AgentEventBridge.cursorAdapter(
-            data: Data(#"{"hook_event_name":"subagentStart","parent_conversation_id":"parent-1","subagent_id":"sub-1"}"#.utf8),
-            environment: defaultEnvironment,
-            taskStore: store
-        )
-        // tool_call_id must not be treated as subagent identity; count still clears.
-        _ = try AgentEventBridge.cursorAdapter(
-            data: Data(#"{"hook_event_name":"subagentStop","parent_conversation_id":"parent-1","tool_call_id":"tc-other","status":"completed"}"#.utf8),
-            environment: defaultEnvironment,
-            taskStore: store
-        )
-
-        let reloaded = CursorTaskStore(stateURL: stateURL)
-        XCTAssertFalse(
-            try reloaded.hasOpenSubagents(sessionID: "parent-1"),
-            "stop without subagent_id must clear open count without resurrecting stale ids on reload"
-        )
     }
 
     func test_cursor_parent_stop_is_authoritative_even_with_open_subagents() throws {
@@ -571,7 +542,6 @@ final class AgentEventBridgeTests: XCTestCase {
         ) {
             reducerState.apply(payload, now: startedAt.addingTimeInterval(1))
         }
-        XCTAssertTrue(try store.hasOpenSubagents(sessionID: "parent-1"))
 
         let stopPayloads = try AgentEventBridge.cursorAdapter(
             data: Data(#"{"hook_event_name":"stop","conversation_id":"parent-1","status":"completed"}"#.utf8),
@@ -585,10 +555,6 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(
             reducerState.reducedStatus(now: startedAt.addingTimeInterval(2))?.state,
             .idle
-        )
-        XCTAssertFalse(
-            try store.hasOpenSubagents(sessionID: "parent-1"),
-            "authoritative stop must clear stale open-subagent bookkeeping"
         )
     }
 
