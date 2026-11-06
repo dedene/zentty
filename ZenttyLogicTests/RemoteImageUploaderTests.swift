@@ -370,6 +370,51 @@ final class RemoteImageUploaderTests: XCTestCase {
     }
 }
 
+final class ProcessRemoteImageUploadProcessTests: XCTestCase {
+    func test_process_exits_when_child_floods_stderr() throws {
+        let process = shellProcess("head -c 200000 /dev/zero >&2")
+
+        try process.run()
+        process.closeStandardInput()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertFalse(result.timedOut)
+        XCTAssertEqual(result.exitStatus, 0)
+        XCTAssertEqual(result.stderr.utf8.count, 200_000)
+    }
+
+    func test_process_keeps_stderr_text_for_error_classification() throws {
+        let process = shellProcess("echo 'Permission denied (publickey).' >&2; exit 255")
+
+        try process.run()
+        process.closeStandardInput()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertEqual(result.exitStatus, 255)
+        XCTAssertEqual(result.stderr, "Permission denied (publickey).\n")
+    }
+
+    func test_wait_returns_when_a_background_child_keeps_stderr_open() throws {
+        let process = shellProcess("echo boom >&2; /bin/sleep 8 & exit 3")
+
+        try process.run()
+        process.closeStandardInput()
+        let startedAt = Date()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 5)
+        XCTAssertEqual(result.exitStatus, 3)
+        XCTAssertEqual(result.stderr, "boom\n")
+    }
+
+    private func shellProcess(_ script: String) -> any RemoteImageUploadProcess {
+        ProcessRemoteImageUploadProcessFactory().makeProcess(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script]
+        )
+    }
+}
+
 private func XCTAssertThrowsRemoteImageUploadError(
     _ expected: RemoteImageUploadError,
     operation: @escaping @Sendable () async throws -> Void,
