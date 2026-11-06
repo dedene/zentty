@@ -212,7 +212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 reportRestoreError("Failed to prepare restore launch", error: error)
             }
-            sessionScrollback.preserveFiles(sessionRestoreStore.setAsideScrollbackFileNames())
 
             if let launchDecision, launchWorkspace(launchDecision.envelope) {
                 ZenttyBreadcrumbs.record(
@@ -902,6 +901,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureSessionScrollback() {
+        let restoreStore = sessionRestoreStore
+        sessionScrollback.preservedFileNamesProvider = { restoreStore.setAsideScrollbackFileNames() }
         sessionScrollback.sourcesProvider = { [weak self] in
             self?.orderedWindowControllers.map { controller in
                 let store = controller.worklaneStore
