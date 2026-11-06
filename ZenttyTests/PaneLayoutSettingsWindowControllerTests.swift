@@ -1880,6 +1880,79 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertFalse(shortcutsController.isRecordingForTesting)
     }
 
+    func test_conflict_is_revalidated_when_the_config_changes() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        let pending = KeyboardShortcut(key: .character("s"), modifiers: [.command])
+        let movedAway = KeyboardShortcut(key: .character("k"), modifiers: [.command])
+        shortcutsController.selectCommandForTesting(.newWorklane)
+        shortcutsController.attemptShortcutAssignmentForTesting(pending)
+        XCTAssertEqual(shortcutsController.conflictTargetTitleForTesting, "Toggle Sidebar")
+
+        try store.update { config in
+            config.shortcuts = config.shortcuts
+                .updating(commandID: .toggleSidebar, shortcut: movedAway)
+                .updating(commandID: .focusRightPane, shortcut: pending)
+        }
+        shortcutsController.apply(shortcuts: store.current.shortcuts)
+
+        XCTAssertEqual(shortcutsController.conflictTargetTitleForTesting, "Focus Right Pane")
+
+        try store.update { config in
+            config.shortcuts = config.shortcuts.updating(commandID: .focusRightPane, shortcut: nil)
+        }
+        shortcutsController.apply(shortcuts: store.current.shortcuts)
+
+        XCTAssertNil(shortcutsController.conflictTargetTitleForTesting)
+    }
+
+    func test_config_change_keeps_a_save_error_message() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_ANSI_K))
+        let message = try XCTUnwrap(shortcutsController.errorMessageForTesting)
+
+        shortcutsController.apply(shortcuts: store.current.shortcuts)
+
+        XCTAssertEqual(shortcutsController.errorMessageForTesting, message)
+    }
+
     private func makeKeyDown(
         _ characters: String,
         keyCode: Int,

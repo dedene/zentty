@@ -431,10 +431,25 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     func apply(shortcuts: AppConfig.Shortcuts) {
         currentShortcuts = shortcuts.normalized()
         shortcutManager = ShortcutManager(shortcuts: currentShortcuts)
+        revalidateConflicts()
         rebuildBrowserItems(preserveSelection: true)
         browserTableView.reloadData()
         syncSelectionToTableView()
         refreshDetailPane()
+    }
+
+    /// A conflict names the command that held the pending shortcut when it was
+    /// raised. Once the config changes that holder can be stale, and Reassign
+    /// would overwrite a binding that no longer conflicts.
+    private func revalidateConflicts() {
+        for (commandID, issue) in issueByCommandID {
+            guard case let .conflict(_, pending) = issue else {
+                continue
+            }
+            issueByCommandID[commandID] = shortcutManager
+                .conflict(for: pending, assigningTo: commandID)
+                .map { .conflict($0.commandID, pending: pending) }
+        }
     }
 
     private func configureSearchField() {
