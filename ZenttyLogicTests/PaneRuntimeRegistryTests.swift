@@ -4,6 +4,14 @@ import XCTest
 
 @MainActor
 final class PaneRuntimeRegistryTests: AppKitTestCase {
+    private func waitForMainQueueTick() {
+        let tick = expectation(description: "main queue tick")
+        DispatchQueue.main.async {
+            tick.fulfill()
+        }
+        wait(for: [tick], timeout: 2)
+    }
+
     func test_registry_creates_runtime_once_and_reuses_existing_session_across_worklane_switches() throws {
         let adapterFactory = PaneRuntimeAdapterFactorySpy()
         let registry = PaneRuntimeRegistry(adapterFactory: { paneID in
@@ -786,6 +794,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         runtime.showSearch()
         runtime.updateSearchNeedle("build")
         runtime.handleTerminalFocusChange(false)
+        waitForMainQueueTick()
 
         XCTAssertEqual(adapter.bindingActions, ["start_search", "search:build"])
         XCTAssertEqual(
@@ -814,6 +823,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         runtime.showSearch()
         runtime.updateSearchNeedle("build")
         runtime.handleTerminalFocusChange(false)
+        waitForMainQueueTick()
 
         runtime.findNext()
 
@@ -822,7 +832,7 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertTrue(runtime.snapshot.search.hasRememberedSearch)
     }
 
-    func test_runtime_ignores_terminal_blur_during_search_field_focus_transfer() {
+    func test_runtime_keeps_search_hud_when_blur_hands_focus_to_search_field() {
         let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
         let runtime = PaneRuntime(
@@ -831,14 +841,28 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             metadataSink: { _, _ in },
             eventSink: { _, _ in }
         )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        addTeardownBlock {
+            window.close()
+        }
+        window.contentView = runtime.hostView
 
         runtime.showSearch()
-        runtime.prepareSearchFieldFocusTransfer()
+        runtime.hostView.applySearchHUD(runtime.snapshot.search)
+        runtime.hostView.focusSearchField(selectAll: false)
         runtime.handleTerminalFocusChange(false)
+        waitForMainQueueTick()
 
         XCTAssertTrue(runtime.snapshot.search.isHUDVisible)
 
+        window.makeFirstResponder(nil)
         runtime.handleTerminalFocusChange(false)
+        waitForMainQueueTick()
 
         XCTAssertFalse(runtime.snapshot.search.isHUDVisible)
     }

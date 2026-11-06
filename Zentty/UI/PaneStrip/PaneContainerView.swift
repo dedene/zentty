@@ -1948,7 +1948,6 @@ final class PaneContainerView: NSView {
             return
         }
 
-        runtime.prepareSearchFieldFocusTransfer()
         DispatchQueue.main.async { [weak self] in
             self?.terminalHostView.focusSearchField(selectAll: true)
         }

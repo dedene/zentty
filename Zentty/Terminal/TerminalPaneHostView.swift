@@ -218,6 +218,10 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         searchHUDView.focusField(selectAll: selectAll)
     }
 
+    var searchHUDOwnsFirstResponder: Bool {
+        searchHUDView.ownsFirstResponder
+    }
+
     func updateSearchHUDShortcutTooltips(_ shortcutManager: ShortcutManager) {
         searchHUDView.updateShortcutTooltips(shortcutManager)
     }
@@ -438,7 +442,6 @@ final class PaneRuntime {
     private var pendingStartupTextWorkItem: DispatchWorkItem?
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
-    private var ignoreNextTerminalBlurForSearchFocus = false
     private var searchOwner: PaneSearchOwner = .none
     private var globalSearchNeedle = ""
     private var globalSearchEventSink: ((PaneID, TerminalSearchEvent) -> Void)?
@@ -692,21 +695,23 @@ final class PaneRuntime {
         search.isHUDVisible = false
     }
 
-    func prepareSearchFieldFocusTransfer() {
-        ignoreNextTerminalBlurForSearchFocus = true
-    }
-
     func handleTerminalFocusChange(_ isFocused: Bool) {
         guard !isFocused, search.isHUDVisible else {
             return
         }
 
-        if ignoreNextTerminalBlurForSearchFocus {
-            ignoreNextTerminalBlurForSearchFocus = false
-            return
-        }
+        // The window still names the old responder during resignFirstResponder,
+        // so where focus landed is only known a tick later. A terminal that took
+        // focus straight back never really lost it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  !self.hostViewValue.searchHUDOwnsFirstResponder,
+                  !self.hostViewValue.isTerminalFocused else {
+                return
+            }
 
-        hideSearchHUD()
+            self.hideSearchHUD()
+        }
     }
 
     func setSearchHUDCorner(_ corner: PaneSearchHUDCorner) {

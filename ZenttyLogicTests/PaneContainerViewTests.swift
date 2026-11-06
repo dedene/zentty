@@ -4,6 +4,59 @@ import XCTest
 
 @MainActor
 final class PaneContainerViewTests: AppKitTestCase {
+    private func waitForMainQueueTick() {
+        let tick = expectation(description: "main queue tick")
+        DispatchQueue.main.async {
+            tick.fulfill()
+        }
+        wait(for: [tick], timeout: 2)
+    }
+
+    /// A pane in a real but unordered window, next to a sibling that can take focus.
+    private func makeWindowedSearchPane() -> (
+        paneView: PaneContainerView,
+        runtime: PaneRuntime,
+        terminalView: NSView,
+        sibling: NSView,
+        window: NSWindow
+    ) {
+        let terminalView = MouseTrackingTerminalView(frame: NSRect(x: 0, y: 0, width: 420, height: 520))
+        let adapter = PaneContainerTerminalAdapterSpy(terminalView: terminalView)
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        addTeardownBlock {
+            window.close()
+        }
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        paneView.frame = contentView.bounds
+        contentView.addSubview(paneView)
+        let sibling = NSView(frame: .zero)
+        contentView.addSubview(sibling)
+        paneView.layoutSubtreeIfNeeded()
+        return (paneView, runtime, terminalView, sibling, window)
+    }
+
     func test_pane_hosts_terminal_edge_to_edge_without_internal_header() {
         let pane = PaneState(id: PaneID("editor"), title: "editor")
         let runtime = PaneRuntime(
@@ -1542,7 +1595,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         )
     }
 
-    func test_search_hud_ignores_focus_transfer_blur_then_hides_on_real_blur() {
+    func test_search_hud_hides_on_blur_and_keeps_remembered_query() {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
         let runtime = PaneRuntime(
@@ -1563,15 +1616,66 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         runtime.showSearch()
         runtime.updateSearchNeedle("build")
-        runtime.handleTerminalFocusChange(false)
         paneView.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(paneView.isSearchHUDHiddenForTesting)
-        XCTAssertTrue(runtime.snapshot.search.hasRememberedSearch)
-        XCTAssertEqual(runtime.snapshot.search.needle, "build")
 
         runtime.handleTerminalFocusChange(false)
+        waitForMainQueueTick()
         paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(paneView.isSearchHUDHiddenForTesting)
+        XCTAssertTrue(runtime.snapshot.search.hasRememberedSearch)
+        XCTAssertEqual(runtime.snapshot.search.needle, "build")
+    }
+
+    func test_clicking_hud_field_after_terminal_focus_keeps_hud_visible() throws {
+        let (paneView, runtime, terminalView, _, window) = makeWindowedSearchPane()
+
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+        runtime.showSearch()
+        waitForMainQueueTick()
+        XCTAssertFalse(paneView.isSearchHUDHiddenForTesting, "Opening the HUD moves focus into its field")
+
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+        waitForMainQueueTick()
+        XCTAssertFalse(paneView.isSearchHUDHiddenForTesting)
+
+        let field = paneView.searchHUDQueryFieldForTesting
+        XCTAssertTrue(window.makeFirstResponder(field))
+        waitForMainQueueTick()
+
+        XCTAssertFalse(paneView.isSearchHUDHiddenForTesting)
+        XCTAssertTrue(window.firstResponder === field.currentEditor())
+    }
+
+    func test_blur_then_immediate_refocus_keeps_hud_visible() {
+        let (paneView, runtime, terminalView, sibling, window) = makeWindowedSearchPane()
+
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        runtime.showSearch()
+        waitForMainQueueTick()
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+        waitForMainQueueTick()
+
+        XCTAssertFalse(paneView.isSearchHUDHiddenForTesting)
+    }
+
+    func test_blur_to_other_control_hides_hud() {
+        let (paneView, runtime, terminalView, sibling, window) = makeWindowedSearchPane()
+
+        // Opening the HUD from another control produces no terminal blur to excuse.
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        runtime.showSearch()
+        waitForMainQueueTick()
+        XCTAssertFalse(paneView.isSearchHUDHiddenForTesting)
+
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        waitForMainQueueTick()
 
         XCTAssertTrue(paneView.isSearchHUDHiddenForTesting)
     }
