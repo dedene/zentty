@@ -563,8 +563,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onMovePaneToWorklaneRequested = { [weak self] sourceController, request in
             self?.movePaneToWorklane(from: sourceController, request: request)
         }
-        controller.onMovePaneToNewWorklaneInThisWindowRequested = { [weak self] sourceController, paneID in
-            self?.movePaneToNewWorklaneInThisWindow(from: sourceController, paneID: paneID)
+        controller.onMovePaneToNewWorklaneInThisWindowRequested = { [weak self] sourceController, paneID, title in
+            self?.movePaneToNewWorklaneInThisWindow(from: sourceController, paneID: paneID, title: title)
         }
         controller.onWorkspaceStateDidChange = { [weak self] in
             self?.scheduleWorkspaceSnapshotSave()
@@ -679,9 +679,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func movePaneToNewWorklaneInThisWindow(
         from source: MainWindowController,
-        paneID: PaneID
+        paneID: PaneID,
+        title: String?
     ) {
-        source.transferPaneToNewWorklaneInThisWindow(paneID: paneID)
+        source.transferPaneToNewWorklaneInThisWindow(paneID: paneID, title: title)
         scheduleWorkspaceSnapshotSave()
     }
 

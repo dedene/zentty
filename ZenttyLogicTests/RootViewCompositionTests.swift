@@ -1208,6 +1208,45 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(controller.activeWorklaneIDForTesting, WorklaneID("other"))
     }
 
+    func test_name_new_worklane_sheet_passes_typed_name_on_move() throws {
+        let controller = makeController()
+        let window = hostInVisibleWindow(controller)
+        var movedTitle: String?
+
+        controller.beginNameNewWorklane { movedTitle = $0 }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        let textField = try XCTUnwrap(editableTextField(in: sheet.contentView))
+        textField.stringValue = "Client D - follow-up"
+        window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        waitForMainQueue()
+
+        XCTAssertEqual(movedTitle, "Client D - follow-up")
+        XCTAssertNil(window.attachedSheet)
+    }
+
+    func test_name_new_worklane_sheet_cancel_does_not_move() throws {
+        let controller = makeController()
+        let window = hostInVisibleWindow(controller)
+        var moveCalled = false
+
+        controller.beginNameNewWorklane { _ in moveCalled = true }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        waitForMainQueue()
+
+        XCTAssertFalse(moveCalled)
+        XCTAssertNil(window.attachedSheet)
+    }
+
+    private func editableTextField(in view: NSView?) -> NSTextField? {
+        guard let view else { return nil }
+        if let field = view as? NSTextField, field.isEditable { return field }
+        for subview in view.subviews {
+            if let field = editableTextField(in: subview) { return field }
+        }
+        return nil
+    }
+
     func test_sidebar_toggle_stays_per_window_but_seeds_new_windows() throws {
         let configStore = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.PerWindowSidebarToggle")
