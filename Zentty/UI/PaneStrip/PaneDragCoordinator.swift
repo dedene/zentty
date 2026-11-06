@@ -1990,10 +1990,18 @@ final class PaneDragCoordinator {
     private func installEscapeMonitor() {
         guard escapeMonitor == nil else { return }
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, case .active = self.phase else { return event }
-            guard event.keyCode == 53 else { return event }
-            self.cancelDrag()
-            return nil
+            guard let self, event.keyCode == 53 else { return event }
+            switch self.phase {
+            case .active:
+                self.cancelDrag()
+                return nil
+            case .finishing:
+                // Decided, but the gesture is still on screen: Esc stays ours
+                // instead of reaching the terminal underneath.
+                return nil
+            case .idle, .pending:
+                return event
+            }
         }
     }
 
@@ -2179,10 +2187,10 @@ final class PaneDragCoordinator {
     }
 
     /// Lightweight cleanup for drop-settle: remove timers, insertion line,
-    /// split overlays, monitors — but keep the drag container, pane refs, and
-    /// isDragActive state intact for the settle animation.
+    /// split overlays, the Option monitor — but keep the drag container, pane
+    /// refs, isDragActive state, and the Esc monitor (teardown removes it) for
+    /// the settle animation.
     private func prepareForDropSettle() {
-        removeEscapeMonitor()
         removeFlagsChangedMonitor()
         stopEdgeScroll()
         stopSidebarEdgeScroll()

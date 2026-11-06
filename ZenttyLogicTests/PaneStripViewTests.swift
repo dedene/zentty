@@ -5039,6 +5039,84 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertFalse(draggedPane.isTerminalViewportSyncSuspended)
     }
 
+    // MARK: - Drag Escape
+
+    /// Stands in for a terminal that acts on Escape.
+    private final class KeyRecordingView: NSView {
+        private(set) var keyDownCount = 0
+        override var acceptsFirstResponder: Bool { true }
+        override func keyDown(with event: NSEvent) { keyDownCount += 1 }
+    }
+
+    @MainActor
+    private func installKeyRecorder(in paneStripView: PaneStripView) -> KeyRecordingView {
+        let recorder = KeyRecordingView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        paneStripView.addSubview(recorder)
+        return recorder
+    }
+
+    @MainActor
+    private func pressEscape(in window: NSWindow, over recorder: KeyRecordingView) throws {
+        // Renders refocus the pane; here the recorder plays that terminal.
+        XCTAssertTrue(window.makeFirstResponder(recorder))
+        let escape = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ))
+        NSApp.sendEvent(escape)
+    }
+
+    @MainActor
+    func test_escape_during_cancel_spring_does_not_reach_the_terminal() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        _ = try beginThreePaneDrag(in: paneStripView)
+        let recorder = installKeyRecorder(in: paneStripView)
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        try pressEscape(in: window, over: recorder)
+        try pressEscape(in: window, over: recorder)
+
+        XCTAssertEqual(recorder.keyDownCount, 0, "both presses belong to the gesture")
+        wait(for: [inactive], timeout: 5)
+
+        try pressEscape(in: window, over: recorder)
+        XCTAssertEqual(recorder.keyDownCount, 1, "the drag is over, so Escape is the terminal's again")
+    }
+
+    @MainActor
+    func test_escape_during_internal_drop_settle_does_not_reach_the_terminal() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (state, cursor) = try beginThreePaneDrag(in: paneStripView)
+        let recorder = installKeyRecorder(in: paneStripView)
+        paneStripView.onPaneDragOutcome = { _ in
+            paneStripView.render(state, animated: false)
+        }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+
+        try pressEscape(in: window, over: recorder)
+
+        XCTAssertEqual(recorder.keyDownCount, 0)
+        wait(for: [inactive], timeout: 5)
+
+        try pressEscape(in: window, over: recorder)
+        XCTAssertEqual(recorder.keyDownCount, 1)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
