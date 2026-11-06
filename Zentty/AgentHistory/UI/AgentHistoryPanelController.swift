@@ -270,6 +270,7 @@ final class AgentHistoryPanelController {
         context.isTranscriptShown = model.detail == .transcript
         context.isSheetShown = model.folderSheet != nil
         context.bodyIsResults = model.body == .results
+        context.isIndexProgressShown = model.isShowingIndexProgress
         return context
     }
 

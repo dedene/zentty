@@ -141,6 +141,24 @@ final class AgentHistoryKeyRouterTests: XCTestCase {
         XCTAssertFalse(AgentHistoryViewModel.Body.noAgents(checkedPaths: []).controlsTakeKeyboardFocus)
     }
 
+    func test_index_progress_only_routes_return_and_escape() {
+        let progress = AgentHistoryKeyContext(isIndexProgressShown: true)
+        XCTAssertEqual(route(kVK_Return, [], nil, progress), .primary)
+        XCTAssertEqual(route(kVK_ANSI_KeypadEnter, .numericPad, nil, progress), .primary)
+        XCTAssertEqual(route(kVK_Escape, [], nil, progress), .escape)
+        XCTAssertEqual(route(kVK_ANSI_W, .command, "w", progress), .closePalette)
+
+        XCTAssertNil(route(kVK_UpArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_DownArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_RightArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_LeftArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_Tab, [], nil, progress))
+        XCTAssertNil(route(kVK_Tab, .shift, "\u{19}", progress))
+        XCTAssertNil(route(kVK_Return, .command, nil, progress))
+        XCTAssertNil(route(kVK_ANSI_C, .command, "c", progress), "⌘C copies the field's text, never a hidden row")
+        XCTAssertNil(route(kVK_ANSI_Y, .command, "y", progress))
+    }
+
     func test_unrelated_keys_and_shortcuts_pass_through() {
         XCTAssertNil(route(kVK_Space, [], " "))
         XCTAssertNil(route(kVK_ANSI_A, [], "a"))

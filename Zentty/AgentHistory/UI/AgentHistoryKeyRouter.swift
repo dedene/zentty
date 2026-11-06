@@ -30,6 +30,8 @@ struct AgentHistoryKeyContext: Equatable {
     var isSheetShown = false
     /// False while the consent card (or another non-results body) is shown.
     var bodyIsResults = true
+    /// The index progress details cover the results, so no row is on screen to act on.
+    var isIndexProgressShown = false
 }
 
 /// Maps a keyDown to a palette command. Pure; see the spec's keyboard table (§4.3). Space is
@@ -93,6 +95,9 @@ enum AgentHistoryKeyRouter {
         character: String?,
         context: AgentHistoryKeyContext
     ) -> AgentHistoryKeyCommand? {
+        if context.isIndexProgressShown {
+            return indexProgressCommand(key, mods: mods)
+        }
         switch (key, mods) {
         case (.up, []):
             return .moveSelection(-1)
@@ -123,6 +128,16 @@ enum AgentHistoryKeyRouter {
             return context.hasTextSelection ? nil : .copyResumeCommand
         default:
             return nil
+        }
+    }
+
+    /// ↩ and esc leave the details. Every other key passes through, so nothing acts on a hidden
+    /// row while the field keeps typing and copying its own text.
+    private static func indexProgressCommand(_ key: Key, mods: NSEvent.ModifierFlags) -> AgentHistoryKeyCommand? {
+        switch (key, mods) {
+        case (.return, []): return .primary
+        case (.escape, []): return .escape
+        default: return nil
         }
     }
 
