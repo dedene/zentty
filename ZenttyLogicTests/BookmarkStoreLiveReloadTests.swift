@@ -209,6 +209,21 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
         XCTAssertEqual(store.templates, [], "the store owns the missing file no longer")
     }
 
+    func test_backups_made_within_one_second_all_land() throws {
+        let store = BookmarkStore(fileURL: fileURL)
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        var persistErrorCount = 0
+        store.onPersistError = { _ in persistErrorCount += 1 }
+
+        for attempt in 0..<3 {
+            try Data("{ broken hand edit \(attempt)".utf8).write(to: fileURL)
+            store.upsert(WorkspaceTemplate(name: "Saved \(attempt)", kind: .bookmark))
+        }
+
+        XCTAssertEqual(persistErrorCount, 0)
+        XCTAssertEqual(try corruptBackupNames().count, 3)
+    }
+
     private func corruptBackupNames() throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: temporaryDirectoryURL.path)
             .filter { $0.contains(".corrupt-") }

@@ -288,8 +288,9 @@ final class BookmarkStore {
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
         let targetURL = fileManager.resolvingSymlinkTarget(at: url)
+        // The timestamp has one-second resolution; a taken name would fail the move and so the save.
         let backupURL = targetURL.deletingPathExtension()
-            .appendingPathExtension("corrupt-\(timestamp).json")
+            .appendingPathExtension("corrupt-\(timestamp)-\(UUID().uuidString).json")
         do {
             try fileManager.moveItem(at: targetURL, to: backupURL)
             bookmarkStoreLogger.error(
