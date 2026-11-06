@@ -185,6 +185,43 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
         XCTAssertEqual(second.currentStatus.removedSessionCount, 2)
     }
 
+    /// The owner commits a removal between the standby's reads. All of them come from one SQLite
+    /// snapshot, so the session is either listed and not removed, or removed and not listed.
+    func test_standby_never_publishes_a_session_with_its_own_tombstone() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1", mtimeNs: 2), .single("s2", mtimeNs: 1)])
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.standbyRetryInterval = 60
+        let key = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "s2")
+        let removesMidRead = Flag(false)
+        second.afterStandbySessionsReadForTesting = {
+            guard removesMidRead.value else { return }
+            removesMidRead.value = false
+            owner.removeSession(key)
+            owner.queue.sync {}
+        }
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+        XCTAssertEqual(Set(second.currentSnapshot.sessions.map(\.nativeID)), ["s1", "s2"])
+
+        removesMidRead.value = true
+        second.queue.sync { second.refreshStandbySnapshot() }
+
+        let midRead = second.currentSnapshot
+        XCTAssertFalse(midRead.sessions.contains { midRead.removedKeys.contains($0.key) })
+
+        second.queue.sync { second.refreshStandbySnapshot() }
+
+        XCTAssertEqual(second.currentSnapshot.sessions.map(\.nativeID), ["s1"])
+        XCTAssertEqual(second.currentSnapshot.removedKeys, [key])
+    }
+
     /// An open that failed earlier must not shut a later standby out of a healthy index: a
     /// standby never opens the writer, so nothing else would clear it.
     func test_standby_reads_after_an_earlier_failed_open() throws {

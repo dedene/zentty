@@ -226,12 +226,18 @@ extension AgentHistoryIndexer {
         do {
             let enabledAgents = configuration.enabledAgents
             let (stored, tombstones, isComplete) = try storage.readers.withReader { database in
-                let store = AgentHistoryStore(database: database, now: now)
-                return (
-                    try store.allVisibleSessionSummaries(),
-                    try store.tombstones(),
-                    try store.meta(Self.backfillCompletedMetaKey) != nil
-                )
+                // One SQLite snapshot: the owner commits between statements otherwise, and a
+                // session could be listed next to its own tombstone.
+                try database.readTransaction {
+                    let store = AgentHistoryStore(database: database, now: now)
+                    let sessions = try store.allVisibleSessionSummaries()
+                    try afterStandbySessionsReadForTesting?()
+                    return (
+                        sessions,
+                        try store.tombstones(),
+                        try store.meta(Self.backfillCompletedMetaKey) != nil
+                    )
+                }
             }
             let summaries = stored.filter { enabledAgents.contains($0.agent) }
             if Set(summaries) != Set(snapshotBuilder.allSessions)

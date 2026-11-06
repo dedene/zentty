@@ -155,6 +155,8 @@ final class AgentHistoryIndexer: @unchecked Sendable {
     var beforeCursorSaveForTesting: ((AgentHistoryUnitRef) throws -> Void)?
     /// Runs inside the carry-over restore transaction; throwing makes the restore fail.
     var beforeCarryOverRestoreForTesting: (() throws -> Void)?
+    /// Runs inside a standby read, between the sessions and the tombstones; throwing fails it.
+    var afterStandbySessionsReadForTesting: (() throws -> Void)?
     /// How long `start` waits for the writer lock before standing by. Set before `start()`.
     var writerLockWait: TimeInterval = 2
     /// How often a standby indexer tries to take over. Set before `start()`.
