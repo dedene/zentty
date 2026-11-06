@@ -462,9 +462,23 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
-            self.closeWindowBypassingConfirmation()
+            self.finishConfirmedClose()
         }
         return false
+    }
+
+    /// The other windows can go while this sheet is open. A window that is the
+    /// last one by now quits instead, as `windowShouldClose` would have had it
+    /// from the start, so the final save still finds this controller. Shell
+    /// exits close the window directly and keep their own final-save policy.
+    private func finishConfirmedClose() {
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              appDelegate.isLastRegisteredWindow(self) else {
+            closeWindowBypassingConfirmation()
+            return
+        }
+        appDelegate.acceptNextQuitWithoutPrompt()
+        requestApplicationTermination()
     }
 
     func windowWillClose(_ notification: Notification) {

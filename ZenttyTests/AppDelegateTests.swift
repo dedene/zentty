@@ -719,6 +719,60 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(outcome.delegate.windowControllerCount, 0)
     }
 
+    func test_close_sheet_confirmed_after_the_other_window_closed_quits_with_a_final_snapshot() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace { config in
+            config.confirmations.confirmBeforeClosingWindow = true
+            config.confirmations.confirmBeforeQuitting = true
+        }
+        delegate.newWindow(nil)
+        waitForAppWindows("windows opened")
+
+        let controllers = delegate.windowControllersForTesting
+        let controller = try XCTUnwrap(controllers.first { $0.windowID.rawValue == "window-main" })
+        let otherController = try XCTUnwrap(controllers.first { $0 !== controller })
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+
+        var worklanes = controller.worklaneStore.worklanes
+        let paneID = try XCTUnwrap(worklanes[0].paneStripState.panes.first?.id)
+        worklanes[0].auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].hasCommandHistory = true
+        controller.rootViewControllerForTesting.replaceWorklanes(worklanes, activeWorklaneID: worklanes[0].id)
+        waitForAppWindows("pane marked running", delay: 0.05)
+        controller.worklaneStore.styledScrollbackProvider = { _ in "final output" }
+
+        var terminationRequests = 0
+        controller.requestApplicationTermination = {
+            terminationRequests += 1
+            XCTAssertEqual(
+                delegate.applicationShouldTerminate(NSApp),
+                .terminateNow,
+                "the Close Window sheet already asked"
+            )
+            delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        }
+
+        controller.requestClose()
+        XCTAssertEqual(controller.window.sheets.count, 1)
+
+        otherController.closeWindowBypassingConfirmation()
+        waitForAppWindows("other window closed")
+        XCTAssertTrue(delegate.isLastRegisteredWindow(controller))
+
+        try answerSheet(on: controller.window, with: .alertFirstButtonReturn)
+
+        XCTAssertEqual(terminationRequests, 1)
+        let envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        XCTAssertEqual(envelope.reason, .cleanExit)
+        XCTAssertEqual(envelope.workspace.windows.map(\.id), ["window-main"])
+        let panes = envelope.workspace.windows.flatMap(\.worklanes).flatMap(\.allPanes)
+        XCTAssertFalse(panes.isEmpty)
+        XCTAssertTrue(panes.allSatisfy { $0.scrollbackFile != nil })
+    }
+
     func test_application_quit_prompt_attaches_to_key_window_when_background_window_has_active_terminal_progress() throws {
         NSApp.mainMenu = nil
 

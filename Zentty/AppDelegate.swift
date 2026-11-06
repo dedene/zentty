@@ -31,6 +31,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// until it does.
     var replyToQuitPrompt: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
 
+    private enum QuitConfirmation {
+        case required
+        case alreadyGiven
+    }
+
+    /// Spent by the next `applicationShouldTerminate`, whatever it decides.
+    private var quitConfirmation = QuitConfirmation.required
+
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
@@ -387,7 +395,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard configStore.current.confirmations.confirmBeforeQuitting,
+        let confirmation = quitConfirmation
+        quitConfirmation = .required
+        guard confirmation == .required,
+              configStore.current.confirmations.confirmBeforeQuitting,
               let blockingController = windowControllers.values.first(where: \.anyPaneRequiresQuitConfirmation)
         else {
             return .terminateNow
@@ -438,6 +449,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return .terminateCancel
+    }
+
+    /// The person already agreed to end the last window's panes in its Close
+    /// Window sheet, so the quit that follows must not ask a second time.
+    func acceptNextQuitWithoutPrompt() {
+        quitConfirmation = .alreadyGiven
     }
 
     /// True when quit was requested by another process (osascript, brew, etc.), not Cmd+Q/menu.
