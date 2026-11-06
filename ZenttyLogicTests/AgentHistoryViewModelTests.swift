@@ -489,6 +489,20 @@ final class AgentHistoryViewModelTests: XCTestCase {
         XCTAssertEqual(search.pendingTranscripts.count, 2, "a hidden transcript does not follow selection")
     }
 
+    func test_delayed_detail_load_cancels_the_transcript_read_already_running() {
+        search.recent = [summary(1)]
+        let model = makeModel()
+        model.start()
+
+        model.toggleTranscript()
+        XCTAssertEqual(search.pendingTranscripts.count, 1)
+        scheduler.advance(by: AgentHistoryViewModel.detailCoalesce)
+
+        XCTAssertEqual(search.pendingTranscripts.count, 2)
+        XCTAssertTrue(search.pendingTranscripts[0].token.isCancelled, "only one read may own the transcript token")
+        XCTAssertFalse(search.pendingTranscripts[1].token.isCancelled)
+    }
+
     // MARK: - Updates
 
     func test_status_revision_refreshes_empty_query_but_not_typed_results() {

@@ -459,6 +459,7 @@ final class AgentHistoryViewModel: ObservableObject {
     }
 
     private func loadTranscript(sessionID: Int64, key: AgentHistorySessionKey, generation: UInt64) {
+        transcriptToken?.cancel()
         let query = parsedQuery
         transcriptToken = services.search.loadTranscript(sessionID, expecting: key, query: query) { [weak self] result in
             guard let self, self.detailGeneration == generation, self.detail == .transcript else { return }
