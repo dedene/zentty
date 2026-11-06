@@ -2324,6 +2324,46 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertTrue(root.isWorklanePeekActive, "Ctrl-Tab works again once the gesture is over")
         root.peekControllerForTesting.handleEscape()
     }
+
+    // MARK: - Worklane peek abort
+
+    func test_window_resign_key_aborts_open_peek() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+        let overlay = try XCTUnwrap(root.view.subviews.compactMap { $0 as? WorklanePeekView }.first)
+
+        // The first tap arms and the second commits its step to the second
+        // pane, then opens peek with its preview wrapped back to the first.
+        root.routeNextWorklane()
+        root.routeNextWorklane()
+        XCTAssertTrue(root.isWorklanePeekActive)
+        XCTAssertFalse(overlay.isHidden)
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: controller.window)
+        waitForLayout("peek aborted")
+
+        XCTAssertFalse(root.isWorklanePeekActive)
+        XCTAssertTrue(overlay.isHidden)
+        XCTAssertEqual(
+            root.worklaneStore.activeWorklane?.focusedPaneID,
+            peekSecondPaneID,
+            "an abort restores the opening selection like Escape, it does not commit the preview"
+        )
+    }
+
+    func test_window_resign_key_cancels_armed_peek_without_its_deferred_step() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+
+        root.routeNextWorklane()
+        XCTAssertTrue(root.isWorklanePeekActive)
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: controller.window)
+        waitForLayout("peek aborted")
+
+        XCTAssertFalse(root.isWorklanePeekActive)
+        XCTAssertEqual(root.worklaneStore.activeWorklane?.focusedPaneID, peekFirstPaneID)
+    }
 }
 
 @MainActor

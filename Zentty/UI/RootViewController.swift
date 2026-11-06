@@ -2333,6 +2333,13 @@ final class RootViewController: NSViewController {
                 self?.renderCoordinator.refreshFocusedReviewStateOnWindowFocus()
             }
         }
+        observerBag.addObserver(forName: NSWindow.didResignKeyNotification, object: window) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // The local key monitor never sees a Ctrl release in another
+                // app, so abort now rather than leave peek holding the mouse.
+                self?.peekController.handleEscape()
+            }
+        }
         observerBag.addObserver(forName: NSWindow.didChangeScreenNotification, object: window) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.handleWindowStateDidChange(forceViewportSync: true)
