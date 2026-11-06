@@ -43,6 +43,10 @@ final class SessionScrollbackCoordinator {
     private var dirtyPaneIDs = Set<PaneID>()
     private var subscriptions: [(store: WeakWorklaneStore, subscription: WorklaneChangeSubscription)] = []
     private var checkpointTask: Task<Void, Never>?
+    /// Files a set-aside snapshot points at. No recipe references them, so
+    /// saves would purge them otherwise. Turning saved output off still
+    /// deletes them, as it promises to.
+    private var preservedFileNames = Set<String>()
 
     private(set) var isEnabled = false
 
@@ -76,8 +80,14 @@ final class SessionScrollbackCoordinator {
         } else {
             checkpointTask?.cancel()
             checkpointTask = nil
+            preservedFileNames.removeAll()
             discardAll()
         }
+    }
+
+    func preserveFiles(_ fileNames: Set<String>) {
+        guard isEnabled else { return }
+        preservedFileNames = fileNames
     }
 
     // MARK: - Restore
@@ -199,16 +209,21 @@ final class SessionScrollbackCoordinator {
         }
         fileNameByPaneID = referenced
         dirtyPaneIDs.formIntersection(savedPaneIDs)
-        writer.purge(keeping: Set(referenced.values), synchronously: finalSave)
+        writer.purge(keeping: Set(referenced.values).union(preservedFileNames), synchronously: finalSave)
         return recipe
     }
 
-    /// Nothing is being restored any more: drop every file. Pass
-    /// `synchronously` on quit, so the files are gone before the app exits.
+    /// Nothing is being restored any more: drop every file but the preserved
+    /// ones. Pass `synchronously` on quit, so the files are gone before the app
+    /// exits.
     func discardAll(synchronously: Bool = false) {
         fileNameByPaneID.removeAll()
         dirtyPaneIDs.removeAll()
-        writer.removeAll(synchronously: synchronously)
+        if preservedFileNames.isEmpty {
+            writer.removeAll(synchronously: synchronously)
+        } else {
+            writer.purge(keeping: preservedFileNames, synchronously: synchronously)
+        }
     }
 
     func waitForPendingWritesForTesting() {

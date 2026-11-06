@@ -416,6 +416,43 @@ final class SessionScrollbackCoordinatorTests: XCTestCase {
         SessionScrollbackArchive(stateDirectoryURL: stateDirectory).directoryURL
     }
 
+    func test_a_save_keeps_files_a_set_aside_snapshot_names() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeArchiveFile("pn_gone-L0.txt")
+        coordinator.preserveFiles(["pn_old-L0.txt"])
+
+        _ = coordinator.prepareForSave(SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"]), finalSave: true)
+
+        XCTAssertEqual(try archiveContents(), ["pn_old-L0.txt"])
+    }
+
+    /// The default window a set-aside launch opens is not worth saving, and
+    /// that save discards the output of the workspace it replaces.
+    func test_discarding_an_empty_workspace_keeps_files_a_set_aside_snapshot_names() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeArchiveFile("pn_gone-L0.txt")
+        coordinator.preserveFiles(["pn_old-L0.txt"])
+
+        coordinator.discardAll(synchronously: true)
+
+        XCTAssertEqual(try archiveContents(), ["pn_old-L0.txt"])
+    }
+
+    /// Turning saved output off promises to delete all of it.
+    func test_turning_scrollback_off_deletes_files_a_set_aside_snapshot_names() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        coordinator.preserveFiles(["pn_old-L0.txt"])
+
+        coordinator.setEnabled(false)
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try fileURL("pn_old-L0.txt").path))
+    }
+
+    private func writeArchiveFile(_ name: String) throws {
+        try coordinator.archive.write("saved output\n", fileName: name)
+    }
+
     private func fileURL(_ name: String) throws -> URL {
         try XCTUnwrap(SessionScrollbackArchive(stateDirectoryURL: stateDirectory).url(forFileName: name))
     }
