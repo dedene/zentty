@@ -669,6 +669,23 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(runtime.receivedConfigTemplates[1]?.context, inheritedConfig.context)
     }
 
+    func test_prepare_session_start_keeps_template_when_source_is_gone() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let sourceAdapter = LibghosttyAdapter(runtime: runtime)
+        let deferredAdapter = LibghosttyAdapter(runtime: runtime)
+
+        try sourceAdapter.startSession(using: TerminalSessionRequest())
+        runtime.lastSurfaceController?.inheritedConfigContext = GHOSTTY_SURFACE_CONTEXT_SPLIT
+
+        deferredAdapter.prepareSessionStart(from: sourceAdapter, context: .split)
+        sourceAdapter.close()
+        deferredAdapter.prepareSessionStart(from: sourceAdapter, context: .split)
+        deferredAdapter.prepareSessionStart(from: nil, context: .split)
+        try deferredAdapter.startSession(using: TerminalSessionRequest())
+
+        XCTAssertEqual(runtime.receivedConfigTemplates.last??.context, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+    }
+
     func test_prepare_session_start_requests_inherited_config_for_requested_context() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let sourceAdapter = LibghosttyAdapter(runtime: runtime)

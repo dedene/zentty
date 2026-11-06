@@ -321,7 +321,7 @@ extension LibghosttyAdapter: TerminalSessionInheritanceConfiguring {
                 for: context.libghosttyValue
             )
         else {
-            inheritedConfigTemplate = nil
+            // The source pane may be gone by now; keep what it already gave us.
             return
         }
 
