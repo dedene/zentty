@@ -36,11 +36,18 @@ extension AgentHistoryViewModel {
         let previous = access
         access = next
         if let previous, previous.isRevoked(by: next) {
-            revokeAccess()
+            revokeAccess(status: status)
             return
         }
         updateFooter(status: status)
         if consentStatusDidChange(status) {
+            return
+        }
+        if body == .historyOff {
+            lastStatusRevision = status.revision
+            if !status.isTurnedOff {
+                resolveBody(status: status)
+            }
             return
         }
         switch (body, status.state) {
@@ -92,14 +99,35 @@ extension AgentHistoryViewModel {
         }
     }
 
-    /// Agent History was turned off or its index deleted: drops every pending load (a late one
-    /// is ignored by the bumped generations), clears what was shown and closes the palette. The
-    /// next open starts over from the status. Focus stays where the change was made (Settings).
-    private func revokeAccess() {
+    /// Turned off, the palette stays on the off screen to hear History coming back. Index
+    /// deleted, consent is gone with it, so the palette closes and the next open starts over
+    /// from the status. Focus stays where the change was made (Settings).
+    private func revokeAccess(status: AgentHistoryStatus) {
+        if status.isTurnedOff {
+            lastStatusRevision = status.revision
+            resolveBody(status: status)
+            updateFooter(status: status)
+            return
+        }
         stop()
+        body = .loading
+        clearShownSessions()
+        onRequestClose?(false)
+    }
+
+    /// The only way onto the off screen: nothing listed before stays behind it.
+    func showHistoryOff() {
+        body = .historyOff
+        resetQuery()
+        clearShownSessions()
+    }
+
+    /// Drops every pending load (a late one is ignored by the bumped generations) and clears
+    /// what was shown.
+    private func clearShownSessions() {
+        cancelPendingLoads()
         searchGeneration &+= 1
         detailGeneration &+= 1
-        body = .loading
         sections = []
         selectedKey = nil
         contentPhase = .idle
@@ -113,7 +141,6 @@ extension AgentHistoryViewModel {
         consent = nil
         transientMessage = nil
         isShowingIndexProgress = false
-        onRequestClose?(false)
     }
 
     /// An agent was turned off or the excluded folders changed. The search services already

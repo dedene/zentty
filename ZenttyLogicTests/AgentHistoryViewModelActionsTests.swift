@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import XCTest
 @testable import Zentty
@@ -432,5 +433,77 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         model.openProblemLink()
 
         XCTAssertEqual(settingsRequests, 1)
+    }
+
+    // MARK: - History off
+
+    private func startedOffModel() -> AgentHistoryViewModel {
+        var status = control.status
+        status.isStateLoaded = true
+        status.isEnabled = false
+        status.state = .off
+        control.status = status
+        return startedModel()
+    }
+
+    func test_open_settings_on_the_off_body_fires_the_settings_route() {
+        let model = startedOffModel()
+        XCTAssertEqual(model.body, .historyOff)
+
+        let context = AgentHistoryPanelController.keyContext(editor: nil, model: model)
+        let command = AgentHistoryKeyRouter.command(
+            keyCode: UInt16(kVK_Return), modifiers: [], charactersIgnoringModifiers: "\r", context: context
+        )
+        XCTAssertEqual(command, .openSettings, "↩ is the screen's button")
+        model.handle(.openSettings)
+
+        XCTAssertEqual(settingsRequests, 1)
+        XCTAssertTrue(closeRequests.isEmpty, "the settings route closes the palette itself")
+    }
+
+    func test_escape_on_the_off_body_closes_the_palette() {
+        let model = startedOffModel()
+
+        model.handle(.escape)
+
+        XCTAssertEqual(closeRequests, [true])
+    }
+
+    func test_no_row_command_acts_on_hidden_rows_while_history_is_off() {
+        let indexed = summary(1)
+        let live = summary(2)
+        launch.snapshot = LiveAgentSessionSnapshot(locationsByKey: [live.key: [liveLocation(live.key)]])
+        search.summariesByKey = [live.key: live]
+        let model = startedOffModel()
+        XCTAssertTrue(model.rows.isEmpty)
+
+        let commands: [AgentHistoryKeyCommand] = [
+            .moveSelection(1), .moveSelection(-1), .primary, .secondary, .toggleTranscript,
+            .closeTranscript, .toggleScope, .copyResumeCommand, .consentConfirm,
+        ]
+        for command in commands {
+            model.handle(command)
+        }
+        for key in [indexed.key, live.key] {
+            for item in AgentHistoryRowMenuItem.allCases {
+                model.perform(item, on: key)
+            }
+            model.perform(.primary, on: key)
+            model.select(key)
+            XCTAssertEqual(model.rowMenuItems(for: key), [])
+        }
+        model.updateQuery("session")
+
+        XCTAssertTrue(launch.launches.isEmpty)
+        XCTAssertTrue(control.removedKeys.isEmpty)
+        XCTAssertTrue(revealedURLs.isEmpty)
+        XCTAssertNil(pasteboard.string(forType: .string))
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.selectedKey)
+        XCTAssertEqual(model.detail, .none)
+        XCTAssertTrue(search.metadataQueries.isEmpty, "the index isn't searched")
+        XCTAssertTrue(search.pendingPreviews.isEmpty)
+        XCTAssertEqual(model.body, .historyOff)
+        XCTAssertTrue(closeRequests.isEmpty)
     }
 }

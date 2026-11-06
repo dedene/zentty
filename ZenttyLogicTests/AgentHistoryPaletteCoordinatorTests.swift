@@ -95,7 +95,7 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
         XCTAssertTrue(context.caretAtEndOfQuery)
         XCTAssertFalse(context.hasTextSelection)
         XCTAssertFalse(context.hasMarkedText)
-        XCTAssertTrue(context.bodyIsResults)
+        XCTAssertEqual(context.body, .results)
 
         editor.setSelectedRange(NSRange(location: 1, length: 2))
         context = AgentHistoryPanelController.keyContext(editor: editor, model: model)
@@ -178,6 +178,33 @@ final class AgentHistoryPaletteCoordinatorTests: XCTestCase {
         rendered = render(model, size: layout.frame.size)
         XCTAssertEqual(rendered.scrollFrames.count, 1, "the detail replaces the list instead of joining it")
         XCTAssertEqual(rendered.queryFields, ["crash"])
+    }
+
+    func test_view_off_body_has_no_search_field_or_lists() throws {
+        let model = try makeModel()
+        let layout = AgentHistoryPanelLayout.resolve(
+            windowFrame: NSRect(x: 0, y: 0, width: 1440, height: 900),
+            mode: .results
+        )
+        model.layout = layout
+        var status = model.services.control.status
+        status.isStateLoaded = true
+        status.isEnabled = false
+        status.state = .off
+        (model.services.control as? FakeAgentHistoryControl)?.status = status
+        model.start()
+        XCTAssertEqual(model.body, .historyOff)
+
+        let rendered = render(model, size: layout.frame.size)
+
+        XCTAssertTrue(rendered.queryFields.isEmpty, "nothing can be searched while off")
+        XCTAssertTrue(rendered.scrollFrames.isEmpty, "no session list stays behind it")
+    }
+
+    func test_off_body_copy() {
+        XCTAssertEqual(AgentHistoryOffView.title, "Agent History is off")
+        XCTAssertEqual(AgentHistoryOffView.detail, "Sessions aren't being indexed.")
+        XCTAssertEqual(AgentHistoryOffView.settingsButtonTitle, "Open Settings")
     }
 
     // MARK: - Helpers

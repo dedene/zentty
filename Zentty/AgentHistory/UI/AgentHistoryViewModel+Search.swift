@@ -48,6 +48,8 @@ extension AgentHistoryViewModel {
     /// `keepsStaleContent` false drops the previous conversation rows instead of showing them
     /// until the content tier answers (they may list sessions that are now hidden).
     func runSearch(resetSelection: Bool, keepsStaleContent: Bool = true) {
+        // Off lists nothing: no indexed session, and no live pane either.
+        guard body != .historyOff else { return }
         searchGeneration &+= 1
         let previousKey = resetSelection ? nil : selectedKey
         let previousIndex = resetSelection ? nil : selectedIndex

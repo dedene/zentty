@@ -18,6 +18,7 @@ enum AgentHistoryKeyCommand: Equatable {
     case sheetConfirm
     case sheetCancel
     case consentConfirm
+    case openSettings
 }
 
 /// The palette state a key's meaning depends on, read from the field editor and the model.
@@ -28,8 +29,8 @@ struct AgentHistoryKeyContext: Equatable {
     var hasMarkedText = false
     var isTranscriptShown = false
     var isSheetShown = false
-    /// False while the consent card (or another non-results body) is shown.
-    var bodyIsResults = true
+    /// Which keys mean anything depends on what is on screen.
+    var body: AgentHistoryViewModel.Body = .results
     /// The index progress details cover the results, so no row is on screen to act on.
     var isIndexProgressShown = false
 }
@@ -57,10 +58,14 @@ enum AgentHistoryKeyRouter {
         if context.isSheetShown {
             return sheetCommand(key, mods: mods)
         }
-        if !context.bodyIsResults {
+        switch context.body {
+        case .results:
+            return resultsCommand(key, mods: mods, character: character, context: context)
+        case .historyOff:
+            return historyOffCommand(key, mods: mods)
+        case .loading, .consent, .noAgents, .indexUnavailable:
             return consentCommand(key, mods: mods)
         }
-        return resultsCommand(key, mods: mods, character: character, context: context)
     }
 
     private static func sheetCommand(_ key: Key, mods: NSEvent.ModifierFlags) -> AgentHistoryKeyCommand? {
@@ -84,6 +89,19 @@ enum AgentHistoryKeyRouter {
         }
         switch key {
         case .return: return .consentConfirm
+        case .escape: return .escape
+        default: return nil
+        }
+    }
+
+    /// ↩ is the screen's Open Settings button and esc closes. No row exists to act on; Tab and
+    /// Space go to the button.
+    private static func historyOffCommand(_ key: Key, mods: NSEvent.ModifierFlags) -> AgentHistoryKeyCommand? {
+        guard mods.isEmpty else {
+            return nil
+        }
+        switch key {
+        case .return: return .openSettings
         case .escape: return .escape
         default: return nil
         }

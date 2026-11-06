@@ -105,6 +105,8 @@ extension AgentHistoryViewModel {
             cancelFolderSheet()
         case .consentConfirm:
             confirmConsent()
+        case .openSettings:
+            openProblemLink()
         }
     }
 
@@ -349,7 +351,7 @@ extension AgentHistoryViewModel {
 
     // MARK: - Footer and messages
 
-    /// The amber footer link: Settings › Agent History.
+    /// The amber footer link and the Open Settings buttons: Settings › Agent History.
     func openProblemLink() {
         onRequestSettings?()
     }

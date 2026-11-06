@@ -14,13 +14,22 @@ final class AgentHistoryViewModel: ObservableObject {
         case noAgents(checkedPaths: [String])
         case indexUnavailable(AgentHistoryFailureReason)
         case results
+        /// Consented, but switched off in Settings.
+        case historyOff
+
+        /// The consent card (D15) and the off screen stand alone, without search row and footer:
+        /// nothing can be searched from them.
+        var showsSearchChrome: Bool {
+            self != .consent && self != .historyOff
+        }
 
         /// Whether this body's checkboxes and buttons join the native key-view loop (Tab,
         /// Shift-Tab, Space with Full Keyboard Access on). Bodies under the search row keep focus
-        /// in the field and route ↑↓ ⇥ through `AgentHistoryKeyRouter`; the consent card has no
-        /// search row, so its privacy controls must be reachable before anything is indexed.
+        /// in the field and route ↑↓ ⇥ through `AgentHistoryKeyRouter`; without a search row the
+        /// controls take focus themselves, so the consent card's privacy controls are reachable
+        /// before anything is indexed.
         var controlsTakeKeyboardFocus: Bool {
-            self == .consent
+            !showsSearchChrome
         }
     }
 
@@ -203,13 +212,15 @@ final class AgentHistoryViewModel: ObservableObject {
         resolveBody(status: status)
     }
 
-    /// Failed index → unavailable; consented → results; `state.json` not read yet → loading
-    /// until it is (the launch read waits a few seconds, so ask for it now); no consent →
-    /// probe for sources (consent card or "no agents").
+    /// Consented but off → the off screen; failed index → unavailable; consented → results;
+    /// `state.json` not read yet → loading until it is (the launch read waits a few seconds, so
+    /// ask for it now); no consent → probe for sources (consent card or "no agents").
     func resolveBody(status: AgentHistoryStatus) {
         isAwaitingSavedState = false
         resultsAwaitProjects = false
-        if case .failed(let reason) = status.state {
+        if status.isTurnedOff {
+            showHistoryOff()
+        } else if case .failed(let reason) = status.state {
             body = .indexUnavailable(reason)
         } else if status.hasConsented {
             showResults()
@@ -230,29 +241,34 @@ final class AgentHistoryViewModel: ObservableObject {
 
     /// Cancels every pending load and drops the observers. Idempotent.
     func stop() {
-        contentDebounceToken?.cancel()
-        contentToken?.cancel()
-        detailDebounceToken?.cancel()
-        previewToken?.cancel()
-        transcriptToken?.cancel()
-        statusRefreshToken?.cancel()
+        cancelPendingLoads()
         liveObservation?.cancel()
-        transientMessageToken?.cancel()
-        transientMessageToken = nil
         projectsWaitToken?.cancel()
         projectsWaitToken = nil
-        contentDebounceToken = nil
-        contentToken = nil
-        detailDebounceToken = nil
-        previewToken = nil
-        transcriptToken = nil
-        statusRefreshToken = nil
         liveObservation = nil
         if let statusObserverID {
             services.control.removeObserver(statusObserverID)
             self.statusObserverID = nil
         }
         isStarted = false
+    }
+
+    /// Everything that would put a session on screen later.
+    func cancelPendingLoads() {
+        contentDebounceToken?.cancel()
+        contentToken?.cancel()
+        detailDebounceToken?.cancel()
+        previewToken?.cancel()
+        transcriptToken?.cancel()
+        statusRefreshToken?.cancel()
+        transientMessageToken?.cancel()
+        contentDebounceToken = nil
+        contentToken = nil
+        detailDebounceToken = nil
+        previewToken = nil
+        transcriptToken = nil
+        statusRefreshToken = nil
+        transientMessageToken = nil
     }
 
     func showResults() {
@@ -304,6 +320,13 @@ final class AgentHistoryViewModel: ObservableObject {
 
     func clearQuery() {
         updateQuery("")
+    }
+
+    /// Forgets the query without searching, for a body that lists nothing.
+    func resetQuery() {
+        query = ""
+        parsedQuery = HistoryQueryParser.parse("")
+        pills = []
     }
 
     var canToggleScope: Bool { projectScope != nil }

@@ -163,6 +163,12 @@ struct AgentHistoryStatus: Equatable, Sendable {
         revision: 0
     )
 
+    /// Consented but switched off, as read from `state.json`. Not "no engine": the engine is also
+    /// missing for a moment on every launch.
+    var isTurnedOff: Bool {
+        isStateLoaded && hasConsented && !isEnabled
+    }
+
     /// Whether Rebuild can act. No indexer runs while `.off` or `.paused(.configUnreadable)`, and
     /// a standby instance never replaces the owner's index. A failed index stays rebuildable:
     /// that is the way out of it. The indexer's own guard stays authoritative.

@@ -48,8 +48,7 @@ struct AgentHistoryView: View {
         }
     }
 
-    /// The consent card (D15) stands alone, without search row and footer.
-    private var showsSearchChrome: Bool { model.body != .consent }
+    private var showsSearchChrome: Bool { model.body.showsSearchChrome }
 
     private var divider: some View {
         Rectangle()
@@ -187,6 +186,8 @@ struct AgentHistoryView: View {
                 onRebuild: model.rebuildIndex,
                 onOpenSettings: model.openProblemLink
             )
+        case .historyOff:
+            AgentHistoryOffView(theme: theme, onOpenSettings: model.openProblemLink)
         case .results:
             if model.isShowingIndexProgress, let progress = model.footer.indexProgress {
                 AgentHistoryIndexProgressView(

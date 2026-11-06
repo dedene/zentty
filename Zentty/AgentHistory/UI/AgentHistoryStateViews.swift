@@ -143,6 +143,42 @@ struct AgentHistoryIndexUnavailableView: View {
     }
 }
 
+/// Agent History was switched off after consent: why the palette is empty, and the way back.
+struct AgentHistoryOffView: View {
+    static let title = "Agent History is off"
+    static let detail = "Sessions aren't being indexed."
+    static let settingsButtonTitle = "Open Settings"
+
+    let theme: AgentHistoryTheme
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(Self.title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
+                .accessibilityAddTraits(.isHeader)
+            Text(Self.detail)
+                .font(.system(size: 12.5))
+                .foregroundStyle(theme.secondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            AgentHistoryActionButton(
+                title: Self.settingsButtonTitle,
+                keys: "↩",
+                isPrimary: true,
+                theme: theme,
+                isFocusable: true,
+                action: onOpenSettings
+            )
+            .accessibilityHint("Opens Agent History settings")
+        }
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+}
+
 /// One footer key hint, e.g. "⌘↩ split" (A-15).
 struct AgentHistoryKeyHint: Hashable {
     let keys: String

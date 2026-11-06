@@ -170,18 +170,96 @@ final class AgentHistoryViewModelPrivacyTests: XCTestCase {
 
     // MARK: - Turned off or index deleted
 
-    func test_turning_history_off_clears_an_open_typed_search_and_closes() {
-        let model = openTypedSearch { [self.metadata(self.summary(1, agent: .claude)), self.metadata(self.summary(3))] }
-
+    private func turnedOff(revision: UInt64 = 2) -> AgentHistoryStatus {
         var status = control.status
         status.isEnabled = false
         status.state = .off
+        status.revision = revision
+        return status
+    }
+
+    func test_turning_history_off_clears_an_open_typed_search_and_shows_the_off_body() {
+        let model = openTypedSearch { [self.metadata(self.summary(1, agent: .claude)), self.metadata(self.summary(3))] }
+
+        control.publish(turnedOff())
+
+        assertNothingShown(model)
+        XCTAssertEqual(model.body, .historyOff)
+        XCTAssertEqual(model.query, "", "the search row is gone, so nothing typed stays behind it")
+        XCTAssertTrue(model.pills.isEmpty)
+        XCTAssertTrue(closeRequests.isEmpty, "the palette stays open on the off body")
+        XCTAssertEqual(control.observerCount, 1, "it still hears History coming back on")
+    }
+
+    func test_turning_history_off_drops_late_results_preview_and_transcript() {
+        let model = openTypedSearch { [self.metadata(self.summary(1, agent: .claude)), self.metadata(self.summary(3))] }
+        model.updateQuery("crash fix")
+        scheduler.advance(by: 0.12)
+        model.toggleTranscript()
+        let contentLoad = search.pendingContent.last
+        let preview = search.pendingPreviews.last
+        let transcriptLoad = search.pendingTranscripts.last
+
+        control.publish(turnedOff())
+
+        XCTAssertEqual(contentLoad?.token.isCancelled, true)
+        XCTAssertEqual(preview?.token.isCancelled, true)
+        XCTAssertEqual(transcriptLoad?.token.isCancelled, true)
+        contentLoad?.completion(.success(contentResponse([content(summary(2, agent: .claude))])))
+        preview?.completion(.success(HistoryPreview(session: summary(1, agent: .claude), turns: [], turnsAreMatches: true)))
+        transcriptLoad?.completion(.success(transcript))
+        scheduler.advance(by: 5)
+
+        assertNothingShown(model)
+        XCTAssertEqual(model.body, .historyOff)
+    }
+
+    func test_no_row_command_acts_on_a_row_hidden_by_turning_history_off() {
+        let session = summary(1, agent: .claude)
+        let model = openTypedSearch { [self.metadata(session), self.metadata(self.summary(3))] }
+
+        control.publish(turnedOff())
+
+        model.handle(.primary)
+        model.handle(.secondary)
+        model.handle(.copyResumeCommand)
+        model.perform(.primary, on: session.key)
+        model.removeFromHistory(session.key)
+        XCTAssertTrue(launch.launches.isEmpty)
+        XCTAssertTrue(control.removedKeys.isEmpty)
+    }
+
+    func test_turning_history_back_on_lists_sessions_again_without_the_old_query() {
+        search.recent = [summary(3)]
+        let model = openTypedSearch { [self.metadata(self.summary(1, agent: .claude)), self.metadata(self.summary(3))] }
+        control.publish(turnedOff())
+
+        var status = control.status
+        status.isEnabled = true
+        status.state = .watching
+        status.revision = 3
+        control.publish(status)
+
+        XCTAssertEqual(model.body, .results)
+        XCTAssertEqual(model.query, "")
+        XCTAssertEqual(model.rows.map(\.sessionID), [3], "the empty-query view, not the old search")
+        XCTAssertTrue(closeRequests.isEmpty)
+    }
+
+    func test_deleting_the_index_while_the_off_body_shows_closes() {
+        control.status = turnedOff(revision: 1)
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(model.body, .historyOff)
+
+        var status = control.status
+        status.hasConsented = false
+        status.enabledAgents = []
         status.revision = 2
         control.publish(status)
 
-        assertNothingShown(model)
-        XCTAssertEqual(closeRequests, [false], "the palette closes without pulling focus from Settings")
-        XCTAssertEqual(control.observerCount, 0, "nothing more is heard after access is gone")
+        XCTAssertEqual(closeRequests, [false], "without consent the next open asks again")
+        XCTAssertEqual(control.observerCount, 0)
     }
 
     func test_deleting_the_index_drops_late_results_preview_and_transcript() {
