@@ -409,7 +409,7 @@ final class AgentHistoryViewModel: ObservableObject {
 
         guard let row = selectedRow else {
             preview = .idle
-            if detail == .transcript { transcript = .idle }
+            closeDetailForNewResults()
             return
         }
         guard let sessionID = row.sessionID else {

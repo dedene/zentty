@@ -321,6 +321,28 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         XCTAssertEqual(search.recentScopes.count, scopeReads, "a closed palette runs no search")
     }
 
+    func test_removing_the_last_row_closes_the_detail() {
+        let wide = startedModel(recent: [summary(1)])
+        wide.handle(.toggleTranscript)
+        XCTAssertEqual(wide.detail, .transcript)
+
+        wide.removeFromHistory(summary(1).key)
+
+        XCTAssertTrue(wide.rows.isEmpty)
+        XCTAssertEqual(wide.detail, .none)
+        XCTAssertEqual(wide.transcript, .idle)
+        XCTAssertEqual(wide.preview, .idle)
+
+        let compact = startedModel(recent: [summary(2)])
+        compact.layout = .resolve(windowFrame: NSRect(x: 0, y: 0, width: 700, height: 900), mode: .results)
+        compact.handle(.toggleTranscript)
+        XCTAssertEqual(compact.detail, .preview)
+
+        compact.removeFromHistory(summary(2).key)
+
+        XCTAssertEqual(compact.detail, .none, "the compact layout shows the list again, not an empty preview")
+    }
+
     func test_reveal_transcript_only_offered_when_path_exists() {
         let present = "/tmp/agent-history-tests/root/present.jsonl"
         existingPaths = [present]
