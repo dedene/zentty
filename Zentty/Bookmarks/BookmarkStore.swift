@@ -94,10 +94,10 @@ final class BookmarkStore {
             )
             return
         }
-        guard data != lastKnownData else {
-            fileState = .intact
-            return
-        }
+        // Matching bytes only prove nothing changed while the file is intact. Once it has been
+        // unreadable or missing, the list may have moved on from them, so even an exact good
+        // backup is a file landing and has to be read, or the next save would overwrite it.
+        guard fileState != .intact || data != lastKnownData else { return }
         do {
             let bundle = try decoder.decode(WorkspaceTemplateBundle.self, from: data)
             lastKnownData = data

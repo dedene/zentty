@@ -209,6 +209,84 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
         XCTAssertEqual(store.templates, [], "the store owns the missing file no longer")
     }
 
+    /// The cached bytes describe the list from before the failed save. A file that matches them
+    /// is still a valid file landing during recovery, not the store's own save read back.
+    func test_good_backup_restored_after_a_failed_save_is_adopted_and_not_overwritten() throws {
+        let fileManager = DirectoryFreezingFileManager()
+        let store = BookmarkStore(fileURL: fileURL, fileManager: fileManager)
+        addTeardownBlock { [temporaryDirectoryURL] in
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: try XCTUnwrap(temporaryDirectoryURL).path
+            )
+        }
+        let kept = WorkspaceTemplate(name: "Kept", kind: .bookmark)
+        let removed = WorkspaceTemplate(name: "Removed", kind: .bookmark)
+        store.upsert(kept)
+        store.upsert(removed)
+        let goodBytes = try Data(contentsOf: fileURL)
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+
+        fileManager.freezesDirectoryAfterMove = true
+        store.delete(id: removed.id)
+        fileManager.freezesDirectoryAfterMove = false
+        try setPermissions(0o755, on: temporaryDirectoryURL)
+        store.reloadFromDisk()
+        XCTAssertEqual(store.templates.map(\.name), ["Kept"])
+
+        try goodBytes.write(to: fileURL)
+        store.reloadFromDisk()
+
+        XCTAssertEqual(store.templates.map(\.name), ["Kept", "Removed"])
+
+        store.rename(id: kept.id, to: "Renamed")
+
+        XCTAssertEqual(BookmarkStore(fileURL: fileURL).templates.map(\.name), ["Renamed", "Removed"])
+    }
+
+    /// Same trap with the save blocked one step earlier: the broken file could not be moved, so
+    /// the store never reached the replacement state but its list has still moved on.
+    func test_good_backup_restored_after_a_blocked_save_is_adopted_and_not_overwritten() throws {
+        let fileManager = MoveRefusingFileManager()
+        let store = BookmarkStore(fileURL: fileURL, fileManager: fileManager)
+        let kept = WorkspaceTemplate(name: "Kept", kind: .bookmark)
+        let removed = WorkspaceTemplate(name: "Removed", kind: .bookmark)
+        store.upsert(kept)
+        store.upsert(removed)
+        let goodBytes = try Data(contentsOf: fileURL)
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+
+        store.delete(id: removed.id)
+        XCTAssertEqual(store.templates.map(\.name), ["Kept"])
+
+        try goodBytes.write(to: fileURL)
+        store.reloadFromDisk()
+
+        XCTAssertEqual(store.templates.map(\.name), ["Kept", "Removed"])
+    }
+
+    /// The shortcut still has to hold for an intact file: a failed save over a healthy file must
+    /// not be undone by the next reload seeing the same old bytes.
+    func test_failed_save_over_an_intact_file_keeps_the_change_for_the_next_save() throws {
+        let store = BookmarkStore(fileURL: fileURL)
+        addTeardownBlock { [temporaryDirectoryURL] in
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: try XCTUnwrap(temporaryDirectoryURL).path
+            )
+        }
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        try setPermissions(0o555, on: temporaryDirectoryURL)
+
+        store.upsert(WorkspaceTemplate(name: "Unsaved", kind: .bookmark))
+        store.reloadFromDisk()
+
+        XCTAssertEqual(Set(store.templates.map(\.name)), ["Local", "Unsaved"])
+
+        try setPermissions(0o755, on: temporaryDirectoryURL)
+        store.upsert(WorkspaceTemplate(name: "Later", kind: .bookmark))
+
+        XCTAssertEqual(Set(BookmarkStore(fileURL: fileURL).templates.map(\.name)), ["Local", "Unsaved", "Later"])
+    }
+
     func test_backups_made_within_one_second_all_land() throws {
         let store = BookmarkStore(fileURL: fileURL)
         store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
