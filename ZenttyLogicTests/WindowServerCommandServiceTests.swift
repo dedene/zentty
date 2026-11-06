@@ -74,23 +74,135 @@ final class WindowServerCommandServiceTests: XCTestCase {
         XCTAssertEqual(store.activeServerContext.servers.map(\.id), [server.id])
     }
 
+    // MARK: - Passive detection scheduling
+
+    func test_unchanged_snapshot_does_not_restart_passive_detection() async throws {
+        let inspector = RecordingProcessInspector()
+        let store = makeStore(workingDirectory: "/tmp/passive-project")
+        let service = makeService(store: store, processInspector: inspector)
+        addTeardownBlock { @MainActor in service.cancelPassiveDetection() }
+
+        // Each call lands well inside the 750ms start delay of the one before.
+        for _ in 0..<40 where inspector.scanCount == 0 {
+            service.schedulePassiveServerDetectionRefresh()
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        XCTAssertGreaterThan(inspector.scanCount, 0, "Repeated identical schedules must not starve the scan")
+    }
+
+    func test_changed_context_restarts_passive_detection() async throws {
+        let inspector = RecordingProcessInspector(
+            sockets: [ListeningSocket(pid: 300, localHost: "127.0.0.1", port: 5173)],
+            cwdByPID: [300: "/Volumes/passive-new"]
+        )
+        let store = makeStore(workingDirectory: "/Volumes/passive-old")
+        let service = makeService(store: store, processInspector: inspector)
+        addTeardownBlock { @MainActor in service.cancelPassiveDetection() }
+
+        service.schedulePassiveServerDetectionRefresh()
+        replaceWorklanes(in: store, workingDirectory: "/Volumes/passive-new")
+        service.schedulePassiveServerDetectionRefresh()
+
+        await waitUntil { !store.activeServerContext.servers.isEmpty }
+        XCTAssertEqual(store.activeServerContext.servers.map(\.origin), ["http://localhost:5173"])
+    }
+
+    func test_finished_one_shot_scan_lets_a_later_refresh_scan_again() async throws {
+        let inspector = RecordingProcessInspector()
+        let store = makeStore(workingDirectory: "/tmp/passive-project")
+        let service = makeService(store: store, processInspector: inspector)
+        addTeardownBlock { @MainActor in service.cancelPassiveDetection() }
+
+        service.schedulePassiveServerDetectionRefresh()
+        await waitUntil { inspector.scanCount == 1 && !service.isPassiveDetectionLoopActiveForTesting }
+        XCTAssertEqual(inspector.scanCount, 1)
+
+        service.schedulePassiveServerDetectionRefresh()
+        await waitUntil { inspector.scanCount == 2 }
+
+        XCTAssertEqual(inspector.scanCount, 2)
+    }
+
+    func test_reenabling_detection_after_disabling_it_scans_again() async throws {
+        let inspector = RecordingProcessInspector()
+        let store = makeStore(workingDirectory: "/tmp/passive-project")
+        let (service, configStore) = makeServiceAndConfig(store: store, processInspector: inspector)
+        addTeardownBlock { @MainActor in service.cancelPassiveDetection() }
+
+        service.schedulePassiveServerDetectionRefresh()
+        try configStore.update { $0.serverDetection.passiveDetectionEnabled = false }
+        service.schedulePassiveServerDetectionRefresh()
+        try configStore.update { $0.serverDetection.passiveDetectionEnabled = true }
+        service.schedulePassiveServerDetectionRefresh()
+
+        await waitUntil { inspector.scanCount > 0 }
+        XCTAssertGreaterThan(inspector.scanCount, 0)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 5,
+        _ condition: @MainActor () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
     // MARK: - Helpers
 
-    private func makeService(store: WorklaneStore) -> WindowServerCommandService {
+    private func makeService(
+        store: WorklaneStore,
+        processInspector: (any ProcessInspecting)? = nil
+    ) -> WindowServerCommandService {
+        makeServiceAndConfig(store: store, processInspector: processInspector).service
+    }
+
+    private func makeServiceAndConfig(
+        store: WorklaneStore,
+        processInspector: (any ProcessInspecting)?
+    ) -> (service: WindowServerCommandService, config: AppConfigStore) {
         let configURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("WindowServerCommandServiceTests-\(UUID().uuidString).toml")
         addTeardownBlock { try? FileManager.default.removeItem(at: configURL) }
-        return WindowServerCommandService(
+        let config = AppConfigStore(fileURL: configURL)
+        let service = WindowServerCommandService(
             worklaneStore: store,
-            configStore: AppConfigStore(fileURL: configURL),
+            configStore: config,
             serverOpenService: ServerOpenService(),
-            serverListenerScanner: ServerListenerScanner(),
-            dockerServerDiscovery: DockerServerDiscovery()
+            serverListenerScanner: processInspector.map { ServerListenerScanner(processInspector: $0) }
+                ?? ServerListenerScanner(),
+            dockerServerDiscovery: DockerServerDiscovery(),
+            dockerContainerPoller: DockerContainerPoller(inspector: NoDockerInspector())
         )
+        return (service, config)
     }
 
-    private func makeStore() -> WorklaneStore {
+    private func makeStore(workingDirectory: String? = nil) -> WorklaneStore {
         let store = WorklaneStore()
+        replaceWorklanes(in: store, workingDirectory: workingDirectory)
+        return store
+    }
+
+    private func replaceWorklanes(in store: WorklaneStore, workingDirectory: String?) {
+        var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
+        if let workingDirectory {
+            auxiliaryStateByPaneID[paneA] = PaneAuxiliaryState(
+                shellContext: PaneShellContext(
+                    scope: .local,
+                    path: workingDirectory,
+                    home: "/Users/peter",
+                    user: "peter",
+                    host: nil
+                ),
+                gitContext: PaneGitContext(
+                    workingDirectory: workingDirectory,
+                    repositoryRoot: workingDirectory,
+                    reference: .branch("main")
+                )
+            )
+        }
         store.replaceWorklanes([
             WorklaneState(
                 id: worklaneID,
@@ -98,9 +210,43 @@ final class WindowServerCommandServiceTests: XCTestCase {
                 paneStripState: PaneStripState(
                     panes: [PaneState(id: paneA, title: "server")],
                     focusedPaneID: paneA
-                )
+                ),
+                auxiliaryStateByPaneID: auxiliaryStateByPaneID
             )
         ], activeWorklaneID: worklaneID)
-        return store
     }
+}
+
+private final class RecordingProcessInspector: ProcessInspecting, @unchecked Sendable {
+    private let lock = NSLock()
+    private let sockets: [ListeningSocket]
+    private let cwdByPID: [pid_t: String]
+    private var _scanCount = 0
+
+    init(sockets: [ListeningSocket] = [], cwdByPID: [pid_t: String] = [:]) {
+        self.sockets = sockets
+        self.cwdByPID = cwdByPID
+    }
+
+    var scanCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _scanCount
+    }
+
+    func listeningTCPSockets() -> [ListeningSocket] {
+        lock.lock()
+        defer { lock.unlock() }
+        _scanCount += 1
+        return sockets
+    }
+
+    func parentPID(of pid: pid_t) -> pid_t? { nil }
+    func workingDirectory(of pid: pid_t) -> String? { cwdByPID[pid] }
+    func isProcessAlive(_ pid: pid_t) -> Bool { cwdByPID[pid] != nil }
+}
+
+private struct NoDockerInspector: DockerInspecting {
+    func hasDockerSocket() -> Bool { false }
+    func runningContainers() throws -> [DockerContainer] { [] }
 }

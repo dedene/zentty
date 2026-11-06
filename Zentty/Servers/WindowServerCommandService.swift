@@ -6,6 +6,13 @@ import Foundation
 /// and the server services — no responder chain or view geometry.
 @MainActor
 final class WindowServerCommandService {
+    /// The running detection loop and the snapshot it is working from.
+    private struct PassiveDetectionLoop {
+        let id: UUID
+        let task: Task<Void, Never>
+        var snapshot: PassiveServerDetectionSnapshot
+    }
+
     private let worklaneStore: WorklaneStore
     private let configStore: AppConfigStore
     private let serverOpenService: ServerOpening
@@ -13,7 +20,7 @@ final class WindowServerCommandService {
     private let dockerServerDiscovery: DockerServerDiscovery
     private let dockerContainerPoller: DockerContainerPoller
     private let serverProcessTerminator: ServerProcessTerminator
-    private var passiveServerDetectionTask: Task<Void, Never>?
+    private var passiveDetectionLoop: PassiveDetectionLoop?
 
     init(
         worklaneStore: WorklaneStore,
@@ -35,7 +42,7 @@ final class WindowServerCommandService {
 
     deinit {
         MainActorShim.assumeIsolated {
-            passiveServerDetectionTask?.cancel()
+            passiveDetectionLoop?.task.cancel()
         }
     }
 
@@ -120,9 +127,8 @@ final class WindowServerCommandService {
     }
 
     func schedulePassiveServerDetectionRefresh() {
-        passiveServerDetectionTask?.cancel()
-
         guard configStore.current.serverDetection.passiveDetectionEnabled else {
+            cancelPassiveDetection()
             worklaneStore.worklanes.forEach { worklane in
                 worklaneStore.replacePassiveServers(worklaneID: worklane.id, source: .scanner, servers: [])
                 worklaneStore.replacePassiveServers(worklaneID: worklane.id, source: .docker, servers: [])
@@ -132,14 +138,21 @@ final class WindowServerCommandService {
 
         let snapshot = PassiveServerDetectionSnapshot(worklanes: worklaneStore.worklanes)
         clearPassiveServersForWorklanesWithoutContexts(snapshot)
+        // Sidebar updates land here far more often than the loop's start delay;
+        // restarting on each one would starve the scan and reset its cadence.
+        if let passiveDetectionLoop, passiveDetectionLoop.snapshot == snapshot {
+            return
+        }
+        cancelPassiveDetection()
         guard !snapshot.contexts.isEmpty else {
             return
         }
 
+        let loopID = UUID()
         let scanner = serverListenerScanner
         let dockerDiscovery = dockerServerDiscovery
         let dockerPoller = dockerContainerPoller
-        passiveServerDetectionTask = Task { [weak self, snapshot, scanner, dockerDiscovery, dockerPoller] in
+        let task = Task { [weak self, snapshot, scanner, dockerDiscovery, dockerPoller] in
             try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.initialDelayNanoseconds)
             guard !Task.isCancelled else {
                 return
@@ -227,18 +240,35 @@ final class WindowServerCommandService {
                 // alive (bounded) until it gets an answer of its own.
                 guard nextSnapshot.shouldContinuePolling || dockerCadence.needsDockerRetry,
                       !nextSnapshot.contexts.isEmpty else {
+                    self.passiveDetectionLoopDidFinish(id: loopID)
                     return
                 }
 
+                self.passiveDetectionLoopDidAdvance(id: loopID, to: nextSnapshot)
                 contexts = nextSnapshot.contexts
                 try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.runningPollIntervalNanoseconds)
             }
         }
+        passiveDetectionLoop = PassiveDetectionLoop(id: loopID, task: task, snapshot: snapshot)
     }
 
     func cancelPassiveDetection() {
-        passiveServerDetectionTask?.cancel()
-        passiveServerDetectionTask = nil
+        passiveDetectionLoop?.task.cancel()
+        passiveDetectionLoop = nil
+    }
+
+    private func passiveDetectionLoopDidAdvance(id: UUID, to snapshot: PassiveServerDetectionSnapshot) {
+        guard passiveDetectionLoop?.id == id else {
+            return
+        }
+        passiveDetectionLoop?.snapshot = snapshot
+    }
+
+    private func passiveDetectionLoopDidFinish(id: UUID) {
+        guard passiveDetectionLoop?.id == id else {
+            return
+        }
+        passiveDetectionLoop = nil
     }
 
     private func clearPassiveServersForWorklanesWithoutContexts(_ snapshot: PassiveServerDetectionSnapshot) {
@@ -273,6 +303,9 @@ final class WindowServerCommandService {
 
         switch serverProcessTerminator.stop(server, shellPID: shellPID) {
         case .stopped, .notRunning:
+            // The snapshot is unchanged, but a round already in flight may have
+            // read the socket list from before the stop, so scan afresh.
+            cancelPassiveDetection()
             schedulePassiveServerDetectionRefresh()
         case .notOwned, .failed:
             break
@@ -340,6 +373,12 @@ final class WindowServerCommandService {
     static func formatServerDate(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
     }
+
+#if DEBUG
+    var isPassiveDetectionLoopActiveForTesting: Bool {
+        passiveDetectionLoop != nil
+    }
+#endif
 
     private func serverRecordID(
         worklaneID: WorklaneID,
