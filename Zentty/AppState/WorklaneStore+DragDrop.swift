@@ -613,6 +613,10 @@ extension WorklaneStore {
 
         if let auxiliaryState = payload.auxiliary {
             targetWorklane.auxiliaryStateByPaneID[pane.id] = auxiliaryState
+            // The debounce task stayed behind in the source store.
+            if auxiliaryState.raw.wantsReadyStatus, !auxiliaryState.raw.showsReadyStatus {
+                requestReadyStatusIfNeeded(for: pane.id, in: &targetWorklane)
+            }
         }
         targetWorklane.focusedFloatID = nil
 

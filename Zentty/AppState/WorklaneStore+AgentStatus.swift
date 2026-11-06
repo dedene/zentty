@@ -448,7 +448,7 @@ extension WorklaneStore {
             auxiliaryState.raw.showsReadyStatus = false
             auxiliaryState.terminalProgress = nil
             worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
-            cancelPendingReadyStatus(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+            cancelPendingReadyStatus(for: payload.paneID)
             recomputePresentation(for: payload.paneID, in: &worklane)
             worklanes[worklaneIndex] = worklane
             let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
@@ -682,7 +682,7 @@ extension WorklaneStore {
                 auxiliaryState.raw.wantsReadyStatus = false
                 auxiliaryState.raw.showsReadyStatus = false
                 worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
-                cancelPendingReadyStatus(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+                cancelPendingReadyStatus(for: payload.paneID)
                 recomputePresentation(for: payload.paneID, in: &worklane)
                 worklanes[worklaneIndex] = worklane
                 let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)

@@ -409,7 +409,8 @@ final class WorklaneStore {
     var nonRepositoryRetryDeadlineByPath: [String: Date] = [:]
     var pendingGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
-    private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
+    // Keyed by pane alone: a pane can change worklane inside the debounce.
+    private var pendingReadyStatusTasks: [PaneID: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     var pendingProgramStatusStaleTasks: [PaneID: any WorklaneStoreScheduledHandle] = [:]
     var pendingCodexQuestionTasks: [PaneReference: Task<Void, Never>] = [:]
@@ -3074,8 +3075,7 @@ final class WorklaneStore {
     }
 
     func clearReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
-        let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
-        cancelPendingReadyStatus(for: paneReference)
+        cancelPendingReadyStatus(for: paneID)
 
         guard worklane.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true
             || worklane.auxiliaryStateByPaneID[paneID]?.raw.wantsReadyStatus == true
@@ -3148,7 +3148,6 @@ final class WorklaneStore {
     }
 
     func requestReadyStatusIfNeeded(for paneID: PaneID, in worklane: inout WorklaneState) {
-        let paneReference = PaneReference(worklaneID: worklane.id, paneID: paneID)
         var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()]
         auxiliaryState.raw.wantsReadyStatus = true
         let shouldSchedule = auxiliaryState.raw.showsReadyStatus == false
@@ -3168,21 +3167,21 @@ final class WorklaneStore {
         )
 
         guard shouldSchedule else {
-            cancelPendingReadyStatus(for: paneReference)
+            cancelPendingReadyStatus(for: paneID)
             return
         }
 
         guard readyStatusDebounceInterval > 0 else {
-            cancelPendingReadyStatus(for: paneReference)
+            cancelPendingReadyStatus(for: paneID)
             return
         }
 
-        scheduleReadyStatusReveal(for: paneReference)
+        scheduleReadyStatusReveal(for: paneID)
     }
 
-    func cancelPendingReadyStatus(for paneReference: PaneReference) {
-        pendingReadyStatusTasks[paneReference]?.cancel()
-        pendingReadyStatusTasks[paneReference] = nil
+    func cancelPendingReadyStatus(for paneID: PaneID) {
+        pendingReadyStatusTasks[paneID]?.cancel()
+        pendingReadyStatusTasks[paneID] = nil
     }
 
     func scheduleAgentStatusSweep(for paneReference: PaneReference, after interval: TimeInterval) {
@@ -3193,17 +3192,17 @@ final class WorklaneStore {
         }
     }
 
-    private func scheduleReadyStatusReveal(for paneReference: PaneReference) {
-        cancelPendingReadyStatus(for: paneReference)
+    private func scheduleReadyStatusReveal(for paneID: PaneID) {
+        cancelPendingReadyStatus(for: paneID)
 
         let debounceInterval = readyStatusDebounceInterval
         guard debounceInterval > 0 else {
-            commitReadyStatusReveal(for: paneReference)
+            commitReadyStatusReveal(for: paneID)
             return
         }
 
-        pendingReadyStatusTasks[paneReference] = scheduleReadyStatusTask(debounceInterval) { [weak self] in
-            self?.commitReadyStatusReveal(for: paneReference)
+        pendingReadyStatusTasks[paneID] = scheduleReadyStatusTask(debounceInterval) { [weak self] in
+            self?.commitReadyStatusReveal(for: paneID)
         }
     }
 
@@ -3222,16 +3221,16 @@ final class WorklaneStore {
         return TaskWorklaneStoreScheduledHandle(task: task)
     }
 
-    private func commitReadyStatusReveal(for paneReference: PaneReference) {
-        pendingReadyStatusTasks[paneReference] = nil
+    private func commitReadyStatusReveal(for paneID: PaneID) {
+        pendingReadyStatusTasks[paneID] = nil
 
-        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == paneReference.worklaneID }) else {
+        guard let worklaneIndex = self.worklaneIndex(containingPane: paneID) else {
             return
         }
 
         var worklane = worklanes[worklaneIndex]
         let previousWorklane = worklane
-        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneReference.paneID],
+        guard var auxiliaryState = worklane.auxiliaryStateByPaneID[paneID],
               readyStatusMayBecomeVisible(in: auxiliaryState),
               auxiliaryState.raw.showsReadyStatus == false
         else {
@@ -3239,20 +3238,21 @@ final class WorklaneStore {
         }
 
         auxiliaryState.raw.showsReadyStatus = true
-        worklane.auxiliaryStateByPaneID[paneReference.paneID] = auxiliaryState
+        worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
+        let worklaneIDRaw = worklane.id.rawValue
         worklaneReadyLogger.debug(
-            "Committed ready status worklane=\(paneReference.worklaneID.rawValue, privacy: .public) pane=\(paneReference.paneID.rawValue, privacy: .public)"
+            "Committed ready status worklane=\(worklaneIDRaw, privacy: .public) pane=\(paneID.rawValue, privacy: .public)"
         )
-        recomputePresentation(for: paneReference.paneID, in: &worklane)
+        recomputePresentation(for: paneID, in: &worklane)
         worklanes[worklaneIndex] = worklane
 
         let impacts = auxiliaryInvalidation(
-            for: paneReference.paneID,
+            for: paneID,
             previousWorklane: previousWorklane,
             nextWorklane: worklane
         )
         if !impacts.isEmpty {
-            notify(.auxiliaryStateUpdated(worklane.id, paneReference.paneID, impacts))
+            notify(.auxiliaryStateUpdated(worklane.id, paneID, impacts))
         }
     }
 

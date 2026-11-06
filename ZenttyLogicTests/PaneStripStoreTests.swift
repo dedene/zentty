@@ -10567,6 +10567,115 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(request.environmentVariables["GHOSTTY_LOG"], "macos,no-stderr")
     }
 
+    // MARK: - Ready reveal across pane moves
+
+    private func applyRunningThenIdle(
+        worklaneID: WorklaneID,
+        paneID: PaneID,
+        to store: WorklaneStore
+    ) {
+        for state in [PaneAgentState.running, .idle] {
+            store.applyAgentStatusPayload(
+                AgentStatusPayload(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    state: state,
+                    origin: .explicitHook,
+                    toolName: "OpenCode",
+                    text: nil,
+                    sessionID: "session-1",
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                )
+            )
+        }
+    }
+
+    func test_ready_reveal_survives_worklane_move_during_debounce() throws {
+        let scheduler = ManualReadyStatusScheduler()
+        let store = WorklaneStore(readyStatusDebounceInterval: 1, readyStatusScheduler: scheduler.schedule)
+        let sourceWorklaneID = store.activeWorklaneID
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.send(.splitAfterFocusedPane)
+        let targetWorklaneID = store.createWorklane()
+        store.selectWorklaneAndFocusPane(worklaneID: sourceWorklaneID, paneID: paneID)
+
+        applyRunningThenIdle(worklaneID: sourceWorklaneID, paneID: paneID, to: store)
+        let requested = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertTrue(requested.raw.wantsReadyStatus)
+        XCTAssertFalse(requested.raw.showsReadyStatus)
+
+        store.transferPaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+        scheduler.runLatest()
+
+        let target = try XCTUnwrap(store.worklanes.first { $0.id == targetWorklaneID })
+        XCTAssertTrue(target.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_ready_reveal_cleared_during_debounce_does_not_show_after_worklane_move() throws {
+        let scheduler = ManualReadyStatusScheduler()
+        let store = WorklaneStore(readyStatusDebounceInterval: 1, readyStatusScheduler: scheduler.schedule)
+        let sourceWorklaneID = store.activeWorklaneID
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.send(.splitAfterFocusedPane)
+        let targetWorklaneID = store.createWorklane()
+        store.selectWorklaneAndFocusPane(worklaneID: sourceWorklaneID, paneID: paneID)
+
+        applyRunningThenIdle(worklaneID: sourceWorklaneID, paneID: paneID, to: store)
+        store.transferPaneToWorklane(
+            paneID: paneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+        // Cancels under the destination worklane, not the one that scheduled it.
+        store.handleTerminalEvent(paneID: paneID, event: .userSubmittedInput)
+        scheduler.runLatest()
+
+        let target = try XCTUnwrap(store.worklanes.first { $0.id == targetWorklaneID })
+        XCTAssertFalse(target.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
+    func test_extracted_pane_requeues_pending_ready_reveal() throws {
+        let sourceScheduler = ManualReadyStatusScheduler()
+        let sourceStore = WorklaneStore(readyStatusDebounceInterval: 1, readyStatusScheduler: sourceScheduler.schedule)
+        let sourceWorklaneID = sourceStore.activeWorklaneID
+        let paneID = try XCTUnwrap(sourceStore.activeWorklane?.paneStripState.focusedPaneID)
+        sourceStore.send(.splitAfterFocusedPane)
+        sourceStore.selectWorklaneAndFocusPane(worklaneID: sourceWorklaneID, paneID: paneID)
+        applyRunningThenIdle(worklaneID: sourceWorklaneID, paneID: paneID, to: sourceStore)
+
+        let payload = try XCTUnwrap(
+            sourceStore.extractPaneForCrossWindowTransfer(
+                paneID: paneID,
+                singleColumnWidth: sourceStore.layoutContext.singlePaneWidth
+            )
+        )
+
+        let destinationScheduler = ManualReadyStatusScheduler()
+        let destinationStore = WorklaneStore(
+            readyStatusDebounceInterval: 1,
+            readyStatusScheduler: destinationScheduler.schedule
+        )
+        let destinationWorklaneID = destinationStore.activeWorklaneID
+        XCTAssertTrue(
+            destinationStore.insertExtractedPane(
+                payload,
+                intoWorklane: destinationWorklaneID,
+                singleColumnWidth: destinationStore.layoutContext.singlePaneWidth
+            )
+        )
+        XCTAssertFalse(destinationStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+
+        destinationScheduler.runLatest()
+
+        XCTAssertTrue(destinationStore.activeWorklane?.auxiliaryStateByPaneID[paneID]?.raw.showsReadyStatus == true)
+    }
+
     // MARK: - Cross-Worklane Vertical Navigation
 
     func test_focusUp_at_top_pane_switches_to_previous_worklane() {
