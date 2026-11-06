@@ -111,6 +111,28 @@ final class LibghosttyViewIMETests: AppKitTestCase {
         XCTAssertFalse(view.hasMarkedText())
     }
 
+    // Candidate clicks and modifier events commit outside keyDown, where the
+    // keystroke path cannot report the edit.
+    func test_insert_text_outside_key_down_emits_user_edited_input() {
+        var events: [TerminalEvent] = []
+        view.onLocalEventDidOccur = { events.append($0) }
+
+        view.insertText("測", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        XCTAssertEqual(surface.sentText, ["測"])
+        XCTAssertEqual(events, [.userEditedInput])
+    }
+
+    func test_insert_text_with_nothing_to_send_emits_nothing() {
+        var events: [TerminalEvent] = []
+        view.onLocalEventDidOccur = { events.append($0) }
+
+        view.insertText("", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        XCTAssertTrue(surface.sentText.isEmpty)
+        XCTAssertEqual(events, [])
+    }
+
     func test_unmark_text_clears_selected_range() {
         view.setMarkedText(
             "ㄘ",
@@ -200,6 +222,7 @@ private final class IMESurfaceSpy: LibghosttySurfaceControlling {
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     var imeRectValue: CGRect?
     private(set) var preeditUpdates: [String] = []
+    private(set) var sentText: [String] = []
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -213,7 +236,7 @@ private final class IMESurfaceSpy: LibghosttySurfaceControlling {
         button: ghostty_input_mouse_button_e,
         modifiers: NSEvent.ModifierFlags
     ) -> Bool { false }
-    func sendText(_ text: String) {}
+    func sendText(_ text: String) { sentText.append(text) }
     func setPreedit(_ text: String) {
         preeditUpdates.append(text)
     }

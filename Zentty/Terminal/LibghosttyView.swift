@@ -2614,10 +2614,13 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
 
     @IBAction func paste(_ sender: Any?) {
         if remoteImagePasteHandler?(NSPasteboard.general, .keyboard) == true {
+            onLocalEventDidOccur?(.userEditedInput)
             return
         }
 
-        _ = surfaceController?.performBindingAction(TerminalBindingAction.pasteFromClipboard)
+        if surfaceController?.performBindingAction(TerminalBindingAction.pasteFromClipboard) == true {
+            onLocalEventDidOccur?(.userEditedInput)
+        }
     }
 
     @IBAction override func selectAll(_ sender: Any?) {
@@ -3020,6 +3023,7 @@ extension LibghosttyView: NSTextInputClient {
             // Modifier events and candidate clicks can commit outside keyDown.
             if self.keyTextAccumulator == nil {
                 self.surfaceController?.sendText(text)
+                self.onLocalEventDidOccur?(.userEditedInput)
                 return
             }
 
@@ -3129,6 +3133,7 @@ extension LibghosttyView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let pasteboard = sender.draggingPasteboard
         if remoteImagePasteHandler?(pasteboard, .drag) == true {
+            onLocalEventDidOccur?(.userEditedInput)
             return true
         }
 
@@ -3152,6 +3157,7 @@ extension LibghosttyView {
         guard let content else { return false }
         // Dropped text is untrusted, so it gets the same paste protection as Cmd-V.
         surfaceController?.pasteText(content)
+        onLocalEventDidOccur?(.userEditedInput)
         return true
     }
 }
