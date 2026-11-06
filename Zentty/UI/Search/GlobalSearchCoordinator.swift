@@ -57,6 +57,9 @@ final class GlobalSearchCoordinator {
     private var pendingPaneIDsAwaitingTotals: Set<PaneID> = []
     private var currentSelection: Selection?
     private var pendingNavigationDirection: Direction?
+    /// Identifies the query in progress, so navigation deferred for an older
+    /// one is dropped. Changes only with the query, never on a render.
+    private var searchGeneration = 0
 
     var onStateDidChange: ((GlobalSearchState) -> Void)?
 
@@ -99,6 +102,7 @@ final class GlobalSearchCoordinator {
     }
 
     func end() {
+        searchGeneration += 1
         queryUpdateWorkItem?.cancel()
         queryUpdateWorkItem = nil
 
@@ -119,6 +123,7 @@ final class GlobalSearchCoordinator {
             show()
         }
 
+        searchGeneration += 1
         queryUpdateWorkItem?.cancel()
         captureFrozenTargets()
         clearPaneResults()
@@ -307,12 +312,12 @@ final class GlobalSearchCoordinator {
         let targetPaneState = paneResults[target.paneID] ?? PaneResultState()
         switch direction {
         case .next:
-            navigateToTarget(target.worklaneID, target.paneID) { [weak self] in
+            navigateWithinCurrentSearch(to: target) { [weak self] in
                 self?.completeCrossTargetNavigation(to: target.paneID, selectedIndex: 0, direction: .next)
             }
         case .previous:
             let lastIndex = max(0, targetPaneState.total - 1)
-            navigateToTarget(target.worklaneID, target.paneID) { [weak self] in
+            navigateWithinCurrentSearch(to: target) { [weak self] in
                 self?.completeCrossTargetNavigation(to: target.paneID, selectedIndex: lastIndex, direction: .previous)
             }
         }
@@ -334,12 +339,12 @@ final class GlobalSearchCoordinator {
 
         switch direction {
         case .next:
-            navigateToTarget(target.worklaneID, target.paneID) { [weak self] in
+            navigateWithinCurrentSearch(to: target) { [weak self] in
                 self?.completeCrossTargetNavigation(to: target.paneID, selectedIndex: 0, direction: .next)
             }
         case .previous:
             let lastIndex = max(0, paneState.total - 1)
-            navigateToTarget(target.worklaneID, target.paneID) { [weak self] in
+            navigateWithinCurrentSearch(to: target) { [weak self] in
                 self?.completeCrossTargetNavigation(to: target.paneID, selectedIndex: lastIndex, direction: .previous)
             }
         }
@@ -454,7 +459,20 @@ final class GlobalSearchCoordinator {
             return
         }
 
-        navigateToTarget(target.worklaneID, target.paneID, action)
+        navigateWithinCurrentSearch(to: target, then: action)
+    }
+
+    private func navigateWithinCurrentSearch(
+        to target: GlobalSearchTarget,
+        then completion: @escaping @MainActor () -> Void
+    ) {
+        let generation = searchGeneration
+        navigateToTarget(target.worklaneID, target.paneID) { [weak self] in
+            guard self?.searchGeneration == generation else {
+                return
+            }
+            completion()
+        }
     }
 
     private func completeCrossTargetNavigation(
