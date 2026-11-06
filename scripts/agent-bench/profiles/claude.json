@@ -43,6 +43,8 @@
       "project,local",
       "--permission-mode",
       "default",
+      "--model",
+      "haiku",
       "--max-budget-usd",
       "1.00",
       "For an integration hook regression test, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool. Put the text ZENTTY_AGENT_BENCH_APPROVAL_OK in the file."
@@ -69,9 +71,55 @@
       "project,local",
       "--permission-mode",
       "default",
+      "--model",
+      "haiku",
       "--max-budget-usd",
       "1.00",
       "For an integration hook regression test: 1) create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 2) Then, without asking me anything, read README.md with the Read tool. 3) Then search for the word bench in this directory with the Grep tool. 4) Then reply with exactly DONE."
+    ],
+    "approval_agent_tool": [
+      "--setting-sources",
+      "project,local",
+      "--permission-mode",
+      "default",
+      "--model",
+      "haiku",
+      "--max-budget-usd",
+      "1.00",
+      "For an integration hook regression test: use the Agent tool exactly once, with subagent_type Explore, to list the files in the current directory. Wait for it to finish, then reply with exactly DONE."
+    ],
+    "approval_during_subagent": [
+      "--setting-sources",
+      "project,local",
+      "--permission-mode",
+      "default",
+      "--model",
+      "haiku",
+      "--max-budget-usd",
+      "1.00",
+      "For an integration hook regression test: 1) use the Agent tool exactly once, with subagent_type Explore and run_in_background true, and give it this exact task: \"Read README.md with the Read tool, then list the files in the current directory, then reply done.\" 2) As soon as the Agent call returns, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 3) Then reply with exactly DONE."
+    ],
+    "approval_overlap_agents": [
+      "--setting-sources",
+      "project,local",
+      "--permission-mode",
+      "default",
+      "--model",
+      "haiku",
+      "--max-budget-usd",
+      "1.00",
+      "For an integration hook regression test: in one single assistant message, issue two Agent tool calls side by side as parallel tool calls, both with subagent_type Explore. The first lists the files in the current directory, the second reads README.md. Wait for both, then reply with exactly DONE."
+    ],
+    "approval_overlap_worker": [
+      "--setting-sources",
+      "project,local",
+      "--permission-mode",
+      "default",
+      "--model",
+      "haiku",
+      "--max-budget-usd",
+      "1.00",
+      "For an integration hook regression test: 1) use the Agent tool exactly once, with subagent_type general-purpose and run_in_background true, and give it this exact task: \"Run the Bash tool once with the command: touch ZENTTY_AGENT_BENCH_WORKER_OK. Then reply done.\" 2) As soon as the Agent call returns, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 3) Then reply with exactly DONE."
     ],
     "subagents": [
       "--setting-sources",
@@ -158,8 +206,11 @@
         "SessionStart",
         "UserPromptSubmit",
         "PreToolUse",
-        "PermissionRequest"
-      ]
+        "PermissionRequest",
+        "PostToolUse",
+        "Stop"
+      ],
+      "hook_trace": true
     },
     "tasks": {
       "required_events": [
@@ -210,7 +261,59 @@
         "PermissionRequest",
         "PostToolUse",
         "Stop"
-      ]
+      ],
+      "hook_trace": true
+    },
+    "approval_agent_tool": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PermissionRequest:Agent",
+        "SubagentStart:Explore",
+        "SubagentStop:Explore",
+        "PostToolUse:Agent",
+        "Stop",
+        "Stop"
+      ],
+      "hook_trace": true
+    },
+    "approval_during_subagent": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "SubagentStart:Explore",
+        "PermissionRequest:Write",
+        "SubagentStop:Explore",
+        "PostToolUse:Write",
+        "Stop"
+      ],
+      "hook_trace": true
+    },
+    "approval_overlap_agents": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PermissionRequest:Agent",
+        "PermissionRequest:Agent",
+        "SubagentStart:Explore",
+        "SubagentStart:Explore",
+        "SubagentStop:Explore",
+        "SubagentStop:Explore",
+        "Stop"
+      ],
+      "hook_trace": true
+    },
+    "approval_overlap_worker": {
+      "required_events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "SubagentStart:general-purpose",
+        "PermissionRequest:Write",
+        "PermissionRequest:Bash",
+        "SubagentStop:general-purpose",
+        "Stop"
+      ],
+      "hook_trace": true
     },
     "subagents": {
       "required_events": [
@@ -274,8 +377,10 @@
   "input_by_scenario": {
     "approval": [
       {
-        "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
-        "text": "1\n"
+        "match": "Do you want",
+        "delay": 2,
+        "text": "1\n",
+        "label": "approve"
       }
     ],
     "tasks": [
@@ -301,10 +406,73 @@
     ],
     "approval_then_work": [
       {
-        "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
-        "text": "1\n"
+        "match": "Do you want",
+        "delay": 8,
+        "text": "1\n",
+        "label": "approve"
+      }
+    ],
+    "approval_agent_tool": [
+      {
+        "match": "Do you want",
+        "delay": 8,
+        "text": "1\n",
+        "label": "approve"
+      },
+      {
+        "match": "Do you want",
+        "after_previous": true,
+        "delay": 8,
+        "text": "1\n",
+        "label": "approve-repeat-call"
+      }
+    ],
+    "approval_during_subagent": [
+      {
+        "match": "Do you want",
+        "delay": 15,
+        "text": "1\n",
+        "label": "approve"
+      }
+    ],
+    "approval_overlap_agents": [
+      {
+        "match": "Do you want",
+        "delay": 10,
+        "text": "1\n",
+        "label": "approve-first"
+      },
+      {
+        "match": "Do you want",
+        "after_previous": true,
+        "delay": 10,
+        "text": "1\n",
+        "label": "approve-second"
+      }
+    ],
+    "approval_overlap_worker": [
+      {
+        "match": "Do you want",
+        "delay": 10,
+        "text": "1\n",
+        "label": "approve-first"
+      },
+      {
+        "match": "Do you want",
+        "after_previous": true,
+        "delay": 10,
+        "text": "1\n",
+        "label": "approve-second"
       }
     ]
+  },
+  "repo_files_by_scenario": {
+    "approval_agent_tool": {
+      ".claude/settings.local.json": "{\"permissions\":{\"ask\":[\"Agent\"]}}"
+    },
+    "approval_overlap_agents": {
+      ".claude/settings.local.json": "{\"permissions\":{\"ask\":[\"Agent\"]}}"
+    }
   },
   "skip_patterns": [
     "login",

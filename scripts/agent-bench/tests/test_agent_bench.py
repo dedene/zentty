@@ -1856,6 +1856,136 @@ class ExpectationTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.result_kind, "hook-pass")
 
+    def test_scripted_input_match_sees_words_separated_by_cursor_moves(self):
+        # Claude 2.1 and Codex 0.167 draw word gaps with cursor moves, so a
+        # multi-word match never hits the raw stream.
+        claude = "\x1b[39mDo\x1b[5Gyou\x1b[9Gwant\x1b[14Gto\x1b[17Gcreate\x1b[24G\x1b[1mFILE\x1b[22m?"
+        codex = "\x1b[6;3H\x1b[22mWould\x1b[6;9Hyou\x1b[6;13Hlike"
+
+        self.assertIn("Do you want to create FILE?", agent_bench.scripted_input_match_text(claude))
+        self.assertIn("Would you like", agent_bench.scripted_input_match_text(codex))
+
+    def test_scripted_input_match_keeps_osc_titles(self):
+        # manual_compact matches a title, which lives in an OSC sequence.
+        title = "\x1b]0;Ready | codex-manual_compact\x07"
+
+        self.assertIn("Ready | codex-manual_compact", agent_bench.scripted_input_match_text(title))
+
+    def _run_pty_script(self, script: str, inputs: list[dict]) -> agent_bench.PtyResult:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            return agent_bench.run_pty(
+                [sys.executable, "-I", "-c", script],
+                env=dict(os.environ),
+                cwd=root,
+                inputs=inputs,
+                timeout=10,
+                transcript_path=root / "terminal.log",
+            )
+
+    def test_run_pty_sends_input_for_a_dialog_drawn_with_cursor_moves(self):
+        script = (
+            "import sys\n"
+            "sys.stdout.write('Do\\x1b[5Gyou\\x1b[9Gwant?\\n'); sys.stdout.flush()\n"
+            "print('ANSWER', sys.stdin.readline().strip())\n"
+        )
+
+        result = self._run_pty_script(script, [{"match": "Do you want", "text": "1\n", "label": "approve"}])
+
+        self.assertEqual([item.text for item in result.terminal_observations if item.kind == "input"], ["approve"])
+        self.assertIn("ANSWER 1", result.output)
+
+    def test_after_previous_input_only_matches_output_after_the_earlier_input(self):
+        # A second dialog repeats the first one's words, so the match must not
+        # fire on the text that is already on screen.
+        script = (
+            "import sys\n"
+            "print('Do you want'); sys.stdout.flush()\n"
+            "first = sys.stdin.readline().strip()\n"
+            "import time; time.sleep(0.5)\n"
+            "print('SECOND', first); print('Do you want'); sys.stdout.flush()\n"
+            "print('ANSWER', sys.stdin.readline().strip())\n"
+        )
+
+        result = self._run_pty_script(
+            script,
+            [
+                {"match": "Do you want", "text": "a\n", "label": "first"},
+                {"match": "Do you want", "after_previous": True, "text": "b\n", "label": "second"},
+            ],
+        )
+
+        offsets = {item.text: item.offset for item in result.terminal_observations if item.kind == "input"}
+        self.assertLess(result.output.index("SECOND a"), offsets["second"])
+        self.assertIn("ANSWER b", result.output)
+
+    def test_base_environment_keeps_a_parent_claude_session_out_of_the_bench(self):
+        scrubbed = agent_bench.without_parent_agent_session(
+            {
+                "CLAUDECODE": "1",
+                "CLAUDE_CODE_CHILD_SESSION": "1",
+                "CLAUDE_CODE_SESSION_ID": "parent",
+                "CLAUDE_CODE_MESSAGING_TOKEN": "secret",
+                "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
+                "PATH": "/bin",
+            }
+        )
+
+        self.assertEqual(scrubbed, {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1", "PATH": "/bin"})
+
+    def test_internal_fork_stop_does_not_satisfy_a_worker_stop(self):
+        def record(agent_type: str) -> agent_bench.TraceRecord:
+            return agent_bench.TraceRecord(
+                kind="hook",
+                agent="claude",
+                scenario="s",
+                event_name="SubagentStop",
+                standard_input=json.dumps({"agent_id": "a", "agent_type": agent_type}),
+            )
+
+        self.assertEqual(agent_bench.hook_record_event_names(record("")), ["SubagentStop"])
+        self.assertIn("SubagentStop:Explore", agent_bench.hook_record_event_names(record("Explore")))
+
+    def test_hook_trace_keeps_the_prompt_facts_and_drops_private_data(self):
+        home = str(pathlib.Path.home())
+        session_dir = f"{home}/.claude/projects/repo/0f1e2d3c"
+        repo = "/private/tmp/bench/repos/claude-approval"
+        payload = {
+            "session_id": "0f1e2d3c",
+            "transcript_path": f"{session_dir}.jsonl",
+            "cwd": repo,
+            "scratchpad_dir": "/private/tmp/secret-project/0f1e2d3c/scratchpad",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Agent",
+            "tool_use_id": "toolu_0123",
+            "agent_id": "a549c",
+            "agent_type": "Explore",
+            "agent_transcript_path": f"{session_dir}/subagents/agent-a549c.jsonl",
+            "tool_input": {"file_path": "/private/tmp/secret-project/OUT", "content": "file body", "prompt": "write me"},
+            "tool_response": {"status": "async_launched", "agentId": "a549c", "stdout": "secret output"},
+            "last_assistant_message": "secret reply",
+        }
+        title = agent_bench.TerminalObservation(kind="title", text=f"\u2733 {repo}", offset=0, timestamp=11.0)
+        approve = agent_bench.TerminalObservation(kind="input", text="approve", offset=1, timestamp=11.5)
+
+        lines = agent_bench.sanitized_hook_trace([(10.0, json.dumps(payload))], [title, approve])
+
+        self.assertEqual([line["t"] for line in lines], [0.0, 1.0, 1.5])
+        self.assertEqual(lines[1]["title"], "\u2733 $REPO")
+        self.assertEqual(lines[2]["input"], "approve")
+        hook = lines[0]["hook"]
+        self.assertEqual(hook["session_id"], "session-1")
+        self.assertEqual(hook["tool_use_id"], "tool-1")
+        self.assertEqual(hook["agent_id"], "agent-1")
+        self.assertEqual(hook["transcript_path"], "$SESSION.jsonl")
+        self.assertEqual(hook["agent_transcript_path"], "$SESSION/subagents/agent-agent-1.jsonl")
+        self.assertEqual(hook["cwd"], "$REPO")
+        self.assertEqual(hook["tool_input"], {"file_path": "$SCRATCH/OUT"})
+        self.assertEqual(hook["tool_response"], {"status": "async_launched"})
+        rendered = json.dumps(lines)
+        for private in ("secret", "toolu_", home, "a549c", "file body", "write me", "/private/tmp"):
+            self.assertNotIn(private, rendered)
+
     def test_codex_approval_profile_requires_post_tool_use_resume_signal(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
 
@@ -3451,14 +3581,16 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn("Ask before running", prompt)
         self.assertEqual(
             profile.expectations["approval"].required_events,
-            ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest"],
+            ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop"],
         )
         self.assertEqual(
             profile.input_by_scenario["approval"],
             [
                 {
-                    "match": "Command to approve|Yes, allow|Do you want|Permission|allow",
+                    "match": "Do you want",
+                    "delay": 2,
                     "text": "1\n",
+                    "label": "approve",
                 }
             ],
         )
