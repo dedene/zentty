@@ -297,6 +297,18 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(surfaceController.bindingActions, ["navigate_search:previous"])
     }
 
+    func test_end_search_discards_queued_search_events_after_binding() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.endSearch()
+
+        XCTAssertEqual(surfaceController.searchCallLog, ["end_search", "discard_queued_search_events"])
+    }
+
     func test_submit_command_pastes_text_then_fires_return_key_outside_paste() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -1115,6 +1127,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     private(set) var focusValues: [Bool] = []
     private(set) var occlusionVisibilityValues: [Bool] = []
     private(set) var bindingActions: [String] = []
+    private(set) var searchCallLog: [String] = []
     private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
     private(set) var sendKeyCallCount = 0
     private(set) var translatedKeyEvents: [NSEvent] = []
@@ -1154,8 +1167,10 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     func cancelPromptInput() { cancelPromptInputCallCount += 1 }
     func performBindingAction(_ action: String) -> Bool {
         bindingActions.append(action)
+        searchCallLog.append(action)
         return true
     }
+    func discardQueuedSearchEvents() { searchCallLog.append("discard_queued_search_events") }
     func hasSelection() -> Bool { selectionPresent }
     func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {

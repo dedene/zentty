@@ -860,6 +860,57 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(runtime.snapshot.search.hasRememberedSearch, true)
     }
 
+    func test_runtime_started_with_needle_submits_search() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.showSearch()
+        runtime.updateSearchNeedle("older")
+        adapter.searchDidChange?(.total(7))
+        adapter.searchDidChange?(.selected(2))
+
+        runtime.useSelectionForFind()
+        adapter.searchDidChange?(.started(needle: "build"))
+
+        XCTAssertEqual(
+            adapter.bindingActions,
+            ["start_search", "search:older", "search_selection", "search:build"]
+        )
+        XCTAssertEqual(
+            runtime.snapshot.search,
+            PaneSearchState(
+                needle: "build",
+                selected: -1,
+                total: 0,
+                hasRememberedSearch: true,
+                isHUDVisible: true,
+                hudCorner: .topTrailing
+            )
+        )
+    }
+
+    func test_runtime_started_with_empty_needle_does_not_submit_search() {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+
+        runtime.useSelectionForFind()
+        adapter.searchDidChange?(.started(needle: ""))
+
+        XCTAssertEqual(adapter.bindingActions, ["search_selection"])
+    }
+
     func test_runtime_global_search_routes_events_to_global_sink_without_mutating_local_search_state() {
         let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)

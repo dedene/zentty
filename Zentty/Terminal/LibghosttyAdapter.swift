@@ -70,6 +70,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func cancelPromptInput()
     func submitReturn()
     func performBindingAction(_ action: String) -> Bool
+    func discardQueuedSearchEvents()
     func scroll(toOffset offset: Double)
     func hasSelection() -> Bool
     func close()
@@ -85,6 +86,7 @@ extension LibghosttySurfaceControlling {
     func setPreedit(_ text: String) {}
     func imeRect() -> CGRect? { nil }
     func cancelPromptInput() {}
+    func discardQueuedSearchEvents() {}
     func translatedKeyEvent(for event: NSEvent) -> NSEvent { event }
     func setSmoothScrollingEnabled(_ enabled: Bool) {}
     func scroll(toOffset offset: Double) {
@@ -279,7 +281,10 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     }
 
     func endSearch() {
+        // end_search queues its own .ended for a later drain. By then a new search
+        // may own this pane, and that .ended would clear it.
         _ = surfaceController?.performBindingAction("end_search")
+        surfaceController?.discardQueuedSearchEvents()
     }
 }
 

@@ -981,6 +981,11 @@ final class PaneRuntime {
                 if let needle {
                     search.needle = needle
                 }
+                // search_selection only announces the needle; the search itself
+                // still has to be requested.
+                if let needle, !needle.isEmpty {
+                    updateSearchNeedle(needle)
+                }
                 search.hasRememberedSearch = true
                 search.isHUDVisible = true
             case .ended:

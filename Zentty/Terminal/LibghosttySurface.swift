@@ -107,6 +107,25 @@ final class LibghosttySurfaceActionCoalescer {
         return true
     }
 
+    /// Drops queued search events. Everything queued when a search ends belongs
+    /// to that session, so it must not reach whoever owns the next one.
+    func discardSearchEvents() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        state.sequence.removeAll { entry in
+            guard case .ordered(let payload) = entry else {
+                return false
+            }
+            switch payload {
+            case .startSearch, .endSearch, .searchTotal, .searchSelected:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
     func drain() -> LibghosttySurfaceActionDrainBatch {
         lock.lock()
         defer { lock.unlock() }
@@ -710,6 +729,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
 
     nonisolated func enqueue(payload: LibghosttySurfaceActionPayload) -> Bool {
         actionCoalescer.enqueue(payload)
+    }
+
+    func discardQueuedSearchEvents() {
+        actionCoalescer.discardSearchEvents()
     }
 
     @MainActor
