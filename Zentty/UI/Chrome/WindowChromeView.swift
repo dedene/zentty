@@ -1671,6 +1671,18 @@ final class WindowChromeView: NSView {
         focusedProxyIconView.finishDragSession()
     }
 
+#if DEBUG
+    var focusedProxyIconImageAlphaValueForTesting: CGFloat { focusedProxyIconView.imageAlphaValueForTesting }
+
+    func beginFocusedProxyIconPendingResolveForTesting() -> UUID {
+        focusedProxyIconView.beginPendingResolveForTesting()
+    }
+
+    func finishFocusedProxyIconCrossfadeFadeOutForTesting(to image: NSImage, token: UUID) {
+        focusedProxyIconView.finishCrossfadeFadeOutForTesting(to: image, token: token)
+    }
+#endif
+
     func acceptsWindowDragForTesting(at point: NSPoint) -> Bool {
         guard let hitView = hitTest(point) else {
             return false
@@ -1924,7 +1936,7 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
                       self.cwdPath == trimmedPath else {
                     return
                 }
-                self.crossfade(to: image)
+                self.crossfade(to: image, token: token)
             }
         }
     }
@@ -1946,21 +1958,43 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
         needsLayout = true
     }
 
-    private func crossfade(to image: NSImage) {
+    private func crossfade(to image: NSImage, token: UUID) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.crossfadeHalfDuration
             iconView.animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            guard let self else { return }
-            self.applyProjectIcon(image)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Self.crossfadeHalfDuration
-                self.iconView.animator().alphaValue = 1
-            }
+            self?.finishCrossfadeFadeOut(to: image, token: token)
+        }
+    }
+
+    private func finishCrossfadeFadeOut(to image: NSImage, token: UUID) {
+        guard pendingResolveToken == token else {
+            iconView.alphaValue = 1
+            return
+        }
+
+        applyProjectIcon(image)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.crossfadeHalfDuration
+            iconView.animator().alphaValue = 1
         }
     }
 
     var image: NSImage? { iconView.image }
+
+#if DEBUG
+    var imageAlphaValueForTesting: CGFloat { iconView.alphaValue }
+
+    func beginPendingResolveForTesting() -> UUID {
+        let token = UUID()
+        pendingResolveToken = token
+        return token
+    }
+
+    func finishCrossfadeFadeOutForTesting(to image: NSImage, token: UUID) {
+        finishCrossfadeFadeOut(to: image, token: token)
+    }
+#endif
 
     func contextMenuPathsForTesting() -> [String] {
         pathMenuItems().map(\.url.path)
