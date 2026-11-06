@@ -149,6 +149,66 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
         XCTAssertEqual(persistErrorCount, 1)
     }
 
+    /// The file is out of the way, the replacement failed. The missing file is the store's own
+    /// doing, not a deletion: only the in-memory list still holds these bookmarks.
+    func test_failed_save_after_the_backup_keeps_the_list_and_a_later_save_retries_it() throws {
+        let fileManager = DirectoryFreezingFileManager()
+        let store = BookmarkStore(fileURL: fileURL, fileManager: fileManager)
+        addTeardownBlock { [temporaryDirectoryURL] in
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: try XCTUnwrap(temporaryDirectoryURL).path
+            )
+        }
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        var persistErrorCount = 0
+        store.onPersistError = { _ in persistErrorCount += 1 }
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+
+        fileManager.freezesDirectoryAfterMove = true
+        store.upsert(WorkspaceTemplate(name: "Added", kind: .bookmark))
+
+        XCTAssertEqual(persistErrorCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+
+        store.reloadFromDisk()
+
+        XCTAssertEqual(Set(store.templates.map(\.name)), ["Local", "Added"])
+
+        fileManager.freezesDirectoryAfterMove = false
+        try setPermissions(0o755, on: temporaryDirectoryURL)
+        store.upsert(WorkspaceTemplate(name: "Later", kind: .bookmark))
+
+        XCTAssertEqual(persistErrorCount, 1)
+        XCTAssertEqual(Set(BookmarkStore(fileURL: fileURL).templates.map(\.name)), ["Local", "Added", "Later"])
+        XCTAssertEqual(try corruptBackupNames().count, 1)
+    }
+
+    func test_valid_file_landing_after_a_failed_save_is_adopted_and_deletion_counts_again() throws {
+        let fileManager = DirectoryFreezingFileManager()
+        let store = BookmarkStore(fileURL: fileURL, fileManager: fileManager)
+        addTeardownBlock { [temporaryDirectoryURL] in
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: try XCTUnwrap(temporaryDirectoryURL).path
+            )
+        }
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+        fileManager.freezesDirectoryAfterMove = true
+        store.upsert(WorkspaceTemplate(name: "Added", kind: .bookmark))
+        fileManager.freezesDirectoryAfterMove = false
+        try setPermissions(0o755, on: temporaryDirectoryURL)
+
+        try writeBundle(names: ["Synced"])
+        store.reloadFromDisk()
+
+        XCTAssertEqual(store.templates.map(\.name), ["Synced"])
+
+        try FileManager.default.removeItem(at: fileURL)
+        store.reloadFromDisk()
+
+        XCTAssertEqual(store.templates, [], "the store owns the missing file no longer")
+    }
+
     private func corruptBackupNames() throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: temporaryDirectoryURL.path)
             .filter { $0.contains(".corrupt-") }
@@ -165,6 +225,19 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
             templates: names.map { WorkspaceTemplate(name: $0, kind: .bookmark) }
         )
         try encoder.encode(bundle).write(to: fileURL, options: .atomic)
+    }
+}
+
+/// A move succeeds, then the folder stops taking writes: the failure a full disk gives the
+/// replacement write, once renaming the old file aside has already worked.
+private final class DirectoryFreezingFileManager: FileManager, @unchecked Sendable {
+    var freezesDirectoryAfterMove = false
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        try super.moveItem(at: srcURL, to: dstURL)
+        if freezesDirectoryAfterMove {
+            try setAttributes([.posixPermissions: 0o555], ofItemAtPath: dstURL.deletingLastPathComponent().path)
+        }
     }
 }
 

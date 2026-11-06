@@ -3,6 +3,18 @@ import OSLog
 
 private let bookmarkStoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "Bookmarks")
 
+/// How far the store can trust bookmarks.json on disk.
+private enum BookmarkFileState {
+    /// The file is what the last reload or save saw, or an external change that was adopted.
+    case intact
+    /// The last reload couldn't read it. The next save moves it aside first so a broken hand
+    /// edit isn't lost, and doesn't write at all if the file can't be moved.
+    case unreadable
+    /// A save moved it aside and then failed to write the replacement. The list now lives only
+    /// in memory, so the missing file is no deletion, and the next save writes the list.
+    case awaitingReplacement
+}
+
 @MainActor
 final class BookmarkStore {
     /// The app's one store for the user's bookmarks.json. Every window shares
@@ -27,10 +39,7 @@ final class BookmarkStore {
     /// Bytes last read from or written to disk, so the watcher can tell the
     /// store's own saves apart from a sync or an external edit.
     private var lastKnownData: Data?
-    /// The file on disk couldn't be read at the last reload. The next save
-    /// moves it aside first so a broken hand edit isn't lost, and doesn't write
-    /// at all if the file can't be moved.
-    private var diskFileIsUnreadable = false
+    private var fileState = BookmarkFileState.intact
 
     init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
@@ -63,11 +72,13 @@ final class BookmarkStore {
     /// Picks up a bookmarks.json that changed on disk (another Mac via sync, a
     /// hand edit). Also runs before every change so a save never writes from a
     /// stale list. An unreadable file is ignored so a broken edit doesn't wipe
-    /// the list (the next save sets it aside); a deleted file empties it.
+    /// the list (the next save sets it aside); a deleted file empties it,
+    /// unless a failed save is what left it missing.
     func reloadFromDisk() {
         guard fileManager.fileExists(atPath: fileURL.path) else {
+            guard fileState != .awaitingReplacement else { return }
             lastKnownData = nil
-            diskFileIsUnreadable = false
+            fileState = .intact
             guard !templates.isEmpty else { return }
             templates = []
             notifyObservers()
@@ -77,25 +88,25 @@ final class BookmarkStore {
         do {
             data = try Data(contentsOf: fileURL)
         } catch {
-            diskFileIsUnreadable = true
+            fileState = .unreadable
             bookmarkStoreLogger.error(
                 "Couldn't read bookmarks at \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return
         }
         guard data != lastKnownData else {
-            diskFileIsUnreadable = false
+            fileState = .intact
             return
         }
         do {
             let bundle = try decoder.decode(WorkspaceTemplateBundle.self, from: data)
             lastKnownData = data
-            diskFileIsUnreadable = false
+            fileState = .intact
             guard bundle.templates != templates else { return }
             templates = bundle.templates
             notifyObservers()
         } catch {
-            diskFileIsUnreadable = true
+            fileState = .unreadable
             bookmarkStoreLogger.error(
                 "Ignoring unreadable bookmarks change at \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
@@ -211,7 +222,7 @@ final class BookmarkStore {
     }
 
     private func persist() {
-        if diskFileIsUnreadable {
+        if fileState == .unreadable {
             guard Self.preserveCorruptFile(
                 at: fileURL,
                 fileManager: fileManager,
@@ -220,7 +231,7 @@ final class BookmarkStore {
                 onPersistError?(CocoaError(.fileWriteUnknown))
                 return
             }
-            diskFileIsUnreadable = false
+            fileState = .awaitingReplacement
         }
         let bundle = WorkspaceTemplateBundle(savedAt: Date(), templates: templates)
         do {
@@ -234,6 +245,7 @@ final class BookmarkStore {
             let data = try encoder.encode(bundle)
             try data.write(to: targetURL, options: .atomic)
             lastKnownData = data
+            fileState = .intact
         } catch {
             bookmarkStoreLogger.error(
                 "Failed to persist bookmarks to \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
