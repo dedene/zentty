@@ -457,11 +457,17 @@ extension AgentHistoryIndexer {
         guard let store else {
             return
         }
+        do {
+            try store.setMeta(Self.backfillCompletedMetaKey, String(Int64(now().timeIntervalSince1970 * 1_000)))
+        } catch {
+            // Still incomplete: the next idle pass writes the marker.
+            logWriteFailure(error, action: "save the backfill marker")
+            return
+        }
         isBackfillComplete = true
         snapshotDirty = true
         let started = ProcessInfo.processInfo.systemUptime
         do {
-            try store.setMeta(Self.backfillCompletedMetaKey, String(Int64(now().timeIntervalSince1970 * 1_000)))
             try store.optimize()
         } catch let error as AgentHistoryDatabaseError {
             AgentHistoryLog.indexer.error("Agent History optimize failed \(error.description, privacy: .public)")

@@ -246,6 +246,41 @@ final class AgentHistoryIndexerConditionsTests: XCTestCase {
         XCTAssertTrue(indexer.currentStatus.isBackfillComplete)
     }
 
+    // MARK: - Backfill completion
+
+    /// A marker that failed to save leaves the backfill unfinished, so the next idle pass writes
+    /// it instead of a restart repeating the completion work.
+    func test_backfill_marker_that_fails_to_save_is_retried_at_the_next_idle() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let markerKey = AgentHistoryIndexer.backfillCompletedMetaKey
+        let markerCount = "SELECT count(*) FROM meta WHERE key = '\(markerKey)'"
+        try harness.index.openWriter().run("""
+            CREATE TRIGGER block_backfill_marker BEFORE INSERT ON meta
+            WHEN NEW.key = '\(markerKey)'
+            BEGIN SELECT RAISE(ABORT, 'injected'); END
+            """)
+        harness.index.closeWriter()
+        harness.source.setUnits([.single("a")])
+        let indexer = harness.makeIndexer()
+
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+
+        XCTAssertEqual(try harness.count(markerCount), 0)
+        XCTAssertFalse(indexer.currentStatus.isBackfillComplete, "the flag follows what was saved")
+        XCTAssertEqual(indexer.currentStatus.state, .watching, "the failure is not a pause")
+
+        let repair = try AgentHistoryDatabase(url: harness.index.paths.databaseURL, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        try repair.run("DROP TRIGGER block_backfill_marker")
+        repair.close()
+        indexer.requestReconcile()
+        indexer.drainSynchronouslyForTesting()
+
+        XCTAssertEqual(try harness.count(markerCount), 1)
+        XCTAssertTrue(indexer.currentStatus.isBackfillComplete)
+        XCTAssertTrue(indexer.currentSnapshot.isComplete)
+    }
+
     // MARK: - Production conditions
 
     func test_live_conditions_map_low_power_and_thermal_state() {
