@@ -5,8 +5,6 @@ private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "
 private let codexRestartLogger = Logger(subsystem: "be.zenjoy.zentty", category: "CodexRestart")
 
 extension WorklaneStore {
-    // Suppress stale title ticks briefly after a ready-title-forced idle transition.
-    private static let codexTitleIdleSuppressionWindow: TimeInterval = 1
     private static let codexReadyNotificationRecoveryWindow: TimeInterval = 10
     private static let codexQuestionRetryDelayNanoseconds: [UInt64] = [
         0,
@@ -844,9 +842,6 @@ extension WorklaneStore {
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: existingStatus
         )
-        auxiliaryState.raw.codexTitleIdleSuppressionUntil = Date().addingTimeInterval(
-            PaneAgentReducerState.stopGraceWindow + Self.codexTitleIdleSuppressionWindow
-        )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         scheduleAgentStatusSweep(
             for: PaneReference(worklaneID: worklane.id, paneID: paneID),
@@ -1079,7 +1074,9 @@ extension WorklaneStore {
         if previousPresentation?.isWorking == true,
            presentation.runtimePhase == .idle,
            worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil,
-           !codexTitleIdleSuppressionIsActive(raw) {
+           !codexTitleIdleSuppressionIsActive(raw),
+           worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState
+               .presentedSessionIsInterrupted(now: currentDateProvider()) != true {
             let bridgePrevPhase = previousPresentation?.runtimePhase.rawValue ?? "<nil>"
             let bridgeTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool.displayName ?? "<nil>"
             stopSignalLogger.debug(

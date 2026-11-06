@@ -2059,6 +2059,95 @@ final class PaneAgentReducerTests: XCTestCase {
         )
     }
 
+    func test_interrupt_title_candidate_stays_interrupted_when_sweep_runs_late() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+        reducerState.apply(claudePayload(state: .running, sessionID: "session-1"), now: now)
+
+        XCTAssertTrue(reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1)))
+
+        let lateSweep = now.addingTimeInterval(11)
+        reducerState.sweep(now: lateSweep, isProcessAlive: { _ in true })
+
+        XCTAssertEqual(reducerState.reducedStatus(now: lateSweep)?.state, .idle)
+        XCTAssertTrue(reducerState.presentedSessionIsInterrupted(now: lateSweep))
+    }
+
+    func test_accepted_lifecycle_update_clears_the_interrupt() {
+        let now = Date(timeIntervalSince1970: 100)
+        for state in [PaneAgentState.running, .idle, .needsInput] {
+            var reducerState = PaneAgentReducerState()
+            reducerState.apply(claudePayload(state: .running, sessionID: "session-1"), now: now)
+            reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1))
+
+            reducerState.apply(claudePayload(state: state, sessionID: "session-1"), now: now.addingTimeInterval(1.5))
+
+            XCTAssertFalse(reducerState.presentedSessionIsInterrupted(now: now.addingTimeInterval(1.5)), state.rawValue)
+        }
+    }
+
+    func test_interrupt_does_not_survive_a_stop_candidate() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+        reducerState.apply(claudePayload(state: .running, sessionID: "session-1"), now: now)
+        reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1))
+
+        reducerState.apply(
+            claudePayload(state: .idle, sessionID: "session-1", lifecycleEvent: .stopCandidate),
+            now: now.addingTimeInterval(1.5)
+        )
+        reducerState.sweep(now: now.addingTimeInterval(4), isProcessAlive: { _ in true })
+
+        XCTAssertEqual(reducerState.reducedStatus(now: now.addingTimeInterval(4))?.state, .idle)
+        XCTAssertFalse(reducerState.presentedSessionIsInterrupted(now: now.addingTimeInterval(4)))
+    }
+
+    func test_process_reattach_after_an_interrupt_clears_it() {
+        // A PID attach restarts the session with no lifecycle hook, so its
+        // later idle must not read as the old interrupt.
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+        reducerState.apply(claudePayload(state: .running, sessionID: "session-1"), now: now)
+        reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1))
+        reducerState.sweep(now: now.addingTimeInterval(4), isProcessAlive: { _ in true })
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 4242,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Claude Code",
+                text: nil,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: now.addingTimeInterval(5)
+        )
+        XCTAssertEqual(reducerState.sessionsByID["session-1"]?.state, .starting)
+        reducerState.sessionsByID["session-1"]?.state = .idle
+
+        XCTAssertFalse(reducerState.presentedSessionIsInterrupted(now: now.addingTimeInterval(5)))
+    }
+
+    func test_interrupted_idle_session_does_not_mask_a_newer_presented_session() {
+        let now = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+        reducerState.apply(claudePayload(state: .running, sessionID: "interrupted"), now: now)
+        reducerState.markExplicitClaudeCodeSessionIdleFromIdleTitle(now: now.addingTimeInterval(1))
+        reducerState.sweep(now: now.addingTimeInterval(4), isProcessAlive: { _ in true })
+
+        reducerState.apply(claudePayload(state: .running, sessionID: "newer"), now: now.addingTimeInterval(5))
+
+        XCTAssertEqual(reducerState.reducedStatus(now: now.addingTimeInterval(5))?.sessionID, "newer")
+        XCTAssertFalse(reducerState.presentedSessionIsInterrupted(now: now.addingTimeInterval(5)))
+    }
+
     func test_claude_permission_request_cancels_idle_title_candidate() {
         let now = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()

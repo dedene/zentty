@@ -215,7 +215,60 @@ final class ClaudeStaticTitleStatusTests: XCTestCase {
         )
     }
 
+    func test_turn_after_a_title_interrupt_still_completes_with_agent_ready() throws {
+        let store = makeStore()
+        let paneID = try startAnimatedTitleTurn(store)
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "✳ Sleep 6"))
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow + 0.1)
+        runPendingTasks()
+        assertInterrupted(store, paneID: paneID)
+
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .running))
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "◐ Next task"))
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .idle))
+
+        XCTAssertEqual(
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText,
+            "Agent ready"
+        )
+    }
+
+    func test_typing_during_interrupt_grace_does_not_surface_agent_ready() throws {
+        let store = makeStore()
+        let paneID = try startAnimatedTitleTurn(store)
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "✳ Sleep 6"))
+
+        now = now.addingTimeInterval(1)
+        store.handleTerminalEvent(paneID: paneID, event: .userEditedInput)
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow)
+        runPendingTasks()
+
+        assertInterrupted(store, paneID: paneID)
+    }
+
+    func test_osc_activity_during_interrupt_grace_does_not_surface_agent_ready() throws {
+        let store = makeStore()
+        let paneID = try startStaticTitleTurn(store)
+        reportProgress(store, paneID: paneID, .remove)
+
+        now = now.addingTimeInterval(1)
+        reportProgress(store, paneID: paneID, .indeterminate)
+        now = now.addingTimeInterval(PaneAgentReducerState.stopGraceWindow)
+        runPendingTasks()
+        reportProgress(store, paneID: paneID, .remove)
+
+        assertInterrupted(store, paneID: paneID)
+    }
+
     // MARK: - Helpers
+
+    private func startAnimatedTitleTurn(_ store: WorklaneStore) throws -> PaneID {
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.applyAgentStatusPayload(claudePayload(store, paneID: paneID, state: .running))
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "◐ Sleep 6"))
+        store.updateMetadata(paneID: paneID, metadata: claudeMetadata(title: "◑ Sleep 6"))
+        return paneID
+    }
 
     private func startStaticTitleTurn(_ store: WorklaneStore) throws -> PaneID {
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

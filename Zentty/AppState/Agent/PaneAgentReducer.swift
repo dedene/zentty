@@ -35,6 +35,11 @@ struct PaneAgentSessionState: Equatable, Sendable {
     /// `Notification("Claude is waiting for your input")` racing the Stop hook
     /// over the IPC bus.
     var explicitIdleSince: Date?
+    /// The title or OSC progress read this turn as interrupted. Outlives the
+    /// completion candidate so the idle it leads to stays an interrupt however
+    /// late the sweep runs; any accepted lifecycle update clears it, so a real
+    /// Stop or a resumed turn wins.
+    var interruptedTurn: Bool = false
 }
 
 struct PaneAgentReducerState: Equatable, Sendable {
@@ -359,6 +364,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.text = nil
         session.interactionKind = .none
         session.completionCandidateDeadline = now.addingTimeInterval(Self.stopGraceWindow)
+        session.interruptedTurn = true
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
         session.hasObservedRunning = true
@@ -377,6 +383,18 @@ struct PaneAgentReducerState: Equatable, Sendable {
         guard let subagents = session.subagents, !subagents.isEmpty else { return false }
         let refreshedAt = session.subagentsRefreshedAt ?? session.updatedAt
         return now.timeIntervalSince(refreshedAt) < AgentSubagentRegistryStore.transcriptQuietWindow
+    }
+
+    /// Whether the pane's presented session is idle because the user cut its
+    /// turn short, in which case its idle is no "Agent ready".
+    func presentedSessionIsInterrupted(now: Date = Date()) -> Bool {
+        guard let status = reducedStatus(now: now),
+              status.state == .idle,
+              let sessionID = status.sessionID
+        else {
+            return false
+        }
+        return sessionsByID[sessionID]?.interruptedTurn == true
     }
 
     func reducedStatus(now: Date = Date()) -> PaneAgentStatus? {
@@ -519,6 +537,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.confidence = payload.confidence ?? defaultConfidence(for: payload.origin)
         session.artifactLink = explicitArtifactLink(from: payload) ?? session.artifactLink
         session.updatedAt = now
+        session.interruptedTurn = false
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
         mergeTaskAndSubagentData(from: payload, into: &session, now: now)
@@ -723,6 +742,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
             if session.state == .idle || session.state == .unresolvedStop {
                 session.state = .starting
+                session.interruptedTurn = false
             }
             session.tool = tool
             session.origin = maxOrigin(session.origin, payload.origin)
