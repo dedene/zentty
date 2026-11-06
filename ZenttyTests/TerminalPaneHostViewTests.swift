@@ -229,8 +229,8 @@ final class TerminalPaneHostViewTests: XCTestCase {
 
         try sendHostedRightMouseClick(at: CGPoint(x: 120, y: 80), in: hostView, window: window)
 
-        XCTAssertEqual(surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
-        XCTAssertEqual(surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(surface.mouseButtons.map(\.button), [GHOSTTY_MOUSE_RIGHT, GHOSTTY_MOUSE_RIGHT])
+        XCTAssertEqual(surface.mouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
         XCTAssertEqual(builderCallCount, 1)
         XCTAssertEqual(presentationCount, 1)
     }

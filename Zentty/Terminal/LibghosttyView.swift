@@ -2462,12 +2462,14 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     @discardableResult
     private func releaseForwardedMouseButton(
         _ button: ghostty_input_mouse_button_e,
-        event: NSEvent
+        event: NSEvent,
+        forwardsPosition: Bool = true
     ) -> Bool {
         guard forwardedPressedMouseButtons.remove(button.rawValue) != nil else {
             return false
         }
-        if !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) {
+        if forwardsPosition,
+           !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) {
             forwardMousePosition(event)
         }
         return surfaceController?.sendMouseButton(
@@ -2656,6 +2658,17 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
         }
 
+        // Menu tracking can swallow the up, so settle the press here; a late
+        // rightMouseUp then finds nothing to release. `event` is still the down,
+        // so its location says nothing about where the pointer is now.
+        if let activeSecondaryMouseRouting {
+            releaseForwardedMouseButton(
+                activeSecondaryMouseRouting.button,
+                event: event,
+                forwardsPosition: false
+            )
+        }
+
         return true
     }
 
@@ -2666,10 +2679,19 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
 
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
+        // This press exists only so Ghostty selects the word under the pointer,
+        // which it does on press. No right up will ever pair with it, so release
+        // it now or RIGHT stays held.
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         _ = surfaceController?.sendMouseButton(
             state: GHOSTTY_MOUSE_PRESS,
             button: GHOSTTY_MOUSE_RIGHT,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            modifiers: modifiers
+        )
+        _ = surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_RIGHT,
+            modifiers: modifiers
         )
     }
 
