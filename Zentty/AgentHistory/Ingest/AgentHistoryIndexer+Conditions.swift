@@ -100,8 +100,12 @@ extension AgentHistoryIndexer {
         }
     }
 
-    /// Close, quarantine, reopen, full reconcile (through `startOnQueue`).
+    /// Close, quarantine, reopen, full reconcile (through `startOnQueue`). A Rebuild that ran
+    /// first replaced the corrupt file and cleared the flag: the file here is healthy, so leave it.
     func recoverFromCorruption() {
+        guard corruptionRecoveryPending else {
+            return
+        }
         corruptionRecoveryPending = false
         guard lifecycle == .running, !cancellation.isSet else {
             return

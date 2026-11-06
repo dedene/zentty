@@ -180,6 +180,27 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
         try assertCarriedOver(harness, indexer)
     }
 
+    /// Rebuild was already queued when a step found corruption: it replaces the bad file, so the
+    /// recovery queued behind it must not quarantine the fresh index.
+    func test_rebuild_cancels_a_queued_corruption_recovery() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1")])
+        let indexer = harness.makeIndexer()
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+
+        indexer.queue.sync {
+            indexer.rebuild()
+            indexer.scheduleCorruptionRecovery()
+        }
+        indexer.drainSynchronouslyForTesting()
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: harness.index.paths.directoryURL.path)
+        XCTAssertEqual(names.filter(AgentHistoryPaths.isCorruptCopyName), [], "the fresh index stays in place")
+        XCTAssertEqual(indexer.currentStatus.state, .watching)
+        XCTAssertEqual(try nativeIDs(harness), ["s1"])
+    }
+
     func test_merge_keeps_first_removal_time_and_largest_usage() {
         let key = AgentHistorySessionKey(agent: .claude, nativeID: "a")
         var carryOver = AgentHistoryRebuildCarryOver(
