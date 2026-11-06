@@ -94,6 +94,7 @@ final class SidebarMotionCoordinator {
         }
 
         let previousMode = sidebarVisibilityController.mode
+        let previousPersistedMode = sidebarVisibilityController.persistedMode
         sidebarVisibilityController.handle(event)
         let nextMode = sidebarVisibilityController.mode
 
@@ -107,8 +108,11 @@ final class SidebarMotionCoordinator {
             return
         }
 
-        try? configStore.update {
-            $0.sidebar.visibility = sidebarVisibilityController.persistedMode
+        // A hover peek changes the mode on screen but not the saved one.
+        if sidebarVisibilityController.persistedMode != previousPersistedMode {
+            try? configStore.update {
+                $0.sidebar.visibility = sidebarVisibilityController.persistedMode
+            }
         }
         let motionState = SidebarMotionState(mode: nextMode)
         currentMotionState = motionState

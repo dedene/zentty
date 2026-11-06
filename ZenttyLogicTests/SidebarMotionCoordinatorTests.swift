@@ -1,4 +1,5 @@
 import XCTest
+import os
 @testable import Zentty
 
 private func makeSidebarMotionCoordinatorTestDirectory() throws -> URL {
@@ -114,6 +115,32 @@ final class SidebarMotionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.mode, .pinnedOpen)
         XCTAssertTrue(notifiedStates.isEmpty)
+    }
+
+    func test_hover_peek_does_not_touch_config() throws {
+        let (coordinator, store) = try makeCoordinator(sidebarVisibility: .hidden)
+        let changeCount = OSAllocatedUnfairLock(initialState: 0)
+        store.addObserver { _ in changeCount.withLock { $0 += 1 } }
+
+        coordinator.handle(.hoverRailEntered)
+        XCTAssertEqual(coordinator.mode, .hoverPeek)
+        coordinator.handle(.hoverRailExited)
+        coordinator.handle(.dismissTimerElapsed)
+        XCTAssertEqual(coordinator.mode, .hidden)
+
+        XCTAssertEqual(changeCount.withLock { $0 }, 0)
+    }
+
+    func test_hover_peek_still_reports_motion_for_both_transitions() throws {
+        let (coordinator, _) = try makeCoordinator(sidebarVisibility: .hidden)
+        var notifiedModes: [SidebarVisibilityMode] = []
+        coordinator.onMotionStateDidChange = { _, _ in notifiedModes.append(coordinator.mode) }
+
+        coordinator.handle(.hoverRailEntered)
+        coordinator.handle(.hoverRailExited)
+        coordinator.handle(.dismissTimerElapsed)
+
+        XCTAssertEqual(notifiedModes, [.hoverPeek, .hidden])
     }
 
     // MARK: - Persistence
