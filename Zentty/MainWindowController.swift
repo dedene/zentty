@@ -1082,6 +1082,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.showToast(message: message, duration: duration)
     }
 
+    func showFailureToast(message: String, staysFor displayDuration: TimeInterval) {
+        rootViewController.showFailureToast(message: message, staysFor: displayDuration)
+    }
+
     @objc
     func movePaneToWorklane(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,

@@ -9,7 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         static let debounceNanoseconds: UInt64 = 350_000_000
         static let setAsideToastMessage = "Couldn’t reopen your workspace. It was set aside."
         static let setAsideFailedToastMessage = "Couldn’t reopen your workspace. It’s still saved."
-        static let setAsideToastDuration: TimeInterval = 4
+        /// Nothing else tells the user their workspace didn't come back.
+        static let setAsideToastDuration: TimeInterval = 6
     }
 
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
@@ -275,9 +276,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             data: ["success": false]
         )
         reportRestoreError("Set restore snapshot aside after repeated incomplete launches: \(snapshotURL.path)")
-        orderedWindowControllers.last?.showToast(
+        orderedWindowControllers.last?.showFailureToast(
             message: RestoreSnapshot.setAsideToastMessage,
-            duration: RestoreSnapshot.setAsideToastDuration
+            staysFor: RestoreSnapshot.setAsideToastDuration
         )
     }
 
@@ -289,9 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             data: ["success": false]
         )
         reportRestoreError("Could not set restore snapshot aside; keeping it until the rename works")
-        orderedWindowControllers.last?.showToast(
+        orderedWindowControllers.last?.showFailureToast(
             message: RestoreSnapshot.setAsideFailedToastMessage,
-            duration: RestoreSnapshot.setAsideToastDuration
+            staysFor: RestoreSnapshot.setAsideToastDuration
         )
     }
 

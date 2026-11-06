@@ -19,8 +19,8 @@ final class PathCopiedToastView: NSView {
             toast?.finish(message: message, icon: icon)
         }
 
-        func fail(message: String) {
-            toast?.fail(message: message)
+        func fail(message: String, staysFor displayDuration: TimeInterval? = nil) {
+            toast?.fail(message: message, staysFor: displayDuration)
         }
     }
 
@@ -62,6 +62,7 @@ final class PathCopiedToastView: NSView {
     private let progressView = ToastCircularProgressView()
     private let messageLabel = NSTextField(labelWithString: "Path copied")
     private var dismissWorkItem: DispatchWorkItem?
+    private var dismissDelay: TimeInterval?
     private var progressMessageOverrideWorkItem: DispatchWorkItem?
     private var progressMessageOverride: ProgressMessageOverride?
     private var restingFrame: CGRect = .zero
@@ -150,7 +151,7 @@ final class PathCopiedToastView: NSView {
         scheduleDismiss(after: Layout.displayDuration)
     }
 
-    func fail(message: String) {
+    func fail(message: String, staysFor displayDuration: TimeInterval? = nil) {
         guard mode == .progress else {
             return
         }
@@ -160,7 +161,7 @@ final class PathCopiedToastView: NSView {
         setSymbolIcon("xmark.circle.fill", accessibilityDescription: message)
         messageLabel.stringValue = message
         updateFrameForCurrentContent()
-        scheduleDismiss(after: Layout.failureDisplayDuration)
+        scheduleDismiss(after: displayDuration ?? Layout.failureDisplayDuration)
     }
 
     func temporarilyShowProgressMessage(_ message: String, duration: TimeInterval) {
@@ -258,6 +259,7 @@ final class PathCopiedToastView: NSView {
 
     private func scheduleDismiss(after duration: TimeInterval) {
         dismissWorkItem?.cancel()
+        dismissDelay = duration
         let workItem = DispatchWorkItem { [weak self] in
             self?.dismiss()
         }
@@ -434,6 +436,10 @@ final class PathCopiedToastView: NSView {
 
     var iconSymbolNameForTesting: String? {
         currentIconSymbolName
+    }
+
+    var dismissDelayForTesting: TimeInterval? {
+        dismissDelay
     }
 }
 

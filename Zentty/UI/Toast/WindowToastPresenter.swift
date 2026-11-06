@@ -23,26 +23,43 @@ final class WindowToastPresenter {
     }
 
     func show(message: String, duration: TimeInterval? = nil) {
-        guard toastView?.isProgressActive != true else {
+        guard let (toast, host) = replaceToast() else {
             return
+        }
+        let theme = themeProvider()
+        if duration != nil {
+            let handle = toast.beginProgress(message: message, in: host, theme: theme)
+            handle.fail(message: message)
+        } else {
+            toast.show(message: message, in: host, theme: theme)
+        }
+    }
+
+    /// For a failure that is the only notice a user gets. `show` holds every
+    /// failure for the same short time, whatever `duration` says.
+    func showFailure(message: String, staysFor displayDuration: TimeInterval) {
+        guard let (toast, host) = replaceToast() else {
+            return
+        }
+        let handle = toast.beginProgress(message: message, in: host, theme: themeProvider())
+        handle.fail(message: message, staysFor: displayDuration)
+    }
+
+    private func replaceToast() -> (toast: PathCopiedToastView, host: NSView)? {
+        guard toastView?.isProgressActive != true else {
+            return nil
         }
         // Tear down the prior toast even when the host is gone (mid-teardown),
         // matching the pre-extraction behavior of always removing it first.
         toastView?.removeFromSuperview()
         guard let host = hostViewProvider() else {
             toastView = nil
-            return
+            return nil
         }
 
         let toast = PathCopiedToastView()
         toastView = toast
-        let theme = themeProvider()
-        if let duration {
-            let handle = toast.beginProgress(message: message, in: host, theme: theme)
-            handle.fail(message: message)
-        } else {
-            toast.show(message: message, in: host, theme: theme)
-        }
+        return (toast, host)
     }
 
     func beginProgress(message: String) -> PathCopiedToastView.ProgressHandle {

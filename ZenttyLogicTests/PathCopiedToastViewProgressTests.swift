@@ -52,6 +52,49 @@ final class PathCopiedToastViewProgressTests: AppKitTestCase {
         XCTAssertEqual(toast.iconSymbolNameForTesting, "xmark.circle.fill")
     }
 
+    func test_a_failure_toast_can_stay_up_for_a_set_time() throws {
+        let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
+        let presenter = WindowToastPresenter(
+            hostViewProvider: { parentView },
+            themeProvider: { ZenttyTheme.fallback(for: nil) }
+        )
+
+        presenter.showFailure(message: "Couldn’t reopen", staysFor: 6)
+
+        let toast = try XCTUnwrap(presenter.currentToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen")
+        XCTAssertEqual(toast.iconSymbolNameForTesting, "xmark.circle.fill")
+        XCTAssertFalse(toast.isProgressActiveForTesting)
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
+    }
+
+    /// Other callers pass values they have only ever seen as "show a failure".
+    func test_the_duration_passed_to_an_ordinary_toast_keeps_the_fixed_failure_time() throws {
+        let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
+        let presenter = WindowToastPresenter(
+            hostViewProvider: { parentView },
+            themeProvider: { ZenttyTheme.fallback(for: nil) }
+        )
+
+        presenter.show(message: "1Password request", duration: 4)
+
+        let toast = try XCTUnwrap(presenter.currentToastViewForTesting)
+        XCTAssertEqual(toast.iconSymbolNameForTesting, "xmark.circle.fill")
+        XCTAssertEqual(toast.dismissDelayForTesting, 2.5)
+    }
+
+    func test_an_ordinary_toast_keeps_its_short_display_time() throws {
+        let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
+        let presenter = WindowToastPresenter(
+            hostViewProvider: { parentView },
+            themeProvider: { ZenttyTheme.fallback(for: nil) }
+        )
+
+        presenter.show(message: "Path copied")
+
+        XCTAssertEqual(try XCTUnwrap(presenter.currentToastViewForTesting).dismissDelayForTesting, 1.5)
+    }
+
     func test_progress_temporary_message_restores_latest_progress_message() async throws {
         let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
         let toast = PathCopiedToastView()

@@ -2166,6 +2166,10 @@ final class RootViewController: NSViewController {
         toasts.show(message: message, duration: duration)
     }
 
+    func showFailureToast(message: String, staysFor displayDuration: TimeInterval) {
+        toasts.showFailure(message: message, staysFor: displayDuration)
+    }
+
     private func commandAvailabilityContext() -> CommandAvailabilityContext {
         CommandAvailabilityContext(
             counts: PaneAvailabilityCounts(worklaneStore: worklaneStore),

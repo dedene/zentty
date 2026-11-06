@@ -660,6 +660,7 @@ final class AppDelegateTests: XCTestCase {
         let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
         XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It was set aside.")
         XCTAssertEqual(toast.iconSymbolNameForTesting, "xmark.circle.fill")
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
         let host = try XCTUnwrap(toast.superview)
         XCTAssertTrue(host.bounds.contains(toast.frame), "\(toast.frame) is outside \(host.bounds)")
 
@@ -712,6 +713,7 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertFalse(controller.workspaceRecipeWindow.id == "window-main")
         let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
         XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It’s still saved.")
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
 
         waitForStrayScrollbackPurge(for: store)
         delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
@@ -768,6 +770,7 @@ final class AppDelegateTests: XCTestCase {
         let controller = try XCTUnwrap(delegate.firstWindowController)
         let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
         XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It was set aside.")
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
     }
 
     func test_launch_after_one_incomplete_restore_still_restores_without_a_toast() throws {
