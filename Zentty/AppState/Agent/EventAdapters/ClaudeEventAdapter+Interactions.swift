@@ -72,6 +72,21 @@ extension AgentEventBridge {
             != AgentInteractionClassifier.trimmed(input.agentID)
     }
 
+    /// Whether the open prompt is a dialog from a worker that is still
+    /// running, which the parent's `Stop` says nothing about.
+    static func claudePromptBelongsToLiveWorker(
+        existing: ClaudeHookSessionRecord?,
+        subagents: PaneAgentSubagentSummary?
+    ) -> Bool {
+        guard let existing,
+              existing.structuredInteractionKind?.requiresHumanAttention == true,
+              let promptAgentID = AgentInteractionClassifier.trimmed(existing.lastStructuredInteractionAgentID)
+        else {
+            return false
+        }
+        return subagents?.entries.contains { $0.id == promptAgentID } == true
+    }
+
     /// Whether a `SubagentStop` ends the open prompt: the dialog was the
     /// stopping worker's own, so it went away with the worker.
     static func claudeSubagentStopResolvesPrompt(

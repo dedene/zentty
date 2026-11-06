@@ -92,6 +92,21 @@ final class ClaudeHookTraceReplayTests: XCTestCase {
         try replay.assertNoPromptStored()
     }
 
+    func test_worker_prompt_survives_the_parent_ending_its_turn() throws {
+        // Parent and worker prompts overlap. The parent's is answered first and
+        // its turn ends, while the worker's dialog is still on screen.
+        let replay = try replayTrace("approval-overlap-worker")
+
+        let first = try replay.index(of: "PermissionRequest Write")
+        let answered = try replay.index(of: "input approve-second")
+        XCTAssertLessThan(first, try replay.index(of: "Stop"))
+        XCTAssertLessThan(try replay.index(of: "Stop"), answered)
+        for step in replay.steps[first...answered] {
+            XCTAssertEqual(step.state, .needsInput, step.label)
+        }
+        XCTAssertEqual(replay.status(after: "PostToolUse Bash agent-1")?.state, .running)
+    }
+
     func test_second_of_two_parallel_prompts_is_not_tracked_yet() throws {
         // Claude fires PermissionRequest for both parallel Agent calls at once
         // and shows the dialogs one at a time. There is one prompt slot and the

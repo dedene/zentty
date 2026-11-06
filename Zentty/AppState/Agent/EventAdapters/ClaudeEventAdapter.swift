@@ -490,6 +490,20 @@ extension AgentEventBridge {
 
         case "Stop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            // Agent tool calls run asynchronously: the parent ends its turn
+            // while its subagents keep working and is re-woken when they
+            // finish. Carry the live (liveness-pruned) set rather than
+            // blanking it; SubagentStop retires entries one by one.
+            let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
+            // A live worker's dialog stays on screen after the parent's turn
+            // ends, and the prompt it stored is what keeps the pane on
+            // needsInput. Its tool hook, SubagentStop or the title clear it.
+            if claudePromptBelongsToLiveWorker(
+                existing: try claudeLookupRecord(for: input, sessionStore: sessionStore),
+                subagents: subagents
+            ) {
+                return []
+            }
             // Clear any cached structured interaction (PreToolUse(AskUserQuestion),
             // PermissionRequest) so a late Notification arriving after Stop
             // can't re-enter the structured-cache branch and flip the pane
@@ -497,11 +511,6 @@ extension AgentEventBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
-            // Agent tool calls run asynchronously: the parent ends its turn
-            // while its subagents keep working and is re-woken when they
-            // finish. Carry the live (liveness-pruned) set rather than
-            // blanking it; SubagentStop retires entries one by one.
-            let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
             return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID, subagents: subagents)]
 
         case "SubagentStop":

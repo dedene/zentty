@@ -497,6 +497,40 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertEqual(try sessionStore.lookup(sessionID: "s8c")?.structuredInteractionKind, .approval)
     }
 
+    func test_parent_stop_keeps_a_live_workers_prompt_open() throws {
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 1_000)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"worker-stop"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"worker-stop"}"#, into: &reducer, at: base + 1)
+        try replay(#"{"hook_event_name":"SubagentStart","session_id":"worker-stop","agent_id":"worker","agent_type":"general-purpose"}"#, into: &reducer, at: base + 2)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"worker-stop","tool_name":"Bash","agent_id":"worker"}"#, into: &reducer, at: base + 3)
+
+        try replay(#"{"hook_event_name":"Stop","session_id":"worker-stop"}"#, into: &reducer, at: base + 4)
+
+        XCTAssertEqual(reducer.reducedStatus(now: base + 5)?.state, .needsInput)
+        XCTAssertEqual(try sessionStore.lookup(sessionID: "worker-stop")?.structuredInteractionKind, .approval)
+    }
+
+    func test_parent_stop_ends_the_turn_when_the_prompts_worker_is_gone() throws {
+        // A worker can vanish without a SubagentStop, for example when liveness
+        // pruning retires it. Its prompt must not hold the pane on needsInput.
+        var reducer = PaneAgentReducerState()
+        let base = Date(timeIntervalSince1970: 1_000)
+        try replay(#"{"hook_event_name":"SessionStart","session_id":"worker-gone"}"#, into: &reducer, at: base)
+        try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"worker-gone"}"#, into: &reducer, at: base + 1)
+        try replay(#"{"hook_event_name":"PermissionRequest","session_id":"worker-gone","tool_name":"Bash","agent_id":"worker"}"#, into: &reducer, at: base + 2)
+        try subagentStore.remove(key: AgentSubagentRegistryStore.Key(
+            tool: "claude",
+            worklaneID: WorklaneID("worklane-approval-resume"),
+            paneID: PaneID("pane-approval-resume")
+        ))
+
+        try replay(#"{"hook_event_name":"Stop","session_id":"worker-gone"}"#, into: &reducer, at: base + 3)
+
+        XCTAssertEqual(reducer.reducedStatus(now: base + 4)?.state, .idle)
+        XCTAssertNil(try sessionStore.lookup(sessionID: "worker-gone")?.structuredInteractionKind)
+    }
+
     func test_interrupt_on_a_workers_own_prompt_emits_explicit_idle() throws {
         var reducer = PaneAgentReducerState()
         let base = Date(timeIntervalSince1970: 8_300)
