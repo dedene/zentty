@@ -712,8 +712,15 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         let controller: RemoteImagePasteController
     }
 
-    private func makeRemotePasteFixture() throws -> RemotePasteFixture {
-        let pane = PaneState(id: PaneID("worklane-main-remote"), title: "ssh")
+    private func makeRemotePasteFixture(
+        prefillText: String? = nil,
+        uploadProcess: any RemoteImageUploadProcess & RemoteImageUploadProcessFactory = RemotePasteUploadProcessStub()
+    ) throws -> RemotePasteFixture {
+        let pane = PaneState(
+            id: PaneID("worklane-main-remote"),
+            title: "ssh",
+            sessionRequest: TerminalSessionRequest(prefillText: prefillText)
+        )
         let worklaneID = WorklaneID("worklane-main")
         let raw = PaneRawState(
             shellContext: PaneShellContext(
@@ -747,8 +754,9 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
             worklaneStore: store,
             runtimeRegistry: registry,
             uploader: RemoteImageUploader(
-                processFactory: RemotePasteUploadProcessStub(),
-                remotePathProvider: { _ in "/tmp/zentty-paste-test.png" }
+                processFactory: uploadProcess,
+                remotePathProvider: { _ in "/tmp/zentty-paste-test.png" },
+                fileRemotePathProvider: { _ in "/tmp/zentty-paste-test.txt" }
             ),
             sshProcessProbe: PaneSSHProcessProbe(),
             toasts: WindowToastPresenter(
@@ -777,6 +785,52 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         pasteboard.setData(image, forType: .png)
         addTeardownBlock { pasteboard.releaseGlobally() }
         return pasteboard
+    }
+
+    private func makeFileURLPasteboard() throws -> NSPasteboard {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("notes.txt")
+        try Data("notes".utf8).write(to: fileURL)
+        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileURL as NSURL])
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        return pasteboard
+    }
+
+    /// A runtime with a restore draft, and a short enough settle delay to wait past.
+    private func makeDraftRuntime(
+        command: String? = nil,
+        restoreDraftSettleDelay: TimeInterval = 0.02,
+        eventSink: @escaping (PaneID, TerminalEvent) -> Void = { _, _ in }
+    ) -> (PaneRuntime, PaneRuntimeTerminalAdapterSpy) {
+        let pane = PaneState(
+            id: PaneID("worklane-main-shell"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(
+                command: command,
+                prefillText: "claude --resume session-123"
+            )
+        )
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: eventSink,
+            startupTextSettleDelay: 0.02,
+            restoreDraftSettleDelay: restoreDraftSettleDelay
+        )
+        runtime.ensureStarted()
+        return (runtime, adapter)
+    }
+
+    private func waitPastSettleDelay(_ delay: TimeInterval = 0.12) {
+        let elapsed = expectation(description: "settle delay elapsed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { elapsed.fulfill() }
+        wait(for: [elapsed], timeout: delay + 2)
     }
 
     private func makeSearchRuntime() -> (PaneRuntime, PaneRuntimeTerminalAdapterSpy) {
@@ -1188,6 +1242,218 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(fixture.adapter.sentTexts, [])
     }
 
+    func test_paste_held_past_the_draft_timer_keeps_the_draft_out_of_the_shell() {
+        let (runtime, adapter) = makeDraftRuntime(restoreDraftSettleDelay: 0.05)
+        withExtendedLifetime(runtime) {
+            adapter.eventDidOccur?(.shellReady)
+            let held = LibghosttyHeldUserPaste(
+                delivered: { adapter.eventDidOccur?(.userEditedInput) },
+                report: { adapter.eventDidOccur?($0) }
+            )
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, [], "the draft must not land beneath the prompt")
+
+            adapter.sendText("pasted")
+            held.settle(delivered: true)
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["pasted"], "delivery consumes the draft")
+        }
+    }
+
+    func test_refused_paste_lets_the_suspended_draft_land_once() {
+        let (runtime, adapter) = makeDraftRuntime(restoreDraftSettleDelay: 0.05)
+        withExtendedLifetime(runtime) {
+            adapter.eventDidOccur?(.shellReady)
+            let held = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, [])
+
+            held.settle(delivered: false)
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["claude --resume session-123"], "released once, and only once")
+        }
+    }
+
+    func test_paste_refused_before_the_shell_is_ready_leaves_the_draft_for_it() {
+        let (runtime, adapter) = makeDraftRuntime()
+        withExtendedLifetime(runtime) {
+            let held = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+            held.settle(delivered: false)
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, [], "the shell has not come up yet")
+
+            adapter.eventDidOccur?(.shellReady)
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["claude --resume session-123"])
+        }
+    }
+
+    func test_shell_ready_during_a_held_paste_does_not_send_the_draft() {
+        let (runtime, adapter) = makeDraftRuntime()
+        withExtendedLifetime(runtime) {
+            let held = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+
+            adapter.eventDidOccur?(.shellReady)
+            adapter.metadataDidChange?(TerminalMetadata(title: "shell"))
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, [])
+
+            held.settle(delivered: false)
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["claude --resume session-123"])
+        }
+    }
+
+    func test_overlapping_pastes_suspend_the_draft_until_the_last_one_settles() {
+        let (runtime, adapter) = makeDraftRuntime()
+        withExtendedLifetime(runtime) {
+            adapter.eventDidOccur?(.shellReady)
+            let first = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+            let second = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+
+            first.settle(delivered: false)
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, [], "the other paste may still arrive")
+
+            second.settle(delivered: false)
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["claude --resume session-123"])
+        }
+    }
+
+    func test_typing_during_a_held_paste_still_consumes_the_draft() {
+        let (runtime, adapter) = makeDraftRuntime()
+        withExtendedLifetime(runtime) {
+            adapter.eventDidOccur?(.shellReady)
+            let held = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+
+            adapter.eventDidOccur?(.userEditedInput)
+            held.settle(delivered: false)
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, [])
+        }
+    }
+
+    func test_paste_hold_stays_private_to_the_runtime() {
+        var events: [TerminalEvent] = []
+        let (runtime, adapter) = makeDraftRuntime(eventSink: { _, event in events.append(event) })
+        withExtendedLifetime(runtime) {
+            let held = LibghosttyHeldUserPaste(
+                delivered: { adapter.eventDidOccur?(.userEditedInput) },
+                report: { adapter.eventDidOccur?($0) }
+            )
+            held.settle(delivered: true)
+
+            XCTAssertEqual(events, [.userEditedInput])
+        }
+    }
+
+    func test_held_paste_does_not_stall_an_initial_command() {
+        let (runtime, adapter) = makeDraftRuntime(command: "echo ready")
+        withExtendedLifetime(runtime) {
+            let held = LibghosttyHeldUserPaste(delivered: {}, report: { adapter.eventDidOccur?($0) })
+            adapter.eventDidOccur?(.shellReady)
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["echo ready\r"])
+
+            held.settle(delivered: false)
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["echo ready\r"], "not sent again, and no draft after it")
+        }
+    }
+
+    func test_delivered_paste_does_not_cancel_the_initial_command_sharing_its_work_item() {
+        let (runtime, adapter) = makeDraftRuntime(command: "echo ready")
+        withExtendedLifetime(runtime) {
+            let held = LibghosttyHeldUserPaste(
+                delivered: { adapter.eventDidOccur?(.userEditedInput) },
+                report: { adapter.eventDidOccur?($0) }
+            )
+            adapter.eventDidOccur?(.shellReady)
+
+            held.settle(delivered: true)
+
+            waitPastSettleDelay()
+            XCTAssertEqual(adapter.sentTexts, ["echo ready\r"])
+        }
+    }
+
+    func test_upload_spanning_the_draft_timer_keeps_the_draft_out_of_the_shell() throws {
+        let upload = GatedRemotePasteUploadProcess()
+        let fixture = try makeRemotePasteFixture(prefillText: "claude --resume session-123", uploadProcess: upload)
+        fixture.adapter.eventDidOccur?(.shellReady)
+
+        XCTAssertTrue(fixture.controller.handlePaste(paneID: fixture.paneID, pasteboard: try makeImagePasteboard()))
+        waitPastSettleDelay(0.4)
+        XCTAssertEqual(fixture.adapter.sentTexts, [], "the upload has not finished")
+
+        let delivered = expectation(description: "uploaded path sent")
+        fixture.adapter.onSendText = { _ in delivered.fulfill() }
+        upload.finish(exitStatus: 0)
+        wait(for: [delivered], timeout: 5)
+
+        fixture.adapter.onSendText = nil
+        waitPastSettleDelay(0.4)
+        XCTAssertEqual(fixture.adapter.sentTexts, ["/tmp/zentty-paste-test.png"])
+    }
+
+    func test_file_upload_spanning_the_draft_timer_keeps_the_draft_out_of_the_shell() throws {
+        let upload = GatedRemotePasteUploadProcess()
+        let fixture = try makeRemotePasteFixture(prefillText: "claude --resume session-123", uploadProcess: upload)
+        fixture.adapter.eventDidOccur?(.shellReady)
+
+        XCTAssertTrue(fixture.controller.handlePaste(paneID: fixture.paneID, pasteboard: try makeFileURLPasteboard()))
+        waitPastSettleDelay(0.4)
+        XCTAssertEqual(fixture.adapter.sentTexts, [], "the upload has not finished")
+
+        let delivered = expectation(description: "uploaded path sent")
+        fixture.adapter.onSendText = { _ in delivered.fulfill() }
+        upload.finish(exitStatus: 0)
+        wait(for: [delivered], timeout: 5)
+
+        fixture.adapter.onSendText = nil
+        waitPastSettleDelay(0.4)
+        XCTAssertEqual(fixture.adapter.sentTexts, ["/tmp/zentty-paste-test.txt"])
+    }
+
+    func test_failed_upload_lets_the_suspended_draft_land() throws {
+        let upload = GatedRemotePasteUploadProcess()
+        let fixture = try makeRemotePasteFixture(prefillText: "claude --resume session-123", uploadProcess: upload)
+        fixture.adapter.eventDidOccur?(.shellReady)
+        XCTAssertTrue(fixture.controller.handlePaste(paneID: fixture.paneID, pasteboard: try makeImagePasteboard()))
+        waitPastSettleDelay(0.4)
+        XCTAssertEqual(fixture.adapter.sentTexts, [])
+
+        let landed = expectation(description: "draft sent after the failure")
+        fixture.adapter.onSendText = { _ in landed.fulfill() }
+        upload.finish(exitStatus: 1)
+
+        wait(for: [landed], timeout: 5)
+        XCTAssertEqual(fixture.adapter.sentTexts, ["claude --resume session-123"])
+    }
+
+    func test_cancelled_upload_lets_the_suspended_draft_land() throws {
+        let upload = GatedRemotePasteUploadProcess()
+        let fixture = try makeRemotePasteFixture(prefillText: "claude --resume session-123", uploadProcess: upload)
+        fixture.adapter.eventDidOccur?(.shellReady)
+        XCTAssertTrue(fixture.controller.handlePaste(paneID: fixture.paneID, pasteboard: try makeImagePasteboard()))
+        waitPastSettleDelay(0.4)
+        XCTAssertEqual(fixture.adapter.sentTexts, [])
+
+        let landed = expectation(description: "draft sent after the cancellation")
+        fixture.adapter.onSendText = { _ in landed.fulfill() }
+        fixture.controller.cancelAll()
+
+        wait(for: [landed], timeout: 5)
+        XCTAssertEqual(fixture.adapter.sentTexts, ["claude --resume session-123"])
+    }
+
     func test_runtime_started_with_empty_needle_does_not_submit_search() {
         let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
@@ -1517,6 +1783,32 @@ private final class RemotePasteUploadProcessStub: RemoteImageUploadProcess, Remo
         RemoteImageUploadProcessResult(exitStatus: 0, stderr: "", timedOut: false)
     }
     func terminate() {}
+}
+
+/// Stays in flight until the test finishes it, as a real upload spanning the draft timer would.
+private final class GatedRemotePasteUploadProcess: RemoteImageUploadProcess, RemoteImageUploadProcessFactory, @unchecked Sendable {
+    private let gate = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var exitStatus: Int32 = 1
+
+    func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess { self }
+    func run() throws {}
+    func write(_ data: Data) throws {}
+    func closeStandardInput() {}
+    func waitUntilExit(timeout: TimeInterval) -> RemoteImageUploadProcessResult {
+        _ = gate.wait(timeout: .now() + 10)
+        lock.lock()
+        defer { lock.unlock() }
+        return RemoteImageUploadProcessResult(exitStatus: exitStatus, stderr: "", timedOut: false)
+    }
+    func terminate() { gate.signal() }
+
+    func finish(exitStatus: Int32) {
+        lock.lock()
+        self.exitStatus = exitStatus
+        lock.unlock()
+        gate.signal()
+    }
 }
 
 @MainActor

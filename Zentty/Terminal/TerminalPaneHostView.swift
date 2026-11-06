@@ -458,6 +458,9 @@ final class PaneRuntime {
     private var hasSentInitialCommand = false
     private var hasObservedShellReady = false
     private var restoreDraftLifecycleState: PaneRestoreDraftLifecycleState
+    /// Accepted pastes still on their way. There can be several: an upload can
+    /// overlap a confirmation prompt. Only `applyUserPasteHold` changes this.
+    private var heldUserPasteCount = 0
     private var pendingStartupTextWorkItem: DispatchWorkItem?
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
@@ -845,6 +848,15 @@ final class PaneRuntime {
         handleEventDidOccur(.userEditedInput)
     }
 
+    /// Keeps the restore draft back for a user paste that is still on its way, such
+    /// as a remote upload. Call the result once when the paste arrives or is given up.
+    func holdForUserPaste() -> @MainActor () -> Void {
+        applyUserPasteHold(.began)
+        return { [weak self] in
+            self?.applyUserPasteHold(.ended)
+        }
+    }
+
     func setRemoteImagePasteHandler(
         _ handler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)?
     ) {
@@ -886,10 +898,27 @@ final class PaneRuntime {
             scheduleStartupTextIfNeeded(using: metadata)
         case .userEditedInput, .userSubmittedInput:
             consumeRestoreDraftIfNeeded()
+        case .userPasteHold(let hold):
+            applyUserPasteHold(hold)
+            return
         default:
             break
         }
         eventSink(paneIDValue, event)
+    }
+
+    /// A scheduled flush isn't cancelled when a hold begins, because it may carry the
+    /// initial command; `canSendRestoreDraft` stops the draft instead. A delivered
+    /// paste has consumed the draft by the time its hold ends, so rescheduling only
+    /// revives a draft whose paste never arrived.
+    private func applyUserPasteHold(_ hold: TerminalUserPasteHold) {
+        switch hold {
+        case .began:
+            heldUserPasteCount += 1
+        case .ended:
+            heldUserPasteCount = max(0, heldUserPasteCount - 1)
+            scheduleStartupTextIfNeeded(using: metadata)
+        }
     }
 
     private func scheduleStartupTextIfNeeded(using metadata: TerminalMetadata) {
@@ -967,6 +996,7 @@ final class PaneRuntime {
         guard case .pending(let draftText) = restoreDraftLifecycleState,
               hasSentInitialCommand == false,
               normalizedInitialCommand == nil,
+              heldUserPasteCount == 0,
               hasObservedShellReady else {
             return false
         }
@@ -977,8 +1007,11 @@ final class PaneRuntime {
     private func consumeRestoreDraftIfNeeded() {
         switch restoreDraftLifecycleState {
         case .pending, .injected:
-            pendingStartupTextWorkItem?.cancel()
-            pendingStartupTextWorkItem = nil
+            // The same work item delivers the initial command, which this input doesn't replace.
+            if !canSendInitialCommand(using: metadata) {
+                pendingStartupTextWorkItem?.cancel()
+                pendingStartupTextWorkItem = nil
+            }
             restoreDraftLifecycleState = .consumed
         case .none, .consumed:
             return

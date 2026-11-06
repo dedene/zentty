@@ -206,7 +206,11 @@ final class RemoteImagePasteController {
             message: Self.remoteImageUploadProgressMessage(fraction: 0)
         )
         let token = UUID()
+        let endPasteHold = runtimeRegistry.runtime(for: paneID)?.holdForUserPaste()
         let task = Task { [weak self] in
+            defer {
+                endPasteHold?()
+            }
             guard let self else {
                 return
             }
@@ -285,7 +289,11 @@ final class RemoteImagePasteController {
             )
         )
         let token = UUID()
+        let endPasteHold = runtimeRegistry.runtime(for: paneID)?.holdForUserPaste()
         let task = Task { [weak self] in
+            defer {
+                endPasteHold?()
+            }
             guard let self else {
                 return
             }

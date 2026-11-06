@@ -176,6 +176,31 @@ struct LibghosttyUserPasteTracker {
     }
 }
 
+/// A user paste waiting on its confirmation prompt. The runtime keeps startup text out of the
+/// terminal until this settles, so every way out of the prompt has to settle it.
+struct LibghosttyHeldUserPaste: Sendable {
+    private let delivered: LibghosttyUserPasteTracker.Delivered
+    private let holdEnded: @MainActor () -> Void
+
+    @MainActor
+    init(
+        delivered: @escaping LibghosttyUserPasteTracker.Delivered,
+        report: @escaping (TerminalEvent) -> Void
+    ) {
+        self.delivered = delivered
+        holdEnded = { report(.userPasteHold(.ended)) }
+        report(.userPasteHold(.began))
+    }
+
+    @MainActor
+    func settle(delivered wasDelivered: Bool) {
+        if wasDelivered {
+            delivered()
+        }
+        holdEnded()
+    }
+}
+
 @MainActor
 final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading {
     nonisolated(unsafe) var surface: ghostty_surface_t?
@@ -495,8 +520,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     }
 
     /// The confirm callback takes over reporting the paste being started.
-    func holdUserPasteForConfirmation() -> LibghosttyUserPasteTracker.Delivered? {
-        userPasteTracker.holdForConfirmation()
+    func holdUserPasteForConfirmation() -> LibghosttyHeldUserPaste? {
+        userPasteTracker.holdForConfirmation().map {
+            LibghosttyHeldUserPaste(delivered: $0, report: eventDidOccur)
+        }
     }
 
     func setPreedit(_ text: String) {

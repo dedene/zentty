@@ -296,7 +296,7 @@ extension WorklaneStore {
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
-        case .surfaceClosed:
+        case .surfaceClosed, .userPasteHold:
             return
         case .desktopNotification(let notification):
             let title = AgentInteractionClassifier.trimmed(notification.title)
@@ -1011,7 +1011,7 @@ extension WorklaneStore {
         switch event {
         case .userInterrupted, .commandFinished, .userSubmittedInput, .progressReport:
             return true
-        case .shellReady, .desktopNotification, .userEditedInput, .surfaceClosed:
+        case .shellReady, .desktopNotification, .userEditedInput, .userPasteHold, .surfaceClosed:
             return false
         }
     }
@@ -1032,6 +1032,8 @@ extension WorklaneStore {
             return "userEditedInput"
         case .userSubmittedInput:
             return "userSubmittedInput"
+        case .userPasteHold(let hold):
+            return "userPasteHold:\(hold)"
         case .surfaceClosed:
             return "surfaceClosed"
         }

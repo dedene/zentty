@@ -241,6 +241,31 @@ final class LibghosttyUserPasteTrackerTests: XCTestCase {
         XCTAssertEqual(reports, 0)
         XCTAssertNil(tracker.holdForConfirmation(), "nothing is left for a later confirmation")
     }
+
+    func test_allowed_paste_reports_its_edit_before_the_hold_ends() {
+        var events: [TerminalEvent] = []
+        let held = LibghosttyHeldUserPaste(
+            delivered: { events.append(.userEditedInput) },
+            report: { events.append($0) }
+        )
+        XCTAssertEqual(events, [.userPasteHold(.began)])
+
+        held.settle(delivered: true)
+
+        XCTAssertEqual(events, [.userPasteHold(.began), .userEditedInput, .userPasteHold(.ended)])
+    }
+
+    func test_refused_paste_ends_its_hold_without_reporting_an_edit() {
+        var events: [TerminalEvent] = []
+        let held = LibghosttyHeldUserPaste(
+            delivered: { events.append(.userEditedInput) },
+            report: { events.append($0) }
+        )
+
+        held.settle(delivered: false)
+
+        XCTAssertEqual(events, [.userPasteHold(.began), .userPasteHold(.ended)])
+    }
 }
 
 // MARK: - Test Doubles
