@@ -5039,6 +5039,45 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertFalse(draggedPane.isTerminalViewportSyncSuspended)
     }
 
+    @MainActor
+    func test_animated_render_during_zoom_in_stays_synchronous_until_the_zoom_settles() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha"), makePane("beta")], focusedPaneID: PaneID("alpha")),
+            animated: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPeekZoomOut(animated: false)
+        paneStripView.endPeekZoomIn(animated: true)
+
+        // A split right after the peek closed. Its animation would outlive the
+        // zoom, whose settle then releases the suspension the render relies on.
+        paneStripView.holdsAnimatedRenderCompletionsForTesting = true
+        let splitState = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta"), makePane("gamma")],
+            focusedPaneID: PaneID("gamma")
+        )
+        paneStripView.render(splitState, animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
+        XCTAssertFalse(paneStripView.hasPendingAnimatedSettleActionForTesting)
+        XCTAssertTrue(paneStripView.descendantPaneViews().allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        pumpMainQueue(for: 0.5)
+        XCTAssertFalse(paneStripView.descendantPaneViews().contains(where: \.isTerminalViewportSyncSuspended))
+
+        // Once settled, renders animate again.
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha"), makePane("beta")], focusedPaneID: PaneID("beta")),
+            animated: true
+        )
+        XCTAssertTrue(paneStripView.lastRenderWasAnimated)
+    }
+
     // MARK: - Drag Escape
 
     /// Stands in for a terminal that acts on Escape.

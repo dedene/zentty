@@ -1112,7 +1112,7 @@ final class PaneStripView: NSView {
             && window?.inLiveResize != true
             && !inLiveResize
             && !isResizeSuppressedRender
-            && !isZoomedOut
+            && !holdsViewportSyncForZoom
         lastRenderWasAnimated = shouldAnimate
         if animatesViewportResize {
             // This render owns the new size: a layout pass it triggers must
