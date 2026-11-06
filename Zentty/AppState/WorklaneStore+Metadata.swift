@@ -274,10 +274,6 @@ extension WorklaneStore {
         worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
     }
 
-    func clearStatusDerivedState(for paneID: PaneID, in worklane: inout WorklaneState) {
-        worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
-    }
-
     func clearBranchDerivedState(for paneID: PaneID, in worklane: inout WorklaneState) {
         worklane.auxiliaryStateByPaneID[paneID]?.reviewState = nil
         if var status = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus, status.artifactLink?.kind == .pullRequest {
