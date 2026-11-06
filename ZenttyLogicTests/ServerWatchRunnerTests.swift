@@ -123,14 +123,38 @@ final class ServerWatchRunnerTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: stdoutURL, encoding: .utf8), "partial line\n")
     }
 
+    func test_detects_url_ended_by_carriage_return_while_the_server_keeps_running() throws {
+        XCTAssertEqual(try runUntilDetected(output: "Listening: http://localhost:3000\\r"), 0)
+    }
+
+    func test_detects_url_ended_by_a_space_while_the_server_keeps_running() throws {
+        XCTAssertEqual(try runUntilDetected(output: "Listening: http://localhost:3000 (ready)"), 0)
+    }
+
     func test_line_buffer_detects_url_split_across_chunks() {
         var buffer = ServerWatchLineBuffer()
 
-        XCTAssertNil(buffer.append(Data("Listening: http://local".utf8)))
-        let lines = buffer.append(Data("host:3000\n".utf8))
+        XCTAssertEqual(buffer.append(Data("Listening: http://local".utf8)), "Listening: ")
+        let text = buffer.append(Data("host:3000\n".utf8))
 
-        XCTAssertEqual(lines, "Listening: http://localhost:3000\n")
-        XCTAssertEqual(ServerOutputURLDetector.detect(in: lines ?? "").map(\.origin), ["http://localhost:3000"])
+        XCTAssertEqual(text, "http://localhost:3000\n")
+        XCTAssertEqual(ServerOutputURLDetector.detect(in: text ?? "").map(\.origin), ["http://localhost:3000"])
+    }
+
+    func test_line_buffer_holds_a_url_until_something_ends_it() {
+        var buffer = ServerWatchLineBuffer()
+
+        XCTAssertNil(buffer.append(Data("http://localhost:3".utf8)))
+        XCTAssertNil(buffer.append(Data("000".utf8)))
+
+        for delimiter in ["\r", " ", "\t", "\"", "'", "<", ">"] {
+            XCTAssertEqual(
+                buffer.append(Data(delimiter.utf8)).map { ServerOutputURLDetector.detect(in: $0).map(\.origin) },
+                ["http://localhost:3000"],
+                "ended by \(delimiter.debugDescription)"
+            )
+            XCTAssertNil(buffer.append(Data("http://localhost:3000".utf8)))
+        }
     }
 
     func test_line_buffer_handles_utf8_split() {
@@ -172,6 +196,31 @@ final class ServerWatchRunnerTests: XCTestCase {
         XCTAssertNil(buffer.append(Data("abc".utf8)))
 
         XCTAssertEqual(buffer.flush(), "56789abc", "The oldest bytes go first")
+    }
+
+    /// Writes `output` and stays alive until the detection arrives, exiting 7 if
+    /// it never does, so a detection that only comes at exit cannot pass.
+    private func runUntilDetected(output: String) throws -> Int32 {
+        let detectedFile = fixture.directory.appendingPathComponent("detected-\(UUID().uuidString)")
+        let fake = try fixture.makeExecutable(body: """
+        printf '\(output)'
+        i=0
+        while [ $i -lt 40 ]; do
+          [ -e '\(detectedFile.path)' ] && exit 0
+          /bin/sleep 0.05
+          i=$((i + 1))
+        done
+        exit 7
+        """)
+        let runner = ServerWatchRunner(
+            handleDetection: { _ in
+                FileManager.default.createFile(atPath: detectedFile.path, contents: nil)
+            },
+            output: try XCTUnwrap(FileHandle(forWritingAtPath: "/dev/null")),
+            errorOutput: try XCTUnwrap(FileHandle(forWritingAtPath: "/dev/null"))
+        )
+
+        return try runner.run(command: [fake.path], environment: ["PATH": "/usr/bin:/bin"])
     }
 
     private func runDetectingURLs(script: String) throws -> [ServerURLCandidate] {

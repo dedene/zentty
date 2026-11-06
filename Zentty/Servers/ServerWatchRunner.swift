@@ -93,10 +93,11 @@ struct ServerWatchRunner {
     static let finalDrainTimeout: TimeInterval = 0.25
 }
 
-/// Reassembles one output stream into whole lines for URL detection, since a
-/// pipe read can end anywhere, including inside a URL or a UTF-8 sequence.
-/// Text with no newline yet waits in the tail, capped so an endless line stays
-/// bounded; a URL inside a line longer than the cap can be lost.
+/// Reassembles one output stream for URL detection, since a pipe read can end
+/// anywhere, including inside a URL or a UTF-8 sequence. Text is released up to
+/// the last byte that ends a URL, so a server that prints one and keeps running
+/// is detected without a newline. What follows waits in the tail, capped so an
+/// endless token stays bounded; a URL inside a token longer than the cap can be lost.
 struct ServerWatchLineBuffer {
     static let defaultCapacity = 64 * 1024
 
@@ -107,19 +108,19 @@ struct ServerWatchLineBuffer {
         self.capacity = capacity
     }
 
-    /// Returns the lines `data` completed, or `nil` when none ended in it.
+    /// Returns the text `data` completed, or `nil` when nothing ended in it.
     mutating func append(_ data: Data) -> String? {
         tail.append(data)
-        var completedLines: String?
-        if let lastNewline = tail.lastIndex(of: UInt8(ascii: "\n")) {
-            let tailStart = tail.index(after: lastNewline)
-            completedLines = String(decoding: tail[..<tailStart], as: UTF8.self)
+        var completedText: String?
+        if let lastDelimiter = tail.lastIndex(where: ServerOutputURLDetector.urlDelimiters.contains) {
+            let tailStart = tail.index(after: lastDelimiter)
+            completedText = String(decoding: tail[..<tailStart], as: UTF8.self)
             tail = Data(tail[tailStart...])
         }
         if tail.count > capacity {
             tail = Data(tail.suffix(capacity))
         }
-        return completedLines
+        return completedText
     }
 
     /// Returns the unterminated tail once the stream is done.
