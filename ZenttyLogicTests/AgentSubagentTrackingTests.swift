@@ -435,6 +435,66 @@ final class PaneAgentOwnershipTests: XCTestCase {
         XCTAssertEqual(state(store).agentStatus?.sessionID, "next")
     }
 
+    func test_late_hook_inside_cache_window_cannot_undo_the_owner_a_sweep_saw() {
+        // The clock never advances, so the payload cache is still valid when
+        // the hook lands. The sweep has the newer view of the pane.
+        let frozen = Date(timeIntervalSince1970: 1_000)
+        var foreground = snapshot(.claudeCode, pid: 20)
+        let store = WorklaneStore(
+            currentDateProvider: { frozen },
+            foregroundAgentResolver: { _ in foreground }
+        )
+        store.replaceWorklanes([WorklaneState(
+            id: worklaneID, title: nil,
+            paneStripState: PaneStripState(panes: [PaneState(id: paneID, title: "Project — Current task")], focusedPaneID: paneID),
+            auxiliaryStateByPaneID: [paneID: PaneAuxiliaryState(paneRootPID: 10)]
+        )])
+        store.applyAgentStatusPayload(payload(.claudeCode, session: "old", pid: 20, state: .running))
+
+        foreground = snapshot(.codex, pid: 30)
+        store.clearStaleAgentSessions()
+        XCTAssertEqual(state(store).raw.foregroundAgentSnapshot?.agent?.tool, .codex)
+        XCTAssertNil(state(store).agentStatus)
+
+        store.applyAgentStatusPayload(payload(.claudeCode, session: "old", pid: 20, state: .running))
+
+        XCTAssertEqual(state(store).raw.foregroundAgentSnapshot?.agent?.tool, .codex, "an older snapshot must not replace the sweep's")
+        XCTAssertNil(state(store).agentStatus, "the exited agent's late hook must stay dropped")
+        XCTAssertEqual(state(store).presentation.recognizedTool, .codex)
+    }
+
+    func test_new_owner_status_survives_a_payload_inside_the_cache_window() {
+        // A hook without a PID is accepted on the cached "no named owner"
+        // probe, so nothing forces a fresh scan before the sweep sees the tool.
+        let frozen = Date(timeIntervalSince1970: 1_000)
+        var foreground = PaneForegroundAgentSnapshot(agent: nil, foregroundPIDs: [10])
+        let store = WorklaneStore(
+            currentDateProvider: { frozen },
+            foregroundAgentResolver: { _ in foreground }
+        )
+        store.replaceWorklanes([WorklaneState(
+            id: worklaneID, title: nil,
+            paneStripState: PaneStripState(panes: [PaneState(id: paneID, title: "Project — Current task")], focusedPaneID: paneID),
+            auxiliaryStateByPaneID: [paneID: PaneAuxiliaryState(paneRootPID: 10)]
+        )])
+        func hook(subagents: PaneAgentSubagentSummary? = nil) -> AgentStatusPayload {
+            var hook = payload(.codex, session: "new", pid: 30, state: .running, subagents: subagents)
+            hook.agentMetadataPID = nil
+            return hook
+        }
+        store.applyAgentStatusPayload(hook(subagents: .init(entries: [.init(id: "child")])))
+
+        foreground = snapshot(.codex, pid: 30)
+        store.clearStaleAgentSessions()
+        XCTAssertEqual(state(store).raw.foregroundAgentSnapshot?.agent?.tool, .codex)
+        XCTAssertEqual(state(store).agentStatus?.subagents?.entries.map(\.id), ["child"])
+
+        store.applyAgentStatusPayload(hook())
+
+        XCTAssertEqual(state(store).raw.foregroundAgentSnapshot?.agent?.tool, .codex)
+        XCTAssertEqual(state(store).agentStatus?.subagents?.entries.map(\.id), ["child"], "the older probe must not retire the newer owner's session")
+    }
+
     func test_foreground_scan_repeats_once_the_cache_window_has_passed() {
         var now = Date(timeIntervalSince1970: 1_000)
         var scans = 0

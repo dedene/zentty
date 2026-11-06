@@ -427,7 +427,7 @@ final class WorklaneStore {
     /// Resolving the foreground agent walks the pane's whole process tree, so a
     /// burst of hooks from one turn would repeat it on the main actor. The probe
     /// cache is reused for `foregroundAgentContextTTL`, and any payload the cache
-    /// would reject forces a fresh scan before it is dropped.
+    /// would reject forces a fresh scan before it is dropped. Sweeps replace it.
     var cachedForegroundAgentContext: (context: AgentSessionSweepContext, stamp: Date)?
     let foregroundAgentContextTTL: TimeInterval
     let scheduleReadyStatusTask: ReadyStatusScheduler

@@ -1296,11 +1296,15 @@ extension WorklaneStore {
     }
 
     func clearStaleAgentSessions() {
-        clearStaleAgentSessions(sweepContext: AgentSessionSweepContext(foregroundAgentResolver: foregroundAgentResolver))
+        // The sweep's fresh probes also replace the payload cache: a payload
+        // reconciling a probe older than the sweep's would undo what it saw.
+        clearStaleAgentSessions(sweepContext: foregroundAgentContext(forcingRefresh: true))
     }
 
-    /// Shared by every payload inside one agent turn. Without it each hook walked
-    /// the pane's entire process tree synchronously on the main actor.
+    /// Shared by every payload inside one agent turn and by the sweep. Without
+    /// it each hook walked the pane's entire process tree synchronously on the
+    /// main actor. There is one current context and each caches a pane's probe
+    /// once, so a pane never reconciles a probe older than the last it used.
     func foregroundAgentContext(forcingRefresh: Bool = false) -> AgentSessionSweepContext {
         let now = currentDateProvider()
         if !forcingRefresh, let cached = cachedForegroundAgentContext,
