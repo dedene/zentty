@@ -316,6 +316,37 @@ final class AgentHistoryPaletteHostedTests: XCTestCase {
         XCTAssertGreaterThan(model.queryFocusRequest, focusRequestsBefore, "the history field asks for focus back")
     }
 
+    /// `NSOpenPanel` isn't modal, so the palette can close and open again while it is up. Clicks
+    /// in it must keep leaving the new palette alone, and its URLs never enter the new card.
+    func test_palette_reopened_during_a_folder_pick_stays_up_and_drops_the_old_urls() throws {
+        var status = AgentHistoryHostedFixtures.readyStatus
+        status.hasConsented = false
+        status.isEnabled = false
+        status.state = .off
+        _ = makeWindow(status: status)
+        root.handle(.showAgentHistory)
+        let firstModel = try XCTUnwrap(coordinator.modelForTesting)
+        XCTAssertEqual(firstModel.body, .consent)
+
+        var finishPicking: (@MainActor ([URL]) -> Void)?
+        panelController.folderPicker = { _, completion in finishPicking = completion }
+        firstModel.requestAddExcludedFolder()
+        let completion = try XCTUnwrap(finishPicking)
+
+        panelController.close(animated: false)
+        root.handle(.showAgentHistory)
+        let reopenedModel = try XCTUnwrap(coordinator.modelForTesting)
+        XCTAssertFalse(reopenedModel === firstModel)
+        XCTAssertTrue(panelController.isDismissMonitorSuspendedForTesting, "the picker is still up")
+
+        let picked = URL(fileURLWithPath: "\(AgentHistoryHostedFixtures.root)/secrets", isDirectory: true)
+        completion([picked])
+
+        XCTAssertFalse(panelController.isDismissMonitorSuspendedForTesting, "dismissal works again afterwards")
+        XCTAssertTrue(coordinator.isShown)
+        XCTAssertEqual(reopenedModel.consent?.excludedFolders, [])
+    }
+
     // MARK: - Budget
 
     func test_palette_first_frame_signpost_under_80ms() throws {

@@ -119,7 +119,8 @@ final class AgentHistoryPanelController {
         parentWindow = window
         self.model = model
         self.exemptClickViews = exemptClickViews
-        isDismissMonitorSuspended = false
+        // A picker opened by the previous palette can still be up: it isn't modal.
+        isDismissMonitorSuspended = isPresentingFolderPicker
         installKeyMonitor()
         installDismissMonitor()
         observe(window: window)
