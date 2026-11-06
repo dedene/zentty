@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
     }
 
+    /// How the quit sheet's answer reaches AppKit, which sits in `.terminateLater`
+    /// until it does.
+    var replyToQuitPrompt: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
+
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
     private let runtimeRegistryFactory: () -> PaneRuntimeRegistry
@@ -422,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if response == .alertFirstButtonReturn {
                     self?.persistRestorePreferenceIfNeeded(from: restoreToggle)
                 }
-                NSApp.reply(toApplicationShouldTerminate: response == .alertFirstButtonReturn)
+                self?.replyToQuitPrompt(response == .alertFirstButtonReturn)
             }
             return .terminateLater
         }
@@ -694,7 +698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notificationStore.resolveAll(windowID: controller.windowID)
         applyAuxiliaryWindowTheme()
         if windowControllers.isEmpty {
-            NSApp.terminate(nil)
+            controller.requestApplicationTermination()
         } else {
             syncMenuBarStatusSources()
             scheduleWorkspaceSnapshotSave()

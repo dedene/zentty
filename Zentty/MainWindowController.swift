@@ -468,6 +468,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A window that closes with a sheet attached never runs its completion:
+        // a shell exit under the quit sheet would leave AppKit in terminateLater
+        // for good. Decline them while the panes they ask about still exist.
+        for sheet in window.sheets {
+            window.endSheet(sheet, returnCode: .cancel)
+        }
         rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)

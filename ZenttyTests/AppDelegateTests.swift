@@ -699,6 +699,26 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(delegate.windowControllerCount, 1)
     }
 
+    func test_last_pane_exit_under_quit_sheet_cancels_the_quit_when_another_window_remains() throws {
+        let outcome = try exitLastPaneUnderQuitSheet(windowCount: 2)
+
+        XCTAssertEqual(outcome.windowWillCloseCount, 1)
+        XCTAssertEqual(outcome.replies, [false], "AppKit stays in terminateLater until the prompt replies")
+        XCTAssertEqual(outcome.terminationRequests, 0)
+        XCTAssertTrue(outcome.closedWindow.sheets.isEmpty)
+        XCTAssertEqual(outcome.delegate.windowControllerCount, 1)
+    }
+
+    func test_last_pane_exit_under_quit_sheet_still_quits_when_no_window_remains() throws {
+        let outcome = try exitLastPaneUnderQuitSheet(windowCount: 1)
+
+        XCTAssertEqual(outcome.windowWillCloseCount, 1)
+        XCTAssertEqual(outcome.replies, [false], "AppKit stays in terminateLater until the prompt replies")
+        XCTAssertEqual(outcome.terminationRequests, 1, "losing the last window quits, as it does without a prompt")
+        XCTAssertTrue(outcome.closedWindow.sheets.isEmpty)
+        XCTAssertEqual(outcome.delegate.windowControllerCount, 0)
+    }
+
     func test_application_quit_prompt_attaches_to_key_window_when_background_window_has_active_terminal_progress() throws {
         NSApp.mainMenu = nil
 
@@ -1466,6 +1486,72 @@ private extension AppDelegateTests {
             )
         ], activeWorklaneID: WorklaneID("main"))
         waitForAppWindows("worklane replaced", delay: 0.05)
+    }
+
+    struct QuitSheetExitOutcome {
+        let delegate: AppDelegate
+        let closedWindow: NSWindow
+        let windowWillCloseCount: Int
+        let replies: [Bool]
+        let terminationRequests: Int
+    }
+
+    /// Shows the real quit sheet on a busy window, then exits its last shell.
+    func exitLastPaneUnderQuitSheet(windowCount: Int) throws -> QuitSheetExitOutcome {
+        NSApp.mainMenu = nil
+
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.AppDelegate.QuitSheetExit")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeQuitting = true
+        }
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        for _ in 1..<windowCount {
+            delegate.newWindow(nil)
+        }
+        waitForAppWindows("windows opened")
+
+        let controller = try XCTUnwrap(delegate.windowControllersForTesting.first)
+        markPaneRunning(in: controller)
+        controller.window.makeKeyAndOrderFrontForHostedTesting(nil)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: controller.window)
+        waitForAppWindows("key window focused", delay: 0.05)
+
+        var replies: [Bool] = []
+        delegate.replyToQuitPrompt = { replies.append($0) }
+        var terminationRequests = 0
+        controller.requestApplicationTermination = { terminationRequests += 1 }
+        var windowWillCloseCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: controller.window,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated { windowWillCloseCount += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertEqual(delegate.applicationShouldTerminate(NSApp), .terminateLater)
+        XCTAssertEqual(controller.window.sheets.count, 1)
+
+        controller.rootViewControllerForTesting.handleTerminalEventForTesting(
+            paneID: PaneID("main-shell"),
+            event: .surfaceClosed
+        )
+        waitForAppWindows("window closed")
+
+        return QuitSheetExitOutcome(
+            delegate: delegate,
+            closedWindow: controller.window,
+            windowWillCloseCount: windowWillCloseCount,
+            replies: replies,
+            terminationRequests: terminationRequests
+        )
     }
 
     func answerSheet(on window: NSWindow, with response: NSApplication.ModalResponse) throws {
