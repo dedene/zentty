@@ -1802,6 +1802,65 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertTrue(controller.isWindowMovableForTesting)
     }
 
+    func test_proxy_hover_then_press_restores_movable_after_release() throws {
+        let controller = makeController()
+        let proxyPoint = try showProxyIconAndHover(controller)
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        chromeView.setFocusedProxyIconDragSessionActiveForTesting(true)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        chromeView.endFocusedProxyIconDragSessionForTesting()
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    func test_proxy_hover_then_press_restores_movable_after_view_then_window_mouse_up() throws {
+        let controller = makeController()
+        let proxyPoint = try showProxyIconAndHover(controller)
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        // Mouse-up reaches the view first, then the tail of ProxyAwareWindow.sendEvent.
+        chromeView.releaseFocusedProxyIconMouseUpForTesting()
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseUp)
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    func test_proxy_hover_keeps_window_immovable_until_file_drag_ends() throws {
+        let controller = makeController()
+        let proxyPoint = try showProxyIconAndHover(controller)
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        chromeView.setFocusedProxyIconDragSessionActiveForTesting(true)
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseUp)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        chromeView.endFocusedProxyIconDragSessionForTesting()
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    private func showProxyIconAndHover(_ controller: MainWindowController) throws -> NSPoint {
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-hover-press")
+        waitForLayout("proxy context settled", delay: 0.05)
+
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+        let proxyPoint = try XCTUnwrap(chromeView.focusedProxyIconLeadingPaddingPointInWindowForTesting())
+
+        chromeView.seedFocusedProxyIconWindowDragSuppressionForTesting(window: controller.window)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+        return proxyPoint
+    }
+
     func test_global_search_row_points_use_search_drag_suppression_reason_not_proxy_icon() throws {
         let controller = makeController()
         controller.showWindow(nil)

@@ -23,9 +23,46 @@ enum WindowDragSuppressionTarget: Equatable {
     case proxyIcon
 }
 
+enum WindowDragSuppressionHolder: Hashable {
+    /// The pointer rests over the proxy icon.
+    case proxyHover
+    /// The proxy icon view is handling a press the window did not arm.
+    case proxyPress
+    /// The window armed suppression from a mouse event.
+    case armedMouseEvent
+}
+
+/// Reference-counts everyone who needs the window immovable. The baseline is
+/// captured once, by the first holder, so a later holder can never mistake an
+/// earlier holder's suppression for the window's own `isMovable` state.
+struct WindowDragSuppressionLedger: Equatable {
+    private(set) var holders: Set<WindowDragSuppressionHolder> = []
+    private var baseline: Bool?
+
+    /// Returns the `isMovable` value to apply.
+    mutating func acquire(_ holder: WindowDragSuppressionHolder, currentIsMovable: Bool) -> Bool {
+        if holders.isEmpty {
+            baseline = currentIsMovable
+        }
+        holders.insert(holder)
+        return false
+    }
+
+    /// Returns the `isMovable` value to apply, or nil while suppression must stay in force.
+    mutating func release(_ holder: WindowDragSuppressionHolder) -> Bool? {
+        guard holders.remove(holder) != nil, holders.isEmpty else {
+            return nil
+        }
+        defer { baseline = nil }
+        return baseline
+    }
+}
+
 @MainActor
 protocol ProxyWindowDragSuppressionControlling: AnyObject {
     var isProxyWindowDragSuppressionActive: Bool { get }
+    func acquireWindowDragSuppression(_ holder: WindowDragSuppressionHolder)
+    func releaseWindowDragSuppression(_ holder: WindowDragSuppressionHolder)
     func restoreProxySuppression()
 }
 
@@ -35,7 +72,7 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
     var proxyMouseDownHandler: ((NSEvent) -> Void)?
     var isProxyWindowDragSuppressionActive: Bool { armedSuppressionTarget != nil }
 
-    private var previousMovableState: Bool?
+    private var dragSuppressionLedger = WindowDragSuppressionLedger()
     private var armedSuppressionTarget: WindowDragSuppressionTarget?
 
     override func sendEvent(_ event: NSEvent) {
@@ -62,8 +99,22 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
         }
     }
 
+    func acquireWindowDragSuppression(_ holder: WindowDragSuppressionHolder) {
+        applyMovableState(dragSuppressionLedger.acquire(holder, currentIsMovable: isMovable))
+    }
+
+    func releaseWindowDragSuppression(_ holder: WindowDragSuppressionHolder) {
+        applyMovableState(dragSuppressionLedger.release(holder))
+    }
+
     func restoreProxySuppression() {
         restoreWindowDraggingIfNeeded()
+    }
+
+    private func applyMovableState(_ movable: Bool?) {
+        if let movable, isMovable != movable {
+            isMovable = movable
+        }
     }
 
     private func maybeSuppressWindowDragging(for event: NSEvent) {
@@ -75,24 +126,12 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
         }
 
         armedSuppressionTarget = suppressionTarget
-        previousMovableState = isMovable
-        if isMovable {
-            isMovable = false
-        }
+        acquireWindowDragSuppression(.armedMouseEvent)
     }
 
     private func restoreWindowDraggingIfNeeded() {
-        defer {
-            previousMovableState = nil
-            armedSuppressionTarget = nil
-        }
-
-        guard let previousMovableState else {
-            return
-        }
-        if isMovable != previousMovableState {
-            isMovable = previousMovableState
-        }
+        armedSuppressionTarget = nil
+        releaseWindowDragSuppression(.armedMouseEvent)
     }
 
     @discardableResult
