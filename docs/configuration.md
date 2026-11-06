@@ -65,6 +65,8 @@ scrollback = true
 - The output is printed by Zentty's shell integration for zsh, bash, fish and nushell. Other shells, and shells started with `ZENTTY_SHELL_INTEGRATION=0`, come back without it.
 - Saved output lives in `~/Library/Application Support/Zentty/session-scrollback/`, one file per pane, readable only by you and excluded from Time Machine backups. Pane output can contain secrets. Zentty deletes a file once its pane is gone, and deletes all of them when you turn `scrollback` or session restore off.
 
+If Zentty crashes twice in a row while reopening your workspace, it stops trying. The next launch opens a new window and renames the saved workspace to `restore-snapshot.set-aside-1.json` in `~/Library/Application Support/Zentty/`, with a higher number if that name is taken. Zentty doesn't read that file again, and its saved output stays in `session-scrollback/`. You can delete both yourself, and turning `scrollback` or session restore off deletes the output.
+
 ## Agent settings
 
 The `[agents]` section holds agent behaviour that isn't tied to one integration:

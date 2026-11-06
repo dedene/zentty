@@ -7,6 +7,8 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RestoreSnapshot {
         static let debounceNanoseconds: UInt64 = 350_000_000
+        static let setAsideToastMessage = "Couldn’t reopen your workspace. It was set aside."
+        static let setAsideToastDuration: TimeInterval = 4
     }
 
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
@@ -185,32 +187,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard shouldOpenMainWindow else { return }
 
+        var setAsideSnapshotURL: URL?
         if isSessionRestoreEnabled {
             configureSessionScrollback()
-            let launchDecision: SessionRestoreStore.LaunchDecision?
+            var launchDecision: SessionRestoreStore.LaunchDecision?
             do {
-                launchDecision = try sessionRestoreStore.prepareForLaunch(
+                switch try sessionRestoreStore.beginLaunch(
                     restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
-                )
-                if let launchDecision {
+                ) {
+                case .startFresh:
+                    break
+                case .restore(let decision):
+                    launchDecision = decision
                     ZenttyBreadcrumbs.record(
                         category: "zentty.launch.restore",
                         message: "prepared",
                         data: [
-                            "windowCount": launchDecision.envelope.workspace.windows.count,
+                            "windowCount": decision.envelope.workspace.windows.count,
                         ]
                     )
+                case .setAside(let snapshotURL):
+                    setAsideSnapshotURL = snapshotURL
                 }
             } catch {
                 reportRestoreError("Failed to prepare restore launch", error: error)
-                launchDecision = nil
             }
-
-            do {
-                try sessionRestoreStore.markLaunchStarted()
-            } catch {
-                reportRestoreError("Failed to mark restore launch as started", error: error)
-            }
+            sessionScrollback.preserveFiles(sessionRestoreStore.setAsideScrollbackFileNames())
 
             if let launchDecision, launchWorkspace(launchDecision.envelope) {
                 ZenttyBreadcrumbs.record(
@@ -248,6 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let externalDirectories = pendingExternalOpenDirectories
         pendingExternalOpenDirectories = []
         openWindows(atDirectories: externalDirectories)
+        if let setAsideSnapshotURL {
+            announceSetAsideSnapshot(at: setAsideSnapshotURL)
+        }
 
         if !Self.isHostedTestMode {
             NSApp.activate(ignoringOtherApps: true)
@@ -255,6 +260,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isSessionRestoreEnabled {
             scheduleWorkspaceSnapshotSave()
         }
+    }
+
+    /// The toast is one line, so the path goes to the log. It lands in the
+    /// newest window, which is the one in front after a launch.
+    private func announceSetAsideSnapshot(at snapshotURL: URL) {
+        ZenttyBreadcrumbs.record(
+            category: "zentty.launch.restore",
+            message: "set aside",
+            data: ["success": false]
+        )
+        reportRestoreError("Set restore snapshot aside after repeated incomplete launches: \(snapshotURL.path)")
+        orderedWindowControllers.last?.showToast(
+            message: RestoreSnapshot.setAsideToastMessage,
+            duration: RestoreSnapshot.setAsideToastDuration
+        )
     }
 
     /// The home-directory window a launch opens when nothing was restored.

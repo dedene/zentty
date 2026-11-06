@@ -634,6 +634,96 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertTrue(panes.allSatisfy { $0.scrollbackFile != nil })
     }
 
+    func test_launch_after_two_incomplete_restores_sets_the_snapshot_aside_and_opens_a_default_window() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            beforeLaunch: { store in
+                try self.seedScrollback("pane-main-L0.txt", for: store)
+                try self.dieWhileRestoring(store, times: 2)
+            }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("set-aside launch settled")
+
+        let directoryURL = store.snapshotURL.deletingLastPathComponent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.snapshotURL.path))
+        let setAsideURL = directoryURL.appendingPathComponent("restore-snapshot.set-aside-1.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: setAsideURL.path))
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertFalse(controller.workspaceRecipeWindow.id == "window-main")
+        let panes = controller.workspaceRecipeWindow.worklanes.flatMap(\.allPanes)
+        XCTAssertFalse(panes.contains { $0.id == "pane-main" || $0.id == "pane-second" })
+
+        let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It was set aside.")
+        XCTAssertEqual(toast.iconSymbolNameForTesting, "xmark.circle.fill")
+        let host = try XCTUnwrap(toast.superview)
+        XCTAssertTrue(host.bounds.contains(toast.frame), "\(toast.frame) is outside \(host.bounds)")
+
+        // The default window's first save discards saved output, which takes
+        // the stray file with it. The set-aside snapshot's file has to stay.
+        let archive = SessionScrollbackArchive(stateDirectoryURL: directoryURL)
+        let strayFilePath = archive.directoryURL.appendingPathComponent("pane-stray-L0.txt").path
+        let discarded = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !FileManager.default.fileExists(atPath: strayFilePath) },
+            object: nil
+        )
+        wait(for: [discarded], timeout: 5.0)
+        XCTAssertNotNil(archive.existingFilePath(forFileName: "pane-main-L0.txt"))
+    }
+
+    func test_toast_for_a_set_aside_snapshot_lands_in_the_folder_window_a_launch_opened() throws {
+        NSApp.mainMenu = nil
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.Folder.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folderURL) }
+
+        let (delegate, _) = try launchRestoredWorkspace(
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 2) },
+            openingBeforeLaunch: [folderURL]
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("set-aside launch settled")
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertNotNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+    }
+
+    func test_launch_after_one_incomplete_restore_still_restores_without_a_toast() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 1) }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("restore launched")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertEqual(controller.workspaceRecipeWindow.id, "window-main")
+        XCTAssertNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.snapshotURL.path))
+    }
+
+    func test_launch_with_session_restore_disabled_leaves_the_restore_files_alone() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            sessionRestoreEnabled: false,
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 2) }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("default window opened")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.snapshotURL.path))
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+    }
+
     func test_launch_keeps_snapshot_until_replacement_is_saved() throws {
         NSApp.mainMenu = nil
 
@@ -1618,7 +1708,10 @@ private extension AppDelegateTests {
     /// Launches from a two-pane snapshot on disk. Returns right after launch,
     /// so a test can look at the snapshot before the first debounced save.
     func launchRestoredWorkspace(
-        configure: (inout AppConfig) -> Void = { _ in }
+        sessionRestoreEnabled: Bool = true,
+        configure: (inout AppConfig) -> Void = { _ in },
+        beforeLaunch: (SessionRestoreStore) throws -> Void = { _ in },
+        openingBeforeLaunch folders: [URL] = []
     ) throws -> (delegate: AppDelegate, store: SessionRestoreStore) {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.AppDelegate.Restore.\(UUID().uuidString)", isDirectory: true)
@@ -1676,11 +1769,46 @@ private extension AppDelegateTests {
             configStore: configStore,
             appUpdateController: StubAppUpdateController(canCheckForUpdates: true),
             sessionRestoreStore: store,
-            sessionRestoreEnabled: true,
+            sessionRestoreEnabled: sessionRestoreEnabled,
             windowFrameDefaults: frameDefaults
         )
+        try beforeLaunch(store)
+        if !folders.isEmpty {
+            delegate.application(NSApp, open: folders)
+        }
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         return (delegate, store)
+    }
+
+    /// Launches that reached the restore and never got to their first save.
+    func dieWhileRestoring(_ store: SessionRestoreStore, times: Int) throws {
+        for _ in 0..<times {
+            _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        }
+    }
+
+    /// Closing a delegate's last window quits, which would take the test host
+    /// down with it.
+    func closeLastWindowInTeardown(of delegate: AppDelegate) {
+        guard let controller = delegate.firstWindowController else { return }
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+    }
+
+    /// Points the snapshot's first pane at a saved output file on disk, next to
+    /// a file nothing references.
+    func seedScrollback(_ fileName: String, for store: SessionRestoreStore) throws {
+        let directoryURL = store.snapshotURL.deletingLastPathComponent()
+        var envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        envelope.workspace.updateAllPanes { pane in
+            pane.scrollbackFile = pane.id == "pane-main" ? fileName : nil
+        }
+        try store.saveSnapshot(envelope)
+        let archive = SessionScrollbackArchive(stateDirectoryURL: directoryURL)
+        try archive.write("saved output\n", fileName: fileName)
+        try archive.write("stray output\n", fileName: "pane-stray-L0.txt")
     }
 
     func waitForAppWindows(

@@ -1078,6 +1078,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.showToast(message: message)
     }
 
+    func showToast(message: String, duration: TimeInterval) {
+        rootViewController.showToast(message: message, duration: duration)
+    }
+
     @objc
     func movePaneToWorklane(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,
