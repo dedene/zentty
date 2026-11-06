@@ -1931,7 +1931,7 @@ private extension AppDelegateTests {
     }
 }
 
-private final class RenameFailingFileManager: FileManager, @unchecked Sendable {
+private final class RenameFailingFileManager: FileManager {
     private let lock = NSLock()
     private var failsRenames = true
 
