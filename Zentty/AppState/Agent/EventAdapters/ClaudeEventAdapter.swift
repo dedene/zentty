@@ -245,7 +245,7 @@ extension AgentEventBridge {
                         ?? AgentInteractionClassifier.preferredWaitingMessage(existing: sessionRecord?.lastNotificationText, candidate: originalMessage)
                         ?? "Claude is waiting for your input"
                 }
-                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: structuredKind, confidence: structuredConfidence, sessionID: input.sessionID)]
+                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: structuredKind, interactionPromptID: sessionRecord?.structuredInteractionPromptID, confidence: structuredConfidence, sessionID: input.sessionID)]
             }
 
             let message: String
@@ -273,8 +273,9 @@ extension AgentEventBridge {
             let toolUseID = input.toolUseID
                 ?? inheritedToolUseID
                 ?? claudeRetainedStructuredToolUseID(input: input, existing: existing)
+            var promptID: String?
             if let sessionID = input.sessionID {
-                try sessionStore.rememberStructuredInteraction(
+                promptID = try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
                     windowID: existing?.windowID ?? target.windowID,
                     worklaneID: existing?.worklaneID ?? target.worklaneID,
@@ -293,7 +294,7 @@ extension AgentEventBridge {
                     consumedPreToolUseID: inheritedToolUseID
                 )
             }
-            return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: interaction.interactionKind, confidence: .explicit, sessionID: input.sessionID)]
+            return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: interaction.interactionKind, interactionPromptID: promptID, confidence: .explicit, sessionID: input.sessionID)]
 
         case "PreToolUse":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
@@ -307,7 +308,7 @@ extension AgentEventBridge {
                     candidateText: prompt.text,
                     candidateKind: prompt.interactionKind
                 )
-                try sessionStore.rememberStructuredInteraction(
+                let promptID = try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
                     windowID: existing?.windowID ?? target.windowID,
                     worklaneID: existing?.worklaneID ?? target.worklaneID,
@@ -321,7 +322,7 @@ extension AgentEventBridge {
                     toolName: input.toolName,
                     agentID: input.agentID
                 )
-                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: prompt.interactionKind, confidence: .explicit, sessionID: input.sessionID)]
+                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: prompt.interactionKind, interactionPromptID: promptID, confidence: .explicit, sessionID: input.sessionID)]
             }
             let preToolExisting = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             if let sessionID = input.sessionID {
@@ -736,6 +737,7 @@ extension AgentEventBridge {
         cwd: String? = nil,
         lifecycleEvent: AgentLifecycleEvent? = .update,
         interactionKind: PaneAgentInteractionKind? = nil,
+        interactionPromptID: String? = nil,
         confidence: AgentSignalConfidence? = nil,
         sessionID: String? = nil,
         taskProgress: PaneAgentTaskProgress? = nil,
@@ -751,6 +753,7 @@ extension AgentEventBridge {
             text: text,
             lifecycleEvent: lifecycleEvent,
             interactionKind: interactionKind,
+            interactionPromptID: interactionPromptID,
             confidence: confidence,
             sessionID: sessionID,
             taskProgress: taskProgress,

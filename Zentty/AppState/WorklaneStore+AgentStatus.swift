@@ -623,6 +623,7 @@ extension WorklaneStore {
                     text: payload.text,
                     lifecycleEvent: payload.lifecycleEvent,
                     interactionKind: payload.interactionKind,
+                    interactionPromptID: payload.interactionPromptID,
                     confidence: payload.confidence,
                     sessionID: payload.sessionID,
                     parentSessionID: payload.parentSessionID,

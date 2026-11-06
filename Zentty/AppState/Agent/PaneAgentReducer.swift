@@ -15,6 +15,8 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var source: PaneAgentStatusSource
     var origin: AgentSignalOrigin
     var interactionKind: PaneAgentInteractionKind
+    /// Identity of the stored prompt on screen. Meaningful only in `.needsInput`.
+    var interactionPromptID: String? = nil
     var confidence: AgentSignalConfidence
     var shellActivityState: PaneShellActivityState
     var trackedPID: Int32?
@@ -437,6 +439,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             source: session.source,
             origin: session.origin,
             interactionKind: session.interactionKind,
+            interactionPromptID: session.state == .needsInput ? session.interactionPromptID : nil,
             confidence: session.confidence,
             shellActivityState: session.shellActivityState,
             trackedPID: session.trackedPID,
@@ -566,6 +569,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
         session.state = state
         session.interactionKind = state == .needsInput ? interactionKind : .none
+        // A weaker needsInput refresh keeps naming the prompt still on screen.
+        session.interactionPromptID = state == .needsInput
+            ? payload.interactionPromptID ?? (previousState == .needsInput ? session.interactionPromptID : nil)
+            : nil
         switch state {
         case .needsInput:
             if previousState == .needsInput {

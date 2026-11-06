@@ -38,9 +38,10 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// A PostToolUse from a different agent context is a sibling and must
     /// leave the prompt alone.
     var lastStructuredInteractionAgentID: String? = nil
-    /// When that prompt was stored. A spinner title that lands late is about
-    /// what the pane showed back then, so it must not clear a later prompt.
-    var structuredInteractionOpenedAt: TimeInterval? = nil
+    /// Minted for each stored prompt and carried to the pane on its payload.
+    /// Delivery to the app lags the hook, so only this tells which prompt the
+    /// pane was showing when a spinner title says it was answered.
+    var structuredInteractionPromptID: String? = nil
     /// Unclaimed PreToolUse announcements per agent context (Bash/Write/Edit
     /// matcher set), oldest first, keyed by `agent_id` with `""` for the
     /// parent. A PermissionRequest for the same tool in the same context
@@ -152,7 +153,7 @@ extension ClaudeHookSessionRecord {
         case lastStructuredInteractionToolUseID
         case lastStructuredInteractionToolName
         case lastStructuredInteractionAgentID
-        case structuredInteractionOpenedAt
+        case structuredInteractionPromptID
         case preToolUseSlotsByAgentID
         case lastNotificationText
         case tasks
@@ -182,7 +183,7 @@ extension ClaudeHookSessionRecord {
         lastStructuredInteractionToolUseID = try container.decodeIfPresent(String.self, forKey: .lastStructuredInteractionToolUseID)
         lastStructuredInteractionToolName = try container.decodeIfPresent(String.self, forKey: .lastStructuredInteractionToolName)
         lastStructuredInteractionAgentID = try container.decodeIfPresent(String.self, forKey: .lastStructuredInteractionAgentID)
-        structuredInteractionOpenedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .structuredInteractionOpenedAt)
+        structuredInteractionPromptID = try container.decodeIfPresent(String.self, forKey: .structuredInteractionPromptID)
         do {
             preToolUseSlotsByAgentID = try container.decodeIfPresent([String: [ClaudePreToolUseSlot]].self, forKey: .preToolUseSlotsByAgentID) ?? [:]
         } catch {
@@ -224,7 +225,7 @@ extension ClaudeHookSessionRecord {
         try container.encodeIfPresent(lastStructuredInteractionToolUseID, forKey: .lastStructuredInteractionToolUseID)
         try container.encodeIfPresent(lastStructuredInteractionToolName, forKey: .lastStructuredInteractionToolName)
         try container.encodeIfPresent(lastStructuredInteractionAgentID, forKey: .lastStructuredInteractionAgentID)
-        try container.encodeIfPresent(structuredInteractionOpenedAt, forKey: .structuredInteractionOpenedAt)
+        try container.encodeIfPresent(structuredInteractionPromptID, forKey: .structuredInteractionPromptID)
         try container.encode(preToolUseSlotsByAgentID, forKey: .preToolUseSlotsByAgentID)
         try container.encodeIfPresent(lastNotificationText, forKey: .lastNotificationText)
         try container.encode(tasks, forKey: .tasks)
@@ -442,6 +443,8 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Returns the stored prompt's identity for its payload to carry.
+    @discardableResult
     func rememberStructuredInteraction(
         sessionID: String,
         windowID: WindowID? = nil,
@@ -456,13 +459,13 @@ final class ClaudeHookSessionStore {
         toolName: String? = nil,
         agentID: String? = nil,
         consumedPreToolUseID: String? = nil
-    ) throws {
+    ) throws -> String? {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else {
-            return
+            return nil
         }
 
-        try withLockedState { state in
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalizedSessionID] ?? ClaudeHookSessionRecord(
                 sessionID: normalizedSessionID,
@@ -496,7 +499,8 @@ final class ClaudeHookSessionStore {
             record.lastStructuredInteractionToolUseID = normalizedOptional(toolUseID)
             record.lastStructuredInteractionToolName = normalizedOptional(toolName)
             record.lastStructuredInteractionAgentID = normalizedOptional(agentID)
-            record.structuredInteractionOpenedAt = now
+            let promptID = UUID().uuidString
+            record.structuredInteractionPromptID = promptID
             if let consumedPreToolUseID = normalizedOptional(consumedPreToolUseID) {
                 let key = ClaudeHookSessionRecord.preToolUseSlotKey(agentID: agentID)
                 var slots = record.preToolUseSlotsByAgentID[key] ?? []
@@ -508,6 +512,7 @@ final class ClaudeHookSessionStore {
             record.lastNotificationText = nil
             record.updatedAt = now
             state.sessions[normalizedSessionID] = record
+            return promptID
         }
     }
 
@@ -604,9 +609,9 @@ final class ClaudeHookSessionStore {
     /// already stored a newer prompt, this leaves it alone. The pane may be
     /// showing the Notification message that arrived for the prompt rather
     /// than the prompt text itself, so both count as a match. Text cannot tell
-    /// apart two prompts that read the same, so a prompt opened after
-    /// `shownAt`, when the pane last updated, is left alone too.
-    func clearInteractionContext(sessionID: String, ifTextMatches text: String?, shownAt: Date? = nil) throws {
+    /// apart two prompts that read the same, so a stored prompt other than
+    /// `shownPromptID` is left alone too.
+    func clearInteractionContext(sessionID: String, ifTextMatches text: String?, shownPromptID: String?) throws {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty, let expectedText = normalizedOptional(text) else {
             return
@@ -619,9 +624,7 @@ final class ClaudeHookSessionStore {
             else {
                 return
             }
-            if let openedAt = record.structuredInteractionOpenedAt,
-               let shownAt,
-               openedAt > shownAt.timeIntervalSince1970 {
+            if let storedPromptID = record.structuredInteractionPromptID, storedPromptID != shownPromptID {
                 return
             }
             clearInteractionContext(in: &record, keepsPreToolUseSlots: true)
@@ -636,7 +639,7 @@ final class ClaudeHookSessionStore {
         record.lastStructuredInteractionToolUseID = nil
         record.lastStructuredInteractionToolName = nil
         record.lastStructuredInteractionAgentID = nil
-        record.structuredInteractionOpenedAt = nil
+        record.structuredInteractionPromptID = nil
         if !keepsPreToolUseSlots {
             record.preToolUseSlotsByAgentID.removeAll()
         }

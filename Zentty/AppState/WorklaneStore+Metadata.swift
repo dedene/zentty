@@ -757,7 +757,7 @@ extension WorklaneStore {
         clearClaudeHookInteractionContext(
             sessionID: existingStatus.sessionID,
             promptText: existingStatus.text,
-            promptShownAt: existingStatus.updatedAt
+            promptID: existingStatus.interactionPromptID
         )
     }
 
@@ -770,14 +770,14 @@ extension WorklaneStore {
     /// Only the prompt this pane was showing is cleared: the spinner title can
     /// land after the bridge has already stored the *next* PermissionRequest,
     /// and that one must survive, even when it reads the same.
-    private func clearClaudeHookInteractionContext(sessionID: String?, promptText: String?, promptShownAt: Date) {
+    private func clearClaudeHookInteractionContext(sessionID: String?, promptText: String?, promptID: String?) {
         guard let sessionID, !sessionID.isEmpty,
               let sessionStore = claudeHookSessionStoreProvider()
         else {
             return
         }
         do {
-            try sessionStore.clearInteractionContext(sessionID: sessionID, ifTextMatches: promptText, shownAt: promptShownAt)
+            try sessionStore.clearInteractionContext(sessionID: sessionID, ifTextMatches: promptText, shownPromptID: promptID)
         } catch {
             stopSignalLogger.error(
                 "metadata.claudeSpinnerResume clearInteractionContext failed session=\(sessionID, privacy: .public) error=\(String(describing: error), privacy: .public)"

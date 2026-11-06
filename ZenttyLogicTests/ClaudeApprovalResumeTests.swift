@@ -251,12 +251,13 @@ final class ClaudeApprovalResumeTests: XCTestCase {
             try replay(#"{"hook_event_name":"SessionStart","session_id":"\#(sessionID)"}"#, into: &reducer, at: base)
             try replay(#"{"hook_event_name":"UserPromptSubmit","session_id":"\#(sessionID)"}"#, into: &reducer, at: base + 0.5)
             try replay(#"{"hook_event_name":"PermissionRequest","session_id":"\#(sessionID)","tool_name":"\#(toolName)","message":"Launch agent?"}"#, into: &reducer, at: base + 2)
-            XCTAssertEqual(reducer.reducedStatus(now: base + 2)?.state, .needsInput)
-
             try replay(#"{"hook_event_name":"SubagentStart","session_id":"\#(sessionID)","agent_id":"approved"}"#, into: &reducer, at: base + 3)
+            XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.state, .needsInput, toolName)
 
-            XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.state, .running, toolName)
-            XCTAssertEqual(reducer.reducedStatus(now: base + 3)?.subagents?.entries.map(\.id), ["approved"], toolName)
+            try replay(#"{"hook_event_name":"PostToolUse","session_id":"\#(sessionID)","tool_name":"\#(toolName)","tool_use_id":"tu-agent"}"#, into: &reducer, at: base + 4)
+
+            XCTAssertEqual(reducer.reducedStatus(now: base + 4)?.state, .running, toolName)
+            XCTAssertEqual(reducer.reducedStatus(now: base + 4)?.subagents?.entries.map(\.id), ["approved"], toolName)
             XCTAssertNil(try sessionStore.lookup(sessionID: sessionID)?.structuredInteractionKind, toolName)
         }
     }
@@ -594,7 +595,8 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertEqual(try sessionStore.lookup(sessionID: "s10b")?.lastStructuredInteractionToolUseID, "tu-1")
         XCTAssertEqual(try sessionStore.lookup(sessionID: "s10b")?.preToolUseSlots(agentID: nil).count, 0)
 
-        try sessionStore.clearInteractionContext(sessionID: "s10b", ifTextMatches: "Run make?")
+        let promptID = try sessionStore.lookup(sessionID: "s10b")?.structuredInteractionPromptID
+        try sessionStore.clearInteractionContext(sessionID: "s10b", ifTextMatches: "Run make?", shownPromptID: promptID)
         try replay(#"{"hook_event_name":"PermissionRequest","session_id":"s10b","tool_name":"Bash","message":"Run make again?"}"#, into: &reducer, at: base + 3)
         XCTAssertNil(try sessionStore.lookup(sessionID: "s10b")?.lastStructuredInteractionToolUseID)
     }
@@ -776,16 +778,16 @@ final class ClaudeApprovalResumeTests: XCTestCase {
     func test_clear_if_text_matches_accepts_the_notification_text() throws {
         // The pane may display the non-generic Notification message that
         // arrived for the prompt rather than the prompt text itself.
-        try sessionStore.rememberStructuredInteraction(
+        let promptID = try sessionStore.rememberStructuredInteraction(
             sessionID: "s17", worklaneID: WorklaneID("w"), paneID: PaneID("p"), cwd: nil, pid: nil,
             text: "Run make?", kind: .approval, confidence: .explicit, toolUseID: "tu-bash", toolName: "Bash"
         )
         try sessionStore.recordNotificationText(sessionID: "s17", text: "Claude needs permission to run make in build/")
 
-        try sessionStore.clearInteractionContext(sessionID: "s17", ifTextMatches: "Something else entirely")
+        try sessionStore.clearInteractionContext(sessionID: "s17", ifTextMatches: "Something else entirely", shownPromptID: promptID)
         XCTAssertEqual(try sessionStore.lookup(sessionID: "s17")?.structuredInteractionKind, .approval, "an unrelated text must not clear")
 
-        try sessionStore.clearInteractionContext(sessionID: "s17", ifTextMatches: "Claude needs permission to run make in build/")
+        try sessionStore.clearInteractionContext(sessionID: "s17", ifTextMatches: "Claude needs permission to run make in build/", shownPromptID: promptID)
         let record = try XCTUnwrap(sessionStore.lookup(sessionID: "s17"))
         XCTAssertNil(record.structuredInteractionKind)
         XCTAssertNil(record.lastStructuredInteractionToolUseID)
@@ -1101,7 +1103,7 @@ final class ClaudeSpinnerTitleResumeTests: XCTestCase {
         )
         store.knownNonRepositoryPaths.insert("/tmp/project")
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
-        try sessionStore.rememberStructuredInteraction(
+        let promptID = try sessionStore.rememberStructuredInteraction(
             sessionID: "session-claude-spinner",
             worklaneID: store.activeWorklaneID,
             paneID: paneID,
@@ -1120,7 +1122,8 @@ final class ClaudeSpinnerTitleResumeTests: XCTestCase {
         store.applyAgentStatusPayload(
             claudePayload(
                 paneID: paneID, worklaneID: store.activeWorklaneID,
-                state: .needsInput, text: "Create file ZENTTY_OK?", interactionKind: .approval
+                state: .needsInput, text: "Create file ZENTTY_OK?", interactionKind: .approval,
+                interactionPromptID: promptID
             )
         )
         XCTAssertEqual(try sessionStore.lookup(sessionID: "session-claude-spinner")?.structuredInteractionKind, .approval)
@@ -1228,6 +1231,76 @@ final class ClaudeSpinnerTitleResumeTests: XCTestCase {
         XCTAssertEqual(record.lastStructuredInteractionToolUseID, "tu-bash", "the newer prompt must survive the stale resume")
     }
 
+    func test_title_resume_keeps_identical_prompt_stored_while_the_answered_one_was_in_delivery() throws {
+        // Hooks finish in order, but the app applies their payloads later: P2
+        // is already stored when P1 reaches the reducer, so the time the pane
+        // received P1 says nothing about which prompt it shows.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zentty-claude-spinner-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let sessionStore = ClaudeHookSessionStore(
+            stateURL: directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        )
+        let subagentStore = AgentSubagentRegistryStore(
+            stateURL: directory.appendingPathComponent("agent-subagent-sessions.json", isDirectory: false),
+            transcriptModificationDate: { _ in nil }
+        )
+        let store = WorklaneStore(
+            readyStatusDebounceInterval: 0,
+            claudeHookSessionStoreProvider: { sessionStore }
+        )
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let environment = [
+            "ZENTTY_WORKLANE_ID": store.activeWorklaneID.rawValue,
+            "ZENTTY_PANE_ID": paneID.rawValue,
+        ]
+        func hook(_ json: String) throws -> [AgentStatusPayload] {
+            try AgentEventBridge.claudeMakePayloads(
+                from: AgentEventBridge.claudeParseInput(Data(json.utf8)),
+                environment: environment,
+                sessionStore: sessionStore,
+                subagentStore: subagentStore
+            ).map { try AgentStatusPayload(userInfo: XCTUnwrap($0.notificationUserInfo)) }
+        }
+        func status() -> PaneAgentStatus? {
+            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus
+        }
+        let session = "delayed-delivery"
+        let prompt = #"{"hook_event_name":"PermissionRequest","session_id":"\#(session)","tool_name":"Bash","message":"Run make?"}"#
+
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "◐ regression test"))
+        try hook(#"{"hook_event_name":"UserPromptSubmit","session_id":"\#(session)"}"#).forEach(store.applyAgentStatusPayload)
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "✳ regression test"))
+
+        let firstPrompt = try hook(prompt)
+        let secondPrompt = try hook(prompt)
+        firstPrompt.forEach(store.applyAgentStatusPayload)
+        XCTAssertEqual(status()?.state, .needsInput)
+
+        // Answering P1 brings the spinner back before P2's payload lands.
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "◐ regression test"))
+        XCTAssertEqual(status()?.state, .running)
+        XCTAssertEqual(
+            try sessionStore.lookup(sessionID: session)?.structuredInteractionKind, .approval,
+            "the title answered P1, so P2 must stay in the store"
+        )
+
+        secondPrompt.forEach(store.applyAgentStatusPayload)
+        XCTAssertEqual(status()?.state, .needsInput)
+
+        // A sibling finishing beside P2 finds it protected and stays quiet.
+        let sibling = #"{"hook_event_name":"PostToolUse","session_id":"\#(session)","tool_name":"Read","tool_use_id":"tu-read"}"#
+        XCTAssertTrue(try hook(sibling).isEmpty)
+
+        // P2 itself is on screen now, so its answer does clear it.
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "✳ regression test"))
+        store.updateMetadata(paneID: paneID, metadata: metadata(title: "◐ regression test"))
+        XCTAssertEqual(status()?.state, .running)
+        XCTAssertNil(try sessionStore.lookup(sessionID: session)?.structuredInteractionKind)
+    }
+
     func test_stale_spinner_title_before_dialog_title_does_not_clear_prompt() throws {
         // Reverse race: PermissionRequest lands before the "✳" title does. The
         // spinner glyph that is still on screen must not be read as a resume.
@@ -1265,7 +1338,8 @@ final class ClaudeSpinnerTitleResumeTests: XCTestCase {
         worklaneID: WorklaneID,
         state: PaneAgentState,
         text: String? = nil,
-        interactionKind: PaneAgentInteractionKind? = nil
+        interactionKind: PaneAgentInteractionKind? = nil,
+        interactionPromptID: String? = nil
     ) -> AgentStatusPayload {
         AgentStatusPayload(
             worklaneID: worklaneID,
@@ -1277,6 +1351,7 @@ final class ClaudeSpinnerTitleResumeTests: XCTestCase {
             text: text,
             lifecycleEvent: .update,
             interactionKind: interactionKind,
+            interactionPromptID: interactionPromptID,
             confidence: .explicit,
             sessionID: "session-claude-spinner",
             artifactKind: nil,
