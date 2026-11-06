@@ -851,6 +851,10 @@ final class PaneContainerViewTests: AppKitTestCase {
         contentView.addSubview(paneView)
         window.makeKeyAndOrderFrontForAppKitTesting(nil)
         paneView.layoutSubtreeIfNeeded()
+        let sibling = NSView(frame: .zero)
+        contentView.addSubview(sibling)
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        XCTAssertFalse(paneView.isTerminalFocused)
 
         var selectionCount = 0
         paneView.onSelected = {
@@ -859,6 +863,55 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         XCTAssertTrue(paneView.focusTerminalIfReady())
         XCTAssertEqual(selectionCount, 0)
+        XCTAssertTrue(window.firstResponder === terminalView)
+
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        paneView.focusTerminal()
+        XCTAssertEqual(selectionCount, 0)
+        XCTAssertTrue(window.firstResponder === terminalView)
+    }
+
+    func test_user_focus_after_programmatic_focus_still_selects_pane() {
+        let (paneView, _, terminalView, sibling, window) = makeWindowedSearchPane()
+        var selectionCount = 0
+        paneView.onSelected = {
+            selectionCount += 1
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        XCTAssertTrue(paneView.focusTerminalIfReady())
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+
+        XCTAssertEqual(selectionCount, 1)
+    }
+
+    func test_context_menu_focus_selects_the_pane() {
+        let (paneView, _, terminalView, sibling, window) = makeWindowedSearchPane()
+        var selectionCount = 0
+        paneView.onSelected = {
+            selectionCount += 1
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        _ = paneView.makeDragZoneContextMenu()
+
+        XCTAssertEqual(selectionCount, 1)
+        XCTAssertTrue(window.firstResponder === terminalView)
+    }
+
+    func test_closing_search_from_hud_returns_focus_and_selects_the_pane() {
+        let (paneView, runtime, terminalView, sibling, window) = makeWindowedSearchPane()
+        var selectionCount = 0
+        paneView.onSelected = {
+            selectionCount += 1
+        }
+
+        runtime.showSearch()
+        XCTAssertTrue(window.makeFirstResponder(sibling))
+        paneView.searchHUDCloseButtonForTesting.performClick(nil)
+
+        XCTAssertEqual(selectionCount, 1)
         XCTAssertTrue(window.firstResponder === terminalView)
     }
 

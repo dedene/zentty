@@ -1154,7 +1154,7 @@ final class MainWindowControllerTests: XCTestCase {
         let expectedLeadingInset = appCanvasView.leadingVisibleInset
         let expectedTrailingEdge = appCanvasView.bounds.width - paneViews[1].insetBorderInset
 
-        paneViews[1].focusTerminal()
+        rootViewController.handle(.pane(.focusRight))
         waitForLayout("focus second pane settled", delay: 0.05)
 
         paneViews = appCanvasView

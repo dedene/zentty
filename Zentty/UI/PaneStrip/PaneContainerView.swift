@@ -598,12 +598,7 @@ final class PaneContainerView: NSView {
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
             guard let self else { return }
             self.runtime.handleTerminalFocusChange(isFocused)
-            if isFocused, self.suppressSelectionOnNextProgrammaticFocus {
-                self.suppressSelectionOnNextProgrammaticFocus = false
-                return
-            }
-            if !isFocused {
-                self.suppressSelectionOnNextProgrammaticFocus = false
+            guard isFocused, !self.suppressSelectionOnNextProgrammaticFocus else {
                 return
             }
             self.onSelected?()
@@ -620,11 +615,11 @@ final class PaneContainerView: NSView {
         }
         terminalHostView.onSearchHide = { [weak self] in
             self?.runtime.hideSearchHUD()
-            self?.focusTerminal()
+            self?.focusTerminalSelectingPane()
         }
         terminalHostView.onSearchClose = { [weak self] in
             self?.runtime.endSearch()
-            self?.focusTerminal()
+            self?.focusTerminalSelectingPane()
         }
         terminalHostView.onSearchCornerChange = { [weak self] corner in
             self?.runtime.setSearchHUDCorner(corner)
@@ -829,23 +824,26 @@ final class PaneContainerView: NSView {
         }
     }
 
+    // The focus callback fires synchronously from becomeFirstResponder, so
+    // suppression has to cover the call, and ends with it.
     func focusTerminal() {
-        let wasFocused = runtime.hostView.isTerminalFocused
+        suppressSelectionOnNextProgrammaticFocus = !runtime.hostView.isTerminalFocused
+        runtime.hostView.focusTerminal()
         suppressSelectionOnNextProgrammaticFocus = false
-        if runtime.hostView.focusTerminal(), !wasFocused {
-            suppressSelectionOnNextProgrammaticFocus = true
-        }
     }
 
     @discardableResult
     func focusTerminalIfReady() -> Bool {
-        let wasFocused = runtime.hostView.isTerminalFocused
-        suppressSelectionOnNextProgrammaticFocus = false
+        suppressSelectionOnNextProgrammaticFocus = !runtime.hostView.isTerminalFocused
         let didFocus = runtime.hostView.focusTerminalIfReady()
-        if didFocus, !wasFocused {
-            suppressSelectionOnNextProgrammaticFocus = true
-        }
+        suppressSelectionOnNextProgrammaticFocus = false
         return didFocus
+    }
+
+    /// For user gestures on a pane that may not be the selected one, such as a
+    /// right-click or the search HUD's buttons: selection follows focus, as on a click.
+    private func focusTerminalSelectingPane() {
+        runtime.hostView.focusTerminal()
     }
 
     var isTerminalFocused: Bool {
@@ -1606,7 +1604,7 @@ final class PaneContainerView: NSView {
     }
 
     private func makeContextMenu(merging systemMenu: NSMenu?) -> NSMenu? {
-        focusTerminal()
+        focusTerminalSelectingPane()
 
         let customMenu = NSMenu(title: "")
         if let restoredCommand = restoredRerunnableCommandProvider?(paneID) {

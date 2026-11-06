@@ -3334,6 +3334,47 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_external_focus_change_keeps_hover_suppressed_after_programmatic_terminal_focus() throws {
+        let factory = TerminalAdapterFactorySpy()
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 980, height: 680),
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: factory.makeAdapter)
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                paneStripView.prepareForTestingTearDown()
+            }
+        }
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = .zero
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("editor")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        factory.adapters.forEach { $0.terminalView.reportsResponderChanges = true }
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        let testsAdapter = try XCTUnwrap(factory.adapter(for: PaneID("tests")))
+        XCTAssertTrue(testsAdapter.terminalView.window?.firstResponder === testsAdapter.terminalView)
+
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
     func test_same_location_pointer_movement_does_not_reclaim_focus_after_horizontal_scroll_focus() throws {
         let paneStripView = makePaneStripView(width: 980)
         hostInVisibleWindow(paneStripView)
@@ -5141,6 +5182,21 @@ private final class PaneStripTerminalViewSpy:
     private(set) var cursorExclusionRects: [CGRect] = []
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
+    var reportsResponderChanges = false
+
+    override func becomeFirstResponder() -> Bool {
+        if reportsResponderChanges {
+            onFocusDidChange?(true)
+        }
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if reportsResponderChanges {
+            onFocusDidChange?(false)
+        }
+        return true
+    }
 
     var terminalFocusTargetView: NSView {
         usesDetachedFocusTarget ? detachedFocusTarget : self
