@@ -365,6 +365,19 @@ final class AgentHistoryConsentTests: XCTestCase {
         XCTAssertEqual(model.consent?.isIndexing, true)
     }
 
+    func test_consent_that_could_not_be_saved_unlocks_the_card_with_an_error() throws {
+        control.stateChangeOutcome = .notSaved
+        let model = startedConsent()
+
+        model.confirmConsent()
+
+        XCTAssertEqual(model.body, .consent)
+        let consent = try XCTUnwrap(model.consent)
+        XCTAssertFalse(consent.isIndexing, "no indexer is coming to report progress")
+        XCTAssertEqual(consent.saveError, AgentHistoryConsentModel.stateNotSavedError)
+        XCTAssertTrue(consent.canConfirm, "the user can try again")
+    }
+
     func test_switches_to_results_after_50_sessions_indexed() throws {
         let model = startedConsent()
         model.confirmConsent()
