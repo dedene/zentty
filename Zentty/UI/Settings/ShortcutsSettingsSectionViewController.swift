@@ -351,6 +351,17 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         ))
     }
 
+    var isRecordingForTesting: Bool {
+        recordingCommandID != nil
+    }
+
+    func handleRecordingKeyDownForTesting(_ event: NSEvent) {
+        guard let recordingCommandID else {
+            return
+        }
+        _ = handleRecordingKeyDown(event, commandID: recordingCommandID)
+    }
+
     func updateRecordingPreviewModifiersForTesting(_ modifiers: Set<KeyboardModifier>) {
         guard let selectedCommandID else {
             return
@@ -1043,47 +1054,54 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
                 return event
             }
 
-            switch event.keyCode {
-            case UInt16(kVK_Escape):
-                self.issueByCommandID[recordingCommandID] = nil
-                self.recordingCommandID = nil
-                self.clearRecordingPreview()
-                self.refreshVisibleState()
-                return nil
-            case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
-                // Bare Delete/Forward-Delete clears the binding; with modifiers it records.
-                let combinedModifiers = KeyboardModifier.from(flags: event.modifierFlags)
-                    .union(self.recordingClickedModifiers)
-                if combinedModifiers.isEmpty {
-                    self.clearShortcut(for: recordingCommandID)
-                } else if let shortcut = KeyboardShortcut(event: event) {
-                    let combinedShortcut = KeyboardShortcut(
-                        key: shortcut.key,
-                        modifiers: shortcut.modifiers.union(self.recordingClickedModifiers)
-                    )
-                    self.recordingPreviewKey = combinedShortcut.key
-                    self.commit(
-                        shortcut: combinedShortcut,
-                        for: recordingCommandID
-                    )
-                }
-                return nil
-            default:
-                break
-            }
+            return self.handleRecordingKeyDown(event, commandID: recordingCommandID)
+        }
+    }
 
-            guard let shortcut = KeyboardShortcut(event: event) else {
-                return nil
+    private func handleRecordingKeyDown(
+        _ event: NSEvent,
+        commandID: AppCommandID
+    ) -> NSEvent? {
+        switch event.keyCode {
+        case UInt16(kVK_Escape):
+            issueByCommandID[commandID] = nil
+            recordingCommandID = nil
+            clearRecordingPreview()
+            refreshVisibleState()
+            return nil
+        case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
+            // Bare Delete/Forward-Delete clears the binding; with modifiers it records.
+            let combinedModifiers = KeyboardModifier.from(flags: event.modifierFlags)
+                .union(recordingClickedModifiers)
+            if combinedModifiers.isEmpty {
+                clearShortcut(for: commandID)
+            } else if let shortcut = KeyboardShortcut(event: event) {
+                let combinedShortcut = KeyboardShortcut(
+                    key: shortcut.key,
+                    modifiers: shortcut.modifiers.union(recordingClickedModifiers)
+                )
+                recordingPreviewKey = combinedShortcut.key
+                commit(
+                    shortcut: combinedShortcut,
+                    for: commandID
+                )
             }
+            return nil
+        default:
+            break
+        }
 
-            let combinedShortcut = KeyboardShortcut(
-                key: shortcut.key,
-                modifiers: shortcut.modifiers.union(self.recordingPreviewModifiers)
-            )
-            self.recordingPreviewKey = combinedShortcut.key
-            self.commit(shortcut: combinedShortcut, for: recordingCommandID)
+        guard let shortcut = KeyboardShortcut(event: event) else {
             return nil
         }
+
+        let combinedShortcut = KeyboardShortcut(
+            key: shortcut.key,
+            modifiers: shortcut.modifiers.union(recordingPreviewModifiers)
+        )
+        recordingPreviewKey = combinedShortcut.key
+        commit(shortcut: combinedShortcut, for: commandID)
+        return nil
     }
 
     private func removeKeyMonitor() {
