@@ -15,10 +15,27 @@ final class SessionRestoreStore {
         var envelope: SessionRestoreEnvelope
     }
 
+    /// What a launch does about the snapshot on disk.
+    enum LaunchAction: Equatable, Sendable {
+        case startFresh
+        case restore(LaunchDecision)
+        /// The snapshot kept killing launches, so it now lives at this URL.
+        case setAside(URL)
+    }
+
     private struct LifecycleState: Codable, Equatable, Sendable {
         var cleanExit: Bool
         var updatedAt: Date
+        /// Restores started since the last save. Older builds ignore it and
+        /// write files without it, which reads as zero.
+        var incompleteRestoreLaunches: Int?
     }
+
+    /// Launches that may die before their first save. The one after them
+    /// sets the snapshot aside instead of trying again.
+    private static let incompleteRestoreLaunchLimit = 2
+    private static let setAsideInfix = ".set-aside-"
+    private static let scrollbackFileKey = "scrollbackFile"
 
     let snapshotURL: URL
     let lifecycleURL: URL
@@ -41,25 +58,81 @@ final class SessionRestoreStore {
         )
     }
 
+    /// What a launch would restore, without recording anything.
     func prepareForLaunch(restorePreferenceEnabled: Bool) throws -> LaunchDecision? {
-        guard let envelope = try loadSnapshot() else {
+        guard let envelope = try loadSnapshot(),
+              let reason = Self.restoreReason(
+                  lifecycle: lifecycleStateForLaunch(),
+                  restorePreferenceEnabled: restorePreferenceEnabled
+              ) else {
             return nil
         }
 
-        if lifecycleStateForLaunch()?.cleanExit == false {
-            return LaunchDecision(reason: .crashRecovery, envelope: envelope)
-        }
-
-        guard restorePreferenceEnabled else {
-            return nil
-        }
-
-        return LaunchDecision(reason: .normalRestore, envelope: envelope)
+        return LaunchDecision(reason: reason, envelope: envelope)
     }
 
-    func markLaunchStarted() throws {
+    /// Moves the lifecycle on for this launch and says what to do with the
+    /// snapshot. The attempt is on disk before the snapshot is even decoded, so
+    /// a crash anywhere in the restore counts. Crash recovery ignores the
+    /// preference, so it counts too: a launch that would restore is limited.
+    /// Throws when the snapshot can't be read or set aside, which leaves
+    /// nothing to restore.
+    func beginLaunch(restorePreferenceEnabled: Bool) throws -> LaunchAction {
+        let lifecycle = lifecycleStateForLaunch()
+        guard fileManager.fileExists(atPath: snapshotURL.path),
+              let reason = Self.restoreReason(
+                  lifecycle: lifecycle,
+                  restorePreferenceEnabled: restorePreferenceEnabled
+              ) else {
+            recordLaunchStarted(incompleteRestoreLaunches: 0)
+            return .startFresh
+        }
+
+        let incompleteRestoreLaunches = lifecycle?.incompleteRestoreLaunches ?? 0
+        guard incompleteRestoreLaunches < Self.incompleteRestoreLaunchLimit else {
+            // Renamed first: dying here must leave the count for the next try.
+            let setAsideURL = try setAsideSnapshot()
+            recordLaunchStarted(incompleteRestoreLaunches: 0)
+            return .setAside(setAsideURL)
+        }
+
+        recordLaunchStarted(incompleteRestoreLaunches: incompleteRestoreLaunches + 1)
+        guard let envelope = try loadSnapshot() else {
+            return .startFresh
+        }
+        return .restore(LaunchDecision(reason: reason, envelope: envelope))
+    }
+
+    /// The scrollback files set-aside snapshots point at. Runs on every launch
+    /// on files set aside because reopening them failed, so it reads plain JSON
+    /// instead of decoding them, and never fails.
+    func setAsideScrollbackFileNames() -> Set<String> {
+        let directoryURL = snapshotURL.deletingLastPathComponent()
+        let names = (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? []
+        var scrollbackFileNames = Set<String>()
+        for name in names where isSetAsideSnapshotName(name) {
+            do {
+                let data = try Data(contentsOf: directoryURL.appendingPathComponent(name, isDirectory: false))
+                Self.collectScrollbackFileNames(
+                    in: try JSONSerialization.jsonObject(with: data),
+                    into: &scrollbackFileNames
+                )
+            } catch {
+                sessionRestoreLogger.error(
+                    "Skipping unreadable set-aside snapshot \(name, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+        return scrollbackFileNames
+    }
+
+    func markLaunchStarted(incompleteRestoreLaunches: Int = 0) throws {
         try persist(
-            LifecycleState(cleanExit: false, updatedAt: Date()),
+            LifecycleState(
+                cleanExit: false,
+                updatedAt: Date(),
+                incompleteRestoreLaunches: incompleteRestoreLaunches
+            ),
             to: lifecycleURL
         )
     }
@@ -80,6 +153,7 @@ final class SessionRestoreStore {
         }
 
         try persist(envelopeToPersist, to: snapshotURL)
+        clearIncompleteRestoreLaunches()
     }
 
     /// The `session-scrollback` file names the snapshot's panes point at.
@@ -99,6 +173,91 @@ final class SessionRestoreStore {
         }
 
         try fileManager.removeItem(at: snapshotURL)
+        clearIncompleteRestoreLaunches()
+    }
+
+    private static func restoreReason(
+        lifecycle: LifecycleState?,
+        restorePreferenceEnabled: Bool
+    ) -> LaunchDecision.Reason? {
+        if lifecycle?.cleanExit == false {
+            return .crashRecovery
+        }
+        return restorePreferenceEnabled ? .normalRestore : nil
+    }
+
+    /// A lost write costs the limit for one launch, which is better than
+    /// giving up the workspace, so it never stops the launch.
+    private func recordLaunchStarted(incompleteRestoreLaunches: Int) {
+        do {
+            try markLaunchStarted(incompleteRestoreLaunches: incompleteRestoreLaunches)
+        } catch {
+            sessionRestoreLogger.error(
+                "Failed to mark restore launch as started: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    /// A save means this launch got past reopening the workspace. It stays
+    /// marked as running: a later crash is still a crash to recover from, it
+    /// just no longer counts against the snapshot.
+    private func clearIncompleteRestoreLaunches() {
+        guard var lifecycle = lifecycleStateForLaunch(),
+              lifecycle.incompleteRestoreLaunches ?? 0 != 0 else {
+            return
+        }
+
+        lifecycle.incompleteRestoreLaunches = 0
+        lifecycle.updatedAt = Date()
+        do {
+            try persist(lifecycle, to: lifecycleURL)
+        } catch {
+            sessionRestoreLogger.error(
+                "Failed to clear incomplete restore launches: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    /// Takes the first free number. `moveItem` refuses an existing destination,
+    /// so an earlier set-aside file can never be overwritten.
+    private func setAsideSnapshot() throws -> URL {
+        let stem = snapshotURL.deletingPathExtension().lastPathComponent
+        var number = 1
+        while true {
+            let destinationURL = snapshotURL.deletingLastPathComponent().appendingPathComponent(
+                "\(stem)\(Self.setAsideInfix)\(number).\(snapshotURL.pathExtension)",
+                isDirectory: false
+            )
+            do {
+                try fileManager.moveItem(at: snapshotURL, to: destinationURL)
+                return destinationURL
+            } catch CocoaError.fileWriteFileExists {
+                number += 1
+            }
+        }
+    }
+
+    private func isSetAsideSnapshotName(_ name: String) -> Bool {
+        let stem = snapshotURL.deletingPathExtension().lastPathComponent
+        return name.hasPrefix("\(stem)\(Self.setAsideInfix)") && name.hasSuffix(".\(snapshotURL.pathExtension)")
+    }
+
+    private static func collectScrollbackFileNames(in value: Any, into fileNames: inout Set<String>) {
+        switch value {
+        case let object as [String: Any]:
+            if let fileName = object[scrollbackFileKey] as? String {
+                fileNames.insert(fileName)
+            }
+            for nestedValue in object.values {
+                collectScrollbackFileNames(in: nestedValue, into: &fileNames)
+            }
+        case let array as [Any]:
+            for nestedValue in array {
+                collectScrollbackFileNames(in: nestedValue, into: &fileNames)
+            }
+        default:
+            break
+        }
     }
 
     private func loadSnapshot() throws -> SessionRestoreEnvelope? {

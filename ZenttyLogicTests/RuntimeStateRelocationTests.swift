@@ -343,6 +343,66 @@ final class RuntimeStateRelocationTests: XCTestCase {
 
     // MARK: - Helpers
 
+    func test_limit_works_from_the_config_directory_when_the_pair_could_not_be_copied() throws {
+        try saveConfigDirectorySnapshot()
+        let store = SessionRestoreStore(stateDirectoryURL: restoreStoreDirectory())
+        XCTAssertEqual(restoreStoreDirectory().path, configDirectoryURL.path)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+
+        let action = try store.beginLaunch(restorePreferenceEnabled: true)
+
+        let setAsideURL = configDirectoryURL.appendingPathComponent("restore-snapshot.set-aside-1.json")
+        XCTAssertEqual(action, .setAside(setAsideURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: setAsideURL.path))
+    }
+
+    func test_a_snapshot_set_aside_in_the_config_directory_is_not_relocated() throws {
+        try saveConfigDirectorySnapshot()
+        let store = SessionRestoreStore(stateDirectoryURL: configDirectoryURL)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(copied, [])
+        XCTAssertEqual(restoreStoreDirectory().path, stateDirectoryURL.path)
+        XCTAssertEqual(
+            try SessionRestoreStore(stateDirectoryURL: stateDirectoryURL).beginLaunch(restorePreferenceEnabled: true),
+            .startFresh
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: stateDirectoryURL.appendingPathComponent("restore-snapshot.set-aside-1.json").path
+            )
+        )
+    }
+
+    /// The config directory keeps the original for older builds. Once the copy
+    /// here is set aside, that original must not be copied back in to crash again.
+    func test_setting_aside_in_the_state_directory_does_not_bring_the_old_copy_back() throws {
+        try saveConfigDirectorySnapshot()
+        RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+        try FileManager.default.removeItem(at: stateDirectoryURL.appendingPathComponent(RuntimeStateRelocation.markerFileName))
+        let store = SessionRestoreStore(stateDirectoryURL: stateDirectoryURL)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        _ = try store.beginLaunch(restorePreferenceEnabled: true)
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertFalse(copied.contains("restore-snapshot.json"))
+        XCTAssertEqual(restoreStoreDirectory().path, stateDirectoryURL.path)
+        XCTAssertEqual(try store.beginLaunch(restorePreferenceEnabled: true), .startFresh)
+    }
+
+    private func saveConfigDirectorySnapshot() throws {
+        try SessionRestoreStore(stateDirectoryURL: configDirectoryURL).saveSnapshot(
+            SessionRestoreEnvelope(workspace: SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"]))
+        )
+    }
+
     private func restoreStoreDirectory() -> URL {
         RuntimeStateRelocation.restoreStoreDirectory(from: configDirectoryURL, to: stateDirectoryURL)
     }
