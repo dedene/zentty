@@ -208,6 +208,7 @@ extension AgentHistoryIndexer {
     }
 
     func enterStandby() {
+        storage.clearStaleUnavailability()
         if lifecycle != .standby {
             lifecycle = .standby
             AgentHistoryLog.indexer.info("Agent History index owned by another instance; standing by")

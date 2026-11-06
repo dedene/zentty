@@ -19,12 +19,13 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
     /// directory, its own recorder.
     private func makeSecondInstance(
         _ harness: AgentHistoryIndexerHarness,
-        recorder: AgentHistoryPublishedRecorder
+        recorder: AgentHistoryPublishedRecorder,
+        storage: AgentHistoryStorage? = nil
     ) -> AgentHistoryIndexer {
         let source = harness.source
         let clock = harness.clock
         let indexer = AgentHistoryIndexer(
-            storage: AgentHistoryStorage(paths: harness.index.paths),
+            storage: storage ?? AgentHistoryStorage(paths: harness.index.paths),
             stateStore: harness.stateStore,
             makeSources: { [source] },
             configuration: AgentHistoryIndexerConfiguration(
@@ -182,6 +183,51 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
 
         XCTAssertEqual(second.currentSnapshot.removedKeys, [removedKey, liveKey])
         XCTAssertEqual(second.currentStatus.removedSessionCount, 2)
+    }
+
+    /// An open that failed earlier must not shut a later standby out of a healthy index: a
+    /// standby never opens the writer, so nothing else would clear it.
+    func test_standby_reads_after_an_earlier_failed_open() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1")])
+        try FileManager.default.createDirectory(at: harness.index.paths.directoryURL, withIntermediateDirectories: true)
+        var options = AgentHistoryStorage.Options()
+        options.setupLockTimeout = 0.1
+        let storage = AgentHistoryStorage(paths: harness.index.paths, options: options, appVersion: "test")
+        addTeardownBlock { storage.readers.closeAll() }
+        let held = try AgentHistorySetupLock(url: harness.index.paths.lockURL, timeout: 0)
+        XCTAssertThrowsError(try storage.openWriter())
+        held.unlock()
+        XCTAssertEqual(storage.availability, .unavailable(.busy))
+
+        // The open's cause is gone and another instance owns the index when this one comes back.
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder, storage: storage)
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+
+        XCTAssertEqual(storage.availability, .ready)
+        XCTAssertEqual(second.currentSnapshot.sessions.map(\.nativeID), ["s1"])
+    }
+
+    /// Clearing a failed open leaves the newer-schema state alone: it is what keeps this build
+    /// from reading an index it does not understand.
+    func test_clearing_a_failed_open_keeps_the_newer_schema_state() throws {
+        let index = AgentHistoryTestIndex(testCase: self)
+        try index.openWriter().setUserVersion(AgentHistorySchema.currentVersion + 1)
+        index.closeWriter()
+        XCTAssertThrowsError(try index.storage.openWriter())
+        let newerSchema = AgentHistoryAvailability.readOnlyNewerSchema(found: AgentHistorySchema.currentVersion + 1)
+        XCTAssertEqual(index.storage.availability, newerSchema)
+
+        index.storage.clearStaleUnavailability()
+
+        XCTAssertEqual(index.storage.availability, newerSchema)
     }
 
     func test_busy_batch_is_retried_instead_of_dropped() throws {

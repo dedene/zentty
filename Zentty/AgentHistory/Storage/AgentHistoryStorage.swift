@@ -129,6 +129,15 @@ final class AgentHistoryStorage: @unchecked Sendable {
         }
     }
 
+    /// Forgets a failed `openWriter`. A standby instance never opens the writer, so nothing else
+    /// would clear it and every read would keep throwing; readers still validate the file at
+    /// checkout. `.readOnlyNewerSchema` describes the file, not an open, and stays.
+    func clearStaleUnavailability() {
+        if case .unavailable = availability {
+            availability = .ready
+        }
+    }
+
     /// Takes exclusive ownership of the index for writing (see `AgentHistoryWriterLock`). Throws
     /// `.busy` when another indexer keeps it past `timeout`. The lock file sits beside the index
     /// directory, so this never creates the directory (`openWriter` does).
