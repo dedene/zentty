@@ -930,6 +930,82 @@ final class ClaudeApprovalResumeTests: XCTestCase {
         XCTAssertEqual(reducer.reducedStatus(now: base + 21)?.interactionKind, PaneAgentInteractionKind.none)
     }
 
+    func test_corrupt_session_store_is_quarantined_not_overwritten() throws {
+        let directory = try makeSessionStoreDirectory()
+        let stateURL = directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        let quarantineURL = directory.appendingPathComponent("claude-hook-sessions.corrupt.json", isDirectory: false)
+        let original = Data("{ not json".utf8)
+        try original.write(to: stateURL)
+        let store = ClaudeHookSessionStore(stateURL: stateURL)
+
+        XCTAssertNil(try store.lookup(sessionID: "s1"))
+        XCTAssertEqual(try Data(contentsOf: quarantineURL), original)
+
+        try store.rememberStructuredInteraction(
+            sessionID: "s1",
+            worklaneID: WorklaneID("worklane-approval-resume"),
+            paneID: PaneID("pane-approval-resume"),
+            cwd: nil,
+            pid: nil,
+            text: "Run make?",
+            kind: .approval,
+            confidence: .explicit
+        )
+        XCTAssertEqual(try store.lookup(sessionID: "s1")?.structuredInteractionText, "Run make?", "hooks must keep working after the quarantine")
+        XCTAssertEqual(try Data(contentsOf: quarantineURL), original)
+    }
+
+    func test_repeated_session_store_corruption_keeps_one_quarantined_copy() throws {
+        let directory = try makeSessionStoreDirectory()
+        let stateURL = directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        let store = ClaudeHookSessionStore(stateURL: stateURL)
+
+        try Data("first".utf8).write(to: stateURL)
+        XCTAssertNil(try store.lookup(sessionID: "s1"))
+        try Data("second".utf8).write(to: stateURL)
+        XCTAssertNil(try store.lookup(sessionID: "s1"))
+
+        let quarantined = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains("corrupt") }
+        XCTAssertEqual(quarantined, ["claude-hook-sessions.corrupt.json"])
+        XCTAssertEqual(
+            try Data(contentsOf: directory.appendingPathComponent("claude-hook-sessions.corrupt.json")),
+            Data("second".utf8)
+        )
+    }
+
+    func test_unreadable_session_store_throws_instead_of_saving() throws {
+        let directory = try makeSessionStoreDirectory()
+        let stateURL = directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        let original = Data("live sessions".utf8)
+        try original.write(to: stateURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: stateURL.path)
+        let store = ClaudeHookSessionStore(stateURL: stateURL)
+
+        XCTAssertThrowsError(try store.lookup(sessionID: "s1"))
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateURL.path)
+        XCTAssertEqual(try Data(contentsOf: stateURL), original)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains("corrupt") }.isEmpty)
+    }
+
+    func test_missing_session_store_starts_empty() throws {
+        let directory = try makeSessionStoreDirectory()
+        let store = ClaudeHookSessionStore(
+            stateURL: directory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        )
+
+        XCTAssertNil(try store.lookup(sessionID: "s1"))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains("corrupt") }.isEmpty)
+    }
+
+    private func makeSessionStoreDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zentty-claude-session-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return directory
+    }
+
     private func replay(_ json: String, into reducer: inout PaneAgentReducerState, at now: Date) throws {
         for payload in try makePayloads(json) {
             reducer.apply(payload, now: now)

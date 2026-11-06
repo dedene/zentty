@@ -162,9 +162,9 @@ extension ClaudeHookSessionRecord {
     }
 
     /// Records written by an older build lack the newer keys. Synthesized
-    /// decoding would throw on those, `loadState` would fall back to an empty
-    /// file and the next save would wipe every live session, so every field
-    /// added after the first release decodes as optional here.
+    /// decoding would throw on those and `loadState` would set the whole file
+    /// aside, losing every live session, so every field added after the first
+    /// release decodes as optional here.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessionID = try container.decode(String.self, forKey: .sessionID)
@@ -838,17 +838,38 @@ final class ClaudeHookSessionStore {
         }
         defer { flock(descriptor, LOCK_UN) }
 
-        var state = loadState()
+        var state = try loadState()
         let result = try body(&state)
         try saveState(state)
         return result
     }
 
-    private func loadState() -> ClaudeHookSessionStoreFile {
-        guard let data = try? Data(contentsOf: stateURL) else {
+    /// Every load is followed by a save, so an empty result replaces the file.
+    /// A file that cannot be read throws and stays. One that reads but cannot
+    /// be decoded is set aside so hooks keep working on a fresh store.
+    private func loadState() throws -> ClaudeHookSessionStoreFile {
+        guard fileManager.fileExists(atPath: stateURL.path) else {
             return ClaudeHookSessionStoreFile()
         }
-        return (try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data)) ?? ClaudeHookSessionStoreFile()
+        let data = try Data(contentsOf: stateURL)
+        do {
+            return try decoder.decode(ClaudeHookSessionStoreFile.self, from: data)
+        } catch {
+            try quarantineStateFile()
+            return ClaudeHookSessionStoreFile()
+        }
+    }
+
+    /// Keeps a single copy under a fixed name: a build that keeps failing to
+    /// decode must not pile up files. Logs no error text, which can quote
+    /// session content.
+    private func quarantineStateFile() throws {
+        let quarantineURL = stateURL.deletingPathExtension().appendingPathExtension("corrupt.json")
+        if fileManager.fileExists(atPath: quarantineURL.path) {
+            try fileManager.removeItem(at: quarantineURL)
+        }
+        try fileManager.moveItem(at: stateURL, to: quarantineURL)
+        claudeHookSessionStoreLogger.error("Set aside undecodable hook session store as \(quarantineURL.lastPathComponent, privacy: .public)")
     }
 
     private func saveState(_ state: ClaudeHookSessionStoreFile) throws {
