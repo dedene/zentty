@@ -200,6 +200,9 @@ struct RemoteImageUploader: Sendable {
         } catch is CancellationError {
             process.terminate()
             process.closeStandardInput()
+            if timeoutState.timedOut {
+                throw RemoteImageUploadError.timeout
+            }
             throw CancellationError()
         } catch {
             process.closeStandardInput()
@@ -390,6 +393,16 @@ private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @
     /// background child, such as an ssh control master, can hold it open.
     private static let stderrDrainTimeout: TimeInterval = 0.5
 
+    /// A task cancelled before its operation starts terminates first, and
+    /// Foundation raises if an unlaunched Process is signalled.
+    private enum LaunchState {
+        case notLaunched
+        case running
+        case cancelled
+    }
+
+    private let launchLock = NSLock()
+    private var launchState = LaunchState.notLaunched
     private let process = Process()
     private let inputPipe = Pipe()
     private let stderrPipe = Pipe()
@@ -403,7 +416,13 @@ private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @
     }
 
     func run() throws {
-        try process.run()
+        try launchLock.withLock {
+            guard launchState != .cancelled else {
+                throw CancellationError()
+            }
+            try process.run()
+            launchState = .running
+        }
         stderrCollector.start(reading: stderrPipe.fileHandleForReading)
     }
 
@@ -441,7 +460,13 @@ private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @
     }
 
     func terminate() {
-        process.terminate()
+        launchLock.withLock {
+            if launchState == .running {
+                process.terminate()
+            } else {
+                launchState = .cancelled
+            }
+        }
     }
 }
 
