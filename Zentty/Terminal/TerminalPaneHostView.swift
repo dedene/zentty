@@ -408,6 +408,25 @@ private enum PaneSearchOwner: Equatable {
     case global
 }
 
+/// The local query Ghostty's search thread holds, with the results it last
+/// reported. Ghostty ignores a repeated needle and resends nothing for it, so
+/// these are the only copy of the results for that needle.
+private struct ActiveLocalSearch {
+    let needle: String
+    var selected = -1
+    var total = 0
+
+    /// Mirrors the search thread's own check: ASCII-only case folding, so a
+    /// non-ASCII case change is still a new query.
+    func isSameQuery(as other: String) -> Bool {
+        needle.utf8.elementsEqual(other.utf8) { Self.asciiLowercased($0) == Self.asciiLowercased($1) }
+    }
+
+    private static func asciiLowercased(_ byte: UInt8) -> UInt8 {
+        (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte) ? byte + 32 : byte
+    }
+}
+
 private enum PaneRestoreDraftLifecycleState: Equatable {
     case none
     case pending(String)
@@ -443,6 +462,7 @@ final class PaneRuntime {
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
     private var searchOwner: PaneSearchOwner = .none
+    private var activeLocalSearch: ActiveLocalSearch?
     private var globalSearchNeedle = ""
     private var globalSearchEventSink: ((PaneID, TerminalSearchEvent) -> Void)?
     private var hasActiveGlobalSearchSession = false
@@ -626,16 +646,23 @@ final class PaneRuntime {
             search.hasRememberedSearch = true
         }
 
+        searchUpdateWorkItem?.cancel()
+
+        if let activeLocalSearch, activeLocalSearch.isSameQuery(as: needle) {
+            search.selected = activeLocalSearch.selected
+            search.total = activeLocalSearch.total
+            return
+        }
+
         search.selected = -1
         search.total = 0
-
-        searchUpdateWorkItem?.cancel()
 
         let dispatchUpdate = { [weak self] in
             guard let self else {
                 return
             }
 
+            self.activeLocalSearch = needle.isEmpty ? nil : ActiveLocalSearch(needle: needle)
             (self.adapterValue as? any TerminalSearchControlling)?.updateSearch(needle: needle)
         }
 
@@ -679,6 +706,7 @@ final class PaneRuntime {
 
     func endSearch() {
         searchUpdateWorkItem?.cancel()
+        activeLocalSearch = nil
         searchOwner = .none
         globalSearchNeedle = ""
         globalSearchEventSink = nil
@@ -735,6 +763,7 @@ final class PaneRuntime {
     }
 
     func updateGlobalSearchNeedle(_ needle: String) {
+        activeLocalSearch = nil
         searchOwner = .global
         globalSearchNeedle = needle
         (adapterValue as? any TerminalSearchControlling)?.updateSearch(needle: needle)
@@ -773,6 +802,7 @@ final class PaneRuntime {
             return
         }
 
+        activeLocalSearch = nil
         searchOwner = .none
         globalSearchNeedle = ""
         globalSearchEventSink = nil
@@ -994,12 +1024,15 @@ final class PaneRuntime {
                 search.hasRememberedSearch = true
                 search.isHUDVisible = true
             case .ended:
+                activeLocalSearch = nil
                 searchOwner = .none
                 search = clearedSearchState()
             case .total(let total):
                 search.total = total
+                activeLocalSearch?.total = total
             case .selected(let selected):
                 search.selected = selected
+                activeLocalSearch?.selected = selected
             }
         case .global:
             globalSearchEventSink?(paneIDValue, event)

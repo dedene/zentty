@@ -705,6 +705,18 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(adapterFactory.adaptersByPaneID[otherFloat.id]?.startSessionCallCount, 1)
     }
 
+    private func makeSearchRuntime() -> (PaneRuntime, PaneRuntimeTerminalAdapterSpy) {
+        let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        return (runtime, adapter)
+    }
+
     private func makeFloat(
         _ pane: PaneState,
         mode: FloatingPaneMode,
@@ -917,6 +929,132 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
                 hudCorner: .topTrailing
             )
         )
+    }
+
+    func test_runtime_reusing_the_selection_needle_keeps_results_ghostty_will_not_resend() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.useSelectionForFind()
+        adapter.searchDidChange?(.started(needle: "build"))
+        adapter.searchDidChange?(.total(4))
+        adapter.searchDidChange?(.selected(1))
+
+        // Ghostty drops an unchanged needle and re-emits neither count.
+        runtime.useSelectionForFind()
+        adapter.searchDidChange?(.started(needle: "build"))
+
+        XCTAssertEqual(
+            adapter.bindingActions,
+            ["search_selection", "search:build", "search_selection"]
+        )
+        XCTAssertEqual(runtime.snapshot.search.needle, "build")
+        XCTAssertEqual(runtime.snapshot.search.total, 4)
+        XCTAssertEqual(runtime.snapshot.search.selected, 1)
+    }
+
+    func test_runtime_case_only_needle_change_keeps_results_ghostty_will_not_resend() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("build")
+        adapter.searchDidChange?(.total(4))
+        adapter.searchDidChange?(.selected(1))
+
+        runtime.updateSearchNeedle("BUILD")
+
+        XCTAssertEqual(adapter.bindingActions, ["search:build"])
+        XCTAssertEqual(runtime.snapshot.search.needle, "BUILD")
+        XCTAssertEqual(runtime.snapshot.search.total, 4)
+        XCTAssertEqual(runtime.snapshot.search.selected, 1)
+    }
+
+    func test_runtime_non_ascii_case_change_is_a_new_needle_for_ghostty() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("café")
+        adapter.searchDidChange?(.total(4))
+
+        runtime.updateSearchNeedle("CAFÉ")
+
+        XCTAssertEqual(adapter.bindingActions, ["search:café", "search:CAFÉ"])
+        XCTAssertEqual(runtime.snapshot.search.total, 0)
+    }
+
+    func test_runtime_returning_to_the_active_needle_before_the_debounce_restores_its_results() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("abc")
+        adapter.searchDidChange?(.total(4))
+        adapter.searchDidChange?(.selected(1))
+
+        runtime.updateSearchNeedle("ab")
+        XCTAssertEqual(runtime.snapshot.search.total, 0)
+
+        runtime.updateSearchNeedle("abc")
+
+        XCTAssertEqual(runtime.snapshot.search.total, 4)
+        XCTAssertEqual(runtime.snapshot.search.selected, 1)
+
+        let debounceElapsed = expectation(description: "debounce window elapsed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { debounceElapsed.fulfill() }
+        wait(for: [debounceElapsed], timeout: 2)
+        XCTAssertEqual(adapter.bindingActions, ["search:abc"], "the debounced ab must not reach Ghostty")
+    }
+
+    func test_runtime_changed_needle_is_submitted_and_resets_results() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("build")
+        adapter.searchDidChange?(.total(4))
+        runtime.updateSearchNeedle("test")
+        adapter.searchDidChange?(.total(2))
+        runtime.updateSearchNeedle("build")
+
+        XCTAssertEqual(adapter.bindingActions, ["search:build", "search:test", "search:build"])
+        XCTAssertEqual(runtime.snapshot.search.total, 0)
+    }
+
+    func test_runtime_resubmits_the_same_needle_once_its_session_ended() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("build")
+        adapter.searchDidChange?(.total(4))
+        runtime.endSearch()
+        runtime.updateSearchNeedle("build")
+
+        XCTAssertEqual(adapter.bindingActions, ["search:build", "end_search", "search:build"])
+        XCTAssertEqual(runtime.snapshot.search.total, 0)
+
+        adapter.searchDidChange?(.total(4))
+        adapter.searchDidChange?(.ended)
+        runtime.updateSearchNeedle("build")
+
+        XCTAssertEqual(adapter.bindingActions.last, "search:build")
+        XCTAssertEqual(adapter.bindingActions.count, 4, "an engine-side end drops the query too")
+    }
+
+    func test_runtime_resubmits_the_same_needle_after_clearing_the_query() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("build")
+        adapter.searchDidChange?(.total(4))
+        runtime.updateSearchNeedle("")
+        runtime.updateSearchNeedle("build")
+
+        XCTAssertEqual(adapter.bindingActions, ["search:build", "search:", "search:build"])
+    }
+
+    func test_runtime_local_needle_matching_a_global_query_is_submitted_again() {
+        let (runtime, adapter) = makeSearchRuntime()
+
+        runtime.updateSearchNeedle("build")
+        adapter.searchDidChange?(.total(4))
+        runtime.beginGlobalSearch { _, _ in }
+        runtime.updateGlobalSearchNeedle("test")
+        runtime.endGlobalSearch()
+        runtime.updateSearchNeedle("build")
+
+        XCTAssertEqual(adapter.bindingActions.last, "search:build")
+        XCTAssertEqual(runtime.snapshot.search.total, 0, "the old count belongs to an ended engine session")
     }
 
     func test_runtime_started_with_empty_needle_does_not_submit_search() {
