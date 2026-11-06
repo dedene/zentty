@@ -562,6 +562,7 @@
 		6FF9CBE04C1698140C7DA14F /* MenuBarStatusPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56A80724E5ABFBF4B39D945 /* MenuBarStatusPresentation.swift */; };
 		701C39983F9037EC0FCFFEE4 /* AgentIPCDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38C15EEBB2B6060FDC3C8A05 /* AgentIPCDiscoveryTests.swift */; };
 		7020D22EAF5F4B7079263365 /* AgentHistoryPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8960F920D1BD1262194FB217 /* AgentHistoryPath.swift */; };
+		70448EF9F00A0AE085DD4B18 /* SessionRestoreLaunchLimitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E4D3DA78CAF34014ED2EB5 /* SessionRestoreLaunchLimitTests.swift */; };
 		7050E94B6C4AEDD28D22A2E3 /* OnePasswordPromptFocusCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19DEA0732CC16A0ED51E2FF2 /* OnePasswordPromptFocusCoordinator.swift */; };
 		7092D2398E62448ACE248486 /* UpdatesPrivacySettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D089E7F235904D263884DDE /* UpdatesPrivacySettingsSectionViewController.swift */; };
 		70DC7760B85D5A279247EE31 /* AgentHistoryBatchBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB210F2B254BF22B8605521 /* AgentHistoryBatchBuilderTests.swift */; };
@@ -2043,6 +2044,7 @@
 		A3284D0E745C4F976D593E2B /* WorklaneStoreBatchUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreBatchUpdateTests.swift; sourceTree = "<group>"; };
 		A37A1F7C0D8A1F4EC18A62E6 /* SubprocessRunnerProcessGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubprocessRunnerProcessGroupTests.swift; sourceTree = "<group>"; };
 		A3CFC2B870895651B043DF45 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A3E4D3DA78CAF34014ED2EB5 /* SessionRestoreLaunchLimitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreLaunchLimitTests.swift; sourceTree = "<group>"; };
 		A3F1AF8D07B9B05151774B4F /* WorklanePeekKeyMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklanePeekKeyMonitorTests.swift; sourceTree = "<group>"; };
 		A414B0A7FAAB8464A6432C77 /* SidebarWorklaneReorderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneReorderModel.swift; sourceTree = "<group>"; };
 		A4891D8F3BFA2D0770F97575 /* WindowToastPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToastPresenter.swift; sourceTree = "<group>"; };
@@ -4041,6 +4043,7 @@
 				B65C78F4319054821F694BC9 /* ServerRelevanceTests.swift */,
 				0E5FB7F57314DC5A8AE9A3D7 /* ServerURLNormalizerTests.swift */,
 				43E52E66A4B08A419A8983EC /* ServerWatchRunnerTests.swift */,
+				A3E4D3DA78CAF34014ED2EB5 /* SessionRestoreLaunchLimitTests.swift */,
 				3BE9959CFC3168BC8324CC3C /* SessionRestoreStoreTests.swift */,
 				4F0D198E393AE2B13E17A406 /* SessionScrollbackCoordinatorTests.swift */,
 				EEF326988A9E933BB89EC8F5 /* SessionScrollbackTests.swift */,
@@ -4768,6 +4771,7 @@
 				522D0127F4CB6736F0E2AABF /* ServerRelevanceTests.swift in Sources */,
 				3CF9879C6327D807FC78F3D6 /* ServerURLNormalizerTests.swift in Sources */,
 				AC07A7048A7CCC85EB123E07 /* ServerWatchRunnerTests.swift in Sources */,
+				70448EF9F00A0AE085DD4B18 /* SessionRestoreLaunchLimitTests.swift in Sources */,
 				3C27BE61B2B00785B0BC5BB7 /* SessionRestoreStoreTests.swift in Sources */,
 				428AF134920680848831C321 /* SessionScrollbackCoordinatorTests.swift in Sources */,
 				83F20F33FE8898FAF033B9A9 /* SessionScrollbackTests.swift in Sources */,
