@@ -20,6 +20,10 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     var disableOutcome = AgentHistoryDisableOutcome.turnedOff
     /// What `enable`, `setEnabled` and `setAgentEnabled` answer.
     var stateChangeOutcome = AgentHistoryStateChangeOutcome.saved
+    /// Holds `enable` and `setEnabled` completions until `releaseStateChanges()`, like the real
+    /// write that answers later from the control queue.
+    var holdsStateChanges = false
+    private var pendingStateChanges: [@MainActor (AgentHistoryStateChangeOutcome) -> Void] = []
     private(set) var refreshCount = 0
     private(set) var enabledAgents: [Set<AgentHistoryAgent>] = []
     private(set) var setEnabledCalls: [Bool] = []
@@ -68,12 +72,27 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     }
     func enable(agents: Set<AgentHistoryAgent>, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
         enabledAgents.append(agents)
-        completion(stateChangeOutcome)
+        answerStateChange(completion)
     }
     func setEnabled(_ enabled: Bool, completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
         setEnabledCalls.append(enabled)
-        completion(stateChangeOutcome)
+        answerStateChange(completion)
     }
+
+    private func answerStateChange(_ completion: @escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) {
+        guard holdsStateChanges else {
+            completion(stateChangeOutcome)
+            return
+        }
+        pendingStateChanges.append(completion)
+    }
+
+    func releaseStateChanges() {
+        let pending = pendingStateChanges
+        pendingStateChanges.removeAll()
+        pending.forEach { $0(stateChangeOutcome) }
+    }
+
     func setAgentEnabled(
         _ agent: AgentHistoryAgent,
         _ enabled: Bool,

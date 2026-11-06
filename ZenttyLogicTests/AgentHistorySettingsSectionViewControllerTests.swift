@@ -261,6 +261,61 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertTrue(backend.enabledAgents.isEmpty)
     }
 
+    func test_status_switch_waits_for_the_pending_change() {
+        let backend = FakeAgentHistoryControl()
+        backend.holdsStateChanges = true
+        let controller = makeController(backend: backend)
+        controller.apply(status: makeStatus())
+
+        toggle(controller.statusSwitch, on: false, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(backend.setEnabledCalls, [false])
+        XCTAssertFalse(controller.statusSwitch.isEnabled, "a second click would be compared with the old status")
+
+        // A publish from before the write lands meanwhile.
+        controller.apply(status: makeStatus())
+        XCTAssertEqual(controller.statusSwitch.state, .off, "the click isn't undone")
+        XCTAssertFalse(controller.statusSwitch.isEnabled)
+
+        controller.apply(status: makeStatus(isEnabled: false, state: .off))
+        backend.releaseStateChanges()
+        XCTAssertTrue(controller.statusSwitch.isEnabled)
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(backend.setEnabledCalls, [false, true])
+    }
+
+    func test_status_switch_waits_for_the_first_enable() {
+        let backend = FakeAgentHistoryControl()
+        backend.holdsStateChanges = true
+        backend.detectedSources = detectedSources()
+        let controller = makeController(backend: backend)
+        controller.prepareForPresentation()
+
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        XCTAssertEqual(backend.enabledAgents, [[.claude, .codex]])
+        XCTAssertFalse(controller.statusSwitch.isEnabled)
+
+        controller.apply(status: makeStatus())
+        backend.releaseStateChanges()
+        XCTAssertTrue(controller.statusSwitch.isEnabled)
+    }
+
+    func test_status_switch_shows_what_is_in_effect_when_the_pending_change_failed() {
+        let backend = FakeAgentHistoryControl()
+        backend.holdsStateChanges = true
+        backend.stateChangeOutcome = .notSaved
+        let controller = makeController(backend: backend)
+        controller.apply(status: makeStatus(isEnabled: false, state: .off))
+
+        toggle(controller.statusSwitch, on: true, controller.handleStatusSwitchChanged)
+        backend.releaseStateChanges()
+
+        XCTAssertEqual(errors.count, 1)
+        XCTAssertEqual(controller.statusSwitch.state, .off)
+        XCTAssertTrue(controller.statusSwitch.isEnabled)
+    }
+
     func test_disable_calls_backend_without_confirmation() {
         let backend = FakeAgentHistoryControl()
         backend.status = makeStatus()
