@@ -1986,6 +1986,36 @@ class ExpectationTests(unittest.TestCase):
         for private in ("secret", "toolu_", home, "a549c", "file body", "write me", "/private/tmp"):
             self.assertNotIn(private, rendered)
 
+    def test_codex_profile_uses_approval_policies_the_cli_still_accepts(self):
+        # 0.167 dropped `untrusted`: clap rejects it before any hook can fire.
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+
+        for scenario, arguments in profile.launch_args_by_scenario.items():
+            self.assertNotIn("untrusted", arguments, scenario)
+
+    def test_codex_approval_goes_to_the_user_not_a_configured_reviewer(self):
+        # A user config with `approvals_reviewer` would answer the prompt the
+        # scenario is there to drive.
+        arguments = agent_bench.load_profiles(ROOT / "profiles")["codex"].launch_args_by_scenario["approval"]
+
+        self.assertIn('approvals_reviewer="user"', arguments)
+
+    def test_codex_trust_screen_is_answered_with_carriage_return(self):
+        # Enter is CR on the raw TUI; LF left the screen open until the timeout.
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+
+        for scenario, inputs in profile.input_by_scenario.items():
+            for item in inputs:
+                if item.get("match") == "trust":
+                    self.assertEqual(item["text"], "1\r", scenario)
+                    self.assertGreater(item["delay"], 0, scenario)
+
+    def test_codex_tasks_turns_on_the_plan_tool(self):
+        # Off by default since 0.167, so without this no plan hook can fire.
+        arguments = agent_bench.load_profiles(ROOT / "profiles")["codex"].launch_args_by_scenario["tasks"]
+
+        self.assertIn("tools.update_plan={enabled=true}", arguments)
+
     def test_codex_approval_profile_requires_post_tool_use_resume_signal(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
 

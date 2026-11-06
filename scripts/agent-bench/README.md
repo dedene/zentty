@@ -134,6 +134,32 @@ replays `fixtures/claude-workflow-trace.jsonl` through the real code. To check a
 fresh recording, set `TEST_RUNNER_ZENTTY_BENCH_WORKFLOW_TRACE=<trace>` on
 `xcodebuild test`, and replace the fixture when a Claude bump changes the trace.
 
+`approval`, `approval_then_work`, `approval_agent_tool`,
+`approval_during_subagent`, `approval_overlap_agents` and
+`approval_overlap_worker` (Claude only) answer real permission dialogs and set
+`hook_trace: true`, which writes `claude-<scenario>-hook-trace.jsonl` to the run
+directory: each hook in order with the terminal titles and scripted inputs
+around it. `sanitized_hook_trace` keeps the fields the adapter reads, swaps ids
+for aliases and paths for `$SESSION`, `$REPO`, `$SCRATCH` and `$HOME`, and drops
+file contents and tool output. `ClaudeHookTraceReplayTests` replays the copies
+in `fixtures/` through the real adapter, session store and `WorklaneStore`. To
+check a fresh recording, copy it over the fixture with the same name.
+
+Two traps in these scenarios: a `--settings` flag on the command line replaces
+the hook overlay and silences every hook, so use `repo_files_by_scenario` for
+permission rules. And a bare `SubagentStop` can be one of Claude's internal
+forks with an empty `agent_type`, so require `SubagentStop:<agent type>`.
+
+Scripted inputs match the terminal stream with cursor moves read as spaces,
+because Claude and Codex draw word gaps that way. `after_previous` matches only
+output since the last input, for a dialog that repeats an earlier one's words.
+
+Codex `tasks` turns on `update_plan` with `tools.update_plan={enabled=true}`.
+The tool is off by default in Codex 0.167, so a default session has no plan and
+sends no plan hook. Its approval scenarios use `on-request`, since `untrusted`
+is gone, and `approval` sets `approvals_reviewer="user"` so a configured review
+agent cannot answer the dialog.
+
 `greeting_first_turn` and `multi_turn` (Muse only) drive the interactive TUI
 and set `title_spinner_phases: true`, which reads a title with a leading
 braille spinner frame (`⠋ repo`) as `running` and any other title as `idle`.
