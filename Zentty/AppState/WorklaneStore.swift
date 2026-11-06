@@ -408,6 +408,9 @@ final class WorklaneStore {
     var knownNonRepositoryPaths: Set<String> = []
     var nonRepositoryRetryDeadlineByPath: [String: Date] = [:]
     var pendingGitContextPaths: Set<String> = []
+    /// In-flight paths whose result predates a force reload. The result is
+    /// discarded and the path resolved once more, however many reloads landed.
+    var reloadRequestedGitContextPaths: Set<String> = []
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     // Keyed by pane alone: a pane can change worklane inside the debounce.
     private var pendingReadyStatusTasks: [PaneID: any WorklaneStoreScheduledHandle] = [:]

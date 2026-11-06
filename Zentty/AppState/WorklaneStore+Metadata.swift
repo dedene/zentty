@@ -1152,9 +1152,16 @@ extension WorklaneStore {
 
         waitingPaneReferencesByPath[workingDirectory, default: []].insert(paneReference)
         guard pendingGitContextPaths.insert(workingDirectory).inserted else {
+            if forceReload {
+                reloadRequestedGitContextPaths.insert(workingDirectory)
+            }
             return
         }
 
+        startGitContextResolve(for: workingDirectory)
+    }
+
+    private func startGitContextResolve(for workingDirectory: String) {
         let resolver = gitContextResolver
         Task { [weak self] in
             let gitContext = await resolver.resolve(for: workingDirectory)
@@ -1171,6 +1178,12 @@ extension WorklaneStore {
         _ gitContext: PaneGitContext?,
         forWorkingDirectory workingDirectory: String
     ) {
+        // Waiters and pending state stay put for the rerun.
+        if reloadRequestedGitContextPaths.remove(workingDirectory) != nil {
+            startGitContextResolve(for: workingDirectory)
+            return
+        }
+
         pendingGitContextPaths.remove(workingDirectory)
         let paneReferences = waitingPaneReferencesByPath.removeValue(forKey: workingDirectory) ?? []
 
