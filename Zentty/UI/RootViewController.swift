@@ -3363,11 +3363,22 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeNextWorklane() {
-        peekController.handleTab(forward: true)
+        routePeekTab(forward: true)
     }
 
     func routePreviousWorklane() {
-        peekController.handleTab(forward: false)
+        routePeekTab(forward: false)
+    }
+
+    /// Ctrl-Tab does nothing during a pointer gesture: from arming onward the
+    /// peek monitor swallows the gesture's mouse-up, and peek's zoom would take
+    /// over the strip's drag zoom. An armed or open peek is unaffected, since
+    /// it swallows mouse input and so no gesture can start under it.
+    private func routePeekTab(forward: Bool) {
+        if peekController.phase == .idle, isPointerGestureActive {
+            return
+        }
+        peekController.handleTab(forward: forward)
     }
 
     func routeSelectWorklane(position: Int) {
@@ -3515,9 +3526,14 @@ extension RootViewController: AppActionRouterEnvironment {
     /// the command, peek hides the float layer, and a float gesture commits
     /// its own store change on mouse-up.
     private var isFloatCommandBlocked: Bool {
+        isWorklanePeekActive || isPointerGestureActive
+    }
+
+    /// A strip drag, divider drag or float gesture owns the mouse until its
+    /// mouse-up.
+    private var isPointerGestureActive: Bool {
         let paneStripView = appCanvasView.paneStripView
-        return isWorklanePeekActive
-            || paneStripView.isDragActive
+        return paneStripView.isDragActive
             || paneStripView.isDividerDragActive
             || appCanvasView.floatLayerView.isGestureActive
     }

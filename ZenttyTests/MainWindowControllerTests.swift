@@ -5,6 +5,9 @@ import XCTest
 final class MainWindowControllerTests: XCTestCase {
     private var controller: MainWindowController?
     private var testDefaultsSuiteNames: [String] = []
+    private let peekWorklaneID = WorklaneID("wl-peek")
+    private let peekFirstPaneID = PaneID("pane-peek-a")
+    private let peekSecondPaneID = PaneID("pane-peek-b")
 
     private enum TrafficLightOverlayIdentifier {
         static let close = "trafficLightOverlay.close"
@@ -2260,6 +2263,66 @@ final class MainWindowControllerTests: XCTestCase {
             controller.rootViewControllerForTesting.paneStripStateForTesting.columns.map(\.width),
             initialWidths
         )
+    }
+
+    // MARK: - Worklane peek admission
+
+    private func makePeekController() throws -> MainWindowController {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+        controller.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: peekWorklaneID,
+                title: nil,
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: peekFirstPaneID, title: "a"),
+                        PaneState(id: peekSecondPaneID, title: "b"),
+                    ],
+                    focusedPaneID: peekFirstPaneID
+                ),
+                auxiliaryStateByPaneID: [:]
+            ),
+        ], activeWorklaneID: peekWorklaneID)
+        waitForLayout("seeded")
+        return controller
+    }
+
+    func test_ctrl_tab_during_pane_drag_does_not_arm_peek() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+        let strip = root.appCanvasViewForTesting.paneStripView
+        let cursor = CGPoint(x: strip.bounds.midX, y: strip.bounds.midY)
+        strip.beginPaneDragForTesting(paneID: peekFirstPaneID, cursorInStrip: cursor)
+        XCTAssertTrue(strip.isDragActive)
+
+        root.routeNextWorklane()
+        root.routePreviousWorklane()
+
+        XCTAssertFalse(root.isWorklanePeekActive, "peek swallows the drag's mouse-up from arming onward")
+        strip.endPaneDragForTesting(cursorInStrip: cursor)
+        waitForLayout("drop settled", delay: 0.4)
+    }
+
+    func test_ctrl_tab_during_divider_drag_does_not_arm_peek_until_the_drag_ends() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+        let strip = root.appCanvasViewForTesting.paneStripView
+        let firstColumn = try XCTUnwrap(root.worklaneStore.activeWorklane?.paneStripState.columns.first?.id)
+        _ = try XCTUnwrap(strip.beginDividerDragForTesting(
+            .column(afterColumnID: firstColumn),
+            locationInDividerView: CGPoint(x: 4, y: 2)
+        ))
+        XCTAssertTrue(strip.isDividerDragActive)
+
+        root.routeNextWorklane()
+        XCTAssertFalse(root.isWorklanePeekActive)
+
+        strip.cancelDividerDragForTesting()
+        root.routeNextWorklane()
+        XCTAssertTrue(root.isWorklanePeekActive, "Ctrl-Tab works again once the gesture is over")
+        root.peekControllerForTesting.handleEscape()
     }
 }
 
