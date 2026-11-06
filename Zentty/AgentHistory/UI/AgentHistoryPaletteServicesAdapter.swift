@@ -157,8 +157,9 @@ final class AgentHistorySearchAdapter: AgentHistorySearchServicing {
     }
 
     func liveSessions(for locations: [LiveAgentSessionLocation]) -> [HistoryLiveSessionLookup] {
+        // Nothing can vouch for these sessions: they may be removed, disabled or excluded.
         guard let engine = engine() else {
-            return locations.map { _ in .notIndexed }
+            return locations.map { _ in .hidden }
         }
         return engine.metadataIndex.liveSessions(locations.map { (key: $0.key, workingDirectory: $0.workingDirectory) })
     }
