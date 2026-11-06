@@ -1084,7 +1084,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
                     key: shortcut.key,
                     modifiers: shortcut.modifiers.union(recordingClickedModifiers)
                 )
-                recordingPreviewKey = combinedShortcut.key
+                recordingPreviewKey = physicalPreviewKey(for: combinedShortcut)
                 commit(
                     shortcut: combinedShortcut,
                     for: commandID
@@ -1103,9 +1103,17 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             key: shortcut.key,
             modifiers: shortcut.modifiers.union(recordingPreviewModifiers)
         )
-        recordingPreviewKey = combinedShortcut.key
+        recordingPreviewKey = physicalPreviewKey(for: combinedShortcut)
         commit(shortcut: combinedShortcut, for: commandID)
         return nil
+    }
+
+    /// A typed key that `commit` is about to reject must not stay pending: the
+    /// modifier that starts the user's next chord would commit it with that key.
+    /// Clicked keys do stay pending, because clicking a key and then a modifier
+    /// is how the keyboard diagram composes a shortcut.
+    private func physicalPreviewKey(for shortcut: KeyboardShortcut) -> KeyboardShortcutKey? {
+        shortcut.isEligibleCommandBinding ? shortcut.key : nil
     }
 
     private func removeKeyMonitor() {

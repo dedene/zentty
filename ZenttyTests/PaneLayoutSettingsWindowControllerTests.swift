@@ -1804,6 +1804,101 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Right Pane")
     }
 
+    func test_rejected_physical_key_is_not_committed_by_a_modifier() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        let shortcutsBefore = store.current.shortcuts
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+
+        shortcutsController.handleRecordingKeyDownForTesting(try makeKeyDown("k", keyCode: kVK_ANSI_K))
+
+        XCTAssertNotNil(shortcutsController.errorMessageForTesting)
+        XCTAssertTrue(shortcutsController.isRecordingForTesting)
+
+        shortcutsController.updateRecordingPreviewModifiersForTesting([.command])
+
+        XCTAssertEqual(store.current.shortcuts, shortcutsBefore)
+        XCTAssertNil(shortcutsController.conflictTargetTitleForTesting)
+        XCTAssertTrue(shortcutsController.isRecordingForTesting)
+
+        shortcutsController.handleRecordingKeyDownForTesting(
+            try makeKeyDown("j", keyCode: kVK_ANSI_J, modifierFlags: [.command])
+        )
+
+        XCTAssertEqual(shortcutsController.displayString(for: .copyRaw), "⌘J")
+        XCTAssertFalse(shortcutsController.isRecordingForTesting)
+    }
+
+    func test_clicked_key_still_composes_with_a_later_modifier() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_ANSI_K))
+
+        XCTAssertNotNil(shortcutsController.errorMessageForTesting)
+
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .copyRaw), "⌘K")
+        XCTAssertFalse(shortcutsController.isRecordingForTesting)
+    }
+
+    private func makeKeyDown(
+        _ characters: String,
+        keyCode: Int,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: UInt16(keyCode)
+        ))
+    }
+
     func test_settings_window_can_switch_to_open_with_section_and_read_config() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
