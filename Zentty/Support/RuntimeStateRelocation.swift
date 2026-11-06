@@ -33,8 +33,7 @@ enum RuntimeStateRelocation {
 
         var copied: [String] = []
         var failed = false
-        let hasRestoreState = restoreFileNames.contains { exists($0, in: stateDirectoryURL, fileManager) }
-        if !hasRestoreState, exists(restoreFileNames[0], in: configDirectoryURL, fileManager) {
+        if restorePairNeedsCopy(from: configDirectoryURL, to: stateDirectoryURL, fileManager) {
             do {
                 copied.append(contentsOf: try copyRestorePair(from: configDirectoryURL, to: stateDirectoryURL, fileManager))
             } catch {
@@ -61,6 +60,30 @@ enum RuntimeStateRelocation {
             )
         }
         return copied
+    }
+
+    /// Where this launch's restore store belongs. A pair that could not be
+    /// copied stays authoritative in the config directory: the launch writes
+    /// its lifecycle and snapshots straight away, and in the empty state
+    /// directory those would read as existing state and end the retry for good.
+    static func restoreStoreDirectory(
+        from configDirectoryURL: URL,
+        to stateDirectoryURL: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        restorePairNeedsCopy(from: configDirectoryURL, to: stateDirectoryURL, fileManager)
+            ? configDirectoryURL
+            : stateDirectoryURL
+    }
+
+    private static func restorePairNeedsCopy(
+        from configDirectoryURL: URL,
+        to stateDirectoryURL: URL,
+        _ fileManager: FileManager
+    ) -> Bool {
+        !exists(markerFileName, in: stateDirectoryURL, fileManager)
+            && !restoreFileNames.contains { exists($0, in: stateDirectoryURL, fileManager) }
+            && exists(restoreFileNames[0], in: configDirectoryURL, fileManager)
     }
 
     /// All or nothing: on failure it removes what this attempt created, so the

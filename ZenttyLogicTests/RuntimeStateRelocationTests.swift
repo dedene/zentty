@@ -116,6 +116,56 @@ final class RuntimeStateRelocationTests: XCTestCase {
         XCTAssertEqual(try read("restore-lifecycle.json", in: stateDirectoryURL), "lifecycle")
     }
 
+    func test_launch_after_failed_pair_copy_retries_once_the_source_is_repaired() throws {
+        try write("restore-snapshot.json", "session", in: configDirectoryURL)
+        try write("restore-lifecycle.json", "lifecycle", in: configDirectoryURL)
+
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: "restore-lifecycle.json")
+        )
+        try launchBookkeeping()
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(Set(copied), Set(RuntimeStateRelocation.restoreFileNames))
+        XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "session")
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL)
+    }
+
+    func test_launch_after_failed_snapshot_copy_retries_once_the_source_is_repaired() throws {
+        try write("restore-snapshot.json", "session", in: configDirectoryURL)
+
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: "restore-snapshot.json")
+        )
+        try launchBookkeeping()
+
+        XCTAssertEqual(
+            RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL).first,
+            "restore-snapshot.json"
+        )
+        XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "session")
+    }
+
+    func test_restore_store_stays_in_the_state_directory_without_a_pending_pair() throws {
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL, "nothing to migrate")
+
+        try write("restore-snapshot.json", "old", in: configDirectoryURL)
+        try write("restore-lifecycle.json", "current", in: stateDirectoryURL)
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL, "existing state wins over the old pair")
+
+        try FileManager.default.removeItem(at: stateDirectoryURL)
+        RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL, "the pair moved")
+
+        try FileManager.default.removeItem(at: stateDirectoryURL.appendingPathComponent("restore-snapshot.json"))
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL, "the marker ends the migration for good")
+    }
+
     func test_existing_lifecycle_blocks_copying_old_snapshot() throws {
         try write("restore-lifecycle.json", "current", in: stateDirectoryURL)
         try write("restore-snapshot.json", "old", in: configDirectoryURL)
@@ -146,6 +196,15 @@ final class RuntimeStateRelocationTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private func restoreStoreDirectory() -> URL {
+        RuntimeStateRelocation.restoreStoreDirectory(from: configDirectoryURL, to: stateDirectoryURL)
+    }
+
+    /// What a launch writes through its restore store before the user does anything.
+    private func launchBookkeeping() throws {
+        try SessionRestoreStore(stateDirectoryURL: restoreStoreDirectory()).markLaunchStarted()
+    }
 
     private func write(_ name: String, _ contents: String, in directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

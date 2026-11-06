@@ -46,8 +46,7 @@ final class SessionRestoreStore {
             return nil
         }
 
-        let previousLifecycle = try loadLifecycleState()
-        if previousLifecycle?.cleanExit == false {
+        if lifecycleStateForLaunch()?.cleanExit == false {
             return LaunchDecision(reason: .crashRecovery, envelope: envelope)
         }
 
@@ -107,8 +106,17 @@ final class SessionRestoreStore {
         }
     }
 
-    private func loadLifecycleState() throws -> LifecycleState? {
-        try load(LifecycleState.self, from: lifecycleURL)
+    /// Only says how the last run ended, so losing it must not cost the snapshot:
+    /// it reads like a missing file, which is a normal restore.
+    private func lifecycleStateForLaunch() -> LifecycleState? {
+        do {
+            return try load(LifecycleState.self, from: lifecycleURL)
+        } catch {
+            sessionRestoreLogger.error(
+                "Ignoring unreadable restore lifecycle: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     private func load<T: Decodable>(

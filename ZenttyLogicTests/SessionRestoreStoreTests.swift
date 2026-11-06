@@ -409,6 +409,28 @@ final class SessionRestoreStoreTests: XCTestCase {
         XCTAssertEqual(decision?.envelope.workspace.windows.map(\.id), ["window-main"])
     }
 
+    func test_prepare_for_launch_restores_snapshot_when_lifecycle_is_unreadable() throws {
+        let snapshotURL = directoryURL.appendingPathComponent("restore-snapshot.json")
+        let lifecycleURL = directoryURL.appendingPathComponent("restore-lifecycle.json")
+        let store = SessionRestoreStore(snapshotURL: snapshotURL, lifecycleURL: lifecycleURL)
+        try store.saveSnapshot(
+            SessionRestoreEnvelope(
+                reason: .cleanExit,
+                workspace: WorkspaceRecipe(
+                    windows: [
+                        WorkspaceRecipe.Window(id: "window-main", worklanes: [], activeWorklaneID: nil)
+                    ]
+                )
+            )
+        )
+        try Data("not valid json".utf8).write(to: lifecycleURL, options: .atomic)
+
+        let decision = try store.prepareForLaunch(restorePreferenceEnabled: true)
+
+        XCTAssertEqual(decision?.reason, .normalRestore)
+        XCTAssertEqual(decision?.envelope.workspace.windows.map(\.id), ["window-main"])
+    }
+
     func test_prepare_for_launch_throws_when_snapshot_is_corrupt() throws {
         let snapshotURL = directoryURL.appendingPathComponent("restore-snapshot.json")
         try Data("not valid json".utf8).write(to: snapshotURL, options: .atomic)

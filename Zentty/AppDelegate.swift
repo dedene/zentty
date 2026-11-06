@@ -24,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard configStore.fileURL == AppConfigStore.defaultFileURL(homeDirectoryURL: home) else {
             return configStore.fileURL.deletingLastPathComponent()
         }
-        return ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
+        return RuntimeStateRelocation.restoreStoreDirectory(
+            from: ZenttyBuildFlavor.current.configDirectoryURL(homeDirectoryURL: home),
+            to: ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
+        )
     }
 
     /// How the quit sheet's answer reaches AppKit, which sits in `.terminateLater`
