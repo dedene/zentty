@@ -84,6 +84,13 @@ final class FloatDragSessionTests: XCTestCase {
         XCTAssertFalse(session.isClick)
     }
 
+    func testExcursionAndReturnIsNotClick() {
+        var session = session()
+        session.move(to: CGPoint(x: 510, y: 400), timestamp: 0.1) // 10 pt away
+        session.move(to: CGPoint(x: 500, y: 400), timestamp: 0.2) // back to the start
+        XCTAssertFalse(session.isClick)
+    }
+
     func testVelocityReportedAtDragEnd() {
         var session = session()
         session.move(to: CGPoint(x: 500, y: 400), timestamp: 0) // reset baseline direction
