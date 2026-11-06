@@ -4723,6 +4723,51 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertTrue(outcomes.isEmpty, "Esc cancelled this drag; the late mouse-up must not commit it")
     }
 
+    @MainActor
+    func test_double_cancel_reports_drag_inactive_once() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        _ = try beginThreePaneDrag(in: paneStripView)
+
+        var inactiveReports = 0
+        let inactive = expectation(description: "drag reported inactive")
+        inactive.assertForOverFulfill = false
+        paneStripView.onDragActiveChanged = { active in
+            guard !active else { return }
+            inactiveReports += 1
+            inactive.fulfill()
+        }
+
+        paneStripView.cancelPaneDragForTesting()
+        paneStripView.cancelPaneDragForTesting()
+
+        wait(for: [inactive], timeout: 5)
+        pumpMainQueue(for: 1)
+        XCTAssertEqual(inactiveReports, 1)
+    }
+
+    @MainActor
+    func test_cancel_completion_surviving_teardown_does_not_end_later_drag() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        paneStripView.cancelPaneDragForTesting()
+        paneStripView.prepareForTestingTearDown()
+        XCTAssertFalse(paneStripView.isDragActive)
+
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("alpha"), cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+
+        pumpMainQueue(for: 1)
+        XCTAssertTrue(
+            paneStripView.isDragActive,
+            "the first drag's spring completion must not tear down the second drag"
+        )
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }

@@ -100,6 +100,10 @@ final class PaneDragCoordinator {
 
     // MARK: - Drag State
 
+    /// Bumped by teardown. A finishing animation captures it, so a completion
+    /// outliving its drag (window detach) cannot act on whatever came next.
+    private var dragSession = 0
+
     private var draggedPaneView: PaneContainerView?
     private var originalPaneFrame: CGRect = .zero
     private var grabOffsetInContent: CGSize = .zero
@@ -930,10 +934,12 @@ final class PaneDragCoordinator {
         shadowAnim.duration = 0.15
 
         let stripView = paneStripView
+        let session = dragSession
 
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActorShim.assumeIsolated {
+                guard session == self.dragSession else { return }
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1177,6 +1183,7 @@ final class PaneDragCoordinator {
         prepareForDropSettle()
         reparentPreviewToViewportForSettle()
 
+        let session = dragSession
         paneStripView.beginDropSettle(paneID: revealStrategy.coveredPaneID) { [weak self] in
             guard let self else { return }
 
@@ -1184,7 +1191,8 @@ final class PaneDragCoordinator {
                 in: paneStripView,
                 strategy: revealStrategy
             ) { [weak self] in
-                self?.finishInternalDrop(in: paneStripView)
+                guard let self, session == self.dragSession else { return }
+                self.finishInternalDrop(in: paneStripView)
             }
         }
 
@@ -1309,9 +1317,12 @@ final class PaneDragCoordinator {
         let isDuplicate = isOptionHeld
         let stripView = paneStripView
 
+        let session = dragSession
+
         enterFinishingPhase()
         animateSidebarDrop(to: targetCenter) {
             MainActorShim.assumeIsolated {
+                guard session == self.dragSession else { return }
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1358,9 +1369,12 @@ final class PaneDragCoordinator {
         let isDuplicate = isOptionHeld
         let stripView = paneStripView
 
+        let session = dragSession
+
         enterFinishingPhase()
         animateSidebarDrop(to: targetCenter) {
             MainActorShim.assumeIsolated {
+                guard session == self.dragSession else { return }
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -2213,6 +2227,9 @@ final class PaneDragCoordinator {
     // MARK: - Private — Teardown
 
     private func teardown() {
+        if case .idle = phase { return }
+        dragSession &+= 1
+
         removeEscapeMonitor()
         removeFlagsChangedMonitor()
         stopEdgeScroll()
