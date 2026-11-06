@@ -231,6 +231,10 @@ final class PaneStripView: NSView {
     var onHostDrivenResizeRenderRequested: (() -> Void)?
     #if DEBUG
         private(set) var renderSnapshotsForTesting: [RenderSnapshot] = []
+        /// Holds animated-render completions so a test decides when, and in
+        /// which order, each render's animation "ends".
+        var holdsAnimatedRenderCompletionsForTesting = false
+        private var heldAnimatedRenderCompletionsForTesting: [@MainActor () -> Void] = []
         private(set) var cursorRectInvalidationCountForTesting = 0
     #endif
 
@@ -1140,26 +1144,35 @@ final class PaneStripView: NSView {
                 )
             }
             pendingAnimatedSettleAction = settleAction
+            let completeRender: @MainActor () -> Void = { [weak self] in
+                guard let self else { return }
+                self.pendingAnimatedSettleAction = nil
+                self.finishAnimatedRender(
+                    settleGeneration: settleGeneration,
+                    presentation: presentation,
+                    state: state,
+                    targetOffset: targetOffset,
+                    insertionTransition: insertionTransition,
+                    needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender,
+                    newlyAttachedPaneIDs: newlyAttachedPaneIDs
+                )
+            }
+            var motionCompletion: (@Sendable () -> Void)? = {
+                Task { @MainActor in completeRender() }
+            }
+            #if DEBUG
+                if holdsAnimatedRenderCompletionsForTesting {
+                    heldAnimatedRenderCompletionsForTesting.append(completeRender)
+                    motionCompletion = nil
+                }
+            #endif
             motionController.animate(
                 in: self,
                 duration: animationDuration,
                 timingFunction: animationTimingFunction,
-                updates: updates
-            ) { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.pendingAnimatedSettleAction = nil
-                    self.finishAnimatedRender(
-                        settleGeneration: settleGeneration,
-                        presentation: presentation,
-                        state: state,
-                        targetOffset: targetOffset,
-                        insertionTransition: insertionTransition,
-                        needsTerminalRedrawAfterRender: needsTerminalRedrawAfterRender,
-                        newlyAttachedPaneIDs: newlyAttachedPaneIDs
-                    )
-                }
-            }
+                updates: updates,
+                completion: motionCompletion
+            )
         } else {
             pendingAnimatedSettleAction = nil
             updates()
@@ -3150,6 +3163,25 @@ final class PaneStripView: NSView {
 
     func movePaneDragForTesting(cursorInStrip: CGPoint) {
         dragCoordinator.updateCursor(cursorInStrip)
+    }
+
+    func cancelPaneDragForTesting() {
+        dragCoordinator.cancelDrag()
+    }
+
+    var viewportAutoresizingMaskForTesting: NSView.AutoresizingMask {
+        viewportView.autoresizingMask
+    }
+
+    var hasPendingAnimatedSettleActionForTesting: Bool {
+        pendingAnimatedSettleAction != nil
+    }
+
+    /// Fires the oldest held animated-render completion, as the motion
+    /// controller would when that render's animation group ends.
+    func fireNextHeldAnimatedRenderCompletionForTesting() {
+        guard !heldAnimatedRenderCompletionsForTesting.isEmpty else { return }
+        heldAnimatedRenderCompletionsForTesting.removeFirst()()
     }
 
     func satisfySplitDwellForTesting() {
