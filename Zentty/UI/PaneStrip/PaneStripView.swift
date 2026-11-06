@@ -2754,6 +2754,12 @@ final class PaneStripView: NSView {
     /// peek centering cannot leak into the normal pane-strip layout.
     func endPeekZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
         guard isZoomedOut else { return }
+        // A drag that began under the peek keeps the zoom it landed in: only
+        // its own end may zoom in, unfreeze the panes and run the drag cleanup.
+        guard !isDragActive else {
+            zoomOutScaleOverride = nil
+            return
+        }
         TerminalViewportDiagnostics.shared.record(
             .activeZoomIn,
             context: TerminalViewportDiagnostics.Context(

@@ -5078,6 +5078,71 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertTrue(paneStripView.lastRenderWasAnimated)
     }
 
+    /// A drag begun under a peek: the mouse went down on a drag zone before
+    /// the peek overlay opened, and crossed the threshold after it did.
+    @MainActor
+    private func assertPeekEndingMidDragLeavesTheZoomToTheDrag(
+        in paneStripView: PaneStripView,
+        cursor: CGPoint
+    ) throws {
+        paneStripView.beginPeekZoomOut(animated: true)
+        pumpMainQueue(for: 0.5)
+
+        paneStripView.onDragActiveChanged = nil
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("alpha"), cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+        let draggedPane = try XCTUnwrap(paneStripView.paneContainerViewForTesting(PaneID("alpha")))
+        XCTAssertTrue(draggedPane.isTerminalAnimationFrozen)
+
+        paneStripView.endPeekZoomIn(animated: true)
+        pumpMainQueue(for: 0.5)
+
+        XCTAssertTrue(paneStripView.isZoomedOut, "the drag still owns the zoom")
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [])
+        XCTAssertTrue(draggedPane.isTerminalAnimationFrozen)
+        XCTAssertTrue(paneStripView.descendantPaneViews().allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+        pumpMainQueue(for: 0.6)
+
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [.width, .height])
+        XCTAssertFalse(draggedPane.isTerminalAnimationFrozen)
+        XCTAssertFalse(paneStripView.descendantPaneViews().contains(where: \.isTerminalViewportSyncSuspended))
+    }
+
+    @MainActor
+    func test_peek_ending_mid_drag_does_not_run_cleanup_owed_by_an_earlier_drag() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+
+        // Still inside the first drag's zoom-in: its cleanup stays owed.
+        try assertPeekEndingMidDragLeavesTheZoomToTheDrag(in: paneStripView, cursor: cursor)
+    }
+
+    @MainActor
+    func test_peek_ending_mid_drag_leaves_cleanup_to_the_drag_that_began_under_it() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+        pumpMainQueue(for: 0.6)
+
+        try assertPeekEndingMidDragLeavesTheZoomToTheDrag(in: paneStripView, cursor: cursor)
+    }
+
     // MARK: - Drag Escape
 
     /// Stands in for a terminal that acts on Escape.
