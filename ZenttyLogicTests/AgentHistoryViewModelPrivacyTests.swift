@@ -280,6 +280,45 @@ final class AgentHistoryViewModelPrivacyTests: XCTestCase {
 
     // MARK: - Running now
 
+    /// A typed search for "crash" listing `session` by title, its content search held.
+    private func heldTypedSearch(listing session: AgentHistorySessionSummary) throws -> (AgentHistoryViewModel, FakeAgentHistorySearch.PendingContent) {
+        search.metadataResults = { [weak self] _ in self.map { [$0.metadata(session)] } ?? [] }
+        let model = makeModel()
+        model.start()
+        model.updateQuery("crash")
+        scheduler.advance(by: 0.12)
+        XCTAssertEqual(model.rows.map(\.sessionID), [session.id])
+        return (model, try XCTUnwrap(search.pendingContent.last))
+    }
+
+    func test_removed_session_stays_gone_when_an_older_content_search_lands() throws {
+        let removed = summary(1)
+        let (model, older) = try heldTypedSearch(listing: removed)
+
+        // The indexer publishes before it answers, so the metadata tier no longer lists it.
+        search.metadataResults = { _ in [] }
+        model.removeFromHistory(removed.key)
+        XCTAssertTrue(older.token.isCancelled)
+        older.completion(.success(contentResponse([content(removed)])))
+
+        XCTAssertFalse(model.rows.contains { $0.key == removed.key })
+        XCTAssertEqual(model.contentPhase, .pending, "a fresh search replaces the one that read the session")
+    }
+
+    func test_removed_session_stays_gone_when_a_content_search_lands_during_the_removal() throws {
+        let removed = summary(1)
+        let (model, pending) = try heldTypedSearch(listing: removed)
+        control.holdsRemovals = true
+
+        search.metadataResults = { _ in [] }
+        model.removeFromHistory(removed.key)
+        pending.completion(.success(contentResponse([content(removed)])))
+        XCTAssertEqual(model.contentPhase, .complete)
+        control.releaseRemovals()
+
+        XCTAssertFalse(model.rows.contains { $0.key == removed.key })
+    }
+
     func test_a_removed_running_session_stays_out_of_running_now() {
         let removed = summary(1, agent: .claude)
         let other = summary(2)

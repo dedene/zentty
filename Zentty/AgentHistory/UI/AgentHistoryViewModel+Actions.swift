@@ -297,10 +297,16 @@ extension AgentHistoryViewModel {
     /// Drops the row at once and tombstones the session; it can be restored in Settings. The
     /// index can refuse (standing by, disk full): the row then comes back and the message says so.
     func removeFromHistory(_ key: AgentHistorySessionKey) {
-        let currentRows = rows
-        guard let index = currentRows.firstIndex(where: { $0.key == key }), currentRows[index].summary != nil else {
-            return
+        guard rows.first(where: { $0.key == key })?.summary != nil else { return }
+        dropRow(key)
+        // Last: the answer can come back synchronously and rebuild the rows.
+        services.control.removeSession(key) { [weak self] removed in
+            self?.removalCompleted(key, removed: removed)
         }
+    }
+
+    private func dropRow(_ key: AgentHistorySessionKey) {
+        guard let index = rows.firstIndex(where: { $0.key == key }) else { return }
         sections = sections.compactMap { section in
             var section = section
             section.rows.removeAll { $0.key == key }
@@ -315,20 +321,22 @@ extension AgentHistoryViewModel {
             selectionDidChange()
         }
         refreshFolderGoneKeys()
-        // Last: the answer can come back synchronously and rebuild the rows.
-        services.control.removeSession(key) { [weak self] removed in
-            self?.removalCompleted(removed: removed)
-        }
     }
 
     /// The palette may have closed (`stop` keeps the body) or lost access since the drop.
-    private func removalCompleted(removed: Bool) {
+    private func removalCompleted(_ key: AgentHistorySessionKey, removed: Bool) {
         guard isStarted, body == .results else { return }
         guard removed else {
             showTransientMessage(Self.removeFailedMessage)
             // Nothing was published, so this finds the row where it was.
             runSearch(resetSelection: false)
             return
+        }
+        // A content response may have listed the session again while the removal ran, and one
+        // still out may read it. The indexer published first, so the metadata tier is current.
+        dropRow(key)
+        if contentPhase == .pending {
+            runSearch(resetSelection: false)
         }
         showTransientMessage(Self.removedMessage)
     }
