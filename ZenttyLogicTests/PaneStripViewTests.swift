@@ -4921,6 +4921,83 @@ final class PaneStripViewTests: AppKitTestCase {
         try assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: false)
     }
 
+    // MARK: - Zoom transitions
+
+    @MainActor
+    func test_stale_zoom_in_unsuspend_does_not_release_newer_zoom_in() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha"), makePane("beta")], focusedPaneID: PaneID("alpha")),
+            animated: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        let panes = paneStripView.descendantPaneViews()
+
+        paneStripView.beginPeekZoomOut(animated: true)
+        paneStripView.endPeekZoomIn(animated: true)
+        paneStripView.beginPeekZoomOut(animated: true)
+        pumpMainQueue(for: 0.15)
+        paneStripView.endPeekZoomIn(animated: true)
+
+        // Past the first zoom-in's 0.35s deadline, short of the second's.
+        pumpMainQueue(for: 0.25)
+        XCTAssertTrue(panes.allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        pumpMainQueue(for: 0.25)
+        XCTAssertFalse(panes.contains(where: \.isTerminalViewportSyncSuspended))
+    }
+
+    @MainActor
+    func test_render_during_zoom_in_keeps_viewport_suspended() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        let panes = paneStripView.descendantPaneViews()
+
+        paneStripView.beginPeekZoomOut(animated: false)
+        paneStripView.endPeekZoomIn(animated: true)
+        paneStripView.render(state, animated: false)
+
+        XCTAssertTrue(panes.allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        pumpMainQueue(for: 0.5)
+        XCTAssertFalse(panes.contains(where: \.isTerminalViewportSyncSuspended))
+    }
+
+    @MainActor
+    func test_peek_during_drag_zoom_in_still_runs_drag_cleanup() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        _ = try beginThreePaneDrag(in: paneStripView)
+        let draggedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("alpha") })
+        )
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [])
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+
+        // The drag's own zoom-in is under way; a peek takes the zoom over.
+        paneStripView.beginPeekZoomOut(animated: true)
+        pumpMainQueue(for: 0.5)
+        paneStripView.endPeekZoomIn(animated: true)
+        pumpMainQueue(for: 0.5)
+
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [.width, .height])
+        XCTAssertFalse(draggedPane.isTerminalAnimationFrozen)
+        XCTAssertFalse(draggedPane.isTerminalViewportSyncSuspended)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }

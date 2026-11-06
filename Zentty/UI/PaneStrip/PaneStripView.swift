@@ -208,6 +208,7 @@ final class PaneStripView: NSView {
     private var pendingAnimatedSettleAction: (() -> Void)?
     private var renderGuard = RenderGuard()
     private var owedRenderSettle = RenderSettleWork()
+    private var zoomTransition = ZoomTransition()
     private var suppressDiffBasedTransitionsOnNextRender = false
     private var isDetachingFromWindow = false
     private var isRenderingLayoutPass = false
@@ -335,6 +336,55 @@ final class PaneStripView: NSView {
         mutating func resetResizeSuppression() {
             isResizeSuppressed = false
             generation += 1
+        }
+    }
+
+    /// The strip's zoom transitions, so the delayed settle a zoom-in schedules
+    /// can tell whether it still speaks for the newest transition.
+    private struct ZoomTransition {
+        private(set) var generation = 0
+        /// The zoom-in's scale is animating, or just landed, and its settle has
+        /// not run. Terminals stay suspended exactly as while zoomed out.
+        private(set) var isSettlingZoomIn = false
+        private var needsDragCleanup = false
+
+        mutating func beginZoomOut() {
+            generation &+= 1
+            isSettlingZoomIn = false
+        }
+
+        /// Returns the generation the zoom-in's settle must present.
+        mutating func beginZoomIn(endingDrag: Bool = false) -> Int {
+            generation &+= 1
+            isSettlingZoomIn = true
+            needsDragCleanup = needsDragCleanup || endingDrag
+            return generation
+        }
+
+        /// For a zoom-in that has no delayed settle to wait for.
+        mutating func endWithoutSettle() {
+            generation &+= 1
+            isSettlingZoomIn = false
+        }
+
+        /// False when a newer transition took over; it owns the settle now.
+        mutating func settle(generation: Int) -> Bool {
+            guard generation == self.generation else { return false }
+            isSettlingZoomIn = false
+            return true
+        }
+
+        /// Stays pending across generation misses, so the transition that
+        /// finally settles still runs the cleanup an older drag zoom-in owed.
+        mutating func takeDragCleanup() -> Bool {
+            defer { needsDragCleanup = false }
+            return needsDragCleanup
+        }
+
+        mutating func reset() {
+            generation &+= 1
+            isSettlingZoomIn = false
+            needsDragCleanup = false
         }
     }
 
@@ -1133,6 +1183,8 @@ final class PaneStripView: NSView {
             } else {
                 clearTerminalResizePreviews()
             }
+        }
+        if !holdsViewportSyncForZoom {
             applyViewportSyncSuspension(to: suspendedPaneIDs)
         }
 
@@ -1211,10 +1263,8 @@ final class PaneStripView: NSView {
                 || !supersededSettle.newlyAttachedPaneIDs.isEmpty {
                 viewportView.layoutSubtreeIfNeeded()
             }
-            if !isZoomedOut {
+            if !holdsViewportSyncForZoom {
                 applyViewportSyncSuspension(to: [])
-            }
-            if !isZoomedOut {
                 forceTerminalViewportSync(
                     for: supersededSettle.needsTerminalRedraw
                         ? Set(paneViews.keys)
@@ -1408,15 +1458,15 @@ final class PaneStripView: NSView {
         }
         flushViewportLayoutIfNeeded()
         viewportView.layoutSubtreeIfNeeded()
-        if !isZoomedOut {
+        if !holdsViewportSyncForZoom {
             applyViewportSyncSuspension(to: [])
         }
         if settle.needsTerminalRedraw {
             refreshTerminalDisplaysIfNeeded()
-            if !isZoomedOut {
+            if !holdsViewportSyncForZoom {
                 forceTerminalViewportSync(for: Set(paneViews.keys))
             }
-        } else if !isZoomedOut {
+        } else if !holdsViewportSyncForZoom {
             forceTerminalViewportSync(for: settle.newlyAttachedPaneIDs)
         }
     }
@@ -1527,7 +1577,8 @@ final class PaneStripView: NSView {
 
                 let pane = state.panes[index]
                 let runtime = runtimeRegistry.runtime(for: pane)
-                let startsWithViewportSyncSuspended = isZoomedOut || suspendedPaneIDs.contains(pane.id)
+                let startsWithViewportSyncSuspended = holdsViewportSyncForZoom
+                    || suspendedPaneIDs.contains(pane.id)
                 let paneView = PaneContainerView(
                     pane: pane,
                     width: panePresentation.frame.width,
@@ -1833,6 +1884,12 @@ final class PaneStripView: NSView {
         paneViews.values.forEach { $0.endTerminalResizePreview() }
     }
 
+    /// The zoom owns terminal viewport sync: renders must neither release a
+    /// pane's suspension nor push a size until the zoom-in has settled.
+    private var holdsViewportSyncForZoom: Bool {
+        isZoomedOut || zoomTransition.isSettlingZoomIn
+    }
+
     private func applyViewportSyncSuspension(to suspendedPaneIDs: Set<PaneID>) {
         paneViews.forEach { paneID, paneView in
             paneView.setTerminalViewportSyncSuspended(
@@ -1961,6 +2018,7 @@ final class PaneStripView: NSView {
         isTerminalRedrawScheduled = false
         zoomSpring.stop()
         isZoomedOut = false
+        zoomTransition.reset()
         dragScrollOffsetX = 0
         viewportView.autoresizingMask = [.width, .height]
         applyZoomScale(1)
@@ -2329,6 +2387,7 @@ final class PaneStripView: NSView {
         // Trigger zoom-out if not already zoomed
         if !isZoomedOut {
             isZoomedOut = true
+            zoomTransition.beginZoomOut()
             setZoomedOutPaneBackdropsVisible(true, animated: true)
             // Freeze all non-dragged panes for zoom (dragged pane frozen by coordinator)
             for (id, paneView) in paneViews where id != paneID {
@@ -2527,6 +2586,7 @@ final class PaneStripView: NSView {
     ) {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
+        zoomTransition.beginZoomOut()
         zoomOutScaleOverride = scaleOverride
         setZoomedOutPaneBackdropsVisible(true, animated: animated)
         for (_, paneView) in paneViews {
@@ -2541,6 +2601,7 @@ final class PaneStripView: NSView {
     func preparePeekNeighborZoomOut(scale: CGFloat) {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
+        zoomTransition.beginZoomOut()
         zoomOutScaleOverride = scale
         TerminalViewportDiagnostics.shared.record(
             .peekNeighborPrepareZoomOut,
@@ -2561,6 +2622,7 @@ final class PaneStripView: NSView {
         guard !isDragActive else { return }
         if !isZoomedOut {
             isZoomedOut = true
+            zoomTransition.beginZoomOut()
         }
         zoomOutScaleOverride = scale
         setZoomedOutPaneBackdropsVisible(true, animated: false)
@@ -2589,6 +2651,7 @@ final class PaneStripView: NSView {
             )
         )
         isZoomedOut = false
+        zoomTransition.endWithoutSettle()
         zoomOutScaleOverride = nil
         dragScrollOffsetX = 0
         applyZoomScale(1)
@@ -2618,6 +2681,7 @@ final class PaneStripView: NSView {
         )
         zoomSpring.stop()
         isZoomedOut = false
+        zoomTransition.endWithoutSettle()
         zoomOutScaleOverride = nil
         dragScrollOffsetX = 0
         applyZoomScale(1)
@@ -2700,6 +2764,7 @@ final class PaneStripView: NSView {
             )
         )
         isZoomedOut = false
+        let zoomGeneration = zoomTransition.beginZoomIn()
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
         // Reset so the next drag-zoom (or another peek session)
         // starts from the canonical static scale unless explicitly overridden.
@@ -2708,6 +2773,7 @@ final class PaneStripView: NSView {
         let unfreezeDelay: TimeInterval = animated ? Self.zoomAnimationDuration : 0
         let deferredWorkGeneration = self.deferredWorkGeneration
         if !animated {
+            _ = zoomTransition.settle(generation: zoomGeneration)
             setZoomedOutPaneBackdropsVisible(false, animated: false)
             for (_, paneView) in paneViews {
                 paneView.configureViewportDiagnostics(
@@ -2726,13 +2792,14 @@ final class PaneStripView: NSView {
                 )
                 paneView.setTerminalViewportSyncSuspended(false)
             }
+            runPendingDragZoomCleanup()
             return
         }
         setZoomedOutPaneBackdropsVisible(false, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
             guard let self,
                   deferredWorkGeneration == self.deferredWorkGeneration,
-                  !self.isZoomedOut
+                  self.zoomTransition.settle(generation: zoomGeneration)
             else { return }
             for (_, paneView) in self.paneViews {
                 paneView.configureViewportDiagnostics(
@@ -2751,6 +2818,7 @@ final class PaneStripView: NSView {
                 )
                 paneView.setTerminalViewportSyncSuspended(false)
             }
+            self.runPendingDragZoomCleanup()
         }
     }
 
@@ -2758,6 +2826,7 @@ final class PaneStripView: NSView {
     func endDragWithZoomIn() {
         guard isZoomedOut else { return }
         isZoomedOut = false
+        let zoomGeneration = zoomTransition.beginZoomIn(endingDrag: true)
         setZoomedOutPaneBackdropsVisible(false, animated: true)
         updateZoomAnchor()
         // Animate scroll back to 0 alongside the zoom-in
@@ -2789,41 +2858,49 @@ final class PaneStripView: NSView {
         DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
             guard let self,
                   deferredWorkGeneration == self.deferredWorkGeneration,
-                  !self.isZoomedOut else { return }
-
-            // Restore viewport autoresizing (was disabled by the drag coordinator)
-            self.viewportView.autoresizingMask = [.width, .height]
-
-            // Unfreeze and unsuspend all terminals
-            for (_, paneView) in self.paneViews {
-                paneView.endVerticalFreeze()
-                paneView.setTerminalViewportSyncSuspended(false)
-            }
-
-            // Re-render at correct layout. syncFocusedTerminal (called
-            // inside renderCurrentState) now uses retry-until-success, so
-            // focus will land on the correct pane once it's ready.
-            if let state = self.currentState {
-                self.renderCurrentState(state, animated: false)
-                self.focusCurrentPaneIfNeeded()
-            }
-
-            // Force full display invalidation — layout alone doesn't
-            // mark layer-backed content dirty after bounds-based zoom.
-            for (_, paneView) in self.paneViews {
-                paneView.needsLayout = true
-                paneView.layoutSubtreeIfNeeded()
-                paneView.needsDisplay = true
-                paneView.displayIfNeeded()
-                // Also invalidate sublayers (terminal host)
-                paneView.subviews.forEach { sub in
-                    sub.needsDisplay = true
-                    sub.subviews.forEach { $0.needsDisplay = true }
-                }
-            }
-            self.viewportView.needsDisplay = true
-            self.viewportView.displayIfNeeded()
+                  self.zoomTransition.settle(generation: zoomGeneration) else { return }
+            self.runPendingDragZoomCleanup()
         }
+    }
+
+    /// Drag-only zoom-in cleanup. Run by whichever zoom-in settles last, so a
+    /// peek that takes the zoom over before a drag's zoom-in settled cannot
+    /// leave the viewport pinned and the dragged pane frozen.
+    private func runPendingDragZoomCleanup() {
+        guard zoomTransition.takeDragCleanup() else { return }
+
+        // Restore viewport autoresizing (was disabled by the drag coordinator)
+        viewportView.autoresizingMask = [.width, .height]
+
+        // Unfreeze and unsuspend all terminals
+        for (_, paneView) in paneViews {
+            paneView.endVerticalFreeze()
+            paneView.setTerminalViewportSyncSuspended(false)
+        }
+
+        // Re-render at correct layout. syncFocusedTerminal (called
+        // inside renderCurrentState) now uses retry-until-success, so
+        // focus will land on the correct pane once it's ready.
+        if let state = currentState {
+            renderCurrentState(state, animated: false)
+            focusCurrentPaneIfNeeded()
+        }
+
+        // Force full display invalidation — layout alone doesn't
+        // mark layer-backed content dirty after bounds-based zoom.
+        for (_, paneView) in paneViews {
+            paneView.needsLayout = true
+            paneView.layoutSubtreeIfNeeded()
+            paneView.needsDisplay = true
+            paneView.displayIfNeeded()
+            // Also invalidate sublayers (terminal host)
+            paneView.subviews.forEach { sub in
+                sub.needsDisplay = true
+                sub.subviews.forEach { $0.needsDisplay = true }
+            }
+        }
+        viewportView.needsDisplay = true
+        viewportView.displayIfNeeded()
     }
 
     /// Apply drag layout with optional gap at an insertion point.
