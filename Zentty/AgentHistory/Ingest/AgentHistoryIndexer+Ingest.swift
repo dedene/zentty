@@ -101,6 +101,8 @@ extension AgentHistoryIndexer {
 
     /// Queue empty (or only paused backfill left): persist counters, mark the first full
     /// backfill, optimize once, go `.watching`. Returns true when it queued more work.
+    /// Housekeeping that hits a full disk or corruption has already set the state and its
+    /// retry, so idle stops there; `retryAfterDiskFull` or the recovery comes back through here.
     @discardableResult
     func becomeIdle() -> Bool {
         guard lifecycle == .running, !corruptionRecoveryPending else {
@@ -120,9 +122,15 @@ extension AgentHistoryIndexer {
         runPendingSourcePurges()
         storePendingAdapterVersions()
         persistCounters()
+        guard !isWritingSuspended else {
+            return false
+        }
         hasDrainedOnce = true
         if !isBackfillComplete {
             markBackfillComplete()
+        }
+        guard !isWritingSuspended else {
+            return false
         }
         setState(.watching)
         publish()

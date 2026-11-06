@@ -15,6 +15,18 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
         }
     }
 
+    /// Hands out scripted errors in order, then nil.
+    private final class ErrorScript: @unchecked Sendable {
+        private let lock = NSLock()
+        private var errors: [any Error]
+        init(_ errors: [any Error]) { self.errors = errors }
+        func next() -> (any Error)? {
+            lock.lock()
+            defer { lock.unlock() }
+            return errors.isEmpty ? nil : errors.removeFirst()
+        }
+    }
+
     private static func databaseError(_ kind: AgentHistoryDatabaseError.Kind, _ code: Int32) -> AgentHistoryDatabaseError {
         AgentHistoryDatabaseError(kind: kind, code: code, extendedCode: code, message: "injected")
     }
@@ -135,6 +147,37 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
 
         try assertCarriedOver(harness, indexer)
         XCTAssertEqual(try harness.count("SELECT count(*) FROM usage_carryover"), 0, "usage moved onto the stored session")
+    }
+
+    /// The start-up restore fails harmlessly, so the idle pass retries it and finds the disk full.
+    /// Idle must not paper over that with `.watching`; the disk-full retry finishes the job.
+    func test_full_disk_during_idle_housekeeping_stays_paused() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let indexer = harness.makeIndexer()
+        let restoreErrors = ErrorScript([Self.databaseError(.busy, 5), Self.databaseError(.full, 13)])
+        indexer.beforeCarryOverRestoreForTesting = {
+            if let error = restoreErrors.next() {
+                throw error
+            }
+        }
+        try indexThreeSessions(harness, indexer)
+
+        indexer.rebuild()
+        indexer.drainSynchronouslyForTesting()
+
+        guard case .paused(.diskFull, _) = indexer.currentStatus.state else {
+            return XCTFail("expected the disk-full pause, got \(indexer.currentStatus.state)")
+        }
+        XCTAssertFalse(indexer.currentStatus.isBackfillComplete, "completion waits for the resume")
+
+        indexer.queue.sync {
+            indexer.retryAfterDiskFull()
+        }
+        indexer.drainSynchronouslyForTesting()
+
+        XCTAssertEqual(indexer.currentStatus.state, .watching)
+        XCTAssertTrue(indexer.currentStatus.isBackfillComplete)
+        try assertCarriedOver(harness, indexer)
     }
 
     func test_merge_keeps_first_removal_time_and_largest_usage() {
