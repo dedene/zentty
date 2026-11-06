@@ -8,6 +8,9 @@ final class OnePasswordPromptFocusCoordinatorTests: XCTestCase {
     private var focusedPaneID: PaneID?
     private var returnEnabled = true
     private var alivePIDs: Set<Int32> = []
+    private var enabled = true
+    private var onePasswordRunning = true
+    private var heldScans: [@Sendable () -> Void] = []
     private var clock = Date(timeIntervalSince1970: 1_000)
 
     private let origin = OnePasswordPromptFocusLocation(windowID: WindowID("w"), worklaneID: WorklaneID("l"), paneID: PaneID("origin"))
@@ -245,6 +248,66 @@ final class OnePasswordPromptFocusCoordinatorTests: XCTestCase {
         XCTAssertTrue(restored.isEmpty)
     }
 
+    func test_presence_loss_drops_pending_return() async {
+        focusedPaneID = origin.paneID
+        let coordinator = makeCoordinator(opPIDs: [100: 101])
+        await triggerPrompt(coordinator)
+        XCTAssertEqual(revealed.count, 1)
+        focusedPaneID = PaneID("a")
+        coordinator.handleWindowSnapshot(baseline)
+
+        onePasswordRunning = false
+        coordinator.pollForTesting()
+
+        // 1Password came back; no new prompt, and the request pane still has focus.
+        onePasswordRunning = true
+        clock = clock.addingTimeInterval(10)
+        coordinator.handleWindowSnapshot(baseline)
+        clock = clock.addingTimeInterval(2)
+        coordinator.handleWindowSnapshot(baseline)
+
+        XCTAssertTrue(restored.isEmpty, "A return from before 1Password quit must not fire")
+    }
+
+    func test_scan_finishing_after_stop_does_not_reveal() async {
+        let coordinator = makeCoordinator(opPIDs: [100: 101], holdScans: true)
+        coordinator.handleWindowSnapshot(baseline)
+        XCTAssertTrue(coordinator.handleWindowSnapshot(baseline + [prompt]))
+
+        coordinator.stop()
+        heldScans.forEach { $0() }
+        await Task.yield()
+
+        XCTAssertTrue(revealed.isEmpty)
+    }
+
+    func test_scan_finishing_after_disable_does_not_reveal() async {
+        let coordinator = makeCoordinator(opPIDs: [100: 101], holdScans: true)
+        coordinator.handleWindowSnapshot(baseline)
+        XCTAssertTrue(coordinator.handleWindowSnapshot(baseline + [prompt]))
+
+        // The disable lands between polls, so nothing has invalidated the scan yet.
+        enabled = false
+        heldScans.forEach { $0() }
+        await Task.yield()
+
+        XCTAssertTrue(revealed.isEmpty)
+    }
+
+    func test_scan_held_across_a_disabled_poll_does_not_reveal_after_reenable() async {
+        let coordinator = makeCoordinator(opPIDs: [100: 101], holdScans: true)
+        coordinator.handleWindowSnapshot(baseline)
+        XCTAssertTrue(coordinator.handleWindowSnapshot(baseline + [prompt]))
+
+        enabled = false
+        coordinator.pollForTesting()
+        enabled = true
+        heldScans.forEach { $0() }
+        await Task.yield()
+
+        XCTAssertTrue(revealed.isEmpty)
+    }
+
     private func triggerPrompt(_ coordinator: OnePasswordPromptFocusCoordinator) async {
         coordinator.handleWindowSnapshot(baseline)
         coordinator.handleWindowSnapshot(baseline + [prompt])
@@ -253,7 +316,8 @@ final class OnePasswordPromptFocusCoordinatorTests: XCTestCase {
 
     private func makeCoordinator(
         opPIDs: [Int32: Int32],
-        sources: [OnePasswordPromptPaneSource]? = nil
+        sources: [OnePasswordPromptPaneSource]? = nil,
+        holdScans: Bool = false
     ) -> OnePasswordPromptFocusCoordinator {
         let provider = StubProvider(opPIDs: opPIDs)
         let defaultSources = opPIDs.keys.sorted().enumerated().map { index, rootPID in
@@ -266,7 +330,7 @@ final class OnePasswordPromptFocusCoordinatorTests: XCTestCase {
         }
         return OnePasswordPromptFocusCoordinator(
             hooks: .init(
-                isEnabled: { true },
+                isEnabled: { [unowned self] in enabled },
                 isReturnEnabled: { [unowned self] in returnEnabled },
                 sources: { sources ?? defaultSources },
                 isPaneFocused: { [unowned self] source in source.paneID == focusedPaneID },
@@ -281,7 +345,14 @@ final class OnePasswordPromptFocusCoordinatorTests: XCTestCase {
             attributor: OnePasswordPromptAttributor(processProvider: provider),
             snapshotter: StubSnapshotter(),
             isProcessAlive: { [unowned self] pid in alivePIDs.contains(pid) },
-            scanExecutor: { $0() },
+            isOnePasswordRunning: { [unowned self] in onePasswordRunning },
+            scanExecutor: { [unowned self] work in
+                if holdScans {
+                    heldScans.append(work)
+                } else {
+                    work()
+                }
+            },
             now: { [unowned self] in clock }
         )
     }
