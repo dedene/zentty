@@ -31,7 +31,9 @@ protocol AgentHistoryControlling: AnyObject {
     func disable(deleteIndex: Bool, completion: @escaping @MainActor (AgentHistoryDisableOutcome) -> Void)
     func rebuildIndex()
     func restoreAllRemovedSessions()
-    func removeSession(_ key: AgentHistorySessionKey)
+    /// `completion` runs on main with whether the removal was written. False when the index
+    /// refused it (no indexer, standing by, disk full) or the write failed.
+    func removeSession(_ key: AgentHistorySessionKey, completion: @escaping @MainActor (Bool) -> Void)
 }
 
 extension AgentHistoryControlling {
@@ -45,6 +47,10 @@ extension AgentHistoryControlling {
 
     func setAgentEnabled(_ agent: AgentHistoryAgent, _ enabled: Bool) {
         setAgentEnabled(agent, enabled) { _ in }
+    }
+
+    func removeSession(_ key: AgentHistorySessionKey) {
+        removeSession(key) { _ in }
     }
 }
 

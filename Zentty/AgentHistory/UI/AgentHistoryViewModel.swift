@@ -150,7 +150,7 @@ final class AgentHistoryViewModel: ObservableObject {
     var transientMessageToken: AgentHistoryCancellable?
     /// Opened before `state.json` was read: `.loading` until the status says what was saved.
     var isAwaitingSavedState = false
-    private var isStarted = false
+    private(set) var isStarted = false
 
     // `+Projects`: the panes' projects land off main after the panel opens.
     var isAwaitingProjects = false

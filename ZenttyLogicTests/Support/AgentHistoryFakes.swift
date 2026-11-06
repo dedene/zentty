@@ -28,6 +28,11 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     private(set) var rebuildCount = 0
     private(set) var restoreAllCount = 0
     private(set) var removedKeys: [AgentHistorySessionKey] = []
+    /// What `removeSession` answers.
+    var removeSessionResult = true
+    /// Holds `removeSession` completions until `releaseRemovals()`, like the indexer's queue.
+    var holdsRemovals = false
+    private var pendingRemovals: [@MainActor (Bool) -> Void] = []
     private var observers: [UUID: @MainActor (AgentHistoryStatus) -> Void] = [:]
 
     var observerCount: Int { observers.count }
@@ -83,7 +88,20 @@ final class FakeAgentHistoryControl: AgentHistoryControlling {
     }
     func rebuildIndex() { rebuildCount += 1 }
     func restoreAllRemovedSessions() { restoreAllCount += 1 }
-    func removeSession(_ key: AgentHistorySessionKey) { removedKeys.append(key) }
+    func removeSession(_ key: AgentHistorySessionKey, completion: @escaping @MainActor (Bool) -> Void) {
+        removedKeys.append(key)
+        guard holdsRemovals else {
+            completion(removeSessionResult)
+            return
+        }
+        pendingRemovals.append(completion)
+    }
+
+    func releaseRemovals() {
+        let pending = pendingRemovals
+        pendingRemovals.removeAll()
+        pending.forEach { $0(removeSessionResult) }
+    }
 }
 
 /// A cancellable that remembers it was cancelled.

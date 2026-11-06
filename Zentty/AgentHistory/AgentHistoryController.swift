@@ -284,8 +284,12 @@ final class AgentHistoryController: Sendable {
         indexer?.restoreAllRemovedSessions()
     }
 
-    func removeSession(_ key: AgentHistorySessionKey) {
-        indexer?.removeSession(key)
+    func removeSession(_ key: AgentHistorySessionKey, completion: @escaping @MainActor (Bool) -> Void) {
+        guard let indexer else {
+            completion(false)
+            return
+        }
+        indexer.removeSession(key, completion: completion)
     }
 
     /// Counts one open on the indexer's queue; dropped while the indexer is off.

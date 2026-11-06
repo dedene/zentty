@@ -281,6 +281,46 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         XCTAssertEqual(model.transientMessage, "Removed from Agent History. Restore in Settings.")
     }
 
+    func test_refused_remove_brings_the_row_back_and_says_so() {
+        control.removeSessionResult = false
+        let model = startedModel()
+        let removed = summary(1).key
+
+        model.removeFromHistory(removed)
+
+        XCTAssertEqual(control.removedKeys, [removed])
+        XCTAssertEqual(model.rows.map(\.key), [summary(1).key, summary(2).key, summary(3).key])
+        XCTAssertEqual(model.transientMessage, AgentHistoryViewModel.removeFailedMessage)
+    }
+
+    func test_remove_keeps_the_row_out_while_the_index_answers() {
+        control.holdsRemovals = true
+        let model = startedModel()
+        let removed = summary(1).key
+
+        model.removeFromHistory(removed)
+
+        XCTAssertFalse(model.rows.contains { $0.key == removed }, "the drop stays optimistic")
+        XCTAssertNil(model.transientMessage, "nothing is promised before the index answers")
+
+        control.releaseRemovals()
+        XCTAssertEqual(model.transientMessage, AgentHistoryViewModel.removedMessage)
+    }
+
+    func test_late_remove_answer_after_the_palette_closed_is_ignored() {
+        control.holdsRemovals = true
+        control.removeSessionResult = false
+        let model = startedModel()
+        model.removeFromHistory(summary(1).key)
+        let scopeReads = search.recentScopes.count
+
+        model.stop()
+        control.releaseRemovals()
+
+        XCTAssertNil(model.transientMessage)
+        XCTAssertEqual(search.recentScopes.count, scopeReads, "a closed palette runs no search")
+    }
+
     func test_reveal_transcript_only_offered_when_path_exists() {
         let present = "/tmp/agent-history-tests/root/present.jsonl"
         existingPaths = [present]

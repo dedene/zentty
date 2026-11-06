@@ -2804,5 +2804,7 @@ final class HostedAgentHistorySettingsBackend: AgentHistorySettingsBackend {
     }
     func rebuildIndex() {}
     func restoreAllRemovedSessions() {}
-    func removeSession(_ key: AgentHistorySessionKey) {}
+    func removeSession(_ key: AgentHistorySessionKey, completion: @escaping @MainActor (Bool) -> Void) {
+        completion(true)
+    }
 }

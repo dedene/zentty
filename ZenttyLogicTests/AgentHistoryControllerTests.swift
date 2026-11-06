@@ -355,6 +355,15 @@ final class AgentHistoryControllerTests: XCTestCase {
                        "reading the reset state never recreates the directory")
     }
 
+    func test_remove_session_without_an_indexer_completes_false() {
+        let fixture = makeFixture()
+        var answer: Bool?
+
+        fixture.controller.removeSession(AgentHistorySessionKey(agent: .codex, nativeID: "codex-one")) { answer = $0 }
+
+        XCTAssertEqual(answer, false)
+    }
+
     // MARK: - Off status
 
     /// Builds an index with one removed session, then turns History off (index kept).

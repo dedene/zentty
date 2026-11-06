@@ -70,6 +70,7 @@ extension AgentHistoryViewModel {
     static let copiedResumeCommandMessage = "Copied resume command"
     static let copiedSessionIDMessage = "Copied session ID"
     static let removedMessage = "Removed from Agent History. Restore in Settings."
+    static let removeFailedMessage = "Couldn't remove this session from Agent History right now."
 
     // MARK: - Keyboard
 
@@ -293,7 +294,8 @@ extension AgentHistoryViewModel {
         return URL(fileURLWithPath: path)
     }
 
-    /// Drops the row at once and tombstones the session; it can be restored in Settings.
+    /// Drops the row at once and tombstones the session; it can be restored in Settings. The
+    /// index can refuse (standing by, disk full): the row then comes back and the message says so.
     func removeFromHistory(_ key: AgentHistorySessionKey) {
         let currentRows = rows
         guard let index = currentRows.firstIndex(where: { $0.key == key }), currentRows[index].summary != nil else {
@@ -304,7 +306,6 @@ extension AgentHistoryViewModel {
             section.rows.removeAll { $0.key == key }
             return section.rows.isEmpty ? nil : section
         }
-        services.control.removeSession(key)
         copySessionIDOfferKeys.remove(key)
         if folderSheet?.key == key {
             folderSheet = nil
@@ -314,6 +315,21 @@ extension AgentHistoryViewModel {
             selectionDidChange()
         }
         refreshFolderGoneKeys()
+        // Last: the answer can come back synchronously and rebuild the rows.
+        services.control.removeSession(key) { [weak self] removed in
+            self?.removalCompleted(removed: removed)
+        }
+    }
+
+    /// The palette may have closed (`stop` keeps the body) or lost access since the drop.
+    private func removalCompleted(removed: Bool) {
+        guard isStarted, body == .results else { return }
+        guard removed else {
+            showTransientMessage(Self.removeFailedMessage)
+            // Nothing was published, so this finds the row where it was.
+            runSearch(resetSelection: false)
+            return
+        }
         showTransientMessage(Self.removedMessage)
     }
 
