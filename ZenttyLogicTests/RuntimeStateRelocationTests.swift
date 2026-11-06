@@ -186,6 +186,152 @@ final class RuntimeStateRelocationTests: XCTestCase {
         XCTAssertEqual(try contents(of: stateDirectoryURL), [RuntimeStateRelocation.markerFileName])
     }
 
+    // MARK: - Scrollback
+
+    /// The launch that fell back to the config directory wrote its scrollback there too. The
+    /// snapshot names those files bare, so they have to land beside the pair it moves with.
+    @MainActor
+    func test_retry_brings_across_the_scrollback_the_fallback_launch_saved() throws {
+        try write("restore-snapshot.json", "legacy", in: configDirectoryURL)
+        failMigrationOnce(on: "restore-snapshot.json")
+        XCTAssertEqual(restoreStoreDirectory(), configDirectoryURL)
+        try quitWithScrollback(screens: ["pn_1": "$ make\nok\n"])
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertTrue(copied.contains("pn_1-L1.txt"), "\(copied)")
+        XCTAssertTrue(marker(in: stateDirectoryURL))
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL)
+        XCTAssertEqual(try restoredScrollback(paneID: "pn_1"), "$ make\nok\n" + SessionScrollbackText.separatorLine)
+        XCTAssertEqual(
+            try permissions(of: scrollbackDirectory(in: stateDirectoryURL)), 0o700,
+            "saved output can hold secrets"
+        )
+        XCTAssertEqual(try permissions(of: scrollbackFile("pn_1-L1.txt", in: stateDirectoryURL)), 0o600)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: scrollbackFile("pn_1-L1.txt", in: configDirectoryURL).path),
+            "an older build may still be using the config directory"
+        )
+    }
+
+    @MainActor
+    func test_failed_scrollback_copy_keeps_the_config_directory_authoritative_and_retries() throws {
+        try quitWithScrollback(screens: ["pn_1": "one\n", "pn_2": "two\n"])
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: "pn_2-L1.txt")
+        )
+
+        XCTAssertEqual(copied, [])
+        XCTAssertFalse(marker(in: stateDirectoryURL))
+        for name in RuntimeStateRelocation.restoreFileNames {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: stateDirectoryURL.appendingPathComponent(name).path),
+                "\(name) must wait for the scrollback it points at"
+            )
+        }
+        XCTAssertEqual(try scrollbackFiles(in: stateDirectoryURL), [], "the attempt takes back what it copied")
+        XCTAssertEqual(restoreStoreDirectory(), configDirectoryURL)
+
+        RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertTrue(marker(in: stateDirectoryURL))
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL)
+        XCTAssertEqual(try restoredScrollback(paneID: "pn_2"), "two\n" + SessionScrollbackText.separatorLine)
+    }
+
+    @MainActor
+    func test_rollback_removes_only_the_scrollback_this_attempt_created() throws {
+        try quitWithScrollback(screens: ["pn_1": "one\n", "pn_2": "two\n"])
+        try SessionRestoreStore(stateDirectoryURL: configDirectoryURL).markLaunchStarted()
+        let existing = SessionScrollbackArchive(stateDirectoryURL: stateDirectoryURL)
+        try existing.write("already here\n", fileName: "pn_1-L1.txt")
+
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: "restore-lifecycle.json")
+        )
+
+        XCTAssertEqual(try scrollbackFiles(in: stateDirectoryURL), ["pn_1-L1.txt"])
+        XCTAssertEqual(
+            try String(contentsOf: scrollbackFile("pn_1-L1.txt", in: stateDirectoryURL), encoding: .utf8),
+            "already here\n"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stateDirectoryURL.appendingPathComponent("restore-snapshot.json").path))
+        XCTAssertFalse(marker(in: stateDirectoryURL))
+    }
+
+    /// Half a pair that can't be taken back reads as existing state and ends the migration, so
+    /// the scrollback it points at has to stay with it.
+    @MainActor
+    func test_rollback_that_cannot_remove_the_snapshot_keeps_its_scrollback() throws {
+        try quitWithScrollback(screens: ["pn_1": "one\n"])
+        try SessionRestoreStore(stateDirectoryURL: configDirectoryURL).markLaunchStarted()
+
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(
+                failingFileName: "restore-lifecycle.json",
+                refusedRemovalName: "restore-snapshot.json"
+            )
+        )
+
+        XCTAssertEqual(restoreStoreDirectory(), stateDirectoryURL)
+        XCTAssertEqual(try restoredScrollback(paneID: "pn_1"), "one\n" + SessionScrollbackText.separatorLine)
+    }
+
+    /// A full disk stops a copy halfway. What that leaves behind must not pass for a finished
+    /// file: the retry skips any file that already exists.
+    @MainActor
+    func test_copy_interrupted_halfway_is_not_taken_for_a_finished_file_on_retry() throws {
+        try quitWithScrollback(screens: ["pn_1": "one\n"])
+
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: "pn_1-L1.txt", leavesPartialCopy: true)
+        )
+
+        XCTAssertEqual(try contents(of: scrollbackDirectory(in: stateDirectoryURL)), [])
+
+        RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(try restoredScrollback(paneID: "pn_1"), "one\n" + SessionScrollbackText.separatorLine)
+    }
+
+    func test_interrupted_snapshot_copy_does_not_end_the_retry() throws {
+        try write("restore-snapshot.json", "session", in: configDirectoryURL)
+
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: "restore-snapshot.json", leavesPartialCopy: true)
+        )
+
+        XCTAssertEqual(try contents(of: stateDirectoryURL), [])
+        XCTAssertEqual(restoreStoreDirectory(), configDirectoryURL)
+    }
+
+    /// A pane whose file is gone restores without it today, so it can't block the migration.
+    func test_snapshot_reference_without_a_usable_file_does_not_hold_the_migration_back() throws {
+        var recipe = SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_gone", "pn_escape"])
+        recipe.windows[0].worklanes[0].columns[0].panes[0].scrollbackFile = "pn_gone-L1.txt"
+        recipe.windows[0].worklanes[0].columns[0].panes[1].scrollbackFile = "../restore-lifecycle.txt"
+        try write("restore-lifecycle.txt", "outside the archive", in: configDirectoryURL)
+        try SessionRestoreStore(stateDirectoryURL: configDirectoryURL)
+            .saveSnapshot(SessionRestoreEnvelope(workspace: recipe))
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(copied, ["restore-snapshot.json"])
+        XCTAssertTrue(marker(in: stateDirectoryURL))
+        XCTAssertEqual(try contents(of: stateDirectoryURL).filter { $0.contains("scrollback") }, [])
+    }
+
     func test_tmux_compat_store_lives_in_the_state_directory() {
         let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
 
@@ -206,6 +352,81 @@ final class RuntimeStateRelocationTests: XCTestCase {
         try SessionRestoreStore(stateDirectoryURL: restoreStoreDirectory()).markLaunchStarted()
     }
 
+    private func failMigrationOnce(on fileName: String) {
+        RuntimeStateRelocation.migrateIfNeeded(
+            from: configDirectoryURL,
+            to: stateDirectoryURL,
+            fileManager: CopyFailingFileManager(failingFileName: fileName)
+        )
+    }
+
+    /// The quit path of a launch that fell back to the config directory: the coordinator writes
+    /// each pane's output there, and the snapshot records the bare file names.
+    @MainActor
+    private func quitWithScrollback(screens: [String: String]) throws {
+        let directory: URL = configDirectoryURL
+        let coordinator = SessionScrollbackCoordinator(stateDirectoryURL: directory, launchID: "L1")
+        coordinator.setEnabled(true, startsCheckpoints: false)
+        coordinator.sourcesProvider = {
+            [SessionScrollbackCoordinator.CaptureSource(
+                paneIDs: screens.keys.sorted().map { PaneID($0) },
+                read: { screens[$0.rawValue] }
+            )]
+        }
+        let recipe = coordinator.prepareForSave(
+            SessionScrollbackTestFixtures.recipe(paneIDs: screens.keys.sorted()),
+            finalSave: true
+        )
+        try SessionRestoreStore(stateDirectoryURL: directory).saveSnapshot(SessionRestoreEnvelope(workspace: recipe))
+    }
+
+    /// What the next launch replays: restore through the chosen directory, then read the file
+    /// the shell integration would be pointed at.
+    @MainActor
+    private func restoredScrollback(paneID: String) throws -> String? {
+        let directory = restoreStoreDirectory()
+        let decision = try XCTUnwrap(
+            try SessionRestoreStore(stateDirectoryURL: directory).prepareForLaunch(restorePreferenceEnabled: true)
+        )
+        let window = decision.envelope.workspace.windows[0]
+        var state = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID(window.id),
+            layoutContext: .fallback,
+            processEnvironment: ["HOME": directory.path]
+        )
+        let coordinator = SessionScrollbackCoordinator(stateDirectoryURL: directory, launchID: "L2")
+        coordinator.setEnabled(true, startsCheckpoints: false)
+        coordinator.prepareRestoredPanes(in: &state, from: window)
+        let pane = state.worklanes[0].paneStripState.panes.first { $0.id == PaneID(paneID) }
+        guard let path = pane?.sessionRequest.environmentVariables[SessionScrollbackCoordinator.environmentKey] else {
+            return nil
+        }
+        return try String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    private func marker(in directory: URL) -> Bool {
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(RuntimeStateRelocation.markerFileName).path)
+    }
+
+    private func scrollbackDirectory(in directory: URL) -> URL {
+        SessionScrollbackArchive(stateDirectoryURL: directory).directoryURL
+    }
+
+    private func scrollbackFile(_ name: String, in directory: URL) -> URL {
+        scrollbackDirectory(in: directory).appendingPathComponent(name)
+    }
+
+    private func scrollbackFiles(in directory: URL) throws -> [String] {
+        guard FileManager.default.fileExists(atPath: scrollbackDirectory(in: directory).path) else { return [] }
+        return try contents(of: scrollbackDirectory(in: directory))
+    }
+
+    private func permissions(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try XCTUnwrap(attributes[.posixPermissions] as? Int)
+    }
+
     private func write(_ name: String, _ contents: String, in directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try contents.write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
@@ -222,16 +443,30 @@ final class RuntimeStateRelocationTests: XCTestCase {
 
 private final class CopyFailingFileManager: FileManager {
     private let failingFileName: String
+    private let refusedRemovalName: String?
+    private let leavesPartialCopy: Bool
 
-    init(failingFileName: String) {
+    init(failingFileName: String, refusedRemovalName: String? = nil, leavesPartialCopy: Bool = false) {
         self.failingFileName = failingFileName
+        self.refusedRemovalName = refusedRemovalName
+        self.leavesPartialCopy = leavesPartialCopy
         super.init()
     }
 
     override func copyItem(at srcURL: URL, to dstURL: URL) throws {
         guard srcURL.lastPathComponent != failingFileName else {
+            if leavesPartialCopy {
+                try Data("par".utf8).write(to: dstURL)
+            }
             throw CocoaError(.fileWriteOutOfSpace)
         }
         try super.copyItem(at: srcURL, to: dstURL)
+    }
+
+    override func removeItem(at URL: URL) throws {
+        guard URL.lastPathComponent != refusedRemovalName else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.removeItem(at: URL)
     }
 }

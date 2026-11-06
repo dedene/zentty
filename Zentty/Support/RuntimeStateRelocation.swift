@@ -8,9 +8,10 @@ private let runtimeStateRelocationLogger = Logger(subsystem: "be.zenjoy.zentty",
 /// hold files worth syncing between Macs (config.toml, bookmarks.json, agents/).
 ///
 /// Copies, never moves or deletes: older Zentty builds (other worktrees, a Mac
-/// not yet upgraded) may still be running against the old files. A marker
-/// file makes it run once, so later writes by those builds are never pulled in;
-/// it is only written after every copy succeeded, so a failed run is retried.
+/// not yet upgraded) may still be running against the old files. Rollback only
+/// removes what the failed attempt itself created. A marker file makes it run
+/// once, so later writes by those builds are never pulled in; it is only written
+/// after every copy succeeded, so a failed run is retried.
 enum RuntimeStateRelocation {
     /// Copied together or not at all: a snapshot paired with another
     /// instance's lifecycle file can turn into a bogus crash recovery. The
@@ -87,31 +88,65 @@ enum RuntimeStateRelocation {
     }
 
     /// All or nothing: on failure it removes what this attempt created, so the
-    /// retry sees an empty slot rather than half a pair.
+    /// retry sees an empty slot rather than half a pair. The scrollback the
+    /// snapshot points at goes first: the pair ends the retry, and the snapshot
+    /// names those files relative to its own directory.
     private static func copyRestorePair(
         from sourceDirectory: URL,
         to destinationDirectory: URL,
         _ fileManager: FileManager
     ) throws -> [String] {
-        var created: [String] = []
+        let sourceScrollback = SessionScrollbackArchive(stateDirectoryURL: sourceDirectory)
+        let destinationScrollback = SessionScrollbackArchive(stateDirectoryURL: destinationDirectory)
+        var created: [URL] = []
+        func copy(_ name: String, from source: URL, to destination: URL) throws {
+            if try copyIfMissing(name, from: source, to: destination, fileManager) {
+                created.append(destination.appendingPathComponent(name, isDirectory: false))
+            }
+        }
         do {
+            let scrollback = try referencedScrollback(in: sourceDirectory).filter {
+                sourceScrollback.existingFilePath(forFileName: $0, fileManager: fileManager) != nil
+            }
+            if !scrollback.isEmpty {
+                try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+                try destinationScrollback.ensureDirectory(fileManager: fileManager)
+            }
+            for name in scrollback {
+                try copy(name, from: sourceScrollback.directoryURL, to: destinationScrollback.directoryURL)
+            }
             for name in restoreFileNames {
-                if try copyIfMissing(name, from: sourceDirectory, to: destinationDirectory, fileManager) {
-                    created.append(name)
-                }
+                try copy(name, from: sourceDirectory, to: destinationDirectory)
             }
-            return created
+            return created.map(\.lastPathComponent)
         } catch {
-            for name in created {
-                do {
-                    try fileManager.removeItem(at: destinationDirectory.appendingPathComponent(name, isDirectory: false))
-                } catch {
-                    runtimeStateRelocationLogger.error(
-                        "Failed to roll back \(name, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-            }
+            rollBack(created, fileManager)
             throw error
+        }
+    }
+
+    /// Newest first, stopping at a file it can't remove: half a pair left behind
+    /// reads as existing state, so the scrollback copied before it has to stay.
+    private static func rollBack(_ created: [URL], _ fileManager: FileManager) {
+        for url in created.reversed() {
+            do {
+                try fileManager.removeItem(at: url)
+            } catch {
+                runtimeStateRelocationLogger.error(
+                    "Failed to roll back \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                return
+            }
+        }
+    }
+
+    /// A snapshot that won't decode can't be restored either, so it has no
+    /// references to wait for. One that can't be read fails the attempt.
+    private static func referencedScrollback(in directory: URL) throws -> [String] {
+        do {
+            return try SessionRestoreStore(stateDirectoryURL: directory).referencedScrollbackFileNames().sorted()
+        } catch is DecodingError {
+            return []
         }
     }
 
@@ -138,7 +173,16 @@ enum RuntimeStateRelocation {
             return false
         }
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        // Under a temporary name: a copy cut short must not look finished to the
+        // retry, which skips what exists, and rollback only knows completed copies.
+        let temporaryURL = destinationDirectory.appendingPathComponent(".\(UUID().uuidString).tmp", isDirectory: false)
+        do {
+            try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+            throw error
+        }
         return true
     }
 }

@@ -82,6 +82,17 @@ final class SessionRestoreStore {
         try persist(envelopeToPersist, to: snapshotURL)
     }
 
+    /// The `session-scrollback` file names the snapshot's panes point at.
+    func referencedScrollbackFileNames() throws -> Set<String> {
+        guard let envelope = try loadSnapshot() else { return [] }
+        return Set(
+            envelope.workspace.windows
+                .flatMap(\.worklanes)
+                .flatMap(\.allPanes)
+                .compactMap(\.scrollbackFile)
+        )
+    }
+
     func deleteSnapshot() throws {
         guard fileManager.fileExists(atPath: snapshotURL.path) else {
             return
