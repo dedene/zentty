@@ -1055,6 +1055,7 @@ final class RootViewController: NSViewController {
             if !active {
                 self.sidebarMotionCoordinator.handle(.hoverRailExited)
                 self.syncSidebarVisibilityControls(animated: true)
+                self.renderCoordinator.flushCanvasRenderDeferredByDrag()
             }
         }
         appCanvasView.paneStripView.activeWorklaneIDProvider = { [weak self] in

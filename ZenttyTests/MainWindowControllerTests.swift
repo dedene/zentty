@@ -969,6 +969,46 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(controller.activePaneTitles, ["shell"])
     }
 
+    func test_worklane_change_during_drag_renders_after_cancel() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let root = controller.rootViewControllerForTesting
+        let paneStripView = root.appCanvasViewForTesting.paneStripView
+        let firstWorklanePaneID = try XCTUnwrap(root.focusedPaneIDForTesting)
+        controller.newWorklane(nil)
+        waitForLayout("worklane settled", delay: 0.05)
+        let secondWorklanePaneID = try XCTUnwrap(root.focusedPaneIDForTesting)
+        XCTAssertNotEqual(firstWorklanePaneID, secondWorklanePaneID)
+
+        let draggedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == secondWorklanePaneID })
+        )
+        let cursor = paneStripView.convert(
+            CGPoint(x: draggedPane.frame.midX, y: draggedPane.frame.maxY - (PaneContainerView.dragZoneHeight / 2)),
+            from: draggedPane.superview
+        )
+        paneStripView.beginPaneDragForTesting(paneID: secondWorklanePaneID, cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+
+        root.routeSelectWorklane(position: 1)
+        XCTAssertEqual(root.focusedPaneIDForTesting, firstWorklanePaneID)
+        XCTAssertEqual(
+            paneStripView.descendantPaneViews().map(\.paneID), [secondWorklanePaneID],
+            "the drag owns the canvas until it ends"
+        )
+
+        paneStripView.cancelPaneDragForTesting()
+        let dragEnded = expectation(
+            for: NSPredicate { _, _ in !paneStripView.isDragActive },
+            evaluatedWith: nil
+        )
+        wait(for: [dragEnded], timeout: 5)
+
+        XCTAssertEqual(paneStripView.descendantPaneViews().map(\.paneID), [firstWorklanePaneID])
+    }
+
     func test_new_worklane_uses_reported_working_directory_of_focused_pane() throws {
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(adapterStore: adapterStore)
