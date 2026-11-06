@@ -57,6 +57,12 @@ extension AgentHistoryViewModel {
             resolveBody(status: status)
             return
         }
+        // Another Zentty instance recorded consent while this one saw no agents.
+        if case .noAgents = body, status.hasConsented {
+            lastStatusRevision = status.revision
+            resolveBody(status: status)
+            return
+        }
         if body == .results, let previous, previous.changesVisibleSessions(to: next) {
             lastStatusRevision = status.revision
             refreshForAccessChange()

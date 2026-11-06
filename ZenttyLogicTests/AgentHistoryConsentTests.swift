@@ -165,6 +165,20 @@ final class AgentHistoryConsentTests: XCTestCase {
         XCTAssertTrue(AgentHistoryNoAgentsView.title.hasPrefix("No conversations from Claude Code"))
     }
 
+    func test_no_agents_body_follows_consent_recorded_elsewhere() {
+        let model = startedConsent([missing(.claude, checked: ["\(root)/.claude"])])
+        XCTAssertEqual(model.body, .noAgents(checkedPaths: ["\(root)/.claude"]))
+
+        var status = control.status
+        status.isEnabled = true
+        status.hasConsented = true
+        status.state = .watching
+        status.revision = 2
+        control.publish(status)
+
+        XCTAssertEqual(model.body, .results)
+    }
+
     func test_consent_model_totals_found_sessions_and_database_sources_show_found_without_count() {
         let consent = AgentHistoryConsentModel.make(detected: typicalSources, excluded: [], retentions: [])
 
