@@ -37,6 +37,27 @@ final class LibghosttyViewMiddleClickTests: AppKitTestCase {
         XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_MIDDLE)
     }
 
+    func test_other_mouse_up_over_suppressed_rect_still_releases_forwarded_press() throws {
+        view.otherMouseDown(with: try makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 2))
+        let positionCountAfterPress = surface.sentMousePositionCount
+        let mouseUp = try makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 2)
+        view.setMouseInteractionSuppressionRects([
+            CGRect(origin: mouseUp.locationInWindow, size: .zero).insetBy(dx: -4, dy: -4),
+        ])
+
+        view.otherMouseUp(with: mouseUp)
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_MIDDLE)
+        XCTAssertEqual(surface.sentMousePositionCount, positionCountAfterPress)
+    }
+
+    func test_other_mouse_up_without_forwarded_press_sends_no_release() throws {
+        view.otherMouseUp(with: try makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 2))
+
+        XCTAssertTrue(surface.sentMouseButtons.isEmpty)
+    }
+
     func test_back_button_maps_to_ghostty_eight() throws {
         view.otherMouseDown(with: try makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3))
 
@@ -104,6 +125,7 @@ private final class MiddleClickSurfaceSpy: LibghosttySurfaceControlling {
     var cellHeight: CGFloat = 16
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var sentMouseButtons: [MouseButtonEvent] = []
+    private(set) var sentMousePositionCount = 0
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -111,7 +133,9 @@ private final class MiddleClickSurfaceSpy: LibghosttySurfaceControlling {
     func refresh() {}
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
     func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}
-    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {}
+    func sendMousePosition(_ position: CGPoint, modifiers: NSEvent.ModifierFlags) {
+        sentMousePositionCount += 1
+    }
     func sendMouseButton(
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,

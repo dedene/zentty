@@ -338,6 +338,74 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         XCTAssertEqual(position.y, 390, accuracy: 0.01)
     }
 
+    func test_mouse_up_over_suppressed_rect_still_releases_forwarded_press() throws {
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.mouseDown(with: try makeMouseEvent(type: .leftMouseDown, location: CGPoint(x: 120, y: 180)))
+        let positionCountAfterPress = surface.sentMousePositions.count
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 20)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_LEFT)
+        XCTAssertEqual(
+            surface.sentMousePositions.count,
+            positionCountAfterPress,
+            "a release over an occluding control must not forward a position through it"
+        )
+    }
+
+    func test_secondary_mouse_up_over_suppressed_rect_still_releases_forwarded_press() throws {
+        surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = true
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.rightMouseDown(with: try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 180)))
+        let positionCountAfterPress = surface.sentMousePositions.count
+        view.rightMouseUp(with: try makeMouseEvent(type: .rightMouseUp, location: CGPoint(x: 120, y: 20)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(surface.sentMousePositions.count, positionCountAfterPress)
+    }
+
+    func test_control_secondary_mouse_up_over_suppressed_rect_releases_left() throws {
+        surface.mouseButtonResults[GHOSTTY_MOUSE_LEFT] = true
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.rightMouseDown(with: try makeMouseEvent(
+            type: .rightMouseDown,
+            location: CGPoint(x: 120, y: 180),
+            modifierFlags: [.control]
+        ))
+        view.rightMouseUp(with: try makeMouseEvent(type: .rightMouseUp, location: CGPoint(x: 120, y: 20)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.button), [GHOSTTY_MOUSE_LEFT, GHOSTTY_MOUSE_LEFT])
+        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_RELEASE)
+    }
+
+    func test_mouse_up_without_forwarded_press_sends_no_release() throws {
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertTrue(surface.sentMouseButtons.isEmpty)
+        XCTAssertTrue(surface.sentMousePositions.isEmpty)
+    }
+
+    func test_mouse_up_after_suppressed_press_sends_no_release() throws {
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.mouseDown(with: try makeMouseEvent(type: .leftMouseDown, location: CGPoint(x: 120, y: 20)))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertTrue(surface.sentMouseButtons.isEmpty)
+    }
+
+    func test_second_mouse_up_sends_only_one_release() throws {
+        view.mouseDown(with: try makeMouseEvent(type: .leftMouseDown, location: CGPoint(x: 120, y: 180)))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+    }
+
     func test_control_left_click_menu_is_suppressed_when_terminal_has_captured_mouse() throws {
         var builderCallCount = 0
         surface.mouseCaptured = true

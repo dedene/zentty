@@ -1931,6 +1931,10 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     private var mouseInteractionSuppressionRects: [CGRect] = []
     private var activeSecondaryMouseRouting: SecondaryMouseRouting?
     private var forwardsActiveSecondaryMouseDrag = false
+    /// Buttons sent to Ghostty as pressed and not yet released, by raw value.
+    /// Ghostty keeps a button pressed until it gets the release, so every press
+    /// here owes exactly one release, wherever the pointer ends up.
+    private var forwardedPressedMouseButtons: Set<ghostty_input_mouse_button_e.RawValue> = []
     fileprivate private(set) var isSelectionDragActive = false
     fileprivate private(set) var lastMouseLocationInView: CGPoint?
     private var lastMouseModifiers: NSEvent.ModifierFlags = []
@@ -2152,11 +2156,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         onSelectionDragStateDidChange?(true)
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
-        _ = surfaceController?.sendMouseButton(
-            state: GHOSTTY_MOUSE_PRESS,
-            button: GHOSTTY_MOUSE_LEFT,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        )
+        pressForwardedMouseButton(GHOSTTY_MOUSE_LEFT, event: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -2169,15 +2169,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     override func mouseUp(with event: NSEvent) {
         isSelectionDragActive = false
         onSelectionDragStateDidChange?(false)
-        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
-            return
-        }
-        forwardMousePosition(event)
-        _ = surfaceController?.sendMouseButton(
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_LEFT,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        )
+        releaseForwardedMouseButton(GHOSTTY_MOUSE_LEFT, event: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -2216,11 +2208,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         // any subsequent typing) lands in the pane the user actually clicked.
         window?.makeFirstResponder(self)
         forwardMousePosition(event)
-        _ = surfaceController?.sendMouseButton(
-            state: GHOSTTY_MOUSE_PRESS,
-            button: button,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        )
+        pressForwardedMouseButton(button, event: event)
     }
 
     override func otherMouseDragged(with event: NSEvent) {
@@ -2235,15 +2223,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             super.otherMouseUp(with: event)
             return
         }
-        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
-            return
-        }
-        forwardMousePosition(event)
-        _ = surfaceController?.sendMouseButton(
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: button,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        )
+        releaseForwardedMouseButton(button, event: event)
     }
 
     /// Maps an AppKit `otherMouse*` button number to the libghostty mouse button enum.
@@ -2461,6 +2441,42 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         mouseInteractionSuppressionRects.contains { $0.contains(point) }
     }
 
+    @discardableResult
+    private func pressForwardedMouseButton(
+        _ button: ghostty_input_mouse_button_e,
+        event: NSEvent
+    ) -> Bool {
+        guard let surfaceController else { return false }
+        forwardedPressedMouseButtons.insert(button.rawValue)
+        return surfaceController.sendMouseButton(
+            state: GHOSTTY_MOUSE_PRESS,
+            button: button,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+    }
+
+    /// Sends the release owed for a forwarded press and returns whether Ghostty
+    /// consumed it. A button with no recorded press sends nothing. The position
+    /// is skipped over suppressed regions so it never reaches the terminal
+    /// through an occluding control, but the release itself always goes out.
+    @discardableResult
+    private func releaseForwardedMouseButton(
+        _ button: ghostty_input_mouse_button_e,
+        event: NSEvent
+    ) -> Bool {
+        guard forwardedPressedMouseButtons.remove(button.rawValue) != nil else {
+            return false
+        }
+        if !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) {
+            forwardMousePosition(event)
+        }
+        return surfaceController?.sendMouseButton(
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: button,
+            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        ) ?? false
+    }
+
     fileprivate func handleSecondaryMouseDownForContextMenuRouting(_ event: NSEvent) -> Bool {
         activeSecondaryMouseRouting = nil
         forwardsActiveSecondaryMouseDrag = false
@@ -2472,11 +2488,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         let routing = secondaryMouseRouting(for: event)
         activeSecondaryMouseRouting = routing
 
-        let consumed = surfaceController?.sendMouseButton(
-            state: GHOSTTY_MOUSE_PRESS,
-            button: routing.button,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        ) ?? false
+        let consumed = pressForwardedMouseButton(routing.button, event: event)
 
         if consumed, routing.behavesLikePrimarySelection {
             forwardsActiveSecondaryMouseDrag = true
@@ -2497,16 +2509,9 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             onSelectionDragStateDidChange?(false)
         }
 
-        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
-            return true
-        }
-        forwardMousePosition(event)
-
-        return surfaceController?.sendMouseButton(
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: routing.button,
-            modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        ) ?? false
+        let isSuppressed = isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil))
+        let consumed = releaseForwardedMouseButton(routing.button, event: event)
+        return consumed || isSuppressed
     }
 
     private func secondaryMouseRouting(for event: NSEvent) -> SecondaryMouseRouting {
