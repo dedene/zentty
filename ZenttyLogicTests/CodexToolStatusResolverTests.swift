@@ -273,4 +273,142 @@ final class CodexToolStatusResolverTests: XCTestCase {
         XCTAssertTrue(allowedOutcome.didClear, "weak inferred codex fallback clears on a non-codex prompt")
         XCTAssertNil(allowed.agentStatus)
     }
+
+    // MARK: - Shell prompt clears weak sessions
+
+    private func applyCodexStatus(
+        _ state: PaneAgentState,
+        origin: AgentSignalOrigin,
+        sessionID: String? = nil,
+        interactionKind: PaneAgentInteractionKind? = nil,
+        to store: WorklaneStore,
+        paneID: PaneID
+    ) {
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                state: state,
+                origin: origin,
+                toolName: "Codex",
+                text: nil,
+                interactionKind: interactionKind,
+                sessionID: sessionID,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+    }
+
+    private func applyShellPrompt(to store: WorklaneStore, paneID: PaneID) {
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: store.activeWorklaneID,
+                paneID: paneID,
+                signalKind: .shellState,
+                state: nil,
+                shellActivityState: .promptIdle,
+                origin: .shell,
+                toolName: nil,
+                text: nil,
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+    }
+
+    func test_shell_prompt_clears_inferred_codex_without_sweep_resurrection() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        applyCodexStatus(.running, origin: .inferred, to: store, paneID: paneID)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.source, .inferred)
+
+        applyShellPrompt(to: store, paneID: paneID)
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+
+        store.clearStaleAgentSessions()
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
+    func test_weak_codex_status_cleared_at_shell_prompt_stays_cleared_after_sweep() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        applyCodexStatus(.running, origin: .shell, to: store, paneID: paneID)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.origin, .shell)
+
+        applyShellPrompt(to: store, paneID: paneID)
+        store.clearStaleAgentSessions()
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
+    func test_shell_prompt_keeps_explicit_codex_session_when_clearing_weak_one() throws {
+        let store = WorklaneStore(readyStatusDebounceInterval: 0)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        applyCodexStatus(.running, origin: .explicitHook, sessionID: "explicit", to: store, paneID: paneID)
+        // A needs-input session outranks the running one, so the weak session
+        // is the visible status and the prompt takes the clearing branch.
+        applyCodexStatus(
+            .needsInput,
+            origin: .shell,
+            sessionID: "weak",
+            interactionKind: .approval,
+            to: store,
+            paneID: paneID
+        )
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "weak")
+
+        applyShellPrompt(to: store, paneID: paneID)
+        store.clearStaleAgentSessions()
+
+        let aux = try XCTUnwrap(store.activeWorklane?.auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(Set(aux.agentReducerState.sessionsByID.keys), ["explicit"])
+        XCTAssertEqual(aux.agentStatus?.sessionID, "explicit")
+        XCTAssertEqual(aux.agentStatus?.state, .running)
+    }
+
+    func test_clearWeakCodexSessions_keeps_explicit_and_other_tool_sessions() {
+        func session(
+            _ id: String,
+            tool: AgentTool,
+            source: PaneAgentStatusSource,
+            origin: AgentSignalOrigin
+        ) -> PaneAgentSessionState {
+            PaneAgentSessionState(
+                sessionID: id,
+                parentSessionID: nil,
+                agentLaunchSnapshot: nil,
+                tool: tool,
+                state: .running,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: clock,
+                source: source,
+                origin: origin,
+                interactionKind: .none,
+                confidence: .explicit,
+                shellActivityState: .unknown,
+                trackedPID: nil,
+                hasObservedRunning: true,
+                taskProgress: nil,
+                subagents: nil,
+                completionCandidateDeadline: nil,
+                idleVisibleUntil: nil,
+                unresolvedStopVisibleUntil: nil,
+                transientTextVisibleUntil: nil
+            )
+        }
+        var reducer = PaneAgentReducerState()
+        reducer.sessionsByID["shell"] = session("shell", tool: .codex, source: .inferred, origin: .shell)
+        reducer.sessionsByID["inferred"] = session("inferred", tool: .codex, source: .inferred, origin: .inferred)
+        reducer.sessionsByID["explicit"] = session("explicit", tool: .codex, source: .explicit, origin: .explicitHook)
+        reducer.sessionsByID["claude"] = session("claude", tool: .claudeCode, source: .inferred, origin: .shell)
+
+        reducer.clearWeakCodexSessions()
+
+        XCTAssertEqual(Set(reducer.sessionsByID.keys), ["explicit", "claude"])
+    }
 }

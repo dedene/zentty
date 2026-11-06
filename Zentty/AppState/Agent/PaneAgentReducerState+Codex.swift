@@ -87,6 +87,14 @@ extension PaneAgentReducerState {
         return true
     }
 
+    /// Drops the Codex sessions a shell prompt disproves: shell-origin or
+    /// inferred ones, which no hook will ever close. Explicit sessions stay.
+    mutating func clearWeakCodexSessions() {
+        sessionsByID = sessionsByID.filter { _, session in
+            !(session.tool == .codex && (session.origin == .shell || session.source == .inferred))
+        }
+    }
+
     @discardableResult
     mutating func markExplicitKimiSessionIdleFromUserInterrupt(now: Date = Date()) -> Bool {
         let candidateSessions = sessionsByID.values.filter { session in

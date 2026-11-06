@@ -703,6 +703,9 @@ extension WorklaneStore {
                     case .promptIdle:
                         auxiliaryState.terminalProgress = nil
                         auxiliaryState.agentStatus = nil
+                        // The sweep trusts the reducer, so a weak session left
+                        // here would write this status straight back.
+                        auxiliaryState.agentReducerState.clearWeakCodexSessions()
                         if existingStatus.tool == .codex {
                             auxiliaryState.raw.codexCurrentRunHasObservedActivity = false
                         }
