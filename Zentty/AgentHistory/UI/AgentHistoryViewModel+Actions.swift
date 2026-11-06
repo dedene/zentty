@@ -332,13 +332,19 @@ extension AgentHistoryViewModel {
             runSearch(resetSelection: false)
             return
         }
-        // A content response may have listed the session again while the removal ran, and one
-        // still out may read it. The indexer published first, so the metadata tier is current.
-        dropRow(key)
+        dropRemovedSessions([key])
+        showTransientMessage(Self.removedMessage)
+    }
+
+    /// A content response may have listed these sessions again while their removal ran, and one
+    /// still out may read them. The indexer published first, so the metadata tier is current.
+    func dropRemovedSessions(_ keys: Set<AgentHistorySessionKey>) {
+        for key in keys {
+            dropRow(key)
+        }
         if contentPhase == .pending {
             runSearch(resetSelection: false)
         }
-        showTransientMessage(Self.removedMessage)
     }
 
     // MARK: - Footer and messages

@@ -169,6 +169,7 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
 
         XCTAssertEqual(second.currentSnapshot.removedKeys, [removedKey])
         XCTAssertEqual(second.currentStatus.removedSessionCount, 1)
+        XCTAssertEqual(second.currentStatus.removedKeys, [removedKey])
 
         // A live session with no row: the tombstones are all that changes.
         let liveKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "live")

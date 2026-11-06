@@ -278,6 +278,67 @@ final class AgentHistoryViewModelPrivacyTests: XCTestCase {
         XCTAssertTrue(closeRequests.isEmpty)
     }
 
+    // MARK: - Removed by another instance
+
+    private func publishRemoval(of keys: Set<AgentHistorySessionKey>) {
+        var status = control.status
+        status.removedKeys = keys
+        status.removedSessionCount = keys.count
+        status.revision += 1
+        control.publish(status)
+    }
+
+    func test_a_session_removed_elsewhere_leaves_an_open_typed_search_with_its_transcript() {
+        let removed = summary(1, agent: .claude)
+        let model = openTypedSearch { [self.metadata(removed), self.metadata(self.summary(3))] }
+
+        let remaining = metadata(summary(3))
+        search.metadataResults = { _ in [remaining] }
+        publishRemoval(of: [removed.key])
+
+        XCTAssertEqual(model.rows.map(\.sessionID), [3, 2])
+        XCTAssertNotEqual(model.selectedKey, removed.key)
+        XCTAssertNotEqual(model.transcript, .loaded(transcript), "the removed session's text is gone")
+        if case .loaded(let preview) = model.preview {
+            XCTAssertNotEqual(preview.session.id, removed.id)
+        }
+        XCTAssertTrue(closeRequests.isEmpty)
+    }
+
+    func test_a_conversation_row_removed_elsewhere_leaves_without_touching_the_selection() {
+        let model = openTypedSearch { [self.metadata(self.summary(1, agent: .claude)), self.metadata(self.summary(3))] }
+
+        publishRemoval(of: [summary(2, agent: .claude).key])
+
+        XCTAssertEqual(model.rows.map(\.sessionID), [1, 3])
+        XCTAssertEqual(model.selectedKey, summary(1, agent: .claude).key)
+        XCTAssertEqual(model.transcript, .loaded(transcript))
+    }
+
+    func test_a_content_read_begun_before_a_removal_elsewhere_cannot_list_the_session_again() throws {
+        let removed = summary(1)
+        let (model, older) = try heldTypedSearch(listing: removed)
+
+        search.metadataResults = { _ in [] }
+        publishRemoval(of: [removed.key])
+        XCTAssertTrue(older.token.isCancelled)
+        older.completion(.success(contentResponse([content(removed)])))
+
+        XCTAssertFalse(model.rows.contains { $0.key == removed.key })
+        XCTAssertEqual(model.contentPhase, .pending, "a fresh search replaces the one that read the session")
+    }
+
+    func test_a_removal_of_a_session_not_shown_keeps_a_typed_search_as_is() {
+        let model = openTypedSearch { [self.metadata(self.summary(1, agent: .claude)), self.metadata(self.summary(3))] }
+        let queries = search.metadataQueries.count
+
+        publishRemoval(of: [AgentHistorySessionKey(agent: .claude, nativeID: "elsewhere")])
+
+        XCTAssertEqual(search.metadataQueries.count, queries)
+        XCTAssertEqual(model.rows.map(\.sessionID), [1, 3, 2])
+        XCTAssertEqual(model.transcript, .loaded(transcript))
+    }
+
     // MARK: - Running now
 
     /// A typed search for "crash" listing `session` by title, its content search held.

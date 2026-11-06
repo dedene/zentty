@@ -134,6 +134,8 @@ struct AgentHistoryStatus: Equatable, Sendable {
     var sources: [AgentHistorySourceHealth]
     var indexedSessions: Int
     var removedSessionCount: Int
+    /// The tombstones in force, so a palette can drop what another instance removed.
+    var removedKeys: Set<AgentHistorySessionKey> = []
     var indexExists: Bool
     var indexSizeBytes: Int64
     var lastUpdatedAt: Date?
@@ -152,6 +154,7 @@ struct AgentHistoryStatus: Equatable, Sendable {
         sources: [],
         indexedSessions: 0,
         removedSessionCount: 0,
+        removedKeys: [],
         indexExists: false,
         indexSizeBytes: 0,
         lastUpdatedAt: nil,

@@ -7,12 +7,14 @@ struct AgentHistoryAccess: Equatable {
     var hasConsented: Bool
     var enabledAgents: Set<AgentHistoryAgent>
     var excludedFolders: [String]
+    var removedKeys: Set<AgentHistorySessionKey>
 
     init(_ status: AgentHistoryStatus) {
         isEnabled = status.isEnabled
         hasConsented = status.hasConsented
         enabledAgents = status.enabledAgents
         excludedFolders = status.excludedFolders
+        removedKeys = status.removedKeys
     }
 
     /// Turned off, or consent gone ("Delete Index and Turn Off").
@@ -67,6 +69,14 @@ extension AgentHistoryViewModel {
             lastStatusRevision = status.revision
             refreshForAccessChange()
             return
+        }
+        // Removed here (`removalCompleted` got there too) or by another instance, or in another
+        // window: no row stays, and nothing typed runs again for a session that wasn't listed.
+        if body == .results, let previous {
+            let removed = next.removedKeys.subtracting(previous.removedKeys)
+            if !removed.isEmpty {
+                dropRemovedSessions(removed)
+            }
         }
         guard status.revision != lastStatusRevision else { return }
         lastStatusRevision = status.revision

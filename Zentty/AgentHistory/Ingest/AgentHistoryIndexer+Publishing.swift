@@ -144,6 +144,7 @@ extension AgentHistoryIndexer {
         status.sources = sourceOrder.compactMap { sourceStates[$0].map(health(of:)) }
         status.indexedSessions = snapshotBuilder.count
         status.removedSessionCount = admission.tombstones.count
+        status.removedKeys = admission.tombstones
         status.indexExists = FileManager.default.fileExists(atPath: storage.paths.databaseURL.path)
         status.indexSizeBytes = status.indexExists ? storage.diskUsageBytes() : 0
         status.lastUpdatedAt = lastUpdatedAt
