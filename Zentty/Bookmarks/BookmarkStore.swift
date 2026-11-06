@@ -28,7 +28,8 @@ final class BookmarkStore {
     /// store's own saves apart from a sync or an external edit.
     private var lastKnownData: Data?
     /// The file on disk couldn't be read at the last reload. The next save
-    /// moves it aside first so a broken hand edit isn't lost.
+    /// moves it aside first so a broken hand edit isn't lost, and doesn't write
+    /// at all if the file can't be moved.
     private var diskFileIsUnreadable = false
 
     init(fileURL: URL, fileManager: FileManager = .default) {
@@ -72,7 +73,18 @@ final class BookmarkStore {
             notifyObservers()
             return
         }
-        guard let data = try? Data(contentsOf: fileURL), data != lastKnownData else {
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            diskFileIsUnreadable = true
+            bookmarkStoreLogger.error(
+                "Couldn't read bookmarks at \(self.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return
+        }
+        guard data != lastKnownData else {
+            diskFileIsUnreadable = false
             return
         }
         do {
@@ -200,7 +212,14 @@ final class BookmarkStore {
 
     private func persist() {
         if diskFileIsUnreadable {
-            Self.preserveCorruptFile(at: fileURL, fileManager: fileManager, error: CocoaError(.fileReadCorruptFile))
+            guard Self.preserveCorruptFile(
+                at: fileURL,
+                fileManager: fileManager,
+                error: CocoaError(.fileReadCorruptFile)
+            ) else {
+                onPersistError?(CocoaError(.fileWriteUnknown))
+                return
+            }
             diskFileIsUnreadable = false
         }
         let bundle = WorkspaceTemplateBundle(savedAt: Date(), templates: templates)
@@ -246,24 +265,30 @@ final class BookmarkStore {
         }
     }
 
+    /// Moves the file a symlink points at rather than the link, so a dotfile
+    /// setup keeps its link: the next save writes through it to a new target.
+    @discardableResult
     private static func preserveCorruptFile(
         at url: URL,
         fileManager: FileManager,
         error: Error
-    ) {
+    ) -> Bool {
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let backupURL = url.deletingPathExtension()
+        let targetURL = fileManager.resolvingSymlinkTarget(at: url)
+        let backupURL = targetURL.deletingPathExtension()
             .appendingPathExtension("corrupt-\(timestamp).json")
         do {
-            try fileManager.moveItem(at: url, to: backupURL)
+            try fileManager.moveItem(at: targetURL, to: backupURL)
             bookmarkStoreLogger.error(
                 "Failed to read bookmarks at \(url.path, privacy: .public); moved corrupt file aside to \(backupURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
+            return true
         } catch let moveError {
             bookmarkStoreLogger.error(
                 "Failed to read bookmarks at \(url.path, privacy: .public) and could not preserve corrupt file (\(moveError.localizedDescription, privacy: .public)). Original error: \(error.localizedDescription, privacy: .public)"
             )
+            return false
         }
     }
 }

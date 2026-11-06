@@ -100,6 +100,64 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
         )
     }
 
+    func test_repairing_file_to_last_good_bytes_clears_unreadable_flag() throws {
+        let store = BookmarkStore(fileURL: fileURL)
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        let goodBytes = try Data(contentsOf: fileURL)
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+        store.reloadFromDisk()
+
+        try goodBytes.write(to: fileURL)
+        store.reloadFromDisk()
+        store.upsert(WorkspaceTemplate(name: "Another", kind: .bookmark))
+
+        XCTAssertEqual(try corruptBackupNames(), [])
+    }
+
+    func test_save_over_file_that_cannot_be_read_preserves_it_first() throws {
+        let store = BookmarkStore(fileURL: fileURL)
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        try writeBundle(names: ["Synced"])
+        let externalBytes = try Data(contentsOf: fileURL)
+        try setPermissions(0o000, on: fileURL)
+
+        store.upsert(WorkspaceTemplate(name: "Another", kind: .bookmark))
+
+        let backup = try XCTUnwrap(try corruptBackupNames().first)
+        let backupURL = temporaryDirectoryURL.appendingPathComponent(backup)
+        try setPermissions(0o644, on: backupURL)
+        XCTAssertEqual(try Data(contentsOf: backupURL), externalBytes)
+    }
+
+    func test_save_is_blocked_when_the_unreadable_file_cannot_be_preserved() throws {
+        let fileManager = MoveRefusingFileManager()
+        let store = BookmarkStore(fileURL: fileURL, fileManager: fileManager)
+        store.upsert(WorkspaceTemplate(name: "Local", kind: .bookmark))
+        var persistErrorCount = 0
+        store.onPersistError = { _ in persistErrorCount += 1 }
+        try Data("{ broken hand edit".utf8).write(to: fileURL)
+
+        store.upsert(WorkspaceTemplate(name: "Another", kind: .bookmark))
+
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "{ broken hand edit")
+        XCTAssertEqual(persistErrorCount, 1)
+
+        fileManager.refusesMoves = false
+        store.upsert(WorkspaceTemplate(name: "Retry", kind: .bookmark))
+
+        XCTAssertEqual(try corruptBackupNames().count, 1)
+        XCTAssertEqual(persistErrorCount, 1)
+    }
+
+    private func corruptBackupNames() throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: temporaryDirectoryURL.path)
+            .filter { $0.contains(".corrupt-") }
+    }
+
+    private func setPermissions(_ permissions: Int, on url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
+    }
+
     private func writeBundle(names: [String]) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -107,5 +165,16 @@ final class BookmarkStoreLiveReloadTests: XCTestCase {
             templates: names.map { WorkspaceTemplate(name: $0, kind: .bookmark) }
         )
         try encoder.encode(bundle).write(to: fileURL, options: .atomic)
+    }
+}
+
+private final class MoveRefusingFileManager: FileManager, @unchecked Sendable {
+    var refusesMoves = true
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if refusesMoves {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
     }
 }
