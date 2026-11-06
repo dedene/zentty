@@ -360,6 +360,131 @@ final class SessionRestoreLaunchLimitTests: XCTestCase {
         XCTAssertEqual(store.setAsideScrollbackFileNames(), [])
     }
 
+    // MARK: - Overlapping instances
+
+    func test_a_live_instance_still_restoring_is_not_counted_as_a_crash() throws {
+        try saveSnapshot()
+        let instances = RunningInstances()
+        _ = try instances.launch(in: self, running: false)
+        _ = try instances.launch(in: self, running: true)
+        XCTAssertEqual(try recordedIncompleteLaunches(), 2)
+
+        let second = try instances.launch(in: self, running: true)
+
+        XCTAssertTrue(second.isRestore)
+        XCTAssertEqual(try recordedIncompleteLaunches(), 2)
+        XCTAssertTrue(exists(snapshotURL))
+        XCTAssertFalse(exists(firstSetAsideURL))
+    }
+
+    func test_an_attempt_whose_owner_died_counts() throws {
+        try saveSnapshot()
+        let instances = RunningInstances()
+        _ = try instances.launch(in: self, running: false)
+        _ = try instances.launch(in: self, running: false)
+
+        XCTAssertEqual(try instances.launch(in: self, running: true), .setAside(firstSetAsideURL))
+    }
+
+    func test_a_launch_with_nothing_to_restore_leaves_another_instances_attempt_alone() throws {
+        try saveSnapshot()
+        let instances = RunningInstances()
+        _ = try instances.launch(in: self, running: true)
+        try FileManager.default.removeItem(at: snapshotURL)
+
+        XCTAssertEqual(try instances.launch(in: self, running: true), .startFresh)
+
+        XCTAssertEqual(try recordedIncompleteLaunches(), 1)
+    }
+
+    func test_another_instances_save_does_not_clear_an_attempt_it_does_not_own() throws {
+        try saveSnapshot()
+        let instances = RunningInstances()
+        let owner = instances.store(in: self, running: true)
+        let other = instances.store(in: self, running: true)
+        _ = try owner.beginLaunch(restorePreferenceEnabled: true)
+
+        try other.saveSnapshot(envelope())
+        XCTAssertEqual(try recordedIncompleteLaunches(), 1)
+
+        try owner.saveSnapshot(envelope())
+        XCTAssertEqual(try recordedIncompleteLaunches(), 0)
+    }
+
+    func test_another_instances_clean_exit_does_not_clear_an_attempt_it_does_not_own() throws {
+        try saveSnapshot()
+        let instances = RunningInstances()
+        let owner = instances.store(in: self, running: true)
+        let other = instances.store(in: self, running: true)
+        _ = try owner.beginLaunch(restorePreferenceEnabled: true)
+
+        try other.markCleanExit()
+
+        XCTAssertEqual(try recordedIncompleteLaunches(), 1)
+        XCTAssertEqual(try recordedCleanExit(), false)
+    }
+
+    func test_any_save_clears_an_attempt_whose_owner_died() throws {
+        try saveSnapshot()
+        let instances = RunningInstances()
+        _ = try instances.launch(in: self, running: false)
+
+        try instances.store(in: self, running: true).saveSnapshot(envelope())
+
+        XCTAssertEqual(try recordedIncompleteLaunches(), 0)
+    }
+
+    func test_the_owner_is_on_disk_only_while_an_attempt_is_open() throws {
+        try saveSnapshot()
+        _ = try launch()
+        XCTAssertNotNil(try recordedOwner())
+
+        try saveSnapshot()
+
+        XCTAssertNil(try recordedOwner())
+    }
+
+    func test_a_lifecycle_file_with_no_owner_counts_as_before() throws {
+        try saveSnapshot()
+        try writeLifecycle(#"{"cleanExit":false,"updatedAt":0,"incompleteRestoreLaunches":2}"#)
+
+        XCTAssertEqual(try launch(), .setAside(firstSetAsideURL))
+    }
+
+    func test_a_reused_pid_does_not_keep_an_attempt_alive() throws {
+        try saveSnapshot()
+        let otherProcess = Process()
+        otherProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        otherProcess.arguments = ["30"]
+        try otherProcess.run()
+        addTeardownBlock { otherProcess.terminate() }
+        let pid = otherProcess.processIdentifier
+        try writeLifecycle(
+            #"{"cleanExit":false,"updatedAt":0,"incompleteRestoreLaunches":2,"restoreOwner":{"pid":\#(pid),"startTime":1}}"#
+        )
+
+        XCTAssertEqual(try launch(), .setAside(firstSetAsideURL))
+    }
+
+    func test_a_process_reads_as_running_until_it_exits() throws {
+        let otherProcess = Process()
+        otherProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        otherProcess.arguments = ["30"]
+        try otherProcess.run()
+        let identity = try XCTUnwrap(SessionRestoreProcess.running(pid: otherProcess.processIdentifier))
+        XCTAssertTrue(identity.isRunning)
+        XCTAssertFalse(SessionRestoreProcess(pid: identity.pid, startTime: identity.startTime + 1).isRunning)
+
+        otherProcess.terminate()
+        otherProcess.waitUntilExit()
+
+        XCTAssertFalse(identity.isRunning)
+    }
+
+    func test_the_current_process_is_known_and_running() throws {
+        XCTAssertEqual(try XCTUnwrap(SessionRestoreProcess.current).isRunning, true)
+    }
+
     // MARK: - Lifecycle file compatibility
 
     func test_an_old_lifecycle_file_with_no_count_reads_as_zero() throws {
@@ -430,6 +555,18 @@ final class SessionRestoreLaunchLimitTests: XCTestCase {
         return (blockedStore, fileManager)
     }
 
+    fileprivate func makeStore(
+        as process: SessionRestoreProcess,
+        isProcessRunning: @escaping @Sendable (SessionRestoreProcess) -> Bool
+    ) -> SessionRestoreStore {
+        SessionRestoreStore(
+            snapshotURL: snapshotURL,
+            lifecycleURL: lifecycleURL,
+            process: process,
+            isProcessRunning: isProcessRunning
+        )
+    }
+
     private func envelope(scrollbackFile: String? = nil) -> SessionRestoreEnvelope {
         var recipe = SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"])
         recipe.windows[0].worklanes[0].columns[0].panes[0].scrollbackFile = scrollbackFile
@@ -445,8 +582,20 @@ final class SessionRestoreLaunchLimitTests: XCTestCase {
     }
 
     private func recordedIncompleteLaunches() throws -> Int? {
+        try recordedLifecycle()["incompleteRestoreLaunches"] as? Int
+    }
+
+    private func recordedCleanExit() throws -> Bool? {
+        try recordedLifecycle()["cleanExit"] as? Bool
+    }
+
+    private func recordedOwner() throws -> [String: Any]? {
+        try recordedLifecycle()["restoreOwner"] as? [String: Any]
+    }
+
+    private func recordedLifecycle() throws -> [String: Any] {
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: lifecycleURL))
-        return try XCTUnwrap(object as? [String: Any])["incompleteRestoreLaunches"] as? Int
+        return try XCTUnwrap(object as? [String: Any])
     }
 
     private func exists(_ url: URL) -> Bool {
@@ -458,6 +607,32 @@ private extension SessionRestoreStore.LaunchAction {
     var isRestore: Bool {
         if case .restore = self { return true }
         return false
+    }
+}
+
+/// Plays other Zentty processes sharing one state directory.
+private final class RunningInstances: @unchecked Sendable {
+    private let lock = NSLock()
+    private var nextPID: Int32 = 1000
+    private var running = Set<Int32>()
+
+    func store(in testCase: SessionRestoreLaunchLimitTests, running isRunning: Bool) -> SessionRestoreStore {
+        let process = lock.withLock {
+            nextPID += 1
+            if isRunning { running.insert(nextPID) }
+            return SessionRestoreProcess(pid: nextPID, startTime: Int64(nextPID))
+        }
+        return testCase.makeStore(as: process) { [self] in
+            let pid = $0.pid
+            return lock.withLock { running.contains(pid) }
+        }
+    }
+
+    func launch(
+        in testCase: SessionRestoreLaunchLimitTests,
+        running isRunning: Bool
+    ) throws -> SessionRestoreStore.LaunchAction {
+        try store(in: testCase, running: isRunning).beginLaunch(restorePreferenceEnabled: true)
     }
 }
 

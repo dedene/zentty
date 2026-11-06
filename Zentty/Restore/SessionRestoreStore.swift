@@ -4,6 +4,33 @@ import OSLog
 
 private let sessionRestoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
 
+/// The process behind a restore attempt. The start time tells it apart from a
+/// later process that was handed the same pid.
+struct SessionRestoreProcess: Codable, Equatable, Sendable {
+    var pid: Int32
+    /// Microseconds since 1970.
+    var startTime: Int64
+
+    static let current = running(pid: getpid())
+
+    static func running(pid: Int32) -> SessionRestoreProcess? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
+              info.pbi_status != UInt32(SZOMB) else {
+            return nil
+        }
+        return SessionRestoreProcess(
+            pid: pid,
+            startTime: Int64(clamping: info.pbi_start_tvsec) &* 1_000_000 &+ Int64(clamping: info.pbi_start_tvusec)
+        )
+    }
+
+    var isRunning: Bool {
+        Self.running(pid: pid) == self
+    }
+}
+
 final class SessionRestoreStore: @unchecked Sendable {
     struct LaunchDecision: Equatable, Sendable {
         enum Reason: String, Codable, Equatable, Sendable {
@@ -40,6 +67,9 @@ final class SessionRestoreStore: @unchecked Sendable {
         /// Restores started since the last save. Older builds ignore it and
         /// write files without it, which reads as zero.
         var incompleteRestoreLaunches: Int?
+        /// Who is restoring right now. Absent in files from older builds and
+        /// when no restore is open, which leaves the count to stand as it is.
+        var restoreOwner: SessionRestoreProcess?
     }
 
     /// Launches that may die before their first save. The one after them
@@ -51,6 +81,8 @@ final class SessionRestoreStore: @unchecked Sendable {
     let snapshotURL: URL
     let lifecycleURL: URL
     private let fileManager: FileManager
+    private let process: SessionRestoreProcess?
+    private let isProcessRunning: @Sendable (SessionRestoreProcess) -> Bool
     /// Held across a rename and across the listing of set-aside scrollback, so
     /// a purge on the scrollback queue sees the snapshot on one side of it.
     private let setAsideLock = NSLock()
@@ -60,11 +92,15 @@ final class SessionRestoreStore: @unchecked Sendable {
     init(
         snapshotURL: URL,
         lifecycleURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        process: SessionRestoreProcess? = .current,
+        isProcessRunning: @escaping @Sendable (SessionRestoreProcess) -> Bool = { $0.isRunning }
     ) {
         self.snapshotURL = snapshotURL
         self.lifecycleURL = lifecycleURL
         self.fileManager = fileManager
+        self.process = process
+        self.isProcessRunning = isProcessRunning
     }
 
     convenience init(stateDirectoryURL: URL) {
@@ -91,16 +127,26 @@ final class SessionRestoreStore: @unchecked Sendable {
     /// snapshot. The attempt is on disk before the snapshot is even decoded, so
     /// a crash anywhere in the restore counts. Crash recovery ignores the
     /// preference, so it counts too: a launch that would restore is limited.
+    /// A restore another live instance is still running proves nothing about
+    /// the snapshot and isn't this launch's to count, so this launch leaves the
+    /// lifecycle alone.
     /// Throws when the snapshot can't be read, which leaves nothing to restore.
     func beginLaunch(restorePreferenceEnabled: Bool) throws -> LaunchAction {
         let lifecycle = lifecycleStateForLaunch()
+        let isRestoringElsewhere = isOwnedByAnotherRunningProcess(lifecycle)
         guard fileManager.fileExists(atPath: snapshotURL.path),
               let reason = Self.restoreReason(
                   lifecycle: lifecycle,
                   restorePreferenceEnabled: restorePreferenceEnabled
               ) else {
-            recordLaunchStarted(incompleteRestoreLaunches: 0)
+            if !isRestoringElsewhere {
+                recordLaunchStarted(incompleteRestoreLaunches: 0)
+            }
             return .startFresh
+        }
+
+        if isRestoringElsewhere {
+            return try loadSnapshot().map { .restore(LaunchDecision(reason: reason, envelope: $0)) } ?? .startFresh
         }
 
         let incompleteRestoreLaunches = lifecycle?.incompleteRestoreLaunches ?? 0
@@ -167,15 +213,19 @@ final class SessionRestoreStore: @unchecked Sendable {
             LifecycleState(
                 cleanExit: false,
                 updatedAt: Date(),
-                incompleteRestoreLaunches: incompleteRestoreLaunches
+                incompleteRestoreLaunches: incompleteRestoreLaunches,
+                restoreOwner: incompleteRestoreLaunches > 0 ? process : nil
             ),
             to: lifecycleURL
         )
     }
 
     func markCleanExit() throws {
-        // Left as it is, the next launch still owes the snapshot its rename.
-        guard !isAwaitingSetAside else { return }
+        // Left as it is, the next launch still owes the snapshot its rename,
+        // and another instance's restore stays open under its owner.
+        guard !isAwaitingSetAside, !isOwnedByAnotherRunningProcess(lifecycleStateForLaunch()) else {
+            return
+        }
         try persist(
             LifecycleState(cleanExit: true, updatedAt: Date()),
             to: lifecycleURL
@@ -240,16 +290,26 @@ final class SessionRestoreStore: @unchecked Sendable {
         }
     }
 
+    /// Files with no owner and owners that died read as they always did: the
+    /// attempt is nobody's, so it counts and any save can clear it.
+    private func isOwnedByAnotherRunningProcess(_ lifecycle: LifecycleState?) -> Bool {
+        guard let owner = lifecycle?.restoreOwner, owner != process else { return false }
+        return isProcessRunning(owner)
+    }
+
     /// A save means this launch got past reopening the workspace. It stays
     /// marked as running: a later crash is still a crash to recover from, it
-    /// just no longer counts against the snapshot.
+    /// just no longer counts against the snapshot. A restore another live
+    /// instance is still running is not this save's to clear.
     private func clearIncompleteRestoreLaunches() {
         guard var lifecycle = lifecycleStateForLaunch(),
-              lifecycle.incompleteRestoreLaunches ?? 0 != 0 else {
+              lifecycle.incompleteRestoreLaunches ?? 0 != 0,
+              !isOwnedByAnotherRunningProcess(lifecycle) else {
             return
         }
 
         lifecycle.incompleteRestoreLaunches = 0
+        lifecycle.restoreOwner = nil
         lifecycle.updatedAt = Date()
         do {
             try persist(lifecycle, to: lifecycleURL)
