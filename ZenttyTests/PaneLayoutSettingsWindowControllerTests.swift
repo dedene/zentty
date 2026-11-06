@@ -1923,6 +1923,104 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertNil(shortcutsController.conflictTargetTitleForTesting)
     }
 
+    // MARK: - Reassign against a config that changed under the conflict
+
+    /// Shows the Shortcuts section with New Worklane's assignment of `pending` in conflict.
+    private func shortcutsController(
+        store: AppConfigStore,
+        withConflictOver pending: KeyboardShortcut
+    ) throws -> ShortcutsSettingsSectionViewController {
+        let controller = SettingsWindowController(configStore: store, initialSection: .shortcuts)
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+        shortcutsController.selectCommandForTesting(.newWorklane)
+        shortcutsController.attemptShortcutAssignmentForTesting(pending)
+        XCTAssertEqual(shortcutsController.conflictTargetTitleForTesting, "Toggle Sidebar")
+        return shortcutsController
+    }
+
+    /// An edit nothing has read yet: only the save's own reload sees it.
+    private func editConfigFile(
+        of store: AppConfigStore,
+        at fileURL: URL,
+        _ mutate: (inout AppConfig) -> Void
+    ) throws {
+        var config = store.current
+        mutate(&config)
+        try Data(AppConfigTOML.encode(config).utf8).write(to: fileURL, options: .atomic)
+    }
+
+    func test_reassign_keeps_a_binding_that_moved_away_just_before_the_save() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        let store = AppConfigStore(fileURL: fileURL)
+        let pending = KeyboardShortcut(key: .character("s"), modifiers: [.command])
+        let movedAway = KeyboardShortcut(key: .character("k"), modifiers: [.command])
+        let shortcutsController = try shortcutsController(store: store, withConflictOver: pending)
+
+        try editConfigFile(of: store, at: fileURL) { config in
+            config.shortcuts = config.shortcuts.updating(commandID: .toggleSidebar, shortcut: movedAway)
+        }
+        shortcutsController.activateConflictReassignForTesting()
+
+        let manager = ShortcutManager(shortcuts: store.current.shortcuts)
+        XCTAssertEqual(manager.shortcut(for: .toggleSidebar), movedAway)
+        XCTAssertNotEqual(manager.shortcut(for: .newWorklane), pending)
+        XCTAssertNil(shortcutsController.conflictTargetTitleForTesting)
+        XCTAssertNil(shortcutsController.errorMessageForTesting)
+    }
+
+    func test_reassign_refreshes_the_conflict_when_another_command_took_the_shortcut() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        let store = AppConfigStore(fileURL: fileURL)
+        let pending = KeyboardShortcut(key: .character("s"), modifiers: [.command])
+        let movedAway = KeyboardShortcut(key: .character("k"), modifiers: [.command])
+        let shortcutsController = try shortcutsController(store: store, withConflictOver: pending)
+
+        try editConfigFile(of: store, at: fileURL) { config in
+            config.shortcuts = config.shortcuts
+                .updating(commandID: .toggleSidebar, shortcut: movedAway)
+                .updating(commandID: .focusRightPane, shortcut: pending)
+        }
+        shortcutsController.activateConflictReassignForTesting()
+
+        let manager = ShortcutManager(shortcuts: store.current.shortcuts)
+        XCTAssertEqual(manager.shortcut(for: .focusRightPane), pending)
+        XCTAssertEqual(manager.shortcut(for: .toggleSidebar), movedAway)
+        XCTAssertEqual(shortcutsController.conflictTargetTitleForTesting, "Focus Right Pane")
+    }
+
+    func test_reassign_picks_the_replacement_from_the_file_it_saves_over() throws {
+        let fileURL = AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        let store = AppConfigStore(fileURL: fileURL)
+        // Toggle Sidebar was rebound off its default, which would be free to go back to...
+        let rebound = KeyboardShortcut(key: .character("k"), modifiers: [.command, .option, .shift])
+        try store.update { config in
+            config.shortcuts = config.shortcuts.updating(commandID: .toggleSidebar, shortcut: rebound)
+        }
+        let toggleSidebarDefault = try XCTUnwrap(AppCommandRegistry.definition(for: .toggleSidebar).defaultShortcut)
+        let shortcutsController = try shortcutsController(store: store, withConflictOver: rebound)
+
+        // ...until another command takes it.
+        try editConfigFile(of: store, at: fileURL) { config in
+            config.shortcuts = config.shortcuts.updating(commandID: .focusRightPane, shortcut: toggleSidebarDefault)
+        }
+        shortcutsController.activateConflictReassignForTesting()
+
+        let manager = ShortcutManager(shortcuts: store.current.shortcuts)
+        XCTAssertEqual(manager.shortcut(for: .newWorklane), rebound)
+        XCTAssertEqual(manager.shortcut(for: .focusRightPane), toggleSidebarDefault)
+        XCTAssertNil(manager.shortcut(for: .toggleSidebar))
+    }
+
     func test_config_change_keeps_a_save_error_message() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")

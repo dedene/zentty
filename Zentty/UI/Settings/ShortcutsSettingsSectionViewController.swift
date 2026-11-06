@@ -4,6 +4,9 @@ import os
 
 private let shortcutsLogger = Logger(subsystem: "be.zenjoy.zentty", category: "ShortcutsSettings")
 
+/// The conflict Reassign was offered for no longer matches the config it would save over.
+private struct ReassignConflictChanged: Error {}
+
 @MainActor
 final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionViewController, SettingsAppearanceUpdating {
     private enum Layout {
@@ -1371,21 +1374,29 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             return
         }
 
-        let replacement = replacementShortcutForConflictingCommand(
-            conflictingCommandID,
-            losing: pending,
-            to: selectedCommandID
-        )
-
         recordingCommandID = nil
         clearRecordingPreview()
         do {
             try configStore.update { config in
+                // `update` has just reloaded the file. Only what it holds may be changed: the
+                // conflict on screen comes from an older read.
+                let manager = ShortcutManager(shortcuts: config.shortcuts)
+                guard manager.conflict(for: pending, assigningTo: selectedCommandID)?.commandID == conflictingCommandID else {
+                    throw ReassignConflictChanged()
+                }
+                let replacement = replacementShortcutForConflictingCommand(
+                    conflictingCommandID,
+                    losing: pending,
+                    to: selectedCommandID,
+                    in: manager
+                )
                 config.shortcuts = config.shortcuts
                     .updating(commandID: conflictingCommandID, shortcut: replacement)
                     .updating(commandID: selectedCommandID, shortcut: pending)
             }
             issueByCommandID[selectedCommandID] = nil
+        } catch is ReassignConflictChanged {
+            // Nothing saved; `apply` below shows the conflict as it stands now.
         } catch {
             shortcutsLogger.error(
                 "Failed to reassign \(String(describing: pending)) from \(conflictingCommandID.rawValue) to \(selectedCommandID.rawValue): \(error.localizedDescription)"
@@ -1404,13 +1415,14 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private func replacementShortcutForConflictingCommand(
         _ conflictingCommandID: AppCommandID,
         losing pending: KeyboardShortcut,
-        to newOwner: AppCommandID
+        to newOwner: AppCommandID,
+        in manager: ShortcutManager
     ) -> KeyboardShortcut? {
         guard let defaultShortcut = AppCommandRegistry.definition(for: conflictingCommandID).defaultShortcut,
               defaultShortcut != pending else {
             return nil
         }
-        if let holder = shortcutManager.conflict(for: defaultShortcut, assigningTo: conflictingCommandID),
+        if let holder = manager.conflict(for: defaultShortcut, assigningTo: conflictingCommandID),
            holder.commandID != newOwner {
             return nil
         }
