@@ -988,6 +988,10 @@ private func libghosttyConfirmReadClipboardCallback(
         available: available,
         canRemember: confirm.can_remember
     )
+    // A user paste only ever reaches this callback on the main thread, inside the call that started it.
+    let pasteDelivered = kind == .paste
+        ? MainActorShim.assumeIsolated { owner.holdUserPasteForConfirmation() }
+        : nil
     // libghostty keeps the request alive until it is completed or denied, so it can outlive this call.
     let pending = LibghosttyPendingClipboardRequest(state: state)
     DispatchQueue.main.async { [weak owner] in
@@ -1011,6 +1015,7 @@ private func libghosttyConfirmReadClipboardCallback(
                 confirmed: true,
                 remember: remember
             )
+            pasteDelivered?()
         }
     }
 }

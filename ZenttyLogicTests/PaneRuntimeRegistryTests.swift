@@ -705,6 +705,80 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(adapterFactory.adaptersByPaneID[otherFloat.id]?.startSessionCallCount, 1)
     }
 
+    private struct RemotePasteFixture {
+        let paneID: PaneID
+        let adapter: PaneRuntimeTerminalAdapterSpy
+        let registry: PaneRuntimeRegistry
+        let controller: RemoteImagePasteController
+    }
+
+    private func makeRemotePasteFixture() throws -> RemotePasteFixture {
+        let pane = PaneState(id: PaneID("worklane-main-remote"), title: "ssh")
+        let worklaneID = WorklaneID("worklane-main")
+        let raw = PaneRawState(
+            shellContext: PaneShellContext(
+                scope: .remote,
+                path: "/srv/app",
+                home: "/home/peter",
+                user: "peter",
+                host: "prod-box"
+            )
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: nil,
+                    paneStripState: PaneStripState(panes: [pane], focusedPaneID: pane.id),
+                    auxiliaryStateByPaneID: [
+                        pane.id: PaneAuxiliaryState(
+                            raw: raw,
+                            presentation: PanePresentationNormalizer.normalize(paneTitle: "zsh", raw: raw, previous: nil)
+                        ),
+                    ]
+                ),
+            ],
+            activeWorklaneID: worklaneID
+        )
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        let registry = PaneRuntimeRegistry(adapterFactory: { _ in adapter })
+        _ = registry.runtime(for: pane)
+        let controller = RemoteImagePasteController(
+            worklaneStore: store,
+            runtimeRegistry: registry,
+            uploader: RemoteImageUploader(
+                processFactory: RemotePasteUploadProcessStub(),
+                remotePathProvider: { _ in "/tmp/zentty-paste-test.png" }
+            ),
+            sshProcessProbe: PaneSSHProcessProbe(),
+            toasts: WindowToastPresenter(
+                hostViewProvider: { nil },
+                themeProvider: { ZenttyTheme.fallback(for: nil) }
+            )
+        )
+        return RemotePasteFixture(paneID: pane.id, adapter: adapter, registry: registry, controller: controller)
+    }
+
+    private func makeImagePasteboard() throws -> NSPasteboard {
+        let image = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 1,
+            pixelsHigh: 1,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 4,
+            bitsPerPixel: 32
+        )?.representation(using: .png, properties: [:]))
+        let pasteboard = NSPasteboard(name: .init("test-\(UUID().uuidString)"))
+        pasteboard.declareTypes([.png], owner: nil)
+        pasteboard.setData(image, forType: .png)
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        return pasteboard
+    }
+
     private func makeSearchRuntime() -> (PaneRuntime, PaneRuntimeTerminalAdapterSpy) {
         let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
@@ -1057,6 +1131,63 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         XCTAssertEqual(runtime.snapshot.search.total, 0, "the old count belongs to an ended engine session")
     }
 
+    func test_runtime_user_paste_counts_as_editing_a_pending_restore_draft() {
+        let pane = PaneState(
+            id: PaneID("worklane-main-shell"),
+            title: "shell",
+            sessionRequest: TerminalSessionRequest(prefillText: "claude --resume session-123")
+        )
+        let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
+        var events: [TerminalEvent] = []
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, event in events.append(event) },
+            startupTextSettleDelay: 0.01,
+            restoreDraftSettleDelay: 0.01
+        )
+        runtime.ensureStarted()
+
+        runtime.sendUserPaste("/tmp/upload.png")
+        adapter.eventDidOccur?(.shellReady)
+
+        let settled = expectation(description: "draft settle delay elapsed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled.fulfill() }
+        wait(for: [settled], timeout: 2)
+
+        XCTAssertEqual(adapter.sentTexts, ["/tmp/upload.png"], "the draft must not land after the paste")
+        XCTAssertEqual(events, [.userEditedInput, .shellReady])
+    }
+
+    func test_remote_paste_counts_as_user_input_only_once_its_path_is_sent() throws {
+        let fixture = try makeRemotePasteFixture()
+        let reported = expectation(description: "paste reported as user input")
+        fixture.registry.onEventDidOccur = { _, event in
+            XCTAssertEqual(event, .userEditedInput)
+            XCTAssertEqual(fixture.adapter.sentTexts.count, 1, "the text goes first")
+            reported.fulfill()
+        }
+
+        XCTAssertTrue(fixture.controller.handlePaste(paneID: fixture.paneID, pasteboard: try makeImagePasteboard()))
+        XCTAssertEqual(fixture.adapter.sentTexts, [], "the upload has not finished")
+
+        wait(for: [reported], timeout: 5)
+        XCTAssertEqual(fixture.adapter.sentTexts, ["/tmp/zentty-paste-test.png"])
+    }
+
+    func test_rejected_remote_paste_reports_nothing() throws {
+        let fixture = try makeRemotePasteFixture()
+        fixture.registry.onEventDidOccur = { _, event in
+            XCTFail("a rejected paste delivered nothing, got \(event)")
+        }
+        _ = fixture.controller.insertUploadTaskForTesting(Task {}, for: fixture.paneID)
+
+        XCTAssertTrue(fixture.controller.handlePaste(paneID: fixture.paneID, pasteboard: try makeImagePasteboard()))
+
+        XCTAssertEqual(fixture.adapter.sentTexts, [])
+    }
+
     func test_runtime_started_with_empty_needle_does_not_submit_search() {
         let pane = PaneState(id: PaneID("worklane-main-shell"), title: "shell")
         let adapter = PaneRuntimeTerminalAdapterSpy(paneID: pane.id)
@@ -1375,6 +1506,17 @@ final class PaneRuntimeRegistryTests: AppKitTestCase {
         wait(for: [sent], timeout: 0.2)
         XCTAssertEqual(adapter.sentTexts, ["codex\r"])
     }
+}
+
+private final class RemotePasteUploadProcessStub: RemoteImageUploadProcess, RemoteImageUploadProcessFactory, @unchecked Sendable {
+    func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess { self }
+    func run() throws {}
+    func write(_ data: Data) throws {}
+    func closeStandardInput() {}
+    func waitUntilExit(timeout: TimeInterval) -> RemoteImageUploadProcessResult {
+        RemoteImageUploadProcessResult(exitStatus: 0, stderr: "", timedOut: false)
+    }
+    func terminate() {}
 }
 
 @MainActor

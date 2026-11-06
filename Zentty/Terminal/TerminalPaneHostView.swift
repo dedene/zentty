@@ -837,6 +837,14 @@ final class PaneRuntime {
         hostViewValue.updateSearchHUDShortcutTooltips(shortcutManager)
     }
 
+    /// Sends text the user pasted through Zentty rather than the terminal, such as
+    /// the path of a finished remote upload. Unlike `adapter.sendText`, this counts
+    /// as their input.
+    func sendUserPaste(_ text: String) {
+        adapterValue.sendText(text)
+        handleEventDidOccur(.userEditedInput)
+    }
+
     func setRemoteImagePasteHandler(
         _ handler: ((NSPasteboard, RemoteImagePasteSource) -> Bool)?
     ) {

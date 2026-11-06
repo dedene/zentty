@@ -232,7 +232,7 @@ final class RemoteImagePasteController {
                 }
 
                 toastHandle.finish(message: "Pasted remote path", icon: "checkmark.circle.fill")
-                runtimeRegistry.runtime(for: paneID)?.adapter.sendText(ShellEscaping.escapePath(remotePath))
+                runtimeRegistry.runtime(for: paneID)?.sendUserPaste(ShellEscaping.escapePath(remotePath))
             } catch let error as RemoteImageUploadError {
                 let failure = RemoteImagePasteFailure(error: error)
                 Self.remoteImagePasteLogger.error("Remote image upload failed for pane \(paneID.rawValue): \(String(describing: error))")
@@ -327,7 +327,7 @@ final class RemoteImagePasteController {
                         icon: "checkmark.circle.fill"
                     )
                 }
-                runtimeRegistry.runtime(for: paneID)?.adapter.sendText(result.pasteText)
+                runtimeRegistry.runtime(for: paneID)?.sendUserPaste(result.pasteText)
             } catch is CancellationError {
                 Self.remoteImagePasteLogger.debug("Remote file upload cancelled for pane \(paneID.rawValue)")
             } catch {

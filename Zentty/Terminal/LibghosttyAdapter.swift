@@ -61,6 +61,10 @@ protocol LibghosttySurfaceControlling: AnyObject {
     /// Pastes text as if it came from the clipboard. Unlike `sendText`, this applies paste
     /// protection, so text from outside the terminal (such as a drop) can't run commands unasked.
     func pasteText(_ text: String)
+    /// Runs `start`, which begins a user paste, and calls `delivered` once the text has reached
+    /// the terminal. A paste held for confirmation reports after the user allows it, and never if
+    /// they refuse. `start` returns whether a paste actually began.
+    func trackUserPaste(start: () -> Bool, delivered: @escaping @MainActor () -> Void)
     /// Hands the in-progress IME composition to the terminal so it renders inline at the caret.
     /// Passing an empty string clears it.
     func setPreedit(_ text: String)
@@ -83,6 +87,11 @@ extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
     var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func pasteText(_ text: String) {}
+    func trackUserPaste(start: () -> Bool, delivered: @escaping @MainActor () -> Void) {
+        if start() {
+            delivered()
+        }
+    }
     func setPreedit(_ text: String) {}
     func imeRect() -> CGRect? { nil }
     func cancelPromptInput() {}
