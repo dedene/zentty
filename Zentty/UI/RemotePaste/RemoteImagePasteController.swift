@@ -94,6 +94,13 @@ final class RemoteImagePasteController {
         let destination: SSHDestination?
     }
 
+    /// The token tells a finishing upload whether the map entry is still its own:
+    /// a cancelled upload can unwind after a newer one took the same pane ID.
+    private struct RemoteImageUploadTask {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+
     private static let remoteImagePasteLogger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "be.zenjoy.zentty",
         category: "RemoteImagePaste"
@@ -106,7 +113,7 @@ final class RemoteImagePasteController {
     private let remoteImageUploader: RemoteImageUploader
     private let sshProcessProbe: PaneSSHProcessProbe
     private let toasts: WindowToastPresenter
-    private var remoteImageUploadTasksByPaneID: [PaneID: Task<Void, Never>] = [:]
+    private var remoteImageUploadTasksByPaneID: [PaneID: RemoteImageUploadTask] = [:]
     private var foregroundSSHProbeTask: Task<Void, Never>?
 
     init(
@@ -125,8 +132,8 @@ final class RemoteImagePasteController {
 
     deinit {
         MainActorShim.assumeIsolated {
-            for task in remoteImageUploadTasksByPaneID.values {
-                task.cancel()
+            for upload in remoteImageUploadTasksByPaneID.values {
+                upload.task.cancel()
             }
             foregroundSSHProbeTask?.cancel()
         }
@@ -198,12 +205,13 @@ final class RemoteImagePasteController {
         let toastHandle = beginRemoteImageUploadToast(
             message: Self.remoteImageUploadProgressMessage(fraction: 0)
         )
+        let token = UUID()
         let task = Task { [weak self] in
             guard let self else {
                 return
             }
             defer {
-                remoteImageUploadTasksByPaneID[paneID] = nil
+                clearUploadTask(for: paneID, token: token)
             }
 
             do {
@@ -237,7 +245,7 @@ final class RemoteImagePasteController {
             }
 
         }
-        remoteImageUploadTasksByPaneID[paneID] = task
+        remoteImageUploadTasksByPaneID[paneID] = RemoteImageUploadTask(token: token, task: task)
         return true
     }
 
@@ -276,12 +284,13 @@ final class RemoteImagePasteController {
                 fraction: 0
             )
         )
+        let token = UUID()
         let task = Task { [weak self] in
             guard let self else {
                 return
             }
             defer {
-                remoteImageUploadTasksByPaneID[paneID] = nil
+                clearUploadTask(for: paneID, token: token)
             }
 
             do {
@@ -326,7 +335,7 @@ final class RemoteImagePasteController {
                 toastHandle.fail(message: RemoteImagePasteFailure.transferFailed.message)
             }
         }
-        remoteImageUploadTasksByPaneID[paneID] = task
+        remoteImageUploadTasksByPaneID[paneID] = RemoteImageUploadTask(token: token, task: task)
         return true
     }
 
@@ -367,9 +376,9 @@ final class RemoteImagePasteController {
     }
 
     func cancelAll() {
-        let tasks = Array(remoteImageUploadTasksByPaneID.values)
+        let uploads = Array(remoteImageUploadTasksByPaneID.values)
         remoteImageUploadTasksByPaneID.removeAll()
-        tasks.forEach { $0.cancel() }
+        uploads.forEach { $0.task.cancel() }
         toasts.dismiss()
     }
 
@@ -383,14 +392,21 @@ final class RemoteImagePasteController {
     }
 
     private func cancelRemoteImageUpload(for paneID: PaneID) {
-        guard let task = remoteImageUploadTasksByPaneID.removeValue(forKey: paneID) else {
+        guard let upload = remoteImageUploadTasksByPaneID.removeValue(forKey: paneID) else {
             return
         }
 
-        task.cancel()
+        upload.task.cancel()
         if remoteImageUploadTasksByPaneID.isEmpty {
             toasts.dismiss()
         }
+    }
+
+    private func clearUploadTask(for paneID: PaneID, token: UUID) {
+        guard remoteImageUploadTasksByPaneID[paneID]?.token == token else {
+            return
+        }
+        remoteImageUploadTasksByPaneID[paneID] = nil
     }
 
     private func beginRemoteImageUploadToast(message: String) -> PathCopiedToastView.ProgressHandle {
@@ -508,15 +524,25 @@ final class RemoteImagePasteController {
     }
 
 #if DEBUG
+    @discardableResult
     func insertUploadTaskForTesting(
         _ task: Task<Void, Never>,
         for paneID: PaneID
-    ) {
-        remoteImageUploadTasksByPaneID[paneID] = task
+    ) -> UUID {
+        let token = UUID()
+        remoteImageUploadTasksByPaneID[paneID] = RemoteImageUploadTask(token: token, task: task)
+        return token
     }
 
-    func hasUploadTaskForTesting(for paneID: PaneID) -> Bool {
-        remoteImageUploadTasksByPaneID[paneID] != nil
+    func hasUploadTaskForTesting(for paneID: PaneID, token: UUID? = nil) -> Bool {
+        guard let upload = remoteImageUploadTasksByPaneID[paneID] else {
+            return false
+        }
+        return token == nil || upload.token == token
+    }
+
+    func clearUploadTaskForTesting(for paneID: PaneID, token: UUID) {
+        clearUploadTask(for: paneID, token: token)
     }
 #endif
 }
