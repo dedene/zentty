@@ -13,7 +13,9 @@ private let runtimeStateRelocationLogger = Logger(subsystem: "be.zenjoy.zentty",
 /// it is only written after every copy succeeded, so a failed run is retried.
 enum RuntimeStateRelocation {
     /// Copied together or not at all: a snapshot paired with another
-    /// instance's lifecycle file can turn into a bogus crash recovery.
+    /// instance's lifecycle file can turn into a bogus crash recovery. The
+    /// snapshot goes first, so dying between the two copies leaves a snapshot
+    /// with no lifecycle, which reads as a normal restore.
     static let restoreFileNames = ["restore-snapshot.json", "restore-lifecycle.json"]
     static let tmuxCompatFileName = "tmux-compat-store.json"
     static let fileNames = restoreFileNames + [tmuxCompatFileName]
@@ -29,27 +31,24 @@ enum RuntimeStateRelocation {
         let markerURL = stateDirectoryURL.appendingPathComponent(markerFileName, isDirectory: false)
         guard !fileManager.fileExists(atPath: markerURL.path) else { return [] }
 
-        var namesToCopy: [String] = []
-        let snapshotName = restoreFileNames[0]
-        if !exists(snapshotName, in: stateDirectoryURL, fileManager),
-           exists(snapshotName, in: configDirectoryURL, fileManager) {
-            namesToCopy.append(contentsOf: restoreFileNames)
-        }
-        namesToCopy.append(tmuxCompatFileName)
-
         var copied: [String] = []
         var failed = false
-        for name in namesToCopy {
+        let hasRestoreState = restoreFileNames.contains { exists($0, in: stateDirectoryURL, fileManager) }
+        if !hasRestoreState, exists(restoreFileNames[0], in: configDirectoryURL, fileManager) {
             do {
-                if try copyIfMissing(name, from: configDirectoryURL, to: stateDirectoryURL, fileManager) {
-                    copied.append(name)
-                }
+                copied.append(contentsOf: try copyRestorePair(from: configDirectoryURL, to: stateDirectoryURL, fileManager))
             } catch {
                 failed = true
-                runtimeStateRelocationLogger.error(
-                    "Failed to copy \(name, privacy: .public) to \(stateDirectoryURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
+                logCopyFailure("restore files", to: stateDirectoryURL, error)
             }
+        }
+        do {
+            if try copyIfMissing(tmuxCompatFileName, from: configDirectoryURL, to: stateDirectoryURL, fileManager) {
+                copied.append(tmuxCompatFileName)
+            }
+        } catch {
+            failed = true
+            logCopyFailure(tmuxCompatFileName, to: stateDirectoryURL, error)
         }
         guard !failed else { return copied }
 
@@ -62,6 +61,41 @@ enum RuntimeStateRelocation {
             )
         }
         return copied
+    }
+
+    /// All or nothing: on failure it removes what this attempt created, so the
+    /// retry sees an empty slot rather than half a pair.
+    private static func copyRestorePair(
+        from sourceDirectory: URL,
+        to destinationDirectory: URL,
+        _ fileManager: FileManager
+    ) throws -> [String] {
+        var created: [String] = []
+        do {
+            for name in restoreFileNames {
+                if try copyIfMissing(name, from: sourceDirectory, to: destinationDirectory, fileManager) {
+                    created.append(name)
+                }
+            }
+            return created
+        } catch {
+            for name in created {
+                do {
+                    try fileManager.removeItem(at: destinationDirectory.appendingPathComponent(name, isDirectory: false))
+                } catch {
+                    runtimeStateRelocationLogger.error(
+                        "Failed to roll back \(name, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+            throw error
+        }
+    }
+
+    private static func logCopyFailure(_ name: String, to directory: URL, _ error: Error) {
+        runtimeStateRelocationLogger.error(
+            "Failed to copy \(name, privacy: .public) to \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
     }
 
     private static func exists(_ name: String, in directory: URL, _ fileManager: FileManager) -> Bool {

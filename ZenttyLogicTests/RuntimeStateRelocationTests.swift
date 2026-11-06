@@ -98,6 +98,39 @@ final class RuntimeStateRelocationTests: XCTestCase {
         XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "session")
     }
 
+    func test_failed_lifecycle_copy_rolls_back_snapshot_and_retries_the_pair() throws {
+        try write("restore-snapshot.json", "session", in: configDirectoryURL)
+        try write("restore-lifecycle.json", "lifecycle", in: configDirectoryURL)
+        let failing = CopyFailingFileManager(failingFileName: "restore-lifecycle.json")
+
+        XCTAssertEqual(
+            RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL, fileManager: failing),
+            []
+        )
+        XCTAssertEqual(try contents(of: stateDirectoryURL), [], "half a pair must not stay behind, and the marker waits for a retry")
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(Set(copied), Set(RuntimeStateRelocation.restoreFileNames))
+        XCTAssertEqual(try read("restore-snapshot.json", in: stateDirectoryURL), "session")
+        XCTAssertEqual(try read("restore-lifecycle.json", in: stateDirectoryURL), "lifecycle")
+    }
+
+    func test_existing_lifecycle_blocks_copying_old_snapshot() throws {
+        try write("restore-lifecycle.json", "current", in: stateDirectoryURL)
+        try write("restore-snapshot.json", "old", in: configDirectoryURL)
+        try write("restore-lifecycle.json", "old", in: configDirectoryURL)
+
+        let copied = RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL)
+
+        XCTAssertEqual(copied, [])
+        XCTAssertEqual(try read("restore-lifecycle.json", in: stateDirectoryURL), "current")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: stateDirectoryURL.appendingPathComponent("restore-snapshot.json").path),
+            "an old snapshot paired with a newer lifecycle could fake a crash recovery"
+        )
+    }
+
     func test_nothing_to_copy_only_marks_the_relocation_done() throws {
         XCTAssertEqual(RuntimeStateRelocation.migrateIfNeeded(from: configDirectoryURL, to: stateDirectoryURL), [])
         XCTAssertEqual(try contents(of: stateDirectoryURL), [RuntimeStateRelocation.markerFileName])
@@ -125,5 +158,21 @@ final class RuntimeStateRelocationTests: XCTestCase {
 
     private func contents(of directory: URL) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+    }
+}
+
+private final class CopyFailingFileManager: FileManager {
+    private let failingFileName: String
+
+    init(failingFileName: String) {
+        self.failingFileName = failingFileName
+        super.init()
+    }
+
+    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        guard srcURL.lastPathComponent != failingFileName else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        try super.copyItem(at: srcURL, to: dstURL)
     }
 }
