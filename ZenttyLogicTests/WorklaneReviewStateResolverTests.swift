@@ -1056,6 +1056,38 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(second.reviewState?.branchURL?.host, "gitlab.com")
     }
 
+    func test_branch_url_follows_each_branch_remote_while_discovery_is_cached() async {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000_000))
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("feature\n")],
+            gitUpstreamRemoteResults: [.stdout("fork\n"), .stdout("upstream\n")],
+            additionalGitRemoteResults: [
+                "fork": [.stdout("git@github.com:me/project.git\n")],
+                "upstream": [.stdout("git@github.com:org/project.git\n")],
+            ],
+            prViewResults: [.json(Self.openPullRequest)]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner, now: { clock.now })
+
+        let feature = await resolver.resolve(path: "/tmp/project", branch: "feature")
+        XCTAssertEqual(feature.reviewState?.branchURL?.absoluteString, "https://github.com/me/project/tree/feature")
+        let main = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertEqual(main.reviewState?.branchURL?.absoluteString, "https://github.com/org/project/tree/main")
+
+        // The poll bypasses the resolution cache but reuses discovery.
+        clock.advance(by: 10)
+        let refreshed = await resolver.refreshPaneForTesting(
+            repoRoot: "/tmp/project",
+            branch: "feature",
+            paneID: PaneID("pane-main"),
+            forceReload: true
+        )
+
+        XCTAssertEqual(refreshed?.reviewState?.branchURL?.absoluteString, "https://github.com/me/project/tree/feature")
+        let repositories = await pullRequestViewRepositories(of: runner)
+        XCTAssertEqual(repositories, ["me/project", "org/project", "me/project"])
+    }
+
     private func pullRequestViewRepositories(of runner: StubGHRunner) async -> [String] {
         await runner.calls
             .filter { Array($0.arguments.prefix(3)) == ["gh", "pr", "view"] }

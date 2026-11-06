@@ -162,8 +162,11 @@ final class WorklaneReviewStateResolver {
         case unresolved
     }
 
+    /// Which remote a repository resolves to depends on the branch, so its
+    /// branch URLs have to come from the same discovery.
     private struct DiscoveredGitHubRepository {
         let resolution: GitHubRepositoryResolution
+        let hostInfo: GitRemoteHostInfo?
         let discoveredAt: Date
     }
 
@@ -212,7 +215,6 @@ final class WorklaneReviewStateResolver {
     private var cache: [RepositoryKey: WorklaneReviewResolution] = [:]
     private var repositoryStatusByPath: [String: RepositoryStatus] = [:]
     private var githubRepositoryByKey: [RepositoryKey: DiscoveredGitHubRepository] = [:]
-    private var remoteHostInfoByRepoRoot: [String: GitRemoteHostInfo?] = [:]
     private var pendingRepositoryKeys: Set<RepositoryKey> = []
     private var waitersByRepositoryKey: [RepositoryKey: [(paneID: PaneID, update: (PaneID, WorklaneReviewResolution) -> Void)]] = [:]
 
@@ -450,9 +452,10 @@ final class WorklaneReviewStateResolver {
         branch: String,
         fallback: WorklaneReviewResolution?
     ) async -> WorklaneReviewResolution {
-        switch await resolveGitHubRepository(path: path, branch: branch) {
+        let discovered = await resolveGitHubRepository(path: path, branch: branch)
+        switch discovered.resolution {
         case .noGitHubRepository:
-            return branchOnlyResolution(branch: branch, repoRoot: path)
+            return branchOnlyResolution(branch: branch, hostInfo: discovered.hostInfo)
         case .unresolved:
             return failureResolution(
                 fallback: fallback,
@@ -470,7 +473,7 @@ final class WorklaneReviewStateResolver {
 
             if pullRequestResult.terminationStatus != 0 {
                 if isNoPullRequestResult(pullRequestResult) {
-                    return branchOnlyResolution(branch: branch, repoRoot: path)
+                    return branchOnlyResolution(branch: branch, hostInfo: discovered.hostInfo)
                 }
 
                 return failureResolution(
@@ -495,7 +498,7 @@ final class WorklaneReviewStateResolver {
             )
             let checksState = aggregateChecksState(from: pullRequestPayload.statusCheckRollup)
             let chips = reviewChips(for: pullRequest, payload: pullRequestPayload, checksState: checksState)
-            let branchURL = remoteHostInfoByRepoRoot[path]??.branchURL(branch: branch)
+            let branchURL = discovered.hostInfo?.branchURL(branch: branch)
             return WorklaneReviewResolution(
                 reviewState: WorklaneReviewState(
                     branch: branch,
@@ -545,11 +548,11 @@ final class WorklaneReviewStateResolver {
         )
     }
 
-    private func branchOnlyResolution(branch: String, repoRoot: String) -> WorklaneReviewResolution {
+    private func branchOnlyResolution(branch: String, hostInfo: GitRemoteHostInfo?) -> WorklaneReviewResolution {
         WorklaneReviewResolution(
             reviewState: WorklaneReviewState(
                 branch: branch,
-                branchURL: remoteHostInfoByRepoRoot[repoRoot]??.branchURL(branch: branch),
+                branchURL: hostInfo?.branchURL(branch: branch),
                 pullRequest: nil,
                 reviewChips: [],
                 reviewFetchedAt: now(),
@@ -581,29 +584,29 @@ final class WorklaneReviewStateResolver {
         return true
     }
 
-    private func resolveGitHubRepository(path: String, branch: String) async -> GitHubRepositoryResolution {
+    private func resolveGitHubRepository(path: String, branch: String) async -> DiscoveredGitHubRepository {
         let key = RepositoryKey(repoRoot: path, branch: branch)
         if let cached = githubRepositoryByKey[key],
            now().timeIntervalSince(cached.discoveredAt) < Self.cacheTimeToLive {
-            return cached.resolution
+            return cached
         }
 
-        let resolution = await discoverGitHubRepository(path: path, branch: branch)
-        if resolution != .unresolved {
-            githubRepositoryByKey[key] = DiscoveredGitHubRepository(resolution: resolution, discoveredAt: now())
-        }
-        return resolution
-    }
-
-    private func discoverGitHubRepository(path: String, branch: String) async -> GitHubRepositoryResolution {
-        var hadLookupFailure = false
         // Discovery can walk every remote; the first one it consults owns the branch URL.
         var hostInfo: GitRemoteHostInfo?
-        defer {
-            if let hostInfo {
-                remoteHostInfoByRepoRoot[path] = hostInfo
-            }
+        let resolution = await discoverGitHubRepository(path: path, branch: branch, hostInfo: &hostInfo)
+        let discovered = DiscoveredGitHubRepository(resolution: resolution, hostInfo: hostInfo, discoveredAt: now())
+        if resolution != .unresolved {
+            githubRepositoryByKey[key] = discovered
         }
+        return discovered
+    }
+
+    private func discoverGitHubRepository(
+        path: String,
+        branch: String,
+        hostInfo: inout GitRemoteHostInfo?
+    ) async -> GitHubRepositoryResolution {
+        var hadLookupFailure = false
 
         if let upstreamRemote = await resolveUpstreamRemoteName(path: path, branch: branch),
            case .repository(let repository) = await resolveGitHubRepositorySpecifier(
