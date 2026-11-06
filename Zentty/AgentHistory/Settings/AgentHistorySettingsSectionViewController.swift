@@ -243,15 +243,24 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             reloadRetention()
         }
         removedLabel.stringValue = AgentHistorySettingsRows.removedSessionsText(status.removedSessionCount, formatting: formatting)
-        // Restoring needs a running index; while History is off the count is shown, not acted on.
-        restoreAllButton.isEnabled = hasBackend && status.removedSessionCount > 0 && status.state != .off
-        let removalsUnreadable = status.state == .failed(.removalsUnreadable)
-        rebuildButton.isEnabled = hasBackend && status.isEnabled && !removalsUnreadable
-        rebuildBlockedLabel.stringValue = removalsUnreadable ? AgentHistorySettingsRows.rebuildBlockedText : ""
-        rebuildBlockedLabel.isHidden = !removalsUnreadable
+        // Restoring needs an index that takes writes; until then the count is shown, not acted on.
+        restoreAllButton.isEnabled = hasBackend && status.removedSessionCount > 0 && status.acceptsIndexWrites
+        let rebuildBlockReason = rebuildBlockReason
+        rebuildButton.isEnabled = hasBackend && status.isEnabled && status.canRebuild && rebuildBlockReason == nil
+        rebuildBlockedLabel.stringValue = rebuildBlockReason ?? ""
+        rebuildBlockedLabel.isHidden = rebuildBlockReason == nil
         // Deleting works without a running index; an off index or a kept consent is still there to delete.
         deleteButton.isEnabled = hasBackend && (status.indexExists || status.isEnabled || status.hasConsented)
         relayout()
+    }
+
+    /// Why Rebuild is off, for the states the user can do something about.
+    private var rebuildBlockReason: String? {
+        switch status.state {
+        case .failed(.removalsUnreadable): AgentHistorySettingsRows.rebuildBlockedText
+        case .paused(.anotherInstance, _): AgentHistorySettingsRows.rebuildOwnedElsewhereText
+        default: nil
+        }
     }
 
     private func renderStatus() {

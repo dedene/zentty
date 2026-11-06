@@ -495,6 +495,77 @@ final class AgentHistorySettingsSectionViewControllerTests: AppKitTestCase {
         XCTAssertNil(controller.rebuildBlockedTextForTesting)
     }
 
+    func test_rebuild_disabled_while_another_instance_owns_the_index() {
+        let controller = makeController(backend: FakeAgentHistoryControl())
+
+        controller.apply(status: makeStatus(state: .paused(.anotherInstance, nil)))
+
+        XCTAssertFalse(controller.rebuildButton.isEnabled)
+        XCTAssertEqual(controller.rebuildBlockedTextForTesting, AgentHistorySettingsRows.rebuildOwnedElsewhereText)
+    }
+
+    func test_rebuild_disabled_while_no_indexer_runs() {
+        let controller = makeController(backend: FakeAgentHistoryControl())
+
+        controller.apply(status: makeStatus(state: .off))
+        XCTAssertFalse(controller.rebuildButton.isEnabled, "History is on but its last agent is off")
+        XCTAssertNil(controller.rebuildBlockedTextForTesting)
+
+        controller.apply(status: makeStatus(state: .paused(.configUnreadable, nil)))
+        XCTAssertFalse(controller.rebuildButton.isEnabled)
+    }
+
+    func test_rebuild_stays_available_where_it_can_act() {
+        let controller = makeController(backend: FakeAgentHistoryControl())
+        let states: [AgentHistoryIndexerState] = [
+            .starting,
+            .backfilling(AgentHistoryBackfillProgress(indexedSessions: 1, totalSessions: 2)),
+            .watching,
+            .paused(.lowPower, nil),
+            .paused(.thermal, nil),
+            .paused(.diskFull, nil),
+            .failed(.corrupt),
+            .failed(.newerSchema(found: 9)),
+        ]
+
+        for state in states {
+            controller.apply(status: makeStatus(state: state))
+            XCTAssertTrue(controller.rebuildButton.isEnabled, state.logName)
+            XCTAssertNil(controller.rebuildBlockedTextForTesting, state.logName)
+        }
+    }
+
+    func test_restore_all_disabled_while_writes_are_refused() {
+        let controller = makeController(backend: FakeAgentHistoryControl())
+        let refused: [AgentHistoryIndexerState] = [
+            .paused(.diskFull, nil),
+            .paused(.anotherInstance, nil),
+            .paused(.configUnreadable, nil),
+            .failed(.corrupt),
+        ]
+
+        for state in refused {
+            controller.apply(status: makeStatus(state: state, removed: 2))
+            XCTAssertFalse(controller.restoreAllButton.isEnabled, state.logName)
+        }
+    }
+
+    func test_restore_all_stays_available_while_the_index_takes_writes() {
+        let controller = makeController(backend: FakeAgentHistoryControl())
+        let accepted: [AgentHistoryIndexerState] = [
+            .starting,
+            .backfilling(AgentHistoryBackfillProgress(indexedSessions: 1, totalSessions: 2)),
+            .watching,
+            .paused(.lowPower, nil),
+            .paused(.thermal, nil),
+        ]
+
+        for state in accepted {
+            controller.apply(status: makeStatus(state: state, removed: 2))
+            XCTAssertTrue(controller.restoreAllButton.isEnabled, state.logName)
+        }
+    }
+
     func test_delete_cancel_does_nothing_and_confirm_calls_backend() {
         let backend = FakeAgentHistoryControl()
         backend.disableOutcome = .deleted
