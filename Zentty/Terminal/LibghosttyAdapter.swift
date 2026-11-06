@@ -245,7 +245,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             hasAppliedSurfaceActivity = true
 
             if isFirstApplication || previouslyAppliedActivity.isFocused != activity.isFocused {
-                surfaceController.setFocused(activity.isFocused)
+                surfaceController.setFocused(activity.isFocused && responderAllowsFocus)
             }
 
             if isFirstApplication || previouslyAppliedActivity.isVisible != activity.isVisible {
@@ -258,6 +258,16 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
                 surfaceController.refresh()
             }
         }
+    }
+
+    /// Model focus alone must not focus the surface while keys go elsewhere, such
+    /// as the search field. becomeFirstResponder reports the surface focused itself.
+    private var responderAllowsFocus: Bool {
+        guard let window = hostView.window else {
+            return true
+        }
+
+        return window.firstResponder === hostView
     }
 
     func showSearch() {

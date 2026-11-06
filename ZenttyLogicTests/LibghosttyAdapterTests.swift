@@ -6,6 +6,27 @@ import XCTest
 
 @MainActor
 final class LibghosttyAdapterTests: AppKitTestCase {
+    /// Hosts the adapter's view in a real, unordered window beside a control that can take focus.
+    private func hostInUnorderedWindow(_ adapter: LibghosttyAdapter) -> (window: NSWindow, otherControl: NSTextField) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        addTeardownBlock {
+            window.close()
+        }
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        let terminalView = adapter.makeTerminalView()
+        terminalView.frame = contentView.bounds
+        contentView.addSubview(terminalView)
+        let otherControl = NSTextField(frame: NSRect(x: 0, y: 0, width: 100, height: 24))
+        contentView.addSubview(otherControl)
+        return (window, otherControl)
+    }
+
     func test_make_terminal_view_returns_reusable_scroll_host_view() throws {
         let adapter = LibghosttyAdapter(runtime: LibghosttyRuntimeProviderSpy())
 
@@ -257,6 +278,38 @@ final class LibghosttyAdapterTests: AppKitTestCase {
 
         XCTAssertEqual(surfaceController.occlusionVisibilityValues, [false, true])
         XCTAssertEqual(surfaceController.refreshCallCount, 1)
+    }
+
+    func test_surface_activity_does_not_focus_when_other_view_is_first_responder() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        let (window, otherControl) = hostInUnorderedWindow(adapter)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        XCTAssertTrue(window.makeFirstResponder(otherControl))
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: false))
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(surfaceController.focusValues.last, false)
+    }
+
+    func test_surface_activity_focuses_when_terminal_is_first_responder() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        let (window, otherControl) = hostInUnorderedWindow(adapter)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        let surfaceView = try XCTUnwrap(runtime.lastHostView)
+        XCTAssertTrue(window.makeFirstResponder(otherControl))
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: false))
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(surfaceController.focusValues.last, true)
     }
 
     func test_surface_activity_set_before_start_is_applied_as_initial_occlusion_visibility() throws {
