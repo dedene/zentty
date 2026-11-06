@@ -197,6 +197,30 @@ final class AgentHistoryViewModelTests: XCTestCase {
         XCTAssertTrue(search.pendingPreviews.isEmpty)
     }
 
+    func test_preview_loads_when_the_selected_live_row_gets_indexed() {
+        let indexed = summary(1)
+        launch.snapshot = snapshot([liveLocation(indexed.key)])
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(model.preview, .failed(.notIndexed))
+
+        search.summariesByKey[indexed.key] = indexed
+        var status = control.status
+        status.revision = 2
+        control.publish(status)
+        scheduler.advance(by: AgentHistoryViewModel.statusRefreshInterval)
+
+        XCTAssertEqual(model.selectedKey, indexed.key)
+        XCTAssertEqual(model.preview, .loading)
+        scheduler.advance(by: AgentHistoryViewModel.detailCoalesce)
+        XCTAssertEqual(search.pendingPreviews.map(\.sessionID), [1])
+
+        status.revision = 3
+        control.publish(status)
+        scheduler.advance(by: AgentHistoryViewModel.statusRefreshInterval * 2)
+        XCTAssertEqual(search.pendingPreviews.count, 1, "an ordinary status tick doesn't reload the preview")
+    }
+
     // MARK: - Typing
 
     func test_typing_runs_metadata_synchronously_and_defers_content_120ms() {
